@@ -2,8 +2,8 @@
  * Compares the slash commands Claude Code and Codex have with what the
  * app's tabs know of them, for when either CLI is upgraded. Run by hand,
  * not in CI: it runs the installed `claude` and `codex`, neither of which
- * calls a model for it, and reads Codex's command list from its source at
- * the installed version's tag on GitHub.
+ * calls a model for it. Codex's built-ins and bundled model service tiers
+ * come from its release tag. The installed app-server generates its schemas.
  *
  *   bun run check:agent-commands [claude|codex] [--verbose]
  *
@@ -59,6 +59,8 @@ const CLAUDE_LEFT_OUT: Record<string, string> = {
   "terminal-setup": TERMINAL,
   theme: TERMINAL,
   tui: TERMINAL,
+  // https://code.claude.com/docs/en/ultrareview
+  ultrareview: "an account-gated cloud review alias omitted by the headless slash catalog",
   "use-case": "an account-gated picker (Life Sciences)",
   version: OFF,
   voice: "dictation in the terminal",
@@ -105,7 +107,6 @@ const CODEX_LEFT_OUT: Record<string, string> = {
   theme: TERMINAL,
   title: TERMINAL,
   tui: TERMINAL,
-  usage: "the tab's usage line shows it",
   vim: TERMINAL,
   voice: "dictation in the terminal",
   warnings: "for debugging Codex",
@@ -121,7 +122,6 @@ const CODEX_LATER: Record<string, string> = {
   experimental: "experimentalFeature/list, experimentalFeature/enablement/set",
   hooks: "hooks/list",
   memories: "config/value/write",
-  plan: "a collaboration mode on turn/start",
   plugins: "plugin/list",
   recap: "a turn of its own",
   side: "an ephemeral thread/fork",
@@ -129,6 +129,8 @@ const CODEX_LATER: Record<string, string> = {
 
 /** The Codex tab's commands Codex does not have. */
 const CODEX_APP_ONLY: Record<string, string> = {
+  context: "opens the tab's context panel; the TUI reports context under /status",
+  default: "returns to Default collaboration mode; the TUI uses its mode switcher",
   effort: "Codex's /model picks it; the tab has a chip for each",
   help: "lists the tab's commands",
 };
@@ -404,45 +406,101 @@ export function codexCommandsIn(source: string): CliCommand[] {
   return commands;
 }
 
-/** The methods of each message kind in the app-server's JSON schema. */
-function codexMethods(program: string): Record<string, Set<string>> {
+/** The TUI derives slash names from the lowercased service tier display names. */
+export function codexServiceTierCommandsIn(catalog: string): CliCommand[] {
+  const { models } = JSON.parse(catalog) as {
+    models?: { service_tiers?: { name: string }[] }[];
+  };
+  if (!Array.isArray(models)) throw new Error("no models in Codex's bundled model catalog");
+  const names = new Set(
+    models.flatMap((model) => (model.service_tiers ?? []).map(({ name }) => name.toLowerCase())),
+  );
+  return [...names].map((name) => ({ name, aliases: [] }));
+}
+
+/** Read method discriminants from the message variants, excluding nested payload fields. */
+export function codexMethodsIn(source: string): Set<string> {
+  type Method = { const?: unknown; enum?: unknown[] };
+  const schema = JSON.parse(source) as {
+    oneOf?: { properties?: { method?: Method } }[];
+  };
+  if (!Array.isArray(schema.oneOf) || !schema.oneOf.length)
+    throw new Error("no message variants in the Codex schema");
+  return new Set(
+    schema.oneOf.map(({ properties }) => {
+      const method = properties?.method;
+      const name = method?.const ?? (method?.enum?.length === 1 ? method.enum[0] : undefined);
+      if (typeof name !== "string")
+        throw new Error("no method discriminant in a Codex schema variant");
+      return name;
+    }),
+  );
+}
+
+const CODEX_MESSAGE_KINDS = ["ClientRequest", "ServerNotification", "ServerRequest"] as const;
+
+function codexMethods(program: string, experimental = false) {
   const dir = mkdtempSync(path.join(tmpdir(), "codex-schema-"));
   try {
-    run(program, ["app-server", "generate-json-schema", "--out", dir]);
-    const methods: Record<string, Set<string>> = {};
-    for (const kind of ["ClientRequest", "ServerNotification", "ServerRequest"]) {
-      const schema = readFileSync(path.join(dir, `${kind}.json`), "utf8");
-      methods[kind] = new Set(
-        [...schema.matchAll(/"method":\s*\{[^}]*?"enum":\s*\[\s*"([^"]+)"/g)].map((m) => m[1]),
-      );
-    }
-    return methods;
+    run(program, [
+      "app-server",
+      "generate-json-schema",
+      "--out",
+      dir,
+      ...(experimental ? ["--experimental"] : []),
+    ]);
+    return Object.fromEntries(
+      CODEX_MESSAGE_KINDS.map((kind) => [
+        kind,
+        codexMethodsIn(readFileSync(path.join(dir, `${kind}.json`), "utf8")),
+      ]),
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** The requests the app's Codex code makes, and the methods its model reads. */
-function methodsTheAppUses(): { requests: Set<string>; read: Set<string> } {
-  const dir = path.join(ROOT, "src/renderer/services/chat");
-  const source = (file: string) => readFileSync(path.join(dir, file), "utf8");
-  const callers = ["codex-controller.ts", "run-codex-command.ts"].map(source).join("\n");
+function methodsTheAppUses() {
+  const renderer = path.join(ROOT, "src/renderer");
+  const source = (file: string) => readFileSync(path.join(renderer, file), "utf8");
+  const controller = source("services/chat/codex-controller.ts");
+  const callers = [
+    controller,
+    source("services/chat/run-codex-command.ts"),
+    source("components/chat/codex-tab.tsx"),
+  ].join("\n");
   const requests = new Set(
     [...callers.matchAll(/\b(?:request|ask)\(\s*"([a-z][\w/]*)"/g)].map((m) => m[1]),
   );
   const read = new Set(
-    [...source("codex-model.ts").matchAll(/case "([a-z]\w*(?:\/\w+)+)"/g)].map((m) => m[1]),
+    [...source("services/chat/codex-model.ts").matchAll(/case "([a-z]\w*(?:\/\w+)+)"/g)].map(
+      (m) => m[1],
+    ),
   );
-  return { requests, read };
+  const experimentalOptIn = /capabilities:\s*\{[^}]*\bexperimentalApi:\s*true\b/.test(controller);
+  return { requests, read, experimentalOptIn };
 }
 
 async function checkCodex(verbose: boolean): Promise<Report> {
   const program = findProgram("codex");
   const version = run(program, ["--version"]).trim().split(/\s+/).pop() ?? "";
-  const url = `https://raw.githubusercontent.com/openai/codex/rust-v${version}/codex-rs/tui/src/slash_command.rs`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  const cli = codexCommandsIn(await response.text());
+  const release = `https://raw.githubusercontent.com/openai/codex/rust-v${version}/codex-rs`;
+  const source = async (file: string) => {
+    const url = `${release}/${file}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: ${response.status}`);
+    return response.text();
+  };
+  const [slashCommands, modelCatalog] = await Promise.all([
+    source("tui/src/slash_command.rs"),
+    source("models-manager/models.json"),
+  ]);
+  const cli = codexCommandsIn(slashCommands);
+  const builtIns = new Set(cli.flatMap((command) => [command.name, ...command.aliases]));
+  cli.push(
+    ...codexServiceTierCommandsIn(modelCatalog).filter((command) => !builtIns.has(command.name)),
+  );
   const { problems, notes } = accountFor("Codex", cli, {
     fromCli: new Set(),
     app: CODEX_COMMANDS,
@@ -452,26 +510,38 @@ async function checkCodex(verbose: boolean): Promise<Report> {
     appOnly: CODEX_APP_ONLY,
   });
 
-  const methods = codexMethods(program);
-  const { requests, read } = methodsTheAppUses();
+  const publicMethods = codexMethods(program);
+  const experimentalMethods = codexMethods(program, true);
+  const { requests, read, experimentalOptIn } = methodsTheAppUses();
+  const acceptedRequests = new Set([
+    ...publicMethods.ClientRequest,
+    ...experimentalMethods.ClientRequest,
+  ]);
+  const known = new Set(
+    CODEX_MESSAGE_KINDS.flatMap((kind) => [...publicMethods[kind], ...experimentalMethods[kind]]),
+  );
   for (const method of requests) {
-    if (!methods.ClientRequest.has(method)) {
+    if (!acceptedRequests.has(method)) {
       problems.push(`${method}: the app asks for it, but the app-server no longer takes it`);
     }
   }
-  const known = new Set([
-    ...methods.ClientRequest,
-    ...methods.ServerNotification,
-    ...methods.ServerRequest,
-  ]);
   for (const method of read) {
     if (!known.has(method)) {
-      problems.push(`${method}: codex-model.ts reads it, but the app-server no longer sends it`);
+      problems.push(`${method}: codex-model.ts reads it, but the app-server no longer lists it`);
     }
   }
-  const unused = [...methods.ClientRequest].filter((m) => !requests.has(m)).sort();
+  const usedExperimental = [...requests].filter(
+    (method) =>
+      !publicMethods.ClientRequest.has(method) && experimentalMethods.ClientRequest.has(method),
+  );
+  if (usedExperimental.length && !experimentalOptIn) {
+    problems.push(
+      `app-server: requests require experimentalApi in initialize: ${usedExperimental.join(" ")}`,
+    );
+  }
+  const unused = [...acceptedRequests].filter((m) => !requests.has(m)).sort();
   notes.push(
-    `app-server: the app makes ${requests.size} of its ${methods.ClientRequest.size} requests` +
+    `app-server: the app makes ${requests.size} of its ${acceptedRequests.size} requests (${usedExperimental.length} experimental)` +
       (verbose ? `; the rest: ${unused.join(" ")}` : " (--verbose lists the rest)"),
   );
   return { title: `Codex ${version} (${program})`, problems, notes };

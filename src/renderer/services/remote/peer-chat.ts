@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatPage, ChatPanel } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { applyUpdate, keepEarlier, withEarlier } from "./chat-model";
+import { forgetPeerSubmissions, observePeerEchoes } from "./peer-submissions";
 import type { PeerRead } from "./room";
 import { usePeerRejoins, useRemoteRoom } from "./room";
 
@@ -63,6 +64,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `round` and `rejoins` start the watch again
   useEffect(() => {
     if (!shown || !online) return;
+    const ref = { deviceId, workspaceId, tabId };
     let live = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const again = () => {
@@ -79,6 +81,12 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       heardAt.current = Date.now();
       setRead((now) => {
         if (now.status !== "ready") return now;
+        const former = now.value.panel?.session?.id;
+        const next = update.panel?.session?.id;
+        if (former && update.panel && former !== next) {
+          queueMicrotask(again);
+          return { status: "loading" };
+        }
         const value = applyUpdate(now.value, update);
         // An append with nothing to go on: something was missed.
         if (!value) {
@@ -86,6 +94,16 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
           return now;
         }
         const panel = update.panel ?? now.value.panel;
+        if (update.items.length || update.panel) {
+          queueMicrotask(() => {
+            if (live)
+              observePeerEchoes(
+                ref,
+                update.items,
+                update.panel ? (update.panel.held ?? []) : undefined,
+              );
+          });
+        }
         return { status: "ready", value: panel ? { ...value, panel } : value };
       });
     });
@@ -108,6 +126,11 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         const { watchId, ...page } = result.value;
         watch.current = { id: watchId, rev: 0 };
         heardAt.current = Date.now();
+        observePeerEchoes(
+          ref,
+          page.items.map((item, i) => ({ index: page.start + i, item })),
+          page.panel?.held ?? [],
+        );
         // Watched again, the items shown before stay in front.
         setRead((now) => ({
           status: "ready",
@@ -116,6 +139,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         return;
       }
       if (result.kind === "not-found") {
+        forgetPeerSubmissions(ref);
         setRead({ status: "gone" });
         return;
       }
@@ -129,7 +153,10 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         (result) => {
           if (!live) return;
           if (!result.ok) {
-            if (result.kind === "not-found") setRead({ status: "gone" });
+            if (result.kind === "not-found") {
+              forgetPeerSubmissions(ref);
+              setRead({ status: "gone" });
+            }
             return;
           }
           // Longer there than here, and the watch quiet: it was lost, as when the device
@@ -161,6 +188,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
     const now = latest.current;
     if (loadingEarlier || now.status !== "ready" || now.value.start === 0) return;
     const before = now.value.start;
+    const sessionId = now.value.panel?.session?.id;
     setLoadingEarlier(true);
     void ipcCallResult("remote", "peerChat", {
       deviceId,
@@ -172,7 +200,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       .then((result) => {
         if (!result.ok) return;
         setRead((was) =>
-          was.status === "ready"
+          was.status === "ready" && was.value.panel?.session?.id === sessionId
             ? { status: "ready", value: withEarlier(was.value, result.value) }
             : was,
         );

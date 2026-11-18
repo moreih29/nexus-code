@@ -19,18 +19,20 @@ export function RewindDialog({
   controller,
   item,
   cwd,
+  conversationOnly = false,
   onClose,
 }: {
   /** The tab's own, or what does it for another computer's chat. */
   controller: Pick<ChatController, "previewRewind" | "rewind">;
   item: UserItem | null;
   cwd: string;
+  conversationOnly?: boolean;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<RewindPreview | "loading" | { failed: string }>("loading");
   const [busy, setBusy] = useState(false);
-  const uuid = item?.uuid;
+  const uuid = conversationOnly ? item?.key : item?.uuid;
 
   useEffect(() => {
     if (!uuid) return;
@@ -60,7 +62,12 @@ export function RewindDialog({
 
   return (
     <Dialog open={item !== null} onOpenChange={(open) => !open && !busy && onClose()} size="md">
-      <DialogHeader title={t("chat.rewind.title")} description={t("chat.rewind.description")} />
+      <DialogHeader
+        title={t("chat.rewind.title")}
+        description={t(
+          conversationOnly ? "chat.rewind.codex_description" : "chat.rewind.description",
+        )}
+      />
       <div className="mt-3 text-app-ui-sm" data-testid="chat-rewind-files">
         {preview === "loading" ? (
           <span className="text-muted-foreground">{t("chat.rewind.checking")}</span>
@@ -68,7 +75,7 @@ export function RewindDialog({
           <span className="text-muted-foreground">
             {t("chat.rewind.files_unknown", { error: preview.failed })}
           </span>
-        ) : !preview.canRewind ? (
+        ) : conversationOnly ? null : !preview.canRewind ? (
           <span className="text-muted-foreground">
             {t("chat.rewind.files_unavailable", { error: preview.error ?? "" })}
           </span>
@@ -106,7 +113,7 @@ export function RewindDialog({
           variant={changes ? "outline" : "default"}
           size="sm"
           onClick={() => go(false)}
-          disabled={busy || preview === "loading"}
+          disabled={busy || preview === "loading" || (conversationOnly && !ready)}
           autoFocus={!changes}
         >
           {t("chat.rewind.conversation")}

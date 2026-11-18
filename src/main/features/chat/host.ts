@@ -8,10 +8,12 @@ import {
 } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
+import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
 import { tabHookToken } from "../workspace/tab-token";
 import {
+  CLAUDE_TAB_PROMPT,
   type ClaudeCommand,
   claudeCommandArgs,
   claudeTabArgs,
@@ -51,10 +53,12 @@ export interface ChatHostOptions {
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** The agent profile of that id, as the app state has it; null when gone. */
   profile?: (id: string) => AgentProfile | null;
+  /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
+  agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
 }
 
 export type StartResult =
-  | { ok: true; pid: number; attached: boolean; version: string | null }
+  | { ok: true; pid: number; attached: boolean; version: string | null; canonicalCwd?: string }
   | { ok: false; reason: "not-found" | "failed"; message: string };
 
 interface Subscription {
@@ -224,23 +228,46 @@ export class ChatHost {
     });
     try {
       Object.assign(env, await this.profileEnv(channel, "codex", options.profileId));
-      const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
-        workspaceId,
-        tabId,
-        cwd,
-        program: found.path,
-        args: ["app-server"],
-        env,
-        ...(options.resetLog ? { resetLog: true } : {}),
-      });
-      return { ok: true, pid: result.pid, attached: result.attached === true, version };
+      const result = await channel.call<{ pid: number; attached?: boolean; canonicalCwd?: string }>(
+        "chat.start",
+        {
+          workspaceId,
+          tabId,
+          cwd,
+          program: found.path,
+          args: ["app-server"],
+          env,
+          ...(options.resetLog ? { resetLog: true } : {}),
+        },
+      );
+      return {
+        ok: true,
+        pid: result.pid,
+        attached: result.attached === true,
+        version,
+        ...(result.canonicalCwd ? { canonicalCwd: result.canonicalCwd } : {}),
+      };
     } catch (err) {
       return { ok: false, reason: "failed", message: (err as Error).message };
     }
   }
 
+  async send(workspaceId: string, tabId: string, message: Record<string, unknown>): Promise<void> {
+    const channel = await this.channelFor(workspaceId);
+    const note =
+      message.method === "turn/start" ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    await channel.call("chat.send", {
+      workspaceId,
+      tabId,
+      message,
+      ...(message.method === "turn/start"
+        ? { codexContext: { files: CLAUDE_TAB_PROMPT, cli: note } }
+        : {}),
+    });
+  }
+
   async call(
-    method: "send" | "stop" | "close" | "replay" | "attach" | "pruneAttachments",
+    method: "stop" | "close" | "replay" | "attach" | "pruneAttachments",
     args: unknown,
   ): Promise<unknown> {
     const workspaceId = (args as { workspaceId: string }).workspaceId;

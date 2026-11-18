@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import { chatAgentContext } from "../../../../src/main/features/cli/commands/agent-context";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { agentSenderOf, askDevice, resolveDevice } from "../../../../src/main/features/cli/remote";
@@ -330,6 +331,28 @@ describe("nexus session list", () => {
 });
 
 describe("nexus agent-context", () => {
+  test("Codex chat guidance uses the hosting workspace, tab, room and current settings", () => {
+    const app = withDevices();
+    const tab = "abcdead1-1111-4111-8111-111111111111";
+    const current = { enabled: true, agentContext: true };
+    const note = () => chatAgentContext(current, app.services, APP, tab);
+    expect(note()?.status).toContain('workspace "app", Codex chat tab abcdead1');
+    expect(note()?.commands).toContain(
+      "Make worktrees with nexus worktree new, not git worktree add",
+    );
+    expect(note()?.status).toContain("--device NAME");
+    app.peers.inRoom = false;
+    expect(note()?.status).toContain("outside a Nexus remote room");
+    current.agentContext = false;
+    expect(note()).toBeUndefined();
+    current.agentContext = true;
+    current.enabled = false;
+    expect(note()).toBeUndefined();
+    expect(
+      chatAgentContext({ enabled: true, agentContext: true }, app.services, PEER_WS, tab),
+    ).toBeUndefined();
+  });
+
   test("tells a session that the user's notes are the app's", async () => {
     const app = withDevices();
     app.settings.agentContext = true;

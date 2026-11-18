@@ -2,16 +2,17 @@
  * The conversations of the past in a workspace's folder, for another
  * device to go on with one (chat.history, chat.resume): Claude Code's
  * sessions as a Claude tab's list reads them, in each Claude profile's
- * folder, and the threads a Codex tab's own Codex lists. Codex keeps no
- * list the app can read without it, so a workspace with no Codex tab has
- * none to give.
+ * folder, and the threads each Codex profile lists through app-server.
  */
 
+import { type AgentProfiles, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { CliPastSession } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
-import { agentTabController } from "../chat/agent-tab";
+import { CodexController } from "../chat/codex-controller";
+import { readCodexHistoryCatalog } from "../chat/codex-history-catalog";
 import { type ListedSession, sessionMatches } from "../chat/sessions";
 import { UiRequestError } from "../cli/handler";
 
@@ -87,23 +88,60 @@ export async function claudeSessions(
   return mergedSessions(lists.map((list) => list ?? []));
 }
 
-/** The threads a Codex tab of the workspace lists, by the profile it runs with. */
+/** Codex threads of the folder, each listed under the profile that keeps it. */
 export async function codexThreads(
   workspaceId: string,
-  defaultProfileId: string,
+  cwd: string,
+  profileIds: readonly string[],
+  current?: CodexController,
 ): Promise<ListedSession[]> {
-  const tab = Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {}).find(
-    (t) => t.type === "codex",
+  const listed = await readCodexProfiles(profileIds, (profileId) =>
+    current?.profileId === profileId
+      ? current.listThreads()
+      : CodexController.catalog({ workspaceId, cwd, profileId }),
   );
-  const target = tab ? agentTabController(workspaceId, tab.id) : null;
-  if (!tab || target?.agent !== "codex") {
-    throw new UiRequestError(
-      "Codex lists its threads only to a Codex chat: open one in that workspace (chat.new)",
-    );
+  const own = current?.currentThread();
+  return listed.filter((s) => s.sessionId !== own);
+}
+
+/** Reuses the folder's raw catalog rows while a peer refines its search. */
+export function peerCodexThreads(
+  workspace: WorkspaceMeta,
+  config: AgentProfiles,
+  connection: string | undefined,
+  query?: string,
+): Promise<ListedSession[]> {
+  const { id: workspaceId, rootPath: cwd, location } = workspace;
+  const fresh = !query?.trim();
+  return readCodexProfiles(
+    profilesOf(config, "codex").map((profile) => profile.id),
+    (profileId) =>
+      readCodexHistoryCatalog(
+        { workspaceId, cwd, location, connection, config },
+        profileId,
+        fresh,
+        () => CodexController.catalog({ workspaceId, cwd, profileId }),
+      ),
+  );
+}
+
+async function readCodexProfiles(
+  profileIds: readonly string[],
+  load: (profileId: string) => Promise<Omit<ListedSession, "profileId">[]>,
+): Promise<ListedSession[]> {
+  const lists = await Promise.all(
+    profileIds.map(async (profileId) => {
+      try {
+        return (await load(profileId)).map((thread) => ({ ...thread, profileId }));
+      } catch {
+        return null;
+      }
+    }),
+  );
+  if (lists.every((list) => list === null)) {
+    throw new UiRequestError("Codex threads could not be read there");
   }
-  const profileId = (tab.type === "codex" && tab.props.profileId) || defaultProfileId;
-  // The tab's own thread is left out of its list: it is open already.
-  return (await target.controller.listThreads()).map((t) => ({ ...t, profileId }));
+  return mergedSessions(lists.map((list) => list ?? []));
 }
 
 /** The tab that has the session open already; none when no tab does. */

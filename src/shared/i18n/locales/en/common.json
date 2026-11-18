@@ -856,6 +856,14 @@
       "ran": "Run in the terminal"
     },
     "message": {
+      "peer_sending": "Sending…",
+      "peer_sending_queued": "Sending to queue…",
+      "peer_accepted": "Accepted by host",
+      "peer_accepted_queued": "Queued by host",
+      "peer_failed": "Could not send",
+      "peer_unconfirmed": "Delivery unconfirmed",
+      "peer_recover": "Restore draft",
+      "peer_limit": "Restore a recent draft before sending more messages",
       "sent": "Sent",
       "taken": "Read by Claude",
       "taken_codex": "Read by Codex"
@@ -1036,6 +1044,9 @@
       "aria": "Messages waiting to be read",
       "label": "Unread",
       "after_turn": "After the turn",
+      "sending": "Sending…",
+      "failed": "Delivery failed",
+      "unconfirmed": "Delivery unconfirmed",
       "images_one": "{{count}} image",
       "images_other": "{{count}} images",
       "edit": "Edit",
@@ -1105,6 +1116,7 @@
       "description": "The conversation goes back to before this message, and the message goes back in the composer.",
       "checking": "Checking the changed files…",
       "files_unknown": "Couldn't check the changed files: {{error}}",
+      "codex_description": "Continue from before this turn and put its first message back in the composer. The original conversation stays in history. Files are unchanged.",
       "files_unavailable": "The files can't be rewound. {{error}}",
       "files_changed_one": "{{count}} file goes back",
       "files_changed_other": "{{count}} files go back",
@@ -1156,6 +1168,10 @@
         "open_url": "Open the Remote Control link",
         "folder": "Folder",
         "computer": "Computer",
+        "local_computer": "This computer",
+        "api_key": "API key",
+        "account_unknown": "Unknown",
+        "account_check": "Refresh account and usage",
         "branch": "Branch",
         "session": "Session",
         "copy_session": "Copy the session ID",
@@ -1168,6 +1184,8 @@
       "context": {
         "title": "Context",
         "unknown": "Not measured yet",
+        "tokens_used": "{{used}} tokens used",
+        "compact_busy_codex": "Compact once Codex finishes",
         "tokens": "{{used}} of {{max}} tokens",
         "free": "{{count}} tokens left before compacting",
         "compact": "Compact",
@@ -1235,6 +1253,11 @@
       "mcp": {
         "title": "MCP",
         "none": "No MCP servers",
+        "refresh": "Refresh MCP status",
+        "reload": "Reload MCP configuration",
+        "refreshing": "Refreshing…",
+        "unread": "MCP status has not been read yet",
+        "login_failed": "Could not sign in to {{name}}",
         "reconnect": "Reconnect",
         "enabled": "Use {{name}}",
         "sign_in": "Sign in",
@@ -1244,6 +1267,9 @@
         "cancel": "Cancel",
         "status": {
           "connected": "Connected",
+          "unknown": "Unknown",
+          "notStarted": "Not started",
+          "cancelled": "Cancelled",
           "needs-auth": "Needs auth",
           "failed": "Failed",
           "pending": "Connecting",
@@ -1483,9 +1509,11 @@
       "commands": {
         "describe": {
           "model": "Choose the model (this tab only)",
+          "plan": "Switch to Plan mode",
+          "default": "Return to Default mode",
           "fast": "Toggle Fast for this conversation (higher usage)",
           "effort": "Choose the reasoning effort (this tab only)",
-          "config": "The default model and effort for new tabs",
+          "config": "Edit the Codex profile’s conversation defaults",
           "new": "Start a new conversation in this tab",
           "resume": "Go on with an earlier conversation of this folder in this tab",
           "fork": "Copy this conversation into a new tab",
@@ -1495,6 +1523,8 @@
           "init": "Create an AGENTS.md file with instructions for Codex",
           "goal": "View, set, pause or clear the goal of a long-running task",
           "status": "Show this conversation's model, folder and context used",
+          "context": "Show conversation context",
+          "usage": "Show plan usage",
           "diff": "Show the uncommitted changes",
           "copy": "Copy Codex's last answer (or the Nth from the end)",
           "export": "Save the conversation as a Markdown file in the folder",
@@ -1503,6 +1533,11 @@
           "logout": "Sign out of Codex",
           "help": "Show the Codex commands the tab runs",
           "exit": "Close this tab"
+        },
+        "collaboration": {
+          "plan": "Plan mode",
+          "default": "Default mode",
+          "usage": "Use /plan or /default with no arguments."
         },
         "fast_restart": "Restart this Codex session to enable Fast controls.",
         "fast_usage": "Use /fast, /fast on, /fast off, or /fast status.",
@@ -1528,6 +1563,7 @@
           "complete": "Complete"
         },
         "status": {
+          "collaboration": "Collaboration mode",
           "model": "Model",
           "effort": "Effort",
           "folder": "Folder",
@@ -1717,8 +1753,77 @@
       },
       "codex": {
         "title": "Codex defaults",
-        "description": "The model and reasoning effort a new conversation starts with, saved in this profile’s config.toml.",
-        "effort": "Default reasoning effort"
+        "description": "Saved in this profile’s Codex configuration for new conversations. Model and default reasoning effort also apply to this tab’s next turn.",
+        "effort": "Default reasoning effort",
+        "automatic": "Automatic",
+        "use_default": "Use default",
+        "out_of_range": "Outside editable range",
+        "invalid": {
+          "tokens": "Enter a whole number from 1 to 9,007,199,254,740,991.",
+          "model_post_turn_compact_threshold_percent": "Enter a whole number from 0 to 100."
+        },
+        "keys": {
+          "approval_policy": "Default approval policy",
+          "sandbox_mode": "Default sandbox",
+          "service_tier": "Default service tier",
+          "web_search": "Default web search",
+          "model_auto_compact_token_limit": "Auto-compaction threshold",
+          "model_auto_compact_token_limit_scope": "Auto-compaction token scope",
+          "model_post_turn_compact_threshold_percent": "End-of-turn compaction (%)",
+          "model_context_window": "Model context window",
+          "model_reasoning_summary": "Reasoning summary",
+          "model_verbosity": "Response verbosity",
+          "plan_mode_reasoning_effort": "Plan mode reasoning effort"
+        },
+        "descriptions": {
+          "model_auto_compact_token_limit": "Tokens that trigger compaction, subject to the model’s context limit. Automatic uses the model’s default.",
+          "model_auto_compact_token_limit_scope": "Count the full context or only tokens added after the carried prefix.",
+          "model_post_turn_compact_threshold_percent": "Compact after a final response at this share of usable context. Zero disables this extra trigger.",
+          "model_context_window": "Context capacity in tokens. Codex caps it at the model’s known maximum.",
+          "model_reasoning_summary": "Set the level of detail in reasoning summaries on supported models.",
+          "model_verbosity": "Set the level of detail in responses on supported models.",
+          "plan_mode_reasoning_effort": "Choose the reasoning effort Codex uses in Plan mode."
+        },
+        "options": {
+          "approval_policy": {
+            "on-request": "On request",
+            "untrusted": "Untrusted commands",
+            "never": "Never ask",
+            "granular": "Granular"
+          },
+          "sandbox_mode": {
+            "read-only": "Read only",
+            "workspace-write": "Workspace write",
+            "danger-full-access": "Full access"
+          },
+          "service_tier": {
+            "default": "Standard",
+            "priority": "Fast",
+            "ultrafast": "Ultrafast",
+            "flex": "Flex"
+          },
+          "web_search": {
+            "disabled": "Disabled",
+            "cached": "Cached",
+            "indexed": "Indexed",
+            "live": "Live"
+          },
+          "model_auto_compact_token_limit_scope": {
+            "total": "Full context",
+            "body_after_prefix": "After carried prefix"
+          },
+          "model_reasoning_summary": {
+            "auto": "Auto",
+            "concise": "Concise",
+            "detailed": "Detailed",
+            "none": "Off"
+          },
+          "model_verbosity": {
+            "low": "Low",
+            "medium": "Medium",
+            "high": "High"
+          }
+        }
       }
     },
     "profile": {

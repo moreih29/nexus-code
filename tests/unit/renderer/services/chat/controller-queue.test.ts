@@ -19,7 +19,11 @@ const { ChatController } = await import("../../../../../src/renderer/services/ch
 const { CodexController } = await import(
   "../../../../../src/renderer/services/chat/codex-controller"
 );
-const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { clearObservedQueued, dispatchQueuedMessage, emptyTabState, useChatStore } = await import(
+  "../../../../../src/renderer/services/chat/store"
+);
+
+import type { ChatTabState } from "../../../../../src/renderer/services/chat/store";
 
 const FROM = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "ws", tabId: "t0" } as const;
 const IMAGE = { mediaType: "image/png", data: "AA" };
@@ -96,4 +100,65 @@ describe("a Codex tab's held messages", () => {
     c.removeQueued(id as string);
     expect(c.editQueued(id as string, "again")).toBe(false);
   });
+});
+
+test("an unconfirmed queue entry keeps its payload until independently observed", async () => {
+  let state: ChatTabState = {
+    ...emptyTabState(),
+    queue: [{ id: "uncertain", text: "image pending", images: [IMAGE] }],
+  };
+  const update = (change: (value: ChatTabState) => ChatTabState) => {
+    state = change(state);
+  };
+  const send = mock(async () => {
+    throw new Error("connection closed");
+  });
+  const done = mock(() => {});
+  const drain = () =>
+    dispatchQueuedMessage(
+      state.queue,
+      update,
+      send,
+      () => false,
+      () => false,
+      done,
+    );
+  drain();
+  drain();
+  expect(state.queue[0]?.status).toBe("sending");
+  await Promise.resolve();
+  drain();
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(done).not.toHaveBeenCalled();
+  expect(state.queue).toEqual([
+    {
+      id: "uncertain",
+      text: "image pending",
+      images: [IMAGE],
+      status: "unconfirmed",
+      error: "connection closed",
+    },
+  ]);
+  expect(clearObservedQueued(state, (id) => id === "different")).toBe(state);
+  expect(clearObservedQueued(state, (id) => id === "uncertain").queue).toEqual([]);
+});
+
+test("a confirmed queue send releases the held attachment payload", async () => {
+  let state: ChatTabState = {
+    ...emptyTabState(),
+    queue: [{ id: "ok", text: "accepted", images: [IMAGE] }],
+  };
+  dispatchQueuedMessage(
+    state.queue,
+    (change) => {
+      state = change(state);
+    },
+    async () => {},
+    () => false,
+    () => false,
+    () => {},
+  );
+  expect(state.queue[0]?.status).toBe("sending");
+  await Promise.resolve();
+  expect(state.queue).toEqual([]);
 });

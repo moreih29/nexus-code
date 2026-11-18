@@ -275,6 +275,33 @@ describe("the room", () => {
     expect(a.served).toEqual([{ from: "b", method: "consent.answer" }]);
   });
 
+  test("profile defaults require chat control and a user sender", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let allowed = false;
+    const a = device(relay, "a", key, {
+      serves: () => (allowed ? ["sessions", "chat.control", "agents"] : ["sessions"]),
+      serve: async () => ({}),
+    });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    const params = { workspaceId: "w1", tabId: "t1", set: { changes: { web_search: "disabled" } } };
+    await expect(b.room.request("a", "chat.config", params)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: "chat.config is not served here",
+    });
+    allowed = true;
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
+    const relayed = { ...params, from };
+    await expect(b.room.request("a", "chat.config", relayed)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: "chat.config is not taken from agents",
+    });
+    await expect(b.room.request("a", "chat.config", params)).resolves.toEqual({});
+  });
+
   test("tells the room again when what it serves changed, and refuses what it no longer does", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

@@ -11,6 +11,7 @@ import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
+  ClientNonceSchema,
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
@@ -570,9 +571,12 @@ const ConfigValueSchema = z.union([z.boolean(), z.string().max(1000)]);
  * and the output styles; the model the session runs; and the default
  * effort the settings give each model (`efforts`, by its id; `level` the
  * one for any), none when that program cannot save one. A Codex chat's
- * defaults (its /config): one key, `model`, the model a new conversation
- * starts with, a choice of `models`; and `efforts.level` its reasoning
- * effort. Since 0.13.0.
+ * defaults (its /config): `model`, `efforts.level`, and settings supported by
+ * the host. Numeric settings use text with decimal string values. Empty
+ * `options` means read-only. With no `value`, an override can still exist
+ * outside the client's range if `valueUnavailable` is true. The reserved
+ * `_codex_profile_id` key binds the read to its profile and is not a UI control.
+ * Since 0.13.0.
  */
 export const ChatConfigSchema = z.object({
   keys: z
@@ -583,6 +587,7 @@ export const ChatConfigSchema = z.object({
         kind: z.enum(["boolean", "choice", "text"]),
         options: z.array(z.string()).optional(),
         value: ConfigValueSchema.optional(),
+        valueUnavailable: z.literal(true).optional(),
       }),
     )
     .max(200),
@@ -1061,6 +1066,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       text: z.string(),
+      clientNonce: ClientNonceSchema.optional(),
       /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
@@ -1070,7 +1076,12 @@ export const RPC_METHODS = {
      * `at`: when the serving device took it, by its clock, for chat.wait's
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
-    result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+    result: z.object({
+      at: z.number().optional(),
+      heldId: z.string().optional(),
+      clientNonce: ClientNonceSchema.optional(),
+      itemKey: z.string().optional(),
+    }),
   },
   /**
    * What an @ in the chat's composer may name for `query`, as its agent
@@ -1290,9 +1301,12 @@ export const RPC_METHODS = {
    * there has them: without `set`, what they are now (`config`); with it,
    * the changes saved as that dialog saves them (/config messages), and a
    * new default effort for the model the session then runs. Not while the
-   * chat is working. A Codex chat's defaults the same way: `changes.model`
-   * and `effort`, saved in its config, and the chat then runs them. Only
-   * the user's: an agent does not send it. Since 0.13.0.
+   * chat is working. For Codex, `changes` holds the advertised config keys and
+   * `effort` holds the reasoning effort. An empty numeric string or a
+   * resettable choice's advertised `default` removes its override.
+   * Echo the value of a read's reserved
+   * `_codex_profile_id` in `changes` when present. Model and effort also apply to the
+   * tab's next turn. Only the user's: an agent does not send it. Since 0.13.0.
    */
   "chat.config": {
     capability: "chat.control",

@@ -31,6 +31,7 @@ import { formatPick, type PickedElement } from "./browser/pick";
 import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
+import { type ChatAgentContext, chatAgentContext } from "./commands/agent-context";
 import { type ChangeRequest, CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import { ConsentPrompts } from "./consent-prompts";
 import {
@@ -126,6 +127,7 @@ export interface SetupCliFeatureOptions {
 export interface CliFeature {
   /** What the commands work with: the remote serves its own requests with them too. */
   readonly services: CliServices;
+  agentContextForChat(workspaceId: string, tabId: string): ChatAgentContext | undefined;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
@@ -367,6 +369,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   return {
     services,
+    agentContextForChat: (workspaceId, tabId) =>
+      chatAgentContext(options.settings(), services, workspaceId, tabId),
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();

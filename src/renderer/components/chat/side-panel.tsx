@@ -1147,15 +1147,18 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
 export function TextButton({
   onClick,
   children,
+  disabled,
 }: {
   onClick: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 rounded-(--radius-control) px-1 text-app-micro text-primary hover:bg-[var(--state-hover-bg)]"
+      disabled={disabled}
+      className="shrink-0 rounded-(--radius-control) px-1 text-app-micro text-primary disabled:opacity-40 hover:bg-[var(--state-hover-bg)]"
     >
       {children}
     </button>

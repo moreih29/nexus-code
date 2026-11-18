@@ -97,6 +97,17 @@ describe("a chat's commands for another device", () => {
     }
   });
 
+  test("advertises native Plan and Default as host commands only when supported", () => {
+    for (const name of ["plan", "default"]) {
+      expect(chatCommandsOf("codex", emptyModel()).some((command) => command.name === name)).toBe(
+        false,
+      );
+      expect(
+        chatCommandsOf("codex", emptyModel(), true).find((command) => command.name === name),
+      ).toMatchObject({ runs: "command" });
+    }
+  });
+
   test("a Codex tab's: the model and effort as settings, the rest the app runs", () => {
     const commands = chatCommandsOf("codex", emptyModel());
     expect(commands.find((c) => c.name === "effort")).toMatchObject({ sets: "effort" });
@@ -158,6 +169,24 @@ describe("running one for another device", () => {
     };
     await runRemoteCommand(ws, tabId, target, "compact", "");
     expect(calls).toEqual([{ method: "thread/compact/start", params: { threadId: "thread-1" } }]);
+  });
+
+  test("Codex MCP refresh publishes inventory without opening a card on the host", async () => {
+    chatTab("codex");
+    let refreshed = 0;
+    const target: AgentTabController = {
+      agent: "codex",
+      controller: {
+        currentThread: () => "thread-1",
+        listMcpServers: async () => {
+          refreshed++;
+          return [];
+        },
+      } as unknown as CodexController,
+    };
+    expect(await runRemoteCommand(ws, tabId, target, "mcp", "refresh")).toEqual({});
+    expect(refreshed).toBe(1);
+    expect(useChatStore.getState().tabs[key]?.card).toBeUndefined();
   });
 
   test("Fast uses the catalog tier for this thread; off explicitly selects standard speed", async () => {

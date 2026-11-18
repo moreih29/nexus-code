@@ -15,6 +15,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import type { AgentTabController } from "../chat/agent-tab";
 import { APP_COMMANDS, appCommandsBeside, listedCommands } from "../chat/app-commands";
+import { collaborationModeOf } from "../chat/codex-collaboration";
 import { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS } from "../chat/codex-commands";
 import type { ChatModel, ToolCall } from "../chat/model";
 import { withRelayed } from "../chat/relayed";
@@ -55,19 +56,25 @@ const SETTINGS: Readonly<Record<string, "model" | "effort">> = { model: "model",
 const t = (key: string) => i18next.t(key);
 
 /** A tab's commands for a "/" picker on another device. */
-export function chatCommandsOf(agent: "claude" | "codex", model: ChatModel): ChatCommand[] {
+export function chatCommandsOf(
+  agent: "claude" | "codex",
+  model: ChatModel,
+  collaboration = false,
+): ChatCommand[] {
   if (agent === "codex") {
-    return CODEX_COMMANDS.filter((c) => CODEX_REMOTE_COMMANDS.has(c.name) || SETTINGS[c.name]).map(
-      (c) => ({
-        name: c.name,
-        description: t(`chat.codex.commands.describe.${c.name}`),
-        ...(SETTINGS[c.name]
-          ? { runs: "settings" as const, sets: SETTINGS[c.name] }
-          : { runs: "command" as const }),
-        ...(c.argumentHint ? { args: c.argumentHint } : {}),
-        ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
-      }),
-    );
+    return CODEX_COMMANDS.filter(
+      (c) =>
+        (CODEX_REMOTE_COMMANDS.has(c.name) || SETTINGS[c.name]) &&
+        (collaboration || !collaborationModeOf(c.name)),
+    ).map((c) => ({
+      name: c.name,
+      description: t(`chat.codex.commands.describe.${c.name}`),
+      ...(SETTINGS[c.name]
+        ? { runs: "settings" as const, sets: SETTINGS[c.name] }
+        : { runs: "command" as const }),
+      ...(c.argumentHint ? { args: c.argumentHint } : {}),
+      ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
+    }));
   }
   const cli = listedCommands(model.init?.commands ?? []);
   const own: ChatCommand[] = cli.map((c) => ({
