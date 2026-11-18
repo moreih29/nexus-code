@@ -65,6 +65,16 @@ export function usePeerTypes(deviceId: string): boolean {
 }
 
 /**
+ * How many times another device joined the room again with a new
+ * connection while this one stayed (RoomPeer's `rejoins`): what this one
+ * watched there was dropped, so a watch follows it to be asked again.
+ */
+export function usePeerRejoins(deviceId: string): number {
+  const room = useRemoteRoom();
+  return room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
+}
+
+/**
  * Whether another device, as its hello said, serves `capability`: one the
  * user there allowed (chat.control, terminal.control). No until it said.
  */
@@ -240,8 +250,8 @@ export function refreshPeerSessions(deviceId: string): void {
  * Each device's sessions while `shown`: watched (sessions.watch), the
  * device sending the list as it changes; or, from a device that does not
  * serve the watch, asked now and every PEER_POLL_MS; either asked again at
- * once by refreshPeerSessions. A device's last list stays while the next is
- * on its way.
+ * once by refreshPeerSessions, and watched again once a device is back in
+ * the room. A device's last list stays while the next is on its way.
  */
 export function usePeerSessions(
   deviceIds: readonly string[],
@@ -249,6 +259,16 @@ export function usePeerSessions(
 ): Record<string, PeerSessions> {
   const [lists, setLists] = useState<Record<string, PeerSessions>>({});
   const key = deviceIds.join("|");
+  // Each device's connection as the room tells it: one back, seen to go or not, dropped the
+  // watch there, which is asked for again.
+  const room = useRemoteRoom();
+  const joins = deviceIds
+    .map((id) => {
+      const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
+      return peer?.online ? (peer.rejoins ?? 0) : "-";
+    })
+    .join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `joins` starts the watches again
   useEffect(() => {
     if (!shown || key === "") return;
     const ids = key.split("|");
@@ -310,7 +330,7 @@ export function usePeerSessions(
         void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
       }
     };
-  }, [key, shown]);
+  }, [key, shown, joins]);
   return lists;
 }
 

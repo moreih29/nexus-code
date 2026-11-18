@@ -2,8 +2,9 @@
 // its text when the watch begins, with its colors and styles as SGR escapes
 // (`ansi`; a device that keeps them back sends plain text) and its cursor
 // (where that device tells it), kept up with each terminal.update. A
-// missing update (a rev skipped), the device leaving and coming back, or a
-// watch that fails starts the watch again; a slow read now and then tells
+// missing update (a rev skipped), the device leaving and coming back (seen
+// to go or not: its new connection dropped the watch), or a watch that
+// fails starts the watch again; a slow read now and then tells
 // whether the terminal is still there. A device that does not serve the
 // watch (an older version) is read again and again instead.
 
@@ -39,12 +40,14 @@ export function usePeerTerminal(
   const { deviceId, workspaceId, tabId } = ref;
   const room = useRemoteRoom();
   const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
+  // Back in the room with a new connection, seen to go or not: the watch there was dropped.
+  const rejoins = room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
   const [read, setRead] = useState<PeerRead<PeerScreen>>({ status: "loading" });
   // Bumped to start the watch again.
   const [round, setRound] = useState(0);
   const watch = useRef<{ id: string; rev: number } | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` starts the watch again
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` and `rejoins` start the watch again
   useEffect(() => {
     if (!shown || !online) return;
     let live = true;
@@ -131,7 +134,7 @@ export function usePeerTerminal(
       watch.current = null;
       if (w) void ipcCallResult("remote", "peerTerminalUnwatch", { deviceId, watchId: w.id });
     };
-  }, [deviceId, workspaceId, tabId, lines, shown, online, round]);
+  }, [deviceId, workspaceId, tabId, lines, shown, online, round, rejoins]);
 
   if (!online && read.status === "loading") return { status: "unavailable" };
   return read;
