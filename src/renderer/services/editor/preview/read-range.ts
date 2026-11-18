@@ -56,9 +56,10 @@ export function readWorkspaceRange(
     const required = mtime?.startsWith("version:") ? mtime.slice("version:".length) : undefined;
     return readPeerPiece(peer, relPath, offset, length, required, signal).then((piece) => {
       if (!piece || signal?.aborted) return null;
-      const revision = piece.version && !mtime?.startsWith("size:")
-        ? `version:${piece.version}`
-        : `size:${piece.size}`;
+      const revision =
+        piece.version && !mtime?.startsWith("size:")
+          ? `version:${piece.version}`
+          : `size:${piece.size}`;
       return mtime !== undefined && revision !== mtime ? null : { ...piece, mtime: revision };
     });
   }

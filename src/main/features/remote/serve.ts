@@ -1484,13 +1484,16 @@ export function serveWith(
         if (request.method === "files.list") {
           return listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">);
         }
-        const result = await readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+        const rootPath = workspace.rootPath;
+        const location = structuredClone(workspace.location);
+        const result = await readFile(files, rootPath, request.params as RpcParams<"files.read">);
         const current = workspaceOf(s, workspaceId);
         if (
           !current ||
-          current.rootPath !== workspace.rootPath ||
-          !isDeepStrictEqual(current.location, workspace.location)
-        ) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+          current.rootPath !== rootPath ||
+          !isDeepStrictEqual(current.location, location)
+        )
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         return result;
       }
       case "files.find":

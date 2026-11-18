@@ -286,8 +286,11 @@ async function realWithin(
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
     throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
   });
-  const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => f)));
-  if (!reals.some((f) => within(style, clean(style, f), clean(style, real)))) {
+  const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => null)));
+  // Resolved names carry their on-disk spelling. Windows can enable
+  // case-sensitive lookup on individual folders.
+  const canonicalStyle = style.windows ? { ...style, windows: false } : style;
+  if (!reals.some((f) => f && within(canonicalStyle, clean(style, f), clean(style, real)))) {
     throw forbidden(`${absolute} leads outside the workspace's folders`);
   }
   return real;
@@ -409,6 +412,9 @@ export async function readFile(
   if (ifVersion !== undefined && requireVersion !== undefined) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "use either ifVersion or requireVersion");
   }
+  if (requireVersion !== undefined && as !== "bytes") {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, 'requireVersion is taken with as: "bytes"');
+  }
   if (as !== "bytes" && (offset !== undefined || length !== undefined)) {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -434,34 +440,43 @@ export async function readFile(
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
     absolute = place.absolute;
-    source = "output" in place
-      ? { absolutePath: absolute }
-      : { absolutePath: absolute, expectedRealPath: await realWithin(fs, style, folders, absolute) };
+    source =
+      "output" in place
+        ? { absolutePath: absolute }
+        : {
+            absolutePath: absolute,
+            expectedRealPath: await realWithin(fs, style, folders, absolute),
+          };
   }
-  const mediaType = as === "bytes" ? undefined : IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
+  const mediaType =
+    as === "bytes" ? undefined : IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
   const from = offset ?? 0;
-  const readLength = as === "bytes" ? length ?? MAX_BYTES_CHUNK : mediaType ? 0 : maxBytes;
+  const readLength = as === "bytes" ? (length ?? MAX_BYTES_CHUNK) : mediaType ? 0 : maxBytes;
 
   const verifyGrant = async () => {
     if (place.kind !== "folder") return;
     // The grant may have been revoked while the workspace's agent was reading.
     const currentFolders = await files.folders(workspaceId);
     const current = await placeToRead(files, workspaceId, root, currentFolders, asked);
-    if (current.kind !== "folder" || ("output" in current) !== ("output" in place)) {
+    if (current.kind !== "folder" || "output" in current !== "output" in place) {
       throw forbidden(`${asked} no longer has the same file grant`);
     }
-    if ("expectedRealPath" in source &&
-      await realWithin(fs, style, currentFolders, absolute) !== source.expectedRealPath) {
+    if (
+      "expectedRealPath" in source &&
+      (await realWithin(fs, style, currentFolders, absolute)) !== source.expectedRealPath
+    ) {
       throw fileChanged(requireVersion !== undefined);
     }
   };
-  const preview = await fs.readPreview?.({
-    ...source,
-    offset: from,
-    length: readLength,
-    ...(mediaType ? { wholeImage: true } : {}),
-    ...(optedIn ? { versionScope: workspaceId, ifVersion, requireVersion } : {}),
-  }).catch((error: unknown) => previewError(error, asked, requireVersion !== undefined));
+  const preview = await fs
+    .readPreview?.({
+      ...source,
+      offset: from,
+      length: readLength,
+      ...(mediaType ? { wholeImage: true } : {}),
+      ...(optedIn ? { versionScope: workspaceId, ifVersion, requireVersion } : {}),
+    })
+    .catch((error: unknown) => previewError(error, asked, requireVersion !== undefined));
   if (preview) {
     await verifyGrant();
     if (preview.kind === "notModified") {
@@ -470,15 +485,27 @@ export async function readFile(
     }
     if (requireVersion !== undefined && requireVersion !== preview.version) throw fileChanged(true);
     const version = optedIn ? preview.version : undefined;
-    const content = as === "bytes"
-      ? bytesPreview(absolute, from, preview.base64, preview.sizeBytes)
-      : mediaType
-        ? imagePreview(files, absolute, mediaType, preview.base64, preview.sizeBytes)
-        : textPreview(absolute, preview.base64, preview.sizeBytes);
+    const content =
+      as === "bytes"
+        ? bytesPreview(absolute, from, preview.base64, preview.sizeBytes)
+        : mediaType
+          ? imagePreview(files, absolute, mediaType, preview.base64, preview.sizeBytes)
+          : textPreview(absolute, preview.base64, preview.sizeBytes);
     return version === undefined ? content : { ...content, version };
   }
 
-  const legacy = await legacyPreview(fs, files, place, asked, absolute, from, readLength, mediaType, as, requireVersion);
+  const legacy = await legacyPreview(
+    fs,
+    files,
+    place,
+    asked,
+    absolute,
+    from,
+    readLength,
+    mediaType,
+    as,
+    requireVersion,
+  );
   await verifyGrant();
   return legacy;
 }

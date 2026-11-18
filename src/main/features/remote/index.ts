@@ -15,7 +15,7 @@ import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
-import { type CallContext, broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -333,17 +333,20 @@ export async function registerRemoteChannel(options: {
   function syncRoom(): void {
     const signedIn = account.state();
     const key = keys?.key() ?? null;
-    const want = signedIn.status === "signed-in" && key ? { device: signedIn.device, key } : null;
-    const id = want ? `${want.device.id}|${want.key.kid}` : "";
+    const want = signedIn.status === "signed-in" && key ? { signedIn, key } : null;
+    const id = want
+      ? JSON.stringify([want.signedIn.user.id, want.signedIn.device.id, want.key.kid])
+      : "";
     if (room && id !== roomFor) {
       room.stop();
       room = null;
       setRoomState({ status: "off", peers: [] });
     }
     if (room || !want) return;
+    const { device } = want.signedIn;
     roomFor = id;
     room = new RemoteRoom({
-      self: { id: want.device.id, name: want.device.name, platform: want.device.platform },
+      self: { id: device.id, name: device.name, platform: device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
       ...(options.theme ? { theme: options.theme } : {}),
@@ -672,12 +675,35 @@ export async function registerRemoteChannel(options: {
         return askPeer(() => inRoom().request(deviceId, "files.find", params));
       },
       peerFilesRead: (args: unknown, ctx?: CallContext) => {
-        const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(c.peerFilesRead.args, args);
-        return askPeer(() => peerFiles.read({ deviceId, workspaceId }, path, { as, offset, length, maxBytes }, ctx?.signal));
+        const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(
+          c.peerFilesRead.args,
+          args,
+        );
+        return askPeer(() =>
+          peerFiles.read(
+            { deviceId, workspaceId },
+            path,
+            { as, offset, length, maxBytes },
+            ctx?.signal,
+          ),
+        );
       },
       peerFilesReadBytes: (args: unknown, ctx?: CallContext) => {
-        const { deviceId, workspaceId, path, offset, length, whole, requireVersion } = validateArgs(c.peerFilesReadBytes.args, args);
-        return askPeer(() => peerFiles.readBytes({ deviceId, workspaceId }, path, offset, length, whole === true && offset === 0, requireVersion, ctx?.signal));
+        const { deviceId, workspaceId, path, offset, length, whole, requireVersion } = validateArgs(
+          c.peerFilesReadBytes.args,
+          args,
+        );
+        return askPeer(() =>
+          peerFiles.readBytes(
+            { deviceId, workspaceId },
+            path,
+            offset,
+            length,
+            whole === true && offset === 0,
+            requireVersion,
+            ctx?.signal,
+          ),
+        );
       },
       peerGitDiff: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);

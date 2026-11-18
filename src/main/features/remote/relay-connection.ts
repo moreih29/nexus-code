@@ -60,6 +60,7 @@ export const PONG_WAIT_MS = 10_000;
 export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "outdated" | "stopped";
 
 type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
+  readonly bufferedAmount?: number;
   addEventListener(type: string, listener: (event: never) => void): void;
 };
 
@@ -134,6 +135,10 @@ export class RelayConnection {
     if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) return false;
     this.socket.send(text);
     return true;
+  }
+
+  get bufferedAmount(): number {
+    return this.socket?.bufferedAmount ?? 0;
   }
 
   /** The room answered: the connection is good, and the next loss starts the backoff over. */

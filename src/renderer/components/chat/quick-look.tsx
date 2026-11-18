@@ -144,7 +144,8 @@ export function QuickLook({
   const root = useLookRoot(workspaceId);
   const peer = peerOf(workspaceId) !== null;
   const chatFiles = useChatFiles();
-  const peerImageUnavailable = peer && chatFiles?.epoch === null;
+  const peerUnavailable = peer && chatFiles?.epoch === null;
+  const previewKey = peer ? JSON.stringify([workspaceId, path, chatFiles?.epoch]) : path;
 
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);
@@ -166,12 +167,14 @@ export function QuickLook({
   const shownAsImage = image !== undefined || (isImageFile(path) && !showDiff);
   const canCopyImage =
     shownAsImage &&
-    (image ? shownImage.image !== null : peer ? !peerImageUnavailable : isUnder(path, root));
+    (image ? shownImage.image !== null : peer ? !peerUnavailable : isUnder(path, root));
   const imageRevision = shownAsImage && peer ? (chatFiles?.epoch ?? undefined) : undefined;
   const [sizes, setSizes] = useState<Readonly<Record<string, Size>>>({});
   const [lastSize, setLastSize] = useState<Size | null>(null);
   const sized = (of: string) => (size: Size) => {
-    setSizes((known) => (known[of] ? known : { ...known, [of]: size }));
+    setSizes((known) =>
+      known[of]?.w === size.w && known[of]?.h === size.h ? known : { ...known, [of]: size },
+    );
     setLastSize(size);
   };
   const layerRef = useRef<HTMLDivElement>(null);
@@ -370,10 +373,16 @@ export function QuickLook({
               className="h-full"
             />
           )
+        ) : peerUnavailable ? (
+          <EmptyState
+            title={shownAsImage ? t("imagePreview.load_failed") : fileErrorMessage("OTHER")}
+            tone="status"
+            className="h-full"
+          />
         ) : showDiff ? (
           peer ? (
             <PeerLookDiff
-              key={path}
+              key={previewKey}
               workspaceId={workspaceId}
               path={path}
               before={before ?? null}
@@ -381,11 +390,9 @@ export function QuickLook({
           ) : (
             <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
           )
-        ) : shownAsImage && peerImageUnavailable ? (
-          <EmptyState title={t("imagePreview.load_failed")} tone="status" className="h-full" />
         ) : (
           <LookBody
-            key={imageRevision === undefined ? path : JSON.stringify([path, imageRevision])}
+            key={previewKey}
             imageRevision={imageRevision}
             workspaceId={workspaceId}
             path={path}

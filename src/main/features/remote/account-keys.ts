@@ -119,7 +119,14 @@ export class AccountKeys {
 
   /** The key, while this device holds the account's current one. */
   key(): { kid: number; key: Uint8Array } | null {
-    if (this.current.status !== "unlocked" || !this.held) return null;
+    const account = this.deps.account.state();
+    if (
+      this.current.status !== "unlocked" ||
+      !this.held ||
+      account.status !== "signed-in" ||
+      account.user.id !== this.held.userId
+    )
+      return null;
     return { kid: this.held.kid, key: fromBase64Url(this.held.key) };
   }
 

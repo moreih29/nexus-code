@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -65,9 +64,12 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	abs, err := parseAbsolutePath(raw)
+	var abs string
+	var err error
 	if p.RelPath != "" {
 		abs, err = s.Resolve(p.RelPath)
+	} else {
+		abs, err = parseAbsolutePath(raw)
 	}
 	if err != nil {
 		return nil, err
@@ -93,7 +95,7 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 	if err := previewRegular(target, abs); err != nil {
 		return nil, err
 	}
-	file, versionable, err := openPreviewFile(real, p.VersionScope != "")
+	file, err := openPreviewFile(real)
 	if err != nil {
 		return nil, mapPathError(err, abs)
 	}
@@ -110,9 +112,17 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 	if !os.SameFile(target, before) {
 		return nil, changed
 	}
-	stamp, reliable := previewFileStamp(file, before, versionable)
-	version := ""
-	if reliable {
+	stamp, versionable := previewFileStamp(file, before, p.VersionScope != "" && before.Size() <= maxPreviewVersionBytes)
+	length := p.Length
+	if p.WholeImage && before.Size() <= maxPreviewImageBytes {
+		length = before.Size()
+	}
+	length = max(0, min(length, before.Size()-p.Offset))
+
+	var buf []byte
+	var proof []previewDigest
+	var version string
+	if versionable {
 		key, err := previewKey()
 		if err != nil {
 			return nil, err
@@ -120,29 +130,43 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 		mac := hmac.New(sha256.New, key[:])
 		fmt.Fprintf(mac, "%q %q %q %d %d %d %d %d %d", p.VersionScope, abs, real,
 			stamp.device, stamp.inode, stamp.change, before.ModTime().UnixNano(), before.Size(), before.Mode())
-		version = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+		metadata := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+		if p.RequireVersion != "" && !strings.HasPrefix(p.RequireVersion, metadata+".") {
+			return nil, changed
+		}
+		if pinned := previewProofFor(p.RequireVersion); len(pinned) > 0 && length > 0 {
+			// Compare every touched block with the original file's proof. An
+			// unrelated mapped write need not update ctime; the bytes returned
+			// here still match the version the caller is assembling.
+			buf, err = readProvenPreviewRange(file, before.Size(), p.Offset, length, pinned)
+			version = p.RequireVersion
+		} else {
+			select {
+			case previewFingerprintSlots <- struct{}{}:
+				defer func() { <-previewFingerprintSlots }()
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			var contents []byte
+			contents, err = readPreviewRange(file, 0, before.Size())
+			if err == nil {
+				version, proof = provePreview(key, metadata, contents)
+				if length > 0 {
+					buf = contents[p.Offset : p.Offset+length]
+				}
+			}
+		}
+		if err != nil {
+			return nil, mapPathError(err, abs)
+		}
 	}
 	if p.RequireVersion != "" && p.RequireVersion != version {
 		return nil, changed
 	}
-	result := previewResult{Kind: "ok", Size: before.Size(), Version: version}
-	notModified := p.IfVersion != "" && p.IfVersion == version
-	var buf []byte
-	if !notModified {
-		length := p.Length
-		if p.WholeImage && before.Size() <= maxPreviewImageBytes {
-			length = before.Size()
-		}
-		length = max(0, min(length, before.Size()-p.Offset))
-		if length > 0 {
-			buf = make([]byte, length)
-			n, err := file.ReadAt(buf, p.Offset)
-			if n != len(buf) && (err == nil || err == io.EOF) {
-				return nil, changed
-			}
-			if err != nil {
-				return nil, mapPathError(err, abs)
-			}
+	if !versionable {
+		buf, err = readPreviewRange(file, p.Offset, length)
+		if err != nil {
+			return nil, mapPathError(err, abs)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -172,11 +196,46 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 		before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
 		return nil, changed
 	}
-	if notModified {
+	if proof != nil {
+		rememberPreviewProof(version, proof)
+	}
+	if p.IfVersion != "" && p.IfVersion == version {
 		return previewResult{Kind: "notModified", Version: version}, nil
 	}
-	result.Base64 = base64.StdEncoding.EncodeToString(buf)
-	return result, nil
+	return previewResult{
+		Kind: "ok", Base64: base64.StdEncoding.EncodeToString(buf), Size: before.Size(), Version: version,
+	}, nil
+}
+
+func readPreviewRange(file *os.File, offset, length int64) ([]byte, error) {
+	if length == 0 {
+		return nil, nil
+	}
+	buf := make([]byte, length)
+	n, err := file.ReadAt(buf, offset)
+	if n != len(buf) && (err == nil || err == io.EOF) {
+		return nil, FSError{Code: CodeStale, Path: file.Name()}
+	}
+	return buf, err
+}
+
+func readProvenPreviewRange(file *os.File, size, offset, length int64, proof []previewDigest) ([]byte, error) {
+	first := offset / previewProofBlockBytes
+	end := (offset + length + previewProofBlockBytes - 1) / previewProofBlockBytes
+	startByte := first * previewProofBlockBytes
+	buf, err := readPreviewRange(file, startByte, min(size, end*previewProofBlockBytes)-startByte)
+	if err != nil {
+		return nil, err
+	}
+	for block := first; block < end; block++ {
+		start := (block - first) * previewProofBlockBytes
+		digest := sha256.Sum256(buf[start:min(start+previewProofBlockBytes, int64(len(buf)))])
+		if digest != proof[block] {
+			return nil, FSError{Code: CodeStale, Path: file.Name()}
+		}
+	}
+	start := offset - startByte
+	return buf[start : start+length], nil
 }
 
 func (s *Service) previewWorkspacePath(abs string) (string, error) {
@@ -212,10 +271,4 @@ func previewRegular(info os.FileInfo, abs string) error {
 		return FSError{Code: CodeNotFound, Path: abs}
 	}
 	return nil
-}
-
-// Some Linux filesystems use coarse time for ctime on writes. A version is
-// withheld while the last ctime tick could still be reused by another write.
-func oldEnoughForPreviewVersion(change int64) bool {
-	return change > 0 && time.Since(time.Unix(0, change)) > 100*time.Millisecond
 }

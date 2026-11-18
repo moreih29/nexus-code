@@ -1695,6 +1695,10 @@ export const RPC_METHODS = {
    * it is, whatever it holds: `length` bytes (at most MAX_BYTES_CHUNK, which
    * is the default) from `offset`, for a viewer that needs the whole file
    * (a PDF, a document) to take it piece by piece.
+   *
+   * Since 0.13.4, an opting-in reader can validate a cached representation
+   * of the same authorized source or pin another piece to its version.
+   * A host may return fresh bytes without a version.
    */
   "files.read": {
     capability: "files",
@@ -1710,7 +1714,7 @@ export const RPC_METHODS = {
       versioned: z.literal(true).optional(),
       /** Return notModified when this version still names the authorized file. */
       ifVersion: FileVersionSchema.optional(),
-      /** Require this generation for a subsequent piece; mutually exclusive with ifVersion. */
+      /** Pin a bytes piece to this generation; mutually exclusive with ifVersion. */
       requireVersion: FileVersionSchema.optional(),
     }),
     result: z.discriminatedUnion("kind", [

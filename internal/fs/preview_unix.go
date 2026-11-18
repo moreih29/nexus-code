@@ -12,11 +12,11 @@ import (
 
 // Open the resolved absolute path one component at a time. O_NOFOLLOW
 // protects each component if it changes after the grant's symlink checks.
-func openPreviewFile(real string, versioned bool) (*os.File, bool, error) {
+func openPreviewFile(real string) (*os.File, error) {
 	const flags = unix.O_CLOEXEC | unix.O_NOFOLLOW
 	fd, err := unix.Open("/", flags|previewDirOpenFlags, 0)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	parts := strings.Split(strings.TrimPrefix(real, "/"), "/")
 	for i, part := range parts {
@@ -30,9 +30,9 @@ func openPreviewFile(real string, versioned bool) (*os.File, bool, error) {
 			if errors.Is(err, unix.ELOOP) {
 				err = FSError{Code: CodeOutOfWorkspace, Path: real}
 			}
-			return nil, false, err
+			return nil, err
 		}
 		fd = next
 	}
-	return os.NewFile(uintptr(fd), real), versioned, nil
+	return os.NewFile(uintptr(fd), real), nil
 }

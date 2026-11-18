@@ -13,7 +13,7 @@ func previewFileStamp(file *os.File, info os.FileInfo, versioned bool) (previewS
 	stat := info.Sys().(*syscall.Stat_t)
 	stamp := previewStamp{uint64(stat.Dev), stat.Ino, stat.Ctim.Nano()}
 	var volume unix.Statfs_t
-	if !versioned || !oldEnoughForPreviewVersion(stamp.change) || unix.Fstatfs(int(file.Fd()), &volume) != nil {
+	if !versioned || unix.Fstatfs(int(file.Fd()), &volume) != nil {
 		return stamp, false
 	}
 	switch volume.Type {

@@ -340,6 +340,25 @@ describe("the methods", () => {
     ).toBe(true);
   });
 
+  test("files.read accepts opt-in validators and legacy unversioned responses", () => {
+    const read = RPC_METHODS["files.read"];
+    const params = { workspaceId: "w", path: "a.pdf", as: "bytes", offset: 0 } as const;
+    const version = "opaque-revision";
+    expect(read.params.parse({ ...params, versioned: true, length: 0 })).toEqual({
+      ...params,
+      versioned: true,
+      length: 0,
+    });
+    expect(read.params.parse({ ...params, requireVersion: version }).requireVersion).toBe(version);
+    expect(read.result.parse({ kind: "notModified", version })).toEqual({
+      kind: "notModified",
+      version,
+    });
+    const bytes = { kind: "bytes", path: "/w/a.pdf", data: "", offset: 0, size: 5 };
+    expect(read.result.parse(bytes)).toEqual(bytes);
+    expect(read.result.parse({ ...bytes, version })).toEqual({ ...bytes, version });
+  });
+
   test("chat.image may be asked for a thumbnail, its longer side in pixels", () => {
     const image = RPC_METHODS["chat.image"];
     const ask = (more: object) =>

@@ -10,6 +10,7 @@ import type { CustomScheme } from "electron";
 // inside the functions below (never at module load), so this is behavior-
 // equivalent in the real electron runtime.
 import * as electron from "electron";
+import { MAX_BYTES_CHUNK } from "../../../../packages/remote-protocol/src";
 import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
 import { PEER_HOST, type PeerWorkspace, peerFileOf } from "../../../shared/fs/peer-url";
@@ -166,14 +167,17 @@ export type PeerFileReader = (
   offset: number,
   length: number,
   signal: AbortSignal,
-) => Promise<{
-  first: PeerPiece;
-  read(offset: number, length: number): Promise<PeerPiece>;
-  signal?: AbortSignal;
-} | "missing">;
+) => Promise<
+  | {
+      first: PeerPiece;
+      read(offset: number, length: number): Promise<PeerPiece>;
+      signal?: AbortSignal;
+    }
+  | "missing"
+>;
 
 /** The most one request reads of another computer's file (the protocol's MAX_BYTES_CHUNK). */
-export const PEER_PIECE_BYTES = 512 * 1024;
+export const PEER_PIECE_BYTES = MAX_BYTES_CHUNK;
 
 /**
  * Builds the protocol handler function.  Exported so tests can call it
@@ -403,24 +407,51 @@ function piecesStream(
     piece.catch(() => {});
     pending.push(piece);
   };
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      lifetime?.signal.throwIfAborted();
-      while (pending.length <= READ_AHEAD && next < end) request();
-      const piece = pending.shift();
-      if (piece) {
-        const bytes = await piece;
-        lifetime?.signal.throwIfAborted();
-        controller.enqueue(new Uint8Array(bytes));
-      }
-      if (pending.length === 0 && next >= end) controller.close();
+  let detachAbort = () => {};
+  const stop = () => {
+    detachAbort();
+    next = end;
+    pending.length = 0;
+    lifetime?.cancel();
+  };
+  return new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        if (!lifetime) return;
+        const { signal } = lifetime;
+        const aborted = () => {
+          stop();
+          controller.error(signal.reason);
+        };
+        if (signal.aborted) aborted();
+        else {
+          signal.addEventListener("abort", aborted, { once: true });
+          detachAbort = () => signal.removeEventListener("abort", aborted);
+        }
+      },
+      async pull(controller) {
+        try {
+          lifetime?.signal.throwIfAborted();
+          while (pending.length <= READ_AHEAD && next < end) request();
+          const piece = pending.shift();
+          if (piece) {
+            const bytes = await piece;
+            lifetime?.signal.throwIfAborted();
+            controller.enqueue(new Uint8Array(bytes));
+          }
+          if (pending.length === 0 && next >= end) {
+            detachAbort();
+            controller.close();
+          }
+        } catch (error) {
+          stop();
+          throw error;
+        }
+      },
+      cancel: stop,
     },
-    cancel() {
-      next = end;
-      pending.length = 0;
-      lifetime?.cancel();
-    },
-  });
+    lifetime ? { highWaterMark: 0 } : undefined,
+  );
 }
 
 async function serveViaAgent(
@@ -484,8 +515,8 @@ async function serveOpenedPieces(
   if (range === "unsatisfiable") return unsatisfiable(size);
   const span = range ?? { start: 0, end: size - 1 };
   // A range from the end starts where only the size tells.
-  if (span.start !== start) {
-    first = await read(span.start, pieceSize);
+  if (span.start !== start || (first.base64 === "" && span.start < size)) {
+    first = await read(span.start, Math.min(pieceSize, span.end - span.start + 1));
     if (first.kind === "missing") return new Response(null, { status: 404 });
   }
   const body = piecesStream(
@@ -523,7 +554,11 @@ async function servePeerFile(
     const start = rangeStart(rangeHeader);
     const to = rangeHeader?.trim().match(/^bytes=\d+-(\d+)$/)?.[1];
     const end = to === undefined ? undefined : Number(to);
-    const length = end !== undefined && end >= start ? Math.min(PEER_PIECE_BYTES, end - start + 1) : PEER_PIECE_BYTES;
+    const length = /^bytes=-\d+$/.test(rangeHeader?.trim() ?? "")
+      ? 0
+      : end !== undefined && end >= start
+        ? Math.min(PEER_PIECE_BYTES, end - start + 1)
+        : PEER_PIECE_BYTES;
     const opened = await reader(peer, absPath, start, length, signal);
     if (opened === "missing") return new Response(null, { status: 404 });
     const lifetime = {

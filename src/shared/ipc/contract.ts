@@ -2689,7 +2689,11 @@ export const ipcContract = {
           deviceId: z.string().min(1).max(64),
           workspaceId: z.string(),
           path: z.string().min(1).max(4096),
-          offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - READ_RANGE_MAX_BYTES),
+          offset: z
+            .number()
+            .int()
+            .nonnegative()
+            .max(Number.MAX_SAFE_INTEGER - READ_RANGE_MAX_BYTES),
           length: z.number().int().positive().max(READ_RANGE_MAX_BYTES),
           whole: z.literal(true).optional(),
           requireVersion: z.string().min(1).max(128).optional(),

@@ -27,7 +27,8 @@ const CACHE_BYTES = 32 * 1024 * 1024;
 const CACHE_ENTRIES = 256;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_PENDING = 64;
-const MAX_ASSEMBLIES = 4;
+const MAX_WHOLE_READS = 4;
+const MAX_SPAN_READS = 32;
 const FILE_VERSIONS = "0.13.4";
 
 interface Entry {
@@ -81,15 +82,26 @@ export class PeerFileReads {
     { controller: AbortController; rejoins: number; versioned: boolean; files: boolean | undefined }
   >();
   private total = 0;
-  private assemblies = 0;
+  private wholeReads = 0;
+  private spanReads = 0;
 
   constructor(
-    private readonly request: (deviceId: string, params: Params, signal: AbortSignal) => Promise<Result>,
-    private readonly limits = { bytes: CACHE_BYTES, entries: CACHE_ENTRIES, fileBytes: MAX_FILE_BYTES },
+    private readonly request: (
+      deviceId: string,
+      params: Params,
+      signal: AbortSignal,
+    ) => Promise<Result>,
+    private readonly limits = {
+      bytes: CACHE_BYTES,
+      entries: CACHE_ENTRIES,
+      fileBytes: MAX_FILE_BYTES,
+    },
   ) {}
 
   updateRoom(state: RoomState): void {
-    const online = new Map(state.status === "online" ? state.peers.filter((p) => p.online).map((p) => [p.id, p]) : []);
+    const online = new Map(
+      state.status === "online" ? state.peers.filter((p) => p.online).map((p) => [p.id, p]) : [],
+    );
     for (const [id, scope] of this.peers) {
       const peer = online.get(id);
       if (
@@ -116,8 +128,9 @@ export class PeerFileReads {
     const scope = this.peers.get(id);
     if (!scope) return;
     this.peers.delete(id);
-    const prefix = JSON.stringify([id]).slice(0, -1) + ",";
-    for (const [key, flight] of this.flights) if (flight.file.startsWith(prefix)) this.flights.delete(key);
+    const prefix = `${JSON.stringify([id]).slice(0, -1)},`;
+    for (const [key, flight] of this.flights)
+      if (flight.file.startsWith(prefix)) this.flights.delete(key);
     for (const [key, entry] of this.entries) if (entry.file.startsWith(prefix)) this.remove(key);
     scope.controller.abort();
   }
@@ -134,7 +147,12 @@ export class PeerFileReads {
     };
   }
 
-  async read(peer: PeerWorkspace, path: string, shape: Shape, signal?: AbortSignal): Promise<Content> {
+  async read(
+    peer: PeerWorkspace,
+    path: string,
+    shape: Shape,
+    signal?: AbortSignal,
+  ): Promise<Content> {
     return this.piece(this.scope(peer, path), shape, signal);
   }
 
@@ -148,13 +166,25 @@ export class PeerFileReads {
     required?: string,
   ): Promise<OpenBytes> {
     const scope = this.scope(peer, path);
-    const first = bytesOf(await this.piece(scope, { as: "bytes", offset, length }, signal, required), offset, length);
+    // Suffix ranges start with size only on hosts that understand a zero-length read.
+    if (length === 0 && !scope.versioned) length = MAX_BYTES_CHUNK;
+    const first = bytesOf(
+      await this.piece(scope, { as: "bytes", offset, length }, signal, required),
+      offset,
+      length,
+    );
     return {
       first,
       signal: scope.signal,
       read: async (at: number, count: number) => {
         const piece = bytesOf(
-          await this.piece(scope, { as: "bytes", offset: at, length: count }, signal, first.version, true),
+          await this.piece(
+            scope,
+            { as: "bytes", offset: at, length: count },
+            signal,
+            first.version,
+            true,
+          ),
           at,
           count,
         );
@@ -175,18 +205,23 @@ export class PeerFileReads {
     signal?: AbortSignal,
   ): Promise<{ parts: string[]; size: number; version?: string }> {
     const scope = this.scope(peer, path);
-    if (this.assemblies >= MAX_ASSEMBLIES && length > MAX_BYTES_CHUNK) {
+    const multiPiece = length > MAX_BYTES_CHUNK;
+    if (multiPiece && this.spanReads >= MAX_SPAN_READS) {
       throw unavailable("too many file reads in progress");
     }
-    const assembleWhole = whole && scope.versioned && this.assemblies < MAX_ASSEMBLIES;
-    const assemble = assembleWhole || length > MAX_BYTES_CHUNK;
-    if (assemble) this.assemblies++;
+    const assembleWhole = whole && scope.versioned && this.wholeReads < MAX_WHOLE_READS;
+    if (assembleWhole) this.wholeReads++;
+    if (multiPiece) this.spanReads++;
     try {
       // Old hosts can fetch a span in parallel, as they did before versioned reads.
-      if (!scope.versioned && length > MAX_BYTES_CHUNK) {
+      if (!scope.versioned && multiPiece) {
         const reads = await Promise.all(
           this.slices(offset, offset + length).map(async ([at, count]) =>
-            bytesOf(await this.piece(scope, { as: "bytes", offset: at, length: count }, signal, required), at, count),
+            bytesOf(
+              await this.piece(scope, { as: "bytes", offset: at, length: count }, signal, required),
+              at,
+              count,
+            ),
           ),
         );
         const size = reads[0]?.size ?? 0;
@@ -194,20 +229,31 @@ export class PeerFileReads {
         return { parts: reads.map((read) => read.data), size };
       }
 
-      const { first, read } = await this.openBytes(peer, path, offset, Math.min(length, MAX_BYTES_CHUNK), signal, required);
+      const { first, read } = await this.openBytes(
+        peer,
+        path,
+        offset,
+        Math.min(length, MAX_BYTES_CHUNK),
+        signal,
+        required,
+      );
       const { size, version } = first;
-      const end = assembleWhole && size <= this.limits.fileBytes ? size : Math.min(offset + length, size);
+      const end =
+        assembleWhole && size <= this.limits.fileBytes ? size : Math.min(offset + length, size);
       const offsets = this.slices(offset + Buffer.byteLength(first.data, "base64"), end);
       const parts = [first.data];
       for (let i = 0; i < offsets.length; i += 4) {
-        const batch = await Promise.all(offsets.slice(i, i + 4).map(([at, count]) => read(at, count)));
+        const batch = await Promise.all(
+          offsets.slice(i, i + 4).map(([at, count]) => read(at, count)),
+        );
         parts.push(...batch.map((piece) => piece.data));
       }
       throwIfAborted(scope.signal);
       throwIfAborted(signal);
       return { parts, size, ...(version ? { version } : {}) };
     } finally {
-      if (assemble) this.assemblies--;
+      if (assembleWhole) this.wholeReads--;
+      if (multiPiece) this.spanReads--;
     }
   }
 
@@ -249,7 +295,11 @@ export class PeerFileReads {
         path: scope.path,
         ...shape,
         ...(versioned
-          ? condition ? { ifVersion: condition } : required ? { requireVersion: required } : { versioned: true }
+          ? condition
+            ? { ifVersion: condition }
+            : required
+              ? { requireVersion: required }
+              : { versioned: true }
           : {}),
       };
       const promise = this.request(scope.peer.deviceId, params, requestSignal)
@@ -272,7 +322,8 @@ export class PeerFileReads {
           throw error;
         })
         .finally(() => {
-          if (this.flights.get(requestKey)?.controller === controller) this.flights.delete(requestKey);
+          if (this.flights.get(requestKey)?.controller === controller)
+            this.flights.delete(requestKey);
         });
       flight = { file: scope.file, controller, promise, waiters: 0 };
       this.flights.set(requestKey, flight);
@@ -286,7 +337,9 @@ export class PeerFileReads {
         const abort = () => reject(createAbortError());
         if (waiter.aborted) abort();
         else waiter.addEventListener("abort", abort, { once: true });
-        shared.promise.then(resolve, reject).finally(() => waiter.removeEventListener("abort", abort));
+        shared.promise
+          .then(resolve, reject)
+          .finally(() => waiter.removeEventListener("abort", abort));
       });
     } finally {
       shared.waiters--;
@@ -307,12 +360,19 @@ export class PeerFileReads {
     const at = shape.offset ?? 0;
     for (const [entryKey, entry] of this.entries) {
       const bytes = entry.result;
-      if (entry.file !== file || bytes.kind !== "bytes" || (required && bytes.version !== required)) continue;
+      if (entry.file !== file || bytes.kind !== "bytes" || (required && bytes.version !== required))
+        continue;
       const length = Math.max(0, Math.min(shape.length ?? MAX_BYTES_CHUNK, bytes.size - at));
       const start = at - bytes.offset;
       if (start < 0 || start + length > Buffer.byteLength(bytes.data, "base64")) continue;
       this.touch(entryKey, entry);
-      return { ...bytes, offset: at, data: Buffer.from(bytes.data, "base64").subarray(start, start + length).toString("base64") };
+      return {
+        ...bytes,
+        offset: at,
+        data: Buffer.from(bytes.data, "base64")
+          .subarray(start, start + length)
+          .toString("base64"),
+      };
     }
   }
 
@@ -320,16 +380,20 @@ export class PeerFileReads {
     for (const [other, entry] of this.entries) {
       if (entry.file === file && entry.result.version !== result.version) this.remove(other);
     }
+    if (shape.length === 0) return;
     const cost = costOf(result) + 2 * (file.length + key.length);
     // A large PDF or video can reuse its opening prefix. Retain at most two
     // standard chunks, so sequential playback cannot displace other files.
     const openingChunk =
-      result.kind === "bytes" &&
-      (shape.offset === 0 || shape.offset === MAX_BYTES_CHUNK);
+      result.kind === "bytes" && (shape.offset === 0 || shape.offset === MAX_BYTES_CHUNK);
     if ((result.size > this.limits.fileBytes && !openingChunk) || cost > this.limits.bytes) return;
     if (result.size > this.limits.fileBytes && result.kind === "bytes") {
       for (const [other, entry] of this.entries) {
-        if (entry.file === file && entry.result.kind === "bytes" && entry.result.offset === result.offset) {
+        if (
+          entry.file === file &&
+          entry.result.kind === "bytes" &&
+          entry.result.offset === result.offset
+        ) {
           this.remove(other);
         }
       }

@@ -1,3 +1,4 @@
+import type { FsPreviewParams, FsPreviewResult } from "../../../../shared/fs/protocol";
 import type {
   DirEntry,
   ExpectedFileStateContract,
@@ -11,7 +12,6 @@ import type {
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../infra/agent/channel";
-import type { FsPreviewParams, FsPreviewResult } from "../../../../shared/fs/protocol";
 
 /**
  * Filesystem provider bound to one workspace-scoped agent.

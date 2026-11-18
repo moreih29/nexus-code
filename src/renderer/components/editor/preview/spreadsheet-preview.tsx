@@ -51,7 +51,9 @@ function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; re
     let cancelled = false;
     const abort = new AbortController();
     void (async () => {
-      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal).catch(() => ({ kind: "failed" as const }));
+      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal).catch(() => ({
+        kind: "failed" as const,
+      }));
       if (cancelled) return;
       if (read.kind !== "ok") {
         setStatus({ kind: read.kind });

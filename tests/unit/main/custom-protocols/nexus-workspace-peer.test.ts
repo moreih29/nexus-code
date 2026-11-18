@@ -3,6 +3,7 @@
 // over that computer's chat.
 
 import { describe, expect, mock, test } from "bun:test";
+import { PeerFileReads } from "../../../../src/main/features/remote/peer-file-reads";
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
 import type { PeerWorkspace } from "../../../../src/shared/fs/peer-url";
 
@@ -30,9 +31,15 @@ function fileOf(size: number) {
     const end = Math.min(size, offset + length);
     const bytes = Buffer.alloc(Math.max(0, end - offset));
     for (let i = 0; i < bytes.length; i++) bytes[i] = (offset + i) & 0xff;
-    return { base64: bytes.toString("base64"), size };
+    return { data: bytes.toString("base64"), size };
   };
-  return { read, asked };
+  return {
+    read: async (peer: PeerWorkspace, path: string, offset: number, length: number) => ({
+      first: await read(peer, path, offset, length),
+      read: (at: number, count: number) => read(peer, path, at, count),
+    }),
+    asked,
+  };
 }
 
 describe("nexus-workspace:// another computer's file", () => {
@@ -90,4 +97,121 @@ describe("nexus-workspace:// another computer's file", () => {
     expect((await handler(new Request("nexus-workspace://peer/dev:1/ws-1/a"))).status).toBe(404);
     expect(file.asked).toEqual([]);
   });
+});
+
+test("the protocol shares byte spans with IPC and validates a warm range", async () => {
+  const bytes = Buffer.alloc(PEER_PIECE_BYTES + 23, 65);
+  let version = "a";
+  let requests = 0;
+  let downloaded = 0;
+  const cache = new PeerFileReads(async (_device, args) => {
+    requests++;
+    if (args.ifVersion === version) return { kind: "notModified", version };
+    const at = args.offset ?? 0;
+    const chunk = bytes.subarray(at, at + (args.length ?? PEER_PIECE_BYTES));
+    downloaded += chunk.length;
+    return {
+      kind: "bytes",
+      data: chunk.toString("base64"),
+      path: args.path,
+      offset: at,
+      size: bytes.length,
+      version,
+    };
+  });
+  cache.updateRoom({
+    status: "online",
+    peers: [{ id: PEER.deviceId, name: "host", platform: "linux", online: true, schema: "0.13.4" }],
+  });
+  const path = "/w/photo.png";
+  await cache.readBytes(PEER, path, 0, PEER_PIECE_BYTES, true);
+  const handler = buildNexusWorkspaceHandler(manager, () => cache.openBytes.bind(cache));
+  const request = () =>
+    new Request(buildPeerUrl(PEER, path), { headers: { range: "bytes=100-199" } });
+  const first = await handler(request());
+  expect(first.status).toBe(206);
+  expect(first.headers.get("Cache-Control")).toBe("no-store");
+  expect(Buffer.from(await first.arrayBuffer())).toEqual(bytes.subarray(100, 200));
+  expect([requests, downloaded]).toEqual([3, bytes.length]);
+
+  bytes.fill(66);
+  version = "b";
+  const changed = await handler(request());
+  expect(Buffer.from(await changed.arrayBuffer())).toEqual(bytes.subarray(100, 200));
+  expect([requests, downloaded]).toEqual([4, bytes.length + 100]);
+});
+
+test("cancel stops peer protocol read-ahead", async () => {
+  const fetched: number[] = [];
+  let signal: AbortSignal | undefined;
+  const handler = buildNexusWorkspaceHandler(
+    manager,
+    () => async (_peer, _path, _offset, length, lifetime) => {
+      signal = lifetime;
+      return {
+        first: { data: Buffer.alloc(length).toString("base64"), size: 20 * length },
+        read: (at) => {
+          fetched.push(at);
+          return new Promise((_resolve, reject) => {
+            lifetime.addEventListener("abort", () => reject(lifetime.reason), { once: true });
+          });
+        },
+      };
+    },
+  );
+  const response = await handler(new Request(buildPeerUrl(PEER, "/w/clip.mp4")));
+  const body = response.body?.getReader();
+  expect((await body?.read())?.value?.length).toBe(PEER_PIECE_BYTES);
+  expect(fetched.length).toBeLessThanOrEqual(3);
+  await body?.cancel();
+  expect(signal?.aborted).toBe(true);
+  expect(fetched.length).toBeLessThanOrEqual(3);
+});
+
+test("suffix ranges fetch metadata and only the requested content on a versioned host", async () => {
+  const calls: number[] = [];
+  const size = 2 * PEER_PIECE_BYTES;
+  const cache = new PeerFileReads(async (_device, args) => {
+    const length = args.length ?? PEER_PIECE_BYTES;
+    calls.push(length);
+    return {
+      kind: "bytes",
+      data: Buffer.alloc(length, 77).toString("base64"),
+      path: args.path,
+      offset: args.offset ?? 0,
+      size,
+      version: "v1",
+    };
+  });
+  cache.updateRoom({
+    status: "online",
+    peers: [{ id: PEER.deviceId, name: "host", platform: "linux", online: true, schema: "0.13.4" }],
+  });
+  const handler = buildNexusWorkspaceHandler(manager, () => cache.openBytes.bind(cache));
+  const response = await handler(
+    new Request(buildPeerUrl(PEER, "/w/clip.mp4"), { headers: { range: "bytes=-100" } }),
+  );
+  expect(response.status).toBe(206);
+  expect(response.headers.get("Content-Range")).toBe(`bytes ${size - 100}-${size - 1}/${size}`);
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.alloc(100, 77));
+  expect(calls).toEqual([0, 100]);
+});
+
+test("disconnect invalidates an open peer response before buffered bytes can be delivered", async () => {
+  const cache = new PeerFileReads(async (_device, args) => ({
+    kind: "bytes",
+    data: "AQID",
+    offset: 0,
+    size: 3,
+    path: args.path,
+    version: "v1",
+  }));
+  cache.updateRoom({
+    status: "online",
+    peers: [{ id: PEER.deviceId, name: "host", platform: "linux", online: true, schema: "0.13.4" }],
+  });
+  const handler = buildNexusWorkspaceHandler(manager, () => cache.openBytes.bind(cache));
+  const response = await handler(new Request(buildPeerUrl(PEER, "/w/photo.png")));
+  cache.updateRoom({ status: "waiting", peers: [] });
+  await expect(response.arrayBuffer()).rejects.toHaveProperty("name", "AbortError");
 });

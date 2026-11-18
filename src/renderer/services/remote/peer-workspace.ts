@@ -81,8 +81,19 @@ export async function readPeerPiece(
   let first: PeerPiece | null = null;
   const end = offset + Math.max(1, length);
   for (let at = offset; at < end; at += READ_RANGE_MAX_BYTES) {
-    const piece = await readSpan(peer, path, at, Math.min(READ_RANGE_MAX_BYTES, end - at), first?.version ?? requireVersion, signal);
-    if (!piece || (first && (piece.size !== first.size || (first.version && piece.version !== first.version)))) return null;
+    const piece = await readSpan(
+      peer,
+      path,
+      at,
+      Math.min(READ_RANGE_MAX_BYTES, end - at),
+      first?.version ?? requireVersion,
+      signal,
+    );
+    if (
+      !piece ||
+      (first && (piece.size !== first.size || (first.version && piece.version !== first.version)))
+    )
+      return null;
     first ??= piece;
     parts.push(piece.bytes);
     if (at + piece.bytes.length >= piece.size) break;
@@ -118,12 +129,22 @@ export async function readPeerBinary(
     const batch = await Promise.all(
       offsets
         .slice(i, i + PARALLEL)
-        .map((at) => readPeerPiece(peer, path, at, Math.min(MAX_BYTES_CHUNK, head.size - at), head.version, signal)),
+        .map((at) =>
+          readPeerPiece(
+            peer,
+            path,
+            at,
+            Math.min(MAX_BYTES_CHUNK, head.size - at),
+            head.version,
+            signal,
+          ),
+        ),
     );
     for (const [j, piece] of batch.entries()) {
       const at = offsets[i + j] ?? 0;
       // A file that changed size while it was read is not shown as either.
-      if (!piece || piece.size !== head.size || (head.version && piece.version !== head.version)) return { kind: "failed" };
+      if (!piece || piece.size !== head.size || (head.version && piece.version !== head.version))
+        return { kind: "failed" };
       bytes.set(piece.bytes.subarray(0, head.size - at), at);
     }
   }
@@ -154,7 +175,9 @@ export async function readPeerText(
 
 /** The text another computer's file holds, read through the room; null while it comes. */
 export function usePeerText(workspaceId: string, path: string): PeerText | null {
-  const [read, setRead] = useState<{ workspaceId: string; path: string; text: PeerText } | null>(null);
+  const [read, setRead] = useState<{ workspaceId: string; path: string; text: PeerText } | null>(
+    null,
+  );
   useEffect(() => {
     const peer = peerOf(workspaceId);
     if (!peer) return;

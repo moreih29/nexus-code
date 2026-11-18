@@ -104,11 +104,13 @@ class FileReadBudget {
 
 const imageReadBudget = new FileReadBudget(2, 16);
 const fileReadBudget = new FileReadBudget(8, 32);
+const FILE_READ_SOCKET_HIGH_WATER = 4 * MAX_FRAME_BYTES;
 
 function readBudget(params: unknown): FileReadBudget {
   const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
   const image = /\.(png|jpe?g|gif|webp)$/i;
-  return as !== "bytes" && typeof path === "string" &&
+  return as !== "bytes" &&
+    typeof path === "string" &&
     (image.test(posix.normalize(path).replace(/\/+$/, "")) ||
       image.test(win32.normalize(path).replace(/\\+$/, "")))
     ? imageReadBudget
@@ -131,6 +133,7 @@ export interface RoomConnection {
   start(): void;
   stop(): void;
   send(frame: ClientFrame): boolean;
+  readonly bufferedAmount?: number;
   healthy(): void;
 }
 
@@ -190,6 +193,7 @@ export class RemoteRoom {
   /** Messages are taken one after another, so their seqs are checked in the order they came. */
   private inbox: Promise<unknown> = Promise.resolve();
   private foreignAt = Number.NEGATIVE_INFINITY;
+  private fileReadBusyReply = false;
 
   constructor(private readonly deps: RemoteRoomDeps) {
     this.connection = deps.connect({
@@ -358,9 +362,10 @@ export class RemoteRoom {
     peer: string | null,
     message: SealedMessage,
     signal?: AbortSignal,
+    shouldSend?: () => boolean,
   ): Promise<number | null> {
     const sent = this.outbox.then(async () => {
-      if (signal?.aborted) return null;
+      if (signal?.aborted || shouldSend?.() === false) return null;
       this.seq += 1;
       const seq = this.seq;
       const frame = await sealMessage({
@@ -370,7 +375,9 @@ export class RemoteRoom {
         seq,
         envelope: { epoch: this.epoch, peer, message },
       });
-      return !signal?.aborted && this.connection.send(frame) ? seq : null;
+      return !signal?.aborted && shouldSend?.() !== false && this.connection.send(frame)
+        ? seq
+        : null;
     });
     this.outbox = sent.catch(() => null);
     return sent;
@@ -555,19 +562,36 @@ export class RemoteRoom {
         const current = () =>
           this.status === "online" &&
           this.heard.get(from)?.epoch === epoch &&
-          this.peers.get(from)?.online !== false;
+          this.peers.get(from)?.online === true;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
-          if (!current()) return;
-          await this.reply(from, epoch, message, {
-            error: { code: RpcErrorCode.Unavailable, message: "the host is busy reading files" },
-          });
+          if (!current() || this.fileReadBusyReply) return;
+          this.fileReadBusyReply = true;
+          try {
+            await this.waitForFileReadSocket(current);
+            if (!current()) return;
+            await this.reply(
+              from,
+              epoch,
+              message,
+              {
+                error: {
+                  code: RpcErrorCode.Unavailable,
+                  message: "the host is busy reading files",
+                },
+              },
+              current,
+            );
+          } finally {
+            this.fileReadBusyReply = false;
+          }
           return;
         }
         try {
+          await this.waitForFileReadSocket(current);
           if (!current()) return;
           const answer = await this.answer(from, message.method, message.params);
-          if (current()) await this.reply(from, epoch, message, answer);
+          if (current()) await this.reply(from, epoch, message, answer, current);
         } finally {
           budget.release();
         }
@@ -601,11 +625,18 @@ export class RemoteRoom {
       );
   }
 
+  private async waitForFileReadSocket(current: () => boolean): Promise<void> {
+    while (current() && (this.connection.bufferedAmount ?? 0) > FILE_READ_SOCKET_HIGH_WATER) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
   private reply(
     from: string,
     epoch: string,
     request: { id: number | string; method: string },
     answer: { result: unknown } | { error: RpcError },
+    current?: () => boolean,
   ): Promise<number | null> {
     const reply: SealedMessage = { jsonrpc: "2.0", id: request.id, ...answer };
     return this.post(
@@ -621,6 +652,8 @@ export class RemoteRoom {
               message: `${request.method}: the answer is too large to send`,
             },
           },
+      undefined,
+      current,
     );
   }
 
