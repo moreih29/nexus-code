@@ -14,7 +14,7 @@ import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
-import { remoteSessionKey, removeKey } from "../../services/agent-view/layout";
+import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude-config";
 import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex-commands";
@@ -44,6 +44,7 @@ import {
   chatProfileIdThere,
   type PeerReach,
   type PeerRead,
+  refreshPeerSessions,
   TERMINAL_PROFILE_SCHEMA,
   usePeerControls,
   usePeerReach,
@@ -53,7 +54,6 @@ import {
 import { useSelfDeviceId } from "../../services/remote/self-device";
 import { TerminalTyping } from "../../services/remote/terminal-typing";
 import { registerTabFocusTarget } from "../../services/tab-focus";
-import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -81,7 +81,6 @@ import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
-import { showConfirmDialog } from "../ui/confirm-dialog";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
@@ -90,6 +89,7 @@ import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
+import { closePeerSession } from "./remote-session-actions";
 import {
   type RemotePanelAsk,
   type RemotePanelPart,
@@ -97,6 +97,7 @@ import {
   remoteAgentsOf,
   remotePanelPartOf,
 } from "./remote-side-panel";
+import { RemoteTerminalAsk } from "./remote-terminal-ask";
 import { RemoteTerminalScreen } from "./remote-terminal-screen";
 import { rateLimitOf, usageLineOf } from "./remote-usage";
 
@@ -1055,26 +1056,7 @@ function RemoteControls({
         ),
       openUrl: (url) => links?.openUrl(url),
       // Its tab there closed, as /exit closes a chat here: once the user says so, as it is not here.
-      exit: () =>
-        void showConfirmDialog({
-          title: t("agentView.remote.exitTitle", { device: target.deviceName }),
-          description: t("agentView.remote.exitBody"),
-          confirmLabel: t("agentView.remote.exitConfirm"),
-          variant: "destructive",
-        }).then(async (confirmed) => {
-          if (!confirmed) return;
-          const result = await ipcCallResult("remote", "peerChatClose", {
-            deviceId,
-            workspaceId,
-            tabId,
-          });
-          if (!result.ok) {
-            onError(result.message);
-            return;
-          }
-          const key = remoteSessionKey(target);
-          useAgentViewStore.getState().update((layout) => removeKey(layout, key));
-        }),
+      exit: () => void closePeerSession(target),
       ...(types && inProfile
         ? {
             terminal: {
@@ -1273,6 +1255,11 @@ function RemoteControls({
   );
 }
 
+/**
+ * Another computer's terminal: its screen, typed into where that computer
+ * lets this one; and while its Claude Code asks for leave, the request,
+ * to answer from here.
+ */
 function RemoteTerminal({
   target,
   visible,
@@ -1286,6 +1273,11 @@ function RemoteTerminal({
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
   const types = usePeerTypes(deviceId);
+  // Its Claude Code's request is answered as a chat's is: where the computer lets this one control.
+  const controls = usePeerControls(deviceId);
+  // The request answered here, kept out of sight until the list no longer says it waits.
+  const [answered, setAnswered] = useState<string | null>(null);
+  const ask = target.ask;
   const typing = useMemo(
     () =>
       new TerminalTyping(
@@ -1318,6 +1310,25 @@ function RemoteTerminal({
         {...(read.value.caret ? { caret: read.value.caret } : {})}
         {...(types && reach === "online" ? { typing } : {})}
       />
+      {reach === "online" && controls && ask && ask.requestId !== answered && (
+        <RemoteTerminalAsk
+          key={ask.requestId}
+          ask={ask}
+          onAnswer={(decision) =>
+            ipcCallResult("remote", "peerTerminalAnswer", {
+              deviceId,
+              workspaceId,
+              tabId,
+              requestId: ask.requestId,
+              decision,
+            })
+          }
+          onAnswered={() => {
+            setAnswered(ask.requestId);
+            refreshPeerSessions(deviceId);
+          }}
+        />
+      )}
       {reach !== "online" ? (
         <Unreachable reach={reach} device={target.deviceName} />
       ) : (

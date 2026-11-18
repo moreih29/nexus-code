@@ -96,6 +96,59 @@ describe("remote sessions as tabs", () => {
     });
   });
 
+  it("a terminal takes up the request its Claude Code holds, and lets go of it once answered", () => {
+    const terminal = { ...target, tabId: "t3", kind: "terminal" as const, title: "claude" };
+    const key = remoteSessionKey(terminal);
+    useRemoteViewStore.getState().open(terminal);
+    const listed = (waiting?: { kind: "permission"; text: string; requestId?: string }) => ({
+      workspaces: [{ id: "w1", name: "api", path: "/src/api" }],
+      sessions: [
+        {
+          workspaceId: "w1",
+          tabId: "t3",
+          kind: "terminal" as const,
+          title: "claude",
+          state: "needs-you" as const,
+          ...(waiting ? { waiting } : {}),
+        },
+      ],
+    });
+    useRemoteViewStore
+      .getState()
+      .refresh("d2", listed({ kind: "permission", text: "Bash npm test", requestId: "r1" }));
+    expect(useRemoteViewStore.getState().targets.get(key)?.ask).toEqual({
+      requestId: "r1",
+      text: "Bash npm test",
+    });
+    // Waiting with nothing to answer by (an older computer's) is no request here.
+    useRemoteViewStore.getState().refresh("d2", listed({ kind: "permission", text: "Bash" }));
+    expect(useRemoteViewStore.getState().targets.get(key)?.ask).toBeUndefined();
+    useRemoteViewStore
+      .getState()
+      .refresh("d2", listed({ kind: "permission", text: "Edit a.ts", requestId: "r2" }));
+    expect(useRemoteViewStore.getState().targets.get(key)?.ask?.requestId).toBe("r2");
+    useRemoteViewStore.getState().refresh("d2", listed());
+    expect(useRemoteViewStore.getState().targets.get(key)).not.toHaveProperty("ask");
+  });
+
+  it("a chat never takes up a request to answer as a terminal's", () => {
+    useRemoteViewStore.getState().open(target);
+    useRemoteViewStore.getState().refresh("d2", {
+      workspaces: [{ id: "w1", name: "api", path: "/src/api" }],
+      sessions: [
+        {
+          workspaceId: "w1",
+          tabId: "t1",
+          kind: "claude" as const,
+          title: "Fix the build",
+          state: "needs-you" as const,
+          waiting: { text: "Run bun test?", requestId: "r1" },
+        },
+      ],
+    });
+    expect(useRemoteViewStore.getState().targets.get(KEY)).not.toHaveProperty("ask");
+  });
+
   it("stays in the panels as this computer's tabs close", () => {
     expect(staysInPanels(KEY)).toBe(true);
     expect(staysInPanels("ws-gone:t1")).toBe(false);
