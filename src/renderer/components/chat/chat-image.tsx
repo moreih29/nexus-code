@@ -6,7 +6,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf, imageSrc } from "../../services/chat/image-look";
-import type { ImageBlock, ToolCall } from "../../services/chat/model";
+import type { ImageBlock, ImageLoader, ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 import { useChatLinks } from "./chat-links";
 
@@ -14,37 +14,50 @@ import { useChatLinks } from "./chat-links";
  * Fetches an image whose bytes are elsewhere: another computer's chat's,
  * which comes without them. None in a chat here, whose images have theirs.
  */
-export const ImageLoaderContext = createContext<
-  ((image: ImageBlock) => Promise<ImageBlock>) | null
->(null);
+export const ImageLoaderContext = createContext<ImageLoader | null>(null);
 
-/** The image with its bytes: at once when it has them, else once fetched; null till then, or when it failed. */
+/** Resolve a remote ref under the current loader's peer connection. */
 export function useImageBytes(image: ImageBlock | undefined): {
   image: ImageBlock | null;
   failed: boolean;
 } {
   const load = useContext(ImageLoaderContext);
-  const away = image !== undefined && image.data === "" && image.remote !== undefined;
-  const [got, setGot] = useState<{ image: ImageBlock | null; failed: boolean }>({
-    image: null,
-    failed: false,
-  });
-  const ref = away && image.remote ? JSON.stringify(image.remote) : null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fetched again only for another image
+  const remote = image?.data === "" ? image.remote : undefined;
+  const ref = remote ? JSON.stringify(remote) : null;
+  const [got, setGot] = useState<{
+    load: ImageLoader | null;
+    ref: string | null;
+    image: ImageBlock | null;
+    failed: boolean;
+  }>({ load, ref, image: null, failed: false });
+  const current = got.ref === ref && got.load === load;
+  if (!current) setGot({ load, ref, image: null, failed: false });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ref identifies the image's bytes.
   useEffect(() => {
-    if (!away || !load || !image) return;
+    if (!load || !image || !remote) return;
     let live = true;
-    load(image).then(
-      (loaded) => live && setGot({ image: loaded, failed: false }),
-      () => live && setGot({ image: null, failed: true }),
-    );
+    const show = (loaded: ImageBlock | null) => {
+      if (!live) return;
+      setGot((previous) =>
+        previous.load === load &&
+        previous.ref === ref &&
+        previous.image === loaded &&
+        previous.failed === (loaded === null)
+          ? previous
+          : { load, ref, image: loaded, failed: loaded === null },
+      );
+    };
+    const off = load.subscribe(remote, show);
+    void load(image).then(show, () => show(null));
     return () => {
       live = false;
+      off();
     };
   }, [ref, load]);
-  if (!image) return { image: null, failed: false };
-  if (!away) return { image, failed: false };
-  return load ? got : { image: null, failed: true };
+  if (!remote) return { image: image ?? null, failed: false };
+  if (!load) return { image: null, failed: true };
+  return current ? got : { image: null, failed: false };
 }
 
 export function ChatImage({

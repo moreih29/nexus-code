@@ -38,7 +38,7 @@ import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
-import { fitImage, imageOf } from "../remote/chat-image";
+import { imageOf, readChatImage } from "../remote/chat-image";
 import { originalOf } from "../remote/chat-original";
 import {
   type ChatSource,
@@ -990,12 +990,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId: openTab(workspaceId, tab, { background: true }) };
   },
 
-  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge }) => {
+  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge, versioned, ifVersion }) => {
     // Read only: a Claude tab's transcript will do, its program not started for it.
     const { agent } = await readableTab(workspaceId, tabId);
     const image = imageOf(sourceOf(workspaceId, tabId, agent), ref);
     if (!image) throw new UiRequestError("no such image in that tab");
-    return fitImage(image, { maxChars, ...(maxEdge !== undefined ? { maxEdge } : {}) });
+    return readChatImage(image, { maxChars, maxEdge, versioned, ifVersion });
   },
 
   "chat.commands": async ({ workspaceId, tabId }) => {

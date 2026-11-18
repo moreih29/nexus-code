@@ -35,6 +35,11 @@ import type { CommandCard } from "../../services/chat/store";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
+import {
+  peerChatFiles,
+  peerImageLoader,
+  usePeerChatAccess,
+} from "../../services/remote/peer-chat-media";
 import { usePeerComposer } from "../../services/remote/peer-composer";
 import {
   putPeerDraft,
@@ -94,7 +99,7 @@ import { UsageLineView } from "../chat/usage-line";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
-import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
+import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
@@ -690,11 +695,15 @@ function RemoteChatView({
   );
 
   // Its images, files and changes are read from that computer, shown in this app's quick look.
+  const mediaAccess = usePeerChatAccess(deviceId, visible);
   const loadImage = useMemo(
-    () => peerImageLoader({ deviceId, workspaceId, tabId }),
-    [deviceId, workspaceId, tabId],
+    () => peerImageLoader({ deviceId, workspaceId, tabId }, mediaAccess),
+    [deviceId, workspaceId, tabId, mediaAccess],
   );
-  const files = useMemo(() => peerChatFiles({ deviceId, workspaceId }), [deviceId, workspaceId]);
+  const files = useMemo(
+    () => peerChatFiles({ deviceId, workspaceId }, mediaAccess),
+    [deviceId, workspaceId, mediaAccess],
+  );
   // That computer's workspace, as the previews read it, at its folder there.
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
   useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);

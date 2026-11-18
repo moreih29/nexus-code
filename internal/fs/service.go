@@ -105,6 +105,7 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readAbsoluteBinary", fsys.ReadAbsoluteBinary)
 	d.Register("fs.readRange", fsys.ReadRange)
 	d.Register("fs.readAbsoluteRange", fsys.ReadAbsoluteRange)
+	d.Register("fs.readPreview", fsys.ReadPreview)
 	d.Register("fs.writeFile", fsys.WriteFile)
 	d.Register("fs.createFile", fsys.CreateFile)
 	d.Register("fs.mkdir", fsys.Mkdir)

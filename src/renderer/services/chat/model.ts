@@ -43,6 +43,11 @@ export type RemoteImageRef =
   | { kind: "tool"; toolUseId: string; index: number }
   | { kind: "held"; id: string; index: number };
 
+export interface ImageLoader {
+  (image: ImageBlock): Promise<ImageBlock>;
+  subscribe(ref: RemoteImageRef, listener: (image: ImageBlock | null) => void): () => void;
+}
+
 export interface UserItem {
   kind: "user";
   key: string;

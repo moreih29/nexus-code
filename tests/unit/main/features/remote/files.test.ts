@@ -326,6 +326,44 @@ describe("reading a file", () => {
     await expect(read("gone.ts")).rejects.toMatchObject({ code: 1001 });
   });
 
+  test("an older agent returns fresh bytes, with no version or successful pin", async () => {
+    const source = files(tree);
+    const oldAgent = await source.fs(ws);
+    oldAgent.readPreview = async () => null;
+    source.fs = async () => oldAgent;
+    const params = { workspaceId: ws, path: "a.ts", as: "bytes", length: 0 } as const;
+    await expect(readFile(source, root, params)).rejects.toMatchObject({ code: -32602 });
+    expect(await readFile(source, root, { ...params, ifVersion: "old" })).toEqual({
+      kind: "bytes",
+      path: "/src/app/a.ts",
+      offset: 0,
+      data: "",
+      size: 11,
+    });
+    await expect(
+      readFile(source, root, { ...params, requireVersion: "old" }),
+    ).rejects.toMatchObject({
+      code: -32602,
+      message: "file version changed",
+    });
+  });
+
+  test("a named grant revoked during validation cannot confirm cached bytes", async () => {
+    const output = "/outside/preview.txt";
+    let granted = true;
+    const source = files({ [output]: text("secret") });
+    const provider = await source.fs(ws);
+    source.named = async () => (granted ? [output] : []);
+    source.fs = async () => provider;
+    provider.readPreview = async () => {
+      granted = false;
+      return { kind: "notModified", version: "cached" };
+    };
+    await expect(
+      readFile(source, root, { workspaceId: ws, path: output, ifVersion: "cached" }),
+    ).rejects.toMatchObject({ code: 1002 });
+  });
+
   test("a folder a chat was given is read only on this computer: its host's agent follows links", async () => {
     await expect(read("/home/me/shared/notes.md")).rejects.toMatchObject({ code: 1003 });
   });

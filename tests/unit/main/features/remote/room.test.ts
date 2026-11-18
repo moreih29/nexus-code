@@ -6,8 +6,14 @@ import type {
   RoomDevice,
   ServerFrame,
 } from "../../../../../packages/remote-protocol/src";
-import { RpcErrorCode, SCHEMA_VERSION } from "../../../../../packages/remote-protocol/src";
+import {
+  MAX_BYTES_CHUNK,
+  RpcErrorCode,
+  type RpcParams,
+  SCHEMA_VERSION,
+} from "../../../../../packages/remote-protocol/src";
 import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remote/account-key";
+import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
   MAX_MESSAGE_BYTES,
@@ -610,4 +616,73 @@ describe("the protocol a device speaks", () => {
     expect(speaks("0.9.0", "0.12.0")).toBe(false);
     expect(speaks(undefined, "0.12.0")).toBe(false);
   });
+});
+
+test("peer cache transfer through sealed room requests on open, reopen and same-size edit", async () => {
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const peer = { deviceId: "host", workspaceId: "workspace" };
+  const path = "/workspace/sample.txt";
+  const bytes = Buffer.alloc(MAX_BYTES_CHUNK * 2 + 25, 65);
+  let revision = "v1";
+  let contentBytes = 0;
+  const host = device(relay, peer.deviceId, key, {
+    serves: ["files"],
+    serve: async ({ params }) => {
+      const args = params as RpcParams<"files.read">;
+      if (args.ifVersion === revision) return { kind: "notModified", version: revision };
+      if (args.requireVersion && args.requireVersion !== revision)
+        throw new RpcFailure(RpcErrorCode.InvalidParams, "file version changed");
+      const offset = args.offset ?? 0;
+      const data = bytes.subarray(offset, offset + (args.length ?? MAX_BYTES_CHUNK));
+      contentBytes += data.length;
+      return {
+        kind: "bytes",
+        path,
+        offset,
+        size: bytes.length,
+        data: data.toString("base64"),
+        version: revision,
+      };
+    },
+  });
+  const client = device(relay, "client", key, { onChange: (state) => cache.updateRoom(state) });
+  const cache = new PeerFileReads((to, params, signal) =>
+    client.room.request(to, "files.read", params, undefined, signal),
+  );
+  host.room.start();
+  client.room.start();
+  try {
+    await tick();
+    const measure = async () => {
+      const requests = relay.between("client", "host").length;
+      const responses = relay.between("host", "client").length;
+      const priorBytes = contentBytes;
+      const got = await cache.readBytes(peer, path, 0, MAX_BYTES_CHUNK, true);
+      const frames = relay.between("host", "client").slice(responses);
+      return {
+        requests: relay.between("client", "host").length - requests,
+        contentBytes: contentBytes - priorBytes,
+        replyFrameBytes: frames.reduce(
+          (sum, frame) => sum + Buffer.byteLength(JSON.stringify(frame)),
+          0,
+        ),
+        first: Buffer.from(got.parts[0] ?? "", "base64")[0],
+      };
+    };
+    const first = await measure();
+    const reopen = await measure();
+    bytes.fill(66);
+    revision = "v2";
+    const changed = await measure();
+    expect(first).toMatchObject({ requests: 3, contentBytes: bytes.length, first: 65 });
+    expect(reopen).toMatchObject({ requests: 1, contentBytes: 0, first: 65 });
+    expect(changed).toMatchObject({ requests: 3, contentBytes: bytes.length, first: 66 });
+    expect(reopen.replyFrameBytes).toBeLessThan(500);
+    expect(first.replyFrameBytes).toBeGreaterThan(bytes.length);
+    console.info("peer file transfer (sealed in-memory relay)", { first, reopen, changed });
+  } finally {
+    client.room.stop();
+    host.room.stop();
+  }
 });
