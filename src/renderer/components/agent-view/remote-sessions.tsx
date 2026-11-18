@@ -5,7 +5,8 @@
 // last line, as it does this computer's. A terminal with only its shell is
 // out of sight until the user asks for its workspace's terminals, with the
 // chip in its heading, or searches for it; asked for, they hang under the
-// heading from its icon, as the phone shows them.
+// heading from its icon, as the phone shows them. A task's workspace hangs
+// from a line under its workspace's, as well.
 //
 // Where the computer lets this one control its chats or terminals, a
 // workspace's heading has a + to open one there, and a session's row a
@@ -257,6 +258,7 @@ export function PeerGroup({
       (plain.get(id)?.length ?? 0) > 0 ||
       (opens && !query.trim() && workspaces.has(id) && !workspaces.get(id)?.parentId),
   );
+  const headed = new Set(groups.map(([id]) => id));
   const renameRequest = useMemo<PromptRequest | null>(
     () =>
       renaming && {
@@ -391,8 +393,20 @@ export function PeerGroup({
                   const terminals = plain.get(workspaceId) ?? [];
                   const unfolded = terminalsIn.has(workspaceId);
                   const workspace = workspaces.get(workspaceId);
+                  // A task hangs from a line under its workspace's folder, where
+                  // that is listed (the computer lists a workspace's tasks right
+                  // after it), so its rows read as its own, as the phone shows them.
+                  const parent = workspace?.parentId;
+                  const hung = parent !== undefined && headed.has(parent);
                   return (
-                    <div key={workspaceId} className="flex flex-col not-first:mt-1.5">
+                    <div
+                      key={workspaceId}
+                      className={cn(
+                        "flex flex-col not-first:mt-1.5",
+                        hung && "ml-3.5 border-border border-l",
+                      )}
+                      data-task={hung ? "" : undefined}
+                    >
                       <WorkspaceHeading
                         name={names.get(workspaceId) ?? workspaceId}
                         workspace={workspace}
