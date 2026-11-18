@@ -19,6 +19,7 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
+import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
 import {
   chatRun,
   chatRuns,
@@ -447,6 +448,32 @@ describe("serving a chat and a terminal to read", () => {
     expect(asked).toEqual([
       ["chat.page", { workspaceId: "w1", tabId: "t1", before: 40, limit: 20 }],
     ]);
+  });
+
+  test("reads the full parent page when Codex child messages alone exceed a frame", async () => {
+    const items = Array.from({ length: 200 }, (_, i) => ({
+      kind: "shell",
+      key: `parent-${i}`,
+      command: "pwd",
+    }));
+    const { s, asked } = recording(() => ({
+      start: 0,
+      total: items.length,
+      status: { agent: "codex" },
+      items,
+      tools: {},
+      tasks: {},
+      agentItems: {
+        child: [{ blocks: [{ type: "text", text: "x".repeat(MAX_MESSAGE_BYTES) }] }],
+      },
+    }));
+    const page = await serveWith(() => s)({
+      from: "d",
+      method: "chat.read",
+      params: { workspaceId: "w1", tabId: "t1", limit: 200 },
+    });
+    expect(asked).toHaveLength(1);
+    expect(page).toMatchObject({ items, agentItems: {} });
   });
 
   test("reads a terminal's last 1000 lines unless told", async () => {
@@ -1048,6 +1075,21 @@ describe("serving the conversations of the past", () => {
     ]);
   });
 
+  test("marks only peer Codex picker requests for scoped catalog reuse", async () => {
+    const { serve, asked } = historyServices();
+    await serve({
+      from: "d",
+      method: "history.list",
+      params: { workspaceId: "w1", agent: "codex", query: "build", limit: 100 },
+    });
+    expect(asked).toEqual([
+      [
+        "chat.history",
+        { workspaceId: "w1", agent: "codex", query: "build", limit: 100, peer: true },
+      ],
+    ]);
+  });
+
   test("NotFound for no such workspace or conversation", async () => {
     const params = { workspaceId: "nope", agent: "claude", sessionId: "s9" };
     await expect(
@@ -1200,7 +1242,7 @@ describe("rewinding, forking and more of a Claude chat", () => {
     ]);
   });
 
-  test("only a Claude chat's; NotFound for an item it does not have", async () => {
+  test("Codex fork reaches the same busy guard; a missing rewind item returns NotFound", async () => {
     const { serve } = actionServices((op) =>
       op === "chat.rewind" ? new Error("no item u9 in that tab") : new Error("a turn is running"),
     );
@@ -1210,7 +1252,7 @@ describe("rewinding, forking and more of a Claude chat", () => {
         method: "chat.fork",
         params: { workspaceId: "w2", tabId: "t4" },
       }),
-    ).rejects.toMatchObject({ code: 1001 });
+    ).rejects.toMatchObject({ code: 1003 });
     await expect(
       serve({ from: "d", method: "chat.rewind", params: { ...tab, itemKey: "u9", files: false } }),
     ).rejects.toMatchObject({ code: 1001 });
@@ -1276,6 +1318,40 @@ describe("when a message goes, and the ones held for after the turn", () => {
       ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
       ["chat.send", { ...tab, text: "next", user: true }],
     ]);
+  });
+
+  test("a user nonce is scoped to the authenticated sender and echoed only on acceptance", async () => {
+    const clientNonce = "4df598dc-f794-42a4-b204-d43a3a137be3";
+    const { serve, asked } = sendServices(() => ({ itemKey: "u-57" }));
+    const params = { ...tab, text: "repeat", clientNonce, clientDeviceId: "spoofed" };
+    expect(await serve({ from: "actual", method: "chat.send", params })).toEqual({
+      at: 1000,
+      itemKey: "u-57",
+      clientNonce,
+    });
+    expect(asked).toEqual([
+      [
+        "chat.send",
+        {
+          ...tab,
+          text: "repeat",
+          user: true,
+          submission: { clientNonce, clientDeviceId: "actual" },
+        },
+      ],
+    ]);
+    const timedOut = sendServices(() => new Error("NexusCode's window did not answer"));
+    await expect(
+      timedOut.serve({ from: "actual", method: "chat.send", params }),
+    ).rejects.toMatchObject({
+      data: { outcome: "unknown" },
+    });
+    const rejected = sendServices(() => ({ rejected: "input refused" }));
+    await expect(
+      rejected.serve({ from: "actual", method: "chat.send", params }),
+    ).rejects.toMatchObject({
+      data: { outcome: "rejected" },
+    });
   });
 
   test("a held message is taken back whole, or changed; an unread one withdrawn; the unread hurried", async () => {
@@ -1691,10 +1767,16 @@ describe("serving a chat's controls", () => {
     const asked: unknown[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; ref?: { index: number } }) => {
+      ui: async (
+        op: string,
+        args: { workspaceId: string; ref?: { index: number }; ifVersion?: string },
+      ) => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         asked.push(args);
         if (args.ref?.index === 9) throw new Error("no such image in that tab");
+        if (args.ifVersion === "v1") {
+          return { mediaType: "image/png", data: "", version: "v1", notModified: true };
+        }
         return { mediaType: "image/png", data: "AAAA" };
       },
     } as unknown as CliServices;
@@ -1706,11 +1788,32 @@ describe("serving a chat's controls", () => {
     });
     expect(asked[0]).toMatchObject({ ref, maxChars: expect.any(Number) });
     expect(asked[0]).not.toHaveProperty("maxEdge");
+    expect(asked[0]).not.toHaveProperty("versioned");
     await serve({ from: "d", method: "chat.image", params: { ...tab, ref, maxEdge: 320 } });
     expect(asked[1]).toMatchObject({ ref, maxEdge: 320 });
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, ref, maxEdge: 320, ifVersion: "v1" },
+      }),
+    ).toEqual({ mediaType: "image/png", data: "", version: "v1", notModified: true });
+    expect(asked[2]).toMatchObject({ ref, maxEdge: 320, ifVersion: "v1" });
     await expect(
-      serve({ from: "d", method: "chat.image", params: { ...tab, ref: { ...ref, index: 9 } } }),
+      serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, ref: { ...ref, index: 9 }, ifVersion: "v1" },
+      }),
     ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, tabId: "removed", ref, ifVersion: "v1" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toHaveLength(4);
   });
 
   test("answers the request it names, with a question's answers or a stop", async () => {

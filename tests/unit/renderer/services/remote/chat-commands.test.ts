@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentTabController } from "../../../../../src/renderer/services/chat/agent-tab";
+import { CodexController } from "../../../../../src/renderer/services/chat/codex-controller";
 import type { ChatController } from "../../../../../src/renderer/services/chat/controller";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
@@ -24,11 +25,11 @@ const ws = "ws-remote-commands";
 const tabId = "t1";
 const key = chatKey(ws, tabId);
 
-function claudeTab(): void {
+function chatTab(type: "claude" | "codex" = "claude"): void {
   useTabsStore.setState((s) => ({
     byWorkspace: {
       ...s.byWorkspace,
-      [ws]: { [tabId]: { id: tabId, type: "claude", title: "Chat", props: { cwd: "/p" } } },
+      [ws]: { [tabId]: { id: tabId, type, title: "Chat", props: { cwd: "/p" } } },
     },
   }));
   useChatStore.getState().update(key, () => emptyTabState());
@@ -96,6 +97,17 @@ describe("a chat's commands for another device", () => {
     }
   });
 
+  test("advertises native Plan and Default as host commands only when supported", () => {
+    for (const name of ["plan", "default"]) {
+      expect(chatCommandsOf("codex", emptyModel()).some((command) => command.name === name)).toBe(
+        false,
+      );
+      expect(
+        chatCommandsOf("codex", emptyModel(), true).find((command) => command.name === name),
+      ).toMatchObject({ runs: "command" });
+    }
+  });
+
   test("a Codex tab's: the model and effort as settings, the rest the app runs", () => {
     const commands = chatCommandsOf("codex", emptyModel());
     expect(commands.find((c) => c.name === "effort")).toMatchObject({ sets: "effort" });
@@ -138,21 +150,97 @@ describe("a command's card, told to another device", () => {
 });
 
 describe("running one for another device", () => {
+  test("compact waits for the thread then asks the app-server to compact it", async () => {
+    chatTab("codex");
+    let threadId: string | undefined;
+    const calls: unknown[] = [];
+    const target = {
+      agent: "codex" as const,
+      controller: {
+        model: { running: false },
+        prepareSend: async () => {
+          threadId = "thread-1";
+        },
+        currentThread: () => threadId,
+        ask: async (method: string, params: unknown) => {
+          calls.push({ method, params });
+        },
+      } as unknown as CodexController,
+    };
+    await runRemoteCommand(ws, tabId, target, "compact", "");
+    expect(calls).toEqual([{ method: "thread/compact/start", params: { threadId: "thread-1" } }]);
+  });
+
+  test("Codex MCP refresh publishes inventory without opening a card on the host", async () => {
+    chatTab("codex");
+    let refreshed = 0;
+    const target: AgentTabController = {
+      agent: "codex",
+      controller: {
+        currentThread: () => "thread-1",
+        listMcpServers: async () => {
+          refreshed++;
+          return [];
+        },
+      } as unknown as CodexController,
+    };
+    expect(await runRemoteCommand(ws, tabId, target, "mcp", "refresh")).toEqual({});
+    expect(refreshed).toBe(1);
+    expect(useChatStore.getState().tabs[key]?.card).toBeUndefined();
+  });
+
+  test("Fast uses the catalog tier for this thread; off explicitly selects standard speed", async () => {
+    chatTab("codex");
+    const calls: unknown[] = [];
+    const model = {
+      model: "x",
+      serviceTier: null as string | null,
+      init: {
+        models: [
+          { value: "x", fastTier: { id: "priority", description: "2x speed", isDefault: false } },
+        ],
+      },
+    };
+    const controller = {
+      model,
+      next: {},
+      prepareSend: async () => {},
+      currentThread: () => "thread-1",
+      ask: async (method: string, params: object) => {
+        calls.push([method, params]);
+      },
+      patchModel: (patch: object) => Object.assign(model, patch),
+      setServiceTier: CodexController.prototype.setServiceTier,
+    } as unknown as CodexController;
+    const fast = (args: string) =>
+      runRemoteCommand(ws, tabId, { agent: "codex", controller }, "fast", args);
+    expect((await fast("on")).message).toContain("2x speed");
+    await fast("status");
+    await fast("");
+    await expect(fast("bad")).rejects.toThrow();
+    model.init.models = [];
+    await expect(fast("on")).rejects.toThrow();
+    expect(calls).toEqual([
+      ["thread/settings/update", { threadId: "thread-1", serviceTier: "priority" }],
+      ["thread/settings/update", { threadId: "thread-1", serviceTier: "default" }],
+    ]);
+  });
+
   test("its card's answer is what it says", async () => {
-    claudeTab();
+    chatTab();
     const ran = await runRemoteCommand(ws, tabId, controller(), "btw", "the build");
     expect(ran).toEqual({ message: "about the build", card: true });
   });
 
   test("a toast's answer is told as one, not as a card", async () => {
-    claudeTab();
+    chatTab();
     const ran = await runRemoteCommand(ws, tabId, controller(), "add-dir", "/p/lib");
     expect(ran.card).toBe(false);
     expect(ran.message).toContain("/p/lib");
   });
 
   test("what it was given goes to the agent, by its alias too", async () => {
-    claudeTab();
+    chatTab();
     const sent: string[] = [];
     expect(await runRemoteCommand(ws, tabId, controller(sent), "/subtask", "fix it")).toEqual({});
     expect(sent).toHaveLength(1);
@@ -160,7 +248,7 @@ describe("running one for another device", () => {
   });
 
   test("a warning it shows fails it, and one not for another device is refused", async () => {
-    claudeTab();
+    chatTab();
     await expect(runRemoteCommand(ws, tabId, controller(), "btw", "")).rejects.toThrow();
     await expect(runRemoteCommand(ws, tabId, controller(), "copy", "")).rejects.toThrow(
       "chat.commands",

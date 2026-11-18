@@ -14,108 +14,14 @@ import type { ChatFiles } from "../../services/chat/chat-files";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
-import type { ChatModel, ImageBlock, RemoteImageRef } from "../../services/chat/model";
+import type { ChatModel } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import type { ChatLinks } from "../chat/chat-links";
 import type { QuickLookList } from "../chat/quick-look";
 import { showToast } from "../ui/toast";
 
-/** The longest edge an image is fetched at: enough for quick look, far less than a photo's. */
-const IMAGE_EDGE = 2048;
-
 const t = (key: string, options?: Record<string, unknown>) => String(i18next.t(key, options));
-
-/** Fetches another computer's chat's images, each once. */
-export function peerImageLoader(target: {
-  deviceId: string;
-  workspaceId: string;
-  tabId: string;
-}): (image: ImageBlock) => Promise<ImageBlock> {
-  const fetched = new Map<string, Promise<ImageBlock>>();
-  return (image) => {
-    const ref = image.remote;
-    if (!ref || image.data) return Promise.resolve(image);
-    const key = JSON.stringify(ref);
-    let pending = fetched.get(key);
-    if (!pending) {
-      pending = ipcCallResult("remote", "peerChatImage", {
-        deviceId: target.deviceId,
-        workspaceId: target.workspaceId,
-        tabId: target.tabId,
-        maxEdge: IMAGE_EDGE,
-        ref: ref as RemoteImageRef,
-      }).then((result) => {
-        if (!result.ok) {
-          fetched.delete(key);
-          throw new Error(result.message);
-        }
-        return { mediaType: result.value.mediaType, data: result.value.data };
-      });
-      fetched.set(key, pending);
-    }
-    return pending;
-  };
-}
-
-/** How long a folder's entries are trusted, as the agent there makes files. */
-const LIST_FRESH_MS = 5_000;
-
-/** A path's folder and name, by either separator (that computer may be Windows). */
-function splitPath(path: string): { dir: string; name: string } | null {
-  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (cut <= 0 || cut === path.length - 1) return null;
-  return { dir: path.slice(0, cut), name: path.slice(cut + 1) };
-}
-
-/**
- * The files another computer's chat names, found on that computer: by the
- * entries of their folders (files.list), and an image file's picture by
- * files.read.
- */
-export function peerChatFiles(target: Pick<RemoteTarget, "deviceId" | "workspaceId">): ChatFiles {
-  const where = { deviceId: target.deviceId, workspaceId: target.workspaceId };
-  const listed = new Map<string, { at: number; names: Promise<ReadonlySet<string>> }>();
-  const namesIn = (dir: string): Promise<ReadonlySet<string>> => {
-    const cached = listed.get(dir);
-    if (cached && Date.now() - cached.at < LIST_FRESH_MS) return cached.names;
-    const names = ipcCallResult("remote", "peerFilesList", { ...where, path: dir }).then(
-      (result): ReadonlySet<string> =>
-        result.ok
-          ? new Set(result.value.entries.filter((e) => e.kind !== "dir").map((e) => e.name))
-          : new Set(),
-      (): ReadonlySet<string> => new Set(),
-    );
-    listed.set(dir, { at: Date.now(), names });
-    return names;
-  };
-  const pictures = new Map<string, Promise<ImageBlock>>();
-  return {
-    async there(paths) {
-      const found = await Promise.all(
-        paths.map(async (path) => {
-          const parts = splitPath(path);
-          return parts && (await namesIn(parts.dir)).has(parts.name) ? path : null;
-        }),
-      );
-      return new Set(found.filter((path): path is string => path !== null));
-    },
-    picture(path) {
-      let pending = pictures.get(path);
-      if (!pending) {
-        pending = ipcCallResult("remote", "peerFilesRead", { ...where, path }).then((result) => {
-          if (!result.ok || result.value.kind !== "image") {
-            pictures.delete(path);
-            throw new Error(result.ok ? "not an image" : result.message);
-          }
-          return { mediaType: result.value.mediaType, data: result.value.data };
-        });
-        pictures.set(path, pending);
-      }
-      return pending;
-    },
-  };
-}
 
 /**
  * The file before the changes `hunks` tell, from the file as it is now:

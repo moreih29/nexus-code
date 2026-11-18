@@ -9,12 +9,7 @@
  */
 
 import i18next from "i18next";
-import {
-  defaultProfileId,
-  isDefaultProfileId,
-  profileOf,
-  profilesOf,
-} from "../../../shared/agent-profiles/profiles";
+import { isDefaultProfileId, profileOf, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -30,6 +25,8 @@ import {
   sendUnseen,
   startAgentTab,
 } from "../chat/agent-tab";
+import { CodexConfigRefusal } from "../chat/codex-config";
+import { CodexReplyError } from "../chat/codex-controller";
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
@@ -40,14 +37,8 @@ import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
-import {
-  ConfigRefusal,
-  chatConfigOf,
-  codexConfigOf,
-  codexDefaultsSetOf,
-  configSetOf,
-} from "../remote/chat-config";
-import { fitImage, imageOf } from "../remote/chat-image";
+import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
+import { imageOf, readChatImage } from "../remote/chat-image";
 import { originalOf } from "../remote/chat-original";
 import {
   type ChatSource,
@@ -59,7 +50,13 @@ import {
 } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
-import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
+import {
+  claudeSessions,
+  codexThreads,
+  pastSessionsOf,
+  peerCodexThreads,
+  tabWithSession,
+} from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import {
@@ -190,8 +187,13 @@ async function claudeTab(workspaceId: string, tabId: string, opened = false) {
 }
 
 /** One of a Claude tab's items by the key another device reads it by. */
-function itemByKey(workspaceId: string, tabId: string, itemKey: string): ChatItem {
-  const item = conversationOf(sourceOf(workspaceId, tabId, "claude")).items.find(
+function itemByKey(
+  workspaceId: string,
+  tabId: string,
+  itemKey: string,
+  agent: ChatAgent = "claude",
+): ChatItem {
+  const item = conversationOf(sourceOf(workspaceId, tabId, agent)).items.find(
     (each) => each.key === itemKey,
   );
   if (!item) throw new UiRequestError(`no item ${itemKey} in that tab`);
@@ -507,6 +509,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     files = [],
     when,
     device,
+    submission,
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
@@ -521,7 +524,23 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     );
     const mentions = paths.map(fileMention).join(" ");
     const body = mentions === "" ? text : text.trim() ? `${text}\n\n${mentions}` : mentions;
-    return sendToAgentTab(workspaceId, tabId, target, body, from, images, when, device);
+    const trustedSubmission = user && !from ? submission : undefined;
+    try {
+      return await sendToAgentTab(
+        workspaceId,
+        tabId,
+        target,
+        body,
+        from,
+        images,
+        when,
+        device,
+        trustedSubmission,
+      );
+    } catch (error) {
+      if (trustedSubmission && error instanceof CodexReplyError) return { rejected: error.message };
+      throw error;
+    }
   },
 
   "chat.unqueue": async ({ workspaceId, tabId, id }) => {
@@ -706,13 +725,21 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.rewindPreview": async ({ workspaceId, tabId, itemKey }) => {
-    const controller = await claudeTab(workspaceId, tabId, true);
-    return controller.previewRewind(userMessageByKey(workspaceId, tabId, itemKey).uuid);
+    const target = await openedTab(workspaceId, tabId);
+    if (target.agent === "codex") return target.controller.previewRewind(itemKey);
+    return target.controller.previewRewind(userMessageByKey(workspaceId, tabId, itemKey).uuid);
   },
 
   "chat.rewind": async ({ workspaceId, tabId, itemKey, files }) => {
-    const controller = await claudeTab(workspaceId, tabId, true);
+    const target = await openedTab(workspaceId, tabId);
+    const controller = target.controller;
     if (controller.state.model.running) throw new UiRequestError("a turn is running");
+    if (target.agent === "codex") {
+      const item = itemByKey(workspaceId, tabId, itemKey, "codex");
+      if (item.kind !== "user") throw new UiRequestError("Select a Codex user message");
+      await target.controller.rewind(item, { files, draft: false });
+      return {};
+    }
     // The message goes back in the composer of the device that asked, not this one's.
     await controller.rewind(userMessageByKey(workspaceId, tabId, itemKey), {
       files,
@@ -722,9 +749,34 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.fork": async ({ workspaceId, tabId, itemKey }) => {
-    const controller = await claudeTab(workspaceId, tabId);
+    const target = await readableTab(workspaceId, tabId);
     const props = chatPropsOf(workspaceId, tabId);
     if (!props) throw new UiRequestError("that tab is gone");
+    if (target.agent === "codex") {
+      const item = itemKey ? itemByKey(workspaceId, tabId, itemKey, "codex") : undefined;
+      if (item && item.kind !== "user" && item.kind !== "assistant") {
+        throw new UiRequestError("Select a Codex user message or final answer");
+      }
+      const fork = target.controller.forkPoint(item);
+      const newTab = openTab(
+        workspaceId,
+        {
+          type: "codex",
+          props: chatPropsWithProfile(workspaceId, "codex", {
+            cwd: props.cwd,
+            fork,
+            profileId: target.controller.profileId,
+            chosen: target.controller.inheritedChoice(),
+          }),
+        },
+        { background: true },
+      );
+      const child = await openedTab(workspaceId, newTab);
+      if (child.agent !== "codex") throw new UiRequestError("the forked tab is gone");
+      await child.controller.prepareSend();
+      return { tabId: newTab, ...(item?.kind === "user" ? { draft: item.text } : {}) };
+    }
+    const controller = target.controller;
     // As the tab's own buttons fork: from one of the user's messages, what
     // came before it, the message in the new tab's composer; from an answer,
     // up to it; from the panel, all of it.
@@ -802,23 +854,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   "chat.config": async ({ workspaceId, tabId, set }) => {
     const target = agentTabController(workspaceId, tabId);
     if (target?.agent === "codex") {
-      // As its defaults dialog reads and saves them.
       const codex = target.controller;
-      const read = async () =>
-        codexConfigOf({
-          defaults: await codex.readDefaults(),
-          models: codex.model.init?.models ?? [],
-          ...(codex.model.model ? { running: codex.model.model } : {}),
-        });
-      if (!set) return { config: await read() };
-      let defaults: ReturnType<typeof codexDefaultsSetOf>;
+      if (!set) return { config: await codex.readDefaults(true) };
       try {
-        defaults = codexDefaultsSetOf(set, await read());
+        await codex.saveDefaults(set, true);
       } catch (err) {
-        if (err instanceof ConfigRefusal) throw new UiRequestError(err.message);
+        if (err instanceof CodexConfigRefusal) throw new UiRequestError(err.message);
         throw err;
       }
-      await codex.saveDefaults(defaults);
       return {};
     }
     const controller = await claudeTab(workspaceId, tabId, true);
@@ -866,8 +909,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.history": async ({ workspaceId, agent, query, limit }) => {
-    const cwd = workspaceRoot(workspaceId);
+  "chat.history": async ({ workspaceId, agent, query, limit, peer }) => {
+    const { workspaces, connectionStatusByWorkspaceId } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace?.rootPath) throw new UiRequestError("no such workspace");
+    const cwd = workspace.rootPath;
     const config = useAgentProfilesStore.getState().config;
     const listed =
       agent === "claude"
@@ -876,7 +922,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             cwd,
             profilesOf(config, "claude").map((p) => p.id),
           )
-        : await codexThreads(workspaceId, defaultProfileId("codex"));
+        : peer
+          ? await peerCodexThreads(
+              workspace,
+              config,
+              connectionStatusByWorkspaceId[workspaceId],
+              query,
+            )
+          : await codexThreads(
+              workspaceId,
+              cwd,
+              profilesOf(config, "codex").map((p) => p.id),
+            );
     const name = (profileId: string) => cliProfileName(profileOf(config, agent, profileId));
     const openIn = (sessionId: string) => tabWithSession(workspaceId, agent, sessionId);
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };
@@ -894,7 +951,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             cwd,
             profilesOf(config, "claude").map((p) => p.id),
           )
-        : await codexThreads(workspaceId, defaultProfileId("codex"));
+        : await codexThreads(
+            workspaceId,
+            cwd,
+            profilesOf(config, "codex").map((p) => p.id),
+          );
     const session = listed.find((s) => s.sessionId === sessionId);
     if (!session)
       throw new UiRequestError(`no conversation ${sessionId} in that workspace's folder`);
@@ -905,7 +966,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       if (target.agent === "claude") {
         await target.controller.resumeSession(sessionId, session.profileId);
       } else {
-        await target.controller.resumeThread(sessionId, session.title);
+        await target.controller.resumeThread(sessionId, session.title, session.profileId);
       }
       return { tabId };
     }
@@ -929,12 +990,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId: openTab(workspaceId, tab, { background: true }) };
   },
 
-  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge }) => {
+  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge, versioned, ifVersion }) => {
     // Read only: a Claude tab's transcript will do, its program not started for it.
     const { agent } = await readableTab(workspaceId, tabId);
     const image = imageOf(sourceOf(workspaceId, tabId, agent), ref);
     if (!image) throw new UiRequestError("no such image in that tab");
-    return fitImage(image, { maxChars, ...(maxEdge !== undefined ? { maxEdge } : {}) });
+    return readChatImage(image, { maxChars, maxEdge, versioned, ifVersion });
   },
 
   "chat.commands": async ({ workspaceId, tabId }) => {
@@ -947,7 +1008,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     }
     const chat = useChatStore.getState().tabs[key];
     if (!chat) throw new UiRequestError("that tab is gone");
-    return { commands: chatCommandsOf(target.agent, chat.model) };
+    const collaboration =
+      target.agent === "codex" && (await target.controller.availableCollaborationModes());
+    return { commands: chatCommandsOf(target.agent, chat.model, collaboration) };
   },
 
   "chat.fileSuggestions": async ({ workspaceId, tabId, query }) => {

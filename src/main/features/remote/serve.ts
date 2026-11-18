@@ -5,6 +5,7 @@
  */
 
 import { posix, win32 } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   type AgentSender,
   type Capability,
@@ -337,6 +338,8 @@ export async function readChat(
       })
       .catch(unavailable);
     if (fitsAsResult(page)) return page;
+    const fittedChildren = fitOversizeCodexChildren(page);
+    if (fittedChildren) return fittedChildren;
     if (page.items.length <= 1) {
       const fitted = fitPage(page);
       if (fitted) return fitted;
@@ -344,6 +347,30 @@ export async function readChat(
     }
     count = Math.max(1, Math.floor(page.items.length / 2));
   }
+}
+
+/**
+ * Native Codex children appear on the latest page regardless of its parent
+ * item count. If their messages alone exceed the frame, the existing
+ * subagent fallback can keep the parent page before it is narrowed.
+ */
+export function fitOversizeCodexChildren<P extends ChatPage>(page: P): P | null {
+  if (
+    page.status?.agent !== "codex" ||
+    page.start + page.items.length !== page.total ||
+    fitsAsResult({ agentItems: page.agentItems })
+  ) {
+    return null;
+  }
+  const parent = withoutSubagentItems(page);
+  return fitsAsResult(parent) ? parent : null;
+}
+
+function withoutSubagentItems<P extends ChatPage>(page: P): P {
+  const tools = Object.fromEntries(
+    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
+  );
+  return { ...page, tools, agentItems: {} };
 }
 
 /** The most of each tool's result a page keeps, in turn, when one item is too large to send. */
@@ -361,10 +388,8 @@ export function fitPage<P extends ChatPage>(page: P): P | null {
     const cut = { ...page, tools: cutResults(page.tools, most) };
     if (fitsAsResult(cut)) return cut;
   }
-  const mainThread = Object.fromEntries(
-    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
-  );
-  const bare = { ...page, tools: cutResults(mainThread, 0), agentItems: {} };
+  const parent = withoutSubagentItems(page);
+  const bare = { ...parent, tools: cutResults(parent.tools, 0) };
   return fitsAsResult(bare) ? bare : null;
 }
 
@@ -435,7 +460,7 @@ export async function readTerminal(
  */
 export async function sendChat(
   services: CliServices,
-  { workspaceId, tabId, text, attachments: ids = [], when }: RpcParams<"chat.send">,
+  { workspaceId, tabId, text, attachments: ids = [], when, clientNonce }: RpcParams<"chat.send">,
   attached?: { device: string; attachments: Attachments },
   relay?: RelaySender,
 ): Promise<RpcResult<"chat.send">> {
@@ -464,7 +489,11 @@ export async function sendChat(
   const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
   // Before it goes: what the chat shows from here on is from this message on.
   const at = services.clock.now();
-  const { heldId } = await services
+  const submission =
+    !relay && attached && clientNonce
+      ? { clientNonce, clientDeviceId: attached.device }
+      : undefined;
+  const { heldId, itemKey, rejected } = await services
     .ui("chat.send", {
       workspaceId,
       tabId,
@@ -476,10 +505,25 @@ export async function sendChat(
       ...(when ? { when } : {}),
       // Held, it is dropped if control from other computers is turned off first.
       ...(when === "after" && attached ? { device: attached.device } : {}),
+      ...(submission ? { submission } : {}),
     })
-    .catch(unavailable);
+    .catch((error: unknown) => {
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        error instanceof Error ? error.message : String(error),
+        { outcome: "unknown" },
+      );
+    });
+  if (rejected !== undefined) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, rejected, { outcome: "rejected" });
+  }
   attached?.attachments.drop(ids);
-  return { at, ...(heldId ? { heldId } : {}) };
+  return {
+    at,
+    ...(heldId ? { heldId } : {}),
+    ...(itemKey ? { itemKey } : {}),
+    ...(submission ? { clientNonce: submission.clientNonce } : {}),
+  };
 }
 
 /** Takes back a message a chat holds for after its turn, with its whole text. */
@@ -556,7 +600,7 @@ const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
 /** An image of the chat, drawn smaller where it would not go in a frame. */
 export async function chatImage(
   services: CliServices,
-  { workspaceId, tabId, ref, maxEdge }: RpcParams<"chat.image">,
+  { workspaceId, tabId, ref, maxEdge, versioned, ifVersion }: RpcParams<"chat.image">,
 ): Promise<RpcResult<"chat.image">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const image = await services
@@ -566,6 +610,8 @@ export async function chatImage(
       ref,
       maxChars: IMAGE_CHARS,
       ...(maxEdge !== undefined ? { maxEdge } : {}),
+      ...(versioned ? { versioned } : {}),
+      ...(ifVersion !== undefined ? { ifVersion } : {}),
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -745,10 +791,13 @@ export async function runChatCommand(
 ): Promise<RpcResult<"chat.command">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const bare = name.replace(/^\//, "");
+  const lower = bare.toLowerCase();
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
     .catch(unavailable);
-  const command = commands.find((c) => c.name === bare || c.aliases?.includes(bare));
+  const command =
+    commands.find((c) => c.name.toLowerCase() === lower) ??
+    commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
   if (command?.runs !== "command") {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -1155,12 +1204,12 @@ function chatFailure(error: unknown): never {
   return unavailable(error);
 }
 
-/** What rewinding a Claude chat to before one of the user's messages would undo in the files. */
+/** Whether rewinding to before a user message can restore files. */
 export async function previewChatRewind(
   services: CliServices,
   { workspaceId, tabId, itemKey }: RpcParams<"chat.rewindPreview">,
 ): Promise<RpcResult<"chat.rewindPreview">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const preview = await services
     .ui("chat.rewindPreview", { workspaceId, tabId, itemKey })
     .catch(chatFailure);
@@ -1172,22 +1221,22 @@ export async function previewChatRewind(
   return { ...preview, filesChanged };
 }
 
-/** Rewinds a Claude chat to before one of the user's messages, as its rewind dialog does. */
+/** Rewinds a chat to before one of the user's messages. */
 export async function rewindChat(
   services: CliServices,
   { workspaceId, tabId, itemKey, files }: RpcParams<"chat.rewind">,
 ): Promise<RpcResult<"chat.rewind">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   await services.ui("chat.rewind", { workspaceId, tabId, itemKey, files }).catch(chatFailure);
   return {};
 }
 
-/** Forks a Claude chat into a new one, behind what this computer shows. */
+/** Forks a chat into a new tab in the background. */
 export async function forkChat(
   services: CliServices,
   { workspaceId, tabId, itemKey }: RpcParams<"chat.fork">,
 ): Promise<RpcResult<"chat.fork">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return services
     .ui("chat.fork", { workspaceId, tabId, ...(itemKey ? { itemKey } : {}) })
     .catch(chatFailure);
@@ -1246,6 +1295,7 @@ export async function listHistory(
     .ui("chat.history", {
       workspaceId,
       agent,
+      ...(agent === "codex" ? { peer: true } : {}),
       ...(query ? { query } : {}),
       ...(limit ? { limit } : {}),
     })
@@ -1431,9 +1481,20 @@ export function serveWith(
               .then((r) => r.files)
               .catch(() => []),
         };
-        return request.method === "files.list"
-          ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
-          : readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+        if (request.method === "files.list") {
+          return listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">);
+        }
+        const rootPath = workspace.rootPath;
+        const location = structuredClone(workspace.location);
+        const result = await readFile(files, rootPath, request.params as RpcParams<"files.read">);
+        const current = workspaceOf(s, workspaceId);
+        if (
+          !current ||
+          current.rootPath !== rootPath ||
+          !isDeepStrictEqual(current.location, location)
+        )
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        return result;
       }
       case "files.find":
       case "files.search": {

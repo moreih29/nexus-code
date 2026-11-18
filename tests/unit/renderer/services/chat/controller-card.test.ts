@@ -56,7 +56,7 @@ describe("a Codex tab's card", () => {
 
   test("closes as another thread goes on in the tab", async () => {
     const c = codex();
-    await c.resumeThread("other", "Other");
+    await expect(c.resumeThread("other", "Other")).rejects.toThrow("not here");
     expect(c.state.card).toBeUndefined();
   });
 });

@@ -14,7 +14,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex-controller";
 import { type ChatController, type ChatTabHooks, chatController } from "./controller";
 import type { ImageBlock } from "./model";
-import { chatKey, useChatStore } from "./store";
+import { chatKey, type PeerSubmission, useChatStore } from "./store";
 import { clipTitle, titleOf } from "./tab-title";
 
 const log = createLogger("chat");
@@ -37,6 +37,12 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
       ),
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
+    onPeerWritten: (id) => {
+      const tab = tabs().byWorkspace[workspaceId]?.[tabId];
+      const submission = tab?.type === "claude" ? tab.props.peerSubmissions?.[id] : undefined;
+      if (submission)
+        tabs().addChatPeerSubmission(workspaceId, tabId, id, { ...submission, written: true });
+    },
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
   };
 }
@@ -148,7 +154,8 @@ export async function sendToAgentTab(
   images: ImageBlock[] = [],
   when: SendTiming = "next",
   device?: string,
-): Promise<{ heldId?: string }> {
+  submission?: PeerSubmission,
+): Promise<{ heldId?: string; itemKey?: string }> {
   const { controller } = target;
   const key = chatKey(workspaceId, tabId);
   // Working from now, though the program may be starting and a conversation
@@ -158,18 +165,38 @@ export async function sendToAgentTab(
   try {
     await controller.prepareSend();
     unseenSends.set(key, userMessages(key));
-    if (when === "after") {
-      const heldId = controller.enqueue(text, images, from, device);
+    const id = submission ? crypto.randomUUID() : undefined;
+    if (id && submission) {
+      useTabsStore.getState().addChatPeerSubmission(workspaceId, tabId, id, submission);
+      const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+      const recent =
+        tab?.type === "claude" || tab?.type === "codex" ? tab.props.peerSubmissions : undefined;
+      useChatStore.getState().update(key, (prev) => ({
+        ...prev,
+        peerSubmissions: recent ?? { [id]: submission },
+      }));
+    }
+    if (when === "after" && (!id || controller.state.model.running)) {
+      const heldId = controller.enqueue(text, images, from, device, id);
       // Held, it is not sent yet: the chat is not waiting on it.
       if (heldId) unseenSends.delete(key);
       return heldId ? { heldId } : {};
     }
     if (when === "now" && target.agent === "claude") {
-      await target.controller.sendNow(text, images, from);
+      await target.controller.sendNow(text, images, from, id);
     } else {
-      await controller.send(text, images, from);
+      const heldId =
+        target.agent === "codex" && id
+          ? await target.controller.sendPeer(text, images, id)
+          : target.agent === "claude"
+            ? await target.controller.send(text, images, from, id)
+            : await target.controller.send(text, images, from);
+      if (heldId) {
+        unseenSends.delete(key);
+        return { heldId };
+      }
     }
-    return {};
+    return id && target.agent === "codex" ? { itemKey: `u-peer-${id}` } : {};
   } catch (err) {
     unseenSends.delete(key);
     throw err;

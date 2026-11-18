@@ -62,6 +62,8 @@ export interface ImagePreviewProps {
   workspaceId: string;
   /** Absolute path on the workspace filesystem. */
   filePath: string;
+  /** Changes when the remote chat rechecks the file. */
+  revision?: number;
   /**
    * Fires once after the image finishes decoding, reporting its intrinsic
    * pixel dimensions. Used by ImageEditorView to render a resolution chip
@@ -72,7 +74,13 @@ export interface ImagePreviewProps {
   fill?: boolean;
 }
 
-export function ImagePreview({ workspaceId, filePath, onNaturalSize, fill }: ImagePreviewProps) {
+export function ImagePreview({
+  workspaceId,
+  filePath,
+  onNaturalSize,
+  fill,
+  revision,
+}: ImagePreviewProps) {
   const { t } = useTranslation();
   const file = useWorkspaceFile(workspaceId, filePath);
 
@@ -101,11 +109,13 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize, fill }: Ima
       relPath={file.relPath}
       onNaturalSize={onNaturalSize}
       fill={fill}
+      revision={revision}
     />
   );
 }
 
 interface ImageCanvasProps {
+  revision?: number;
   url: string;
   alt: string;
   /** Workspace owning the file — used to stat the file on a load error. */
@@ -151,13 +161,21 @@ interface ZoomAnchor {
  *   - File deleted/moved on disk after the tab opened (404 from protocol).
  *   - Format the OS/Chromium can't decode (rare for the supported set).
  */
-function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize, fill }: ImageCanvasProps) {
+function ImageCanvas({
+  url,
+  alt,
+  workspaceId,
+  relPath,
+  onNaturalSize,
+  fill,
+  revision,
+}: ImageCanvasProps) {
   // Bumped whenever the file changes on disk; appended to the URL so the
   // <img> re-requests it (see LIVE RELOAD above).
   const version = useFileVersion(workspaceId, relPath);
   return (
     <ZoomableImage
-      src={versionedUrl(url, version)}
+      src={versionedUrl(url, revision ?? version)}
       alt={alt}
       onNaturalSize={onNaturalSize}
       fill={fill}

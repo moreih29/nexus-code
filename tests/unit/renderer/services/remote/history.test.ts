@@ -1,5 +1,10 @@
 /** The conversations of the past another device may go on with: merged, matched and named. */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  CODEX_CATALOG_TTL_MS,
+  invalidateCodexHistory,
+  readCodexHistoryCatalog,
+} from "../../../../../src/renderer/services/chat/codex-history-catalog";
 import type { ListedSession } from "../../../../../src/renderer/services/chat/sessions";
 import {
   mergedSessions,
@@ -7,6 +12,7 @@ import {
   tabWithSession,
 } from "../../../../../src/renderer/services/remote/history";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
+import { EMPTY_AGENT_PROFILES } from "../../../../../src/shared/agent-profiles/profiles";
 
 const session = (id: string, at: number, over: Partial<ListedSession> = {}): ListedSession => ({
   sessionId: id,
@@ -95,5 +101,71 @@ describe("a past conversation open already", () => {
     expect(tabWithSession("ws-history", "claude", "s1")).toBe("t1");
     expect(tabWithSession("ws-history", "codex", "th1")).toBe("t2");
     expect(tabWithSession("ws-history", "codex", "s1")).toBeUndefined();
+  });
+});
+
+describe("the peer Codex history catalog", () => {
+  const scope = {
+    workspaceId: "codex-history-cache",
+    cwd: "/p",
+    location: { kind: "ssh" as const, host: "host-a", remotePath: "/p" },
+    connection: "ready",
+    config: EMPTY_AGENT_PROFILES,
+  };
+  afterEach(() => invalidateCodexHistory(scope.workspaceId));
+
+  test("expires on a fixed deadline and does not keep errors", async () => {
+    const clock = spyOn(Date, "now");
+    let now = 1;
+    let loads = 0;
+    clock.mockImplementation(() => now);
+    const load = async () => {
+      ++loads;
+      if (loads === 1 || loads === 4) throw new Error("unavailable");
+      return [session(`item-${loads}`, now)];
+    };
+    const fetch = () => readCodexHistoryCatalog(scope, "p1", false, load);
+    try {
+      await expect(fetch()).rejects.toThrow("unavailable");
+      expect((await fetch())[0]?.sessionId).toBe("item-2");
+      now += CODEX_CATALOG_TTL_MS - 1;
+      expect((await fetch())[0]?.sessionId).toBe("item-2");
+      now += 1;
+      expect((await fetch())[0]?.sessionId).toBe("item-3");
+      await expect(readCodexHistoryCatalog(scope, "p1", true, load)).rejects.toThrow("unavailable");
+      expect((await fetch())[0]?.sessionId).toBe("item-5");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("does not cross host, profile, folder, connection, or configuration boundaries", async () => {
+    let loads = 0;
+    const load = async () => [session(`item-${++loads}`, loads)];
+    for (const [target, profile] of [
+      [scope, "p1"],
+      [scope, "p2"],
+      [{ ...scope, location: { ...scope.location, host: "host-b" } }, "p2"],
+      [{ ...scope, cwd: "/other" }, "p2"],
+      [{ ...scope, cwd: "/other", connection: "reconnecting" }, "p2"],
+      [{ ...scope, cwd: "/other", connection: "reconnecting", config: { ...scope.config } }, "p2"],
+    ] as const) {
+      await readCodexHistoryCatalog(target, profile, false, load);
+    }
+    expect(loads).toBe(6);
+  });
+
+  test("an invalidated in-flight read cannot replace a newer catalog", async () => {
+    let release!: (list: ListedSession[]) => void;
+    const pending = new Promise<ListedSession[]>((resolve) => {
+      release = resolve;
+    });
+    const old = readCodexHistoryCatalog(scope, "p1", false, () => pending);
+    invalidateCodexHistory(scope.workspaceId);
+    const fresh = readCodexHistoryCatalog(scope, "p1", false, async () => [session("fresh", 2)]);
+    expect((await fresh)[0]?.sessionId).toBe("fresh");
+    release([session("old", 1)]);
+    await old;
+    expect(await readCodexHistoryCatalog(scope, "p1", false, async () => [])).toEqual(await fresh);
   });
 });

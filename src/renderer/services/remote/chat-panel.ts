@@ -2,7 +2,7 @@
  * What a chat's side panel shows, as another device reads it (chat.panel,
  * and chat.watch's `panel`): the to-do list, the tasks and subagents, the
  * files the chat changed, the context it fills, what it cost, and its goal;
- * a Claude chat's MCP servers, program and Remote Control too, where it
+ * MCP servers, program details and Claude Remote Control too, where it
  * went on in another profile, and what another device can do with it.
  */
 
@@ -14,10 +14,10 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { CodexModel } from "../chat/codex-model";
 import { type GoalView, shownGoalOf } from "../chat/goal";
-import type { ChatItem } from "../chat/model";
+import type { ChatItem, ToolCall } from "../chat/model";
 import { agentsOf, changedFilesOf, contextOf, jobsOf, todosOf } from "../chat/panel";
 import { followsMessage } from "../chat/profile-moves";
-import type { QueuedMessage } from "../chat/store";
+import type { PeerSubmission, QueuedMessage } from "../chat/store";
 import { claudeUsageLine, codexUsageLine } from "../chat/usage-line";
 import { type ChatSource, conversationOf, viewTaskOf } from "./chat-page";
 
@@ -163,44 +163,102 @@ function claudeExtrasOf(source: ChatSource): Partial<ChatPanel> {
   };
 }
 
+function codexMcpStatus(status: string, needsLogin?: boolean): string {
+  if (status === "disabled") return status;
+  if (needsLogin || status === "notLoggedIn" || status === "authenticationRequired")
+    return "needs-auth";
+  if (status === "starting") return "pending";
+  return status || "unknown";
+}
+
+function codexExtrasOf(source: ChatSource, model: CodexModel): Partial<ChatPanel> {
+  const version = model.appServerVersion ?? source.chat.version ?? model.version;
+  const session = {
+    ...(model.threadId ? { id: model.threadId } : {}),
+    ...(version ? { version } : {}),
+    ...(model.account ? { account: model.account.type } : {}),
+  };
+  return {
+    ...(Object.keys(session).length > 0 ? { session } : {}),
+    ...(model.mcpServers
+      ? {
+          mcp: model.mcpServers.map(({ name, status, needsLogin }) => ({
+            name,
+            status: codexMcpStatus(status, needsLogin),
+          })),
+        }
+      : {}),
+  };
+}
+
+// Text deltas replace the chat model but retain its tool map. Reuse the
+// file summaries instead of recounting every earlier edit on each frame.
+const fileSummaries = new WeakMap<Record<string, ToolCall>, ChatPanel["changedFiles"]>();
+
+function changedFileSummaries(tools: Record<string, ToolCall>): ChatPanel["changedFiles"] {
+  const cached = fileSummaries.get(tools);
+  if (cached) return cached;
+  const files = changedFilesOf(tools).map(({ path, added, removed, created }) => ({
+    path,
+    added,
+    removed,
+    ...(created ? { created } : {}),
+  }));
+  fileSummaries.set(tools, files);
+  return files;
+}
+
 export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
-  const { tools, items } = conversationOf(source);
-  const { model } = source.chat;
+  const { history, model } = source.chat;
+  const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+  const codex = source.agent === "codex" ? (model as CodexModel) : null;
   const goal = shownGoalOf(source.chat);
   const planLimits = planLimitsOf(source, now);
-  const moves = movesOf(source, items);
+  const moves = source.moves?.length ? movesOf(source, conversationOf(source).items) : [];
   return {
-    todos: todosOf(tools).map(({ content, status }) => ({ content, status })),
+    todos: codex?.plan ?? todosOf(tools).map(({ content, status }) => ({ content, status })),
     tasks: jobsOf(model).map((job) => viewTaskOf(job, tools)),
     agents: agentsOf(model).map((agent) => ({
       toolUseId: agent.toolUseId,
       description: agent.description,
+      ...(codex && agent.prompt ? { prompt: agent.prompt.slice(0, 8_192) } : {}),
       status: agent.status,
       ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
       ...(agent.endedAt !== undefined ? { endedAt: agent.endedAt } : {}),
     })),
-    changedFiles: changedFilesOf(tools).map(({ path, added, removed, created }) => ({
-      path,
-      added,
-      removed,
-      ...(created ? { created } : {}),
-    })),
+    changedFiles: changedFileSummaries(tools),
     context: contextOfModel(source),
     ...(model.costUsd !== undefined ? { costUsd: model.costUsd } : {}),
     ...(planLimits.length > 0 ? { planLimits } : {}),
     goal: goal ? viewGoalOf(goal) : null,
-    ...(source.agent === "claude" ? claudeExtrasOf(source) : {}),
+    ...(codex ? codexExtrasOf(source, codex) : claudeExtrasOf(source)),
     ...(moves.length > 0 ? { moves } : {}),
-    ...(source.can ? { can: source.can } : {}),
-    ...(source.chat.queue.length > 0 ? { held: source.chat.queue.map(heldOf) } : {}),
+    ...(source.can
+      ? { can: { ...source.can, clientNonce: true, ...(codex ? { mcpStatus: true } : {}) } }
+      : {}),
+    ...(source.chat.queue.length > 0
+      ? {
+          held: source.chat.queue.map((item) =>
+            heldOf(item, source.chat.peerSubmissions?.[item.id]),
+          ),
+        }
+      : {}),
   };
 }
 
 /** A message the tab holds for after its turn, as the panel tells it: its text cut short. */
-function heldOf(item: QueuedMessage): NonNullable<ChatPanel["held"]>[number] {
+function heldOf(
+  item: QueuedMessage,
+  submission?: PeerSubmission,
+): NonNullable<ChatPanel["held"]>[number] {
   const truncated = item.text.length > MAX_HELD_TEXT;
   return {
     id: item.id,
+    ...(submission
+      ? { clientNonce: submission.clientNonce, clientDeviceId: submission.clientDeviceId }
+      : {}),
+    ...(item.status ? { status: item.status } : {}),
+    ...(item.error ? { error: item.error } : {}),
     text: truncated ? item.text.slice(0, MAX_HELD_TEXT) : item.text,
     ...(truncated ? { truncated } : {}),
     ...(item.images.length > 0 ? { images: item.images.length } : {}),

@@ -4,11 +4,8 @@ import type { ChatPanel } from "../../../../../packages/remote-protocol/src/view
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
 
-const { RemoteSidePanel, remoteAgentsOf, remotePanelPartOf } = await import(
+const { RemoteSidePanel, panelSummaryCounts, remoteAgentsOf, remotePanelPartOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-side-panel"
-);
-const { remoteSummaryCounts } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-pane"
 );
 const { usageMeterLabel } = await import("../../../../../src/renderer/components/chat/usage-line");
 const { RemoteProfileChip } = await import(
@@ -79,7 +76,7 @@ describe("another computer's chat's side panel", () => {
   });
 
   test("counts what its one-line summary tells, as a chat here's does", () => {
-    const counts = remoteSummaryCounts(
+    const counts = panelSummaryCounts(
       panel({
         todos: [
           { content: "a", status: "completed" },
@@ -102,7 +99,7 @@ describe("another computer's chat's side panel", () => {
       todos: { done: 1, total: 2 },
       contextPercent: 25,
     });
-    expect(remoteSummaryCounts(undefined, [])).toEqual({
+    expect(panelSummaryCounts(undefined, [])).toEqual({
       agents: 0,
       jobs: 0,
       todos: null,
@@ -255,6 +252,31 @@ describe("another computer's chat's side panel", () => {
     expect(html).not.toContain("Stop");
   });
 
+  test("renders Codex environment, checklist, context and compaction with Codex copy", () => {
+    const html = renderToStaticMarkup(
+      <RemoteSidePanel
+        target={{ ...target, kind: "codex" }}
+        panel={panel({
+          session: { id: "thread-1234", version: "0.166.0", account: "chatgpt" },
+          todos: [{ content: "Review the diff", status: "in_progress" }],
+          context: { usedTokens: 5000, maxTokens: 20000 },
+        })}
+        model={{ ...emptyModel(), model: "gpt-5.5", effort: "high", running: true }}
+        controls
+        onShowAgent={() => {}}
+        onCompact={() => {}}
+      />,
+    );
+    expect(html).toContain("remote-side-panel");
+    expect(html).toContain("0.166.0");
+    expect(html).toContain("gpt-5.5");
+    expect(html).toContain("high");
+    expect(html).toContain("25%");
+    expect(html).toContain("Review the diff");
+    expect(html).toContain("Compact once Codex finishes");
+    expect(html).not.toContain("Compact once Claude finishes");
+  });
+
   test("names the plan's meters as the usage line does, the week's too", () => {
     const t = (key: string, options?: Record<string, unknown>) =>
       options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key;
@@ -273,8 +295,6 @@ describe("another computer's chat's side panel", () => {
     expect(remotePanelPartOf(" /Usage ")).toBe("usage");
     expect(remotePanelPartOf("/status")).toBe("status");
     expect(remotePanelPartOf("/mcp")).toBe("mcp");
-    expect(remotePanelPartOf("/mcp", "codex")).toBeNull();
-    expect(remotePanelPartOf("/status", "codex")).toBeNull();
     // With words after it, it goes to the computer as typed.
     expect(remotePanelPartOf("/context more")).toBeNull();
     expect(remotePanelPartOf("/compact")).toBeNull();

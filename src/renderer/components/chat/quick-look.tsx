@@ -32,6 +32,7 @@ import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { FS_ERROR } from "../../../shared/fs/errors";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
+import { useChatFiles } from "../../services/chat/chat-files";
 import { copyImage, workspaceImageSrc } from "../../services/chat/copy-image";
 import { imageLookSize, imageSrc, type Size } from "../../services/chat/image-look";
 import { baseName, isUnder, type LineAt } from "../../services/chat/links";
@@ -142,6 +143,9 @@ export function QuickLook({
   const name = image ? t("chat.look.image", { number: index + 1 }) : baseName(path);
   const root = useLookRoot(workspaceId);
   const peer = peerOf(workspaceId) !== null;
+  const chatFiles = useChatFiles();
+  const peerUnavailable = peer && chatFiles?.epoch === null;
+  const previewKey = peer ? JSON.stringify([workspaceId, path, chatFiles?.epoch]) : path;
 
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);
@@ -161,10 +165,16 @@ export function QuickLook({
   // An image's box wraps it, once its size is known; until the next one
   // loads, the box keeps the size of the one before.
   const shownAsImage = image !== undefined || (isImageFile(path) && !showDiff);
+  const canCopyImage =
+    shownAsImage &&
+    (image ? shownImage.image !== null : peer ? !peerUnavailable : isUnder(path, root));
+  const imageRevision = shownAsImage && peer ? (chatFiles?.epoch ?? undefined) : undefined;
   const [sizes, setSizes] = useState<Readonly<Record<string, Size>>>({});
   const [lastSize, setLastSize] = useState<Size | null>(null);
   const sized = (of: string) => (size: Size) => {
-    setSizes((known) => (known[of] ? known : { ...known, [of]: size }));
+    setSizes((known) =>
+      known[of]?.w === size.w && known[of]?.h === size.h ? known : { ...known, [of]: size },
+    );
     setLastSize(size);
   };
   const layerRef = useRef<HTMLDivElement>(null);
@@ -295,7 +305,7 @@ export function QuickLook({
             disabledReason={support === "mdx-disabled" ? t("editor.mdx_disabled") : undefined}
           />
         )}
-        {shownAsImage && (image ? shownImage.image : peer || isUnder(path, root)) && (
+        {canCopyImage && (
           <IconButton
             label={t("chat.look.copy_image")}
             onClick={() => {
@@ -363,10 +373,16 @@ export function QuickLook({
               className="h-full"
             />
           )
+        ) : peerUnavailable ? (
+          <EmptyState
+            title={shownAsImage ? t("imagePreview.load_failed") : fileErrorMessage("OTHER")}
+            tone="status"
+            className="h-full"
+          />
         ) : showDiff ? (
           peer ? (
             <PeerLookDiff
-              key={path}
+              key={previewKey}
               workspaceId={workspaceId}
               path={path}
               before={before ?? null}
@@ -376,7 +392,8 @@ export function QuickLook({
           )
         ) : (
           <LookBody
-            key={path}
+            key={previewKey}
+            imageRevision={imageRevision}
             workspaceId={workspaceId}
             path={path}
             preview={support === "supported" && mode === "preview"}
@@ -480,8 +497,10 @@ function LookBody({
   preview,
   line,
   onImageSize,
+  imageRevision,
 }: {
   workspaceId: string;
+  imageRevision?: number;
   path: string;
   preview: boolean;
   line?: number;
@@ -491,7 +510,13 @@ function LookBody({
   if (isImageFile(path)) {
     return (
       <div className="flex h-full">
-        <ImagePreview workspaceId={workspaceId} filePath={path} onNaturalSize={onImageSize} fill />
+        <ImagePreview
+          workspaceId={workspaceId}
+          filePath={path}
+          onNaturalSize={onImageSize}
+          revision={imageRevision}
+          fill
+        />
       </div>
     );
   }

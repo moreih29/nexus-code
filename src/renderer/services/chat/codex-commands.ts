@@ -4,12 +4,16 @@
 // statusline…) are left out. Pure, for the tab and its tests.
 
 import { type AppCommand, code, type Words } from "./app-commands";
+import { collaborationModeOf } from "./codex-collaboration";
 import type { CodexModel } from "./codex-model";
 import type { CommandInfo } from "./model";
 
 export const CODEX_COMMANDS: readonly AppCommand[] = [
   { name: "model" },
   { name: "effort" },
+  { name: "plan" },
+  { name: "default" },
+  { name: "fast", argumentHint: "[on|off|status]" },
   { name: "config", aliases: ["settings"] },
   { name: "new", aliases: ["clear"] },
   { name: "resume", argumentHint: "[search]" },
@@ -20,6 +24,8 @@ export const CODEX_COMMANDS: readonly AppCommand[] = [
   { name: "init" },
   { name: "goal", argumentHint: "[<objective>|clear|pause|resume]" },
   { name: "status" },
+  { name: "context" },
+  { name: "usage" },
   { name: "diff" },
   { name: "copy", argumentHint: "[N]" },
   { name: "export", argumentHint: "[filename]" },
@@ -30,13 +36,34 @@ export const CODEX_COMMANDS: readonly AppCommand[] = [
   { name: "exit", aliases: ["quit"] },
 ];
 
+/** Codex's commands the app runs that another device may run. */
+export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
+  "new",
+  "compact",
+  "fast",
+  "plan",
+  "default",
+  "review",
+  "init",
+  "goal",
+  "status",
+  "rename",
+  "fork",
+  "export",
+  "mcp",
+  "skills",
+]);
+
 function namesOf(command: AppCommand): string[] {
   return [command.name, ...(command.aliases ?? [])];
 }
 
 /** The commands as the composer's `/` menu lists them. */
-export function codexCommandsListed(describe: (name: string) => string): CommandInfo[] {
-  return CODEX_COMMANDS.map((c) => ({
+export function codexCommandsListed(
+  describe: (name: string) => string,
+  collaboration = false,
+): CommandInfo[] {
+  return CODEX_COMMANDS.filter((c) => collaboration || !collaborationModeOf(c.name)).map((c) => ({
     name: c.name,
     aliases: c.aliases,
     argumentHint: c.argumentHint,
@@ -154,6 +181,8 @@ export interface CodexMcpServer {
   /** connected, failed, notLoggedIn…: the connection's state, else the sign-in's. */
   status: string;
   tools: number;
+  /** Present when this server supports OAuth and has no saved credentials. */
+  needsLogin?: boolean;
 }
 
 /** mcpServerStatus/list's servers. */
@@ -171,6 +200,7 @@ export function mcpServersOf(result: unknown): CodexMcpServer[] {
         name: server.name,
         status: runtime ?? (auth === "notLoggedIn" ? auth : ""),
         tools: Object.keys(tools).length,
+        ...(auth === "notLoggedIn" ? { needsLogin: true } : {}),
       },
     ];
   });
@@ -218,6 +248,14 @@ export function codexStatusMarkdown(model: CodexModel, cwd: string, t: Words): s
   const rows: [string, string | undefined][] = [
     [t("chat.codex.commands.status.model"), model.model],
     [t("chat.codex.commands.status.effort"), model.effort],
+    [
+      t("chat.codex.commands.status.collaboration"),
+      model.collaborationMode &&
+      model.collaborationPresets?.plan &&
+      model.collaborationPresets?.default
+        ? t(`chat.codex.commands.collaboration.${model.collaborationMode}`)
+        : undefined,
+    ],
     [t("chat.codex.commands.status.folder"), code(model.cwd ?? cwd)],
     [t("chat.codex.commands.status.thread"), model.threadId ? code(model.threadId) : undefined],
     [t("chat.codex.commands.status.version"), model.version],

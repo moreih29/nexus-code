@@ -43,6 +43,11 @@ export type RemoteImageRef =
   | { kind: "tool"; toolUseId: string; index: number }
   | { kind: "held"; id: string; index: number };
 
+export interface ImageLoader {
+  (image: ImageBlock): Promise<ImageBlock>;
+  subscribe(ref: RemoteImageRef, listener: (image: ImageBlock | null) => void): () => void;
+}
+
 export interface UserItem {
   kind: "user";
   key: string;
@@ -54,6 +59,18 @@ export interface UserItem {
   state: "sent" | "taken";
   /** The uuid the app wrote it with, which the CLI's echo and lifecycle name. */
   sentUuid?: string;
+  clientNonce?: string;
+  clientDeviceId?: string;
+  /** Internal projection of a provisional host stdin write. */
+  peerWritePending?: boolean;
+  /** Local preview of a send to another device. Never included on the wire. */
+  optimistic?: {
+    status: "sending" | "accepted" | "failed" | "unconfirmed";
+    queued: boolean;
+    fileNames: string[];
+    submittedAt: number;
+    error?: string;
+  };
   /**
    * Written during a turn: the CLI reads it after the tool it runs, and till
    * then it waits above the box, where it can still be taken back.
@@ -61,6 +78,8 @@ export interface UserItem {
   queued?: boolean;
   /** Codex: the turn it went into, which a resumed thread keeps (not `uuid`). */
   turnId?: string;
+  forkable?: boolean;
+  rewindable?: boolean;
   at?: number;
 }
 
@@ -80,6 +99,7 @@ export interface AssistantItem {
   messageId: string;
   uuid?: string;
   blocks: AssistantBlock[];
+  forkable?: boolean;
   at?: number;
 }
 
@@ -252,6 +272,9 @@ export interface ModelInfo {
   displayName?: string;
   description?: string;
   supportedEffortLevels?: string[];
+  isDefault?: boolean;
+  serviceTiers?: string[];
+  fastTier?: { id: string; description?: string; isDefault: boolean };
 }
 
 /**

@@ -74,15 +74,17 @@ type StartResult struct {
 	PID int `json:"pid"`
 	// Attached reports that the tab's program was already running, so none
 	// was started. The client replays the log to show it.
-	Attached bool `json:"attached,omitempty"`
+	Attached     bool   `json:"attached,omitempty"`
+	CanonicalCwd string `json:"canonicalCwd,omitempty"`
 }
 
 // SendParams is the wire shape for chat.send. Message is one JSON value,
 // written to the program as one line.
 type SendParams struct {
-	WorkspaceID string          `json:"workspaceId"`
-	TabID       string          `json:"tabId"`
-	Message     json.RawMessage `json:"message"`
+	WorkspaceID  string          `json:"workspaceId"`
+	TabID        string          `json:"tabId"`
+	Message      json.RawMessage `json:"message"`
+	CodexContext *codexContext   `json:"codexContext,omitempty"`
 }
 
 // TabParams names one tab, for chat.stop and chat.close.

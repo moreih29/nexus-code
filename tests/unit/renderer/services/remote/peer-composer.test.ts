@@ -390,6 +390,18 @@ describe("a typed command of another computer's chat", () => {
     { name: "background", description: "Bg", runs: "command", aliases: ["bg"] },
     { name: "review", description: "Review", runs: "send" },
   ];
+  test("Codex commands typed before discovery still take the command or settings route", () => {
+    expect(commandOf([], "/COMPACT", "codex")).toEqual({ kind: "command", name: "compact" });
+    expect(commandOf([], "/clear", "codex")).toEqual({ kind: "command", name: "new" });
+    expect(commandOf([], "/effort high", "codex")).toEqual({
+      kind: "set",
+      sets: "effort",
+      value: "high",
+    });
+    expect(commandOf([], "/compact", "claude")).toBeNull();
+    expect(commandOf([], "explain /compact", "codex")).toBeNull();
+  });
+
   test("runs by its alias as by its name", () => {
     expect(commandOf(commands, "/bg now")).toEqual({
       kind: "command",

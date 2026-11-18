@@ -13,6 +13,17 @@ import {
 import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex-model";
 
 describe("codex commands", () => {
+  test("only advertises collaboration commands on a capable server", () => {
+    const names = (capable: boolean) =>
+      codexCommandsListed((name) => name, capable).map((c) => c.name);
+    expect(names(false)).not.toContain("plan");
+    expect(names(false)).not.toContain("default");
+    expect(names(true)).toContain("plan");
+    expect(names(true)).toContain("default");
+    expect(parseCodexCommand("/plan")).toEqual({ name: "plan", args: "" });
+    expect(parseCodexCommand("/default")).toEqual({ name: "default", args: "" });
+  });
+
   test("the menu lists them with the app's words", () => {
     const listed = codexCommandsListed((name) => `about ${name}`);
     expect(listed.map((c) => c.name)).toContain("compact");
@@ -70,7 +81,7 @@ describe("codex commands", () => {
       }),
     ).toEqual([
       { name: "docs", status: "connected", tools: 2 },
-      { name: "jira", status: "notLoggedIn", tools: 0 },
+      { name: "jira", status: "notLoggedIn", tools: 0, needsLogin: true },
     ]);
     expect(mcpServersOf({})).toEqual([]);
   });

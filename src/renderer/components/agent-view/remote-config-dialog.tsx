@@ -10,11 +10,7 @@ import { useMemo } from "react";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { configShownOf } from "../../services/remote/chat-config";
 import type { PeerChatRef } from "../../services/remote/peer-mcp";
-import {
-  type CodexDefaults,
-  CodexDefaultsDialog,
-  type CodexDefaultsSource,
-} from "../chat/codex-config-dialog";
+import { CodexDefaultsDialog, type CodexDefaultsSource } from "../chat/codex-config-dialog";
 import { ConfigDialogView, type ConfigSource } from "../chat/config-dialog";
 
 /** The settings of another computer's chat, as the dialog reads and saves them. */
@@ -76,26 +72,15 @@ export function RemoteConfigDialog({
 /** A Codex chat's defaults on another computer, as its dialog reads and saves them. */
 export function peerCodexDefaults(ref: PeerChatRef): CodexDefaultsSource {
   return {
-    async readDefaults(): Promise<CodexDefaults> {
+    async readDefaults() {
       const { config } = unwrapIpcResult(
         await ipcCallResult("remote", "peerChatConfig", { ...ref }),
       );
       if (!config) throw new Error("it did not tell its defaults");
-      const model = config.keys.find((key) => key.key === "model")?.value;
-      const effort = config.efforts?.level;
-      return {
-        ...(typeof model === "string" && model ? { model } : {}),
-        ...(effort ? { effort } : {}),
-        models: config.models,
-      };
+      return config;
     },
-    async saveDefaults({ model, effort }) {
-      unwrapIpcResult(
-        await ipcCallResult("remote", "peerChatConfig", {
-          ...ref,
-          set: { changes: model ? { model } : {}, ...(effort ? { effort } : {}) },
-        }),
-      );
+    async saveDefaults(set) {
+      unwrapIpcResult(await ipcCallResult("remote", "peerChatConfig", { ...ref, set }));
     },
   };
 }

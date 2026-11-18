@@ -8,7 +8,7 @@ import {
 } from "../../../../../src/main/features/remote/chat-watches";
 import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
 
-function setup(pageItems = 0) {
+function setup(pageItems = 0, oversizeChildren = false) {
   const asked: [string, Record<string, unknown>][] = [];
   const sent: [string, ChatUpdate][] = [];
   const services = {
@@ -21,14 +21,25 @@ function setup(pageItems = 0) {
         return {
           start: 0,
           total: n,
+          ...(oversizeChildren ? { status: { agent: "codex" } } : {}),
           items: Array.from({ length: pageItems ? n : 0 }, (_, i) => ({
             kind: "shell",
             key: `k${i}`,
-            command: "x".repeat(200_000),
+            command: "x".repeat(oversizeChildren ? 4 : 200_000),
           })),
           tools: {},
           tasks: {},
-          agentItems: {},
+          agentItems: oversizeChildren
+            ? {
+                child: [
+                  {
+                    kind: "assistant",
+                    key: "child",
+                    blocks: [{ type: "text", text: "x".repeat(MAX_MESSAGE_BYTES) }],
+                  },
+                ],
+              }
+            : {},
         };
       }
       return {};
@@ -79,6 +90,14 @@ describe("the chats watched here", () => {
     ]);
     expect(asked.filter(([op]) => op === "chat.unwatch")).toHaveLength(3);
     expect(page.items).toHaveLength(2);
+  });
+
+  test("oversized Codex child messages leave the parent page and watch intact", async () => {
+    const { watches, asked } = setup(200, true);
+    const page = await watches.watch("d1", { ...chat, limit: 200 });
+    expect(asked.map(([op]) => op)).toEqual(["chat.watch"]);
+    expect(page.items).toHaveLength(200);
+    expect(page.agentItems).toEqual({});
   });
 
   test("a watch that takes appends asks the renderer for them", async () => {

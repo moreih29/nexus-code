@@ -51,6 +51,8 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
+  clearObservedQueued,
+  dispatchQueuedMessage,
   emptyTabState,
   type QueuedMessage,
   useChatStore,
@@ -172,6 +174,7 @@ export interface ChatTabHooks {
   onRelayed?: (record: RelayedMessage) => void;
   /** The model or effort the user picked, for the tab to keep. */
   onChosen?: (chosen: ChatChosen) => void;
+  onPeerWritten?: (id: string) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -1011,8 +1014,8 @@ export class ChatController {
    * Sends a message. One another agent sends through the nexus command
    * (`from`) is led by a line that tells Claude who sent it.
    */
-  send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
-    return this.sendMessage(text, images, false, from);
+  send(text: string, images: ImageBlock[] = [], from?: RelaySender, id?: string): Promise<void> {
+    return this.sendMessage(text, images, false, from, id);
   }
 
   /**
@@ -1020,8 +1023,8 @@ export class ChatController {
    * runs that can go on in the background goes there, and the turn stops
    * for the message when nothing can.
    */
-  sendNow(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
-    return this.sendMessage(text, images, true, from);
+  sendNow(text: string, images: ImageBlock[] = [], from?: RelaySender, id?: string): Promise<void> {
+    return this.sendMessage(text, images, true, from, id);
   }
 
   /**
@@ -1052,20 +1055,28 @@ export class ChatController {
     images: ImageBlock[],
     now: boolean,
     from?: RelaySender,
+    id?: string,
+    queued = false,
   ): Promise<void> {
-    if (!(await this.ensureRunning())) return;
+    if (!(await this.ensureRunning())) {
+      if (id) throw new Error("Claude is not running");
+      return;
+    }
     // A program just started takes the tab's flags and pick first, so its
     // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
+    if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
+      throw new Error("The conversation changed while delivering a queued message");
     const first = !this.titled && text.trim() ? text.trim() : undefined;
     if (first) {
       this.titled = true;
       this.hooks.onFirstMessage?.(first);
     }
-    const message = userMessageOf(from ? relayedText(from, text) : text, images, now);
+    const message = userMessageOf(from ? relayedText(from, text) : text, images, now, id);
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
+    if (id) this.hooks.onPeerWritten?.(id);
     // A session the user named, or the tab, keeps that name; Claude makes it none.
     if (first && !this.named && !this.ownName) void this.nameSession(first);
   }
@@ -1097,22 +1108,23 @@ export class ChatController {
     images: ImageBlock[] = [],
     from?: RelaySender,
     device?: string,
+    id?: string,
   ): string | undefined {
     const item: QueuedMessage = {
-      id: nextRequestId(),
+      id: id ?? nextRequestId(),
       text,
       images,
       ...(from ? { from } : {}),
       ...(device ? { device } : {}),
     };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (this.state.model.running) return item.id;
-    this.sendNextQueued();
-    return undefined;
+    if (!this.state.model.running) this.sendNextQueued();
+    return this.state.queue.some((entry) => entry.id === item.id) ? item.id : undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
-    const item = this.state.queue.find((q) => q.id === id);
+    const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
+    if (!item) return undefined;
     this.update((prev) => ({ ...prev, queue: prev.queue.filter((q) => q.id !== id) }));
     return item;
   }
@@ -1123,7 +1135,7 @@ export class ChatController {
    * now, no longer the agent's that sent it.
    */
   editQueued(id: string, text: string, device?: string): boolean {
-    if (!this.state.queue.some((q) => q.id === id)) return false;
+    if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
     this.update((prev) => ({
       ...prev,
       queue: prev.queue.map((q) => {
@@ -1137,10 +1149,23 @@ export class ChatController {
   }
 
   private sendNextQueued(): void {
-    const [next] = this.state.queue;
-    if (!next) return;
-    this.update((prev) => ({ ...prev, queue: prev.queue.slice(1) }));
-    void this.send(next.text, next.images, next.from);
+    dispatchQueuedMessage(
+      this.state.queue,
+      (update) => this.update(update),
+      (next) => this.sendMessage(next.text, next.images, false, next.from, next.id, true),
+      () => false,
+      (id) => this.sawQueuedMessage(id),
+      () => {
+        this.flushNow();
+        if (!this.state.model.running) this.sendNextQueued();
+      },
+    );
+  }
+
+  private sawQueuedMessage(id: string): boolean {
+    return this.state.model.items.some(
+      (item) => item.kind === "user" && item.state === "taken" && item.sentUuid === id,
+    );
   }
 
   interrupt(): Promise<unknown> {
@@ -1919,6 +1944,11 @@ export class ChatController {
         prev.history || prev.card ? { ...prev, history: null, card: undefined } : prev,
       );
     }
+    if (
+      model.items !== before.items &&
+      this.state.queue.some((item) => item.status === "unconfirmed")
+    )
+      this.update((prev) => clearObservedQueued(prev, (id) => this.sawQueuedMessage(id)));
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
       this.rejectPending("the program exited");
@@ -2119,6 +2149,7 @@ export function userMessageOf(
   text: string,
   images: readonly ImageBlock[],
   now = false,
+  id: string = crypto.randomUUID(),
 ): Record<string, unknown> {
   const content =
     images.length === 0
@@ -2135,7 +2166,7 @@ export function userMessageOf(
     message: { role: "user", content },
     parent_tool_use_id: null,
     session_id: "",
-    uuid: crypto.randomUUID(),
+    uuid: id,
     ...(now ? { priority: "now", origin: { kind: "human" } } : {}),
   };
 }

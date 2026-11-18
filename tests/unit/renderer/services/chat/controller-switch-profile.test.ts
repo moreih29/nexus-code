@@ -6,7 +6,12 @@
  * one's file. The real ipc client is spread under a spy, so later files
  * keep its other exports.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+
+import {
+  type ContinuedCodexChoices,
+  profileForkSettings,
+} from "../../../../../src/renderer/services/chat/codex-profile-fork";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -68,7 +73,10 @@ const { useTabsStore } = await import("../../../../../src/renderer/state/stores/
 let seq = 0;
 const live: { dispose: () => void }[] = [];
 
+let restoreDestination: (() => void) | undefined;
 afterEach(() => {
+  restoreDestination?.();
+  restoreDestination = undefined;
   for (const c of live.splice(0)) c.dispose();
   calls.length = 0;
   onStop = undefined;
@@ -165,8 +173,11 @@ describe("a Codex tab switched to another profile", () => {
     return { c, seen };
   }
 
-  test("starts a new thread with the profile, keeping only the permission preset", async () => {
+  test("starts a new thread with the destination profile defaults", async () => {
     const { c, seen } = codex();
+    await c.setPermissionMode("fullAccess");
+    await c.setModel("gpt-old");
+    await c.setEffort("high");
     await c.switchProfile("work");
     expect(calls.map((call) => call.method)).toEqual(["stop", "codexStart"]);
     expect(calls[1]?.args.profileId).toBe("work");
@@ -178,7 +189,7 @@ describe("a Codex tab switched to another profile", () => {
     expect(model.lastSeq).toBe(3);
     expect(model.model).toBeUndefined();
     expect(model.account).toBeUndefined();
-    expect(model.permissionMode).toBe("fullAccess");
+    expect(model.permissionMode).toBeUndefined();
   });
 });
 
@@ -365,7 +376,45 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
 });
 
 describe("a Codex tab's thread gone on with in another profile", () => {
+  const destination = {
+    model: "destination",
+    reasoningEffort: "medium",
+    approvalPolicy: "never",
+    approvalsReviewer: "user",
+    sandbox: { type: "workspaceWrite", networkAccess: false, writableRoots: [] },
+  };
+
+  function resolveDestination(fail = false) {
+    const spy = spyOn(CodexController, "destinationForkSettings").mockImplementation(
+      async (_target, selected: ContinuedCodexChoices) => {
+        if (fail) throw new Error("Destination config is invalid");
+        return profileForkSettings(destination, selected, [
+          { value: "destination", supportedEffortLevels: ["medium"] },
+          { value: "picked", supportedEffortLevels: ["high"] },
+        ]);
+      },
+    );
+    restoreDestination = () => spy.mockRestore();
+    return spy;
+  }
+
+  test("a destination resolution failure leaves the original profile and program alone", async () => {
+    resolveDestination(true);
+    const c = new CodexController({
+      workspaceId: "ws-switch",
+      tabId: `x${++seq}`,
+      cwd: "/p",
+      threadId: "old",
+    });
+    live.push(c);
+    await expect(c.continueInProfile("work")).rejects.toThrow("Destination config is invalid");
+    expect(c.profileId).toBe("codex-default");
+    expect(calls.map((call) => call.method)).not.toContain("stop");
+    expect(calls.map((call) => call.method)).not.toContain("codexStart");
+  });
+
   test("stops its program and starts one that forks the thread", async () => {
+    const resolve = resolveDestination();
     const seen: { profile?: string; moves?: readonly unknown[] } = {};
     const c = new CodexController(
       { workspaceId: "ws-switch", tabId: `x${++seq}`, cwd: "/p", threadId: "old" },
@@ -394,7 +443,7 @@ describe("a Codex tab's thread gone on with in another profile", () => {
         ],
       } as typeof prev.model,
     }));
-    await c.continueInProfile("work");
+    await expect(c.continueInProfile("work")).rejects.toThrow("not here");
     expect(calls.map((call) => call.method)).toEqual(["stop", "codexStart"]);
     expect(calls[1]?.args.profileId).toBe("work");
     expect(seen.profile).toBe("work");
@@ -402,10 +451,16 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     expect(seen.moves).toEqual([{ profileId: "work", after: "turn-1", at: expect.any(Number) }]);
     const model = c.state.model as Record<string, unknown>;
     expect(model.items).toEqual([]);
-    expect(model.permissionMode).toBe("fullAccess");
+    expect(model.permissionMode).toBeUndefined();
+    expect(resolve.mock.calls[0]?.[1]).toEqual({
+      model: undefined,
+      effort: undefined,
+      readOnly: false,
+    });
   });
 
-  test("its program forks a copy put where it finds it, takes the copy away and names the fork", async () => {
+  test("uses destination approval and keeps only an explicit read-only sandbox and supported picks", async () => {
+    resolveDestination();
     const c = new CodexController({
       workspaceId: "ws-switch",
       tabId: `x${++seq}`,
@@ -428,11 +483,23 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     codex = (message) => {
       sent.push(message);
       if (message.id === undefined) return;
-      const result = message.method === "thread/fork" ? { thread: { id: "copy" } } : {};
+      const result =
+        message.method === "thread/fork"
+          ? {
+              ...destination,
+              model: "picked",
+              reasoningEffort: "high",
+              sandbox: { type: "readOnly", networkAccess: false },
+              thread: { id: "copy" },
+            }
+          : {};
       queueMicrotask(() =>
         c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never),
       );
     };
+    await c.setPermissionMode("readOnly");
+    await c.setModel("picked");
+    await c.setEffort("high");
     await c.continueInProfile("work");
     await Bun.sleep(20);
     const order = calls
@@ -442,7 +509,7 @@ describe("a Codex tab's thread gone on with in another profile", () => {
           ? String((call.args.message as { method?: string }).method)
           : "stage",
       )
-      .filter((step) => !/^(account|model)\/|^thread\/goal/.test(step));
+      .filter((step) => !/^(account|model|collaborationMode)\/|^thread\/goal/.test(step));
     // Introduced first, as ever: what the tab asks meanwhile is not refused.
     expect(order).toEqual(["initialize", "initialized", "stage", "thread/fork", "thread/name/set"]);
     const stage = calls.find((call) => call.method === "stageThread")?.args;
@@ -452,14 +519,58 @@ describe("a Codex tab's thread gone on with in another profile", () => {
       toProfileId: "work",
     });
     const initialize = sent.find((m) => m.method === "initialize");
-    expect((initialize?.params as { capabilities?: unknown }).capabilities).toBeNull();
+    expect(initialize?.params).toMatchObject({ capabilities: { experimentalApi: true } });
     const fork = sent.find((m) => m.method === "thread/fork");
-    expect(fork?.params).toMatchObject({ threadId: "old" });
+    expect(fork?.params).toMatchObject({
+      threadId: "old",
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      model: "picked",
+      config: { model_reasoning_effort: "high" },
+      deferGoalContinuation: true,
+    });
     expect((fork?.params as { path?: unknown }).path).toBeUndefined();
     expect(sent.find((m) => m.method === "thread/name/set")?.params).toEqual({
       threadId: "copy",
       name: "Named",
     });
+  });
+
+  test("refuses a fork that retains elevated source permissions", async () => {
+    resolveDestination();
+    const c = new CodexController({
+      workspaceId: "ws-switch",
+      tabId: `x${++seq}`,
+      cwd: "/p",
+      threadId: "old",
+    });
+    live.push(c);
+    const sent: Record<string, unknown>[] = [];
+    let lineSeq = 100;
+    codex = (message) => {
+      sent.push(message);
+      if (message.id === undefined) return;
+      const result =
+        message.method === "thread/fork"
+          ? {
+              thread: { id: "unsafe", forkedFromId: "old" },
+              approvalPolicy: "on-request",
+              sandbox: { type: "dangerFullAccess" },
+            }
+          : {};
+      queueMicrotask(() => {
+        c.receive({ seq: ++lineSeq, dir: "in", message } as never);
+        c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never);
+      });
+    };
+    await c.setPermissionMode("fullAccess");
+    await expect(c.continueInProfile("work")).rejects.toThrow("destination profile's permissions");
+    expect(sent.find((m) => m.method === "thread/fork")?.params).toMatchObject({
+      sandbox: "workspace-write",
+      approvalPolicy: "never",
+    });
+    expect(sent.find((m) => m.method === "thread/delete")?.params).toEqual({ threadId: "unsafe" });
+    expect(c.currentThread()).not.toBe("unsafe");
   });
 
   test("a thread with no turn yet has no file to fork: a new thread, nothing staged", async () => {
@@ -496,12 +607,16 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     expect(calls.some((call) => call.method === "stageThread")).toBe(false);
     const asked = sent
       .map((m) => String(m.method))
-      .filter((m) => !/^(account|model)\/|^thread\/goal|^initialized?$/.test(m));
+      .filter((m) => !/^(account|model|collaborationMode)\/|^thread\/goal|^initialized?$/.test(m));
     expect(asked).toEqual(["thread/start"]);
     expect(seen.moves).toBeUndefined();
+    expect(sent.find((message) => message.method === "thread/start")?.params).toEqual({
+      cwd: "/p",
+    });
   });
 
   test("a tab not running yet, its turns not read, still forks", async () => {
+    resolveDestination();
     const c = new CodexController({
       workspaceId: "ws-switch",
       tabId: `x${++seq}`,
@@ -514,7 +629,8 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     codex = (message) => {
       sent.push(message);
       if (message.id === undefined) return;
-      const result = message.method === "thread/fork" ? { thread: { id: "copy" } } : {};
+      const result =
+        message.method === "thread/fork" ? { ...destination, thread: { id: "copy" } } : {};
       queueMicrotask(() =>
         c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never),
       );

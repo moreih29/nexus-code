@@ -804,7 +804,14 @@ export interface CliUiOps {
    * first prompt has every word of `query`.
    */
   "chat.history": {
-    args: { workspaceId: string; agent: ChatAgent; query?: string; limit?: number };
+    args: {
+      workspaceId: string;
+      agent: ChatAgent;
+      query?: string;
+      limit?: number;
+      /** Peer history picker requests may reuse a recent catalog while the query changes. */
+      peer?: boolean;
+    };
     result: { sessions: CliPastSession[] };
   };
   /**
@@ -1031,8 +1038,10 @@ export interface CliUiOps {
         | { kind: "held"; id: string; index: number };
       maxChars: number;
       maxEdge?: number;
+      versioned?: true;
+      ifVersion?: string;
     };
-    result: CliChatImage;
+    result: CliChatImage & { version?: string; notModified?: true };
   };
   /**
    * A tool call of a Claude or Codex tab as another device reads it, by its
@@ -1097,9 +1106,11 @@ export interface CliUiOps {
        * is dropped if control from other computers is turned off first.
        */
       device?: string;
+      /** User submission metadata supplied by the serving process. */
+      submission?: { clientNonce: string; clientDeviceId: string };
     };
     /** `heldId`: the message's id while the tab holds it for after the turn. */
-    result: { heldId?: string };
+    result: { heldId?: string; itemKey?: string; rejected?: string };
   };
   /** Takes back a message the tab holds for after the turn, with its whole text. */
   "chat.unqueue": {

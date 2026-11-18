@@ -38,8 +38,8 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk(await host.startCodex(workspaceId, tabId, cwd, { resetLog, profileId }));
       },
       send: async (args: unknown) => {
-        const parsed = validateArgs(c.send.args, args);
-        await host.call("send", parsed);
+        const { workspaceId, tabId, message } = validateArgs(c.send.args, args);
+        await host.send(workspaceId, tabId, message);
         return ipcOk(undefined);
       },
       stop: async (args: unknown) => {

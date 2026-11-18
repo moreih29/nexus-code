@@ -15,7 +15,7 @@ import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -31,6 +31,7 @@ import type { RemoteRepository } from "./git";
 import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
+import { PeerFileReads } from "./peer-file-reads";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
@@ -104,6 +105,9 @@ async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
     return ipcOk(await question());
   } catch (error) {
     if (error instanceof RpcFailure) {
+      const data = error.data as { outcome?: unknown } | undefined;
+      if (data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
+      if (data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
       const kind =
         error.code === RpcErrorCode.NotFound
           ? "not-found"
@@ -203,6 +207,9 @@ export async function registerRemoteChannel(options: {
     if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
     return room;
   };
+  const peerFiles = new PeerFileReads((deviceId, params, signal) =>
+    inRoom().request(deviceId, "files.read", params, undefined, signal),
+  );
   // The chats other devices watch here, told through the room.
   const watches = new ChatWatches({
     services: options.services,
@@ -240,6 +247,7 @@ export async function registerRemoteChannel(options: {
     notify: (to, update) => room?.notify(to, "terminal.update", update) ?? Promise.resolve(false),
   });
   const setRoomState = (state: RoomState) => {
+    peerFiles.updateRoom(state);
     // A device that left, or this one leaving, ends the watches it had.
     if (state.status !== "online") {
       void watches.dropAll();
@@ -325,17 +333,20 @@ export async function registerRemoteChannel(options: {
   function syncRoom(): void {
     const signedIn = account.state();
     const key = keys?.key() ?? null;
-    const want = signedIn.status === "signed-in" && key ? { device: signedIn.device, key } : null;
-    const id = want ? `${want.device.id}|${want.key.kid}` : "";
+    const want = signedIn.status === "signed-in" && key ? { signedIn, key } : null;
+    const id = want
+      ? JSON.stringify([want.signedIn.user.id, want.signedIn.device.id, want.key.kid])
+      : "";
     if (room && id !== roomFor) {
       room.stop();
       room = null;
       setRoomState({ status: "off", peers: [] });
     }
     if (room || !want) return;
+    const { device } = want.signedIn;
     roomFor = id;
     room = new RemoteRoom({
-      self: { id: want.device.id, name: want.device.name, platform: want.device.platform },
+      self: { id: device.id, name: device.name, platform: device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
       ...(options.theme ? { theme: options.theme } : {}),
@@ -476,6 +487,7 @@ export async function registerRemoteChannel(options: {
         return keyFlow(() =>
           ask(async () => {
             await accountKeys.removeDevices([id], password, { keepKey });
+            peerFiles.invalidateDevice(id);
           }),
         ).then((result) => (result.ok ? result.value : result));
       },
@@ -662,9 +674,36 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerFilesFind.args, args);
         return askPeer(() => inRoom().request(deviceId, "files.find", params));
       },
-      peerFilesRead: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerFilesRead.args, args);
-        return askPeer(() => inRoom().request(deviceId, "files.read", params));
+      peerFilesRead: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(
+          c.peerFilesRead.args,
+          args,
+        );
+        return askPeer(() =>
+          peerFiles.read(
+            { deviceId, workspaceId },
+            path,
+            { as, offset, length, maxBytes },
+            ctx?.signal,
+          ),
+        );
+      },
+      peerFilesReadBytes: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, workspaceId, path, offset, length, whole, requireVersion } = validateArgs(
+          c.peerFilesReadBytes.args,
+          args,
+        );
+        return askPeer(() =>
+          peerFiles.readBytes(
+            { deviceId, workspaceId },
+            path,
+            offset,
+            length,
+            whole === true && offset === 0,
+            requireVersion,
+            ctx?.signal,
+          ),
+        );
       },
       peerGitDiff: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
@@ -877,17 +916,9 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
-    peerFiles: async (peer, absPath, offset, length) => {
+    peerFiles: async (peer, absPath, offset, length, signal) => {
       try {
-        const read = await inRoom().request(peer.deviceId, "files.read", {
-          workspaceId: peer.workspaceId,
-          path: absPath,
-          as: "bytes",
-          offset,
-          length,
-        });
-        if (read.kind !== "bytes") throw new Error("not read as bytes");
-        return { base64: read.data, size: read.size };
+        return await peerFiles.openBytes(peer, absPath, offset, length, signal);
       } catch (error) {
         if (error instanceof RpcFailure && error.code === RpcErrorCode.NotFound) return "missing";
         throw error;

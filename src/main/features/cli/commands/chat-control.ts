@@ -520,7 +520,10 @@ const chatCommandRun: CliCommand = {
       body: text,
     });
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
-    const command = commands.find((c) => c.name === name);
+    const lower = name.toLowerCase();
+    const command =
+      commands.find((c) => c.name.toLowerCase() === lower) ??
+      commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
     if (!command) {
       throw new CliError(`${target.tab.title} has no command /${name}; chat commands lists them`);
     }
@@ -534,11 +537,15 @@ const chatCommandRun: CliCommand = {
         { ...target.ref, text, ...(from ? { from: { ...from, waits: false } } : {}) },
         SEND_TIMEOUT_MS,
       );
-      return output(`Sent ${text} to ${named(target)}.`, { ...target.ref, command: name, text });
+      return output(`Sent ${text} to ${named(target)}.`, {
+        ...target.ref,
+        command: command.name,
+        text,
+      });
     }
     const { message, tabId } = await ctx.services.ui(
       "chat.command",
-      { ...target.ref, name, ...(args ? { args } : {}) },
+      { ...target.ref, name: command.name, ...(args ? { args } : {}) },
       SEND_TIMEOUT_MS,
     );
     const lines = [
@@ -548,7 +555,7 @@ const chatCommandRun: CliCommand = {
     ];
     return output(lines.join("\n"), {
       ...target.ref,
-      command: name,
+      command: command.name,
       ...(message ? { message } : {}),
       ...(tabId ? { opened: tabId } : {}),
     });

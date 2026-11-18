@@ -12,13 +12,31 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
-import { CODEX_INIT_PROMPT } from "./codex-commands";
+import {
+  type CodexCollaborationMode,
+  type CodexCollaborationSettings,
+  collaborationPresetsOf,
+  collaborationSettingsOf,
+} from "./codex-collaboration";
+import { CODEX_INIT_PROMPT, type CodexMcpServer } from "./codex-commands";
+import {
+  appendCodexForkPage,
+  type CodexForkPages,
+  codexForkPrefix,
+  codexForkSourceStatus,
+  codexHistoryAvailable,
+  codexTurnIds,
+  emptyCodexForkPages,
+  validCodexFork,
+} from "./codex-history";
+import { matchesProfileForkSettings } from "./codex-profile-fork";
 import { fileMention } from "./composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "./goal";
 import {
   type AssistantBlock,
   type AssistantItem,
   applySys,
+  type ChatItem,
   type ChatLine,
   type ChatModel,
   Draft,
@@ -30,6 +48,7 @@ import {
   rec,
   stopRunningTools,
   str,
+  type TaskInfo,
   type ToolCall,
   type UserItem,
 } from "./model";
@@ -67,6 +86,12 @@ export interface CodexServerRequest {
 export interface CodexModel extends ChatModel {
   /** The thread the program runs, once it started or resumed one. */
   threadId?: string;
+  appServerVersion?: string;
+  canonicalCwd?: string;
+  forkSource?:
+    | { threadId: string; legacyTurns: string[] }
+    | { threadId: string; pages: CodexForkPages };
+  nativeTranscripts?: Record<string, ChatItem[]>;
   /** The turn that runs, to steer or stop. */
   turnId?: string;
   /** What the program is signed in with (its kind only); null when it is not. */
@@ -77,7 +102,16 @@ export interface CodexModel extends ChatModel {
   tokens?: { used: number; window?: number };
   /** The plan's usage limits; only a ChatGPT sign-in has them. */
   rateLimits?: CodexRateLimits;
+  /** The latest checklist the app-server reported for this thread. */
+  plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
+  mcpServers?: CodexMcpServer[];
+  /** Latest OAuth completion, used by the panel to refresh its inventory. */
+  mcpLogin?: { seq: number; name: string; success: boolean; error?: string };
   threadName?: string;
+  serviceTier?: string | null;
+  collaborationPresets?: ReturnType<typeof collaborationPresetsOf>;
+  collaborationMode?: CodexCollaborationMode;
+  collaborationSettings?: Partial<Record<CodexCollaborationMode, CodexCollaborationSettings>>;
   /**
    * The turn a review (/review) runs in: the message that starts it there
    * is Codex's own, which the review's notice tells.
@@ -107,8 +141,29 @@ export function emptyCodexModel(): CodexModel {
  * handshake reads it again: the models, the sign-in, the usage limits.
  */
 export function nextThreadModel(prev: CodexModel): CodexModel {
-  const { lastSeq, init, version, account, signedOut, rateLimits } = prev;
-  return { ...emptyCodexModel(), lastSeq, init, version, account, signedOut, rateLimits };
+  const {
+    lastSeq,
+    init,
+    version,
+    appServerVersion,
+    canonicalCwd,
+    account,
+    signedOut,
+    rateLimits,
+    collaborationPresets,
+  } = prev;
+  return {
+    ...emptyCodexModel(),
+    lastSeq,
+    init,
+    version,
+    appServerVersion,
+    canonicalCwd,
+    collaborationPresets,
+    account,
+    signedOut,
+    rateLimits,
+  };
 }
 
 /** A JSON-RPC id as a key, so the number 1 and the string "1" stay apart. */
@@ -123,6 +178,20 @@ const QUIET_REQUESTS = new Set([
   "account/rateLimits/read",
   "fuzzyFileSearch",
   "thread/goal/get",
+  "thread/list",
+  "thread/read",
+  "thread/turns/list",
+  "thread/fork",
+  "thread/delete",
+  "thread/unsubscribe",
+  "mcpServerStatus/list",
+  "mcpServer/oauth/login",
+  "config/mcpServer/reload",
+  "config/read",
+  "configRequirements/read",
+  "collaborationMode/list",
+  "thread/unsubscribe",
+  "config/batchWrite",
 ]);
 
 /** Most of a running command's output a row keeps; the start goes first. */
@@ -148,11 +217,15 @@ export function applyCodexLine(
     }
   } else if (line.dir === "sys") {
     applySys(draft, message, line.seq, at);
+    if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
       draft.next.blocks = {};
+      draft.next.forkSource = undefined;
       draft.next.turnId = undefined;
+      draft.next.mcpServers = undefined;
+      draft.next.mcpLogin = undefined;
     }
   } else if (line.dir === "in") applyIn(draft, message, line.seq, at);
   else applyOut(draft, message, line.seq, at);
@@ -185,8 +258,11 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
     switch (method) {
       case "turn/start":
       case "turn/steer": {
-        const { text, images } = userInputOf(params.input);
-        draft.push({ kind: "user", key: userKey(params, seq), text, images, state: "sent", at });
+        const clientId = str(params.clientUserMessageId);
+        if (!clientId?.startsWith("peer-")) {
+          const { text, images } = userInputOf(params.input);
+          draft.push({ kind: "user", key: userKey(params, seq), text, images, state: "sent", at });
+        }
         if (method === "turn/start") {
           applySettings(m, {
             model: params.model,
@@ -253,6 +329,14 @@ function applyResponse(
   m.outgoing = rest;
   const error = rec(message.error);
   if (error) {
+    if (
+      sent.request.threadId === m.forkSource?.threadId &&
+      (sent.subtype === "thread/turns/list" ||
+        sent.subtype === "thread/fork" ||
+        (sent.subtype === "thread/read" && sent.request.includeTurns === false))
+    ) {
+      m.forkSource = undefined;
+    }
     if (QUIET_REQUESTS.has(sent.subtype)) return;
     if (sent.subtype === "turn/steer") {
       // The turn ended first: the app sends the message as the next turn's.
@@ -287,21 +371,161 @@ function applyResponse(
   }
   const result = rec(message.result) ?? {};
   switch (sent.subtype) {
+    case "initialize":
+      m.collaborationMode = undefined;
+      m.collaborationSettings = undefined;
+      m.collaborationPresets = undefined;
+      m.appServerVersion = str(result.userAgent)?.match(/^[^/]+\/([\d.]+)\b/)?.[1];
+      return;
     case "thread/start":
     case "thread/resume":
-    case "thread/fork":
+      if (sent.request.ephemeral === true) return;
       applyThread(draft, result, seq);
       return;
+    case "thread/list":
+      if (
+        typeof sent.request.parentThreadId === "string" &&
+        sent.request.parentThreadId === m.threadId &&
+        Array.isArray(result.data)
+      ) {
+        for (const raw of result.data) {
+          const child = rec(raw);
+          const id = str(child?.id);
+          if (child && id && id !== m.threadId && parentThreadOf(child) === m.threadId) {
+            applyNativeAgent(m, id, child);
+          }
+        }
+      }
+      return;
+    case "thread/read": {
+      const thread = rec(result.thread);
+      const id = str(thread?.id);
+      if (
+        id &&
+        thread &&
+        id === sent.request.threadId &&
+        sent.request.includeTurns === true &&
+        m.tasks[id]?.type === "codex_subagent"
+      ) {
+        applyNativeAgent(m, id, thread);
+        applyAgentTranscript(draft, id, thread, seq);
+      } else if (
+        sent.request.includeTurns === false &&
+        (!m.threadId || sent.request.threadId === m.threadId)
+      ) {
+        const sourceId = str(sent.request.threadId);
+        const status = sourceId && codexForkSourceStatus(sourceId, result);
+        m.forkSource =
+          sourceId && status && status !== "active"
+            ? { threadId: sourceId, pages: emptyCodexForkPages() }
+            : undefined;
+      } else if (
+        id &&
+        id === sent.request.threadId &&
+        sent.request.includeTurns === true &&
+        (!m.threadId || id === m.threadId)
+      ) {
+        // Existing logs used a full thread/read to verify their historical forks.
+        const turns = codexTurnIds(thread);
+        m.forkSource = turns && { threadId: id, legacyTurns: turns };
+      }
+      return;
+    }
+    case "thread/turns/list": {
+      const source = m.forkSource;
+      if (
+        source &&
+        "pages" in source &&
+        source.threadId === sent.request.threadId &&
+        sent.request.sortDirection === "asc" &&
+        sent.request.itemsView === "notLoaded"
+      ) {
+        const pages = appendCodexForkPage(source.pages, sent.request.cursor, result);
+        m.forkSource = pages && { threadId: source.threadId, pages };
+      }
+      return;
+    }
+    case "thread/fork": {
+      const threadId = str(sent.request.threadId);
+      if (!threadId) return;
+      const fork = {
+        threadId,
+        beforeTurnId: str(sent.request.beforeTurnId),
+        lastTurnId: str(sent.request.lastTurnId),
+      };
+      const source = m.forkSource;
+      m.forkSource = undefined;
+      if (
+        !matchesProfileForkSettings(sent.request, result) ||
+        !validCodexFork(
+          fork,
+          result,
+          codexForkPrefix(
+            fork,
+            source?.threadId === threadId
+              ? "pages" in source
+                ? source.pages.turns
+                : source.legacyTurns
+              : undefined,
+          ),
+        )
+      )
+        return;
+      if (m.threadId === threadId) {
+        // A rewind replaces the displayed thread with its prefix copy. Keep
+        // the process, outstanding RPCs and workspace file snapshots.
+        const fresh = nextThreadModel(m);
+        Object.assign(m, fresh, {
+          process: m.process,
+          outgoing: m.outgoing,
+          originals: m.originals,
+          permissionMode: m.permissionMode,
+          cwd: m.cwd,
+          threadId: undefined,
+          threadName: undefined,
+          threadGoal: undefined,
+          turnId: undefined,
+          tokens: undefined,
+          lastResult: undefined,
+          reviewTurn: undefined,
+          nativeTranscripts: undefined,
+          plan: undefined,
+          interrupting: false,
+        });
+      }
+      applyThread(draft, result, seq);
+      return;
+    }
     case "turn/start":
     case "turn/steer": {
       const turnId = str(rec(result.turn)?.id) ?? str(result.turnId);
-      if (sent.subtype === "turn/start" && turnId && m.running) enterTurn(m, turnId);
+      if (sent.subtype === "turn/start") {
+        if (turnId && m.running) enterTurn(m, turnId);
+        if (sent.request.threadId === m.threadId)
+          rememberCollaborationEffort(m, sent.request.effort);
+      }
       const clientId = str(sent.request.clientUserMessageId);
-      if (clientId) takeUser(draft, `u-${clientId}`, undefined, turnId);
+      if (clientId) {
+        const key = `u-${clientId}`;
+        const found = takeUser(draft, key, undefined, turnId);
+        if (!found && clientId.startsWith("peer-")) {
+          const { text, images } = userInputOf(sent.request.input);
+          draft.push({ kind: "user", key, text, images, state: "taken", turnId, at });
+        }
+      }
       return;
     }
+    case "collaborationMode/list":
+      m.collaborationPresets = collaborationPresetsOf(result.data);
+      return;
+    case "thread/settings/update":
+      if (sent.request.threadId === m.threadId) {
+        if (sent.request.collaborationMode) applyCollaboration(m, sent.request.collaborationMode);
+        else rememberCollaborationEffort(m, sent.request.effort);
+      }
+      return;
     case "model/list":
-      m.init = { commands: [], models: modelsOf(result.data), remoteControl: false };
+      m.init = { commands: [], models: codexModelsOf(result.data), remoteControl: false };
       return;
     case "account/read":
       m.account = accountOf(result.account);
@@ -320,6 +544,80 @@ function applyResponse(
     case "thread/goal/clear":
       if (!sent.request.threadId || sent.request.threadId === m.threadId) m.threadGoal = null;
       return;
+  }
+}
+
+function parentThreadOf(thread: Rec): string | undefined {
+  const spawn = rec(rec(rec(thread.source)?.subAgent)?.thread_spawn);
+  return str(thread.parentThreadId) ?? str(spawn?.parent_thread_id);
+}
+
+function applyNativeAgent(
+  m: CodexModel,
+  id: string,
+  metadata: Rec = {},
+  status?: string,
+  prompt?: string,
+): void {
+  const before = m.tasks[id];
+  const kind = str(rec(metadata.status)?.type);
+  const lastTurn = Array.isArray(metadata.turns) ? rec(metadata.turns.at(-1)) : undefined;
+  const terminal = str(lastTurn?.status);
+  const next: TaskInfo = {
+    ...before,
+    taskId: id,
+    toolUseId: id,
+    type: "codex_subagent",
+    description:
+      str(metadata.agentNickname) || str(metadata.name) || before?.description || prompt || id,
+    subagentType: str(metadata.agentRole) ?? before?.subagentType,
+    status:
+      status ??
+      (kind === "active"
+        ? "running"
+        : terminal === "failed" || kind === "systemError"
+          ? "failed"
+          : terminal === "interrupted"
+            ? "stopped"
+            : terminal === "completed" || kind === "idle"
+              ? "completed"
+              : (before?.status ?? "stopped")),
+    prompt: before?.prompt ?? (prompt || str(metadata.preview) || undefined),
+    startedAt:
+      num(metadata.createdAt) === undefined ? before?.startedAt : Number(metadata.createdAt) * 1000,
+  };
+  m.tasks = { ...m.tasks, [id]: next };
+}
+
+function applyAgentTranscript(draft: CodexDraft, id: string, thread: Rec, seq: number): void {
+  if (!Array.isArray(thread.turns)) return;
+  const transcript = new Draft(emptyCodexModel());
+  // Suppress nested agent discovery here. The parent lists its direct children.
+  applyThread(transcript, { thread }, seq, false);
+  const prefix = `codex-child:${id}:`;
+  const items = transcript.next.items.map(
+    (item): ChatItem =>
+      item.kind === "assistant"
+        ? {
+            ...item,
+            key: prefix + item.key,
+            blocks: item.blocks.map((block) =>
+              block.type === "tool" ? { ...block, toolUseId: prefix + block.toolUseId } : block,
+            ),
+          }
+        : { ...item, key: prefix + item.key },
+  );
+  const m = draft.next;
+  const prompt = items.find((item): item is UserItem => item.kind === "user");
+  if (prompt?.text) applyNativeAgent(m, id, thread, undefined, prompt.text);
+  m.nativeTranscripts = { ...m.nativeTranscripts, [id]: items };
+  m.agentItems = {
+    ...m.agentItems,
+    [id]: items.filter((item): item is AssistantItem => item.kind === "assistant"),
+  };
+  for (const tool of Object.values(transcript.next.tools)) {
+    const key = prefix + tool.id;
+    draft.setTool(key, () => ({ ...tool, id: key, parentToolUseId: id }));
   }
 }
 
@@ -356,18 +654,31 @@ function nextGoal(
 }
 
 /** A started or resumed thread: its settings, and the turns it had when resumed. */
-function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
+function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents = true): void {
   const m = draft.next;
   const thread = rec(result.thread);
-  m.threadId = str(thread?.id) ?? m.threadId;
+  const id = str(thread?.id);
+  if (id && id !== m.threadId) {
+    m.collaborationMode = undefined;
+    m.collaborationSettings = undefined;
+  }
+  m.threadId = id ?? m.threadId;
   m.threadName = str(thread?.name) ?? m.threadName;
   m.version = str(thread?.cliVersion) ?? m.version;
   m.cwd = str(result.cwd) ?? m.cwd;
   applySettings(m, {
     model: result.model,
+    serviceTier: result.serviceTier,
     effort: result.reasoningEffort,
     sandbox: result.sandbox,
   });
+  if (result.collaborationMode) applyCollaboration(m, result.collaborationMode);
+  else if (m.collaborationMode === undefined) {
+    applyCollaboration(m, {
+      mode: "default",
+      settings: { reasoning_effort: result.reasoningEffort ?? null, developer_instructions: null },
+    });
+  }
   const turns = Array.isArray(thread?.turns) ? thread.turns : [];
   turns.forEach((raw, t) => {
     const turn = rec(raw);
@@ -376,11 +687,43 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
     // A review's turn, whichever of its items is listed first.
     if (turn.items.some((item) => rec(item)?.type === "enteredReviewMode")) m.reviewTurn = turnId;
     const startedAt = num(turn.startedAt);
+    const first = m.items.length;
     inStartOrder(turn.items).forEach(({ item, i }) => {
       const at = num(item.startedAtMs) ?? (startedAt !== undefined ? startedAt * 1000 : undefined);
-      applyItem(draft, turnId, item, "completed", `${seq}.${t}.${i}`, at);
+      applyItem(draft, turnId, item, "completed", `${seq}.${t}.${i}`, at, discoverAgents);
     });
+    if (["completed", "interrupted", "failed"].includes(String(turn.status)))
+      markHistoryBoundary(draft, turnId, turn.status === "completed", first);
   });
+}
+
+/** Only the first input and the final answer can name whole-turn cuts. */
+function markHistoryBoundary(
+  draft: CodexDraft,
+  turnId: string,
+  completed: boolean,
+  first = 0,
+): void {
+  if (!codexHistoryAvailable(draft.next.appServerVersion)) return;
+  const items = draft.next.items;
+  const prompt = items.findIndex(
+    (item, i) => i >= first && item.kind === "user" && item.turnId === turnId,
+  );
+  const input = items[prompt];
+  if (input?.kind === "user" && input.state === "taken" && !input.forkable) {
+    draft.replaceItem(prompt, { ...input, forkable: true, rewindable: true });
+  }
+  if (!completed) return;
+  const last = items.findLastIndex(
+    (item, i) =>
+      i >= first &&
+      ((item.kind === "assistant" && item.messageId === turnId) ||
+        (item.kind === "user" && item.turnId === turnId)),
+  );
+  const answer = items[last];
+  if (answer?.kind === "assistant" && answer.blocks.at(-1)?.type === "text" && !answer.forkable) {
+    draft.replaceItem(last, { ...answer, forkable: true });
+  }
 }
 
 /**
@@ -400,11 +743,33 @@ function inStartOrder(raw: unknown[]): { item: Rec; i: number }[] {
 
 function applySettings(
   m: CodexModel,
-  settings: { model: unknown; effort: unknown; sandbox: unknown },
+  settings: { model: unknown; effort: unknown; sandbox: unknown; serviceTier?: unknown },
 ) {
   m.model = str(settings.model) ?? m.model;
+  if (settings.serviceTier === null || typeof settings.serviceTier === "string")
+    m.serviceTier = settings.serviceTier;
   m.effort = str(settings.effort) ?? m.effort;
   m.permissionMode = modeOf(settings.sandbox) ?? m.permissionMode;
+}
+
+function applyCollaboration(m: CodexModel, value: unknown) {
+  const collaboration = collaborationSettingsOf(value);
+  if (!collaboration) return;
+  const { mode, settings } = collaboration;
+  m.collaborationMode = mode;
+  m.collaborationSettings = { ...m.collaborationSettings, [mode]: settings };
+  m.effort = settings.reasoning_effort ?? undefined;
+}
+
+function rememberCollaborationEffort(m: CodexModel, effort: unknown) {
+  const mode = m.collaborationMode;
+  const previous = mode && m.collaborationSettings?.[mode];
+  if (mode && previous && typeof effort === "string") {
+    m.collaborationSettings = {
+      ...m.collaborationSettings,
+      [mode]: { ...previous, reasoning_effort: effort },
+    };
+  }
 }
 
 /** The preset a sandbox reads as: its policy ({type}) or its mode ("read-only"). */
@@ -427,6 +792,7 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
 /** Thread notifications about the tab's own thread alone. */
 const OWN_THREAD_ONLY = new Set([
   "thread/tokenUsage/updated",
+  "thread/settings/updated",
   "thread/compacted",
   "thread/goal/updated",
   "thread/goal/cleared",
@@ -446,6 +812,12 @@ function applyNotification(
   const threadId = str(params.threadId);
   const another = threadId && m.threadId && threadId !== m.threadId;
   if (another && (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method))) return;
+  if (
+    threadId &&
+    !m.threadId &&
+    Object.values(m.outgoing).some(({ subtype }) => subtype === "thread/fork")
+  )
+    return;
   switch (method) {
     case "turn/started": {
       const turnId = str(rec(params.turn)?.id);
@@ -528,8 +900,51 @@ function applyNotification(
       applyItem(draft, turnId, item, "started", tag, at);
       return;
     }
+    case "turn/plan/updated":
+      if (Array.isArray(params.plan)) {
+        m.plan = params.plan.flatMap<NonNullable<CodexModel["plan"]>[number]>((raw) => {
+          const step = rec(raw);
+          const content = str(step?.step);
+          if (!content) return [];
+          switch (step?.status) {
+            case "pending":
+            case "completed":
+              return [{ content, status: step.status }];
+            case "inProgress":
+              return [{ content, status: "in_progress" }];
+            default:
+              return [];
+          }
+        });
+      }
+      return;
+    case "mcpServer/startupStatus/updated": {
+      const name = str(params.name);
+      const status = str(params.status);
+      if (name && status && m.mcpServers?.some((server) => server.name === name)) {
+        m.mcpServers = m.mcpServers.map((server) =>
+          server.name === name
+            ? {
+                ...server,
+                status: status === "ready" ? "connected" : status,
+                ...(status === "ready" ? { needsLogin: false } : {}),
+              }
+            : server,
+        );
+      }
+      return;
+    }
+    case "mcpServer/oauthLogin/completed": {
+      const name = str(params.name);
+      const error = str(params.error);
+      if (name && typeof params.success === "boolean") {
+        m.mcpLogin = { seq, name, success: params.success, ...(error ? { error } : {}) };
+      }
+      return;
+    }
     case "thread/started":
-      m.threadId ??= str(rec(params.thread)?.id);
+      // A fork can announce its child before answering with the history.
+      // The correlated response is what selects and persists a thread.
       return;
     case "thread/name/updated":
       if (!params.threadId || params.threadId === m.threadId) {
@@ -538,12 +953,14 @@ function applyNotification(
       return;
     case "thread/settings/updated": {
       const settings = rec(params.threadSettings);
-      if (settings) {
+      if (settings && (!params.threadId || params.threadId === m.threadId)) {
         applySettings(m, {
           model: settings.model,
+          serviceTier: settings.serviceTier,
           effort: settings.effort,
           sandbox: settings.sandboxPolicy,
         });
+        applyCollaboration(m, settings.collaborationMode);
       }
       return;
     }
@@ -603,6 +1020,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   const m = draft.next;
   const status = str(turn.status) ?? "completed";
   const turnId = str(turn.id);
+  const sawTurnStart = turnId && turnId === m.turnId;
   m.running = false;
   m.turn = null;
   m.streaming = null;
@@ -615,6 +1033,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     m.requests = Object.fromEntries(Object.entries(m.requests).filter(([key]) => !keys.has(key)));
     m.permissions = m.permissions.filter((p) => !keys.has(p.requestId));
   }
+  if (sawTurnStart) markHistoryBoundary(draft, turnId, status === "completed");
   m.lastResult = {
     subtype: status,
     isError: status === "failed",
@@ -655,6 +1074,7 @@ function applyItem(
   phase: "started" | "completed",
   tag: string,
   at: number | undefined,
+  discoverAgents = true,
 ): void {
   const m = draft.next;
   const id = str(item.id);
@@ -684,7 +1104,7 @@ function applyItem(
       const { text, images } = userInputOf(item.content);
       draft.push({
         kind: "user",
-        key: `u${tag}`,
+        key: clientId?.startsWith("peer-") ? `u-${clientId}` : `u${tag}`,
         uuid: id,
         text,
         images,
@@ -706,6 +1126,10 @@ function applyItem(
       return;
     }
     case "contextCompaction":
+      if (m.turn && m.turnId === turnId) {
+        if (phase === "started") m.turn = { ...m.turn, status: "compacting" };
+        else if (m.turn.status === "compacting") m.turn = { ...m.turn, status: undefined };
+      }
       if (phase === "completed") pushCompacted(draft, `n${tag}`, at);
       return;
     // A review (/review) is told as it starts; its findings come as Codex's
@@ -717,12 +1141,39 @@ function applyItem(
       }
       return;
   }
+  if (discoverAgents) applyNativeAgentItem(m, item);
   const tools = toolsOf(item, id, phase);
   if (!tools) return;
   for (const tool of tools) {
     const known = m.tools[tool.id];
     draft.setTool(tool.id, (prev) => mergeTool(prev, tool));
     if (!known) addBlock(draft, turnId, { type: "tool", toolUseId: tool.id }, tag, at);
+  }
+}
+
+function applyNativeAgentItem(m: CodexModel, item: Rec): void {
+  if (item.type === "subAgentActivity") {
+    const id = str(item.agentThreadId);
+    const status =
+      item.kind === "completed" ? "completed" : item.kind === "interrupted" ? "stopped" : "running";
+    if (id && id !== m.threadId) applyNativeAgent(m, id, {}, status);
+  }
+  if (item.type !== "collabAgentToolCall" || !Array.isArray(item.receiverThreadIds)) return;
+  if (item.senderThreadId && item.senderThreadId !== m.threadId) return;
+  for (const id of item.receiverThreadIds) {
+    if (typeof id !== "string" || id === m.threadId) continue;
+    const state = str(rec(rec(item.agentsStates)?.[id])?.status);
+    const status =
+      state === "completed"
+        ? "completed"
+        : state === "errored"
+          ? "failed"
+          : state === "interrupted" || state === "shutdown"
+            ? "stopped"
+            : state === "pendingInit" || state === "running" || item.tool === "spawnAgent"
+              ? "running"
+              : undefined;
+    applyNativeAgent(m, id, {}, status, item.tool === "spawnAgent" ? str(item.prompt) : undefined);
   }
 }
 
@@ -1299,7 +1750,7 @@ function dataImage(url: string | undefined): ImageBlock | null {
 }
 
 /** The models the picker lists, as the server describes them; hidden ones are left out. */
-function modelsOf(data: unknown): ModelInfo[] {
+export function codexModelsOf(data: unknown): ModelInfo[] {
   if (!Array.isArray(data)) return [];
   return data.flatMap((raw) => {
     const model = rec(raw);
@@ -1311,9 +1762,33 @@ function modelsOf(data: unknown): ModelInfo[] {
           return effort ? [effort] : [];
         })
       : [];
+    const tiers = Array.isArray(model.serviceTiers) ? model.serviceTiers.map(rec) : [];
+    const tierIds = tiers.flatMap((tier) => str(tier?.id) ?? []);
+    if (!Array.isArray(model.serviceTiers) && Array.isArray(model.additionalSpeedTiers)) {
+      for (const tier of model.additionalSpeedTiers) {
+        if (tier === "fast" || tier === "priority") tierIds.push("priority");
+      }
+    }
+    const fast = tiers.find(
+      (tier) =>
+        tier &&
+        (str(tier.name)?.toLowerCase() === "fast" || tier.id === "priority" || tier.id === "fast"),
+    );
+    const tierId = str(fast?.id);
     return [
       {
         value,
+        ...(model.isDefault === true ? { isDefault: true } : {}),
+        ...(tierIds.length ? { serviceTiers: tierIds } : {}),
+        ...(tierId
+          ? {
+              fastTier: {
+                id: tierId,
+                description: str(fast?.description),
+                isDefault: model.defaultServiceTier === tierId,
+              },
+            }
+          : {}),
         displayName: str(model.displayName),
         description: str(model.description),
         supportedEffortLevels: efforts,

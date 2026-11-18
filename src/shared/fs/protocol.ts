@@ -82,6 +82,32 @@ export const FsReadAbsoluteRangeParamsSchema = z.object({
 });
 export type FsReadAbsoluteRangeParams = z.infer<typeof FsReadAbsoluteRangeParamsSchema>;
 
+export const FS_READ_PREVIEW_METHOD = "fs.readPreview" as const;
+
+export type FsPreviewPath =
+  | { relPath: string }
+  | { absolutePath: string; expectedRealPath?: string };
+
+export type FsPreviewParams = FsPreviewPath & {
+  offset: number;
+  length: number;
+  wholeImage?: boolean;
+  versionScope?: string;
+  ifVersion?: string;
+  requireVersion?: string;
+};
+
+export const FsPreviewResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    base64: z.string(),
+    sizeBytes: z.number().int().nonnegative(),
+    version: z.string().min(1).max(128).optional(),
+  }),
+  z.object({ kind: z.literal("notModified"), version: z.string().min(1).max(128) }),
+]);
+export type FsPreviewResult = z.infer<typeof FsPreviewResultSchema>;
+
 // ---------------------------------------------------------------------------
 // fs.writeFile — atomic overwrite with optional optimistic-concurrency check.
 // ---------------------------------------------------------------------------

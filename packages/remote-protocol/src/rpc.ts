@@ -11,6 +11,7 @@ import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
+  ClientNonceSchema,
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
@@ -570,9 +571,12 @@ const ConfigValueSchema = z.union([z.boolean(), z.string().max(1000)]);
  * and the output styles; the model the session runs; and the default
  * effort the settings give each model (`efforts`, by its id; `level` the
  * one for any), none when that program cannot save one. A Codex chat's
- * defaults (its /config): one key, `model`, the model a new conversation
- * starts with, a choice of `models`; and `efforts.level` its reasoning
- * effort. Since 0.13.0.
+ * defaults (its /config): `model`, `efforts.level`, and settings supported by
+ * the host. Numeric settings use text with decimal string values. Empty
+ * `options` means read-only. With no `value`, an override can still exist
+ * outside the client's range if `valueUnavailable` is true. The reserved
+ * `_codex_profile_id` key binds the read to its profile and is not a UI control.
+ * Since 0.13.0.
  */
 export const ChatConfigSchema = z.object({
   keys: z
@@ -583,6 +587,7 @@ export const ChatConfigSchema = z.object({
         kind: z.enum(["boolean", "choice", "text"]),
         options: z.array(z.string()).optional(),
         value: ConfigValueSchema.optional(),
+        valueUnavailable: z.literal(true).optional(),
       }),
     )
     .max(200),
@@ -654,6 +659,9 @@ export const MAX_READ_BYTES = 512 * 1024;
 
 /** Most bytes one files.read `as: "bytes"` gives: a piece of a file, base64 inside a frame. */
 export const MAX_BYTES_CHUNK = 512 * 1024;
+
+/** An opaque files.read source generation, scoped to the workspace and path. */
+const FileVersionSchema = z.string().min(1).max(128);
 
 /** Most paths one files.find gives. */
 export const MAX_FIND_RESULTS = 200;
@@ -1011,6 +1019,9 @@ export const RPC_METHODS = {
       ...TabRef,
       /** Since 0.9.0; a desktop before it sends the image whole. */
       maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
+      /** Opt in to validating the requested image before sending its bytes. */
+      versioned: z.literal(true).optional(),
+      ifVersion: z.string().min(1).max(128).optional(),
       ref: z.discriminatedUnion("kind", [
         z.object({
           kind: z.literal("user"),
@@ -1031,8 +1042,10 @@ export const RPC_METHODS = {
     }),
     result: z.object({
       mediaType: ImageMediaTypeSchema,
-      /** Base64. */
+      /** Base64, empty when the currently authorized image matches ifVersion. */
       data: z.string(),
+      version: z.string().min(1).max(128).optional(),
+      notModified: z.literal(true).optional(),
       /** In pixels: always, from 0.9.0; before, only when it was drawn smaller. */
       width: z.number().int().positive().optional(),
       height: z.number().int().positive().optional(),
@@ -1061,6 +1074,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       text: z.string(),
+      clientNonce: ClientNonceSchema.optional(),
       /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
@@ -1070,7 +1084,12 @@ export const RPC_METHODS = {
      * `at`: when the serving device took it, by its clock, for chat.wait's
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
-    result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+    result: z.object({
+      at: z.number().optional(),
+      heldId: z.string().optional(),
+      clientNonce: ClientNonceSchema.optional(),
+      itemKey: z.string().optional(),
+    }),
   },
   /**
    * What an @ in the chat's composer may name for `query`, as its agent
@@ -1290,9 +1309,12 @@ export const RPC_METHODS = {
    * there has them: without `set`, what they are now (`config`); with it,
    * the changes saved as that dialog saves them (/config messages), and a
    * new default effort for the model the session then runs. Not while the
-   * chat is working. A Codex chat's defaults the same way: `changes.model`
-   * and `effort`, saved in its config, and the chat then runs them. Only
-   * the user's: an agent does not send it. Since 0.13.0.
+   * chat is working. For Codex, `changes` holds the advertised config keys and
+   * `effort` holds the reasoning effort. An empty numeric string or a
+   * resettable choice's advertised `default` removes its override.
+   * Echo the value of a read's reserved
+   * `_codex_profile_id` in `changes` when present. Model and effort also apply to the
+   * tab's next turn. Only the user's: an agent does not send it. Since 0.13.0.
    */
   "chat.config": {
     capability: "chat.control",
@@ -1673,6 +1695,10 @@ export const RPC_METHODS = {
    * it is, whatever it holds: `length` bytes (at most MAX_BYTES_CHUNK, which
    * is the default) from `offset`, for a viewer that needs the whole file
    * (a PDF, a document) to take it piece by piece.
+   *
+   * Since 0.13.4, an opting-in reader can validate a cached representation
+   * of the same authorized source or pin another piece to its version.
+   * A host may return fresh bytes without a version.
    */
   "files.read": {
     capability: "files",
@@ -1682,15 +1708,27 @@ export const RPC_METHODS = {
       maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
       as: z.literal("bytes").optional(),
       offset: z.number().int().nonnegative().optional(),
-      length: z.number().int().positive().max(MAX_BYTES_CHUNK).optional(),
+      /** Zero is a metadata-only bytes read and requires version opt-in. */
+      length: z.number().int().nonnegative().max(MAX_BYTES_CHUNK).optional(),
+      /** Ask for a version if the host can validate this file. */
+      versioned: z.literal(true).optional(),
+      /** Return notModified when this version still names the authorized file. */
+      ifVersion: FileVersionSchema.optional(),
+      /** Pin a bytes piece to this generation; mutually exclusive with ifVersion. */
+      requireVersion: FileVersionSchema.optional(),
     }),
     result: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("notModified"),
+        version: FileVersionSchema,
+      }),
       z.object({
         kind: z.literal("text"),
         path: z.string(),
         text: z.string(),
         size: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("image"),
@@ -1698,11 +1736,13 @@ export const RPC_METHODS = {
         mediaType: ImageMediaTypeSchema,
         data: z.string(),
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("binary"),
         path: z.string(),
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("bytes"),
@@ -1712,6 +1752,7 @@ export const RPC_METHODS = {
         offset: z.number().int().nonnegative(),
         /** The whole file's. */
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
     ]),
   },
