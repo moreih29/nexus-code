@@ -41,16 +41,28 @@ export interface RemoteTarget {
 export interface TerminalAsk {
   requestId: string;
   text: string;
+  /** Whether it may be allowed always; unknown (absent) from a computer before protocol 0.13.2. */
+  always?: boolean;
+  /** A subagent's, which denying cannot stop the turn for; unknown (absent) before 0.13.2. */
+  subagent?: boolean;
 }
+
+/** What a listed session waits on the user for, as far as a terminal's request goes. */
+type ListedWaiting = { text: string; requestId?: string; always?: boolean; subagent?: boolean };
 
 /** The request a listed session's Claude Code holds in its terminal; none for a chat. */
 export function askOf(session: {
   kind: RemoteTarget["kind"];
-  waiting?: { text: string; requestId?: string };
+  waiting?: ListedWaiting;
 }): TerminalAsk | undefined {
   const { waiting } = session;
   if (session.kind !== "terminal" || !waiting?.requestId) return undefined;
-  return { requestId: waiting.requestId, text: waiting.text };
+  return {
+    requestId: waiting.requestId,
+    text: waiting.text,
+    ...(waiting.always !== undefined ? { always: waiting.always } : {}),
+    ...(waiting.subagent !== undefined ? { subagent: waiting.subagent } : {}),
+  };
 }
 
 /** What the computer's list says of its sessions now, for the tabs to show. */
@@ -64,7 +76,7 @@ export interface ListedSessions {
     state: SessionState;
     profile?: string;
     cwd?: string;
-    waiting?: { text: string; requestId?: string };
+    waiting?: ListedWaiting;
   }[];
 }
 
@@ -131,6 +143,8 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         updated.cwd === target.cwd &&
         updated.ask?.requestId === target.ask?.requestId &&
         updated.ask?.text === target.ask?.text &&
+        updated.ask?.always === target.ask?.always &&
+        updated.ask?.subagent === target.ask?.subagent &&
         updated.workspaceName === target.workspaceName &&
         updated.path === target.path
       ) {

@@ -100,7 +100,13 @@ describe("remote sessions as tabs", () => {
     const terminal = { ...target, tabId: "t3", kind: "terminal" as const, title: "claude" };
     const key = remoteSessionKey(terminal);
     useRemoteViewStore.getState().open(terminal);
-    const listed = (waiting?: { kind: "permission"; text: string; requestId?: string }) => ({
+    const listed = (waiting?: {
+      kind: "permission";
+      text: string;
+      requestId?: string;
+      always?: boolean;
+      subagent?: boolean;
+    }) => ({
       workspaces: [{ id: "w1", name: "api", path: "/src/api" }],
       sessions: [
         {
@@ -123,10 +129,23 @@ describe("remote sessions as tabs", () => {
     // Waiting with nothing to answer by (an older computer's) is no request here.
     useRemoteViewStore.getState().refresh("d2", listed({ kind: "permission", text: "Bash" }));
     expect(useRemoteViewStore.getState().targets.get(key)?.ask).toBeUndefined();
-    useRemoteViewStore
-      .getState()
-      .refresh("d2", listed({ kind: "permission", text: "Edit a.ts", requestId: "r2" }));
-    expect(useRemoteViewStore.getState().targets.get(key)?.ask?.requestId).toBe("r2");
+    useRemoteViewStore.getState().refresh(
+      "d2",
+      listed({
+        kind: "permission",
+        text: "Edit a.ts",
+        requestId: "r2",
+        always: true,
+        subagent: false,
+      }),
+    );
+    // What it may be answered with, as a computer of 0.13.2 on tells it.
+    expect(useRemoteViewStore.getState().targets.get(key)?.ask).toEqual({
+      requestId: "r2",
+      text: "Edit a.ts",
+      always: true,
+      subagent: false,
+    });
     useRemoteViewStore.getState().refresh("d2", listed());
     expect(useRemoteViewStore.getState().targets.get(key)).not.toHaveProperty("ask");
   });

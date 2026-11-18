@@ -33,6 +33,12 @@ export const RoomPeerSchema = z.object({
   serves: z.array(z.string()).optional(),
   /** The protocol package's version it speaks (0.2.0 on); absent from an older one. */
   schema: z.string().optional(),
+  /**
+   * How many times it joined the room again with a new connection while
+   * this device stayed, which the room may not have shown: what was watched
+   * there was dropped, and is watched again as this grows. Absent before.
+   */
+  rejoins: z.number().int().nonnegative().optional(),
 });
 export type RoomPeer = z.infer<typeof RoomPeerSchema>;
 

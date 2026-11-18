@@ -258,6 +258,17 @@ export const RemoteSessionSchema = z.object({
       text: z.string(),
       /** A terminal's Claude Code asking: the request terminal.answer answers. */
       requestId: z.string().optional(),
+      /**
+       * With a requestId: whether its Claude Code offers to allow it always
+       * (terminal.answer's allowAlways). Since 0.13.2; absent before, when
+       * it may or may not.
+       */
+      always: z.boolean().optional(),
+      /**
+       * With a requestId: a subagent's request, for which denyStop cannot
+       * stop the turn. Since 0.13.2; absent before, when it may be one.
+       */
+      subagent: z.boolean().optional(),
     })
     .optional()
     .catch(undefined),

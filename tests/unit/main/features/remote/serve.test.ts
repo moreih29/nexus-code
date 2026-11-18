@@ -302,8 +302,15 @@ describe("serving the sessions", () => {
         since: 5,
         last: "Allow rm?",
         agent: "claude",
-        // What the terminal's Claude Code asks, as the app holds it.
-        waiting: { kind: "permission", text: "Bash rm -rf dist", requestId: "h1" },
+        // What the terminal's Claude Code asks, as the app holds it: nothing to allow always,
+        // and the session's own, which denying may stop.
+        waiting: {
+          kind: "permission",
+          text: "Bash rm -rf dist",
+          requestId: "h1",
+          always: false,
+          subagent: false,
+        },
       },
       // A terminal with only its shell: no agent, which the lists keep out of sight.
       { workspaceId: "w1", tabId: "t5", kind: "terminal", title: "bash", state: "idle" },

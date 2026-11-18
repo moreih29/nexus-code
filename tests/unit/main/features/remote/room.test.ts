@@ -424,6 +424,24 @@ describe("what the relay keeps and sends again", () => {
     expect(a.served).toHaveLength(2);
   });
 
+  test("a device back with a new connection the room never showed gone is counted, for its watches to be asked again", async () => {
+    const { a, b } = await pair();
+    expect(b.room.state().peers[0]?.rejoins).toBeUndefined();
+    // a's socket dropped and opened again; the room showed it online all the while.
+    a.reopen();
+    await tick();
+    expect(b.room.state().peers[0]).toMatchObject({ id: "a", online: true, rejoins: 1 });
+    // a itself started over: it counts none of b.
+    expect(a.room.state().peers[0]?.rejoins).toBeUndefined();
+    // Told again in each presence, and once more for the next connection.
+    a.reopen();
+    await tick();
+    expect(b.room.state().peers[0]?.rejoins).toBe(2);
+    // b asks a as before.
+    await b.room.request("a", "sessions.list", {});
+    expect(a.served).toHaveLength(1);
+  });
+
   test("a message for another device, passed on to this one, is not taken", async () => {
     const { relay, key, a, b } = await pair();
     const c = device(relay, "c", key);
