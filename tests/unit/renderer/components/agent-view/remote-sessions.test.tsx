@@ -318,6 +318,46 @@ describe("the agent view's other computers", () => {
     expect(headings[1]).toContain("fix/login ↑2 ●");
   });
 
+  test("hangs a task from a line under its workspace's folder, where that is listed", () => {
+    const render = (sessions: RemoteSession[]) =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={peer}
+          query=""
+          sessions={{
+            status: "ready",
+            list: {
+              workspaces: [
+                { id: "w1", name: "api", path: "/src/api" },
+                { id: "w2", name: "api-fix", path: "/wt/api-fix", parentId: "w1" },
+              ],
+              sessions,
+            },
+          }}
+        />,
+      );
+    // The group's opening tag, before its heading.
+    const groups = (html: string) =>
+      html
+        .split('data-testid="remote-workspace"')
+        .slice(0, -1)
+        .map((before) => before.slice(before.lastIndexOf('<div class="flex flex-col not-first')));
+    const both = groups(
+      render([
+        session({ tabId: "t1", title: "Fix the build" }),
+        session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+      ]),
+    );
+    expect(both).toHaveLength(2);
+    expect(both[0]).not.toContain("data-task");
+    expect(both[1]).toContain("data-task");
+    expect(both[1]).toContain("ml-3.5 border-border border-l");
+    // Its workspace not listed, it has nothing to hang from.
+    const alone = groups(render([session({ tabId: "t2", workspaceId: "w2", title: "Fix login" })]));
+    expect(alone).toHaveLength(1);
+    expect(alone[0]).not.toContain("data-task");
+  });
+
   test("finds sessions by their title or last line", () => {
     const html = renderToStaticMarkup(
       <PeerGroup
