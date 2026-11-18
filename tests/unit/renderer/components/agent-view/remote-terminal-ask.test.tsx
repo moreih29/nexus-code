@@ -37,4 +37,23 @@ describe("a terminal's Claude Code asking, from another computer", () => {
     // The agent list's warning frame.
     expect(html).toContain("border-(--state-warning-fg)/40");
   });
+
+  test("offers allowing always only where Claude Code does, and stopping the turn not for a subagent's", () => {
+    const render = (ask: { always?: boolean; subagent?: boolean }) =>
+      renderToStaticMarkup(
+        <RemoteTerminalAsk
+          ask={{ requestId: "r1", text: "Bash ls", ...ask }}
+          onAnswer={() => Promise.resolve({ ok: true } as never)}
+          onAnswered={() => {}}
+        />,
+      );
+    const plain = render({ always: false, subagent: true });
+    expect(plain).toContain(">Allow</button>");
+    expect(plain).toContain(">Deny</button>");
+    expect(plain).not.toContain(">Always allow</button>");
+    expect(plain).not.toContain(">Deny and stop</button>");
+    const full = render({ always: true, subagent: false });
+    expect(full).toContain(">Always allow</button>");
+    expect(full).toContain(">Deny and stop</button>");
+  });
 });

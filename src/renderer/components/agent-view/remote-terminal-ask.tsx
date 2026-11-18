@@ -4,8 +4,11 @@
  * this computer's agent list words and draws a terminal agent's request
  * (permission-asks). An answer goes as terminal.answer, an answer for an
  * agent and no typing, so it is chat.control's: it works where the
- * computer lets this one only look at its terminals. The terminal's own
- * prompt can answer it too; a request answered there or over is told.
+ * computer lets this one only look at its terminals. Allowing it always is
+ * offered where Claude Code offers it, and denying it to stop the turn
+ * where it is not a subagent's (all of them from a computer before
+ * protocol 0.13.2, which does not tell). The terminal's own prompt can
+ * answer it too; a request answered there or over is told.
  */
 
 import { CircleAlert } from "lucide-react";
@@ -85,14 +88,16 @@ export function RemoteTerminalAsk({
           <Button size="sm" disabled={sending} onClick={() => void answer("allow")}>
             {t("agentList.permission.allow")}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={sending}
-            onClick={() => void answer("allowAlways")}
-          >
-            {t("agentList.permission.allow_always")}
-          </Button>
+          {ask.always !== false && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={sending}
+              onClick={() => void answer("allowAlways")}
+            >
+              {t("agentList.permission.allow_always")}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -101,14 +106,16 @@ export function RemoteTerminalAsk({
           >
             {t("agentList.permission.deny_send")}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={sending}
-            onClick={() => void answer("denyStop")}
-          >
-            {t("agentList.permission.deny_stop")}
-          </Button>
+          {ask.subagent !== true && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={sending}
+              onClick={() => void answer("denyStop")}
+            >
+              {t("agentList.permission.deny_stop")}
+            </Button>
+          )}
         </span>
         <span
           className={cn(
