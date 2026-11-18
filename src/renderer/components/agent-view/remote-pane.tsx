@@ -48,6 +48,7 @@ import {
   TERMINAL_PROFILE_SCHEMA,
   usePeerControls,
   usePeerReach,
+  usePeerSessions,
   usePeerSpeaks,
   usePeerTypes,
 } from "../../services/remote/room";
@@ -55,7 +56,7 @@ import { useSelfDeviceId } from "../../services/remote/self-device";
 import { TerminalTyping } from "../../services/remote/terminal-typing";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useChatFontStyle } from "../../state/stores/chat-font";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { AgentStrip, ShownState } from "../chat/agent-strip";
@@ -1277,7 +1278,18 @@ function RemoteTerminal({
   const controls = usePeerControls(deviceId);
   // The request answered here, kept out of sight until the list no longer says it waits.
   const [answered, setAnswered] = useState<string | null>(null);
-  const ask = target.ask;
+  // What its Claude Code asks, as the computer lists it: watched here as well, for the agent
+  // view's list may be hidden; the list's last word (target.ask) until it comes.
+  const listed = usePeerSessions([deviceId], visible && controls)[deviceId];
+  const ask =
+    listed?.status === "ready"
+      ? (() => {
+          const session = listed.list.sessions.find(
+            (s) => s.workspaceId === workspaceId && s.tabId === tabId,
+          );
+          return session ? askOf(session) : undefined;
+        })()
+      : target.ask;
   const typing = useMemo(
     () =>
       new TerminalTyping(
