@@ -16,6 +16,7 @@ export const FS_ERROR = {
   NOT_DIRECTORY: "NOT_DIRECTORY",
   TOO_LARGE: "TOO_LARGE",
   OUT_OF_WORKSPACE: "OUT_OF_WORKSPACE",
+  STALE: "STALE",
   NOT_EMPTY: "NOT_EMPTY",
   CROSS_DEVICE: "CROSS_DEVICE",
   /** The volume is full (ENOSPC); the agent reports it for writes. */

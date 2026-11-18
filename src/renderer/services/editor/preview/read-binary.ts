@@ -18,10 +18,11 @@ export type BinaryRead =
 export async function readWorkspaceBinary(
   workspaceId: string,
   relPath: string,
+  signal?: AbortSignal,
 ): Promise<BinaryRead> {
   // Another computer's file, read through the room.
   const peer = peerOf(workspaceId);
-  if (peer) return readPeerBinary(peer, relPath);
+  if (peer) return readPeerBinary(peer, relPath, signal);
   const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath });
   if (stat.ok && stat.value.size > MAX_READABLE_FILE_SIZE) return { kind: "too_large" };
   const read = await ipcCallResult("fs", "readBinary", { workspaceId, relPath });

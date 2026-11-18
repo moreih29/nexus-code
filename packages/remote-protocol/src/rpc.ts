@@ -660,6 +660,9 @@ export const MAX_READ_BYTES = 512 * 1024;
 /** Most bytes one files.read `as: "bytes"` gives: a piece of a file, base64 inside a frame. */
 export const MAX_BYTES_CHUNK = 512 * 1024;
 
+/** An opaque files.read source generation, scoped to the workspace and path. */
+const FileVersionSchema = z.string().min(1).max(128);
+
 /** Most paths one files.find gives. */
 export const MAX_FIND_RESULTS = 200;
 
@@ -1016,6 +1019,9 @@ export const RPC_METHODS = {
       ...TabRef,
       /** Since 0.9.0; a desktop before it sends the image whole. */
       maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
+      /** Opt in to validating the requested image before sending its bytes. */
+      versioned: z.literal(true).optional(),
+      ifVersion: z.string().min(1).max(128).optional(),
       ref: z.discriminatedUnion("kind", [
         z.object({
           kind: z.literal("user"),
@@ -1036,8 +1042,10 @@ export const RPC_METHODS = {
     }),
     result: z.object({
       mediaType: ImageMediaTypeSchema,
-      /** Base64. */
+      /** Base64, empty when the currently authorized image matches ifVersion. */
       data: z.string(),
+      version: z.string().min(1).max(128).optional(),
+      notModified: z.literal(true).optional(),
       /** In pixels: always, from 0.9.0; before, only when it was drawn smaller. */
       width: z.number().int().positive().optional(),
       height: z.number().int().positive().optional(),
@@ -1696,15 +1704,27 @@ export const RPC_METHODS = {
       maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
       as: z.literal("bytes").optional(),
       offset: z.number().int().nonnegative().optional(),
-      length: z.number().int().positive().max(MAX_BYTES_CHUNK).optional(),
+      /** Zero is a metadata-only bytes read and requires version opt-in. */
+      length: z.number().int().nonnegative().max(MAX_BYTES_CHUNK).optional(),
+      /** Ask for a version if the host can validate this file. */
+      versioned: z.literal(true).optional(),
+      /** Return notModified when this version still names the authorized file. */
+      ifVersion: FileVersionSchema.optional(),
+      /** Require this generation for a subsequent piece; mutually exclusive with ifVersion. */
+      requireVersion: FileVersionSchema.optional(),
     }),
     result: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("notModified"),
+        version: FileVersionSchema,
+      }),
       z.object({
         kind: z.literal("text"),
         path: z.string(),
         text: z.string(),
         size: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("image"),
@@ -1712,11 +1732,13 @@ export const RPC_METHODS = {
         mediaType: ImageMediaTypeSchema,
         data: z.string(),
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("binary"),
         path: z.string(),
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("bytes"),
@@ -1726,6 +1748,7 @@ export const RPC_METHODS = {
         offset: z.number().int().nonnegative(),
         /** The whole file's. */
         size: z.number().int().nonnegative(),
+        version: FileVersionSchema.optional(),
       }),
     ]),
   },

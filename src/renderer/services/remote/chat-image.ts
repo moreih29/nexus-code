@@ -88,6 +88,31 @@ export async function fitImage(
   throw new UiRequestError("the image would not get small enough to send");
 }
 
+/** Hash the source bytes and requested representation before decoding or resizing. */
+export async function readChatImage(
+  image: ImageBlock,
+  limits: ImageLimits & { versioned?: true; ifVersion?: string },
+): Promise<CliChatImage & { version?: string; notModified?: true }> {
+  const { versioned, ifVersion, maxChars, maxEdge } = limits;
+  if ((!versioned && ifVersion === undefined) || !globalThis.crypto?.subtle) {
+    return fitImage(image, limits);
+  }
+  const source = new TextEncoder().encode(
+    JSON.stringify([1, image.mediaType, maxChars, maxEdge]) + image.data,
+  );
+  const digest = await crypto.subtle.digest("SHA-256", source);
+  const version = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  if (version === ifVersion) {
+    const mediaType = SENT_AS_IS.has(image.mediaType)
+      ? (image.mediaType as CliChatImage["mediaType"])
+      : "image/jpeg";
+    return { mediaType, data: "", version, notModified: true };
+  }
+  return { ...(await fitImage(image, limits)), version };
+}
+
 function base64Of(bytes: Uint8Array): string {
   let binary = "";
   const CHUNK = 0x8000;

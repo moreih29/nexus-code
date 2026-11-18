@@ -9,10 +9,13 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ImageBlock } from "./model";
 
 export interface ChatFiles {
+  /** The peer connection and foreground lifetime; null while unavailable. */
+  epoch: number | null;
   /** Which of these absolute paths are files. */
   there(paths: readonly string[]): Promise<ReadonlySet<string>>;
   /** An image file's picture, small enough for a card. */
   picture(path: string): Promise<ImageBlock>;
+  subscribePicture(path: string, listener: (image: ImageBlock | null) => void): () => void;
 }
 
 export const ChatFilesContext = createContext<ChatFiles | null>(null);
@@ -21,33 +24,35 @@ export function useChatFiles(): ChatFiles | null {
   return useContext(ChatFilesContext);
 }
 
-/**
- * The picture of an image file read through `files`, once it has come;
- * nothing to do without `files`, where the workspace's URL shows it.
- */
+interface PictureState {
+  files: ChatFiles | null;
+  path: string;
+  image: ImageBlock | null;
+  failed: boolean;
+}
+
+/** The currently authorized image for the path. */
 export function useFilePicture(
   files: ChatFiles | null,
   path: string,
 ): { image: ImageBlock | null; failed: boolean } {
-  const [state, setState] = useState<{
-    path: string;
-    image: ImageBlock | null;
-    failed: boolean;
-  }>({ path, image: null, failed: false });
+  const [state, setState] = useState<PictureState>({ files, path, image: null, failed: false });
+  const current = state.path === path && state.files === files;
+  if (!current) setState({ files, path, image: null, failed: false });
+
   useEffect(() => {
-    if (!files) return;
+    if (!files || files.epoch === null) return;
     let live = true;
-    files.picture(path).then(
-      (image) => {
-        if (live) setState({ path, image, failed: false });
-      },
-      () => {
-        if (live) setState({ path, image: null, failed: true });
-      },
-    );
+    const show = (image: ImageBlock | null) => {
+      if (live) setState({ files, path, image, failed: image === null });
+    };
+    const off = files.subscribePicture(path, show);
+    void files.picture(path).catch(() => show(null));
     return () => {
       live = false;
+      off();
     };
   }, [files, path]);
-  return state.path === path ? state : { image: null, failed: false };
+  if (files?.epoch === null) return { image: null, failed: true };
+  return current ? state : { image: null, failed: false };
 }

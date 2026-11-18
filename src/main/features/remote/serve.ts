@@ -5,6 +5,7 @@
  */
 
 import { posix, win32 } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   type AgentSender,
   type Capability,
@@ -599,7 +600,7 @@ const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
 /** An image of the chat, drawn smaller where it would not go in a frame. */
 export async function chatImage(
   services: CliServices,
-  { workspaceId, tabId, ref, maxEdge }: RpcParams<"chat.image">,
+  { workspaceId, tabId, ref, maxEdge, versioned, ifVersion }: RpcParams<"chat.image">,
 ): Promise<RpcResult<"chat.image">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const image = await services
@@ -609,6 +610,8 @@ export async function chatImage(
       ref,
       maxChars: IMAGE_CHARS,
       ...(maxEdge !== undefined ? { maxEdge } : {}),
+      ...(versioned ? { versioned } : {}),
+      ...(ifVersion !== undefined ? { ifVersion } : {}),
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -1478,9 +1481,17 @@ export function serveWith(
               .then((r) => r.files)
               .catch(() => []),
         };
-        return request.method === "files.list"
-          ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
-          : readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+        if (request.method === "files.list") {
+          return listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">);
+        }
+        const result = await readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+        const current = workspaceOf(s, workspaceId);
+        if (
+          !current ||
+          current.rootPath !== workspace.rootPath ||
+          !isDeepStrictEqual(current.location, workspace.location)
+        ) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        return result;
       }
       case "files.find":
       case "files.search": {

@@ -17,6 +17,7 @@ import {
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
+import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -273,7 +274,7 @@ async function realWithin(
   style: PathStyle,
   folders: readonly string[],
   absolute: string,
-): Promise<void> {
+): Promise<string> {
   if (fs.kind !== "local") {
     throw new RpcFailure(
       RpcErrorCode.Unavailable,
@@ -283,12 +284,13 @@ async function realWithin(
   const real = await nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT")
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
-    throw new RpcFailure(RpcErrorCode.Unavailable, error.message);
+    throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
   });
   const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => f)));
   if (!reals.some((f) => within(style, clean(style, f), clean(style, real)))) {
     throw forbidden(`${absolute} leads outside the workspace's folders`);
   }
+  return real;
 }
 
 type Entry = RpcResult<"files.list">["entries"][number];
@@ -398,36 +400,110 @@ export async function readFile(
     as,
     offset,
     length,
+    versioned,
+    ifVersion,
+    requireVersion,
   }: RpcParams<"files.read">,
 ): Promise<RpcResult<"files.read">> {
+  const optedIn = versioned === true || ifVersion !== undefined || requireVersion !== undefined;
+  if (ifVersion !== undefined && requireVersion !== undefined) {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "use either ifVersion or requireVersion");
+  }
   if (as !== "bytes" && (offset !== undefined || length !== undefined)) {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
       'offset and length are taken with as: "bytes"',
     );
   }
+  if (length === 0 && !optedIn) {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "a zero-length read requires version opt-in");
+  }
   const folders = await files.folders(workspaceId);
   const place = await placeToRead(files, workspaceId, root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
+  let source: FsPreviewPath;
   let absolute: string;
-  let size: number | undefined;
   if (place.kind === "workspace") {
     if (!place.rel)
       throw new RpcFailure(
         RpcErrorCode.InvalidParams,
         "that is the workspace's folder: files.list lists it",
       );
-    const stat = await throughNoLink(fs, place.rel, asked);
-    if (stat.type === "dir") {
-      throw new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a folder: files.list lists it`);
-    }
-    size = stat.size;
+    source = { relPath: place.rel };
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
-    if (!("output" in place)) await realWithin(fs, style, folders, place.absolute);
     absolute = place.absolute;
+    source = "output" in place
+      ? { absolutePath: absolute }
+      : { absolutePath: absolute, expectedRealPath: await realWithin(fs, style, folders, absolute) };
   }
+  const mediaType = as === "bytes" ? undefined : IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
+  const from = offset ?? 0;
+  const readLength = as === "bytes" ? length ?? MAX_BYTES_CHUNK : mediaType ? 0 : maxBytes;
+
+  const verifyGrant = async () => {
+    if (place.kind !== "folder") return;
+    // The grant may have been revoked while the workspace's agent was reading.
+    const currentFolders = await files.folders(workspaceId);
+    const current = await placeToRead(files, workspaceId, root, currentFolders, asked);
+    if (current.kind !== "folder" || ("output" in current) !== ("output" in place)) {
+      throw forbidden(`${asked} no longer has the same file grant`);
+    }
+    if ("expectedRealPath" in source &&
+      await realWithin(fs, style, currentFolders, absolute) !== source.expectedRealPath) {
+      throw fileChanged(requireVersion !== undefined);
+    }
+  };
+  const preview = await fs.readPreview?.({
+    ...source,
+    offset: from,
+    length: readLength,
+    ...(mediaType ? { wholeImage: true } : {}),
+    ...(optedIn ? { versionScope: workspaceId, ifVersion, requireVersion } : {}),
+  }).catch((error: unknown) => previewError(error, asked, requireVersion !== undefined));
+  if (preview) {
+    await verifyGrant();
+    if (preview.kind === "notModified") {
+      if (ifVersion !== preview.version) throw fileChanged(false);
+      return preview;
+    }
+    if (requireVersion !== undefined && requireVersion !== preview.version) throw fileChanged(true);
+    const version = optedIn ? preview.version : undefined;
+    const content = as === "bytes"
+      ? bytesPreview(absolute, from, preview.base64, preview.sizeBytes)
+      : mediaType
+        ? imagePreview(files, absolute, mediaType, preview.base64, preview.sizeBytes)
+        : textPreview(absolute, preview.base64, preview.sizeBytes);
+    return version === undefined ? content : { ...content, version };
+  }
+
+  const legacy = await legacyPreview(fs, files, place, asked, absolute, from, readLength, mediaType, as, requireVersion);
+  await verifyGrant();
+  return legacy;
+}
+
+async function legacyPreview(
+  fs: FsProvider,
+  files: RemoteFiles,
+  place: Place,
+  asked: string,
+  absolute: string,
+  from: number,
+  readLength: number,
+  mediaType: (typeof IMAGE_TYPES)[string] | undefined,
+  as: "bytes" | undefined,
+  requireVersion: string | undefined,
+): Promise<RpcResult<"files.read">> {
+  // An older SSH/WSL agent only has the ordinary reads. Fresh bytes remain
+  // available, but cannot satisfy a pin or confirm cached bytes.
+  let size: number | undefined;
+  if (place.kind === "workspace") {
+    const stat = await throughNoLink(fs, place.rel, asked);
+    if (stat.type === "dir") throw folderReadError(asked);
+    size = stat.size;
+  }
+  if (requireVersion !== undefined) throw fileChanged(true);
   const range = (length: number, from = 0) =>
     (place.kind === "workspace"
       ? fs.readRange(place.rel, from, length)
@@ -435,14 +511,12 @@ export async function readFile(
     ).catch((error: unknown) => notFound(error, asked));
 
   if (as === "bytes") {
-    const from = offset ?? 0;
-    const read = await range(length ?? MAX_BYTES_CHUNK, from);
+    const read = await range(readLength, from);
     if (read.kind === "missing")
       throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
-    return { kind: "bytes", path: absolute, data: read.base64, offset: from, size: read.sizeBytes };
+    return bytesPreview(absolute, from, read.base64, read.sizeBytes);
   }
 
-  const mediaType = IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
   if (mediaType) {
     let total = size;
     if (total === undefined) {
@@ -458,26 +532,70 @@ export async function readFile(
       ).catch((error: unknown) => notFound(error, asked));
       if (whole.kind === "missing")
         throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
-      const bytes = Buffer.from(whole.base64, "base64");
-      // One whose header says it is huge, or tells no size, is told as
-      // binary, however small the file: the other device would decode it
-      // all to draw it.
-      if (decodable(bytes)) {
-        if (whole.base64.length <= IMAGE_CHARS) {
-          return { kind: "image", path: absolute, mediaType, data: whole.base64, size: total };
-        }
-        const shrunk = files.shrink(bytes, IMAGE_CHARS);
-        if (shrunk) return { kind: "image", path: absolute, ...shrunk, size: total };
-      }
+      return imagePreview(files, absolute, mediaType, whole.base64, total);
     }
     return { kind: "binary", path: absolute, size: total };
   }
 
-  const read = await range(maxBytes);
+  const read = await range(readLength);
   if (read.kind === "missing")
     throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
-  const bytes = Buffer.from(read.base64, "base64");
-  const total = size ?? read.sizeBytes;
+  return textPreview(absolute, read.base64, size ?? read.sizeBytes);
+}
+
+function folderReadError(asked: string): RpcFailure {
+  return new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a folder: files.list lists it`);
+}
+
+function fileChanged(pinned: boolean): RpcFailure {
+  return new RpcFailure(
+    pinned ? RpcErrorCode.InvalidParams : RpcErrorCode.Unavailable,
+    pinned ? "file version changed" : "the file changed while it was being read",
+  );
+}
+
+function previewError(error: unknown, asked: string, pinned: boolean): never {
+  if (hasFsErrorCode(error, FS_ERROR.OUT_OF_WORKSPACE)) {
+    throw forbidden(`${asked} leads outside the workspace's file grant or goes through a link`);
+  }
+  if (hasFsErrorCode(error, FS_ERROR.IS_DIRECTORY)) throw folderReadError(asked);
+  if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
+  }
+  if (hasFsErrorCode(error, FS_ERROR.STALE)) throw fileChanged(pinned);
+  // Agent errors can refer to a resolved target or a component of that path.
+  throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be read");
+}
+
+function bytesPreview(path: string, offset: number, data: string, size: number) {
+  return { kind: "bytes" as const, path, data, offset, size };
+}
+
+function imagePreview(
+  files: RemoteFiles,
+  path: string,
+  mediaType: (typeof IMAGE_TYPES)[string],
+  data: string,
+  size: number,
+): Extract<RpcResult<"files.read">, { kind: "image" | "binary" }> {
+  if (size <= MAX_IMAGE_FILE_BYTES) {
+    const bytes = Buffer.from(data, "base64");
+    // A small file can still expand to a large image when decoded.
+    if (decodable(bytes)) {
+      if (data.length <= IMAGE_CHARS) return { kind: "image", path, mediaType, data, size };
+      const shrunk = files.shrink(bytes, IMAGE_CHARS);
+      if (shrunk) return { kind: "image", path, ...shrunk, size };
+    }
+  }
+  return { kind: "binary", path, size };
+}
+
+function textPreview(
+  absolute: string,
+  base64: string,
+  total: number,
+): Extract<RpcResult<"files.read">, { kind: "text" | "binary" }> {
+  const bytes = Buffer.from(base64, "base64");
   if (looksBinary(bytes)) return { kind: "binary", path: absolute, size: total };
   let text = textOf(bytes);
   let truncated = bytes.length < total;

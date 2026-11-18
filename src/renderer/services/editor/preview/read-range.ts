@@ -29,12 +29,6 @@ async function readPiece(
   offset: number,
   length: number,
 ): Promise<FilePart | null> {
-  // Another computer's file, read through the room; it tells no time, so its size stands for one.
-  const peer = peerOf(workspaceId);
-  if (peer) {
-    const piece = await readPeerPiece(peer, relPath, offset, length);
-    return piece ? { bytes: piece.bytes, size: piece.size, mtime: `size:${piece.size}` } : null;
-  }
   const read = await ipcCallResult("fs", "readRange", { workspaceId, relPath, offset, length });
   if (!read.ok || read.value.kind !== "ok") return null;
   return {
@@ -55,7 +49,19 @@ export function readWorkspaceRange(
   offset: number,
   length: number,
   mtime?: string,
+  signal?: AbortSignal,
 ): Promise<FilePart | null> {
+  const peer = peerOf(workspaceId);
+  if (peer) {
+    const required = mtime?.startsWith("version:") ? mtime.slice("version:".length) : undefined;
+    return readPeerPiece(peer, relPath, offset, length, required, signal).then((piece) => {
+      if (!piece || signal?.aborted) return null;
+      const revision = piece.version && !mtime?.startsWith("size:")
+        ? `version:${piece.version}`
+        : `size:${piece.size}`;
+      return mtime !== undefined && revision !== mtime ? null : { ...piece, mtime: revision };
+    });
+  }
   return readRange((at, size) => readPiece(workspaceId, relPath, at, size), offset, length, mtime);
 }
 

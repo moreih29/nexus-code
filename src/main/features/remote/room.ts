@@ -6,6 +6,7 @@
  * epochs and seqs of packages/remote-protocol's ./sealed.ts.
  */
 import { randomBytes } from "node:crypto";
+import { posix, win32 } from "node:path";
 import {
   type AccountEvent,
   ALL_DEVICES,
@@ -65,6 +66,53 @@ export const MAX_MESSAGE_BYTES = Math.floor(((MAX_FRAME_BYTES - 1024) * 3) / 4) 
 /** Whether a message goes in one frame. */
 export function fitsInFrame(message: unknown): boolean {
   return Buffer.byteLength(JSON.stringify(message), "utf8") <= MAX_MESSAGE_BYTES;
+}
+
+/** Keep whole-image reads from taking all the memory or blocking small previews. */
+class FileReadBudget {
+  private active = 0;
+  private waiting: Array<{ current: () => boolean; resume: (acquired: boolean) => void }> = [];
+
+  constructor(
+    private readonly limit: number,
+    private readonly queueLimit: number,
+  ) {}
+
+  async acquire(current: () => boolean): Promise<boolean> {
+    if (this.active < this.limit) {
+      this.active++;
+      return true;
+    }
+    if (this.waiting.length >= this.queueLimit) return false;
+    return new Promise<boolean>((resume) => this.waiting.push({ current, resume }));
+  }
+
+  cancelWaiting(): void {
+    this.waiting = this.waiting.filter((waiter) => {
+      if (waiter.current()) return true;
+      waiter.resume(false);
+      return false;
+    });
+  }
+
+  release(): void {
+    const next = this.waiting.shift();
+    if (next) next.resume(true);
+    else this.active--;
+  }
+}
+
+const imageReadBudget = new FileReadBudget(2, 16);
+const fileReadBudget = new FileReadBudget(8, 32);
+
+function readBudget(params: unknown): FileReadBudget {
+  const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
+  const image = /\.(png|jpe?g|gif|webp)$/i;
+  return as !== "bytes" && typeof path === "string" &&
+    (image.test(posix.normalize(path).replace(/\/+$/, "")) ||
+      image.test(win32.normalize(path).replace(/\\+$/, "")))
+    ? imageReadBudget
+    : fileReadBudget;
 }
 
 /** A request that failed, with its JSON-RPC error. */
@@ -167,6 +215,7 @@ export class RemoteRoom {
     this.connection.stop();
     this.failPending("left the room");
     this.status = "off";
+    this.cancelQueuedReads();
     this.changed();
   }
 
@@ -183,6 +232,7 @@ export class RemoteRoom {
     this.epoch = newEpoch();
     this.heard.clear();
     this.past.clear();
+    this.cancelQueuedReads();
     this.failPending(why);
   }
 
@@ -211,7 +261,9 @@ export class RemoteRoom {
     params: RpcParams<M>,
     /** How long to wait for the answer: longer for one the other device's user may be asked about. */
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<RpcResult<M>> {
+    signal?.throwIfAborted();
     const id = this.nextId++;
     const key = `${to}|${id}`;
     const message: SealedMessage = { jsonrpc: "2.0", id, method, params };
@@ -237,16 +289,28 @@ export class RemoteRoom {
       );
       this.pending.set(key, { resolve, reject, timer, method });
     });
-    const seq = await this.post(to, peer, message);
-    const p = this.pending.get(key);
-    if (seq === null) {
-      if (p) {
-        clearTimeout(p.timer);
-        this.pending.delete(key);
-        p.reject(new RpcFailure(RpcErrorCode.Unavailable, "not in the room"));
+    const rejectPending = (error: unknown) => {
+      const p = this.pending.get(key);
+      if (!p) return;
+      clearTimeout(p.timer);
+      this.pending.delete(key);
+      p.reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const abort = () => rejectPending(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
+    void this.post(to, peer, message, signal).then((seq) => {
+      if (seq === null) {
+        rejectPending(new RpcFailure(RpcErrorCode.Unavailable, "not in the room"));
+      } else {
+        const p = this.pending.get(key);
+        if (p) p.seq = seq;
       }
-    } else if (p) p.seq = seq;
-    return answer as Promise<RpcResult<M>>;
+    }, rejectPending);
+    try {
+      return (await answer) as RpcResult<M>;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
   }
 
   /**
@@ -289,8 +353,14 @@ export class RemoteRoom {
    * Seals and sends, for the receiver's epoch (`peer`; null only in a hello
    * to all); its seq, or null when it could not go.
    */
-  private post(to: string, peer: string | null, message: SealedMessage): Promise<number | null> {
+  private post(
+    to: string,
+    peer: string | null,
+    message: SealedMessage,
+    signal?: AbortSignal,
+  ): Promise<number | null> {
     const sent = this.outbox.then(async () => {
+      if (signal?.aborted) return null;
       this.seq += 1;
       const seq = this.seq;
       const frame = await sealMessage({
@@ -300,7 +370,7 @@ export class RemoteRoom {
         seq,
         envelope: { epoch: this.epoch, peer, message },
       });
-      return this.connection.send(frame) ? seq : null;
+      return !signal?.aborted && this.connection.send(frame) ? seq : null;
     });
     this.outbox = sent.catch(() => null);
     return sent;
@@ -328,6 +398,7 @@ export class RemoteRoom {
     if (status !== "online") {
       // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
+      this.cancelQueuedReads();
     }
     this.changed();
   }
@@ -347,10 +418,12 @@ export class RemoteRoom {
           online: d.online,
           ...(known?.app ? { app: known.app } : {}),
           ...(known?.serves ? { serves: known.serves } : {}),
+          ...(known?.online && known.schema ? { schema: known.schema } : {}),
           ...(known?.rejoins ? { rejoins: known.rejoins } : {}),
         });
       }
       this.peers = next;
+      this.cancelQueuedReads();
       if (!this.greeted) {
         this.greeted = true;
         void this.post(ALL_DEVICES, null, this.hello(true));
@@ -443,6 +516,7 @@ export class RemoteRoom {
    * there, which is asked for again as its `rejoins` grows.
    */
   private rejoined(from: string): void {
+    this.cancelQueuedReads();
     const peer = this.peers.get(from);
     if (!peer) return;
     this.peers.set(from, { ...peer, rejoins: (peer.rejoins ?? 0) + 1 });
@@ -476,23 +550,31 @@ export class RemoteRoom {
       return;
     }
     if ("method" in message && "id" in message) {
+      if (message.method === "files.read") {
+        const budget = readBudget(message.params);
+        const current = () =>
+          this.status === "online" &&
+          this.heard.get(from)?.epoch === epoch &&
+          this.peers.get(from)?.online !== false;
+        if (!current()) return;
+        if (!(await budget.acquire(current))) {
+          if (!current()) return;
+          await this.reply(from, epoch, message, {
+            error: { code: RpcErrorCode.Unavailable, message: "the host is busy reading files" },
+          });
+          return;
+        }
+        try {
+          if (!current()) return;
+          const answer = await this.answer(from, message.method, message.params);
+          if (current()) await this.reply(from, epoch, message, answer);
+        } finally {
+          budget.release();
+        }
+        return;
+      }
       const answer = await this.answer(from, message.method, message.params);
-      const reply: SealedMessage = { jsonrpc: "2.0", id: message.id, ...answer };
-      // Too large for a frame, it would never come: the asker is told so instead.
-      void this.post(
-        from,
-        epoch,
-        fitsInFrame(reply)
-          ? reply
-          : {
-              jsonrpc: "2.0",
-              id: message.id,
-              error: {
-                code: RpcErrorCode.InternalError,
-                message: `${message.method}: the answer is too large to send`,
-              },
-            },
-      );
+      void this.reply(from, epoch, message, answer);
       return;
     }
     if ("method" in message) {
@@ -517,6 +599,34 @@ export class RemoteRoom {
       p.reject(
         new RpcFailure(RpcErrorCode.InternalError, `${p.method}: an answer not of the protocol`),
       );
+  }
+
+  private reply(
+    from: string,
+    epoch: string,
+    request: { id: number | string; method: string },
+    answer: { result: unknown } | { error: RpcError },
+  ): Promise<number | null> {
+    const reply: SealedMessage = { jsonrpc: "2.0", id: request.id, ...answer };
+    return this.post(
+      from,
+      epoch,
+      fitsInFrame(reply)
+        ? reply
+        : {
+            jsonrpc: "2.0",
+            id: request.id,
+            error: {
+              code: RpcErrorCode.InternalError,
+              message: `${request.method}: the answer is too large to send`,
+            },
+          },
+    );
+  }
+
+  private cancelQueuedReads(): void {
+    imageReadBudget.cancelWaiting();
+    fileReadBudget.cancelWaiting();
   }
 
   private async answer(

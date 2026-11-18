@@ -11,6 +11,7 @@ import type {
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../infra/agent/channel";
+import type { FsPreviewParams, FsPreviewResult } from "../../../../shared/fs/protocol";
 
 /**
  * Filesystem provider bound to one workspace-scoped agent.
@@ -41,6 +42,8 @@ export interface FsProvider {
     offset: number,
     length: number,
   ): Promise<FileReadBinaryResult>;
+  /** null when the installed agent predates preview reads. */
+  readPreview?(params: FsPreviewParams): Promise<FsPreviewResult | null>;
   /** Writes `content`, or `bytes` (base64) in its place: text in another encoding. */
   writeFile(
     relPath: string,

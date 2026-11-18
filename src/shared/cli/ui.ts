@@ -1038,8 +1038,10 @@ export interface CliUiOps {
         | { kind: "held"; id: string; index: number };
       maxChars: number;
       maxEdge?: number;
+      versioned?: true;
+      ifVersion?: string;
     };
-    result: CliChatImage;
+    result: CliChatImage & { version?: string; notModified?: true };
   };
   /**
    * A tool call of a Claude or Codex tab as another device reads it, by its

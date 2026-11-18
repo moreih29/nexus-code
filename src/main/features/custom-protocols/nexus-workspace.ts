@@ -153,17 +153,24 @@ function unsatisfiable(size: number): Response {
 // Handler — exported for unit testing via dependency injection.
 // ---------------------------------------------------------------------------
 
-/**
- * Reads up to `length` bytes, at most PEER_PIECE_BYTES, of a file of another
- * computer's workspace from `offset`, through the room: "missing" when that
- * computer has no such file there. Throws when it cannot be asked.
- */
+interface PeerPiece {
+  data: string;
+  size: number;
+  version?: string;
+}
+
+/** Opens a peer file with an authorized first piece and a reader for that response. */
 export type PeerFileReader = (
   peer: PeerWorkspace,
   absPath: string,
   offset: number,
   length: number,
-) => Promise<{ base64: string; size: number } | "missing">;
+  signal: AbortSignal,
+) => Promise<{
+  first: PeerPiece;
+  read(offset: number, length: number): Promise<PeerPiece>;
+  signal?: AbortSignal;
+} | "missing">;
 
 /** The most one request reads of another computer's file (the protocol's MAX_BYTES_CHUNK). */
 export const PEER_PIECE_BYTES = 512 * 1024;
@@ -206,7 +213,7 @@ export function buildNexusWorkspaceHandler(
       const file = peerFileOf(segments);
       const reader = peers?.() ?? null;
       if (!file || !reader) return new Response(null, { status: 404 });
-      return servePeerFile(reader, file.peer, file.absPath, req.headers.get("range"));
+      return servePeerFile(reader, file.peer, file.absPath, req);
     }
 
     // Step 2 — look up the workspace meta.
@@ -379,6 +386,7 @@ function piecesStream(
   mtime: string,
   filePath: string,
   pieceSize: number = READ_RANGE_MAX_BYTES,
+  lifetime?: { signal: AbortSignal; cancel(): void },
 ): ReadableStream<Uint8Array> {
   const end = span.end + 1;
   const first = head.subarray(0, Math.min(head.length, end - span.start));
@@ -397,14 +405,20 @@ function piecesStream(
   };
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
+      lifetime?.signal.throwIfAborted();
       while (pending.length <= READ_AHEAD && next < end) request();
       const piece = pending.shift();
-      if (piece) controller.enqueue(new Uint8Array(await piece));
+      if (piece) {
+        const bytes = await piece;
+        lifetime?.signal.throwIfAborted();
+        controller.enqueue(new Uint8Array(bytes));
+      }
       if (pending.length === 0 && next >= end) controller.close();
     },
     cancel() {
       next = end;
       pending.length = 0;
+      lifetime?.cancel();
     },
   });
 }
@@ -451,7 +465,19 @@ async function servePieces(
   // The first piece tells the file's size. It is read where the range
   // asked starts, so that a seek takes one round trip before it plays.
   const start = rangeStart(rangeHeader);
-  let first = await read(start, pieceSize);
+  const first = await read(start, pieceSize);
+  return serveOpenedPieces(read, filePath, rangeHeader, pieceSize, start, first);
+}
+
+async function serveOpenedPieces(
+  read: PieceReader,
+  filePath: string,
+  rangeHeader: string | null,
+  pieceSize: number,
+  start: number,
+  first: FileReadBinaryResult,
+  lifetime?: { signal: AbortSignal; cancel(): void },
+): Promise<Response> {
   if (first.kind === "missing") return new Response(null, { status: 404 });
   const size = first.sizeBytes;
   const range = requestedRange(rangeHeader, size);
@@ -469,6 +495,7 @@ async function servePieces(
     first.mtime,
     filePath,
     pieceSize,
+    lifetime,
   );
   if (range !== null) return partialResponse(body, range, size, filePath);
   return new Response(body, {
@@ -480,24 +507,47 @@ async function servePieces(
 // ---------------------------------------------------------------------------
 // Another computer's file — read through the room (files.read), which that
 // computer keeps to the workspace's folders, a piece of at most
-// PEER_PIECE_BYTES at a time. It tells no modification time: the size
-// stands for one, so a piece of a file that grew or shrank fails the stream.
+// PEER_PIECE_BYTES at a time. A versioned open pins subsequent pieces.
 // ---------------------------------------------------------------------------
 
 async function servePeerFile(
   reader: PeerFileReader,
   peer: PeerWorkspace,
   absPath: string,
-  rangeHeader: string | null,
+  req: Request,
 ): Promise<Response> {
-  const read: PieceReader = async (offset, length) => {
-    const piece = await reader(peer, absPath, offset, Math.min(length, PEER_PIECE_BYTES));
-    if (piece === "missing") return { kind: "missing", reason: "not-found" };
-    return { kind: "ok", base64: piece.base64, sizeBytes: piece.size, mtime: `size:${piece.size}` };
-  };
+  const abort = new AbortController();
+  const signal = AbortSignal.any([abort.signal, req.signal]);
   try {
-    return await servePieces(read, absPath, rangeHeader, PEER_PIECE_BYTES);
+    const rangeHeader = req.headers.get("range");
+    const start = rangeStart(rangeHeader);
+    const to = rangeHeader?.trim().match(/^bytes=\d+-(\d+)$/)?.[1];
+    const end = to === undefined ? undefined : Number(to);
+    const length = end !== undefined && end >= start ? Math.min(PEER_PIECE_BYTES, end - start + 1) : PEER_PIECE_BYTES;
+    const opened = await reader(peer, absPath, start, length, signal);
+    if (opened === "missing") return new Response(null, { status: 404 });
+    const lifetime = {
+      signal: opened.signal ? AbortSignal.any([signal, opened.signal]) : signal,
+      cancel: () => abort.abort(),
+    };
+    const adapt = (piece: PeerPiece): FileReadBinaryResult => ({
+      kind: "ok",
+      base64: piece.data,
+      sizeBytes: piece.size,
+      mtime: piece.version ?? `size:${piece.size}`,
+    });
+    lifetime.signal.throwIfAborted();
+    return await serveOpenedPieces(
+      async (offset, count) => adapt(await opened.read(offset, count)),
+      absPath,
+      rangeHeader,
+      PEER_PIECE_BYTES,
+      start,
+      adapt(opened.first),
+      lifetime,
+    );
   } catch (err) {
+    abort.abort();
     logger.warn(`peer read failed: ${peer.deviceId}:${absPath} — ${(err as Error).message}`);
     return new Response(null, { status: 404 });
   }
