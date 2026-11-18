@@ -34,6 +34,7 @@ import {
   RESTART_AFTER,
   terminalCommandOf,
 } from "../chat/app-commands";
+import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex-commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,
@@ -359,6 +360,7 @@ export function commandInfosOf(commands: readonly ChatCommand[]): CommandInfo[] 
 export function commandOf(
   commands: readonly ChatCommand[],
   text: string,
+  agent?: "claude" | "codex",
 ):
   | { kind: "command"; name: string; args?: string }
   | { kind: "set"; sets: "model" | "effort" | "permissionMode"; value?: string }
@@ -369,8 +371,19 @@ export function commandOf(
   const args = rest?.trim() || undefined;
   const typed = name?.toLowerCase();
   const command =
-    commands.find((c) => c.name === name) ??
+    commands.find((c) => c.name.toLowerCase() === typed) ??
     commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === typed));
+  // The host still validates chat.command. A known Codex command typed before
+  // its catalog arrives must never reach turn/start as a prompt.
+  if (!command && agent === "codex") {
+    const known = parseCodexCommand(text);
+    if (known && CODEX_REMOTE_COMMANDS.has(known.name)) {
+      return { kind: "command", name: known.name, ...(args ? { args } : {}) };
+    }
+    if (known?.name === "model" || known?.name === "effort") {
+      return { kind: "set", sets: known.name, ...(args ? { value: args } : {}) };
+    }
+  }
   if (!command || command.runs === "send") return null;
   if (command.runs === "command") {
     return { kind: "command", name: command.name, ...(args ? { args } : {}) };
@@ -653,7 +666,7 @@ export function usePeerComposer({
         runHere(ran.name, ran.args, text.trim(), held.here);
         return true;
       }
-      const found = commandOf(commands, text);
+      const found = commandOf(commands, text, agent);
       if (!found) return false;
       if (found.kind === "command") {
         cards.current += 1;

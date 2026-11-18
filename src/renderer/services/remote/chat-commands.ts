@@ -15,7 +15,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import type { AgentTabController } from "../chat/agent-tab";
 import { APP_COMMANDS, appCommandsBeside, listedCommands } from "../chat/app-commands";
-import { CODEX_COMMANDS } from "../chat/codex-commands";
+import { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS } from "../chat/codex-commands";
 import type { ChatModel, ToolCall } from "../chat/model";
 import { withRelayed } from "../chat/relayed";
 import { runAppCommand } from "../chat/run-app-command";
@@ -47,21 +47,6 @@ export const CLAUDE_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "workflows",
   "plugin",
   "remote-control",
-]);
-
-/** Codex's commands the app runs that another device may run. */
-export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
-  "new",
-  "compact",
-  "review",
-  "init",
-  "goal",
-  "status",
-  "rename",
-  "fork",
-  "export",
-  "mcp",
-  "skills",
 ]);
 
 /** The commands chat.configure sets instead. */

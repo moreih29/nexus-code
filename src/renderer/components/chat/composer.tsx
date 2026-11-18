@@ -533,7 +533,17 @@ export const Composer = memo(function Composer({
       }
       if ((e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) || e.key === "Tab") {
         e.preventDefault();
-        pick(active);
+        if (
+          program === "codex" &&
+          images.length === 0 &&
+          files.length === 0 &&
+          e.key === "Enter" &&
+          completion?.kind === "command" &&
+          text.trim().toLowerCase() === `/${items[active]?.key}` &&
+          !items[active]?.hint
+        ) {
+          void submit("send");
+        } else pick(active);
         return;
       }
       if (e.key === "Escape") {

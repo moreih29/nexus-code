@@ -334,7 +334,7 @@ export class CodexController {
     try {
       await this.request("initialize", {
         clientInfo: { name: "nexus-code", title: "NexusCode", version: __APP_VERSION__ },
-        capabilities: null,
+        capabilities: { experimentalApi: true }, // thread/settings/update for /fast
       });
       await this.write({ method: "initialized" });
       return true;
@@ -648,6 +648,19 @@ export class CodexController {
   ): Promise<Record<string, unknown>> {
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
     return this.request(method, params);
+  }
+
+  async setServiceTier(threadId: string, serviceTier: string): Promise<void> {
+    // Apply the pending model with its tier. A settings notification for the old model
+    // would otherwise put it back in the composer until the next turn.
+    const { model, effort } = this.next;
+    await this.ask("thread/settings/update", {
+      threadId,
+      serviceTier,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+    });
+    if (this.currentThread() === threadId) this.patchModel({ serviceTier });
   }
 
   /** Shows what a command answered above the composer, until it is closed. */

@@ -10,6 +10,7 @@ import { openCodexTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { showChanges } from "../agent-sessions/actions";
+import { planChatSettings } from "../cli/chat-settings";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import {
   conversationMarkdown,
@@ -29,7 +30,7 @@ import {
   reviewTargetOf,
 } from "./codex-commands";
 import type { CodexController } from "./codex-controller";
-import type { ChatItem, ToolCall } from "./model";
+import { type ChatItem, currentModelInfo, type ToolCall } from "./model";
 
 export interface CodexCommandContext {
   controller: CodexController;
@@ -56,12 +57,28 @@ export async function runCodexCommand(
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
   const title = `/${command.name}${command.args ? ` ${command.args}` : ""}`;
+  if (command.name === "compact" || command.name === "review") await controller.prepareSend();
   const threadId = controller.currentThread();
   if (IDLE_ONLY.has(command.name) && controller.model.running) {
     showToast({ kind: "warning", message: t("chat.codex.commands.busy") });
     return;
   }
   switch (command.name) {
+    case "fast":
+      await runFast(controller, command.args);
+      return;
+    case "model":
+    case "effort": {
+      const plan = planChatSettings(
+        "codex",
+        controller.model,
+        { [command.name]: command.args },
+        true,
+      );
+      if (plan.model) await controller.setModel(plan.model);
+      if (plan.effort) await controller.setEffort(plan.effort);
+      return;
+    }
     case "new":
       await controller.newThread();
       return;
@@ -96,11 +113,11 @@ export async function runCodexCommand(
       return;
     }
     case "compact":
-      if (!threadId) return;
+      if (!threadId) throw new Error("Codex has no thread to compact");
       await controller.ask("thread/compact/start", { threadId });
       return;
     case "review":
-      if (!threadId) return;
+      if (!threadId) throw new Error("Codex has no thread to review");
       await controller.ask("review/start", {
         threadId,
         target: reviewTargetOf(command.args),
@@ -166,6 +183,44 @@ export async function runCodexCommand(
       await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
       return;
   }
+}
+
+/** Fast is a thread setting. The model catalog supplies the tier ID and its usage terms. */
+async function runFast(controller: CodexController, args: string): Promise<void> {
+  const t = i18next.t.bind(i18next);
+  const action = args.trim().toLowerCase();
+  if (!["", "status", "on", "off"].includes(action)) {
+    throw new Error(t("chat.codex.commands.fast_usage"));
+  }
+  await controller.prepareSend();
+  if (!controller.model.init) {
+    await controller.ask("model/list");
+    controller.flushNow();
+  }
+  const model = controller.model;
+  const tier = currentModelInfo(model.init?.models ?? [], model.model)?.fastTier;
+  const threadId = controller.currentThread();
+  if (!threadId) throw new Error("Codex has no thread");
+  if (!tier && action !== "off") throw new Error(t("chat.codex.commands.fast_unavailable"));
+  const active =
+    tier && (model.serviceTier == null ? tier.isDefault : model.serviceTier === tier.id);
+  const enabled = action === "status" ? active : action === "on" || (!action && !active);
+  if (action !== "status") {
+    try {
+      await controller.setServiceTier(threadId, enabled && tier ? tier.id : "default");
+    } catch (err) {
+      // A process reattached after an app update may still have the old handshake.
+      if (err instanceof Error && err.message.includes("experimentalApi")) {
+        throw new Error(t("chat.codex.commands.fast_restart"));
+      }
+      throw err;
+    }
+  }
+  const message = t(enabled ? "chat.codex.commands.fast_on" : "chat.codex.commands.fast_off");
+  showToast({
+    kind: "info",
+    message: enabled && tier?.description ? `${message} · ${tier.description}` : message,
+  });
 }
 
 /** /goal: the thread's goal shown, set, paused or resumed, or cleared. */

@@ -252,6 +252,7 @@ export interface ModelInfo {
   displayName?: string;
   description?: string;
   supportedEffortLevels?: string[];
+  fastTier?: { id: string; description?: string; isDefault: boolean };
 }
 
 /**

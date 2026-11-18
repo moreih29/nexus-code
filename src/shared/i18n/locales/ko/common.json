@@ -1483,6 +1483,7 @@
       "commands": {
         "describe": {
           "model": "모델 고르기 (이 탭만)",
+          "fast": "이 대화의 Fast 모드 전환 (사용량 증가)",
           "effort": "추론 수준 고르기 (이 탭만)",
           "config": "새 탭의 기본 모델과 추론 수준",
           "new": "이 탭에서 새 대화 시작",
@@ -1503,6 +1504,11 @@
           "help": "탭이 처리하는 Codex 명령 보기",
           "exit": "이 탭 닫기"
         },
+        "fast_restart": "Fast를 설정하려면 이 Codex 세션을 다시 시작하세요.",
+        "fast_usage": "/fast, /fast on, /fast off 또는 /fast status를 입력하세요.",
+        "fast_on": "Fast 켜짐",
+        "fast_off": "Fast 꺼짐",
+        "fast_unavailable": "현재 모델은 Fast를 지원하지 않습니다.",
         "busy": "응답이 끝난 뒤에 실행할 수 있습니다.",
         "rename_empty": "새 이름을 입력하세요: /rename <이름>",
         "help_intro": "Codex 탭이 처리하는 명령입니다. 그 밖의 `/`로 시작하는 글은 Codex에 그대로 보냅니다.",
