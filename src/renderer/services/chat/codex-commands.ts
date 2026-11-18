@@ -10,6 +10,7 @@ import type { CommandInfo } from "./model";
 export const CODEX_COMMANDS: readonly AppCommand[] = [
   { name: "model" },
   { name: "effort" },
+  { name: "fast", argumentHint: "[on|off|status]" },
   { name: "config", aliases: ["settings"] },
   { name: "new", aliases: ["clear"] },
   { name: "resume", argumentHint: "[search]" },
@@ -34,6 +35,7 @@ export const CODEX_COMMANDS: readonly AppCommand[] = [
 export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "new",
   "compact",
+  "fast",
   "review",
   "init",
   "goal",

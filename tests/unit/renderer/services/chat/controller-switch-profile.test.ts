@@ -452,7 +452,7 @@ describe("a Codex tab's thread gone on with in another profile", () => {
       toProfileId: "work",
     });
     const initialize = sent.find((m) => m.method === "initialize");
-    expect((initialize?.params as { capabilities?: unknown }).capabilities).toBeNull();
+    expect(initialize?.params).toMatchObject({ capabilities: { experimentalApi: true } });
     const fork = sent.find((m) => m.method === "thread/fork");
     expect(fork?.params).toMatchObject({ threadId: "old" });
     expect((fork?.params as { path?: unknown }).path).toBeUndefined();

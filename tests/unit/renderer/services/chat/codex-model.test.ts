@@ -115,6 +115,17 @@ describe("codex model", () => {
     expect([again.uuid, again.turnId]).toEqual(["item_9", "turn_7"]);
   });
 
+  test("only this thread's service tier follows settings updates, including a reset", () => {
+    const set = (id: string, tier: string | null) =>
+      note("thread/settings/updated", {
+        threadId: id,
+        threadSettings: { serviceTier: tier },
+      });
+    const fast = run([...started(), set(T, "priority"), set("child", null)]);
+    expect(fast.serviceTier).toBe("priority");
+    expect(run([set(T, null)], fast).serviceTier).toBeNull();
+  });
+
   test("a started thread tells its settings", () => {
     const m = run(started());
     expect(m.process).toBe("running");
@@ -716,6 +727,7 @@ describe("codex model", () => {
               model: "gpt-5.5-codex",
               displayName: "GPT-5.5 Codex",
               description: "Coding",
+              serviceTiers: [{ id: "priority", name: "Fast", description: "2x speed" }],
               hidden: false,
               supportedReasoningEfforts: [
                 { reasoningEffort: "low", description: "" },
@@ -739,6 +751,7 @@ describe("codex model", () => {
         value: "gpt-5.5-codex",
         displayName: "GPT-5.5 Codex",
         description: "Coding",
+        fastTier: { id: "priority", description: "2x speed", isDefault: false },
         supportedEffortLevels: ["low", "high"],
       },
     ]);

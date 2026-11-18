@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentTabController } from "../../../../../src/renderer/services/chat/agent-tab";
-import type { CodexController } from "../../../../../src/renderer/services/chat/codex-controller";
+import { CodexController } from "../../../../../src/renderer/services/chat/codex-controller";
 import type { ChatController } from "../../../../../src/renderer/services/chat/controller";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
@@ -158,6 +158,43 @@ describe("running one for another device", () => {
     };
     await runRemoteCommand(ws, tabId, target, "compact", "");
     expect(calls).toEqual([{ method: "thread/compact/start", params: { threadId: "thread-1" } }]);
+  });
+
+  test("Fast uses the catalog tier for this thread; off explicitly selects standard speed", async () => {
+    chatTab("codex");
+    const calls: unknown[] = [];
+    const model = {
+      model: "x",
+      serviceTier: null as string | null,
+      init: {
+        models: [
+          { value: "x", fastTier: { id: "priority", description: "2x speed", isDefault: false } },
+        ],
+      },
+    };
+    const controller = {
+      model,
+      next: {},
+      prepareSend: async () => {},
+      currentThread: () => "thread-1",
+      ask: async (method: string, params: object) => {
+        calls.push([method, params]);
+      },
+      patchModel: (patch: object) => Object.assign(model, patch),
+      setServiceTier: CodexController.prototype.setServiceTier,
+    } as unknown as CodexController;
+    const fast = (args: string) =>
+      runRemoteCommand(ws, tabId, { agent: "codex", controller }, "fast", args);
+    expect((await fast("on")).message).toContain("2x speed");
+    await fast("status");
+    await fast("");
+    await expect(fast("bad")).rejects.toThrow();
+    model.init.models = [];
+    await expect(fast("on")).rejects.toThrow();
+    expect(calls).toEqual([
+      ["thread/settings/update", { threadId: "thread-1", serviceTier: "priority" }],
+      ["thread/settings/update", { threadId: "thread-1", serviceTier: "default" }],
+    ]);
   });
 
   test("its card's answer is what it says", async () => {

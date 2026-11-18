@@ -30,7 +30,7 @@ import {
   reviewTargetOf,
 } from "./codex-commands";
 import type { CodexController } from "./codex-controller";
-import type { ChatItem, ToolCall } from "./model";
+import { type ChatItem, currentModelInfo, type ToolCall } from "./model";
 
 export interface CodexCommandContext {
   controller: CodexController;
@@ -64,6 +64,9 @@ export async function runCodexCommand(
     return;
   }
   switch (command.name) {
+    case "fast":
+      await runFast(controller, command.args);
+      return;
     case "model":
     case "effort": {
       const plan = planChatSettings(
@@ -180,6 +183,44 @@ export async function runCodexCommand(
       await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
       return;
   }
+}
+
+/** Fast is a thread setting. The model catalog supplies the tier ID and its usage terms. */
+async function runFast(controller: CodexController, args: string): Promise<void> {
+  const t = i18next.t.bind(i18next);
+  const action = args.trim().toLowerCase();
+  if (!["", "status", "on", "off"].includes(action)) {
+    throw new Error(t("chat.codex.commands.fast_usage"));
+  }
+  await controller.prepareSend();
+  if (!controller.model.init) {
+    await controller.ask("model/list");
+    controller.flushNow();
+  }
+  const model = controller.model;
+  const tier = currentModelInfo(model.init?.models ?? [], model.model)?.fastTier;
+  const threadId = controller.currentThread();
+  if (!threadId) throw new Error("Codex has no thread");
+  if (!tier && action !== "off") throw new Error(t("chat.codex.commands.fast_unavailable"));
+  const active =
+    tier && (model.serviceTier == null ? tier.isDefault : model.serviceTier === tier.id);
+  const enabled = action === "status" ? active : action === "on" || (!action && !active);
+  if (action !== "status") {
+    try {
+      await controller.setServiceTier(threadId, enabled && tier ? tier.id : "default");
+    } catch (err) {
+      // A process reattached after an app update may still have the old handshake.
+      if (err instanceof Error && err.message.includes("experimentalApi")) {
+        throw new Error(t("chat.codex.commands.fast_restart"));
+      }
+      throw err;
+    }
+  }
+  const message = t(enabled ? "chat.codex.commands.fast_on" : "chat.codex.commands.fast_off");
+  showToast({
+    kind: "info",
+    message: enabled && tier?.description ? `${message} · ${tier.description}` : message,
+  });
 }
 
 /** /goal: the thread's goal shown, set, paused or resumed, or cleared. */

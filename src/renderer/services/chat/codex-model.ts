@@ -78,6 +78,7 @@ export interface CodexModel extends ChatModel {
   /** The plan's usage limits; only a ChatGPT sign-in has them. */
   rateLimits?: CodexRateLimits;
   threadName?: string;
+  serviceTier?: string | null;
   /**
    * The turn a review (/review) runs in: the message that starts it there
    * is Codex's own, which the review's notice tells.
@@ -365,6 +366,7 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
   m.cwd = str(result.cwd) ?? m.cwd;
   applySettings(m, {
     model: result.model,
+    serviceTier: result.serviceTier,
     effort: result.reasoningEffort,
     sandbox: result.sandbox,
   });
@@ -400,9 +402,11 @@ function inStartOrder(raw: unknown[]): { item: Rec; i: number }[] {
 
 function applySettings(
   m: CodexModel,
-  settings: { model: unknown; effort: unknown; sandbox: unknown },
+  settings: { model: unknown; effort: unknown; sandbox: unknown; serviceTier?: unknown },
 ) {
   m.model = str(settings.model) ?? m.model;
+  if (settings.serviceTier === null || typeof settings.serviceTier === "string")
+    m.serviceTier = settings.serviceTier;
   m.effort = str(settings.effort) ?? m.effort;
   m.permissionMode = modeOf(settings.sandbox) ?? m.permissionMode;
 }
@@ -427,6 +431,7 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
 /** Thread notifications about the tab's own thread alone. */
 const OWN_THREAD_ONLY = new Set([
   "thread/tokenUsage/updated",
+  "thread/settings/updated",
   "thread/compacted",
   "thread/goal/updated",
   "thread/goal/cleared",
@@ -541,6 +546,7 @@ function applyNotification(
       if (settings) {
         applySettings(m, {
           model: settings.model,
+          serviceTier: settings.serviceTier,
           effort: settings.effort,
           sandbox: settings.sandboxPolicy,
         });
@@ -1311,9 +1317,30 @@ function modelsOf(data: unknown): ModelInfo[] {
           return effort ? [effort] : [];
         })
       : [];
+    const fast = Array.isArray(model.serviceTiers)
+      ? model.serviceTiers
+          .map(rec)
+          .find(
+            (tier) =>
+              tier &&
+              (str(tier.name)?.toLowerCase() === "fast" ||
+                tier.id === "priority" ||
+                tier.id === "fast"),
+          )
+      : undefined;
+    const tierId = str(fast?.id);
     return [
       {
         value,
+        ...(tierId
+          ? {
+              fastTier: {
+                id: tierId,
+                description: str(fast?.description),
+                isDefault: model.defaultServiceTier === tierId,
+              },
+            }
+          : {}),
         displayName: str(model.displayName),
         description: str(model.description),
         supportedEffortLevels: efforts,

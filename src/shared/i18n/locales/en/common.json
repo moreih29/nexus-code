@@ -1483,6 +1483,7 @@
       "commands": {
         "describe": {
           "model": "Choose the model (this tab only)",
+          "fast": "Toggle Fast for this conversation (higher usage)",
           "effort": "Choose the reasoning effort (this tab only)",
           "config": "The default model and effort for new tabs",
           "new": "Start a new conversation in this tab",
@@ -1503,6 +1504,11 @@
           "help": "Show the Codex commands the tab runs",
           "exit": "Close this tab"
         },
+        "fast_restart": "Restart this Codex session to enable Fast controls.",
+        "fast_usage": "Use /fast, /fast on, /fast off, or /fast status.",
+        "fast_on": "Fast is on",
+        "fast_off": "Fast is off",
+        "fast_unavailable": "This model does not offer Fast.",
         "busy": "This can run once the turn ends.",
         "rename_empty": "Type the new name: /rename <name>",
         "help_intro": "The commands the Codex tab runs. Anything else that starts with `/` goes to Codex as typed.",
