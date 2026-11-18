@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentTabController } from "../../../../../src/renderer/services/chat/agent-tab";
+import type { CodexController } from "../../../../../src/renderer/services/chat/codex-controller";
 import type { ChatController } from "../../../../../src/renderer/services/chat/controller";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
@@ -24,11 +25,11 @@ const ws = "ws-remote-commands";
 const tabId = "t1";
 const key = chatKey(ws, tabId);
 
-function claudeTab(): void {
+function chatTab(type: "claude" | "codex" = "claude"): void {
   useTabsStore.setState((s) => ({
     byWorkspace: {
       ...s.byWorkspace,
-      [ws]: { [tabId]: { id: tabId, type: "claude", title: "Chat", props: { cwd: "/p" } } },
+      [ws]: { [tabId]: { id: tabId, type, title: "Chat", props: { cwd: "/p" } } },
     },
   }));
   useChatStore.getState().update(key, () => emptyTabState());
@@ -138,21 +139,42 @@ describe("a command's card, told to another device", () => {
 });
 
 describe("running one for another device", () => {
+  test("compact waits for the thread then asks the app-server to compact it", async () => {
+    chatTab("codex");
+    let threadId: string | undefined;
+    const calls: unknown[] = [];
+    const target = {
+      agent: "codex" as const,
+      controller: {
+        model: { running: false },
+        prepareSend: async () => {
+          threadId = "thread-1";
+        },
+        currentThread: () => threadId,
+        ask: async (method: string, params: unknown) => {
+          calls.push({ method, params });
+        },
+      } as unknown as CodexController,
+    };
+    await runRemoteCommand(ws, tabId, target, "compact", "");
+    expect(calls).toEqual([{ method: "thread/compact/start", params: { threadId: "thread-1" } }]);
+  });
+
   test("its card's answer is what it says", async () => {
-    claudeTab();
+    chatTab();
     const ran = await runRemoteCommand(ws, tabId, controller(), "btw", "the build");
     expect(ran).toEqual({ message: "about the build", card: true });
   });
 
   test("a toast's answer is told as one, not as a card", async () => {
-    claudeTab();
+    chatTab();
     const ran = await runRemoteCommand(ws, tabId, controller(), "add-dir", "/p/lib");
     expect(ran.card).toBe(false);
     expect(ran.message).toContain("/p/lib");
   });
 
   test("what it was given goes to the agent, by its alias too", async () => {
-    claudeTab();
+    chatTab();
     const sent: string[] = [];
     expect(await runRemoteCommand(ws, tabId, controller(sent), "/subtask", "fix it")).toEqual({});
     expect(sent).toHaveLength(1);
@@ -160,7 +182,7 @@ describe("running one for another device", () => {
   });
 
   test("a warning it shows fails it, and one not for another device is refused", async () => {
-    claudeTab();
+    chatTab();
     await expect(runRemoteCommand(ws, tabId, controller(), "btw", "")).rejects.toThrow();
     await expect(runRemoteCommand(ws, tabId, controller(), "copy", "")).rejects.toThrow(
       "chat.commands",

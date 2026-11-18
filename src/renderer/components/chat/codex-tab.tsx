@@ -465,7 +465,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           // The rest of Codex's commands the tab runs; anything else goes to
           // the model as typed.
           const command = parseCodexCommand(text);
-          if (!command || ["model", "effort", "config", "resume"].includes(command.name)) {
+          if (!command || ["config", "resume"].includes(command.name)) {
             return false;
           }
           const { history, model } = state;

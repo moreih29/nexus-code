@@ -30,6 +30,21 @@ export const CODEX_COMMANDS: readonly AppCommand[] = [
   { name: "exit", aliases: ["quit"] },
 ];
 
+/** Codex's commands the app runs that another device may run. */
+export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
+  "new",
+  "compact",
+  "review",
+  "init",
+  "goal",
+  "status",
+  "rename",
+  "fork",
+  "export",
+  "mcp",
+  "skills",
+]);
+
 function namesOf(command: AppCommand): string[] {
   return [command.name, ...(command.aliases ?? [])];
 }

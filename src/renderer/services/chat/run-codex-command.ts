@@ -10,6 +10,7 @@ import { openCodexTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { showChanges } from "../agent-sessions/actions";
+import { planChatSettings } from "../cli/chat-settings";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import {
   conversationMarkdown,
@@ -56,12 +57,25 @@ export async function runCodexCommand(
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
   const title = `/${command.name}${command.args ? ` ${command.args}` : ""}`;
+  if (command.name === "compact" || command.name === "review") await controller.prepareSend();
   const threadId = controller.currentThread();
   if (IDLE_ONLY.has(command.name) && controller.model.running) {
     showToast({ kind: "warning", message: t("chat.codex.commands.busy") });
     return;
   }
   switch (command.name) {
+    case "model":
+    case "effort": {
+      const plan = planChatSettings(
+        "codex",
+        controller.model,
+        { [command.name]: command.args },
+        true,
+      );
+      if (plan.model) await controller.setModel(plan.model);
+      if (plan.effort) await controller.setEffort(plan.effort);
+      return;
+    }
     case "new":
       await controller.newThread();
       return;
@@ -96,11 +110,11 @@ export async function runCodexCommand(
       return;
     }
     case "compact":
-      if (!threadId) return;
+      if (!threadId) throw new Error("Codex has no thread to compact");
       await controller.ask("thread/compact/start", { threadId });
       return;
     case "review":
-      if (!threadId) return;
+      if (!threadId) throw new Error("Codex has no thread to review");
       await controller.ask("review/start", {
         threadId,
         target: reviewTargetOf(command.args),
