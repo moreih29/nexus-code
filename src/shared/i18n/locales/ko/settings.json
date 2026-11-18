@@ -334,7 +334,9 @@
       "remote_description": "{{device}} 컴퓨터의 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
       "answered_once": "{{device}}에서 이번만 허용했습니다.",
       "answered_session": "{{device}}에서 재시작 전까지 허용했습니다.",
-      "answered_deny": "{{device}}에서 거절했습니다."
+      "answered_deny": "{{device}}에서 거절했습니다.",
+      "manager_description": "매니저가 {{to}}에서 {{action}} 하려고 합니다.",
+      "action_other": "변경({{kind}})을"
     },
     "heading": "nexus CLI"
   },

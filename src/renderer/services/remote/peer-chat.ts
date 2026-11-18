@@ -1,22 +1,29 @@
 // A chat of another device as this one watches it (chat.watch): its page
 // when the watch begins, kept up with each chat.update. A missing update
-// (a rev skipped), the device leaving and coming back, the chat hidden and
-// shown again, or a watch that fails starts the watch again, which gives
-// the last items only: those shown before it stay in front. Earlier ones
-// are read a page at a time (chat.read with `before`) when asked for. A
-// slow read now and then tells whether the chat is still there.
+// (a rev skipped), the device leaving and coming back (seen to go or not:
+// its new connection dropped the watch), the chat hidden and shown again,
+// or a watch that fails starts the watch again, which gives the last items
+// only: those shown before it stay in front. Earlier ones are read a page
+// at a time (chat.read with `before`) when asked for. A slow read now and
+// then tells whether the chat is still there, and whether it moved on
+// there while no update came: a watch lost unseen, started again.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatPage, ChatPanel } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { applyUpdate, keepEarlier, withEarlier } from "./chat-model";
 import type { PeerRead } from "./room";
-import { useRemoteRoom } from "./room";
+import { usePeerRejoins, useRemoteRoom } from "./room";
 
 /** How long after a failed watch it is tried again. */
 export const REWATCH_MS = 3000;
 /** How often the chat is checked to still be there: a watch says nothing when it is closed. */
 export const ALIVE_MS = 15_000;
+/**
+ * How long the watch is to have said nothing for a chat longer there than
+ * here to count as lost: an update on its way is not taken for one.
+ */
+export const QUIET_MS = 5000;
 /** How many items before those shown are read at a time. */
 export const EARLIER_ITEMS = 200;
 
@@ -41,15 +48,19 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   const { deviceId, workspaceId, tabId } = ref;
   const room = useRemoteRoom();
   const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
+  // Back in the room with a new connection, seen to go or not: the watch there was dropped.
+  const rejoins = usePeerRejoins(deviceId);
   const [read, setRead] = useState<PeerRead<WatchedChat>>({ status: "loading" });
   // Bumped to start the watch again.
   const [round, setRound] = useState(0);
   const watch = useRef<{ id: string; rev: number } | null>(null);
+  // When the watch last sent something, or began.
+  const heardAt = useRef(0);
   const latest = useRef(read);
   latest.current = read;
   const [loadingEarlier, setLoadingEarlier] = useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` starts the watch again
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` and `rejoins` start the watch again
   useEffect(() => {
     if (!shown || !online) return;
     let live = true;
@@ -65,6 +76,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         return;
       }
       w.rev = update.rev;
+      heardAt.current = Date.now();
       setRead((now) => {
         if (now.status !== "ready") return now;
         const value = applyUpdate(now.value, update);
@@ -95,6 +107,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       if (result.ok) {
         const { watchId, ...page } = result.value;
         watch.current = { id: watchId, rev: 0 };
+        heardAt.current = Date.now();
         // Watched again, the items shown before stay in front.
         setRead((now) => ({
           status: "ready",
@@ -114,7 +127,22 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
     const alive = setInterval(() => {
       void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit: 1 }).then(
         (result) => {
-          if (live && !result.ok && result.kind === "not-found") setRead({ status: "gone" });
+          if (!live) return;
+          if (!result.ok) {
+            if (result.kind === "not-found") setRead({ status: "gone" });
+            return;
+          }
+          // Longer there than here, and the watch quiet: it was lost, as when the device
+          // started over unseen; watched again.
+          const now = latest.current;
+          if (
+            watch.current &&
+            now.status === "ready" &&
+            result.value.total !== now.value.total &&
+            Date.now() - heardAt.current > QUIET_MS
+          ) {
+            again();
+          }
         },
       );
     }, ALIVE_MS);
@@ -127,7 +155,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       watch.current = null;
       if (w) void ipcCallResult("remote", "peerChatUnwatch", { deviceId, watchId: w.id });
     };
-  }, [deviceId, workspaceId, tabId, shown, online, round]);
+  }, [deviceId, workspaceId, tabId, shown, online, round, rejoins]);
 
   const loadEarlier = useCallback(() => {
     const now = latest.current;

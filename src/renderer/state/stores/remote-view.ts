@@ -29,6 +29,40 @@ export interface RemoteTarget {
   profile?: string;
   /** The folder a chat runs in, when it is not its workspace's: its links are written from there. */
   cwd?: string;
+  /**
+   * A terminal's Claude Code asking for leave, as its computer last listed
+   * it (its session's `waiting` with a `requestId`): what terminal.answer
+   * answers. Never on a chat.
+   */
+  ask?: TerminalAsk;
+}
+
+/** A request a terminal's Claude Code holds: its id there, and what it asks (tool and target, a line). */
+export interface TerminalAsk {
+  requestId: string;
+  text: string;
+  /** Whether it may be allowed always; unknown (absent) from a computer before protocol 0.13.2. */
+  always?: boolean;
+  /** A subagent's, which denying cannot stop the turn for; unknown (absent) before 0.13.2. */
+  subagent?: boolean;
+}
+
+/** What a listed session waits on the user for, as far as a terminal's request goes. */
+type ListedWaiting = { text: string; requestId?: string; always?: boolean; subagent?: boolean };
+
+/** The request a listed session's Claude Code holds in its terminal; none for a chat. */
+export function askOf(session: {
+  kind: RemoteTarget["kind"];
+  waiting?: ListedWaiting;
+}): TerminalAsk | undefined {
+  const { waiting } = session;
+  if (session.kind !== "terminal" || !waiting?.requestId) return undefined;
+  return {
+    requestId: waiting.requestId,
+    text: waiting.text,
+    ...(waiting.always !== undefined ? { always: waiting.always } : {}),
+    ...(waiting.subagent !== undefined ? { subagent: waiting.subagent } : {}),
+  };
 }
 
 /** What the computer's list says of its sessions now, for the tabs to show. */
@@ -42,6 +76,7 @@ export interface ListedSessions {
     state: SessionState;
     profile?: string;
     cwd?: string;
+    waiting?: ListedWaiting;
   }[];
 }
 
@@ -53,7 +88,10 @@ interface RemoteViewState {
    * the keyboard, as a chat of this computer's opens.
    */
   open(target: RemoteTarget, leafId?: string): void;
-  /** Takes up a computer's newer names and titles for the tabs of its sessions. */
+  /**
+   * Takes up a computer's newer names and titles for the tabs of its
+   * sessions, and what its terminals' Claude Code asks.
+   */
   refresh(deviceId: string, listed: ListedSessions): void;
   /** A chat now runs with another profile, by name, as chat.profile answered. */
   setProfile(key: string, profile: string): void;
@@ -79,12 +117,15 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         (s) => s.workspaceId === target.workspaceId && s.tabId === target.tabId,
       );
       const workspace = listed.workspaces.find((w) => w.id === target.workspaceId);
-      const { cwd: _cwd, ...rest } = target;
+      const { cwd: _cwd, ask: _ask, ...rest } = target;
       // A chat listed tells its folder, or none for its workspace's.
       const cwd = session ? session.cwd : target.cwd;
+      // A terminal listed tells the request its Claude Code holds, or none once it was answered.
+      const ask = session ? askOf(session) : target.ask;
       const updated: RemoteTarget = {
         ...rest,
         ...(cwd ? { cwd } : {}),
+        ...(ask ? { ask } : {}),
         title: session?.title ?? target.title,
         kind: session?.kind ?? target.kind,
         state: session?.state ?? target.state,
@@ -100,6 +141,10 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         updated.state === target.state &&
         updated.profile === target.profile &&
         updated.cwd === target.cwd &&
+        updated.ask?.requestId === target.ask?.requestId &&
+        updated.ask?.text === target.ask?.text &&
+        updated.ask?.always === target.ask?.always &&
+        updated.ask?.subagent === target.ask?.subagent &&
         updated.workspaceName === target.workspaceName &&
         updated.path === target.path
       ) {

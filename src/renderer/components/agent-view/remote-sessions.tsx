@@ -5,8 +5,16 @@
 // last line, as it does this computer's. A terminal with only its shell is
 // out of sight until the user asks for its workspace's terminals, with the
 // chip in its heading, or searches for it; asked for, they hang under the
-// heading from its icon, as the phone shows them.
+// heading from its icon, as the phone shows them. A task's workspace hangs
+// from a line under its workspace's, as well.
+//
+// Where the computer lets this one control its chats or terminals, a
+// workspace's heading has a + to open one there, and a session's row a
+// right-click menu to rename or close it; a workspace with none listed
+// shows for its +, as one of this computer's does. The computer's consent
+// prompts come first in its group, to answer from here.
 
+import i18next from "i18next";
 import {
   ChevronDown,
   ChevronRight,
@@ -16,7 +24,15 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import {
+  type ComponentProps,
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   RemoteSession,
@@ -26,25 +42,40 @@ import type {
 } from "../../../../packages/remote-protocol/src/rpc";
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { RoomPeer } from "../../../shared/remote/room";
+import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
 import {
   offlinePeers,
   type PeerSessions,
+  peerServes,
+  refreshPeerSessions,
   servingPeers,
   usePeerSessions,
   useRemoteRoom,
   useShownRoom,
 } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
+import {
+  ContextMenuContent,
+  ContextMenuItems,
+  ContextMenuRoot,
+  ContextMenuTrigger,
+  type MenuItemSpec,
+} from "../ui/context-menu";
+import { PromptDialog, type PromptRequest } from "../ui/prompt-dialog";
+import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
+import { RemoteConsentCard } from "./remote-consents";
+import { RemoteNewMenu } from "./remote-new-menu";
+import { closePeerSession, type PeerSessionRef, renamePeerSession } from "./remote-session-actions";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
 
@@ -186,6 +217,11 @@ export function PeerGroup({
       if (!next.delete(workspaceId)) next.add(workspaceId);
       return next;
     });
+  // The consent prompts answered here, or found answered there: left out until asked again.
+  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
+  // The session being renamed, while the dialog asks its new title.
+  const [renaming, setRenaming] = useState<PeerSessionRef | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
   const root = useAgentViewStore((s) => s.root);
@@ -194,7 +230,9 @@ export function PeerGroup({
     query,
     (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
   );
-  const waiting = list?.sessions.filter((s) => s.state === "needs-you").length ?? 0;
+  const consents = (list?.consents ?? []).filter((c) => !settled.has(c.id));
+  const waiting =
+    (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length;
   const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
@@ -203,20 +241,40 @@ export function PeerGroup({
   useEffect(() => {
     if (list) useRemoteViewStore.getState().refresh(peer.id, list);
   }, [peer.id, list]);
+  // Where it lets this one open chats or terminals there, each workspace's heading has a +.
+  const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
   // In the order the computer lists them: a workspace with sessions shown, or
-  // with only terminals behind its chip.
+  // with only terminals behind its chip; one with neither, not a task, for
+  // its + (as this computer's list shows a workspace), unless searched.
   const byWorkspace = new Map<string, RemoteSession[]>();
-  for (const s of list?.sessions ?? []) byWorkspace.set(s.workspaceId, []);
+  for (const w of list?.workspaces ?? []) byWorkspace.set(w.id, []);
+  for (const s of list?.sessions ?? []) {
+    if (!byWorkspace.has(s.workspaceId)) byWorkspace.set(s.workspaceId, []);
+  }
   for (const s of shownSessions) byWorkspace.get(s.workspaceId)?.push(s);
   const groups = [...byWorkspace].filter(
-    ([id, rows]) => rows.length > 0 || (plain.get(id)?.length ?? 0) > 0,
+    ([id, rows]) =>
+      rows.length > 0 ||
+      (plain.get(id)?.length ?? 0) > 0 ||
+      (opens && !query.trim() && workspaces.has(id) && !workspaces.get(id)?.parentId),
   );
-  const rowOf = (workspaceId: string, session: RemoteSession) => (
-    <Fragment key={session.tabId}>
+  const headed = new Set(groups.map(([id]) => id));
+  const renameRequest = useMemo<PromptRequest | null>(
+    () =>
+      renaming && {
+        title: t("tabBar.rename_tab"),
+        defaultValue: renaming.title,
+        confirmLabel: t("action.save"),
+      },
+    [renaming, t],
+  );
+  const rowOf = (workspaceId: string, session: RemoteSession) => {
+    const row = (
       <RemoteSessionRow
         session={session}
         where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
-        onOpen={() =>
+        onOpen={() => {
+          const ask = askOf(session);
           open({
             deviceId: peer.id,
             deviceName: peer.name,
@@ -229,12 +287,37 @@ export function PeerGroup({
             state: session.state,
             ...(session.profile ? { profile: session.profile } : {}),
             ...(session.cwd ? { cwd: session.cwd } : {}),
-          })
-        }
+            ...(ask ? { ask } : {}),
+          });
+        }}
       />
-      <AgentRows agents={agentRunsOf(session.agents)} selectedId={undefined} className="pl-4" />
-    </Fragment>
-  );
+    );
+    const ref: PeerSessionRef = {
+      deviceId: peer.id,
+      deviceName: peer.name,
+      workspaceId,
+      tabId: session.tabId,
+      kind: session.kind,
+      title: session.title,
+    };
+    // Renamed and closed as it is controlled: a chat with the chats, a terminal with the terminals.
+    const controls = peerServes(
+      peer,
+      session.kind === "terminal" ? "terminal.control" : "chat.control",
+    );
+    return (
+      <Fragment key={session.tabId}>
+        {controls ? (
+          <SessionMenu onRename={() => setRenaming(ref)} onClose={() => void closePeerSession(ref)}>
+            {row}
+          </SessionMenu>
+        ) : (
+          row
+        )}
+        <AgentRows agents={agentRunsOf(session.agents)} selectedId={undefined} className="pl-4" />
+      </Fragment>
+    );
+  };
 
   return (
     <div className="flex flex-col" data-testid="remote-peer">
@@ -273,63 +356,165 @@ export function PeerGroup({
             <p className="px-2 py-1 text-app-micro text-muted-foreground">
               {t("agentView.remote.unavailable")}
             </p>
-          ) : groups.length === 0 ? (
-            <p className="px-2 py-1 text-app-micro text-muted-foreground">
-              {t("agentView.remote.empty")}
-            </p>
           ) : (
-            groups.map(([workspaceId, rows]) => {
-              const terminals = plain.get(workspaceId) ?? [];
-              const unfolded = terminalsIn.has(workspaceId);
-              return (
-                <div key={workspaceId} className="flex flex-col not-first:mt-1.5">
-                  <WorkspaceHeading
-                    name={names.get(workspaceId) ?? workspaceId}
-                    workspace={workspaces.get(workspaceId)}
-                    terminals={
-                      terminals.length > 0
-                        ? {
-                            count: terminals.length,
-                            open: unfolded,
-                            toggle: () => toggleTerminals(workspaceId),
-                          }
-                        : undefined
-                    }
-                  />
-                  {unfolded && terminals.length > 0 && (
-                    <HungTerminals
-                      rows={terminals.map((session) => ({
-                        key: session.tabId,
-                        row: rowOf(workspaceId, session),
-                      }))}
+            <>
+              {/* What waits on the user there comes first: it runs out. */}
+              {consents.length > 0 && (
+                <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
+                  {consents.map((consent) => (
+                    <RemoteConsentCard
+                      key={consent.id}
+                      consent={consent}
+                      device={peer.name}
+                      workspaceName={
+                        names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
+                      }
+                      onAnswer={(answer) =>
+                        ipcCallResult("remote", "peerConsentAnswer", {
+                          deviceId: peer.id,
+                          id: consent.id,
+                          answer,
+                        })
+                      }
+                      onSettled={() => {
+                        setSettled((now) => new Set(now).add(consent.id));
+                        refreshPeerSessions(peer.id);
+                      }}
                     />
-                  )}
-                  {rows.map((session) => rowOf(workspaceId, session))}
+                  ))}
                 </div>
-              );
-            })
+              )}
+              {groups.length === 0 ? (
+                <p className="px-2 py-1 text-app-micro text-muted-foreground">
+                  {t("agentView.remote.empty")}
+                </p>
+              ) : (
+                groups.map(([workspaceId, rows]) => {
+                  const terminals = plain.get(workspaceId) ?? [];
+                  const unfolded = terminalsIn.has(workspaceId);
+                  const workspace = workspaces.get(workspaceId);
+                  // A task hangs from a line under its workspace's folder, where
+                  // that is listed (the computer lists a workspace's tasks right
+                  // after it), so its rows read as its own, as the phone shows them.
+                  const parent = workspace?.parentId;
+                  const hung = parent !== undefined && headed.has(parent);
+                  return (
+                    <div
+                      key={workspaceId}
+                      className={cn(
+                        "flex flex-col not-first:mt-1.5",
+                        hung && "ml-3.5 border-border border-l",
+                      )}
+                      data-task={hung ? "" : undefined}
+                    >
+                      <WorkspaceHeading
+                        name={names.get(workspaceId) ?? workspaceId}
+                        workspace={workspace}
+                        terminals={
+                          terminals.length > 0
+                            ? {
+                                count: terminals.length,
+                                open: unfolded,
+                                toggle: () => toggleTerminals(workspaceId),
+                              }
+                            : undefined
+                        }
+                        menu={
+                          opens && workspace ? (
+                            <RemoteNewMenu peer={peer} workspace={workspace} />
+                          ) : undefined
+                        }
+                      />
+                      {unfolded && terminals.length > 0 && (
+                        <HungTerminals
+                          rows={terminals.map((session) => ({
+                            key: session.tabId,
+                            row: rowOf(workspaceId, session),
+                          }))}
+                        />
+                      )}
+                      {rows.map((session) => rowOf(workspaceId, session))}
+                    </div>
+                  );
+                })
+              )}
+            </>
           )}
         </div>
       )}
+      <PromptDialog
+        request={renameRequest}
+        busy={renameBusy}
+        onCancel={() => setRenaming(null)}
+        onConfirm={(title) => {
+          if (!renaming) return;
+          setRenameBusy(true);
+          void renamePeerSession(renaming, title).then(() => {
+            setRenameBusy(false);
+            setRenaming(null);
+          });
+        }}
+      />
     </div>
   );
 }
 
 /**
+ * A session's row with its right-click menu: renaming it there, and
+ * closing it. Each runs once the menu has let go of the keyboard, for the
+ * dialog it opens to take it.
+ */
+function SessionMenu({
+  onRename,
+  onClose,
+  children,
+}: {
+  onRename: () => void;
+  onClose: () => void;
+  children: ReactElement;
+}) {
+  const handoff = useContextMenuHandoff();
+  return (
+    <ContextMenuRoot>
+      <ContextMenuTrigger>{children}</ContextMenuTrigger>
+      <ContextMenuContent onCloseAutoFocus={handoff.onCloseAutoFocus}>
+        <ContextMenuItems
+          items={remoteSessionMenu({
+            rename: () => handoff.defer(onRename),
+            close: () => handoff.defer(onClose),
+          })}
+        />
+      </ContextMenuContent>
+    </ContextMenuRoot>
+  );
+}
+
+/** The right-click menu of another computer's session: rename, then close, as a tab's here. */
+export function remoteSessionMenu(actions: { rename(): void; close(): void }): MenuItemSpec[] {
+  return [
+    { kind: "item", label: i18next.t("tabBar.rename_tab_menu"), onSelect: actions.rename },
+    { kind: "separator" },
+    { kind: "item", label: i18next.t("tabBar.close"), onSelect: actions.close },
+  ];
+}
+
+/**
  * A workspace's sessions' heading: a folder, or a task's branch, and how its
- * git stands; and a chip with how many terminals with only their shell it
- * has, which shows them under it, or puts them away.
+ * git stands; a chip with how many terminals with only their shell it has,
+ * which shows them under it, or puts them away; and its + (`menu`), where
+ * there is one.
  */
 function WorkspaceHeading({
   name,
   workspace,
   terminals,
+  menu,
 }: {
   name: string;
   workspace: RemoteWorkspace | undefined;
   terminals?: { count: number; open: boolean; toggle(): void };
+  menu?: ReactNode;
 }) {
-  const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
   const git = workspace?.git;
   const stands = git
@@ -355,35 +540,52 @@ function WorkspaceHeading({
           {stands}
         </span>
       )}
-      {terminals && (
-        <button
-          type="button"
-          aria-expanded={terminals.open}
-          onClick={terminals.toggle}
-          title={
-            terminals.open
-              ? t("agentView.remote.terminalsHide")
-              : t("agentView.remote.terminalsShow", { count: terminals.count })
-          }
-          aria-label={
-            terminals.open
-              ? t("agentView.remote.terminalsHide")
-              : t("agentView.remote.terminalsShow", { count: terminals.count })
-          }
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)]"
-          data-testid="remote-terminals-toggle"
-          data-workspace={workspace?.id}
-        >
-          <SquareTerminal aria-hidden className="size-3 shrink-0" />
-          {terminals.count}
-          {terminals.open ? (
-            <ChevronUp aria-hidden className="size-3 shrink-0" />
-          ) : (
-            <ChevronDown aria-hidden className="size-3 shrink-0" />
-          )}
-        </button>
+      {(terminals || menu) && (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {terminals && <TerminalsChip terminals={terminals} workspaceId={workspace?.id} />}
+          {menu}
+        </span>
       )}
     </div>
+  );
+}
+
+/** The chip with how many terminals with only their shell a workspace has: it shows or hides them. */
+function TerminalsChip({
+  terminals,
+  workspaceId,
+}: {
+  terminals: { count: number; open: boolean; toggle(): void };
+  workspaceId: string | undefined;
+}) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      aria-expanded={terminals.open}
+      onClick={terminals.toggle}
+      title={
+        terminals.open
+          ? t("agentView.remote.terminalsHide")
+          : t("agentView.remote.terminalsShow", { count: terminals.count })
+      }
+      aria-label={
+        terminals.open
+          ? t("agentView.remote.terminalsHide")
+          : t("agentView.remote.terminalsShow", { count: terminals.count })
+      }
+      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)]"
+      data-testid="remote-terminals-toggle"
+      data-workspace={workspaceId}
+    >
+      <SquareTerminal aria-hidden className="size-3 shrink-0" />
+      {terminals.count}
+      {terminals.open ? (
+        <ChevronUp aria-hidden className="size-3 shrink-0" />
+      ) : (
+        <ChevronDown aria-hidden className="size-3 shrink-0" />
+      )}
+    </button>
   );
 }
 
@@ -441,16 +643,23 @@ export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): 
   }));
 }
 
+/**
+ * A session's row: its state, kind and title, and what it waits on the
+ * user for or last said. What else a button takes (a menu's trigger's
+ * props) goes to it.
+ */
 export function RemoteSessionRow({
   session,
   where = null,
   onOpen,
+  className,
+  ...rest
 }: {
   session: RemoteSession;
   /** Where the agent view's panels have it, which its mark tells; none where they do not. */
   where?: PanelPlace | null;
   onOpen?: () => void;
-}) {
+} & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t } = useTranslation();
   const group = GROUP_OF[session.state];
   const Icon =
@@ -459,11 +668,15 @@ export function RemoteSessionRow({
   return (
     <button
       type="button"
+      {...rest}
       onClick={onOpen}
       aria-current={where === "shown" || undefined}
       className={cn(
         "relative flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
         where === "shown" ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
+        // Its right-click menu open.
+        "data-[state=open]:bg-[var(--state-hover-bg)]",
+        className,
       )}
       title={session.last ? `${session.title}\n${session.last}` : session.title}
       data-testid="remote-session-row"

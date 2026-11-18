@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { compareVersions } from "../chat/versions";
 
@@ -61,6 +62,24 @@ export function usePeerTypes(deviceId: string): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves?.includes("terminal.control") ?? false;
+}
+
+/**
+ * How many times another device joined the room again with a new
+ * connection while this one stayed (RoomPeer's `rejoins`): what this one
+ * watched there was dropped, so a watch follows it to be asked again.
+ */
+export function usePeerRejoins(deviceId: string): number {
+  const room = useRemoteRoom();
+  return room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
+}
+
+/**
+ * Whether another device, as its hello said, serves `capability`: one the
+ * user there allowed (chat.control, terminal.control). No until it said.
+ */
+export function peerServes(peer: RoomPeer | undefined, capability: string): boolean {
+  return peer?.serves?.includes(capability) ?? false;
 }
 
 /** The protocol from which terminal.open runs a terminal with a profile's environment. */
@@ -215,11 +234,24 @@ export type PeerSessions =
 /** How often a shown device's sessions are asked again, where it cannot be watched. */
 export const PEER_POLL_MS = 5000;
 
+/** The lists shown, each told when a device's sessions are to be asked again now. */
+const askAgain = createListenerBus<string>();
+
+/**
+ * Has the shown lists of `deviceId`'s sessions ask it again now, after this
+ * device opened, renamed or closed one there or answered what it waited on:
+ * the change shows at once, not with the next poll or watch update.
+ */
+export function refreshPeerSessions(deviceId: string): void {
+  askAgain.notify(deviceId);
+}
+
 /**
  * Each device's sessions while `shown`: watched (sessions.watch), the
  * device sending the list as it changes; or, from a device that does not
- * serve the watch, asked now and every PEER_POLL_MS. A device's last list
- * stays while the next is on its way.
+ * serve the watch, asked now and every PEER_POLL_MS; either asked again at
+ * once by refreshPeerSessions, and watched again once a device is back in
+ * the room. A device's last list stays while the next is on its way.
  */
 export function usePeerSessions(
   deviceIds: readonly string[],
@@ -227,6 +259,16 @@ export function usePeerSessions(
 ): Record<string, PeerSessions> {
   const [lists, setLists] = useState<Record<string, PeerSessions>>({});
   const key = deviceIds.join("|");
+  // Each device's connection as the room tells it: one back, seen to go or not, dropped the
+  // watch there, which is asked for again.
+  const room = useRemoteRoom();
+  const joins = deviceIds
+    .map((id) => {
+      const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
+      return peer?.online ? (peer.rejoins ?? 0) : "-";
+    })
+    .join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `joins` starts the watches again
   useEffect(() => {
     if (!shown || key === "") return;
     const ids = key.split("|");
@@ -247,14 +289,17 @@ export function usePeerSessions(
       const { watchId: _, ...list } = update;
       put(deviceId, list);
     });
+    const ask = (deviceId: string) =>
+      void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
+        if (live) put(deviceId, result.ok ? result.value : null);
+      });
     const poll = (deviceId: string) => {
-      const ask = () =>
-        void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
-          if (live) put(deviceId, result.ok ? result.value : null);
-        });
-      ask();
-      timers.push(setInterval(ask, PEER_POLL_MS));
+      ask(deviceId);
+      timers.push(setInterval(() => ask(deviceId), PEER_POLL_MS));
     };
+    const offAgain = askAgain.subscribe((deviceId) => {
+      if (ids.includes(deviceId)) ask(deviceId);
+    });
     for (const deviceId of ids) {
       void ipcCallResult("remote", "peerSessionsWatch", { deviceId }).then((result) => {
         if (!live) {
@@ -279,12 +324,13 @@ export function usePeerSessions(
     return () => {
       live = false;
       off();
+      offAgain();
       for (const timer of timers) clearInterval(timer);
       for (const [deviceId, watchId] of watching) {
         void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
       }
     };
-  }, [key, shown]);
+  }, [key, shown, joins]);
   return lists;
 }
 

@@ -12,8 +12,9 @@ const {
   agentRunsOf,
   listedByDefault,
   listedSessions,
+  remoteSessionMenu,
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
-const { offlinePeers, servingPeers } = await import(
+const { offlinePeers, peerServes, servingPeers } = await import(
   "../../../../../src/renderer/services/remote/room"
 );
 
@@ -317,6 +318,46 @@ describe("the agent view's other computers", () => {
     expect(headings[1]).toContain("fix/login ↑2 ●");
   });
 
+  test("hangs a task from a line under its workspace's folder, where that is listed", () => {
+    const render = (sessions: RemoteSession[]) =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={peer}
+          query=""
+          sessions={{
+            status: "ready",
+            list: {
+              workspaces: [
+                { id: "w1", name: "api", path: "/src/api" },
+                { id: "w2", name: "api-fix", path: "/wt/api-fix", parentId: "w1" },
+              ],
+              sessions,
+            },
+          }}
+        />,
+      );
+    // The group's opening tag, before its heading.
+    const groups = (html: string) =>
+      html
+        .split('data-testid="remote-workspace"')
+        .slice(0, -1)
+        .map((before) => before.slice(before.lastIndexOf('<div class="flex flex-col not-first')));
+    const both = groups(
+      render([
+        session({ tabId: "t1", title: "Fix the build" }),
+        session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+      ]),
+    );
+    expect(both).toHaveLength(2);
+    expect(both[0]).not.toContain("data-task");
+    expect(both[1]).toContain("data-task");
+    expect(both[1]).toContain("ml-3.5 border-border border-l");
+    // Its workspace not listed, it has nothing to hang from.
+    const alone = groups(render([session({ tabId: "t2", workspaceId: "w2", title: "Fix login" })]));
+    expect(alone).toHaveLength(1);
+    expect(alone[0]).not.toContain("data-task");
+  });
+
   test("finds sessions by their title or last line", () => {
     const html = renderToStaticMarkup(
       <PeerGroup
@@ -377,6 +418,124 @@ describe("the agent view's other computers", () => {
     const none = renderToStaticMarkup(<RemoteSessionRow session={session({})} />);
     expect(none).not.toContain("remote-session-panel");
     expect(none).not.toContain("aria-current");
+  });
+
+  test("where it lets this one control, each workspace's heading has a +, one with no sessions too", () => {
+    const controlled: RoomPeer = { ...peer, serves: ["sessions", "chat.control"] };
+    const render = (query: string, of: RoomPeer = controlled) =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={of}
+          query={query}
+          sessions={{
+            status: "ready",
+            list: {
+              workspaces: [
+                { id: "w1", name: "api", path: "/src/api" },
+                { id: "w2", name: "web", path: "/src/web" },
+                { id: "w3", name: "api-fix", path: "/wt/api-fix", parentId: "w1" },
+              ],
+              sessions: [session({ tabId: "t1", title: "Fix the build" })],
+            },
+          }}
+        />,
+      );
+    const html = render("");
+    const headings = html.split('data-testid="remote-workspace"').slice(1);
+    // The workspace with none listed shows for its +, as one of this computer's does; a task does not.
+    expect(headings).toHaveLength(2);
+    expect(headings[1]).toContain(">web<");
+    expect(html).not.toContain("api-fix");
+    expect(html.match(/data-testid="remote-new-menu"/g)?.length).toBe(2);
+    expect(html).toContain('aria-label="New in web"');
+    // Searched, only what is found shows.
+    expect(render("build").split('data-testid="remote-workspace"').slice(1)).toHaveLength(1);
+    // Where it lets this one control nothing, no + and no empty workspace.
+    const looking = render("", peer);
+    expect(looking).not.toContain("remote-new-menu");
+    expect(looking.split('data-testid="remote-workspace"').slice(1)).toHaveLength(1);
+  });
+
+  test("a row has its right-click menu where its kind of session is controlled from here", () => {
+    const render = (serves: string[]) =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={{ ...peer, serves }}
+          query=""
+          sessions={{
+            status: "ready",
+            list: list([
+              session({ tabId: "t1", title: "Fix the build" }),
+              session({ tabId: "t2", kind: "terminal", title: "claude", agent: "claude" }),
+            ]),
+          }}
+        />,
+      );
+    const rows = (html: string) =>
+      html
+        .split('data-testid="remote-session-row"')
+        .slice(0, -1)
+        .map((before) => before.slice(before.lastIndexOf("<button")));
+    // A menu's trigger tells whether its menu is open.
+    const menus = (html: string) => rows(html).map((row) => row.includes('data-state="closed"'));
+    expect(menus(render(["sessions"]))).toEqual([false, false]);
+    expect(menus(render(["sessions", "chat.control"]))).toEqual([true, false]);
+    expect(menus(render(["sessions", "chat.control", "terminal.control"]))).toEqual([true, true]);
+  });
+
+  test("the menu renames, then closes, as a tab's here", () => {
+    const done: string[] = [];
+    const items = remoteSessionMenu({
+      rename: () => done.push("rename"),
+      close: () => done.push("close"),
+    });
+    expect(items.map((item) => (item.kind === "item" ? item.label : "—"))).toEqual([
+      "Rename Tab…",
+      "—",
+      "Close",
+    ]);
+    for (const item of items) if (item.kind === "item") item.onSelect();
+    expect(done).toEqual(["rename", "close"]);
+  });
+
+  test("its consent prompts come first, before its workspaces", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: {
+            ...list([session({ tabId: "t1", title: "Fix the build" })]),
+            consents: [
+              {
+                id: "c1",
+                at: 0,
+                expiresAt: 60_000,
+                expiresInMs: 30_000,
+                from: { device: { id: "d3", name: "Laptop" }, workspaceId: "x", tabId: "y" },
+                workspaceId: "w2",
+                change: { kind: "chatInput", detail: "Review", body: "Ship it" },
+                eachTime: false,
+                answerable: true,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('data-testid="remote-consent"');
+    expect(html).toContain("asks to send a message to the tab &quot;Review&quot; in web.");
+    expect(html.indexOf("remote-consent")).toBeLessThan(html.indexOf("remote-workspace"));
+  });
+
+  test("what a computer serves, as its hello said; nothing before it said", () => {
+    expect(peerServes({ ...peer, serves: ["sessions", "chat.control"] }, "chat.control")).toBe(
+      true,
+    );
+    expect(peerServes(peer, "terminal.control")).toBe(false);
+    expect(peerServes({ ...peer, serves: undefined }, "chat.control")).toBe(false);
+    expect(peerServes(undefined, "chat.control")).toBe(false);
   });
 
   test("a session's tab names its computer and title, and its state unless idle", () => {

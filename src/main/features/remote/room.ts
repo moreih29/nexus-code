@@ -347,6 +347,7 @@ export class RemoteRoom {
           online: d.online,
           ...(known?.app ? { app: known.app } : {}),
           ...(known?.serves ? { serves: known.serves } : {}),
+          ...(known?.rejoins ? { rejoins: known.rejoins } : {}),
         });
       }
       this.peers = next;
@@ -431,7 +432,21 @@ export class RemoteRoom {
       void this.post(ALL_DEVICES, null, this.hello(true));
       return false;
     }
+    if (heard && heard.epoch !== epoch) this.rejoined(from);
     return true;
+  }
+
+  /**
+   * Another device heard in a new epoch while this one stayed: it joined the
+   * room again with a new connection, which the room may never have shown
+   * as gone (its old socket held on). Going, it dropped what was watched
+   * there, which is asked for again as its `rejoins` grows.
+   */
+  private rejoined(from: string): void {
+    const peer = this.peers.get(from);
+    if (!peer) return;
+    this.peers.set(from, { ...peer, rejoins: (peer.rejoins ?? 0) + 1 });
+    this.changed();
   }
 
   private foreignKey(kid: number): void {

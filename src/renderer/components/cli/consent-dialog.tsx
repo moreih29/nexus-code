@@ -87,7 +87,10 @@ const AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex
  */
 export function describeConsent(
   t: (key: string, values: Record<string, string>) => string,
-  prompt: CliConsentPrompt,
+  prompt: Pick<
+    CliConsentPrompt,
+    "fromWorkspace" | "fromTab" | "fromAgent" | "fromDevice" | "toWorkspace"
+  >,
   action: string,
 ): string {
   const to = prompt.toWorkspace;
@@ -112,6 +115,26 @@ export function describeConsent(
   return t("agentCli.consent.description", { tab: prompt.fromTab, from, to, action });
 }
 
+/**
+ * The question a prompt asks, by what it would change: for an agent of
+ * another computer (`remote`), whether it may change this one.
+ */
+export function consentTitleOf(kind: string, remote: boolean) {
+  if (kind === "permissionAllow" || kind === "permissionDeny") {
+    return "agentCli.consent.permission_title" as const;
+  }
+  if (kind === "chatMode") return "agentCli.consent.mode_title" as const;
+  if (kind === "chatProfile" || kind === "chatProfileNew") {
+    return "agentCli.consent.profile_title" as const;
+  }
+  if (kind === "chatRewind" || kind === "chatRewindFiles") {
+    return "agentCli.consent.rewind_title" as const;
+  }
+  if (kind === "chatRemoteControlOn") return "agentCli.consent.remote_control_title" as const;
+  if (kind === "noteRecord") return "agentCli.consent.record_title" as const;
+  return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
+}
+
 export function CliConsentDialogRoot(): React.JSX.Element {
   const { t } = useTranslation("settings");
   const [active, setActive] = useState<Pending | null>(queue[0] ?? null);
@@ -122,9 +145,6 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  const kind = prompt?.change.kind;
-  const permission = kind === "permissionAllow" || kind === "permissionDeny";
-  const profile = kind === "chatProfile" || kind === "chatProfileNew";
   const description = prompt ? describeConsent(t, prompt, action) : "";
 
   return (
@@ -136,23 +156,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
       size="sm"
     >
       <DialogHeader
-        title={t(
-          permission
-            ? "agentCli.consent.permission_title"
-            : kind === "chatMode"
-              ? "agentCli.consent.mode_title"
-              : profile
-                ? "agentCli.consent.profile_title"
-                : kind === "chatRewind" || kind === "chatRewindFiles"
-                  ? "agentCli.consent.rewind_title"
-                  : kind === "chatRemoteControlOn"
-                    ? "agentCli.consent.remote_control_title"
-                    : kind === "noteRecord"
-                      ? "agentCli.consent.record_title"
-                      : prompt?.fromDevice
-                        ? "agentCli.consent.remote_title"
-                        : "agentCli.consent.title",
-        )}
+        title={t(consentTitleOf(prompt?.change.kind ?? "", !!prompt?.fromDevice))}
         description={description}
       />
       {prompt?.change.body && (

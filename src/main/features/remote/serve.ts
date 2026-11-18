@@ -247,6 +247,8 @@ export async function listSessions(
                   kind: "permission" as const,
                   text: oneLine(ask.target ? `${ask.tool} ${ask.target}` : ask.tool),
                   requestId: ask.id,
+                  always: ask.always.length > 0,
+                  subagent: ask.agentId !== undefined,
                 },
               }
             : {}),
