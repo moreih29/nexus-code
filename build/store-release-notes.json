@@ -1,5 +1,5 @@
 {
     "version":  "0.34.0",
-    "ko-kr":  "• Codex 채팅의 옆 패널에서 컨텍스트, 사용량, 목표와 실행 중인 작업을 확인합니다.\n• /config에서 Codex 프로필별 기본값을 설정하고, /plan으로 계획 모드를 전환하며, 과거 메시지에서 분기하거나 되감습니다. 세션을 다시 열면 자동 압축 상태가 복원됩니다.\n• 지원되는 모델에서는 Codex Fast 모드를 선택할 수 있습니다.\n• 다른 컴퓨터의 Codex 대화에 보낸 메시지가 즉시 표시되고, 동기화할 때 중복으로 나타나지 않습니다.",
-    "en-us":  "• The Codex chat side panel shows context, usage, goals, and running work.\n• Use /config for per-profile defaults and /plan for plan mode. Branch or rewind from a previous message. Reopened sessions restore their compaction status.\n• Choose Codex Fast mode on supported models.\n• Messages sent to a Codex chat on another computer appear immediately and stay deduplicated when history syncs."
+    "ko-kr":  "• Codex 채팅의 옆 패널에서 컨텍스트, 사용량, 목표와 실행 중인 작업을 확인합니다.\n• /config에서 Codex 프로필별 기본값을 설정하고, /plan으로 계획 모드를 전환하며, 과거 메시지에서 분기하거나 되감습니다. 세션을 다시 열면 자동 압축 상태가 복원됩니다.\n• 지원되는 모델에서는 Codex Fast 모드를 선택할 수 있습니다.\n• 다른 컴퓨터의 Codex 대화에 보낸 메시지가 즉시 표시되고, 동기화할 때 중복으로 나타나지 않습니다.\n• 다른 컴퓨터의 파일 미리보기를 다시 열 때 파일이 그대로면 기존 내용을 재사용합니다. 이미지 캐시 용량을 제한합니다.",
+    "en-us":  "• The Codex chat side panel shows context, usage, goals, and running work.\n• Use /config for per-profile defaults and /plan for plan mode. Branch or rewind from a previous message. Reopened sessions restore their compaction status.\n• Choose Codex Fast mode on supported models.\n• Messages sent to a Codex chat on another computer appear immediately and stay deduplicated when history syncs.\n• Reopened remote file previews reuse unchanged content, and the image cache has a size limit."
 }
