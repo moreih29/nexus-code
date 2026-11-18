@@ -145,6 +145,27 @@ describe("codex model", () => {
     expect(run([set(T, null)], fast).serviceTier).toBeNull();
   });
 
+  test("reports compaction until its item completes or the turn is interrupted", () => {
+    const turnId = "compact-1";
+    const params = { threadId: T, turnId, item: { id: "c", type: "contextCompaction" } };
+    const working = run([
+      ...started(),
+      note("turn/started", { threadId: T, turn: { id: turnId } }),
+      note("item/started", params),
+    ]);
+    expect(working.turn?.status).toBe("compacting");
+    expect(Object.keys(working.tools)).toHaveLength(0);
+    const completed = run([note("item/completed", params)], working);
+    expect(completed.turn?.status).toBeUndefined();
+    expect(completed.items.at(-1)).toMatchObject({ kind: "notice", code: "compacted" });
+    const stopped = run(
+      [note("turn/completed", { threadId: T, turn: { id: turnId, status: "interrupted" } })],
+      working,
+    );
+    expect(stopped.turn).toBeNull();
+    expect(stopped.items.at(-1)).toMatchObject({ kind: "notice", code: "interrupted" });
+  });
+
   test("a started thread tells its settings", () => {
     const m = run(started());
     expect(m.process).toBe("running");

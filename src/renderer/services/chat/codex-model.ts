@@ -1058,6 +1058,10 @@ function applyItem(
       return;
     }
     case "contextCompaction":
+      if (m.turn && m.turnId === turnId) {
+        if (phase === "started") m.turn = { ...m.turn, status: "compacting" };
+        else if (m.turn.status === "compacting") m.turn = { ...m.turn, status: undefined };
+      }
       if (phase === "completed") pushCompacted(draft, `n${tag}`, at);
       return;
     // A review (/review) is told as it starts; its findings come as Codex's
