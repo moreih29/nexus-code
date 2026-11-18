@@ -15,6 +15,7 @@ import {
 } from "../claude/activity";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
+import { READ_RANGE_MAX_BYTES } from "../fs/defaults";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -2681,6 +2682,27 @@ export const ipcContract = {
       peerFilesRead: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
         RPC_METHODS["files.read"].result,
+      ),
+      /** An authorized byte span, or a whole file when it fits the desktop cache. */
+      peerFilesReadBytes: call(
+        z.object({
+          deviceId: z.string().min(1).max(64),
+          workspaceId: z.string(),
+          path: z.string().min(1).max(4096),
+          offset: z
+            .number()
+            .int()
+            .nonnegative()
+            .max(Number.MAX_SAFE_INTEGER - READ_RANGE_MAX_BYTES),
+          length: z.number().int().positive().max(READ_RANGE_MAX_BYTES),
+          whole: z.literal(true).optional(),
+          requireVersion: z.string().min(1).max(128).optional(),
+        }),
+        z.object({
+          parts: z.array(z.string()),
+          size: z.number().int().nonnegative(),
+          version: z.string().optional(),
+        }),
       ),
       /** How a file of another device's workspace changed against its last commit. */
       peerGitDiff: call(

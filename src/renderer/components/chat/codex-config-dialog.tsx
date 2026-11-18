@@ -30,7 +30,6 @@ export function CodexDefaultsDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const inputId = useId();
   const [loaded, setLoaded] = useState<Loaded>("loading");
   const [draft, setDraft] = useState<Record<string, string | undefined>>({});
   const [effort, setEffort] = useState<string | undefined>();
@@ -104,93 +103,20 @@ export function CodexDefaultsDialog({
     if (key === "model") setEffort(undefined);
   };
 
-  const renderSetting = ({
-    key,
-    kind,
-    value,
-    options,
-    valueUnavailable,
-  }: ChatConfig["keys"][number]) => {
+  const renderSetting = (setting: ChatConfig["keys"][number]) => {
+    const { key } = setting;
     if (key === CODEX_CONFIG_PROFILE_KEY) return null;
-    const label =
-      key === "model"
-        ? t("chat.config.key.model")
-        : t(`chat.config.codex.keys.${key}`, { defaultValue: key });
-    const description = t(`chat.config.codex.descriptions.${key}`, { defaultValue: "" });
-    const current = typeof value === "string" ? value : undefined;
-    if (kind === "text") {
-      const id = `${inputId}-${key}`;
-      const disabled = busy || options?.length === 0;
-      const invalidInput = invalid.has(key);
-      return (
-        <SettingsRow
-          key={key}
-          label={label}
-          htmlFor={id}
-          description={
-            invalidInput
-              ? t(`chat.config.codex.invalid.${key}`, {
-                  defaultValue: t("chat.config.codex.invalid.tokens"),
-                })
-              : description
-          }
-          dirty={changes[key] !== undefined || invalidInput}
-          onReset={() => pick(key)}
-        >
-          <div className="flex flex-col items-end gap-1">
-            <input
-              id={id}
-              type="text"
-              inputMode="numeric"
-              value={draft[key] ?? current ?? ""}
-              maxLength={1000}
-              disabled={disabled}
-              aria-invalid={invalidInput || undefined}
-              spellCheck={false}
-              placeholder={
-                valueUnavailable && draft[key] === undefined
-                  ? t("chat.config.codex.out_of_range")
-                  : t("chat.config.codex.automatic")
-              }
-              onChange={(event) => pick(key, event.target.value)}
-              className="w-44 rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            {(current !== undefined || valueUnavailable) && options?.length !== 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy || draft[key] === ""}
-                onClick={() => pick(key, "")}
-              >
-                {t("chat.config.codex.use_default")}
-              </Button>
-            )}
-          </div>
-        </SettingsRow>
-      );
-    }
-    if (kind !== "choice") return null;
     return (
-      <DefaultChoice
+      <CodexConfigRow
         key={key}
-        label={label}
-        description={description}
-        value={draft[key] ?? current}
-        options={
-          (key === "service_tier" || key === "plan_mode_reasoning_effort") && changes.model
-            ? []
-            : (options ?? [])
-        }
+        setting={setting}
+        draft={draft[key]}
+        models={now?.models}
         busy={busy}
         dirty={changes[key] !== undefined}
+        invalid={invalid.has(key)}
+        modelChanged={Boolean(changes.model)}
         onChange={(value) => pick(key, value)}
-        describe={(option) =>
-          key === "model"
-            ? (now?.models.find((m) => m.value === option)?.displayName ?? option)
-            : t(`chat.config.codex.options.${key}.${option}`, {
-                defaultValue: option === "default" ? t("chat.config.codex.use_default") : option,
-              })
-        }
       />
     );
   };
@@ -252,6 +178,108 @@ export function CodexDefaultsDialog({
         </Button>
       </div>
     </Dialog>
+  );
+}
+
+export function CodexConfigRow({
+  setting,
+  draft,
+  models,
+  busy,
+  dirty,
+  invalid,
+  modelChanged,
+  onChange,
+}: {
+  setting: ChatConfig["keys"][number];
+  draft?: string;
+  models?: ChatConfig["models"];
+  busy: boolean;
+  dirty: boolean;
+  invalid: boolean;
+  modelChanged: boolean;
+  onChange: (value?: string) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const id = useId();
+  const { key, kind, value, options, valueUnavailable } = setting;
+  const label =
+    key === "model"
+      ? t("chat.config.key.model")
+      : t(`chat.config.codex.keys.${key}`, { defaultValue: key });
+  const descriptionKey = `chat.config.codex.descriptions.${key}`;
+  const description = i18n.exists(descriptionKey) ? t(descriptionKey) : undefined;
+  const current = typeof value === "string" ? value : undefined;
+
+  if (kind === "text") {
+    return (
+      <SettingsRow
+        label={label}
+        htmlFor={id}
+        description={
+          invalid
+            ? t(`chat.config.codex.invalid.${key}`, {
+                defaultValue: t("chat.config.codex.invalid.tokens"),
+              })
+            : description
+        }
+        dirty={dirty || invalid}
+        onReset={() => onChange()}
+      >
+        <div className="flex flex-col items-end gap-1">
+          <input
+            id={id}
+            type="text"
+            inputMode="numeric"
+            value={draft ?? current ?? ""}
+            maxLength={1000}
+            disabled={busy || options?.length === 0}
+            aria-invalid={invalid || undefined}
+            spellCheck={false}
+            placeholder={
+              valueUnavailable && draft === undefined
+                ? t("chat.config.codex.out_of_range")
+                : t("chat.config.codex.automatic")
+            }
+            onChange={(event) => onChange(event.target.value)}
+            className="w-44 rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          {(current !== undefined || valueUnavailable) && options?.length !== 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy || draft === ""}
+              onClick={() => onChange("")}
+            >
+              {t("chat.config.codex.use_default")}
+            </Button>
+          )}
+        </div>
+      </SettingsRow>
+    );
+  }
+  if (kind !== "choice") return null;
+  return (
+    <DefaultChoice
+      label={label}
+      description={description}
+      value={draft ?? current}
+      options={
+        (key === "service_tier" || key === "plan_mode_reasoning_effort") && modelChanged
+          ? []
+          : (options ?? [])
+      }
+      busy={busy}
+      dirty={dirty}
+      onChange={onChange}
+      describe={(option) =>
+        key === "model"
+          ? (models?.find((m) => m.value === option)?.displayName ?? option)
+          : t(`chat.config.codex.options.${key}.${option}`, {
+              defaultValue: option === "default" ? t("chat.config.codex.use_default") : option,
+            })
+      }
+    />
   );
 }
 

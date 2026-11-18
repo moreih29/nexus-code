@@ -1,7 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import type { ImageBlock } from "../../../../../src/renderer/services/chat/model";
+import type { RoomState } from "../../../../../src/shared/remote/room";
 
-const { beforeOfHunks, peerChatFiles, peerImageLoader } = await import(
+const { beforeOfHunks } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
+);
+const { peerChatAccess, peerChatFiles, peerImageLoader, watchPeerChatAccess } = await import(
+  "../../../../../src/renderer/services/remote/peer-chat-media"
 );
 const { shownPath } = await import("../../../../../src/renderer/utils/path");
 const { rateLimitOf } = await import(
@@ -18,25 +23,64 @@ interface Call {
 const calls: Call[] = [];
 let answer: (method: string, args: Record<string, unknown>) => unknown = () => ({});
 const globals = globalThis as Record<string, unknown>;
-let saved: unknown;
+const desktop = new EventTarget();
+const documentEvents = new EventTarget();
+const events = new Map<string, (args: unknown) => void>();
+const watched: (() => void)[] = [];
+const target = { deviceId: "d1", workspaceId: "w1", tabId: "t1" };
+const picturePath = "/w/a.png";
+const pictureResult = (data: string) => ({
+  kind: "image",
+  path: picturePath,
+  size: data.length,
+  mediaType: "image/png",
+  data,
+});
+
+const attachment = (itemKey = "u-1"): ImageBlock => ({
+  mediaType: "image/jpeg",
+  data: "",
+  remote: { kind: "user", itemKey, index: 0 },
+});
+
+const online = (rejoins = 0): RoomState => ({
+  status: "online",
+  peers: ["d1", "d2"].map((id) => ({ id, online: true, name: id, platform: "darwin", rejoins })),
+});
+
+let savedWindow: unknown;
+let savedDocument: unknown;
 
 beforeEach(() => {
   calls.length = 0;
-  saved = globals.window;
-  globals.window = {
-    ...((saved as object | undefined) ?? {}),
+  savedWindow = globals.window;
+  savedDocument = globals.document;
+  globals.window = Object.assign(desktop, {
     ipc: {
       call: async (_channel: string, method: string, args: Record<string, unknown>) => {
+        if (method === "room") return online();
         calls.push({ method, args });
         return answer(method, args);
       },
+      listen: (_channel: string, event: string, callback: (args: unknown) => void) => {
+        events.set(event, callback);
+        return () => events.delete(event);
+      },
       cancel: () => {},
     },
-  };
+  });
+  globals.document = Object.assign(documentEvents, { visibilityState: "visible" });
+  watched.push(
+    watchPeerChatAccess("d1", () => {}),
+    watchPeerChatAccess("d2", () => {}),
+  );
+  events.get("roomChanged")?.(online());
 });
 
 afterEach(() => {
-  globals.window = saved;
+  for (const off of watched.splice(0)) off();
+  globals.window = savedWindow;
+  globals.document = savedDocument;
 });
 
 const panel = {
@@ -60,7 +104,7 @@ describe("another computer's chat, read from there", () => {
             ],
           }
         : Promise.reject(new Error("outside the workspace"));
-    const files = peerChatFiles({ deviceId: "d1", workspaceId: "w1" });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
     const found = await files.there(["/w/src/a.ts", "/w/src/lib", "/w/src/gone.ts", "/etc/x"]);
     expect([...found]).toEqual(["/w/src/a.ts"]);
     // Each folder is listed once while its entries are fresh.
@@ -71,48 +115,248 @@ describe("another computer's chat, read from there", () => {
 
   test("a Windows path is split at its backslashes", async () => {
     answer = () => ({ path: "C:\\w", entries: [{ name: "a.png", kind: "file" }] });
-    const files = peerChatFiles({ deviceId: "d1", workspaceId: "w1" });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
     expect([...(await files.there(["C:\\w\\a.png"]))]).toEqual(["C:\\w\\a.png"]);
     expect(calls[0]?.args.path).toBe("C:\\w");
   });
 
-  test("an image file's picture comes once; a file that is not an image has none", async () => {
-    answer = (_method, args) =>
-      args.path === "/w/a.png"
-        ? { kind: "image", path: "/w/a.png", mediaType: "image/png", data: "AAA", size: 3 }
-        : { kind: "text", path: "/w/a.txt", text: "hi", size: 2, truncated: false };
-    const files = peerChatFiles({ deviceId: "d1", workspaceId: "w1" });
-    expect(await files.picture("/w/a.png")).toEqual({ mediaType: "image/png", data: "AAA" });
-    await files.picture("/w/a.png");
+  test("mutable pictures share requests only while pending and overwrite mounted consumers", async () => {
+    const read = Promise.withResolvers<unknown>();
+    answer = () => read.promise;
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    const anotherView = peerChatFiles(target, peerChatAccess("d1"));
+    const seen: (ImageBlock | null)[] = [];
+    const off = files.subscribePicture(picturePath, (image) => seen.push(image));
+    const first = files.picture(picturePath);
+    const sameRead = anotherView.picture(picturePath);
+    read.resolve(pictureResult("AAA"));
+    expect(await first).toEqual({ mediaType: "image/png", data: "AAA" });
+    expect(await sameRead).toBe(await first);
     expect(calls).toHaveLength(1);
-    await expect(files.picture("/w/a.txt")).rejects.toThrow();
+
+    answer = () => pictureResult("BBB");
+    await anotherView.picture(picturePath);
+    answer = () => Promise.reject(new Error("access denied"));
+    await expect(anotherView.picture(picturePath)).rejects.toThrow("access denied");
+    expect(seen.map((image) => image?.data)).toEqual(["AAA", "BBB", undefined]);
+    expect(calls.map(({ method }) => method)).toEqual(Array(3).fill("peerFilesRead"));
+    off();
   });
 
-  test("a message's image is fetched by its place there, once, small enough to look at", async () => {
-    answer = () => ({ mediaType: "image/jpeg", data: "BBB" });
-    const load = peerImageLoader({ deviceId: "d1", workspaceId: "w1", tabId: "t1" });
-    const image = {
-      mediaType: "image/jpeg",
-      data: "",
-      remote: { kind: "user" as const, itemKey: "u-1", index: 0 },
-    };
-    expect(await load(image)).toEqual({ mediaType: "image/jpeg", data: "BBB" });
-    await load(image);
+  test("distinct workspaces and devices do not share mutable paths or folder entries", async () => {
+    answer = (method, args) =>
+      method === "peerFilesList"
+        ? { entries: [{ name: `${args.deviceId}-${args.workspaceId}.png`, kind: "file" }] }
+        : pictureResult(`${args.deviceId}-${args.workspaceId}`);
+    const sites = [target, { ...target, workspaceId: "w2" }, { ...target, deviceId: "d2" }];
+    const files = sites.map((site) =>
+      peerChatFiles(
+        { deviceId: site.deviceId, workspaceId: site.workspaceId },
+        peerChatAccess(site.deviceId),
+      ),
+    );
+    const photos = await Promise.all(files.map((f) => f.picture(picturePath)));
+    expect(photos.map((image) => image.data)).toEqual(["d1-w1", "d1-w2", "d2-w1"]);
+    const paths = sites.map((site) => `/w/${site.deviceId}-${site.workspaceId}.png`);
+    expect(await Promise.all(files.map((f) => f.there(paths)))).toEqual(
+      paths.map((path) => new Set([path])),
+    );
+  });
+
+  test("an immutable ref shares its first fetch and then requires its own version proof", async () => {
+    answer = (_method, args) =>
+      args.ifVersion === "v1"
+        ? { mediaType: "image/jpeg", data: "", version: "v1", notModified: true }
+        : { mediaType: "image/jpeg", data: "BBB", version: "v1" };
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    const image = attachment();
+    const [first, duplicate] = await Promise.all([load(image), load(image)]);
+    expect(first).toEqual({ mediaType: "image/jpeg", data: "BBB" });
+    expect(duplicate).toBe(first);
+    expect(await load(image)).toBe(first);
     expect(calls).toEqual([
       {
         method: "peerChatImage",
-        args: {
-          deviceId: "d1",
-          workspaceId: "w1",
-          tabId: "t1",
-          maxEdge: 2048,
-          ref: { kind: "user", itemKey: "u-1", index: 0 },
-        },
+        args: { ...target, maxEdge: 2048, ref: image.remote, versioned: true },
+      },
+      {
+        method: "peerChatImage",
+        args: { ...target, maxEdge: 2048, ref: image.remote, ifVersion: "v1" },
       },
     ]);
-    // One with its bytes already is as it is.
     const here = { mediaType: "image/png", data: "CCC" };
     expect(await load(here)).toBe(here);
+  });
+
+  test("an attachment denial clears mounted observers and drops the old version", async () => {
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    const image = attachment();
+    const seen: (ImageBlock | null)[] = [];
+    const off = load.subscribe(image.remote!, (next) => seen.push(next));
+    await load(image);
+    answer = () => Promise.reject(new Error("tab removed"));
+    await expect(load(image)).rejects.toThrow("tab removed");
+    expect(seen.map((value) => value?.data)).toEqual(["AAA", undefined]);
+    answer = () => ({ mediaType: "image/jpeg", data: "CCC", version: "v2" });
+    expect((await load(image)).data).toBe("CCC");
+    expect(calls[1]?.args.ifVersion).toBe("v1");
+    expect(calls[2]?.args.ifVersion).toBeUndefined();
+    off();
+  });
+
+  test("expired and mismatched attachment proofs never authorize cached data", async () => {
+    const clock = spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      const load = peerImageLoader(target, peerChatAccess("d1"));
+      answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+      await load(attachment());
+      answer = () => ({ mediaType: "image/jpeg", data: "", version: "wrong", notModified: true });
+      await expect(load(attachment())).rejects.toThrow("unexpected attachment validation result");
+      expect(calls.at(-1)?.args.ifVersion).toBe("v1");
+
+      answer = () => ({ mediaType: "image/jpeg", data: "BBB", version: "v2" });
+      await load(attachment());
+      expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
+      clock.mockReturnValue(31_000);
+      await load(attachment());
+      expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("attachments are scoped by device, workspace, tab, ref kind and index", async () => {
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    const first = peerImageLoader(target, peerChatAccess("d1"));
+    await first(attachment());
+    for (const site of [
+      { ...target, workspaceId: "w2" },
+      { ...target, tabId: "t2" },
+      { ...target, deviceId: "d2" },
+    ]) {
+      await peerImageLoader(site, peerChatAccess(site.deviceId))(attachment());
+    }
+    await first({ ...attachment(), remote: { kind: "tool", index: 0, toolUseId: "u-1" } });
+    await first({ ...attachment(), remote: { kind: "user", index: 1, itemKey: "u-1" } });
+    expect(calls.map(({ args }) => args.ifVersion)).toEqual(Array(6).fill(undefined));
+  });
+
+  test("legacy hosts and held refs do not retain attachments", async () => {
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA" });
+    await load(attachment());
+    await load(attachment());
+    answer = () => ({ mediaType: "image/jpeg", data: "BBB", version: "unexpected" });
+    const held: ImageBlock = { ...attachment(), remote: { kind: "held", index: 0, id: "h-1" } };
+    await load(held);
+    await load(held);
+    expect(calls.map(({ args }) => args.ifVersion)).toEqual(Array(4).fill(undefined));
+    expect(calls[3]?.args.versioned).toBeUndefined();
+  });
+
+  test("attachment entry quota evicts the least recently used version", async () => {
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    for (let index = 0; index < 128; index++) await load(attachment(String(index)));
+    await load(attachment("0"));
+    await load(attachment("128"));
+    await load(attachment("0"));
+    await load(attachment("1"));
+    expect(calls.slice(-4).map(({ args }) => args.ifVersion)).toEqual([
+      "v1",
+      undefined,
+      "v1",
+      undefined,
+    ]);
+  });
+
+  test("attachment byte quota evicts entries and declines oversized results", async () => {
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    const data = "A".repeat(2 * 1024 * 1024);
+    answer = () => ({ mediaType: "image/jpeg", data, version: "v1" });
+    for (const id of ["a", "b", "c", "d", "a"]) await load(attachment(id));
+    expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
+    answer = () => ({ mediaType: "image/jpeg", data: "A".repeat(8 * 1024 * 1024), version: "big" });
+    await load(attachment("large"));
+    await load(attachment("large"));
+    expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
+  });
+
+  test("folder lists expire, share concurrent reads, and stay within their quota", async () => {
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    const clock = spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      const entries = Array.from({ length: 1800 }, (_, index) => ({
+        name: `a-${index}`.padEnd(150, "A"),
+        kind: "file",
+      }));
+      answer = () => ({ entries });
+      const name = entries[0]?.name;
+      await Promise.all([files.there([`/a/${name}`]), files.there([`/a/${name}`])]);
+      expect(calls).toHaveLength(1);
+      clock.mockReturnValue(7000);
+      await files.there([`/a/${name}`]);
+      await files.there([`/b/${name}`]);
+      await files.there([`/a/${name}`]);
+      expect(calls.map(({ args }) => args.path)).toEqual(["/a", "/a", "/b", "/a"]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("foreground and peer rejoin discard old access and reject late reads", async () => {
+    const old = peerChatAccess("d1");
+    const stale = peerChatFiles(target, old);
+    const read = Promise.withResolvers<unknown>();
+    answer = () => read.promise;
+    const pending = stale.picture(picturePath);
+    const rejected = pending.catch((error) => error);
+    await Promise.resolve();
+    desktop.dispatchEvent(new Event("focus"));
+    expect(peerChatAccess("d1")).not.toBe(old);
+    answer = () => pictureResult("new");
+    const current = peerChatFiles(target, peerChatAccess("d1"));
+    expect((await current.picture(picturePath)).data).toBe("new");
+    read.resolve(pictureResult("old"));
+    expect(await rejected).toBeInstanceOf(Error);
+    await expect(stale.picture(picturePath)).rejects.toThrow();
+    events.get("roomChanged")?.(online(1));
+    expect(peerChatAccess("d1")?.id).not.toBe(current.epoch!);
+    events.get("accountChanged")?.({ status: "signed-out" });
+    expect(peerChatAccess("d1")).toBeNull();
+    await expect(current.picture(picturePath)).rejects.toThrow();
+  });
+
+  test("in-flight pressure allows bounded waiting and frees slots on failure", async () => {
+    const load = peerImageLoader(target, peerChatAccess("d1"));
+    const pending = Promise.withResolvers<unknown>();
+    answer = () => pending.promise;
+    const active = Array.from({ length: 64 }, (_, index) => load(attachment(String(index))));
+    const recorded = Promise.allSettled(active);
+    const waiting = Array.from({ length: 256 }, (_, i) => load(attachment(`waiting-${i}`)));
+    await expect(load(attachment("overflow"))).rejects.toThrow("too many");
+    expect(calls).toHaveLength(64);
+
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    pending.reject(new Error("read failed"));
+    expect((await recorded).every((result) => result.status === "rejected")).toBe(true);
+    expect((await Promise.all(waiting)).every((image) => image.data === "AAA")).toBe(true);
+    expect(calls).toHaveLength(320);
+  });
+
+  test("foreground keeps attachment candidates but rejoin clears their versions", async () => {
+    answer = (_method, args) =>
+      args.ifVersion === "v1"
+        ? { mediaType: "image/jpeg", data: "", version: "v1", notModified: true }
+        : { mediaType: "image/jpeg", data: "AAA", version: "v1" };
+    const load = () => peerImageLoader(target, peerChatAccess("d1"))(attachment());
+    await load();
+    desktop.dispatchEvent(new Event("focus"));
+    await load();
+    events.get("roomChanged")?.(online(1));
+    await load();
+    expect(calls.map(({ args }) => args.ifVersion)).toEqual([undefined, "v1", undefined]);
   });
 
   test("a change's file before it is the hunks against the last commit taken back", () => {

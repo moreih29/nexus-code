@@ -1767,10 +1767,16 @@ describe("serving a chat's controls", () => {
     const asked: unknown[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; ref?: { index: number } }) => {
+      ui: async (
+        op: string,
+        args: { workspaceId: string; ref?: { index: number }; ifVersion?: string },
+      ) => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         asked.push(args);
         if (args.ref?.index === 9) throw new Error("no such image in that tab");
+        if (args.ifVersion === "v1") {
+          return { mediaType: "image/png", data: "", version: "v1", notModified: true };
+        }
         return { mediaType: "image/png", data: "AAAA" };
       },
     } as unknown as CliServices;
@@ -1782,11 +1788,32 @@ describe("serving a chat's controls", () => {
     });
     expect(asked[0]).toMatchObject({ ref, maxChars: expect.any(Number) });
     expect(asked[0]).not.toHaveProperty("maxEdge");
+    expect(asked[0]).not.toHaveProperty("versioned");
     await serve({ from: "d", method: "chat.image", params: { ...tab, ref, maxEdge: 320 } });
     expect(asked[1]).toMatchObject({ ref, maxEdge: 320 });
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, ref, maxEdge: 320, ifVersion: "v1" },
+      }),
+    ).toEqual({ mediaType: "image/png", data: "", version: "v1", notModified: true });
+    expect(asked[2]).toMatchObject({ ref, maxEdge: 320, ifVersion: "v1" });
     await expect(
-      serve({ from: "d", method: "chat.image", params: { ...tab, ref: { ...ref, index: 9 } } }),
+      serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, ref: { ...ref, index: 9 }, ifVersion: "v1" },
+      }),
     ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.image",
+        params: { ...tab, tabId: "removed", ref, ifVersion: "v1" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toHaveLength(4);
   });
 
   test("answers the request it names, with a question's answers or a stop", async () => {

@@ -112,6 +112,7 @@ export function createFilePresence(
 }
 
 const presence = createFilePresence();
+const EMPTY_PATHS: ReadonlySet<string> = new Set();
 
 /** Which of `paths`, in the workspace at `root` or granted outside it, are files. */
 export async function filesThere(
@@ -143,9 +144,12 @@ export function useFoundFiles(
   );
   // Another computer's chat finds them there.
   const files = useChatFiles();
-  const [found, setFound] = useState<ReadonlySet<string>>(() =>
-    files ? new Set() : new Set(paths.filter((path) => presence.known(workspaceId, path) === true)),
-  );
+  const [found, setFound] = useState<{ files: typeof files; paths: ReadonlySet<string> }>(() => ({
+    files,
+    paths: files
+      ? new Set<string>()
+      : new Set(paths.filter((path) => presence.known(workspaceId, path))),
+  }));
   // `key` stands for `paths`, which is a new array each render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` and `outside` only say when to look again
   useEffect(() => {
@@ -155,12 +159,16 @@ export function useFoundFiles(
     void looked.then((next) => {
       if (!live) return;
       setFound((was) =>
-        was.size === next.size && [...next].every((path) => was.has(path)) ? was : next,
+        was.files === files &&
+        was.paths.size === next.size &&
+        [...next].every((path) => was.paths.has(path))
+          ? was
+          : { files, paths: next },
       );
     });
     return () => {
       live = false;
     };
   }, [workspaceId, root, key, recheck, outside, files]);
-  return found;
+  return found.files === files ? found.paths : EMPTY_PATHS;
 }

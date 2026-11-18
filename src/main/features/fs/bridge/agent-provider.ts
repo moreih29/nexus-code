@@ -7,6 +7,7 @@ import {
   FS_READ_ABSOLUTE_METHOD,
   FS_READ_ABSOLUTE_RANGE_METHOD,
   FS_READ_BINARY_METHOD,
+  FS_READ_PREVIEW_METHOD,
   FS_READ_RANGE_METHOD,
   FS_REMOVE_ALL_METHOD,
   FS_RENAME_METHOD,
@@ -16,6 +17,9 @@ import {
   type FsCopyFileParams,
   type FsCreateFileParams,
   type FsMkdirParams,
+  type FsPreviewParams,
+  type FsPreviewResult,
+  FsPreviewResultSchema,
   type FsReadAbsoluteParams,
   type FsReadAbsoluteRangeParams,
   type FsReadBinaryParams,
@@ -130,6 +134,15 @@ export class AgentFsProvider implements AgentBackedProvider {
       length,
     } satisfies FsReadAbsoluteRangeParams);
     return parseAgentResult(FileReadBinaryResultSchema, result);
+  }
+
+  async readPreview(params: FsPreviewParams): Promise<FsPreviewResult | null> {
+    const result = await this.callAgent(FS_READ_PREVIEW_METHOD, params).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "unsupported-method")
+        return null;
+      throw error;
+    });
+    return result === null ? null : parseAgentResult(FsPreviewResultSchema, result);
   }
 
   async writeFile(

@@ -66,6 +66,10 @@ function device(request: ReturnType<typeof bundleServer>["request"], account = s
     keys,
     store,
     states,
+    switchAccount: (userId: string) => {
+      state = signedIn(userId);
+      return keys.accountChanged(state);
+    },
     signOut: () => {
       state = { status: "signed-out", server: state.server };
       return keys.accountChanged(state);
@@ -89,6 +93,18 @@ describe("the account key's flows", () => {
     await expect(second.keys.unlock(OTHER)).rejects.toMatchObject({ failure: "wrong-password" });
     expect(await second.keys.unlock(PASSWORD)).toEqual({ status: "unlocked", kid: 1 });
     expect(second.keys.key()?.key).toEqual(first.keys.key()?.key as Uint8Array);
+  });
+
+  test("an account switch immediately hides the original account's key", async () => {
+    const { request } = bundleServer();
+    const first = device(request);
+    await first.keys.create(PASSWORD);
+    expect(first.keys.key()?.kid).toBe(1);
+    const switching = first.switchAccount("u2");
+    // Even before the asynchronous flow forgets the key, the room cannot use it.
+    expect(first.keys.key()).toBeNull();
+    await switching;
+    expect(first.keys.key()).toBeNull();
   });
 
   test("refuses a password under 12 characters before it asks the server", async () => {

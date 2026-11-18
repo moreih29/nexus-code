@@ -184,11 +184,19 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     let cancelled = false;
+    const abort = new AbortController();
     let task: ReturnType<PdfJs["getDocument"]> | null = null;
     /** Whether the viewer took the document, which it then destroys when done. */
     let shown = false;
     void (async () => {
-      const head = await readWorkspaceRange(workspaceId, relPath, 0, READ_RANGE_MAX_BYTES);
+      const head = await readWorkspaceRange(
+        workspaceId,
+        relPath,
+        0,
+        READ_RANGE_MAX_BYTES,
+        undefined,
+        abort.signal,
+      ).catch(() => null);
       if (cancelled) return;
       if (!head) {
         setStatus({ kind: "failed" });
@@ -212,7 +220,14 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
           ? { data: head.bytes, enableXfa: false }
           : {
               range: rangeTransport(pdfjs, head, failed, (begin, end) =>
-                readWorkspaceRange(workspaceId, relPath, begin, end - begin, head.mtime),
+                readWorkspaceRange(
+                  workspaceId,
+                  relPath,
+                  begin,
+                  end - begin,
+                  head.mtime,
+                  abort.signal,
+                ).catch(() => null),
               ),
               rangeChunkSize: PDF_CHUNK_BYTES,
               // Only the parts the pages shown need are read.
@@ -269,6 +284,7 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
     })();
     return () => {
       cancelled = true;
+      abort.abort();
       if (!shown) void task?.destroy();
     };
   }, [workspaceId, relPath, version]);
