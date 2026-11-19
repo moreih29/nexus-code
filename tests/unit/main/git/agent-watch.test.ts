@@ -81,6 +81,44 @@ describe("AgentGitWatcher", () => {
     expect(dirty).not.toHaveBeenCalled();
   });
 
+  it("drops listeners after a failed registration before retrying the same repo", async () => {
+    const { watcher, provider, dirty, emitChanged, emitLifecycle } = makeFixture();
+    provider.callAgentMethod.mockRejectedValueOnce(new Error("registration failed"));
+    await expect(watcher.watch(WORKSPACE_ID, "/repo/.git")).rejects.toThrow("registration failed");
+    await watcher.watch(WORKSPACE_ID, "/repo/.git");
+    emitChanged({ gitDir: "/repo/.git" });
+    expect(dirty).toHaveBeenCalledTimes(1);
+
+    provider.callAgentMethod.mockClear();
+    emitLifecycle({ type: "ready" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(provider.callAgentMethod.mock.calls).toEqual([["git.watch", { gitDir: "/repo/.git" }]]);
+  });
+
+  it("cleans up a pending registration on removal without reviving its listeners", async () => {
+    const { watcher, provider, dirty, emitChanged, emitLifecycle } = makeFixture();
+    const started = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<object>();
+    provider.callAgentMethod.mockImplementationOnce(() => {
+      started.resolve();
+      return reply.promise;
+    });
+    const watch = watcher.watch(WORKSPACE_ID, "/repo/.git");
+    await started.promise;
+    watcher.disposeWorkspace(WORKSPACE_ID);
+    reply.resolve({});
+    await watch;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    emitChanged({ gitDir: "/repo/.git" });
+    emitLifecycle({ type: "ready" });
+    expect(dirty).not.toHaveBeenCalled();
+    expect(provider.callAgentMethod.mock.calls).toEqual([
+      ["git.watch", { gitDir: "/repo/.git" }],
+      ["git.unwatch", { gitDir: "/repo/.git" }],
+    ]);
+  });
+
   // Regression: a respawned agent process starts without the .git watcher, so
   // the registration must be replayed when the channel reports a successful
   // reconnect handshake (`ready` lifecycle event).

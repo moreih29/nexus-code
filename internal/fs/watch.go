@@ -149,6 +149,13 @@ func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error)
 	return struct{}{}, nil
 }
 
+// watchOrderKey makes watch and unwatch of the same resolved directory share
+// a dispatch queue, even when a caller stops waiting before the watch replies.
+func (s *Service) watchOrderKey(raw json.RawMessage) string {
+	path, _ := s.parseWatchPath(raw)
+	return "fs.watch:" + path
+}
+
 func (s *Service) parseWatchPath(raw json.RawMessage) (string, error) {
 	var p WatchParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {

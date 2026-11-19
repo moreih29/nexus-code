@@ -114,6 +114,6 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.rename", fsys.Rename)
 	d.Register("fs.copyFile", fsys.CopyFile)
 	d.Register("fs.removeAll", fsys.RemoveAll)
-	d.Register("fs.watch", fsys.Watch)
-	d.Register("fs.unwatch", fsys.Unwatch)
+	d.RegisterOrderedBy("fs.watch", fsys.Watch, fsys.watchOrderKey)
+	d.RegisterOrderedBy("fs.unwatch", fsys.Unwatch, fsys.watchOrderKey)
 }

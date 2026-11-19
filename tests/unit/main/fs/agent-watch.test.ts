@@ -88,6 +88,71 @@ describe("AgentFsWatcher", () => {
     expect(broadcasts).toEqual([]);
   });
 
+  it("keeps receiving changes when the last active watch is removed during another registration", async () => {
+    const { watcher, provider, emitChanged, broadcasts } = makeFixture();
+    await watcher.watch(WORKSPACE_ID, "src");
+    const started = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<object>();
+    provider.callAgentMethod.mockImplementationOnce(() => {
+      started.resolve();
+      return reply.promise;
+    });
+    const watch = watcher.watch(WORKSPACE_ID, "docs");
+    await started.promise;
+    await watcher.unwatch(WORKSPACE_ID, "src");
+    reply.resolve({});
+    await watch;
+
+    emitChanged({ changes: [{ relPath: "docs/new.md", kind: "added" }] });
+    expect(broadcasts).toHaveLength(1);
+  });
+
+  it("orders collapse behind the same path's pending watch", async () => {
+    const { watcher, provider, emitLifecycle } = makeFixture();
+    const started = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<object>();
+    provider.callAgentMethod.mockImplementationOnce(() => {
+      started.resolve();
+      return reply.promise;
+    });
+    const watch = watcher.watch(WORKSPACE_ID, "src");
+    await started.promise;
+    const unwatch = watcher.unwatch(WORKSPACE_ID, "src");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(provider.callAgentMethod.mock.calls).toEqual([["fs.watch", { relPath: "src" }]]);
+    reply.resolve({});
+    await Promise.all([watch, unwatch]);
+
+    emitLifecycle({ type: "ready" });
+    expect(provider.callAgentMethod.mock.calls).toEqual([
+      ["fs.watch", { relPath: "src" }],
+      ["fs.unwatch", { relPath: "src" }],
+    ]);
+  });
+
+  it("replays a pending path on replacement and cleans up its late registration", async () => {
+    const fixture = makeFixture();
+    const started = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<object>();
+    fixture.provider.callAgentMethod.mockImplementationOnce(() => {
+      started.resolve();
+      return reply.promise;
+    });
+    const watch = fixture.watcher.watch(WORKSPACE_ID, "src");
+    await started.promise;
+    const next = fixture.reboot();
+    reply.resolve({});
+    await watch;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(fixture.provider.callAgentMethod.mock.calls).toEqual([
+      ["fs.watch", { relPath: "src" }],
+      ["fs.unwatch", { relPath: "src" }],
+    ]);
+    expect(next.provider.callAgentMethod.mock.calls).toEqual([["fs.watch", { relPath: "src" }]]);
+  });
+
   // Regression: a respawned agent process starts with zero fs watches, so the
   // watcher must replay every registered relPath when the channel reports a
   // successful reconnect handshake (`ready` lifecycle event).
