@@ -221,7 +221,15 @@ async function copyFile(
         (bytes) => hash.update(bytes),
       );
       if (first.version === undefined) {
-        await readBytes(peer, { path: remotePath, offset: 0, length: 1 }, signal, first);
+        // Older peers cannot pin a version. This final probe detects a size
+        // or prefix change; the remaining bytes have no snapshot guarantee.
+        const probe = await readBytes(
+          peer,
+          { path: remotePath, offset: 0, length: 1 },
+          signal,
+          first,
+        );
+        if (!probe.data.equals(first.data.subarray(0, 1))) throw changed(remotePath);
       }
       signal.throwIfAborted();
       if (process.platform !== "win32") {

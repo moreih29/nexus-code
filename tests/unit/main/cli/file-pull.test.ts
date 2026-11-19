@@ -428,6 +428,29 @@ describe("older hosts", () => {
     expect(reads(app)[1]?.requireVersion).toBeUndefined();
   });
 
+  test("keeps the destination when a same-size versionless source changes between chunks", async () => {
+    const before = Buffer.alloc(MAX_BYTES_CHUNK + 3, 1);
+    const after = Buffer.alloc(before.length, 2);
+    const target = path.join(cwd, "source.bin");
+    await writeFile(target, "previous");
+    const app = peer((request) =>
+      piece(
+        request,
+        request.length === MAX_BYTES_CHUNK && request.offset === 0 ? before : after,
+        REMOTE,
+        null,
+      ),
+    );
+    app.peers.devices = [{ ...DEVICE, schema: "0.13.3" }];
+
+    const result = await pull(app, "source.bin");
+
+    expect(result.stderr).toContain("changed while copying");
+    expect(result.exitCode).not.toBe(0);
+    expect(await readFile(target, "utf8")).toBe("previous");
+    expect(await readdir(cwd)).toEqual(["source.bin"]);
+  });
+
   test("detects a size change without a version", async () => {
     const app = peer((read) =>
       piece(read, read.length === 1 ? Buffer.concat([DATA, DATA]) : DATA, REMOTE, null),
