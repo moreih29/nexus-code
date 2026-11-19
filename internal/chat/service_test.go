@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -243,6 +244,93 @@ func send(t *testing.T, service *Service, tabID, text string) error {
 func tabParams(tabID string) json.RawMessage {
 	params, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID})
 	return params
+}
+
+type testStdin func([]byte) (int, error)
+
+func (w testStdin) Write(data []byte) (int, error) { return w(data) }
+func (w testStdin) Close() error                   { return nil }
+
+func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan struct{})
+	unblock := make(chan struct{})
+	sess.proc = &process{
+		stdin: testStdin(func(data []byte) (int, error) {
+			if !bytes.Contains(data, []byte("hello")) {
+				return len(data), nil
+			}
+			// Simulates output the CLI produced before Write returned.
+			sess.addOutput([]byte(`{"type":"result"}`))
+			close(reading)
+			<-unblock
+			return len(data), nil
+		}),
+	}
+	sent := make(chan error, 1)
+	go func() { sent <- send(t, service, "tab", "hello") }()
+	select {
+	case <-reading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stdout could not be consumed while stdin was writing")
+	}
+	queued := make(chan error, 1)
+	go func() { queued <- send(t, service, "tab", "second") }()
+	replay, replayErr := service.Replay(context.Background(), tabParams("tab"))
+	close(unblock)
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-queued; err != nil {
+		t.Fatal(err)
+	}
+	if replayErr != nil || replay.(ReplayResult).LastSeq != 0 {
+		t.Fatalf("replay exposed an input still being written: %+v %v", replay, replayErr)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 3 || rec.lines[0].Dir != DirIn || rec.lines[1].Dir != DirOut ||
+		rec.lines[2].Dir != DirIn || !bytes.Contains(rec.lines[2].Message, []byte("second")) {
+		t.Fatalf("want confirmed input followed by its output, got %v", describe(rec.lines))
+	}
+}
+
+func TestFailedStdinWriteReplaysFailureInsteadOfApproval(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.proc = &process{
+		stdin: testStdin(func(_ []byte) (int, error) {
+			return 0, io.ErrClosedPipe
+		}),
+	}
+	sess.addOutput([]byte(`{"type":"control_request","request_id":"p","request":{"subtype":"can_use_tool"}}`))
+	params := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"type":"control_response","response":{"request_id":"p"}}}`)
+	if _, err := service.Send(context.Background(), params); err == nil {
+		t.Fatal("the write succeeded despite the broken pipe")
+	}
+	rec.reset()
+	if _, err := service.Replay(context.Background(), tabParams("tab")); err != nil {
+		t.Fatal(err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 2 || rec.lines[0].Dir != DirOut || rec.lines[1].Dir != DirSys ||
+		!strings.Contains(string(rec.lines[1].Message), `"stdin-failed"`) {
+		t.Fatalf("the failed approval was replayed as sent: %v", describe(rec.lines))
+	}
 }
 
 func TestReplayDropsStreamEventsOfCompleteMessages(t *testing.T) {

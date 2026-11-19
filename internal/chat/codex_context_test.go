@@ -95,10 +95,10 @@ func TestCodexContextWriteKeepsJSONLFraming(t *testing.T) {
 	var stdin bytes.Buffer
 	proc.stdin = testCodexStdin{&stdin}
 	turn := `{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`
-	if err := proc.write([]byte(turn), &codexContext{Files: "File links"}); err != nil {
+	if _, err := proc.writeLocked([]byte(turn), &codexContext{Files: "File links"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := proc.write([]byte(`{"method":"initialized"}`), nil); err != nil {
+	if _, err := proc.writeLocked([]byte(`{"method":"initialized"}`), nil); err != nil {
 		t.Fatal(err)
 	}
 	reader := bufio.NewReader(&stdin)

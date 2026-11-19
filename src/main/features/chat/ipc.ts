@@ -1,7 +1,7 @@
 // Claude tab IPC channel: renderer ↔ main ↔ the workspace's agent.
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { ChatHost, type ChatHostOptions } from "./host";
 import { OAuthCallbacks } from "./oauth-callback";
@@ -39,8 +39,16 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
       },
       send: async (args: unknown) => {
         const { workspaceId, tabId, message } = validateArgs(c.send.args, args);
-        await host.send(workspaceId, tabId, message);
-        return ipcOk(undefined);
+        try {
+          await host.send(workspaceId, tabId, message);
+          return ipcOk(undefined);
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          const detail = error instanceof Error ? error.message : String(error);
+          return typeof code === "string"
+            ? ipcErr(code, detail, { category: "failed" })
+            : ipcErr("chat.send-failed", detail, { category: "bug" });
+        }
       },
       stop: async (args: unknown) => {
         await host.call("stop", validateArgs(c.stop.args, args));

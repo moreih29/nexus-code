@@ -51,6 +51,9 @@ type session struct {
 	mu   sync.Mutex
 	log  *lineLog
 	proc *process
+	// pending reserves the next line while stdin is writing. Output readers
+	// can fill the capped log while publication waits for the write result.
+	pending *entry
 	// snaps takes the originals of the files a Codex program changes.
 	snaps *snapshots
 	// closed is set once the tab is closed: its program, still ending,
@@ -274,22 +277,50 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 	if sess == nil {
 		return nil, notRunning(key)
 	}
-	sess.mu.Lock()
-	proc := sess.proc
+	proc := sess.running()
 	if proc == nil {
+		return nil, notRunning(key)
+	}
+	proc.writeMu.Lock()
+	defer proc.writeMu.Unlock()
+	sess.mu.Lock()
+	if sess.closed || sess.proc != proc {
 		sess.mu.Unlock()
 		return nil, notRunning(key)
 	}
-	message := json.RawMessage(bytes.Clone(line.Bytes()))
-	sess.addLocked(DirIn, message, "")
+	slot := sess.log.add(DirSys, nil, "")
+	sess.pending = slot
 	sess.mu.Unlock()
 
-	// Written outside the log's lock: a program that stops reading its
-	// input must not hold up its output.
-	if err := proc.write(line.Bytes(), p.CodexContext); err != nil {
-		return nil, requestFailed("chat.send: %s", err)
+	message := json.RawMessage(bytes.Clone(line.Bytes()))
+	written, err := proc.writeLocked(line.Bytes(), p.CodexContext)
+	if err != nil {
+		code := "chat.stdin-write-failed"
+		if written > 0 {
+			code = "chat.stdin-incomplete"
+		}
+		failure, _ := json.Marshal(map[string]string{"event": "stdin-failed", "code": code})
+		sess.finishInput(slot, DirSys, failure)
+		return nil, proto.NewError(code, fmt.Sprintf("chat.send: %s", err))
 	}
+	sess.finishInput(slot, DirIn, message)
 	return struct{}{}, nil
+}
+
+// finishInput publishes the write outcome before any output produced while
+// the write was in flight. Earlier logs still use the same DirIn format.
+func (sess *session) finishInput(slot *entry, dir string, message json.RawMessage) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	sess.pending = nil
+	if sess.closed {
+		return
+	}
+	sess.log.finishInput(slot, dir, message)
+	sess.emitLineLocked(slot)
+	for _, e := range sess.log.since(slot.seq) {
+		sess.emitLineLocked(e)
+	}
 }
 
 // Stop ends the tab's program and keeps its log.
@@ -376,6 +407,9 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	defer sess.mu.Unlock()
 	last := p.AfterSeq
 	for _, e := range sess.log.since(p.AfterSeq) {
+		if sess.pending != nil && e.seq >= sess.pending.seq {
+			break
+		}
 		payload := sess.payload(e)
 		payload.Replay = true
 		if err := s.emit(EventLine, payload); err != nil {
@@ -493,6 +527,13 @@ func (sess *session) addLocked(dir string, message json.RawMessage, text string)
 		return
 	}
 	e := sess.log.add(dir, message, text)
+	if sess.pending == nil {
+		sess.emitLineLocked(e)
+	}
+}
+
+// emitLineLocked relays one committed input, output or system event.
+func (sess *session) emitLineLocked(e *entry) {
 	payload := sess.payload(e)
 	if sess.proc != nil {
 		payload.ProcessGeneration = sess.proc.generation
@@ -523,7 +564,9 @@ func (sess *session) addPinnedLocked(fields any) {
 		return
 	}
 	e := sess.log.addPinned(DirSys, bytes.TrimRight(data.Bytes(), "\n"))
-	_ = sess.service.emit(EventLine, sess.payload(e))
+	if sess.pending == nil {
+		sess.emitLineLocked(e)
+	}
 }
 
 func (sess *session) payload(e *entry) LinePayload {
@@ -604,6 +647,9 @@ drain:
 	exit := exitPayload(sess.key, state, err)
 	exit.StderrTail = proc.stderr()
 	exit.ProcessGeneration = proc.generation
+	// Closing stdin releases any blocked write. Its outcome precedes exit.
+	proc.writeMu.Lock()
+	defer proc.writeMu.Unlock()
 	sess.mu.Lock()
 	fields := map[string]any{"event": "exit", "code": exit.Code}
 	if exit.Signal != nil {
@@ -626,15 +672,18 @@ drain:
 	sess.mu.Unlock()
 }
 
-func (p *process) write(data []byte, context *codexContext) error {
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
+// writeLocked writes one full line as part of the process's ordered send.
+func (p *process) writeLocked(data []byte, context *codexContext) (int, error) {
 	p.noteCodexInitialize(data)
 	if context != nil {
 		data = p.withCodexContext(data, *context)
 	}
-	_, err := p.stdin.Write(append(data, '\n'))
-	return err
+	line := append(data, '\n')
+	n, err := p.stdin.Write(line)
+	if err == nil && n != len(line) {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 // stop asks the program to exit, and kills it if it has not after stopGrace.
