@@ -1873,11 +1873,9 @@ export const ipcContract = {
        *
        * Mechanism follows the VSCode pattern: when `captureSnapshot` is true
        * the main process first calls `webContents.capturePage()` on every
-       * active view, broadcasts the resulting JPEG dataURL via
-       * `browser.snapshot`, and only then hides the view via
-       * `setVisible(false)`.  The renderer overlays the snapshot in DOM, so
-       * the area underneath the modal still shows the page content rather
-       * than going blank.
+       * active view and hides the view via `setVisible(false)`. The resulting
+       * JPEG data URL is broadcast via `browser.snapshot`. The renderer shows
+       * the snapshot beneath the overlay.
        *
        * `captureSnapshot: false` skips the capture entirely and hides
        * immediately — used by drag operations where any delay would break
@@ -1891,10 +1889,8 @@ export const ipcContract = {
        */
       suspendAll: call(z.object({ captureSnapshot: z.boolean() }), z.void()),
       /**
-       * Re-show every WebContentsView that was active when the matching
-       * `suspendAll` ran via `setVisible(true)`.  Broadcasts a `snapshot`
-       * event with `cleared: true` for every tab so the renderer drops its
-       * cached snapshot image and exposes the live view again.
+       * Re-show currently active views and clear cached snapshots, including
+       * snapshots of tabs that deactivated during the overlay.
        */
       resumeAll: call(z.object({}), z.void()),
     },
@@ -1913,17 +1909,11 @@ export const ipcContract = {
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
       loadingChanged: listen(z.object({ tabId: z.string().uuid(), isLoading: z.boolean() })),
-      /**
-       * Emitted when a navigation fails (network error, blocked scheme, etc.).
-       * `code` is the Chromium net error code; `description` is a human-readable
-       * message; `url` is the URL that failed to load.
-       */
-      error: listen(
+      /** The main frame's last load failure, cleared on successful navigation. */
+      loadFailureChanged: listen(
         z.object({
           tabId: z.string().uuid(),
-          code: z.number().int(),
-          description: z.string(),
-          url: z.string(),
+          failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
       /**

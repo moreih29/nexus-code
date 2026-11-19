@@ -23,7 +23,6 @@ mock.module("electron", () => ({
 // Lazy import after mock registration
 const {
   buildBrowserTabWebPreferences,
-  cancelsLocalFileRequest,
   installPermissionHandler,
   installNavigationGuards,
   POPUP_ACTIVATION_MS,
@@ -499,19 +498,5 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     child.webContents.emit("did-create-window", grandchild);
 
     expect(popups).toEqual([child, grandchild]);
-  });
-});
-
-describe("a browser tab's file:// requests", () => {
-  test("a page renders local images, styles and module scripts; it reads no file", () => {
-    const file = "file:///Users/x/site/";
-    expect(cancelsLocalFileRequest("mainFrame", `${file}index.html`)).toBe(false);
-    expect(cancelsLocalFileRequest("image", `${file}logo.png`)).toBe(false);
-    expect(cancelsLocalFileRequest("stylesheet", `${file}site.css`)).toBe(false);
-    expect(cancelsLocalFileRequest("script", `${file}app.js`)).toBe(false);
-    expect(cancelsLocalFileRequest("xhr", "file:///Users/x/.ssh/id_rsa")).toBe(true);
-    // A frame or object of a local file is the page's to read.
-    expect(cancelsLocalFileRequest("subFrame", "file:///Users/x/.ssh/id_rsa")).toBe(true);
-    expect(cancelsLocalFileRequest("object", "file:///Users/x/.ssh/id_rsa")).toBe(true);
   });
 });

@@ -98,9 +98,8 @@ export function isSubframeNavigationAllowed(rawUrl: string): boolean {
   } catch {
     return false;
   }
-  // A local file only at the top: Electron gives file:// pages access to one
-  // another, so a page opened from disk could read any file the user can
-  // through a frame of it (only a file:// page may frame one).
+  // Local frames need the browser tab's separate folder-scope check. Electron
+  // gives file:// pages access to one another, including through a frame.
   if (parsed.protocol === "file:") return false;
   if (isNavigationSchemeAllowed(rawUrl)) return true;
 

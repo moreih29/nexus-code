@@ -373,6 +373,10 @@ mock.module("electron", () => ({
     getAllWindows: (): unknown[] => [],
   },
 
+  // Browser driver imports these to capture tabs and find the window they are in.
+  BaseWindow: class BaseWindow {},
+  screen: {},
+
   // Menu — used by features/window/ipc
   Menu: {
     getApplicationMenu: (): null => null,

@@ -4,8 +4,7 @@
  *
  * LIFECYCLE
  * ---------
- *   create()   — allocates a WebContentsView, applies security policy, and
- *                attaches it to the main window's contentView.
+ *   create()   — allocates a detached WebContentsView and applies security policy.
  *   destroy()  — closes the WebContents, detaches the view, removes the entry.
  *   setActive() — attach (active=true) or detach (active=false) the view.
  *   setBounds() — resize/reposition.  Renderer sends CSS-layout pixels; we
@@ -15,7 +14,7 @@
  *                 needs no conversion.
  *   suspendAll() — capture (optional) + hide every active view so DOM
  *                  overlays (modals/menus/drag indicators) can render above.
- *   resumeAll() — show every previously-active view.
+ *   resumeAll() — show every currently active view and clear snapshots.
  *
  * SUSPEND VS SETACTIVE
  * --------------------
@@ -56,11 +55,11 @@ import { createLogger } from "../../../shared/log/main";
 import { isTabLoadAllowed } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { showDialogsOverWindow } from "./dialogs";
+import { installLocalFileReadGuard } from "./local-files";
 import { installAppScrollbarStyle } from "./page-style";
 import { PopupTracker } from "./popup-tracker";
 import {
   buildBrowserTabWebPreferences,
-  installLocalFileReadGuard,
   installNavigationGuards,
   installPermissionHandler,
   type PermissionHandlerDeps,
@@ -76,19 +75,17 @@ interface TabEntry {
   view: WebContentsView;
   workspaceId: string;
   partition: string;
+  loadFailure: BrowserLoadFailure | null;
+  navigationRequest: number;
+  forwardedAddress: { requested: string; target: string } | null;
   /**
    * Whether this tab is the active tab in its group.
    *
-   * The view is actually attached to the window iff `active && !registry.suspended`.
-   * Decoupling these two flags lets the global suspendAll/resumeAll cycle
-   * detach every active view temporarily without losing the per-tab activation
-   * state we restore on resume.
+   * Active views stay attached while an overlay temporarily hides them.
    */
   active: boolean;
   /**
-   * Last bounds applied via setBounds().  Cached so resumeAll() can re-apply
-   * them after re-attaching — Electron does NOT preserve bounds across
-   * remove/addChildView pairs.
+   * Last CSS bounds applied via setBounds(), restored on reattach.
    */
   lastBounds: CssBounds | null;
   /**
@@ -102,7 +99,7 @@ interface TabEntry {
   /**
    * Last bounds applied via `setDevToolsBounds`.  Same role as `lastBounds`
    * — re-applied whenever the devtools view is re-attached after a
-   * suspend/resume or setActive(true) cycle.
+   * setActive(true) or DevTools toggle.
    */
   devtoolsBounds: CssBounds | null;
   /**
@@ -143,10 +140,15 @@ export interface BrowserAddressResolver {
   resolve(workspaceId: string, url: string): Promise<string>;
 }
 
-/** One snapshot result for `suspendAll` — `dataUrl` is null when capture failed. */
-export interface SuspendSnapshot {
+export interface BrowserLoadFailure {
+  url: string;
+  description: string;
+}
+
+/** A usable page snapshot captured by `suspendAll`. */
+interface SuspendSnapshot {
   tabId: string;
-  dataUrl: string | null;
+  dataUrl: string;
 }
 
 export class BrowserTabRegistry {
@@ -174,11 +176,16 @@ export class BrowserTabRegistry {
    * be visible.
    */
   private suspendGeneration = 0;
+  /** Tabs whose overlay snapshot needs clearing on resume, even after detaching. */
+  private readonly snapshotTabs = new Set<string>();
   /** Told of each tab's WebContents as it is created, before its first page loads. */
   private readonly createListeners = new Set<(tabId: string, contents: WebContents) => void>();
   private addressResolver: BrowserAddressResolver | null = null;
   /** Told of a URL the resolver would not open, and why. */
   private readonly refusedListeners = new Set<(tabId: string, url: string, error: Error) => void>();
+  private readonly loadFailureListeners = new Set<
+    (tabId: string, failure: BrowserLoadFailure | null) => void
+  >();
 
   constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
     this.win = win;
@@ -190,8 +197,7 @@ export class BrowserTabRegistry {
   // -------------------------------------------------------------------------
 
   /**
-   * Creates a new WebContentsView for `tabId`, navigates it to `url`, and
-   * adds it (hidden initially) to the main window's contentView hierarchy.
+   * Creates a detached WebContentsView for `tabId` and navigates it to `url`.
    *
    * If a view for `tabId` already exists it is destroyed before the new one
    * is created — see class doc for the rationale.
@@ -213,7 +219,7 @@ export class BrowserTabRegistry {
     // workspaceId is bound here (not derived from the session) because Electron
     // does not expose the partition string on the Session object.
     installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
-    installLocalFileReadGuard(view.webContents.session);
+    installLocalFileReadGuard(view.webContents);
 
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
@@ -240,6 +246,9 @@ export class BrowserTabRegistry {
       view,
       workspaceId,
       partition,
+      loadFailure: null,
+      navigationRequest: 0,
+      forwardedAddress: null,
       active: false,
       lastBounds: null,
       devtoolsView: null,
@@ -247,13 +256,26 @@ export class BrowserTabRegistry {
       devtoolsOpen: false,
     };
     this.tabs.set(tabId, entry);
+    view.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return; // ERR_ABORTED
+      const forward = entry.forwardedAddress;
+      this.setLoadFailure(tabId, entry, {
+        url: forward?.target === url ? forward.requested : url,
+        description,
+      });
+    });
+    view.webContents.on("did-navigate", () => this.setLoadFailure(tabId, entry, null));
     for (const listener of this.createListeners) listener(tabId, view.webContents);
 
     // A page's own move to a local address of an SSH workspace goes to the
     // address's forward instead. Guards that blocked it already win.
     view.webContents.on("will-navigate", (event, target) => {
       if (event.defaultPrevented) return;
-      if (!this.addressResolver?.rewrites(workspaceId, target)) return;
+      if (!this.addressResolver?.rewrites(workspaceId, target)) {
+        entry.navigationRequest++;
+        entry.forwardedAddress = null;
+        return;
+      }
       event.preventDefault();
       this.load(tabId, entry, target, "will-navigate");
     });
@@ -284,12 +306,24 @@ export class BrowserTabRegistry {
     return () => this.refusedListeners.delete(listener);
   }
 
+  onLoadFailure(listener: (tabId: string, failure: BrowserLoadFailure | null) => void): void {
+    this.loadFailureListeners.add(listener);
+  }
+
+  private setLoadFailure(tabId: string, entry: TabEntry, failure: BrowserLoadFailure | null): void {
+    if (this.tabs.get(tabId) !== entry || (failure === null && entry.loadFailure === null)) return;
+    entry.loadFailure = failure;
+    if (entry.active) entry.view.setVisible(!this.suspended && failure === null);
+    for (const listener of this.loadFailureListeners) listener(tabId, failure);
+  }
+
   /** Loads `url` in the tab, through the address resolver when it has a say. */
   private load(tabId: string, entry: TabEntry, url: string, label: string): void {
+    const request = ++entry.navigationRequest;
+    entry.forwardedAddress = null;
     if (!isTabLoadAllowed(url)) {
-      const error = new Error("a browser tab opens only http, https and file addresses");
-      logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
-      for (const listener of this.refusedListeners) listener(tabId, url, error);
+      logger.warn(`[${label}] disallowed address in ${tabId}: ${url}`);
+      this.setLoadFailure(tabId, entry, { url, description: "ERR_DISALLOWED_URL_SCHEME" });
       return;
     }
     const loadNow = (target: string) => {
@@ -302,15 +336,23 @@ export class BrowserTabRegistry {
       loadNow(url);
       return;
     }
+    const isCurrent = () =>
+      this.tabs.get(tabId) === entry &&
+      entry.navigationRequest === request &&
+      !entry.view.webContents.isDestroyed();
     resolver.resolve(entry.workspaceId, url).then(
       (resolved) => {
-        // The tab may have closed while the forward was set up.
-        if (this.tabs.get(tabId) !== entry || entry.view.webContents.isDestroyed()) return;
+        if (!isCurrent()) return;
+        entry.forwardedAddress = { requested: url, target: resolved };
         loadNow(resolved);
       },
       (error: Error) => {
-        if (this.tabs.get(tabId) !== entry) return;
+        if (!isCurrent()) return;
         logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
+        const { kind } = error as { kind?: unknown };
+        const description =
+          kind === "not-connected" ? "ERR_SSH_NOT_CONNECTED" : "ERR_PORT_FORWARD_FAILED";
+        this.setLoadFailure(tabId, entry, { url, description });
         for (const listener of this.refusedListeners) listener(tabId, url, error);
       },
     );
@@ -374,6 +416,7 @@ export class BrowserTabRegistry {
     }
 
     this.tabs.delete(tabId);
+    this.snapshotTabs.delete(tabId);
     logger.debug(`[destroy] tab ${tabId} destroyed`);
   }
 
@@ -420,10 +463,7 @@ export class BrowserTabRegistry {
       return;
     }
 
-    // Cache so resumeAll() can re-apply after a suspend/resume cycle —
-    // Electron does not preserve bounds across removeChildView/addChildView.
-    // Cached in CSS px (verbatim from the renderer) so a later re-apply picks
-    // up the *current* zoom factor, not the one in effect when this arrived.
+    // Keep CSS pixels so reattachment uses the current shell zoom factor.
     entry.lastBounds = { x, y, width, height };
 
     this.applyCssBounds(entry.view, entry.lastBounds);
@@ -470,16 +510,10 @@ export class BrowserTabRegistry {
   /**
    * Activates or deactivates the view for `tabId`.
    *
-   * Active   → view is added to the main window's contentView (unless the
-   *             registry is currently suspended), background throttling is
-   *             disabled so animations stay smooth.
+   * Active   → view is added to the main window's contentView and follows
+   *             the current suspend state. Background throttling is disabled.
    * Inactive → view is removed from the main window's contentView, background
    *             throttling is enabled to conserve CPU/GPU resources.
-   *
-   * The actual attachment depends on `active && !this.suspended` — during a
-   * global suspend window (open dropdown / modal / drag) every active view is
-   * detached on the registry side without disturbing the per-tab `active`
-   * flag, so `resumeAll` can restore exactly the same set.
    */
   setActive(args: { tabId: string; active: boolean }): void {
     const { tabId, active } = args;
@@ -502,16 +536,6 @@ export class BrowserTabRegistry {
       if (entry.devtoolsOpen && entry.devtoolsView !== null) {
         this.attachAndRestoreDevtoolsBounds(entry);
       }
-      // If the registry is currently suspended (an overlay is in progress),
-      // immediately hide the freshly-attached view so it doesn't paint above
-      // the modal.  resumeAll() will call setVisible(true) once the overlay
-      // closes.
-      if (this.suspended && !entry.view.webContents.isDestroyed()) {
-        entry.view.setVisible(false);
-        if (entry.devtoolsView !== null && !entry.devtoolsView.webContents.isDestroyed()) {
-          entry.devtoolsView.setVisible(false);
-        }
-      }
       entry.view.webContents.setBackgroundThrottling(false);
     } else {
       this.safeRemoveChildView(entry);
@@ -531,6 +555,8 @@ export class BrowserTabRegistry {
    * the view would reappear at (0, 0) sized 0×0.
    */
   private attachAndRestoreBounds(entry: TabEntry): void {
+    // An overlay may have ended while the view was detached.
+    entry.view.setVisible(!this.suspended && entry.loadFailure === null);
     this.win.contentView.addChildView(entry.view);
     const b = entry.lastBounds;
     if (b) {
@@ -558,6 +584,7 @@ export class BrowserTabRegistry {
   private attachAndRestoreDevtoolsBounds(entry: TabEntry): void {
     const dt = entry.devtoolsView;
     if (dt === null) return;
+    dt.setVisible(!this.suspended);
     this.win.contentView.addChildView(dt);
     const b = entry.devtoolsBounds;
     if (b !== null) {
@@ -614,25 +641,22 @@ export class BrowserTabRegistry {
     this.suspended = true;
     const gen = ++this.suspendGeneration;
 
-    const activeEntries: Array<[string, TabEntry]> = [];
+    const activeEntries = new Map<string, TabEntry>();
     for (const [tabId, entry] of this.tabs) {
       if (entry.active && !entry.view.webContents.isDestroyed()) {
-        activeEntries.push([tabId, entry]);
+        activeEntries.set(tabId, entry);
       }
     }
 
-    let snapshots: SuspendSnapshot[] = [];
-    if (opts.captureSnapshot) {
-      snapshots = await this.captureActiveSnapshots(activeEntries);
-    }
+    const snapshots = opts.captureSnapshot ? await this.captureActiveSnapshots(activeEntries) : [];
 
     // Bail if resumeAll ran while we were capturing — the view is supposed
     // to be visible now, hiding here would re-introduce the blank area the
     // user just dismissed.
     if (gen !== this.suspendGeneration) return [];
 
-    for (const [, entry] of activeEntries) {
-      if (entry.view.webContents.isDestroyed()) continue;
+    for (const entry of activeEntries.values()) {
+      if (!entry.active || entry.view.webContents.isDestroyed()) continue;
       entry.view.setVisible(false);
       // Mirror the hide onto the DevTools host view so its OS-level overlay
       // doesn't paint above a DOM modal either.
@@ -645,16 +669,16 @@ export class BrowserTabRegistry {
       }
     }
 
-    return snapshots;
+    return snapshots.filter(({ tabId }) => {
+      if (this.tabs.get(tabId) !== activeEntries.get(tabId)) return false;
+      this.snapshotTabs.add(tabId);
+      return true;
+    });
   }
 
   /**
-   * Re-show every WebContentsView that was active when the matching
-   * `suspendAll` ran.
-   *
-   * Returns the list of tabIds that were re-shown — the caller broadcasts a
-   * `snapshot {cleared: true}` event for each so the renderer drops its
-   * cached image and exposes the live view again.
+   * Re-show currently attached views and return the IDs of all tabs with
+   * snapshots to clear, including tabs that detached during the overlay.
    */
   resumeAll(): string[] {
     if (!this.suspended) return [];
@@ -662,10 +686,9 @@ export class BrowserTabRegistry {
     // Bump generation so any in-flight suspendAll capture skips its hide step.
     this.suspendGeneration++;
 
-    const resumed: string[] = [];
-    for (const [tabId, entry] of this.tabs) {
+    for (const entry of this.tabs.values()) {
       if (entry.active && !entry.view.webContents.isDestroyed()) {
-        entry.view.setVisible(true);
+        entry.view.setVisible(entry.loadFailure === null);
         if (
           entry.devtoolsOpen &&
           entry.devtoolsView !== null &&
@@ -673,10 +696,11 @@ export class BrowserTabRegistry {
         ) {
           entry.devtoolsView.setVisible(true);
         }
-        resumed.push(tabId);
       }
     }
-    return resumed;
+    const snapshotTabs = [...this.snapshotTabs];
+    this.snapshotTabs.clear();
+    return snapshotTabs;
   }
 
   /**
@@ -686,33 +710,33 @@ export class BrowserTabRegistry {
    * returns from `nativeImage.toDataURL()`, which matters because the result
    * crosses the IPC boundary as a broadcast payload to the renderer.
    *
-   * `dataUrl` is set to `null` when capture failed, returned an empty image
-   * (page not yet rendered), or produced a payload too small to be a real
-   * page snapshot — the renderer treats `null` as "no overlay available"
-   * and keeps the existing placeholder.
+   * Failed, empty, and very small captures leave the existing placeholder visible.
    */
   private async captureActiveSnapshots(
-    activeEntries: Array<[string, TabEntry]>,
+    activeEntries: ReadonlyMap<string, TabEntry>,
   ): Promise<SuspendSnapshot[]> {
     const TINY_DATA_URL_THRESHOLD = 2_000; // ~150x150 solid-colour JPEG floor
 
-    const captures = activeEntries.map(async ([tabId, entry]): Promise<SuspendSnapshot> => {
-      try {
-        const img = await entry.view.webContents.capturePage();
-        if (img.isEmpty()) return { tabId, dataUrl: null };
-        const buf = img.toJPEG(75);
-        const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
-        if (dataUrl.length < TINY_DATA_URL_THRESHOLD) {
-          return { tabId, dataUrl: null };
+    const captures = [...activeEntries].map(
+      async ([tabId, entry]): Promise<SuspendSnapshot | null> => {
+        try {
+          if (entry.loadFailure) return null;
+          const img = await entry.view.webContents.capturePage();
+          if (img.isEmpty()) return null;
+          const buf = img.toJPEG(75);
+          const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+          if (dataUrl.length < TINY_DATA_URL_THRESHOLD) {
+            return null;
+          }
+          return { tabId, dataUrl };
+        } catch (err) {
+          logger.warn(`[suspendAll] capturePage failed for ${tabId}: ${(err as Error).message}`);
+          return null;
         }
-        return { tabId, dataUrl };
-      } catch (err) {
-        logger.warn(`[suspendAll] capturePage failed for ${tabId}: ${(err as Error).message}`);
-        return { tabId, dataUrl: null };
-      }
-    });
+      },
+    );
 
-    return Promise.all(captures);
+    return (await Promise.all(captures)).filter((snapshot) => snapshot !== null);
   }
 
   // -------------------------------------------------------------------------
@@ -740,6 +764,7 @@ export class BrowserTabRegistry {
       return;
     }
     if (entry.view.webContents.navigationHistory.canGoBack()) {
+      entry.navigationRequest++;
       entry.view.webContents.navigationHistory.goBack();
     }
   }
@@ -751,6 +776,7 @@ export class BrowserTabRegistry {
       return;
     }
     if (entry.view.webContents.navigationHistory.canGoForward()) {
+      entry.navigationRequest++;
       entry.view.webContents.navigationHistory.goForward();
     }
   }
@@ -762,6 +788,11 @@ export class BrowserTabRegistry {
       logger.warn(`[reload] unknown tabId: ${tabId}`);
       return;
     }
+    if (entry.loadFailure) {
+      this.load(tabId, entry, entry.loadFailure.url, "retry");
+      return;
+    }
+    entry.navigationRequest++;
     if (ignoreCache) {
       entry.view.webContents.reloadIgnoringCache();
     } else {
@@ -818,11 +849,6 @@ export class BrowserTabRegistry {
     // bounds yet — that's fine, attach lazily on the next setActive(true).
     if (entry.active) {
       this.attachAndRestoreDevtoolsBounds(entry);
-      // Mirror the suspend state — a global suspendAll may be in progress
-      // when the user opens DevTools (unlikely but harmless to handle).
-      if (this.suspended && !entry.devtoolsView.webContents.isDestroyed()) {
-        entry.devtoolsView.setVisible(false);
-      }
     }
 
     entry.view.webContents.setDevToolsWebContents(entry.devtoolsView.webContents);

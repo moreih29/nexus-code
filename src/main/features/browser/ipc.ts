@@ -4,7 +4,7 @@
  *
  * BROADCASTS
  * ----------
- * Every browser.* event (navigated, loadingChanged, error, titleUpdated) is
+ * Every browser.* event (navigated, loadingChanged, loadFailureChanged, titleUpdated) is
  * sent via the shared `broadcast` helper so all open renderer windows receive
  * it.  The renderer is responsible for filtering by tabId.
  *
@@ -99,6 +99,9 @@ export function registerBrowserChannel(
   registry: BrowserTabRegistry,
   channelDeps?: BrowserChannelDeps,
 ): void {
+  registry.onLoadFailure((tabId, failure) => {
+    broadcast("browser", "loadFailureChanged", { tabId, failure });
+  });
   registry.onRefused((tabId, url, error) => {
     const { kind, reason } = error as { kind?: unknown; reason?: unknown };
     broadcast("browser", "refused", {
@@ -131,7 +134,8 @@ export function registerBrowserChannel(
           });
         });
 
-        wc.on("did-navigate-in-page", (_event, navUrl) => {
+        wc.on("did-navigate-in-page", (_event, navUrl, isMainFrame) => {
+          if (!isMainFrame) return;
           broadcast("browser", "navigated", {
             tabId,
             url: navUrl,
@@ -145,19 +149,6 @@ export function registerBrowserChannel(
         });
 
         wc.on("did-stop-loading", () => {
-          broadcast("browser", "loadingChanged", { tabId, isLoading: false });
-        });
-
-        wc.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
-          broadcast("browser", "error", {
-            tabId,
-            code: errorCode,
-            description: errorDescription,
-            url: validatedURL,
-          });
-          // Loading has ended (failed) — ensure isLoading is toggled off
-          // even when did-stop-loading fires before the renderer processes
-          // this event.
           broadcast("browser", "loadingChanged", { tabId, isLoading: false });
         });
 
@@ -256,29 +247,17 @@ export function registerBrowserChannel(
 
       suspendAll: async (args: unknown) => {
         const { captureSnapshot } = validateArgs(c.suspendAll.args, args);
-        // The registry's suspendAll captures BEFORE hiding (VSCode pattern) so
-        // the renderer can overlay each snapshot on top of the still-visible
-        // placeholder before the native view goes dark — no flash, no blank.
+        // Capture before hiding so the renderer can show the last frame under the overlay.
         const snapshots = await registry.suspendAll({ captureSnapshot });
         for (const { tabId, dataUrl } of snapshots) {
-          // Only broadcast when capture succeeded and produced a usable
-          // payload; tiny/empty captures arrive as null and the renderer
-          // keeps the prior placeholder without harm.
-          if (dataUrl !== null) {
-            broadcast("browser", "snapshot", { kind: "set", tabId, dataUrl });
-          }
+          broadcast("browser", "snapshot", { kind: "set", tabId, dataUrl });
         }
         return ipcOk(undefined);
       },
 
       resumeAll: (args: unknown) => {
         validateArgs(c.resumeAll.args, args);
-        const resumed = registry.resumeAll();
-        for (const tabId of resumed) {
-          // Drop the cached snapshot in the renderer so the live view shows
-          // through again.  Sent even when no snapshot was previously
-          // broadcast for this tab (e.g. drag-mode suspend with
-          // captureSnapshot=false) — harmless on the renderer side.
+        for (const tabId of registry.resumeAll()) {
           broadcast("browser", "snapshot", { kind: "cleared", tabId });
         }
         return ipcOk(undefined);
@@ -288,7 +267,7 @@ export function registerBrowserChannel(
     listen: {
       navigated: {},
       loadingChanged: {},
-      error: {},
+      loadFailureChanged: {},
       refused: {},
       titleUpdated: {},
       snapshot: {},

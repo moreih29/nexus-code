@@ -22,7 +22,7 @@
  * ---------------------
  * - browser:navigated     → setRuntime(tabId, { currentUrl, canGoBack, canGoForward })
  * - browser:loadingChanged → setRuntime(tabId, { isLoading })
- * - browser:error          → setRuntime(tabId, { isLoading: false })
+ * - browser:loadFailureChanged → set or clear the tab's failure
  * - browser:titleUpdated   → setRuntime(tabId, { title })
  *
  * LAST-URL PERSISTENCE
@@ -89,9 +89,11 @@ export function initBrowserRuntimeSubscriptions(): void {
   );
 
   activeUnsubs.push(
-    ipcListen("browser", "error", ({ tabId }) => {
-      // did-fail-load implies loading has ended.
-      useBrowserRuntimeStore.getState().setRuntime(tabId, { isLoading: false });
+    ipcListen("browser", "loadFailureChanged", ({ tabId, failure }) => {
+      useBrowserRuntimeStore.getState().setRuntime(tabId, {
+        loadFailure: failure,
+        ...(failure ? { isLoading: false } : {}),
+      });
     }),
   );
 
