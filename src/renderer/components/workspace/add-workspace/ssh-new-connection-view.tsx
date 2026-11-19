@@ -6,7 +6,11 @@ import { useTranslation } from "react-i18next";
 import { isImeComposing } from "@/utils/ime";
 import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
-import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
+import {
+  closeSshBrowseSession,
+  openSshBrowseSession,
+  saveConnectionProfileResult,
+} from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import { showToast } from "../../ui/toast";
 import { BootstrapProgressBar } from "../bootstrap-progress-bar";
@@ -78,6 +82,7 @@ function showSaveFailedToast(onRetrySave: () => void): void {
 
 export function SshNewConnectionView({
   onConnected,
+  cancelConnectRef,
   configHosts,
   configHostsLoading,
   onConnectPhaseChange,
@@ -117,7 +122,14 @@ export function SshNewConnectionView({
   // 'success', 'error', or 'idle' (cancel), so "Connecting…" can never freeze
   // regardless of which await fails or when the component unmounts.
   // ---------------------------------------------------------------------------
-  const { state: connectState, run: runConnect, isPending } = useIpcAction<void>();
+  const { state: connectState, run: runConnect, cancel, isPending } = useIpcAction<void>();
+  useEffect(() => {
+    if (!cancelConnectRef) return;
+    cancelConnectRef.current = cancel;
+    return () => {
+      if (cancelConnectRef.current === cancel) cancelConnectRef.current = null;
+    };
+  }, [cancelConnectRef, cancel]);
 
   // Bootstrap progress for the in-flight connect (agent upload/verify happens
   // inside openSshBrowseSession, before any sessionId exists — keyed by a
@@ -292,13 +304,13 @@ export function SshNewConnectionView({
     const capturedName = name.trim() || undefined;
     const profileId = crypto.randomUUID();
 
-    runConnect(async (_signal) => {
+    runConnect(async (signal) => {
       // --- Stage 1: primary effect — establish SSH browse session ---
       // openBrowseSession is migrated to the IpcResult contract.
       // auth cancellation arrives as ipcErr("cancelled") so we throw an
       // AppError category:"cancelled" and the hook silently returns to idle.
-      // _signal is kept in the signature for forward compatibility (AbortSignal
-      // passthrough to openSshBrowseSession once it supports cancellation).
+      // Keep receiving the result after cancellation so a session created
+      // by main can be closed even when the view has already gone away.
       const result = await openSshBrowseSession({
         host: capturedDest.host,
         user: capturedDest.user,
@@ -326,63 +338,82 @@ export function SshNewConnectionView({
       const sessionId = result.value.sessionId;
       const initialPath = result.value.initialPath;
 
-      // --- Stage 2: secondary effect — persist the connection profile ---
-      // Partial-failure policy: a failed save must NOT block the workspace flow.
-      // We run the save and inspect the result, but onConnected is called
-      // unconditionally as long as stage 1 succeeded.
-      const saveResult = await saveConnectionProfileResult({
-        id: profileId,
-        host: capturedDest.host,
-        user: connectedUser,
-        port: capturedPort,
-        identityFile: capturedIdentityFile,
-        authMode: "interactive",
-        label: capturedName,
-      });
-
-      if (!saveResult.ok) {
-        // Save failed — build a retry callback that replays only the save step.
-        // The signal from this run() is no longer active after the function
-        // returns (the hook clears it in finally), so the retry is a fresh
-        // independent call not tied to any AbortController.
-        //
-        // "Retry save" re-runs only the secondary effect; it never re-connects
-        // or re-authenticates. The already-established session is untouched.
-        const retrySave = (): void => {
-          void saveConnectionProfileResult({
-            id: profileId,
-            host: capturedDest.host,
-            user: connectedUser,
-            port: capturedPort,
-            identityFile: capturedIdentityFile,
-            authMode: "interactive",
-            label: capturedName,
-          }).then((retryResult) => {
-            if (!retryResult.ok) {
-              // Second attempt also failed — offer another retry via a fresh toast.
-              showSaveFailedToast(retrySave);
-            }
-          });
-        };
-
-        // Non-blocking warning toast: the workspace flow proceeds immediately.
-        // The toast uses role="alert" (action toast) so it never auto-dismisses
-        // and the user can act on the "Retry save" button at their convenience.
-        showSaveFailedToast(retrySave);
+      let owned = true;
+      /** Release the browse session until the directory picker takes ownership. */
+      const release = (): void => {
+        if (!owned) return;
+        owned = false;
+        void closeSshBrowseSession(sessionId);
+      };
+      if (signal.aborted) {
+        release();
+        return;
       }
+      signal.addEventListener("abort", release, { once: true });
+      try {
+        // --- Stage 2: secondary effect — persist the connection profile ---
+        // Partial-failure policy: a failed save must NOT block the workspace flow.
+        // We run the save and inspect the result, but onConnected is called
+        // unconditionally as long as stage 1 succeeded.
+        const saveResult = await saveConnectionProfileResult({
+          id: profileId,
+          host: capturedDest.host,
+          user: connectedUser,
+          port: capturedPort,
+          identityFile: capturedIdentityFile,
+          authMode: "interactive",
+          label: capturedName,
+        });
 
-      // Complete the workspace flow regardless of save outcome.
-      // onConnected transitions the parent to the directory picker view.
-      onConnected({
-        sessionId,
-        initialPath,
-        host: capturedDest.host,
-        user: connectedUser,
-        port: capturedPort,
-        identityFile: capturedIdentityFile,
-        profileId,
-        connectionProfileId: profileId,
-      });
+        if (signal.aborted) return;
+        if (!saveResult.ok) {
+          // Save failed — build a retry callback that replays only the save step.
+          // The signal from this run() is no longer active after the function
+          // returns (the hook clears it in finally), so the retry is a fresh
+          // independent call not tied to any AbortController.
+          //
+          // "Retry save" re-runs only the secondary effect; it never re-connects
+          // or re-authenticates. The already-established session is untouched.
+          const retrySave = (): void => {
+            void saveConnectionProfileResult({
+              id: profileId,
+              host: capturedDest.host,
+              user: connectedUser,
+              port: capturedPort,
+              identityFile: capturedIdentityFile,
+              authMode: "interactive",
+              label: capturedName,
+            }).then((retryResult) => {
+              if (!retryResult.ok) {
+                // Second attempt also failed — offer another retry via a fresh toast.
+                showSaveFailedToast(retrySave);
+              }
+            });
+          };
+
+          // Non-blocking warning toast: the workspace flow proceeds immediately.
+          // The toast uses role="alert" (action toast) so it never auto-dismisses
+          // and the user can act on the "Retry save" button at their convenience.
+          showSaveFailedToast(retrySave);
+        }
+
+        // Complete the workspace flow regardless of save outcome.
+        // onConnected transitions the parent to the directory picker view.
+        onConnected({
+          sessionId,
+          initialPath,
+          host: capturedDest.host,
+          user: connectedUser,
+          port: capturedPort,
+          identityFile: capturedIdentityFile,
+          profileId,
+          connectionProfileId: profileId,
+        });
+        owned = false;
+      } finally {
+        signal.removeEventListener("abort", release);
+        release();
+      }
     });
   }
 

@@ -96,6 +96,8 @@ export interface SshConnectionListViewProps {
  * All state is self-managed inside the view — not lifted to root.
  */
 export interface SshNewConnectionViewProps {
+  /** Lets the dialog cancel synchronously when Back or Close is pressed. */
+  readonly cancelConnectRef?: React.RefObject<(() => void) | null>;
   /** Callback after successful connect — transitions to directory picker. */
   readonly onConnected: (params: SshBrowseSession) => void;
   /** ~/.ssh/config candidate list (pre-loaded by parent). */

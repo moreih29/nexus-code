@@ -59,6 +59,7 @@ export function AddWorkspaceDialog({
   // Imperative handle to the directory picker — the footer "Add workspace"
   // button lives here in the shell and drives the picker's action through it.
   const pickerRef = useRef<SshDirectoryPickerHandle>(null);
+  const cancelConnectRef = useRef<(() => void) | null>(null);
 
   // Open effect — reset + load SSH config hosts
   useEffect(() => {
@@ -95,6 +96,7 @@ export function AddWorkspaceDialog({
   // Handlers
 
   function closeAndAbort(): void {
+    cancelConnectRef.current?.();
     onClose();
   }
 
@@ -152,6 +154,7 @@ export function AddWorkspaceDialog({
     if (view === "ssh-server-list") {
       setView("main-list");
     } else if (view === "ssh-new-connection") {
+      cancelConnectRef.current?.();
       setPrefillProfile(null);
       setView("ssh-server-list");
     } else if (view === "ssh-directory-picker") {
@@ -233,6 +236,7 @@ export function AddWorkspaceDialog({
           <ViewBody
             view={view}
             pickerRef={pickerRef}
+            cancelConnectRef={cancelConnectRef}
             browseSession={browseSession}
             prefillProfile={prefillProfile}
             onViewChange={setView}
@@ -308,6 +312,7 @@ function AddWorkspaceHeader({
 // ---------------------------------------------------------------------------
 
 interface ViewBodyProps {
+  readonly cancelConnectRef: React.RefObject<(() => void) | null>;
   readonly view: ModalView;
   readonly pickerRef: React.RefObject<SshDirectoryPickerHandle | null>;
   readonly browseSession: SshBrowseSession | WslBrowseSession | null;
@@ -334,6 +339,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
   const {
     view,
     pickerRef,
+    cancelConnectRef,
     browseSession,
     prefillProfile,
     onViewChange,
@@ -396,6 +402,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
     return (
       <FadeView viewKey="ssh-new-connection">
         <SshNewConnectionView
+          cancelConnectRef={cancelConnectRef}
           onConnected={onConnected}
           configHosts={configHosts}
           configHostsLoading={configHostsLoading}
