@@ -143,3 +143,37 @@ describe("agent ready deadline", () => {
     }
   });
 });
+
+it("rejects an oversized unterminated frame and reconnects after the ready child exits", async () => {
+  jest.useFakeTimers();
+  try {
+    const { channel, children } = makeHarness();
+    const events: ChannelLifecycleEvent[] = [];
+    channel.onLifecycle((event) => events.push(event));
+    const child = children[0]!;
+    child.stdout.emitData('{"type":"ready"}\n');
+    await channel.ready;
+    const outcome = channel.call("fs.readFile").catch((error: unknown) => error);
+
+    const mib = Buffer.alloc(1024 * 1024, 0xe0);
+    for (let i = 0; i < 64; i += 1) child.stdout.emit("data", mib);
+    expect(child.killed).toBe(false);
+    child.stdout.emit("data", Buffer.from("x"));
+    expect(child.killed).toBe(true);
+    expect(await outcome).toMatchObject({
+      code: "server.protocol-error",
+      cause: { message: expect.stringContaining("67108864") },
+    });
+
+    child.emit("close", 0, null);
+    expect(events.map(({ type }) => type)).toEqual(["reconnecting"]);
+    jest.advanceTimersByTime(1);
+    expect(children).toHaveLength(2);
+    children[1]?.stdout.emitData('{"type":"ready"}\n');
+    await flushMicrotasks();
+    expect(events.map(({ type }) => type)).toEqual(["reconnecting", "ready"]);
+    channel.dispose();
+  } finally {
+    jest.useRealTimers();
+  }
+});

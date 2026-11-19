@@ -14,6 +14,7 @@ import {
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { GitError } from "../../features/git/domain/error";
 import { agentCallError } from "./agent-errors";
 import { fsCallError } from "./fs-errors";
@@ -222,9 +223,9 @@ export function setupRouter(): void {
   );
 }
 
-/** Records the original detail while exposing only a correlation ID and safe message. */
+/** Records masked diagnostic detail while exposing only a correlation ID and safe message. */
 function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {
-  log.error(`ipc:call — ${procedure}: ${detail}`, { correlationId });
+  log.error(`ipc:call — ${procedure}: ${redactLogSecrets(detail)}`, { correlationId });
   return ipcErr("bug", "An unexpected error occurred", { category: "bug", correlationId });
 }
 

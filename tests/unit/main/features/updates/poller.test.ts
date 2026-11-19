@@ -19,6 +19,7 @@ import {
   createConditionalCache,
   pollGithubReleases,
 } from "../../../../../src/main/features/updates/poller";
+import { oversizedResponse } from "../../../../helpers/http-fixtures";
 
 // ---------------------------------------------------------------------------
 // Helpers — build minimal source payloads
@@ -57,28 +58,12 @@ ${entries}
 
 /** Mock fetch returning a 200 with the given text body. */
 function fetchOkText(body: string, etag?: string): typeof fetch {
-  return async () =>
-    ({
-      ok: true,
-      status: 200,
-      headers: {
-        get(name: string): string | null {
-          return name.toLowerCase() === "etag" ? (etag ?? null) : null;
-        },
-      },
-      text: async () => body,
-    }) as unknown as Response;
+  return async () => new Response(body, etag ? { headers: { etag } } : undefined);
 }
 
 /** Mock fetch returning a non-OK HTTP status. */
 function fetchStatus(status: number): typeof fetch {
-  return async () =>
-    ({
-      ok: false,
-      status,
-      headers: { get: () => null },
-      text: async () => "",
-    }) as unknown as Response;
+  return async () => new Response(null, { status });
 }
 
 /** Mock fetch that throws a network error. */
@@ -285,26 +270,9 @@ describe("pollGithubReleases — ETag conditional requests", () => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
       seenIfNoneMatch.push(headers["If-None-Match"]);
       if (headers["If-None-Match"] === '"v1"') {
-        return {
-          ok: false,
-          status: 304,
-          headers: {
-            get(name: string): string | null {
-              return name.toLowerCase() === "etag" ? '"v1"' : null;
-            },
-          },
-        } as unknown as Response;
+        return new Response(null, { status: 304, headers: { etag: '"v1"' } });
       }
-      return {
-        ok: true,
-        status: 200,
-        headers: {
-          get(name: string): string | null {
-            return name.toLowerCase() === "etag" ? '"v1"' : null;
-          },
-        },
-        text: async () => latestYml("0.2.0"),
-      } as unknown as Response;
+      return new Response(latestYml("0.2.0"), { headers: { etag: '"v1"' } });
     };
 
     const r1 = await pollGithubReleases({
@@ -342,12 +310,7 @@ describe("pollGithubReleases — ETag conditional requests", () => {
     const fetchImpl: typeof fetch = async (_url, init) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
       sentIfNoneMatch = headers["If-None-Match"];
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: async () => latestYml("0.2.0"),
-      } as unknown as Response;
+      return new Response(latestYml("0.2.0"));
     };
 
     const result = await pollGithubReleases({
@@ -367,12 +330,7 @@ describe("pollGithubReleases — ETag conditional requests", () => {
     cache.sourceUrl =
       "https://github.com/moreih29/nexus-code/releases/latest/download/latest-mac.yml";
     // resolved intentionally left null — synthetic invariant violation.
-    const fetchImpl: typeof fetch = async () =>
-      ({
-        ok: false,
-        status: 304,
-        headers: { get: () => null },
-      }) as unknown as Response;
+    const fetchImpl: typeof fetch = async () => new Response(null, { status: 304 });
 
     const result = await pollGithubReleases({
       channel: "stable",
@@ -386,4 +344,16 @@ describe("pollGithubReleases — ETag conditional requests", () => {
       expect(result.message).toMatch(/304/);
     }
   });
+});
+
+test("the update poller cancels an oversized body before parsing it", async () => {
+  const response = oversizedResponse(8);
+  expect(
+    await pollGithubReleases({
+      channel: "stable",
+      currentVersion: "0.1.0",
+      fetchImpl: response.fetch,
+    }),
+  ).toMatchObject({ kind: "error", reason: "response-too-large" });
+  expect(response.cancelled()).toBe(true);
 });

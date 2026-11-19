@@ -212,10 +212,15 @@ describe("ipc round-trip — routing errors", () => {
     }
   });
 
-  it("returns a sanitized bug envelope and logs the original exception with its correlation ID", async () => {
+  it("returns a sanitized bug envelope and masks secrets in the correlated exception log", async () => {
     const detail = "unexpected internal failure /private/source";
     register("integration-bug", {
-      call: { work: () => Promise.reject(new Error(detail)) },
+      call: {
+        work: () =>
+          Promise.reject(
+            new Error(`${detail} Authorization: Basic auth-fixture APP_KEY="env fixture"`),
+          ),
+      },
       listen: {},
     });
     const start = mainErrorMock.mock.calls.length;
@@ -227,6 +232,12 @@ describe("ipc round-trip — routing errors", () => {
       correlationId: expect.any(String),
     });
     expect(JSON.stringify(result)).not.toContain(detail);
+    const messages = mainErrorMock.mock.calls
+      .slice(start)
+      .map(([message]) => message)
+      .join("\n");
+    expect(messages).not.toContain("auth-fixture");
+    expect(messages).not.toContain("env fixture");
     expect(mainErrorMock.mock.calls.slice(start)).toEqual([
       [
         expect.stringContaining(detail),
