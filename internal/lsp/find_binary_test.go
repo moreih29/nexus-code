@@ -219,17 +219,13 @@ func TestFindBinaryUsesProfilePathAndSkipsClaudeWrappers(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
-	name := "claude"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	wrapper := writeExecutable(t, filepath.Join(home, "wrapper"), name)
+	wrapper := writeExecutable(t, filepath.Join(home, "wrapper"), "claude")
 	if err := os.WriteFile(wrapper, []byte("#!/bin/bash\n# nexus-code claude wrapper\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fallback := writeExecutable(t, filepath.Join(home, "fallback"), name)
+	fallback := writeExecutable(t, filepath.Join(home, "fallback"), "claude")
 	t.Setenv("PATH", filepath.Dir(fallback))
-	want := writeExecutable(t, filepath.Join(home, "profile"), name)
+	want := writeExecutable(t, filepath.Join(home, "profile"), "claude")
 	got, err := New().FindBinary(context.Background(), mustJSON(t, map[string]string{
 		"name":       "claude",
 		"dir":        home,
