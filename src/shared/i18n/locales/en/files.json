@@ -245,7 +245,7 @@
       "messageAriaLabel": "Commit message",
       "messageDialog": {
         "title": "Commit message",
-        "description": "Edit the message Git will use for this commit. Lines starting with # are preserved for Git to strip.",
+        "description": "Edit the commit message. Git strips lines starting with #.",
         "messageLabel": "Message",
         "cancel": "Cancel",
         "save": "Save"
@@ -573,7 +573,7 @@
     },
     "credentials": {
       "title": "Git credentials",
-      "sshPassphraseTitle": "SSH passphrase required",
+      "sshPassphraseTitle": "SSH key passphrase required",
       "usernameLabel": "Username",
       "passphraseLabel": "Passphrase",
       "passwordLabel": "Password",
@@ -733,7 +733,7 @@
       "openSourceControl": "Open Source Control"
     },
     "refChip": {
-      "headRef": "HEAD ref",
+      "headRef": "HEAD reference",
       "currentBranch": "Current branch {{name}}",
       "branch": "Branch {{name}}",
       "remoteBranch": "Remote branch {{name}}",
@@ -743,8 +743,8 @@
     },
     "dialogHost": {
       "forcePush": {
-        "title": "Force push will overwrite remote. Are you sure?",
-        "description": "Uses --force-with-lease and stops if the remote changed again.",
+        "title": "Force push to the remote branch?",
+        "description": "--force-with-lease stops the push if the remote branch has changed.",
         "confirmLabel": "Force Push"
       },
       "footerMergeTarget": "Enter choose merge target · Current branch hidden",

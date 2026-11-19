@@ -162,8 +162,8 @@ function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
     cmd(t != null ? t("menu:file.openFile") : "Open File…", COMMANDS.fileOpen),
     cmd(t != null ? t("menu:file.save") : "Save", COMMANDS.fileSave),
     { type: "separator" },
-    cmd(t != null ? t("menu:file.closeEditor") : "Close Editor", COMMANDS.tabClose),
-    cmd(t != null ? t("menu:file.closeOthers") : "Close Others", COMMANDS.tabCloseOthers),
+    cmd(t != null ? t("menu:file.closeEditor") : "Close Tab", COMMANDS.tabClose),
+    cmd(t != null ? t("menu:file.closeOthers") : "Close Other Tabs", COMMANDS.tabCloseOthers),
     { type: "separator" },
     cmd(t != null ? t("menu:file.refreshFiles") : "Refresh Files", COMMANDS.filesRefresh),
   ];

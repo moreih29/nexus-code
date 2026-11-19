@@ -162,7 +162,19 @@
       "dark": "다크",
       "light": "라이트"
     },
-    "window": "창"
+    "window": "창",
+    "themeSwatches": {
+      "background": "배경",
+      "panel": "패널",
+      "floating": "부유 패널",
+      "muted": "흐린 글자",
+      "accent": "강조",
+      "keyword": "키워드",
+      "string": "문자열",
+      "number": "숫자",
+      "function": "함수",
+      "type": "타입"
+    }
   },
   "editor": {
     "fontSize": "글꼴 크기",
@@ -490,7 +502,7 @@
       "tab": {
         "close": "탭 닫기",
         "closeOthers": "다른 탭 닫기",
-        "closeSaved": "저장된 탭 닫기",
+        "closeSaved": "저장된 편집기 탭 닫기",
         "closeAll": "모든 탭 닫기",
         "pinToggle": "탭 고정 전환",
         "focusPrev": "이전 탭",
@@ -600,7 +612,7 @@
     "ariaFontSize": "채팅 글자 크기",
     "ariaFontFamily": "채팅 글꼴 종류",
     "previewReply": "답변은 이 크기와 글꼴로 보입니다. `코드`는 고정폭 글꼴 그대로입니다.",
-    "previewTool": "Read src/greet.ts"
+    "previewTool": "src/greet.ts 읽기"
   },
   "profiles": {
     "heading": "프로필",
@@ -757,7 +769,7 @@
         "description": "이 기기가 로그아웃됩니다. 잃어버린 기기라면 계정 암호도 재설정하세요.",
         "descriptionSelf": "이 컴퓨터가 로그아웃됩니다.",
         "confirm": "해제",
-        "descriptionRotate": "그 기기가 로그아웃되고 계정 키가 새로 바뀝니다. 남은 기기는 새 키를 자동으로 받고, 해제한 기기는 받지 못합니다. 계정 암호를 입력하세요."
+        "descriptionRotate": "계정 암호가 필요합니다. 이 기기를 로그아웃시키고 계정 키를 바꾸면 남은 기기만 새 키를 자동으로 받습니다."
       },
       "online": "온라인",
       "offline": "오프라인",
@@ -830,7 +842,7 @@
         "reset-pending": "이미 대기 중인 재설정이 있습니다.",
         "needs-password": "그 기기는 계정 키를 가지고 있을 수 있습니다. 암호를 입력해 해제하고 키를 바꾸세요."
       },
-      "resetDelayed": "새 암호는 72시간 뒤에 적용되고, 그동안 암호를 아는 기기에서 취소할 수 있습니다. 적용되면 다른 기기에서도 새 암호를 입력해야 합니다.",
+      "resetDelayed": "새 암호는 72시간 후 적용됩니다. 그전엔 현재 암호를 아는 기기에서 취소할 수 있습니다. 적용 후 다른 기기에 새 암호를 입력하세요.",
       "pendingReset": {
         "self": "이 기기에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 적용되면 새 암호로 다시 연결하세요.",
         "other": "{{name}}에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 본인이 한 것이 아니면 취소하거나 그 기기를 해제하세요.",
@@ -839,9 +851,9 @@
         "cancelDescription": "지금 계정 암호를 입력하면 대기 중인 재설정이 취소됩니다.",
         "remove": "요청한 기기 해제",
         "removeTitle": "{{name}}을(를) 해제할까요?",
-        "removeDescription": "재설정을 요청한 기기를 해제하면 재설정도 취소됩니다. 그 기기가 계정 키를 받은 적이 있으면 다음 단계에서 암호를 입력해 키를 바꾸거나, 키를 그대로 두고 해제할 수 있습니다.",
+        "removeDescription": "요청 기기를 해제하면 재설정이 취소됩니다. 계정 키를 받은 기기라면 다음 단계에서 암호로 키를 바꾸거나 기존 키를 유지할 수 있습니다.",
         "removeHolderTitle": "{{name}}을(를) 해제하고 키를 바꿀까요?",
-        "removeHolderDescription": "이 기기는 계정 키를 받은 적이 있어, 지금도 가지고 있을 수 있습니다. 암호로 해제하면 키가 바뀌어, 그 기기가 가진 키로는 더 이상 연결할 수 없습니다. 암호 없이도 해제해 재설정을 취소할 수 있지만, 그 기기는 가진 키를 그대로 가집니다.",
+        "removeHolderDescription": "해제하면 재설정이 취소됩니다. 암호를 입력하면 기존 키가 무효화되며, 암호 없이 해제하면 이 기기가 가진 키는 유지됩니다.",
         "removeKeepKey": "키는 그대로 두고 해제"
       }
     },
@@ -852,9 +864,9 @@
       "failed": "계정을 삭제하지 못했습니다. 다시 시도하세요.",
       "confirm": {
         "title": "NexusCode 계정을 삭제할까요?",
-        "description": "계정과 모든 기기가 서버에서 지워집니다. 되돌릴 수 없습니다.",
+        "description": "서버에서 계정과 기기 등록을 영구 삭제합니다.",
         "confirm": "계정 삭제",
-        "descriptionPassword": "계정과 모든 기기가 서버에서 지워집니다. 되돌릴 수 없습니다. 계정 암호를 입력하세요."
+        "descriptionPassword": "계정 암호가 필요합니다. 계정과 기기 등록을 서버에서 영구 삭제합니다."
       }
     },
     "voice": {

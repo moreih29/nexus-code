@@ -12,8 +12,8 @@
     "newTask": "새 작업…",
     "openFile": "파일 열기…",
     "save": "저장",
-    "closeEditor": "편집기 닫기",
-    "closeOthers": "다른 편집기 닫기",
+    "closeEditor": "탭 닫기",
+    "closeOthers": "다른 탭 닫기",
     "refreshFiles": "파일 새로 고침",
     "exit": "종료"
   },

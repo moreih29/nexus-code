@@ -22,6 +22,7 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createLogger } from "../../../shared/log/renderer";
 import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
@@ -65,6 +66,8 @@ import { FileKindIcon } from "./file-kind-icon";
 import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
 import { ActivitySections } from "./running-section";
+
+const log = createLogger("chat-side-panel");
 
 interface SidePanelProps {
   controller: ChatController;
@@ -293,7 +296,8 @@ export function TodosSection({
 
 function stop(controller: ChatController, taskId: string, failed: string): void {
   controller.stopTask(taskId).catch((err: Error) => {
-    showToast({ kind: "error", message: `${failed}: ${err.message}` });
+    log.warn(`Background task stop failed: ${err.message}`);
+    showToast({ kind: "error", message: failed });
   });
 }
 

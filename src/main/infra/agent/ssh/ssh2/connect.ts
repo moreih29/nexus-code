@@ -370,7 +370,6 @@ async function verifyHostKey(
         username: config.user,
         keyType: type,
         fingerprint,
-        message: `The authenticity of host '${name}' can't be established.\n${type} key fingerprint is ${fingerprint}.`,
       });
     } catch {
       return "Host key verification failed: the key was not trusted";

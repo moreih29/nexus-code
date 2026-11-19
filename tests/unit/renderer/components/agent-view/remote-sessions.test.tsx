@@ -555,7 +555,7 @@ describe("the agent view's other computers", () => {
     const render = (sessions: Parameters<typeof PeerGroup>[0]["sessions"]) =>
       renderToStaticMarkup(<PeerGroup peer={peer} query="" sessions={sessions} />);
     expect(render(undefined)).toContain("Loading…");
-    expect(render({ status: "unavailable" })).toContain("Not answering");
+    expect(render({ status: "unavailable" })).toContain("No remote response");
     expect(render({ status: "ready", list: list([]) })).toContain("No sessions");
   });
 
