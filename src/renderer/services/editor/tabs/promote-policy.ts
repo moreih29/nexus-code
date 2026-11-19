@@ -6,41 +6,29 @@
 // Subsequent edits are no-ops because the dirty-tracker only fires
 // transition events on flips, not on every keystroke.
 //
-// One file (cacheUri) may be visible in multiple tabs across multiple
-// workspaces — they all get promoted, since each one's preview state
-// would survive otherwise and surprise the user when their typed changes
-// look like they vanished on a single-click of another file.
+// Several tabs in one workspace can show the same model. Their preview
+// states are independent, so promote them together when that model changes.
 
 import { useTabsStore } from "@/state/stores/tabs";
-import { cacheUriToFilePath } from "../model/cache";
+import { parseCacheUri } from "../model/cache";
 import { subscribeAllDirtyTransitions } from "../model/dirty-tracker";
 import { workingFileOfDiff } from "./diff-working-file";
 
 /**
- * Promote every preview editor tab pointing at `filePath`, and every preview
- * diff tab editing it, to permanent across every workspace. Idempotent — already-permanent tabs are no-ops
- * via tabsStore.promoteFromPreview.
- *
- * Centralized here because two separate triggers want this exact
- * behaviour: a clean→dirty transition (the user typed) and an explicit
- * save (Cmd+S, even when the buffer is clean). VSCode's
- * editorService.save() takes the same shortcut on
- * `SaveReason.EXPLICIT`.
+ * Promote preview tabs sharing the model identified by workspace and path.
+ * Both editing and an explicit save make the preview permanent.
  */
-export function promoteAllPreviewTabsForFile(filePath: string): void {
+export function promoteAllPreviewTabsForFile(workspaceId: string, filePath: string): void {
   const tabsStore = useTabsStore.getState();
-  for (const [workspaceId, wsRecord] of Object.entries(tabsStore.byWorkspace)) {
-    for (const tab of Object.values(wsRecord)) {
-      if (!tab.isPreview) continue;
-      const tabFilePath =
-        tab.type === "editor"
-          ? tab.props.filePath
-          : tab.type === "editor.diff"
-            ? workingFileOfDiff(tab.props)
-            : null;
-      if (tabFilePath !== filePath) continue;
-      tabsStore.promoteFromPreview(workspaceId, tab.id);
-    }
+  for (const tab of Object.values(tabsStore.byWorkspace[workspaceId] ?? {})) {
+    if (!tab.isPreview) continue;
+    const tabFilePath =
+      tab.type === "editor" && tab.props.workspaceId === workspaceId
+        ? tab.props.filePath
+        : tab.type === "editor.diff" && tab.props.workspaceId === workspaceId
+          ? workingFileOfDiff(tab.props)
+          : null;
+    if (tabFilePath === filePath) tabsStore.promoteFromPreview(workspaceId, tab.id);
   }
 }
 
@@ -52,10 +40,8 @@ export function startPromoteOnDirtyPolicy(): void {
   unsubscribe = subscribeAllDirtyTransitions((event) => {
     if (!event.isDirty) return; // we only care about clean → dirty
 
-    const filePath = cacheUriToFilePath(event.cacheUri);
-    if (!filePath) return;
-
-    promoteAllPreviewTabsForFile(filePath);
+    const file = parseCacheUri(event.cacheUri);
+    if (file) promoteAllPreviewTabsForFile(file.workspaceId, file.filePath);
   });
 }
 
