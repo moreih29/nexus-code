@@ -15,13 +15,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { deleteClaudeSession, useClaudeSessions } from "../../services/chat/claude/sessions";
 import type { CodexController } from "../../services/chat/codex/controller";
 import { revealTabById } from "../../services/chat/open-beside";
 import {
-  deleteClaudeSession,
   type ListedSession,
   sessionMatches,
-  useClaudeSessions,
   useCodexThreadTabs,
   useSessionTabs,
   withTranscriptSizes,
