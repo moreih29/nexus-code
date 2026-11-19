@@ -3,6 +3,7 @@
  *
  * `--name value`, `--name=value` and bare `--name` (true) are flags; `-h` is
  * `--help`; `--` ends the flags. Everything else is positional, in order.
+ * A value that starts with `--` is given as `--name=--value`.
  * Which flags take a value is the command's to say, so a bare flag followed
  * by a word is told apart by the spec.
  */
@@ -79,7 +80,9 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       continue;
     }
     if (raw === undefined) {
-      if (i >= argv.length) {
+      // A flag where the value should be is a value gone missing, not the
+      // value: PowerShell 5.1 drops `--name ''`, leaving `--name --json`.
+      if (i >= argv.length || (argv[i] as string).startsWith("--")) {
         // `--since #3`: the shell took "#3" for a comment. `--command ""`:
         // PowerShell 5.1 passes no empty argument.
         const hint =
