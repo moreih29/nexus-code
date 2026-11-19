@@ -25,6 +25,9 @@ export interface ChatLine {
   replay?: boolean;
 }
 
+/** A transcript entry normalized for playback from an empty model. */
+export type TranscriptLine = ChatLine & { dir: "out"; replay: true };
+
 export interface ImageBlock {
   mediaType: string;
   data: string;
@@ -520,7 +523,10 @@ export class Draft<M extends ChatModel = ChatModel> {
   private itemsCopied = false;
   private toolsCopied = false;
 
-  constructor(prev: M) {
+  constructor(
+    prev: M,
+    readonly matchSentInputs = true,
+  ) {
     this.next = { ...prev };
   }
 
@@ -579,10 +585,25 @@ function applyLineTo(draft: Draft, line: ChatLine, now: number): void {
  * transcript, or a frame's lines, took that many copies.
  */
 export function applyLines(prev: ChatModel, lines: readonly ChatLine[], now?: number): ChatModel {
+  return reduceLines(prev, lines, now, true);
+}
+
+/** Reconstructs a transcript from recorded output, which cannot contain pending app input. */
+export function applyTranscriptLines(lines: readonly TranscriptLine[]): ChatModel {
+  return reduceLines(emptyModel(), lines, undefined, false);
+}
+
+/** Applies one batch with the input matching policy of its source. */
+function reduceLines(
+  prev: ChatModel,
+  lines: readonly ChatLine[],
+  now: number | undefined,
+  matchSentInputs: boolean,
+): ChatModel {
   let draft: Draft | undefined;
   for (const line of lines) {
     if (line.seq <= (draft?.next ?? prev).lastSeq) continue;
-    draft ??= new Draft(prev);
+    draft ??= new Draft(prev, matchSentInputs);
     applyLineTo(draft, line, now ?? Date.now());
   }
   return draft?.next ?? prev;
@@ -1171,14 +1192,15 @@ function applyUserOut(
     // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
     const sent = (item: ChatItem) => item.kind === "user" && item.state === "sent";
-    let index = uuid
-      ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
-      : -1;
+    let index =
+      draft.matchSentInputs && uuid
+        ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
+        : -1;
     // One the app did not write may be no message of the user's at all: a
     // shell command run in the terminal, which no turn follows.
     if (index < 0 && applyShell(draft, said, seq, when)) return;
     const other = index < 0 ? notTheUsers(message, said) : null;
-    if (!other && index < 0) index = m.items.findIndex(sent);
+    if (draft.matchSentInputs && !other && index < 0) index = m.items.findIndex(sent);
     // Taken live after a turn ended, it begins the next one: one the user
     // sent as the last turn was ending, or one the CLI was given itself
     // (Remote Control, a background task's news). A transcript's messages

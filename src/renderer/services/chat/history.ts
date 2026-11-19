@@ -7,12 +7,14 @@ import type { ClaudeGoal } from "./goal";
 import {
   type AssistantItem,
   applyLines,
+  applyTranscriptLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
   isCommandOutput,
   SENDER_KINDS,
   type ToolCall,
+  type TranscriptLine,
   typedCommand,
 } from "./model";
 
@@ -25,8 +27,8 @@ function rec(value: unknown): Rec | null {
 }
 
 /** Turns transcript entries into stream-json lines. */
-export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
-  const lines: ChatLine[] = [];
+export function transcriptLines(entries: readonly unknown[]): TranscriptLine[] {
+  const lines: TranscriptLine[] = [];
   for (const raw of entries) {
     const entry = rec(raw);
     if (!entry || entry.isSidechain === true) continue;
@@ -105,7 +107,7 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
  * attachment (queued_command) and not as a message: the user's, another
  * session's, a task's end.
  */
-function queuedLine(entry: Rec, seq: number): ChatLine | null {
+function queuedLine(entry: Rec, seq: number): TranscriptLine | null {
   if (entry.type !== "attachment") return null;
   const attachment = rec(entry.attachment);
   if (attachment?.type !== "queued_command") return null;
@@ -144,7 +146,7 @@ function queuedUuid(entry: Rec): unknown {
  * cleared one (the stream's own form of it), and each check of it, which
  * only the transcript keeps once one finds the goal met.
  */
-function goalLine(entry: Rec, seq: number): ChatLine | null {
+function goalLine(entry: Rec, seq: number): TranscriptLine | null {
   if (entry.type === "attachment") {
     const attachment = rec(entry.attachment);
     if (attachment?.type !== "goal_status" || attachment.sentinel === true) return null;
@@ -252,7 +254,7 @@ export function subagentIdOf(tool: ToolCall | undefined): string | undefined {
 
 /** The goal a session's transcript ends with, as far as it goes. */
 export function transcriptGoal(entries: readonly unknown[]): ClaudeGoal | null | undefined {
-  return applyLines(emptyModel(), transcriptLines(entries)).goal;
+  return applyTranscriptLines(transcriptLines(entries)).goal;
 }
 
 /** A message's text: the string, or its first block's. */
@@ -287,7 +289,7 @@ export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): u
 
 /** The model of a transcript: its items and tools, nothing running. */
 export function historyModel(entries: readonly unknown[], cut?: HistoryCut): ChatModel {
-  const model = applyLines(emptyModel(), transcriptLines(cut ? cutEntries(entries, cut) : entries));
+  const model = applyTranscriptLines(transcriptLines(cut ? cutEntries(entries, cut) : entries));
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }
 
