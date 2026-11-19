@@ -681,6 +681,7 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(SshAuthPromptSchema),
+      dismissed: listen(SshAuthCancelArgsSchema),
     },
   },
 

@@ -225,8 +225,8 @@ const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
 // Session-scoped credential cache: wraps the hub so successful passwords are
 // reused on automatic reconnects without re-prompting the user. The cache
 // invalidates itself on retry=true prompts (SSH "Permission denied, try again").
-const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt) =>
-  sshAuthPromptHub.request(prompt),
+const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt, signal) =>
+  sshAuthPromptHub.request(prompt, signal),
 );
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {

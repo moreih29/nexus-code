@@ -36,6 +36,7 @@ function getChannelLogger(): ReturnType<typeof createLogger> {
 /** Max chars of a child's stderr tail to embed in one close-diagnostic line. */
 const CLOSE_LOG_STDERR_TAIL_CHARS = 300;
 
+const AGENT_READY_TIMEOUT_MS = 30_000;
 const DISPOSE_KILL_GRACE_MS = 100;
 const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;
 const DEFAULT_RECONNECT_DELAY_MS = 100;
@@ -229,6 +230,7 @@ export function createReconnectingProcessChannel(
       classifyStderr: options.classifyStderr,
       onTerminalError: (error) => handlePipeFailure(attempt, error, phase),
       requestTimeoutMs: options.requestTimeoutMs,
+      readyTimeoutMs: AGENT_READY_TIMEOUT_MS,
       expectedProtocolMajor: options.expectedProtocolMajor,
       onDegraded: () => {
         if (state === "disposed" || active !== attempt) return;
@@ -329,8 +331,11 @@ export function createReconnectingProcessChannel(
     getChannelLogger().warn(
       `[${label}] agent pipe failure (phase=${phase}, pid=${attempt.child.pid}, code=${error.code}): ${error.message}`,
     );
+    // A stalled handshake must be stopped before the next dialer starts.
+    // This process has no active RPCs to drain.
+    if (!attempt.ready && error.code === "transport.timeout") attempt.child.kill("SIGKILL");
+    else terminateChild(attempt);
     if (phase === "reconnecting") {
-      terminateChild(attempt);
       if (options.isFatalReconnectError?.(error)) {
         consecutiveFatalFailures += 1;
         if (consecutiveFatalFailures >= MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES) {
@@ -348,7 +353,6 @@ export function createReconnectingProcessChannel(
     state = "terminal";
     terminalError = error;
     emitLifecycle({ type: "failure", error });
-    terminateChild(attempt);
   }
 
   /**

@@ -90,6 +90,7 @@ describe("WSL workspace", () => {
       remotePath: "/home/me/project",
       cachedRemoteArch: undefined,
       workspaceId: meta.id,
+      signal: expect.any(AbortSignal),
     });
     expect(wsl.createChannel).toHaveBeenCalledWith({
       distro: "Ubuntu",

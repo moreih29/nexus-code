@@ -60,6 +60,18 @@ describe("Ssh auth prompt FIFO controller", () => {
     expect(getSshAuthPromptSnapshot().currentPrompt?.promptId).toBe("keep-me");
   });
 
+  it("advances to the next prompt when a connection dismisses the current one", () => {
+    __resetSshAuthPromptsForTests();
+    const { callbacks } = installPromptListenerHarness();
+    emitPrompt(callbacks, makePasswordPrompt({ promptId: "removed" }));
+    emitPrompt(callbacks, makePasswordPrompt({ promptId: "next" }));
+
+    callbacks.get("sshAuth.dismissed")?.({ promptId: "removed" });
+    expect(getSshAuthPromptSnapshot().pendingPrompts.map((prompt) => prompt.promptId)).toEqual([
+      "next",
+    ]);
+  });
+
   it("replaces duplicate prompt ids in place for retry state", () => {
     __resetSshAuthPromptsForTests();
     const { callbacks } = installPromptListenerHarness();
@@ -83,11 +95,11 @@ function ExtractPasswordPrompt(
 }
 
 function installPromptListenerHarness(): {
-  callbacks: Map<string, (prompt: SshAuthPrompt) => void>;
+  callbacks: Map<string, (payload: unknown) => void>;
 } {
-  const callbacks = new Map<string, (prompt: SshAuthPrompt) => void>();
+  const callbacks = new Map<string, (payload: unknown) => void>();
   const listen = ((channel: string, event: string, callback: (prompt: unknown) => void) => {
-    callbacks.set(`${channel}.${event}`, callback as (prompt: SshAuthPrompt) => void);
+    callbacks.set(`${channel}.${event}`, callback);
     return () => {};
   }) as typeof ipcListen;
 
@@ -96,7 +108,7 @@ function installPromptListenerHarness(): {
 }
 
 function emitPrompt(
-  callbacks: Map<string, (prompt: SshAuthPrompt) => void>,
+  callbacks: Map<string, (payload: unknown) => void>,
   prompt: SshAuthPrompt,
 ): void {
   const callback = callbacks.get("sshAuth.prompt");

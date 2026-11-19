@@ -374,6 +374,8 @@ export class WorkspaceManager {
    */
   private readonly daemonStopsByLocation = new Map<string, Promise<void>>();
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
+  /** Bootstrap still owns its SSH/WSL processes until it hands off the channel. */
+  private readonly remoteBootstrapControllers = new Map<string, AbortController>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   // ControlMasters handed off from an SSH browse session, keyed by workspace
   // id, awaiting their first provider boot. Consumed by startRemoteProvider.
@@ -479,6 +481,7 @@ export class WorkspaceManager {
    */
   close(): void {
     for (const [id, ctx] of this.contexts) {
+      this.remoteBootstrapControllers.get(id)?.abort(createWorkspaceRemovedError(id));
       this.cancelSshReauth(id);
       this.clearDegradedRecovery(id);
       ctx.close();
@@ -1134,6 +1137,7 @@ export class WorkspaceManager {
     // The PTY host emits pty.exit events for each live session so the
     // renderer's dead-terminal banner fires without waiting for IPC.
     this.ptySessionCloser?.(id);
+    this.remoteBootstrapControllers.get(id)?.abort(createWorkspaceRemovedError(id));
     this.cancelSshReauth(id);
     this.clearDegradedRecovery(id);
 
@@ -1509,9 +1513,13 @@ export class WorkspaceManager {
     // skip the interactive auth round entirely (no second password prompt).
     const adoptedMaster = this.adoptedSshMasters.get(meta.id);
     this.adoptedSshMasters.delete(meta.id);
+    const controller = new AbortController();
+    this.remoteBootstrapControllers.set(meta.id, controller);
+    const signal = controller.signal;
     let bootstrap: EnsureRemoteAgentResult;
-    const onProgress = (event: LspBootstrapProgressEvent) =>
-      this.broadcastConnectionProgress(meta.id, event);
+    const onProgress = (event: LspBootstrapProgressEvent) => {
+      if (!signal.aborted) this.broadcastConnectionProgress(meta.id, event);
+    };
     try {
       bootstrap =
         location.kind === "wsl"
@@ -1521,6 +1529,7 @@ export class WorkspaceManager {
                 remotePath: location.remotePath,
                 cachedRemoteArch: location.remoteArch,
                 workspaceId: meta.id,
+                signal,
               },
               { onProgress },
             )
@@ -1539,6 +1548,7 @@ export class WorkspaceManager {
                 // `~/.nexus-code/shim/shared/`, making them available to the
                 // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
                 workspaceId: meta.id,
+                signal,
               },
               { onProgress },
             );
@@ -1550,6 +1560,8 @@ export class WorkspaceManager {
       if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
       if (!this.sshReauth.has(meta.id)) this.broadcastConnectionStatus(meta.id, "error");
       throw error;
+    } finally {
+      this.remoteBootstrapControllers.delete(meta.id);
     }
     // ensureRemoteAgent only returns a dispose handle for a master it
     // authenticated itself. When we supplied an adopted master, wire its
@@ -1576,6 +1588,10 @@ export class WorkspaceManager {
       this.globalStorage.updateWorkspace(meta.id, { location: providerMeta.location });
       ctx.setMeta(providerMeta);
       this.broadcastFn("workspace", "changed", providerMeta);
+    }
+    if (!this.isLiveContext(meta.id, ctx)) {
+      bootstrap.dispose?.();
+      throw createWorkspaceRemovedError(meta.id);
     }
     let channel: SshChannel;
     try {

@@ -19,7 +19,10 @@ const HOST_KEY_PROMPT_PATTERN =
 const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is:? (SHA256:[^\s.]+)/i;
 const DEFAULT_AUTH_TIMEOUT_MS = 30_000;
 
-export type SshAuthPromptHandler = (prompt: SshAuthPrompt) => Promise<SshAuthResponse>;
+export type SshAuthPromptHandler = (
+  prompt: SshAuthPrompt,
+  signal?: AbortSignal,
+) => Promise<SshAuthResponse>;
 export type SpawnPty = (
   command: string,
   args: string[],
@@ -32,6 +35,7 @@ export interface AuthenticateSshControlMasterDependencies {
   readonly unlink?: (path: string) => void;
   readonly promptIdPrefix?: string;
   readonly authTimeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -45,8 +49,10 @@ export function authenticateSshControlMaster(
   promptHandler: SshAuthPromptHandler,
   dependencies: AuthenticateSshControlMasterDependencies = {},
 ): Promise<SshControlMaster> {
+  const { signal } = dependencies;
+  if (signal?.aborted) return Promise.reject(signal.reason);
   if (dependencies.spawnPty === undefined && usesSsh2Client()) {
-    return authenticateSsh2Master(options, promptHandler);
+    return authenticateSsh2Master(options, promptHandler, { signal });
   }
   const master = createSshControlMaster(options, {
     spawn: dependencies.spawn,
@@ -54,12 +60,18 @@ export function authenticateSshControlMaster(
   });
   const spawnPty = dependencies.spawnPty ?? defaultSpawnPty;
   const authTimeoutMs = dependencies.authTimeoutMs ?? DEFAULT_AUTH_TIMEOUT_MS;
-  const ptyProcess = spawnPty("ssh", buildSshControlMasterArgs(master), {
-    name: "xterm-256color",
-    cols: 80,
-    rows: 24,
-    env: process.env,
-  });
+  let ptyProcess: IPty;
+  try {
+    ptyProcess = spawnPty("ssh", buildSshControlMasterArgs(master), {
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
+      env: process.env,
+    });
+  } catch (error) {
+    master.dispose();
+    return Promise.reject(error);
+  }
   const sessionPrefix = dependencies.promptIdPrefix ?? `ssh-auth:${master.controlPath}`;
 
   let buffer = "";
@@ -67,6 +79,8 @@ export function authenticateSshControlMaster(
   let promptInFlight = false;
 
   return new Promise<SshControlMaster>((resolve, reject) => {
+    const prompts = new AbortController();
+    const abort = () => failAuth(signal?.reason);
     const dataDisposable = ptyProcess.onData((chunk) => {
       buffer = trimAuthBuffer(buffer + chunk);
       void maybeHandlePrompt();
@@ -87,6 +101,8 @@ export function authenticateSshControlMaster(
       master.dispose();
       reject(createSshError(classifyPtyExit(buffer)));
     });
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
 
     async function maybeHandlePrompt(): Promise<void> {
       if (settled || promptInFlight) return;
@@ -96,7 +112,7 @@ export function authenticateSshControlMaster(
       promptInFlight = true;
       disarmAuthTimer();
       try {
-        const response = await promptHandler(prompt);
+        const response = await promptHandler(prompt, prompts.signal);
         if (settled) return;
         armAuthTimer();
         if (response.kind === "password" && prompt.kind === "password") {
@@ -136,7 +152,7 @@ export function authenticateSshControlMaster(
       authTimer = null;
     }
 
-    function failAuth(error: Error): void {
+    function failAuth(error: unknown): void {
       if (settled) return;
       cleanupListeners();
       settled = true;
@@ -146,6 +162,8 @@ export function authenticateSshControlMaster(
     }
 
     function cleanupListeners(): void {
+      signal?.removeEventListener("abort", abort);
+      prompts.abort();
       disarmAuthTimer();
       dataDisposable.dispose();
       exitDisposable.dispose();

@@ -177,6 +177,7 @@ export function testSshHandler(
         identityFile: testArgs.identityFile,
         authMode: testArgs.authMode,
         remotePath: testArgs.remotePath,
+        signal,
       });
       disposeBootstrap = bootstrap.dispose;
       throwIfAborted(signal);

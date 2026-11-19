@@ -129,11 +129,13 @@ function createAuthenticatedSshChannel(
   let disposeInnerLifecycle: (() => void) | null = null;
   let disposeMaster: (() => void) | null = null;
 
+  const auth = new AbortController();
   // Reached only when no controlPath was provided by the caller — i.e. the
   // bootstrap path was not used and we must authenticate our own ControlMaster.
   const ready = authenticateSshControlMaster(options, promptHandler, {
     ...dependencies.auth,
     spawn: dependencies.auth?.spawn ?? dependencies.spawn,
+    signal: auth.signal,
   })
     .then((master) => {
       if (disposed) {
@@ -161,6 +163,7 @@ function createAuthenticatedSshChannel(
     })
     .catch((error) => {
       rejectPendingCalls(error);
+      if (disposed) throw error;
       emitLifecycle({
         type: "failure",
         error: error instanceof Error ? error : createSshError("ssh.unknown", error),
@@ -212,6 +215,7 @@ function createAuthenticatedSshChannel(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      auth.abort(createDisposedError());
       rejectPendingCalls(createDisposedError());
       disposeInnerLifecycle?.();
       inner?.dispose();

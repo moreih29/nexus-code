@@ -36,11 +36,7 @@ import {
   ZSHENV_CONTENT,
   ZSHRC_CONTENT,
 } from "../../runtimeDirs";
-import {
-  type AuthenticateSshControlMasterDependencies,
-  authenticateSshControlMaster,
-  type SshAuthPromptHandler,
-} from "../auth-pty";
+import { authenticateSshControlMaster, type SshAuthPromptHandler } from "../auth-pty";
 import {
   absoluteRemotePath,
   agentArtifactKey,
@@ -73,6 +69,7 @@ import {
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
   type LspBootstrapProgressPhase,
+  REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS,
   REMOTE_AGENT_MANIFEST,
   REMOTE_AGENT_PROTOCOL_MAJOR,
   REMOTE_AGENT_ROOT,
@@ -126,7 +123,10 @@ interface ArtifactEnsureResult {
 // Process-wide deduplication of concurrent ensure() calls for the same
 // artifact on the same remote. Each key resolves to the in-flight promise
 // so multiple workspaces booting against the same host upload once.
-const artifactLocks = new Map<string, Promise<ArtifactEnsureResult>>();
+const artifactLocks = new Map<
+  string,
+  { ready: Promise<ArtifactEnsureResult>; signal?: AbortSignal }
+>();
 
 /**
  * Ensures the agent binary is present at the canonical path on the remote.
@@ -139,11 +139,31 @@ export async function ensureRemoteAgent(
   dependencies: SshBootstrapDependencies = {},
 ): Promise<EnsureRemoteAgentResult> {
   const context = await createBootstrapContext(options, dependencies);
-  const { runner, distDir, now, sshOptions, authenticatedMaster } = context;
+  const { distDir, now, authenticatedMaster } = context;
+  // Interactive authentication has its own timeout, paused for user input.
+  const deadline = new AbortController();
+  const timer = setTimeout(() => {
+    deadline.abort(
+      createSshError(
+        "transport.timeout",
+        new Error(`Remote agent bootstrap exceeded ${REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS}ms`),
+      ),
+    );
+  }, REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS);
+  timer.unref?.();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, deadline.signal])
+    : deadline.signal;
+  const sshOptions = { ...context.sshOptions, signal };
+  const runner: SshBootstrapRunner = (command, args, input) =>
+    untilAborted(() => context.runner(command, args, input, signal), signal);
 
   try {
+    signal.throwIfAborted();
     const localManifest = AgentManifestSchema.parse(
-      JSON.parse(await fs.readFile(path.join(distDir, "manifest.json"), "utf8")),
+      JSON.parse(
+        await fs.readFile(path.join(distDir, "manifest.json"), { encoding: "utf8", signal }),
+      ),
     );
     const platform = options.cachedRemoteArch ?? (await detectRemotePlatform(sshOptions, runner));
     const binary = findAgentBinary(localManifest, platform);
@@ -218,6 +238,7 @@ export async function ensureRemoteAgent(
       ? await ensureRemoteShimFiles(sshOptions, runner, remoteHome)
       : undefined;
 
+    signal.throwIfAborted();
     // On success, ownership of a ControlMaster authenticated *here* passes to
     // the caller via `dispose`. When the caller supplied its own controlPath
     // (a reused master), we surface that path back but no dispose handle —
@@ -241,7 +262,9 @@ export async function ensureRemoteAgent(
     // This function never returned, so the caller has no dispose handle.
     // Dispose the ControlMaster here before propagating the error.
     authenticatedMaster?.dispose();
-    throw error;
+    throw signal.aborted ? signal.reason : error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -420,6 +443,26 @@ export function buildRemoteAgentCommand(
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
+/** Waits for a bootstrap step while allowing the caller to abandon the wait. */
+async function untilAborted<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  if (!signal) return run();
+  let onAbort!: () => void;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const result = Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return run();
+    });
+    return await Promise.race([cancelled, result]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /**
  * Resolves the dependency defaults and, when this is the first call against
  * this remote in interactive mode, opens the ControlMaster up front so every
@@ -435,6 +478,7 @@ async function createBootstrapContext(
   readonly sshOptions: EnsureRemoteAgentOptions;
   readonly authenticatedMaster: Awaited<ReturnType<typeof authenticateSshControlMaster>> | null;
 }> {
+  options.signal?.throwIfAborted();
   const runner = dependencies.runner ?? defaultRunner;
   const distDir = dependencies.distDir ?? getAgentDistDir();
   const now = dependencies.now ?? (() => new Date());
@@ -444,7 +488,7 @@ async function createBootstrapContext(
     ? await authenticateSshControlMaster(
         options,
         dependencies.promptHandler as SshAuthPromptHandler,
-        dependencies.auth as AuthenticateSshControlMasterDependencies | undefined,
+        { ...dependencies.auth, signal: options.signal },
       )
     : null;
   const sshOptions = authenticatedMaster
@@ -513,16 +557,27 @@ async function ensureRemoteArtifact(
 ): Promise<ArtifactEnsureResult> {
   const lockKey = artifactLockKey(options, request.key, request.record.sha256);
   const existing = artifactLocks.get(lockKey);
-  if (existing) return existing;
+  if (existing) {
+    try {
+      return await untilAborted(() => existing.ready, options.signal);
+    } catch (error) {
+      // A cancelled installer releases the lock. A surviving workspace can
+      // take ownership with its own transport and remaining deadline.
+      if (existing.signal?.aborted && !options.signal?.aborted) {
+        return ensureRemoteArtifact(options, runner, now, request, onProgress);
+      }
+      throw error;
+    }
+  }
 
   const pending = ensureRemoteArtifactUnlocked(options, runner, now, request, onProgress).finally(
     () => {
-      if (artifactLocks.get(lockKey) === pending) {
+      if (artifactLocks.get(lockKey)?.ready === pending) {
         artifactLocks.delete(lockKey);
       }
     },
   );
-  artifactLocks.set(lockKey, pending);
+  artifactLocks.set(lockKey, { ready: pending, signal: options.signal });
   return pending;
 }
 

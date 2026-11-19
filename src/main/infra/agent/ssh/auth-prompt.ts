@@ -34,18 +34,31 @@ export class SshAuthPromptHub {
   }
 
   /** Broadcasts a validated prompt and waits for the renderer response. */
-  request(prompt: SshAuthPrompt): Promise<SshAuthResponse> {
+  request(prompt: SshAuthPrompt, signal?: AbortSignal): Promise<SshAuthResponse> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const parsed = SshAuthPromptSchema.parse(prompt);
     if (this.pending.has(parsed.promptId)) {
       throw new Error(`Duplicate SSH authentication prompt id: ${parsed.promptId}`);
     }
 
     return new Promise((resolve, reject) => {
+      const abort = () => {
+        this.pending.delete(parsed.promptId);
+        reject(signal?.reason);
+        this.broadcast("sshAuth", "dismissed", { promptId: parsed.promptId });
+      };
+      signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(parsed.promptId, {
         promptId: parsed.promptId,
         prompt: parsed,
-        resolve,
-        reject,
+        resolve: (response) => {
+          signal?.removeEventListener("abort", abort);
+          resolve(response);
+        },
+        reject: (error) => {
+          signal?.removeEventListener("abort", abort);
+          reject(error);
+        },
       });
       this.broadcast("sshAuth", "prompt", parsed);
     });
@@ -90,6 +103,6 @@ export function registerSshAuthPromptIpcChannels(hub: SshAuthPromptHub): void {
       cancel: (args) => hub.cancel(args),
       pending: () => hub.listPending(),
     },
-    listen: { prompt: {} },
+    listen: { prompt: {}, dismissed: {} },
   });
 }

@@ -657,6 +657,51 @@ describe("held-then-expired lifecycle", () => {
 });
 
 describe("workspace removed while its SSH agent is starting", () => {
+  test("cancels in-flight reauthentication when the workspace is removed", async () => {
+    const channel = new StubChannel();
+    const reauthStarted = Promise.withResolvers<void>();
+    const cancelBoot = mock(() => {});
+    const ptyReleaseHeld = mock((_id: string) => {});
+    const bootstrap = {
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+    };
+    const { manager, globalDb, broadcasts } = makeManager({
+      sshBootstrap: mock(async (options) => {
+        if (!options.cachedRemoteArch) return bootstrap;
+        return new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            cancelBoot();
+            reject(options.signal?.reason);
+          });
+          reauthStarted.resolve();
+        });
+      }),
+      sshChannelFactory: mock(() => channel),
+      ptyReleaseHeld,
+    });
+    const meta = makeSshMeta(manager);
+    const boot = manager.getAgentChannel(meta.id);
+    channel.resolveChannel();
+    await boot;
+    channel.emitLifecycle({
+      type: "failure",
+      error: Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" }),
+    });
+    await reauthStarted.promise;
+    const joined = manager.getAgentChannel(meta.id).catch((error: unknown) => error);
+    manager.remove(meta.id);
+
+    expect(cancelBoot).toHaveBeenCalledTimes(1);
+    expect(await joined).toMatchObject({ name: "AbortError" });
+    expect(ptyReleaseHeld).toHaveBeenCalledTimes(1);
+    expect(broadcasts.at(-1)?.event).toBe("removed");
+    globalDb.close();
+  });
+
   test("disposes the finished bootstrap and opens no channel", async () => {
     let resolveBootstrap!: (value: unknown) => void;
     const bootstrapDispose = mock(() => {});

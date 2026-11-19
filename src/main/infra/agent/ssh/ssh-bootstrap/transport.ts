@@ -8,13 +8,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { collectProcess } from "../../collect-process";
 import { createSshError } from "../../pipe";
 import { defaultSpawnSsh } from "../master";
-import type {
-  EnsureRemoteAgentOptions,
-  LspBootstrapProgressEvent,
-  SshBootstrapRunner,
-  SshBootstrapRunnerResult,
+import {
+  type EnsureRemoteAgentOptions,
+  type LspBootstrapProgressEvent,
+  REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS,
+  type SshBootstrapRunner,
+  type SshBootstrapRunnerResult,
 } from "./types";
 
 /**
@@ -26,26 +28,23 @@ export async function defaultRunner(
   command: string,
   args: string[],
   input?: Buffer | string,
+  signal?: AbortSignal,
 ): Promise<SshBootstrapRunnerResult> {
-  return new Promise((resolve, reject) => {
-    const child = defaultSpawnSsh(command, args, {
-      detached: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      const out = Buffer.concat(stdout).toString("utf8");
-      const err = Buffer.concat(stderr).toString("utf8");
-      if (code === 0) resolve({ stdout: out, stderr: err });
-      else reject(createSshError("ssh.unknown", new Error(err || `${command} exited ${code}`)));
-    });
-    if (input !== undefined) child.stdin.end(input);
-    else child.stdin.end();
+  signal?.throwIfAborted();
+  const child = defaultSpawnSsh(command, args, {
+    detached: false,
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  const { stdout, stderr, code } = await collectProcess(child, {
+    name: command,
+    input,
+    signal,
+    timeoutMs: REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS,
+  });
+  const err = stderr.toString("utf8").trim();
+  if (code !== 0)
+    throw createSshError("ssh.unknown", new Error(err || `${command} exited ${code}`));
+  return { stdout: stdout.toString("utf8"), stderr: err };
 }
 
 /** Runs one remote command through ssh with the standard transport args. */
