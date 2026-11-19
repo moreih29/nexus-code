@@ -229,6 +229,8 @@ func runDaemon(root string) {
 
 	// Step 6: bind the Unix socket. The run directory (0700) is already
 	// ensured above; explicit socket chmod 0600 guards against any umask.
+	// The socket trusts callers running as this user: they can already read
+	// the user's files, so the daemon requires no separate connection token.
 	ln, err := net.Listen("unix", paths.Sock)
 	if err != nil {
 		agentLogger.Error("daemon listen failed", "path", paths.Sock, "err", err)
