@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   claudeCommandsIn,
+  claudeConfigProblems,
   codexCommandsIn,
   codexMethodsIn,
   codexServiceTierCommandsIn,
 } from "../../../scripts/check-agent-commands";
+import { CONFIG_KEYS } from "../../../src/renderer/services/chat/claude-config";
 
 describe("Claude Code's commands, as its bundle defines them", () => {
   test("the type before the name, with aliases; one turned off is told", () => {
@@ -22,6 +24,34 @@ describe("Claude Code's commands, as its bundle defines them", () => {
     const bundle =
       'var s={name:"sandbox",get description(){let e=f();return e?"on":"off"},type:"local-jsx"};';
     expect(claudeCommandsIn(bundle)).toEqual([{ name: "sandbox", aliases: [] }]);
+  });
+});
+
+describe("Claude Code's /config keys", () => {
+  const keysThatRequireSignIn = [
+    "remoteControl",
+    "agentPushNotifEnabled",
+    "inputNeededNotifEnabled",
+    "promptSuggestionEnabled",
+  ];
+  const signedOutKeys = CONFIG_KEYS.filter(({ key }) => !keysThatRequireSignIn.includes(key));
+
+  test("allows the sign-in keys to be missing only when signed out", () => {
+    expect(claudeConfigProblems(signedOutKeys, true)).toEqual([]);
+    expect(claudeConfigProblems(signedOutKeys, false)).toEqual(
+      keysThatRequireSignIn.map(
+        (key) => `/config ${key}: Claude Code no longer lists it (CONFIG_KEYS)`,
+      ),
+    );
+  });
+
+  test("still flags missing ordinary keys and new keys when signed out", () => {
+    const listed = signedOutKeys.filter(({ key }) => key !== "theme");
+    expect(claudeConfigProblems([...listed, { key: "newKey", kind: "boolean" }], true)).toEqual([
+      "/config newKey: new; the settings dialog shows it under Other, its value read from nowhere (CONFIG_KEYS)",
+      "/config theme: Claude Code no longer lists it (CONFIG_KEYS)",
+    ]);
+    expect(claudeConfigProblems([], true)).toEqual(["/config: no keys in a bare /config's answer"]);
   });
 });
 
