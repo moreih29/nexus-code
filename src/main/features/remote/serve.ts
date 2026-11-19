@@ -478,7 +478,7 @@ export async function sendChat(
       "an agent's message is not held for after the turn; send it as next or now",
     );
   }
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const held =
     attached && ids.length > 0
       ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
@@ -504,7 +504,9 @@ export async function sendChat(
       ...(files.length > 0 ? { files } : {}),
       ...(when ? { when } : {}),
       // Held, it is dropped if control from other computers is turned off first.
-      ...(when === "after" && attached ? { device: attached.device } : {}),
+      ...(attached && (when === "after" || tab.type === "codex")
+        ? { device: attached.device }
+        : {}),
       ...(submission ? { submission } : {}),
     })
     .catch((error: unknown) => {

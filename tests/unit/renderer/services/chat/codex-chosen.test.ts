@@ -41,6 +41,9 @@ const { CodexController, closeCodexTab, codexController } = await import(
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 const { chatHandlers } = await import("../../../../../src/renderer/services/cli/chat-actions");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
+const { sendToAgentTab } = await import("../../../../../src/renderer/services/chat/agent-tab");
+const { chatPanelOf } = await import("../../../../../src/renderer/services/remote/chat-panel");
+const { chatPageOf } = await import("../../../../../src/renderer/services/remote/chat-page");
 type Controller = InstanceType<typeof CodexController>;
 
 let seq = 0;
@@ -185,6 +188,209 @@ describe("the pick a Codex tab keeps", () => {
 });
 
 describe("delivering a Codex queue entry", () => {
+  function line(c: Controller, message: Message, dir: "in" | "out" = "out") {
+    c.receive({ seq: ++lineSeq, dir, message } as never);
+    c.flushNow();
+  }
+
+  function item(
+    c: Controller,
+    type: string,
+    id: string,
+    phase: "started" | "completed" = "completed",
+    threadId = "t1",
+  ) {
+    line(c, {
+      method: `item/${phase}`,
+      params: { threadId, turnId: "turn-1", item: { id, type } },
+    });
+  }
+
+  function end(c: Controller, status = "completed") {
+    line(c, {
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "turn-1", status } },
+    });
+  }
+
+  function delivered() {
+    return sent.flatMap(({ method, params }) => {
+      if (method !== "turn/start" && method !== "turn/steer") return [];
+      const [input] = params?.input as { text: string }[];
+      return [{ method, text: input?.text, expectedTurnId: params?.expectedTurnId }];
+    });
+  }
+
+  async function running(c: Controller) {
+    await c.sendWithTiming("begin", [], "next", undefined, undefined, "first-id");
+    sent.length = 0;
+  }
+
+  test("steers in order on a tool completion in the current turn, using the edited text", async () => {
+    const c = tab();
+    await running(c);
+    item(c, "webSearch", "earlier");
+    await c.send("first");
+    await c.send("second");
+    await c.send("cancelled");
+    const [first, , cancelled] = c.state.queue;
+    c.editQueued(first.id, "edited");
+    c.removeQueued(cancelled.id);
+    item(c, "dynamicToolCall", "child", "completed", "child-thread");
+    item(c, "agentMessage", "text");
+    item(c, "commandExecution", "shell", "started");
+    expect(delivered()).toEqual([]);
+
+    item(c, "commandExecution", "shell");
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([
+      { method: "turn/steer", text: "edited", expectedTurnId: "turn-1" },
+      { method: "turn/steer", text: "second", expectedTurnId: "turn-1" },
+    ]);
+    expect(c.state.queue).toEqual([]);
+  });
+
+  test("an approval, its answer, and a declined tool leave the message held", async () => {
+    const c = tab();
+    await running(c);
+    item(c, "commandExecution", "shell", "started");
+    line(c, {
+      id: 10,
+      method: "item/commandExecution/requestApproval",
+      params: { threadId: "t1", turnId: "turn-1", itemId: "shell" },
+    });
+    await c.send("held");
+    item(c, "mcpToolCall", "other-tool");
+    expect(c.model.permissions).toHaveLength(1);
+    expect(delivered()).toEqual([]);
+
+    line(c, { id: 10, result: { decision: "decline" } }, "in");
+    item(c, "commandExecution", "shell");
+    expect(c.model.permissions).toEqual([]);
+    expect(delivered()).toEqual([]);
+    expect(c.state.queue.map(({ text }) => text)).toEqual(["held"]);
+
+    item(c, "webSearch", "search");
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([{ method: "turn/steer", text: "held", expectedTurnId: "turn-1" }]);
+  });
+
+  test.each([
+    "completed",
+    "interrupted",
+  ])("starts the next turn when a tool never completed (%s)", async (status) => {
+    const c = tab();
+    await running(c);
+    await c.send("next");
+    if (status === "interrupted") await c.interrupt();
+    end(c, status);
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([
+      { method: "turn/start", text: "next", expectedTurnId: undefined },
+    ]);
+  });
+
+  test("a rejected steer waits for the turn's end without letting later messages overtake it", async () => {
+    const c = tab(undefined, undefined, ({ method }) =>
+      method === "turn/steer"
+        ? { error: { code: -32602, message: "NonSteerableTurn" } }
+        : undefined,
+    );
+    await running(c);
+    await c.send("first");
+    await c.send("second");
+    item(c, "mcpToolCall", "call");
+    await Bun.sleep(0);
+    expect(c.state.queue[0]).toMatchObject({ text: "first" });
+    expect(c.state.queue[0].afterTool).toBeUndefined();
+    item(c, "webSearch", "search");
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([
+      { method: "turn/steer", text: "first", expectedTurnId: "turn-1" },
+    ]);
+    end(c);
+    await Bun.sleep(0);
+    expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text: "first" });
+    expect(c.state.queue.map(({ text }) => text)).toEqual(["second"]);
+  });
+
+  test("now steers without a tool and after-turn messages ignore tool completions", async () => {
+    const c = tab();
+    await running(c);
+    c.enqueue("after");
+    await c.sendNow("now");
+    item(c, "fileChange", "patch");
+    expect(delivered()).toEqual([{ method: "turn/steer", text: "now", expectedTurnId: "turn-1" }]);
+    end(c);
+    await Bun.sleep(0);
+    expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text: "after" });
+  });
+
+  test("an immediate follow-up during turn/start waits for that turn's id", async () => {
+    let accept!: (reply: { result: { turn: { id: string } } }) => void;
+    const starting = new Promise<{ result: { turn: { id: string } } }>((resolve) => {
+      accept = resolve;
+    });
+    const c = tab(undefined, undefined, ({ method }) =>
+      method === "turn/start" ? starting : undefined,
+    );
+    await c.send("begin");
+    await c.send("after tool");
+    const immediate = c.sendNow("now");
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([
+      { method: "turn/start", text: "begin", expectedTurnId: undefined },
+    ]);
+    accept({ result: { turn: { id: "turn-1" } } });
+    await immediate;
+    expect(delivered().at(-1)).toMatchObject({
+      method: "turn/steer",
+      text: "now",
+      expectedTurnId: "turn-1",
+    });
+    expect(c.state.queue.map(({ text }) => text)).toEqual(["after tool"]);
+  });
+
+  test("a remote submission keeps its nonce and id from the held panel to the conversation", async () => {
+    const workspaceId = "ws-codex-send-peer";
+    const { id: tabId } = useTabsStore.getState().createTab(workspaceId, {
+      type: "codex",
+      props: { cwd: "/p", threadId: "t1" },
+    });
+    const c = tab(undefined, undefined, undefined, { workspaceId, tabId });
+    await running(c);
+    const submission = { clientNonce: crypto.randomUUID(), clientDeviceId: "phone" };
+    const { heldId } = await sendToAgentTab(
+      workspaceId,
+      tabId,
+      { agent: "codex", controller: c },
+      "peer",
+      undefined,
+      [],
+      "next",
+      "phone",
+      submission,
+    );
+    const source = () => ({ agent: "codex" as const, title: "Codex", chat: c.state });
+    expect(heldId).toBeString();
+    expect(chatPanelOf(source()).held).toEqual([
+      { id: heldId as string, text: "peer", ...submission },
+    ]);
+    expect(c.state.queue[0].device).toBe("phone");
+
+    item(c, "dynamicToolCall", "call");
+    await Bun.sleep(0);
+    c.flushNow();
+    expect(chatPanelOf(source()).held).toBeUndefined();
+    expect(chatPageOf(source()).items).toContainEqual(
+      expect.objectContaining({
+        key: `u-peer-${heldId}`,
+        text: "peer",
+        ...submission,
+      }),
+    );
+  });
+
   test("keeps a rejected prompt and its image recoverable without retrying it", async () => {
     let rejectDelivery!: (reply: { error: { code: number; message: string } }) => void;
     const delivery = new Promise<{ error: { code: number; message: string } }>((resolve) => {
@@ -195,7 +401,7 @@ describe("delivering a Codex queue entry", () => {
         ? delivery
         : undefined,
     );
-    await c.sendPeer("first turn", [], "first-id");
+    await c.sendWithTiming("first turn", [], "next", undefined, undefined, "first-id");
     const images = [{ mediaType: "image/png", data: "image bytes" }];
     expect(c.enqueue("recover me", images, undefined, "phone", "queued-id")).toBe("queued-id");
 

@@ -733,7 +733,15 @@ export const Composer = memo(function Composer({
             {state.queue.map((item) => (
               <QueueRow
                 key={item.id}
-                label={item.status ? t(`chat.queue.${item.status}`) : t("chat.queue.after_turn")}
+                label={
+                  item.status
+                    ? t(`chat.queue.${item.status}`)
+                    : item.afterTool !== undefined
+                      ? t("chat.queue.after_tool")
+                      : program === "codex" && controller.submitPeer
+                        ? t("chat.queue.label")
+                        : t("chat.queue.after_turn")
+                }
                 item={item}
                 onEdit={item.status !== "sending" ? () => pullBack(item.id) : undefined}
                 onRemove={
@@ -1113,13 +1121,7 @@ function QueueRow({
 export const SEND_BUTTON_CLASS =
   "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40";
 
-/**
- * The box's main button, with the key that presses it. During a turn a
- * Claude tab's message waits for the call that runs, so its label says it
- * queues; a Codex tab's goes into the turn at once. It is drawn the same
- * either way: the chat shows a queued message as queued. Its tooltip tells
- * the other keys.
- */
+/** The box's main button and the keys for the available send timings. */
 function SendButton({
   running,
   waits,
@@ -1129,7 +1131,7 @@ function SendButton({
   keycap,
 }: {
   running: boolean;
-  /** During a turn, the message waits for the current call (Claude's ↩). */
+  /** During a turn, the message waits for a tool completion (↩). */
   waits: boolean;
   program: ChatAgent;
   onClick: () => void;

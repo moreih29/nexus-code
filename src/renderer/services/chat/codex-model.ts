@@ -43,6 +43,7 @@ import {
   emptyModel,
   type ImageBlock,
   type ModelInfo,
+  noteTurnActivity,
   num,
   type PermissionRequest,
   rec,
@@ -94,6 +95,8 @@ export interface CodexModel extends ChatModel {
   nativeTranscripts?: Record<string, ChatItem[]>;
   /** The turn that runs, to steer or stop. */
   turnId?: string;
+  /** Log sequence of the current turn's last tool completion. */
+  toolCompletedSeq?: number;
   /** What the program is signed in with (its kind only); null when it is not. */
   account?: { type: string } | null;
   /** The program needs a sign-in before a turn can run. */
@@ -224,6 +227,7 @@ export function applyCodexLine(
       draft.next.blocks = {};
       draft.next.forkSource = undefined;
       draft.next.turnId = undefined;
+      draft.next.toolCompletedSeq = undefined;
       draft.next.mcpServers = undefined;
       draft.next.mcpLogin = undefined;
     }
@@ -272,6 +276,7 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
           if (!m.running) {
             m.running = true;
             m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+            noteTurnActivity(m, at);
           }
         }
         return;
@@ -287,6 +292,7 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
   const { [key]: request, ...rest } = m.requests;
   m.requests = rest;
   m.permissions = m.permissions.filter((p) => p.requestId !== key);
+  noteTurnActivity(m, at);
   const decision = rec(message.result)?.decision;
   const itemId = str(request.params.itemId);
   if ((decision === "decline" || decision === "cancel") && itemId) {
@@ -503,6 +509,8 @@ function applyResponse(
         if (turnId && m.running) enterTurn(m, turnId);
         if (sent.request.threadId === m.threadId)
           rememberCollaborationEffort(m, sent.request.effort);
+      } else if (m.running && (turnId ?? sent.request.expectedTurnId) === m.turnId) {
+        noteTurnActivity(m, at);
       }
       const clientId = str(sent.request.clientUserMessageId);
       if (clientId) {
@@ -826,6 +834,7 @@ function applyNotification(
         m.running = true;
         m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
       }
+      noteTurnActivity(m, at);
       return;
     }
     case "turn/completed":
@@ -837,14 +846,21 @@ function applyNotification(
       const turnId = str(params.turnId) ?? m.turnId ?? "";
       if (item) {
         const when = num(item.startedAtMs) ?? at;
-        applyItem(
+        const completed = method === "item/completed";
+        const toolRan = applyItem(
           draft,
           turnId,
           item,
-          method === "item/started" ? "started" : "completed",
+          completed ? "completed" : "started",
           tag,
           when,
         );
+        if (m.running && turnId === m.turnId) {
+          noteTurnActivity(m, at);
+          if (completed && toolRan && m.permissions.length === 0) {
+            m.toolCompletedSeq = seq;
+          }
+        }
       }
       return;
     }
@@ -854,6 +870,7 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "text", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
+      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
       if (m.turn) {
         m.turn = { ...m.turn, outputTokens: m.turn.outputTokens + Math.ceil(delta.length / 4) };
       }
@@ -865,6 +882,7 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "thinking", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
+      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
       if (m.turn) {
         const thinkingTokens = m.turn.thinkingTokens + Math.ceil(delta.length / 4);
         m.turn = { ...m.turn, thinkingTokens };
@@ -874,6 +892,7 @@ function applyNotification(
     case "item/reasoning/summaryPartAdded": {
       const itemId = str(params.itemId);
       if (itemId && m.blocks[itemId]) appendText(draft, itemId, "thinking", "\n\n", "", tag, at);
+      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
       return;
     }
     case "item/commandExecution/outputDelta": {
@@ -1009,6 +1028,7 @@ function applyNotification(
       if (m.requests[key]) {
         const { [key]: _resolved, ...rest } = m.requests;
         m.requests = rest;
+        noteTurnActivity(m, at);
       }
       m.permissions = m.permissions.filter((p) => p.requestId !== key);
       return;
@@ -1025,6 +1045,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   m.turn = null;
   m.streaming = null;
   m.interrupting = false;
+  m.toolCompletedSeq = undefined;
   if (!turnId || turnId === m.turnId) m.turnId = undefined;
   // The turn's questions end with it.
   const ended = Object.entries(m.requests).filter(([, r]) => r.params.turnId === turnId);
@@ -1075,7 +1096,7 @@ function applyItem(
   tag: string,
   at: number | undefined,
   discoverAgents = true,
-): void {
+): boolean | undefined {
   const m = draft.next;
   const id = str(item.id);
   if (!id) return;
@@ -1144,11 +1165,14 @@ function applyItem(
   if (discoverAgents) applyNativeAgentItem(m, item);
   const tools = toolsOf(item, id, phase);
   if (!tools) return;
+  const ran =
+    item.status !== "declined" && !tools.some((tool) => m.tools[tool.id]?.status === "denied");
   for (const tool of tools) {
     const known = m.tools[tool.id];
     draft.setTool(tool.id, (prev) => mergeTool(prev, tool));
     if (!known) addBlock(draft, turnId, { type: "tool", toolUseId: tool.id }, tag, at);
   }
+  return ran;
 }
 
 function applyNativeAgentItem(m: CodexModel, item: Rec): void {
@@ -1190,7 +1214,10 @@ function mergeTool(prev: ToolCall | undefined, next: ToolCall): ToolCall {
 
 /** Makes a turn the running one; its item ids are only known to be unique within it. */
 function enterTurn(m: CodexModel, turnId: string): void {
-  if (turnId !== m.turnId) m.blocks = {};
+  if (turnId !== m.turnId) {
+    m.blocks = {};
+    m.toolCompletedSeq = undefined;
+  }
   m.turnId = turnId;
 }
 
@@ -1590,6 +1617,7 @@ function applyServerRequest(draft: CodexDraft, key: string, method: string, para
   m.requests = { ...m.requests, [key]: { method, params } };
   const permission = permissionOf(m, key, method, params);
   if (permission) {
+    m.toolCompletedSeq = undefined;
     m.permissions = [...m.permissions.filter((p) => p.requestId !== key), permission];
   }
 }

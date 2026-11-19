@@ -134,7 +134,13 @@ export function chatInfoOf(
   }
   const answer = lastAnswer(model);
   const told = answer ? { message: answer } : {};
-  if (unseen || model.running || chat.phase === "starting" || chat.phase === "held") {
+  if (
+    unseen ||
+    model.running ||
+    chat.queue.some((item) => item.status === "sending") ||
+    chat.phase === "starting" ||
+    chat.phase === "held"
+  ) {
     return { agent, state: "working", ...told, ...at };
   }
   const error = turnError(model);

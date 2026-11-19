@@ -387,7 +387,7 @@ describe("chat panel", () => {
         "",
         "Context: 50,000 of 200,000 tokens (25%)\nPlan limits: session 34%, resets in 2h",
         "",
-        "Held for after the turn (chat unsend / chat edit <tab> <id>):\n  r7  then this [1 image]",
+        "Held messages (chat unsend / chat edit <tab> <id>):\n  r7  then this [1 image]",
       ].join("\n"),
     );
   });
