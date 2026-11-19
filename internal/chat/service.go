@@ -298,6 +298,8 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 		code := "chat.stdin-write-failed"
 		if written > 0 {
 			code = "chat.stdin-incomplete"
+			// The next request must not be appended to a partial JSON line.
+			_ = proc.stdin.Close()
 		}
 		failure, _ := json.Marshal(map[string]string{"event": "stdin-failed", "code": code})
 		sess.finishInput(slot, DirSys, failure)

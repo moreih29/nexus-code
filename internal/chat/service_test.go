@@ -251,6 +251,38 @@ type testStdin func([]byte) (int, error)
 func (w testStdin) Write(data []byte) (int, error) { return w(data) }
 func (w testStdin) Close() error                   { return nil }
 
+type partialStdin struct {
+	closed bool
+}
+
+func (p *partialStdin) Write(data []byte) (int, error) {
+	if p.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return len(data) - 1, io.ErrShortWrite
+}
+
+func (p *partialStdin) Close() error {
+	p.closed = true
+	return nil
+}
+
+func TestPartialWriteClosesTheUnframedStdin(t *testing.T) {
+	service := New()
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe := &partialStdin{}
+	sess.proc = &process{stdin: pipe}
+	if err := send(t, service, "tab", "partially written"); err == nil {
+		t.Fatal("partial write reported success")
+	}
+	if !pipe.closed {
+		t.Fatal("a subsequent message could be written onto the partial JSON line")
+	}
+}
+
 func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
 	service := New()
 	rec := newRecorder()
