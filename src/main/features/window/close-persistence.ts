@@ -1,5 +1,6 @@
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
+import { MAIN_QUIT_GRACE_MS } from "../../infra/main-shutdown";
 
 /** How long close waits for a renderer to finish its durable layout write. */
 const CLOSE_FLUSH_TIMEOUT_MS = 1_000;
@@ -24,11 +25,13 @@ export class ClosePersistence {
   private readonly requestedCloses = new Set<CloseWindow>();
   private replayingClose: CloseWindow | null = null;
   private quitPhase: "idle" | "flushing" | "closing" = "idle";
+  private startedQuitAt?: number;
   private nextAttempt = 1;
 
   constructor(
     private readonly warn: (message: string) => void,
     scheduler?: TimerScheduler,
+    private readonly now: () => number = () => performance.now(),
   ) {
     this.answers = new PendingRequestMap(scheduler);
   }
@@ -62,6 +65,7 @@ export class ClosePersistence {
    * windows first, then let one normal Electron quit run its close events.
    */
   interceptQuit(event: CloseEvent, windows: CloseWindow[], quit: () => void): void {
+    this.startedQuitAt ??= this.now();
     if (this.quitPhase === "closing" || windows.length === 0) return;
     event.preventDefault();
     if (this.quitPhase === "flushing") return;
@@ -80,7 +84,16 @@ export class ClosePersistence {
 
   /** A cancelled unload leaves subsequent close attempts eligible to flush again. */
   cancelQuit(): void {
-    if (this.quitPhase === "closing") this.quitPhase = "idle";
+    if (this.quitPhase === "closing") {
+      this.quitPhase = "idle";
+      this.startedQuitAt = undefined;
+    }
+  }
+
+  /** Counts the time spent preparing renderer closes toward the same quit deadline. */
+  remainingQuitMs(): number {
+    const elapsed = this.startedQuitAt === undefined ? 0 : this.now() - this.startedQuitAt;
+    return Math.max(0, MAIN_QUIT_GRACE_MS - elapsed);
   }
 
   /** Request at most one flush per window while a close or quit is pending. */

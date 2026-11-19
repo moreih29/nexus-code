@@ -104,6 +104,8 @@ export interface NotesFeature {
   forgetWorkspace(workspaceId: string): void;
   /** Releases the notes feature's process and recording state at app shutdown. */
   dispose(): void;
+  /** Waits for the note writes that were in progress at shutdown. */
+  waitForWrites(): Promise<void>;
   /** Makes a note, and tells the windows. */
   create(workspaceId: string, title: string): Promise<NoteContent>;
   /**
@@ -134,14 +136,21 @@ const IMAGE_EXTS: Readonly<Record<string, string>> = {
 };
 
 type NoteCall = (args: unknown, ctx?: CallContext) => unknown;
+type TrackWrite = <T>(write: () => Promise<T>) => Promise<T>;
 
 /** Reports expected note failures before they reach the router's bug handler. */
-function withNoteErrors(handlers: Record<string, NoteCall>): Record<string, NoteCall> {
+function withNoteErrors(
+  trackWrite: TrackWrite,
+  handlers: Record<string, NoteCall>,
+): Record<string, NoteCall> {
   return Object.fromEntries(
     Object.entries(handlers).map(([method, handler]) => [
       method,
       async (args: unknown, ctx?: CallContext) => {
         try {
+          if (NOTE_WRITE_CALLS.includes(method)) {
+            return await trackWrite(async () => handler(args, ctx));
+          }
           return await handler(args, ctx);
         } catch (error) {
           if (!(error instanceof NoteError)) throw error;
@@ -163,6 +172,15 @@ export function registerNotesChannel(opts: {
   workspaces: () => readonly WorkspaceMeta[];
 }): NotesFeature {
   const store = new NotesStore(path.join(opts.userData, "notes"), (dir) => shell.trashItem(dir));
+  const writes = new Set<Promise<unknown>>();
+  /** Keeps the entire write in the shutdown set, including any awaited reads. */
+  const trackWrite: TrackWrite = (write) => {
+    const pending = write();
+    writes.add(pending);
+    const forget = () => writes.delete(pending);
+    void pending.then(forget, forget);
+    return pending;
+  };
   const locationOf = (workspaceId: string): NoteLocation => {
     const all = opts.workspaces();
     const meta = all.find((w) => w.id === workspaceId);
@@ -194,61 +212,59 @@ export function registerNotesChannel(opts: {
     for (const r of recordings.values()) if (r.noteId === noteId) r.title = title;
   };
 
-  const attachPhoto: NotesFeature["attachPhoto"] = async (
-    workspaceId,
-    noteId,
-    bytes,
-    ext,
-    name,
-  ) => {
-    const location = locationOf(workspaceId);
-    const asset = await store.addPhoto(location, noteId, bytes, ext, name);
-    broadcast("notes", "photoAdded", {
-      locationKey: location.key,
-      noteId,
-      src: asset.src,
-      name: asset.name,
+  const attachPhoto: NotesFeature["attachPhoto"] = (workspaceId, noteId, bytes, ext, name) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      const asset = await store.addPhoto(location, noteId, bytes, ext, name);
+      broadcast("notes", "photoAdded", {
+        locationKey: location.key,
+        noteId,
+        src: asset.src,
+        name: asset.name,
+      });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+      return asset;
     });
-    changed({ locationKey: location.key, noteId, change: "saved" });
-    return asset;
-  };
 
-  const create: NotesFeature["create"] = async (workspaceId, title) => {
-    const location = locationOf(workspaceId);
-    const note = await store.create(location, title);
-    changed({ locationKey: location.key, noteId: note.id, change: "created" });
-    return note;
-  };
-  const append: NotesFeature["append"] = async (workspaceId, noteId, blocks, under) => {
-    const location = locationOf(workspaceId);
-    await store.appendBlocks(location, noteId, blocks, under);
-    broadcast("notes", "blocksAdded", {
-      locationKey: location.key,
-      noteId,
-      blocks: blocks as unknown as Record<string, unknown>[],
-      ...(under !== undefined ? { under } : {}),
+  const create: NotesFeature["create"] = (workspaceId, title) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      const note = await store.create(location, title);
+      changed({ locationKey: location.key, noteId: note.id, change: "created" });
+      return note;
     });
-    changed({ locationKey: location.key, noteId, change: "saved" });
-  };
-  const addAsset: NotesFeature["addAsset"] = async (workspaceId, noteId, bytes, name) => {
-    const location = locationOf(workspaceId);
-    // A note that is not there gets no file either.
-    await store.read(location, noteId);
-    const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
-    if (ext) {
-      const asset = await store.addImage(location, noteId, bytes, ext, name);
-      return { asset, block: imageBlock(asset) };
-    }
-    const asset = await store.addFileBytes(location, noteId, bytes, name);
-    return {
-      asset,
-      block: { type: "noteFile", attrs: { src: asset.src, name: asset.name, size: asset.size } },
-    };
-  };
+  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      await store.appendBlocks(location, noteId, blocks, under);
+      broadcast("notes", "blocksAdded", {
+        locationKey: location.key,
+        noteId,
+        blocks: blocks as unknown as Record<string, unknown>[],
+        ...(under !== undefined ? { under } : {}),
+      });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+    });
+  const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      // A note that is not there gets no file either.
+      await store.read(location, noteId);
+      const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
+      if (ext) {
+        const asset = await store.addImage(location, noteId, bytes, ext, name);
+        return { asset, block: imageBlock(asset) };
+      }
+      const asset = await store.addFileBytes(location, noteId, bytes, name);
+      return {
+        asset,
+        block: { type: "noteFile", attrs: { src: asset.src, name: asset.name, size: asset.size } },
+      };
+    });
 
   register("notes", {
     keepOnRendererClose: NOTE_WRITE_CALLS,
-    call: withNoteErrors({
+    call: withNoteErrors(trackWrite, {
       list: async (args: unknown) => {
         const { workspaceId } = validateArgs(c.list.args, args);
         return ipcOk(await store.list(locationOf(workspaceId)));
@@ -474,6 +490,11 @@ export function registerNotesChannel(opts: {
     attachPhoto,
     recording,
     forgetWorkspace,
+    waitForWrites: async () => {
+      const results = await Promise.allSettled(writes);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
+    },
     dispose: () => {
       pendingRecordings.clear();
       recordings.clear();
