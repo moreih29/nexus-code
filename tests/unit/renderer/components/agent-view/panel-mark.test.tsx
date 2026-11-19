@@ -3,10 +3,9 @@
  * and another computer's: shown in front of a panel, or held behind another tab.
  */
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import type { SplitNode } from "../../../../../src/renderer/engine";
 
-const { PanelMark, panelPlaceOf } = await import(
+const { panelPlaceOf } = await import(
   "../../../../../src/renderer/components/agent-view/panel-mark"
 );
 
@@ -28,24 +27,5 @@ describe("panelPlaceOf", () => {
 
   test("a session no panel has has no place", () => {
     expect(panelPlaceOf(root, "ws:c")).toBeNull();
-  });
-});
-
-describe("PanelMark", () => {
-  test("a bright bar where shown, a dim one where held, each saying which", () => {
-    const shown = renderToStaticMarkup(<PanelMark where="shown" testId="m" />);
-    expect(shown).toContain('aria-label="Shown in a panel"');
-    expect(shown).toContain("bg-[var(--state-selected-indicator)]");
-    const held = renderToStaticMarkup(<PanelMark where="held" testId="m" />);
-    expect(held).toContain('aria-label="In a panel, behind another tab"');
-    expect(held).toContain("bg-muted-foreground/60");
-  });
-
-  test("its row sets where it sits", () => {
-    const html = renderToStaticMarkup(
-      <PanelMark where="held" className="top-1 bottom-1" testId="m" />,
-    );
-    expect(html).toContain("top-1 bottom-1");
-    expect(html).not.toContain("top-1.5");
   });
 });

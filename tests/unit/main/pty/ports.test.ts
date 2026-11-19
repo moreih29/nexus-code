@@ -24,9 +24,8 @@ function host() {
 
 const TIMING = { settleMs: 50, busyPollMs: 100, portsPollMs: 150 };
 
-// The watcher's timers run on a fake clock: `wait` moves it on a few
-// milliseconds at a time, letting what each step starts settle, so the
-// watcher sees time pass as it would, without the test waiting for it.
+// Advance the fake clock in small steps so a lookup can settle and schedule
+// its next timer before the next step.
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
@@ -35,7 +34,10 @@ const STEP_MS = 5;
 async function wait(ms: number): Promise<void> {
   for (let passed = 0; passed < ms; passed += STEP_MS) {
     jest.advanceTimersByTime(Math.min(STEP_MS, ms - passed));
-    await new Promise((resolve) => setImmediate(resolve));
+    // Flush the delayed lookup, the answer, and the follow-up scheduling.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   }
 }
 

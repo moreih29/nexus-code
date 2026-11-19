@@ -5,7 +5,7 @@
  * defaults) waits for the introduction. The real ipc client is spread
  * under a spy, so later files keep its other exports.
  */
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 import { defaultProfileId } from "../../../../../src/shared/agent-profiles/profiles";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
@@ -70,6 +70,7 @@ let hostFolder: { canonicalCwd?: string } = {};
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
+  jest.useRealTimers();
   codex = undefined;
   sent.length = 0;
   starts.length = 0;
@@ -287,6 +288,7 @@ test("a busy metadata response blocks a historical rewind before paging", async 
 });
 
 test("child events refresh only that child, including an event during its cooldown", async () => {
+  jest.useFakeTimers();
   const children = ["child-a", "child-b"].map((id) => ({
     id,
     parentThreadId: "t1",
@@ -304,8 +306,13 @@ test("child events refresh only that child, including an event during its cooldo
     sent
       .filter(({ method }) => method === "thread/list" || method === "thread/read")
       .map(({ method, params }) => [method, (params as { threadId?: string }).threadId]);
-  await c.prepareSend();
-  await Bun.sleep(500);
+  const flushResponses = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const prepared = c.prepareSend();
+  await flushResponses();
+  jest.advanceTimersByTime(30); // initialize reply from tab()
+  await prepared;
+  jest.advanceTimersByTime(500);
+  await flushResponses();
   expect(childRequests()).toEqual([
     ["thread/list", undefined],
     ["thread/read", "child-a"],
@@ -328,10 +335,11 @@ test("child events refresh only that child, including an event during its cooldo
       params: { threadId: "t1", turnId: "parent-turn", itemId: "parent-message", delta: "token" },
     },
   } as never);
-  await Bun.sleep(500);
+  jest.advanceTimersByTime(500);
+  await flushResponses();
   expect(childRequests()).toEqual([]);
-  const deadline = Date.now() + 2_000;
-  while (childRequests().length === 0 && Date.now() < deadline) await Bun.sleep(25);
+  jest.advanceTimersByTime(2_000);
+  await flushResponses();
   expect(childRequests()).toEqual([["thread/read", "child-a"]]);
 });
 

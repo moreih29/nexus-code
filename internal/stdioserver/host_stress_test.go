@@ -133,6 +133,7 @@ func (r *constReader) Read(p []byte) (int, error) {
 // daemon's closes a channel and panics on a second call — and the host
 // context must be cancelled so the stuck handler can unwind.
 func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
+	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
 	var exits atomic.Int32
 	exited := make(chan struct{})
@@ -164,6 +165,7 @@ func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 // hooks from running: they are what kills the terminals and removes the
 // hook socket, and an exit without them left both behind.
 func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
+	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
 	exited := make(chan struct{})
 	host.SetExitFunc(func(int) { close(exited) })
@@ -188,6 +190,7 @@ func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
 
 // A shutdown hook that hangs cannot hold the exit off for good.
 func TestHungShutdownHookDoesNotHoldTheExit(t *testing.T) {
+	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
 	exited := make(chan struct{})
 	host.SetExitFunc(func(int) { close(exited) })
