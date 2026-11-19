@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -805,8 +806,13 @@ func mergeEnv(overrides map[string]string) []string {
 	}
 	// The app's wrapper directory goes first on this host's own PATH. The app
 	// cannot build that PATH: for an SSH workspace it is the remote's.
-	if dir := overrides[wrapperDirEnv]; dir != "" && !hasEnvKey(overrides, "PATH") {
-		prependPath(merged, dir)
+	if !hasEnvKey(overrides, "PATH") {
+		if dir := overrides[wrapperDirEnv]; dir != "" {
+			prependPath(merged, dir)
+		}
+		if dir := overrides["NEXUS_CMD_CODEX_DIR"]; runtime.GOOS == "windows" && dir != "" {
+			prependPath(merged, dir)
+		}
 	}
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"

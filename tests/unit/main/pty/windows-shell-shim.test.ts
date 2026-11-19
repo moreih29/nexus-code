@@ -18,6 +18,7 @@ const CMD_CLAUDE =
   `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
   `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
 const BIN = "C:\\Users\\me\\.nexus-code\\bin";
+const CMD_BIN = `${BIN}\\cmd`;
 const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
 const ENV = { NEXUS_IN_APP: "1", NEXUS_WRAPPER_SELF_DIR: LAUNCHERS, NEXUS_TAB_ID: "t" };
 
@@ -187,12 +188,12 @@ describe("applyWindowsShellShim", () => {
       shell: "pwsh.exe",
       env: ENV,
       settingsPath: SETTINGS,
-      codex: { cmd: false },
+      codex: {},
     });
     expect(decode(both.args)).toMatch(
       /^function global:claude \{[\s\S]*\nfunction global:codex \{/,
     );
-    const alone = applyWindowsShellShim({ shell: "pwsh.exe", env: ENV, codex: { cmd: false } });
+    const alone = applyWindowsShellShim({ shell: "pwsh.exe", env: ENV, codex: {} });
     expect(alone.args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
     expect(decode(alone.args)).toStartWith("function global:codex {");
     expect(decode(alone.args)).toContain(
@@ -201,18 +202,25 @@ describe("applyWindowsShellShim", () => {
     expect(alone.env).toEqual(ENV);
   });
 
-  test("cmd's codex macro, when the codex on PATH takes --no-daemon", () => {
+  test("cmd puts the Codex launcher on PATH and keeps the Claude macro", () => {
     const both = applyWindowsShellShim({
       shell: "cmd.exe",
       env: ENV,
       settingsPath: SETTINGS,
-      codex: { cmd: true },
+      codex: { cmdLauncherDir: CMD_BIN },
     });
-    expect(both.env.NEXUS_CMD_INIT).toBe(`${CMD_CLAUDE} & doskey codex=codex --no-daemon $*`);
-    const alone = applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: { cmd: true } });
-    expect(alone.env.NEXUS_CMD_INIT).toBe("doskey codex=codex --no-daemon $*");
-    expect(alone.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
-    expect(applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: { cmd: false } })).toEqual({
+    expect(both.env.NEXUS_CMD_INIT).toBe(CMD_CLAUDE);
+    expect(both.env.NEXUS_CMD_CODEX_DIR).toBe(CMD_BIN);
+    expect(both.env.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
+    const alone = applyWindowsShellShim({
+      shell: "cmd.exe",
+      env: ENV,
+      codex: { cmdLauncherDir: CMD_BIN },
+    });
+    expect(alone.env.NEXUS_CMD_INIT).toBeUndefined();
+    expect(alone.env.NEXUS_CMD_CODEX_DIR).toBe(CMD_BIN);
+    expect(alone.args).toBeUndefined();
+    expect(applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: {} })).toEqual({
       env: ENV,
       args: undefined,
     });
@@ -223,7 +231,7 @@ describe("applyWindowsShellShim", () => {
       shell: "C:\\Program Files\\Git\\bin\\bash.exe",
       env: ENV,
       wrapperDir: BIN,
-      codex: { cmd: false },
+      codex: {},
     });
     expect(gitBash.env.NEXUS_WRAPPER_SELF_DIR).toBe(BIN);
   });

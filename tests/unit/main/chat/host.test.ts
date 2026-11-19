@@ -350,7 +350,6 @@ describe("ChatHost", () => {
       windowsAgentFiles: async () => ({
         binDir: "C:\\Users\\u\\.nexus-code\\bin",
         settingsPath: "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
-        cmdCodexNoDaemon: false,
       }),
     });
     await host.start(WS, TAB, "C:\\repo", {});

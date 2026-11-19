@@ -233,7 +233,11 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
     `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
   const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
-  const files = async () => ({ binDir: BIN, settingsPath: SETTINGS, cmdCodexNoDaemon: true });
+  const files = async () => ({
+    binDir: BIN,
+    settingsPath: SETTINGS,
+    cmdLauncherDir: `${BIN}\\cmd`,
+  });
 
   test("PowerShell, the system default, is named and defines claude and codex", async () => {
     const { call, agent } = setup({ wrapper, windowsAgentFiles: files });
@@ -267,7 +271,7 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(BIN);
   });
 
-  test("cmd gets doskey macros", async () => {
+  test("cmd gets the Codex launcher directory and Claude macro", async () => {
     const { call, agent } = setup({
       wrapper,
       windowsAgentFiles: files,
@@ -277,16 +281,16 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
 
     const sent = agent.spawnCalls[0];
     expect(sent?.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
-    expect(sent?.env?.NEXUS_CMD_INIT).toBe(`${CMD_CLAUDE} & doskey codex=codex --no-daemon $*`);
+    expect(sent?.env?.NEXUS_CMD_INIT).toBe(CMD_CLAUDE);
+    expect(sent?.env?.NEXUS_CMD_CODEX_DIR).toBe(`${BIN}\\cmd`);
   });
 
-  test("cmd's codex is left as it is when the codex on PATH lacks --no-daemon", async () => {
+  test("cmd keeps the Claude macro when its Codex launcher is unavailable", async () => {
     const { call, agent } = setup({
       wrapper,
       windowsAgentFiles: async () => ({
         binDir: BIN,
         settingsPath: SETTINGS,
-        cmdCodexNoDaemon: false,
       }),
       defaultShell: { kind: "detected", id: "cmd" },
     });

@@ -34,6 +34,71 @@ export const CODEX_SERVER_ARGS = [
   "--no-daemon",
 ] as const;
 
+const CMD_LAUNCHER_MARK = "@rem nexus-code codex cmd launcher";
+export const CODEX_CMD_HELP_FILE = "codex-help.cmd";
+
+/** A subprocess runs the help probe even if the chosen Codex is a batch file. */
+export const CODEX_CMD_HELP = [
+  "@echo off",
+  "setlocal EnableExtensions DisableDelayedExpansion",
+  '"%nexus_codex_real%" --help',
+  "",
+].join("\r\n");
+
+/** A cmd launcher that dispatches to the first real Codex on PATH. */
+export const CODEX_CMD_LAUNCHER = [
+  CMD_LAUNCHER_MARK,
+  "@echo off",
+  "setlocal EnableExtensions DisableDelayedExpansion",
+  'set "nexus_codex_real="',
+  // Keep paths quoted, with delayed expansion off for literal ! characters.
+  'for /f "delims=" %%I in (\'"%SystemRoot%\\System32\\where.exe" codex 2^>nul\') do (',
+  '  if /i not "%%~fI"=="%~f0" (',
+  '    set "nexus_codex_copy="',
+  '    if /i "%%~xI"==".cmd" (',
+  `      "%SystemRoot%\\System32\\findstr.exe" /b /l /c:"${CMD_LAUNCHER_MARK}" "%%~fI" >nul 2>&1`,
+  '      if not errorlevel 1 set "nexus_codex_copy=1"',
+  "    )",
+  "    if not defined nexus_codex_copy (",
+  '      set "nexus_codex_real=%%~fI"',
+  "      goto :scan",
+  "    )",
+  "  )",
+  ")",
+  "echo codex: command not found 1>&2",
+  "exit /b 127",
+  ":scan",
+  'set "nexus_codex_arg=%~1"',
+  "if defined nexus_codex_arg goto :classify",
+  'if "%1"=="" goto :probe',
+  "goto :next",
+  ":classify",
+  "setlocal EnableDelayedExpansion",
+  ...CODEX_SERVER_ARGS.map((arg) => `if /i "!nexus_codex_arg!"=="${arg}" goto :unchanged`),
+  'if /i "!nexus_codex_arg:~0,9!"=="--remote=" goto :unchanged',
+  "endlocal",
+  ":next",
+  "shift /1",
+  "goto :scan",
+  ":unchanged",
+  "endlocal",
+  "goto :plain",
+  ":probe",
+  // Resolve the helper path inside the child cmd so its percent signs are
+  // data. The helper turns delayed expansion off before entering Codex.
+  `set "nexus_codex_help=%~dp0${CODEX_CMD_HELP_FILE}"`,
+  '"%ComSpec%" /d /v:on /s /c ""!nexus_codex_help!"" 2>nul | "%SystemRoot%\\System32\\findstr.exe" /l /c:"--no-daemon" >nul',
+  "if errorlevel 1 goto :plain",
+  // SHIFT preserves %*. Direct invocation preserves the raw argument list
+  // and lets an npm .cmd launcher take over with its own exit status.
+  '"%nexus_codex_real%" --no-daemon %*',
+  "exit /b %errorlevel%",
+  ":plain",
+  '"%nexus_codex_real%" %*',
+  "exit /b %errorlevel%",
+  "",
+].join("\r\n");
+
 /**
  * codex's options that take a value as the next argument, which the wrapper
  * steps over to find the command (hookclient's codexValueOptions).

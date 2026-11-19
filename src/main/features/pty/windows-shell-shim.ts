@@ -10,7 +10,7 @@
  * - Git Bash: the wrappers themselves, copied to ~/.nexus-code/bin, which
  *   the agent puts first on PATH in place of the nexus launchers' directory.
  * - PowerShell: `claude` and `codex` functions, defined as the shell starts.
- * - cmd: doskey macros.
+ * - cmd: a Claude doskey macro and a codex.cmd launcher on PATH.
  *
  * The last two hand claude the wrapper's hooks, kept in
  * ~/.nexus-code/claude-settings.json. Claude Code runs hook commands in Git
@@ -19,10 +19,15 @@
  * wrapper there, a file without an extension, for the program.
  */
 
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { CODEX_SERVER_ARGS, CODEX_WRAPPER } from "../../../shared/codex/wrapper";
+import {
+  CODEX_CMD_HELP,
+  CODEX_CMD_HELP_FILE,
+  CODEX_CMD_LAUNCHER,
+  CODEX_SERVER_ARGS,
+  CODEX_WRAPPER,
+} from "../../../shared/codex/wrapper";
 import { createLogger } from "../../../shared/log/main";
 import { getAgentBinDir } from "../../infra/agent/getAgentBinDir";
 import { binDir, ensureDir, root } from "../../infra/agent/runtimeDirs";
@@ -35,8 +40,8 @@ export interface WindowsAgentFiles {
   readonly binDir: string;
   /** The hooks settings file PowerShell and cmd pass to claude, if written. */
   readonly settingsPath?: string;
-  /** Whether the codex cmd finds takes --no-daemon. */
-  readonly cmdCodexNoDaemon: boolean;
+  /** The directory containing codex.cmd, added to cmd's PATH. */
+  readonly cmdLauncherDir?: string;
 }
 
 /**
@@ -73,11 +78,11 @@ export function installWindowsAgentFiles(): Promise<WindowsAgentFiles | null> {
       log.warn(`wrappers unavailable in Windows terminals: ${(error as Error).message}`);
       return null;
     }
-    const [settingsPath, cmdCodexNoDaemon] = await Promise.all([
+    const [settingsPath, cmdLauncherDir] = await Promise.all([
       installClaudeFiles(dir),
-      cmdCodexTakesNoDaemon(),
+      installCmdLauncher(path.join(dir, "cmd")),
     ]);
-    return { binDir: dir, settingsPath, cmdCodexNoDaemon };
+    return { binDir: dir, settingsPath, cmdLauncherDir };
   })();
   return installing;
 }
@@ -98,20 +103,17 @@ async function installClaudeFiles(dir: string): Promise<string | undefined> {
   }
 }
 
-/**
- * Whether the codex on PATH, as cmd finds it, has --no-daemon. A doskey
- * macro can't ask at each run, as the wrapper and the PowerShell function
- * do, so cmd's terminals go by what it had when the app started.
- */
-function cmdCodexTakesNoDaemon(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile(
-      "cmd.exe",
-      ["/d", "/s", "/c", "codex --help"],
-      { windowsHide: true, timeout: 5000 },
-      (_error, stdout) => resolve(String(stdout).includes("--no-daemon")),
-    );
-  });
+/** Installs the launcher in a directory used only by cmd terminals. */
+async function installCmdLauncher(dir: string): Promise<string | undefined> {
+  try {
+    await ensureDir(dir);
+    await fs.writeFile(path.join(dir, CODEX_CMD_HELP_FILE), CODEX_CMD_HELP);
+    await fs.writeFile(path.join(dir, "codex.cmd"), CODEX_CMD_LAUNCHER);
+    return dir;
+  } catch (error) {
+    log.warn(`codex launcher unavailable in cmd: ${(error as Error).message}`);
+    return undefined;
+  }
 }
 
 /**
@@ -169,10 +171,10 @@ export interface WindowsShellShimInput {
   /** The directory of the wrappers' copies, which Git Bash runs as `claude` and `codex`. */
   wrapperDir?: string;
   /**
-   * Codex's --no-daemon: PowerShell's function, and with `cmd` cmd's macro
-   * too. Without it codex is left as it is.
+   * Installs PowerShell's codex function and enables the cmd launcher when
+   * its directory is available.
    */
-  codex?: { readonly cmd: boolean };
+  codex?: { readonly cmdLauncherDir?: string };
   /** The ORIGINAL_PATH the shell inherits from the app, if any. */
   originalPath?: string;
 }
@@ -229,28 +231,21 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
 
   if (name === "cmd.exe") {
     if (args?.some((arg) => /^\/[ck]/i.test(arg))) return { env, args };
-    // cmd expands the variable in the /k command, and runs each macro's
-    // doskey in turn. Written out, the quotes around the path would reach
+    const cmdEnv = codex?.cmdLauncherDir
+      ? { ...env, NEXUS_CMD_CODEX_DIR: codex.cmdLauncherDir }
+      : env;
+    if (settingsPath === undefined) return { env: cmdEnv, args };
+    // cmd expands the variable in the /k command. Written out, the quotes around the path would reach
     // cmd escaped for a program, which cmd doesn't read. Inside a macro,
-    // `claude` and `codex` are the programs on PATH. A macro can't look at
-    // its arguments, so codex in cmd takes --no-daemon for `agents` and
-    // `queue` too, which refuse it, and claude's `-p` mark is left to the
+    // claude is the program on PATH, and its `-p` mark is left to the
     // hook client (internal/hookclient). claude carries the tab's mark
     // while it runs, as PowerShell's does: the escaped `&` joins the
     // commands of the macro, and its %NEXUS_TAB_ID% is expanded as it runs.
     // cmd expands a macro only as a line's first word: `cd x & claude` or a
     // .bat's claude runs without the settings, its hooks and all (docs/CLI.md).
-    const macros = [
-      ...(settingsPath !== undefined
-        ? [
-            `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`,
-          ]
-        : []),
-      ...(codex?.cmd ? ["doskey codex=codex --no-daemon $*"] : []),
-    ];
-    if (macros.length === 0) return { env, args };
+    const macro = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
     return {
-      env: { ...env, NEXUS_CMD_INIT: macros.join(" & ") },
+      env: { ...cmdEnv, NEXUS_CMD_INIT: macro },
       args: [...(args ?? []), "/k", "%NEXUS_CMD_INIT%"],
     };
   }
