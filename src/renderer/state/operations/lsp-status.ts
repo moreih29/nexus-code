@@ -121,10 +121,12 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
         actions: [
           {
             label: i18next.t("lsp.restart"),
+            dedupeKey: lspStatusKey(workspaceId, languageId),
             onAction: () => void ipcCallResult("lsp", "restartServer", { workspaceId, languageId }),
           },
           {
             label: i18next.t("lsp.openSettings"),
+            dedupeKey: "language-server-settings",
             onAction: () => useSettingsUIStore.getState().openSettingsAt("language-servers"),
           },
         ],
@@ -143,10 +145,12 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
       actions: [
         {
           label: i18next.t("lsp.restart"),
+          dedupeKey: lspStatusKey(workspaceId, languageId),
           onAction: () => void ipcCallResult("lsp", "restartServer", { workspaceId, languageId }),
         },
         {
           label: i18next.t("lsp.showLog"),
+          dedupeKey: lspStatusKey(workspaceId, languageId),
           onAction: () => useLspLogViewerStore.getState().open({ workspaceId, languageId }),
         },
       ],

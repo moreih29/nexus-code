@@ -66,6 +66,7 @@ function surfaceGitError(workspaceId: string, error: GitStoreError): void {
     actions: [
       {
         label: i18next.t("files:git.panelActions.openSourceControl"),
+        dedupeKey: `source-control:${workspaceId}`,
         onAction: () => revealSourceControl(workspaceId),
       },
     ],

@@ -7,13 +7,13 @@
  * Two toast varieties:
  *   - Plain (no actions): auto-dismisses on a timer; user can also click × to dismiss.
  *     Uses `role="status"` — polite announcement, non-interrupting.
- *   - Action (has actions array): never auto-dismisses; stays until the user explicitly
- *     closes it. Uses `role="alert"` — assertive announcement. Action buttons are
+ *   - Action (has actions array): has no timer. Uses `role="alert"` — assertive
+ *     announcement. Action buttons are
  *     keyboard-reachable via normal tab order.
  *
  * A toast may also carry `details`, the raw text behind its message, behind a
  * collapsed "Details" toggle. Such a toast never auto-dismisses either: the
- * user reads it at their own pace.
+ * user reads it at their own pace. The stack keeps up to five toasts.
  *
  * Why custom (not Radix Toast): we already follow the imperative-API
  * + singleton-Root pattern from save-confirm-dialog. Toast doesn't need
@@ -49,6 +49,8 @@ export interface ToastAction {
   label: string;
   /** Callback invoked when the user clicks the action button. */
   onAction: () => void;
+  /** Stable identity for callbacks that perform the same action on the same target. */
+  dedupeKey?: string;
 }
 
 export interface ToastInput {
@@ -102,13 +104,15 @@ interface ActiveToast {
    * The sweep timer skips entries where expiresAt === NEVER_EXPIRES.
    */
   expiresAt: number;
-  /** Action buttons, empty array for plain toasts. */
-  actions: ToastAction[];
+  /** The rendered snapshot only holds labels. */
+  actionLabels: string[];
   details?: string;
 }
 
 let nextId = 1;
 let active: ActiveToast[] = [];
+const MAX_ACTIVE_TOASTS = 5;
+const actionsByToast = new Map<number, ToastAction[]>();
 const bus = createListenerBus();
 const watchers = new Set<(toast: ToastInput) => void>();
 
@@ -130,12 +134,25 @@ function defaultDuration(kind: ToastKind): number {
   return TOAST_INFO_MS;
 }
 
+/** Compares both the visible labels and what each button acts on. */
+function sameActions(first: ToastAction[], second: ToastAction[]): boolean {
+  return (
+    first.length === second.length &&
+    first.every((action, index) => {
+      const candidate = second[index];
+      if (candidate?.label !== action.label) return false;
+      return action.dedupeKey !== undefined || candidate.dedupeKey !== undefined
+        ? action.dedupeKey === candidate.dedupeKey
+        : action.onAction === candidate.onAction;
+    })
+  );
+}
+
 /**
  * Imperative entry point; safe to call from any module. Returns the toast's
- * id, for `dismissToast`.
+ * id, for `dismissToast`. Repeats share the original toast's place in the stack.
  */
 export function showToast(input: ToastInput): number {
-  const id = nextId++;
   for (const watcher of watchers) watcher(input);
   const actions = input.actions ?? [];
 
@@ -146,6 +163,26 @@ export function showToast(input: ToastInput): number {
       ? NEVER_EXPIRES
       : Date.now() + (input.durationMs ?? defaultDuration(input.kind));
 
+  const duplicate = active.find(
+    (toast) =>
+      toast.kind === input.kind &&
+      toast.message === input.message &&
+      toast.details === input.details &&
+      sameActions(actionsByToast.get(toast.id) ?? [], actions),
+  );
+  if (duplicate) {
+    // Keep the action and the expanded Details state while a repeat is visible.
+    duplicate.expiresAt = expiresAt;
+    return duplicate.id;
+  }
+
+  const id = nextId++;
+  const oldest = active.at(0);
+  if (active.length === MAX_ACTIVE_TOASTS && oldest) {
+    actionsByToast.delete(oldest.id);
+    active = active.slice(1);
+  }
+  if (actions.length > 0) actionsByToast.set(id, [...actions]);
   active = [
     ...active,
     {
@@ -153,7 +190,7 @@ export function showToast(input: ToastInput): number {
       kind: input.kind,
       message: input.message,
       expiresAt,
-      actions,
+      actionLabels: actions.map(({ label }) => label),
       details: input.details,
     },
   ];
@@ -163,12 +200,18 @@ export function showToast(input: ToastInput): number {
 
 /** Removes a toast that no longer applies, e.g. an action toast. */
 export function dismissToast(id: number): void {
-  dismiss(id);
-}
-
-function dismiss(id: number): void {
+  if (!active.some((toast) => toast.id === id)) return;
+  actionsByToast.delete(id);
   active = active.filter((t) => t.id !== id);
   bus.notify();
+}
+
+/** Runs a button from a live toast and releases its actions as the toast closes. */
+export function runToastAction(id: number, index: number): void {
+  const action = actionsByToast.get(id)?.[index];
+  if (!action) return;
+  dismissToast(id);
+  action.onAction();
 }
 
 /** The stack's distance from the window's bottom at rest: above the status bar. */
@@ -217,8 +260,7 @@ export function ToastRoot(): React.JSX.Element | null {
   // Single periodic sweep keeps the dismissal logic in one place. We
   // don't bother with per-toast setTimeout — they'd race with manual
   // dismiss + the array would diverge from the timer set.
-  // Action toasts (expiresAt === NEVER_EXPIRES) are never swept — only
-  // explicit dismiss() calls remove them.
+  // Action and Details toasts stay out of the timed sweep.
   useEffect(() => {
     if (toasts.length === 0) return;
     const interval = setInterval(() => {
@@ -267,7 +309,7 @@ export function ToastRoot(): React.JSX.Element | null {
         // Plain toasts (including warning) use role="status" (polite) to avoid
         // interrupting flow — warning signals a user-decision point, not a
         // system failure requiring immediate attention (Nielsen H5 / WCAG).
-        const hasActions = toast.actions.length > 0;
+        const hasActions = toast.actionLabels.length > 0;
         const role: "alert" | "status" = hasActions ? "alert" : "status";
         // aria-live mirrors role: assertive for alert, polite for status.
         const ariaLive: "assertive" | "polite" = hasActions ? "assertive" : "polite";
@@ -298,7 +340,7 @@ export function ToastRoot(): React.JSX.Element | null {
                 variant="ghost"
                 size="icon-sm"
                 className="size-5 shrink-0 -mr-1 -mt-0.5 hover:bg-foreground/10"
-                onClick={() => dismiss(toast.id)}
+                onClick={() => dismissToast(toast.id)}
                 aria-label={t("action.dismiss")}
                 title={t("action.dismiss")}
               >
@@ -312,18 +354,15 @@ export function ToastRoot(): React.JSX.Element | null {
                 keyboard-reachable (natural tab order, no z-index tricks). */}
             {hasActions ? (
               <div className="flex items-center gap-2 flex-wrap">
-                {toast.actions.map((action) => (
+                {toast.actionLabels.map((label, index) => (
                   <Button
-                    key={action.label}
+                    key={label}
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 hover:bg-foreground/10"
-                    onClick={() => {
-                      action.onAction();
-                      dismiss(toast.id);
-                    }}
+                    onClick={() => runToastAction(toast.id, index)}
                   >
-                    {action.label}
+                    {label}
                   </Button>
                 ))}
               </div>

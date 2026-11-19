@@ -380,6 +380,7 @@ function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
     actions: [
       {
         label: i18next.t("common:action.copy_details"),
+        dedupeKey: clipboardDetail,
         // Writes internal context to clipboard — not to any visible surface.
         onAction: () => copyText(clipboardDetail),
       },
