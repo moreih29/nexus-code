@@ -56,7 +56,8 @@ function usageLine(command: CliCommand): string {
 function flagLines(flags: Record<string, FlagSpec>): string[] {
   const rows = Object.entries(flags).map(([name, spec]) => {
     const value = spec.type === "boolean" ? "" : ` ${spec.value ?? spec.type.toUpperCase()}`;
-    return [`--${name}${value}`, spec.description] as const;
+    const short = spec.short ? `-${spec.short}, ` : "";
+    return [`${short}--${name}${value}`, spec.description] as const;
   });
   const width = Math.max(0, ...rows.map(([left]) => left.length));
   return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`);

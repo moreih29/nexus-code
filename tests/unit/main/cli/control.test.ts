@@ -132,7 +132,7 @@ describe("changing another workspace", () => {
     expect(app.asked).toHaveLength(0);
   });
 
-  // Every command that takes --workspace, as run on a busy "api" with the user
+  // Every command that takes a local --workspace, as run on a busy "api" with the user
   // saying no: one that changes it asks first and changes nothing, one that
   // reads it runs through without asking. A new command fails until it is here.
   const CHANGES = `
@@ -176,7 +176,10 @@ describe("changing another workspace", () => {
         .split(/[|\n]/)
         .map((line) => line.trim())
         .filter(Boolean);
-    const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace).map((c) => c.path.join(" "));
+    // file pull.test.ts covers the remote-only --workspace on file pull.
+    const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace)
+      .map((c) => c.path.join(" "))
+      .filter((p) => p !== "file pull");
     const commandOf = (line: string) =>
       paths.filter((p) => `${line} `.startsWith(`${p} `)).sort((a, b) => b.length - a.length)[0];
     const runs = [

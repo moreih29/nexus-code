@@ -197,7 +197,9 @@ export async function askDevice<M extends RpcMethod>(
   device: CliDevice,
   method: M,
   given: RpcParams<M>,
+  signal?: AbortSignal,
 ): Promise<RpcResult<M>> {
+  signal?.throwIfAborted();
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
   // A read says who reads: a device whose user turned agents down is read by people alone.
@@ -225,9 +227,12 @@ export async function askDevice<M extends RpcMethod>(
         ? AGENT_REQUEST_MS
         : undefined;
   try {
-    return await ctx.services.remote.request(device.id, method, params, timeoutMs);
+    return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {
-    throw failureOf(device, method, error, ctx.services.clock.now());
+    signal?.throwIfAborted();
+    const failure = failureOf(device, method, error, ctx.services.clock.now());
+    if (failure !== error) failure.cause = error;
+    throw failure;
   }
 }
 
@@ -235,8 +240,9 @@ export async function askDevice<M extends RpcMethod>(
 export async function peerSessions(
   ctx: CliContext,
   device: CliDevice,
+  signal?: AbortSignal,
 ): Promise<{ workspaces: RemoteWorkspace[]; sessions: RemoteSession[] }> {
-  return askDevice(ctx, device, "sessions.list", {});
+  return askDevice(ctx, device, "sessions.list", {}, signal);
 }
 
 /** The workspace a --workspace flag names on `device`; "." is no workspace there. */

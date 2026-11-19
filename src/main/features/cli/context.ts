@@ -67,6 +67,7 @@ export interface CliRemote {
     method: M,
     params: RpcParams<M>,
     timeoutMs?: number,
+    signal?: AbortSignal,
   ): Promise<RpcResult<M>>;
 }
 
