@@ -95,6 +95,10 @@ type Host struct {
 	termOnce  sync.Once // ensures drainAndExit fires at most once
 	accepting bool      // accept new requests until SIGTERM flips this
 	acceptMu  sync.Mutex
+	regular   dispatchUsage
+	control   dispatchUsage
+	rejected  []string
+	rejecting bool
 
 	// shutdownHooks are run in order by drainAndExit right before it exits.
 	// os.Exit skips defers, so a resource that needs explicit cleanup, such
@@ -173,7 +177,7 @@ func (h *Host) idleElapsed(now time.Time) time.Duration {
 // backpressure, the goroutine calling WriteFrame will block on the OS
 // pipe write. This is the designed transport-level backpressure signal —
 // a backed-up pipe propagates naturally into handler goroutine
-// concurrency, which is bounded by the client request rate. SIGTERM
+// concurrency, which is bounded by the connection's dispatch budget. SIGTERM
 // triggers a 75 ms force-exit ceiling so no stuck goroutine can prevent
 // orderly shutdown.
 func (h *Host) WriteFrame(frame any) error {
@@ -259,8 +263,20 @@ func (h *Host) Run() {
 			continue
 		}
 		req, parseErr := proto.ParseRequest(line)
-		if !h.beginRequest() {
+		size := len(line)
+		finishRequest, accepting := h.beginRequest(req.Method, size)
+		if !accepting {
 			continue
+		}
+		if finishRequest == nil {
+			if !h.rejectBusy(requestID(line, req)) {
+				h.drainAndExit(TransportErrorExitCode)
+				return
+			}
+			continue
+		}
+		if parseErr == nil {
+			line = nil // The parsed envelope owns the data the handler needs.
 		}
 		var prev <-chan struct{}
 		var finish func()
@@ -268,7 +284,7 @@ func (h *Host) Run() {
 			prev, finish = h.enqueueOrdered(key)
 		}
 		go func() {
-			defer h.wg.Done()
+			defer finishRequest()
 			if finish != nil {
 				defer finish()
 				if prev != nil {
@@ -535,29 +551,106 @@ func (h *Host) InstallSigtermHandler() {
 // recoverable from the raw bytes so the client can still correlate.
 func (h *Host) handleRequest(line []byte, req proto.Request, err error) {
 	if err != nil {
-		id := proto.IDFromParsedFrame(line)
-		if id == "" {
-			id = proto.IDFromMalformedLine(string(line))
-		}
-		if id == "" {
-			id = proto.ProtocolErrorID
-		}
-		_ = h.WriteFrame(proto.ProtocolFailure(id, protocolMessage(err)))
+		_ = h.WriteFrame(proto.ProtocolFailure(requestID(line, req), protocolMessage(err)))
 		return
 	}
 
 	_ = h.WriteFrame(h.dispatcher.Dispatch(h.ctx, req))
 }
 
-// beginRequest reserves a drain slot before shutdown can begin waiting.
-func (h *Host) beginRequest() bool {
+// Dispatch admits four full desktop reconnect queues or two maximum frames.
+// Control traffic gets a separate budget so it can free regular slots.
+const (
+	maxDispatchRequests = 128
+	maxDispatchBytes    = 2 * maxLineBytes
+	maxControlRequests  = 32
+	maxControlBytes     = 1 << 20
+	maxBusyReplies      = 64
+	maxBusyIDBytes      = 4 << 10
+)
+
+type dispatchUsage struct {
+	requests int
+	bytes    int
+}
+
+// requestID recovers a request's correlation ID even from malformed input.
+func requestID(line []byte, req proto.Request) string {
+	if req.ID != "" {
+		return req.ID
+	}
+	if id := proto.IDFromParsedFrame(line); id != "" {
+		return id
+	}
+	if id := proto.IDFromMalformedLine(string(line)); id != "" {
+		return id
+	}
+	return proto.ProtocolErrorID
+}
+
+// beginRequest reserves a drain slot and the retained line's dispatch budget.
+func (h *Host) beginRequest(method string, size int) (release func(), accepting bool) {
 	h.acceptMu.Lock()
 	defer h.acceptMu.Unlock()
 	if !h.accepting {
+		return nil, false
+	}
+	usage, countLimit, byteLimit := &h.regular, maxDispatchRequests, maxDispatchBytes
+	switch method {
+	case "pty.ack", "search.cancel", "git.cancel", "lsp.cancel", "chat.stop", "lsp.shutdown":
+		usage, countLimit, byteLimit = &h.control, maxControlRequests, maxControlBytes
+	}
+	if usage.requests >= countLimit || size > byteLimit-usage.bytes {
+		return nil, true
+	}
+	usage.requests++
+	usage.bytes += size
+	h.wg.Add(1)
+	return func() {
+		h.acceptMu.Lock()
+		usage.requests--
+		usage.bytes -= size
+		h.acceptMu.Unlock()
+		h.wg.Done()
+	}, true
+}
+
+// rejectBusy keeps overload responses off the input loop. If the peer keeps
+// sending while refusing to drain the bounded reply queue, Run closes it.
+func (h *Host) rejectBusy(id string) bool {
+	h.acceptMu.Lock()
+	defer h.acceptMu.Unlock()
+	if !h.accepting {
+		return true
+	}
+	if len(h.rejected) >= maxBusyReplies || len(id) > maxBusyIDBytes {
 		return false
 	}
-	h.wg.Add(1)
+	h.rejected = append(h.rejected, id)
+	if !h.rejecting {
+		h.rejecting = true
+		h.wg.Add(1)
+		go h.writeBusyReplies()
+	}
 	return true
+}
+
+// writeBusyReplies writes correlated failures without holding admission locks.
+func (h *Host) writeBusyReplies() {
+	defer h.wg.Done()
+	for {
+		h.acceptMu.Lock()
+		if len(h.rejected) == 0 {
+			h.rejecting = false
+			h.acceptMu.Unlock()
+			return
+		}
+		id := h.rejected[0]
+		h.rejected[0] = ""
+		h.rejected = h.rejected[1:]
+		h.acceptMu.Unlock()
+		_ = h.WriteFrame(proto.Failure(id, proto.CodeUnavailable, "Agent is busy: dispatch limit exceeded"))
+	}
 }
 
 // isAccepting reports whether the loop should still spawn handlers.

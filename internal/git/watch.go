@@ -13,7 +13,10 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-const gitWatchDebounce = 300 * time.Millisecond
+const (
+	gitWatchDebounce     = 300 * time.Millisecond
+	maxDirtyRepositories = 128
+)
 
 type WatchParams struct {
 	GitDir string `json:"gitDir"`
@@ -162,8 +165,18 @@ func (s *Service) handleGitWatchEvent(entry *watchEntry, event fsnotify.Event) {
 	s.bufferGitDirty(entry.gitDir)
 }
 
+// bufferGitDirty coalesces repository refreshes until the batch fills. A
+// repository that cannot join the batch gets the same refresh immediately.
 func (s *Service) bufferGitDirty(gitDir string) {
 	s.mu.Lock()
+	if _, queued := s.gitDirty[gitDir]; !queued && len(s.gitDirty) >= maxDirtyRepositories {
+		sink := s.sink
+		s.mu.Unlock()
+		if sink != nil {
+			_ = sink("git.changed", ChangedPayload{GitDir: gitDir})
+		}
+		return
+	}
 	defer s.mu.Unlock()
 	s.gitDirty[gitDir] = struct{}{}
 	if s.timer != nil {
@@ -172,27 +185,27 @@ func (s *Service) bufferGitDirty(gitDir string) {
 	s.timer = time.AfterFunc(gitWatchDebounce, s.flushGitDirty)
 }
 
+// flushGitDirty allows at most one in-flight debounce batch, even when its
+// event sink is blocked. New notifications accumulate in the next batch.
 func (s *Service) flushGitDirty() {
 	s.mu.Lock()
-	s.timer = nil
-	if len(s.gitDirty) == 0 {
-		s.mu.Unlock()
-		return
-	}
-	dirty := make([]string, 0, len(s.gitDirty))
-	for gitDir := range s.gitDirty {
-		dirty = append(dirty, gitDir)
-	}
-	clear(s.gitDirty)
+	dirty := s.gitDirty
+	s.gitDirty = make(map[string]struct{})
 	sink := s.sink
 	s.mu.Unlock()
 
-	if sink == nil {
+	if sink != nil {
+		for gitDir := range dirty {
+			_ = sink("git.changed", ChangedPayload{GitDir: gitDir})
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.timer == nil || len(s.gitDirty) == 0 {
+		s.timer = nil
 		return
 	}
-	for _, gitDir := range dirty {
-		_ = sink("git.changed", ChangedPayload{GitDir: gitDir})
-	}
+	s.timer = time.AfterFunc(gitWatchDebounce, s.flushGitDirty)
 }
 
 // addGitWatchDirs watches root and the directories below it that

@@ -16,10 +16,7 @@ import (
 
 	"github.com/nexus-code/nexus-code/internal/msix"
 	"github.com/nexus-code/nexus-code/internal/proto"
-)
-
-const (
-	defaultStdoutCapBytes = 10 * 1024 * 1024
+	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
 type RunParams struct {
@@ -55,31 +52,22 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	defer done()
-	cmd, err := s.command(ctx, params.Args, params.Cwd, params.Env, params.Interactive)
+	cmdCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd, err := s.command(cmdCtx, params.Args, params.Cwd, params.Env, params.Interactive)
 	if err != nil {
 		return nil, err
 	}
 
-	stdoutCap := params.StdoutCapBytes
-	if stdoutCap <= 0 {
-		stdoutCap = defaultStdoutCapBytes
-	}
-	var stdout cappedBuffer
-	stdout.cap = stdoutCap
-	var stderr bytes.Buffer
+	stdoutCap := stdoutBudget(params.StdoutCapBytes)
+	stdout := cappedBuffer{cap: stdoutCap, cancel: cancel}
+	var stderr gitStderr
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if stdout.overflow {
-		return RunResult{
-			Stdout:       "",
-			Stderr:       stderr.String(),
-			Code:         0,
-			ErrorKind:    KindOutputTooLarge,
-			ErrorHint:    HintForKind(KindOutputTooLarge),
-			ErrorMessage: MessageForKind(KindOutputTooLarge, MessageContext{Args: params.Args, LimitBytes: stdoutCap}),
-		}, nil
+		return outputLimitResult(stderr.String(), stdoutCap), nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
@@ -91,9 +79,19 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	return buildRunResult(stdout.String(), stderr.String(), code, params.Args), nil
 }
 
+// outputLimitResult uses the existing classification for generic Git calls.
+func outputLimitResult(stderr string, limit int64) RunResult {
+	return RunResult{
+		Stderr:       stderr,
+		ErrorKind:    KindOutputTooLarge,
+		ErrorHint:    HintForKind(KindOutputTooLarge),
+		ErrorMessage: MessageForKind(KindOutputTooLarge, MessageContext{LimitBytes: limit}),
+	}
+}
+
 // buildRunResult attaches classification fields when Git exits unsuccessfully.
 func buildRunResult(stdout string, stderr string, code int, args []string) RunResult {
-	result := RunResult{Stdout: stdout, Stderr: stderr, Code: code}
+	result := RunResult{Stdout: stdout, Stderr: redact.Credentials(stderr), Code: code}
 	if code == 0 {
 		return result
 	}
@@ -122,18 +120,7 @@ func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env
 	if err != nil {
 		return "", "", 0, err
 	}
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", "", 0, ctxErr
-	}
-	code, fatal := gitExitCode(cmd.ProcessState, runErr)
-	if fatal != nil {
-		return "", "", 0, fatal
-	}
-	return outBuf.String(), errBuf.String(), code, nil
+	return runCapturedCommand(ctx, cmd)
 }
 
 // gitError converts a non-zero git exit into a typed CodedError using the
@@ -147,7 +134,7 @@ func gitError(args []string, stderr string, code int) error {
 		message = strings.TrimSpace(stderr)
 	}
 	if message == "" {
-		message = fmt.Sprintf("git %s exited with code %d", strings.Join(args, " "), code)
+		message = fmt.Sprintf("%s exited with code %d", renderGitCommand(args), code)
 	}
 	return classifiedFailure(kind, message)
 }
@@ -232,11 +219,15 @@ func gitTopLevel(ctx context.Context, root string) (string, error) {
 	cmd := exec.CommandContext(ctx, gitBinary(), "rev-parse", "--show-toplevel", "--show-cdup")
 	cmd.Dir = root
 	cmd.Env = gitEnv(nil, false, commandAskpass{})
-	out, err := cmd.Output()
+	cmd.WaitDelay = time.Second
+	out, stderr, code, err := runCapturedCommand(ctx, cmd)
 	if err != nil {
 		return "", err
 	}
-	lines := parseRevParseLines(string(out))
+	if code != 0 {
+		return "", gitError(cmd.Args[1:], stderr, code)
+	}
+	lines := parseRevParseLines(out)
 	cdup := ""
 	if len(lines) > 1 {
 		cdup = lines[1]
@@ -381,13 +372,14 @@ func mapGitStartError(err error, args []string) error {
 	if errors.Is(err, exec.ErrNotFound) {
 		return classifiedFailure(KindGitMissing, "git executable not found")
 	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
+	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: redact.Credentials(err.Error())}
 }
 
 type cappedBuffer struct {
 	buf      bytes.Buffer
 	cap      int64
 	overflow bool
+	cancel   context.CancelFunc
 }
 
 // String returns the captured stdout prefix.
@@ -397,18 +389,13 @@ func (b *cappedBuffer) String() string {
 
 // Write records stdout until the configured cap and detects overflow.
 func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if b.cap <= 0 {
-		return b.buf.Write(p)
-	}
-	remaining := b.cap - int64(b.buf.Len())
-	if remaining <= 0 {
-		b.overflow = true
-		return len(p), nil
-	}
-	if int64(len(p)) > remaining {
+	if remaining := b.cap - int64(b.buf.Len()); int64(len(p)) > remaining {
 		b.overflow = true
 		_, _ = b.buf.Write(p[:remaining])
-		return len(p), nil
+		if b.cancel != nil {
+			b.cancel()
+		}
+		return int(remaining), errGitOutputLimit
 	}
 	return b.buf.Write(p)
 }

@@ -291,6 +291,7 @@ export class AgentGitExecutor implements GitExecutor {
           env: normalizeEnv(options.env),
           interactive: options.interactive ?? false,
           streamStderr: options.streamStderr === true ? true : undefined,
+          stdoutCapBytes: options.stdoutCapBytes,
         },
         options.interactive ? INTERACTIVE_CALL_OPTIONS : undefined,
       )

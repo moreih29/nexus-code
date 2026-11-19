@@ -2,7 +2,6 @@ package git
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -93,24 +92,12 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		return cmd.Process.Kill()
 	}
-	// Use an exec-managed stdout pipe so Wait can observe Git's exit while
-	// the parser is still waiting for a helper's inherited pipe to close.
-	stdout, writer := io.Pipe()
-	defer stdout.Close()
-	defer writer.Close()
-	cmd.Stdout = writer
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stdout, finish, err := startGitOutput(streamCtx, cmd)
+	if err != nil {
 		return nil, mapGitStartError(err, args)
 	}
-	waited := make(chan error, 1)
-	go func() {
-		err := cmd.Wait()
-		_ = writer.Close()
-		waited <- err
-	}()
 
 	killedForLimit := false
 	result, readErr := s.consumeLogOutput(streamCtx, stdout, params, func() error {
@@ -122,8 +109,7 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		cancel()
 	}
 	// A page limit or sink error can stop the parser before it drains stdout.
-	_ = stdout.Close()
-	waitErr := <-waited
+	waitErr := finish()
 
 	if readErr != nil && !(killedForLimit && isClosedPipeReadError(readErr)) {
 		return nil, readErr
@@ -283,6 +269,7 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 	}
 	hasMore := false
 	batch := make([]LogEntry, 0, LogBatchSize)
+	batchBytes := 0
 
 	emitBatch := func() error {
 		if len(batch) == 0 {
@@ -290,6 +277,7 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 		}
 		entries := append([]LogEntry(nil), batch...)
 		batch = batch[:0]
+		batchBytes = 0
 		return s.emitLogBatch(params.StreamID, entries)
 	}
 
@@ -298,7 +286,10 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 		if err := ctx.Err(); err != nil {
 			return LogResult{}, err
 		}
-		record, err := scanner.ReadString(logRecordSeparator[0])
+		record, err := readLogRecord(scanner)
+		if errors.Is(err, errGitOutputLimit) {
+			return LogResult{}, outputLimitFailure(defaultStdoutCapBytes)
+		}
 		if len(record) > 0 {
 			record = strings.TrimSuffix(record, logRecordSeparator)
 			entry, ok := ParseLogRecord(record, hasSource)
@@ -313,7 +304,13 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 					}
 					break
 				} else {
+					if batchBytes+len(record) > defaultStdoutCapBytes {
+						if err := emitBatch(); err != nil {
+							return LogResult{}, err
+						}
+					}
 					batch = append(batch, entry)
+					batchBytes += len(record)
 					count++
 					if len(batch) >= LogBatchSize {
 						if err := emitBatch(); err != nil {
@@ -341,6 +338,21 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 		result.TotalScanned = &totalScanned
 	}
 	return result, nil
+}
+
+// readLogRecord bounds an individual commit record without limiting page scans.
+func readLogRecord(reader *bufio.Reader) (string, error) {
+	var record strings.Builder
+	for {
+		part, err := reader.ReadSlice(logRecordSeparator[0])
+		if record.Len()+len(part) > defaultStdoutCapBytes {
+			return "", errGitOutputLimit
+		}
+		_, _ = record.Write(part)
+		if err != bufio.ErrBufferFull {
+			return record.String(), err
+		}
+	}
 }
 
 func (s *Service) emitLogBatch(streamID string, entries []LogEntry) error {

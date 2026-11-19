@@ -32,17 +32,38 @@ export class GitError extends Error {
   readonly hint?: GitActionHint;
 
   constructor(kind: GitErrorKind, message: string, options: GitErrorOptions = {}) {
-    super(message, { cause: options.cause });
+    super(maskCredentials(message), { cause: options.cause });
     this.name = "GitError";
     this.kind = kind;
-    this.stderr = options.stderr ?? "";
+    this.stderr = maskCredentials(options.stderr ?? "");
     this.stdout = options.stdout ?? "";
     this.code = options.code ?? options.exitCode ?? null;
     this.exitCode = this.code;
     this.signal = options.signal ?? null;
-    this.argv = options.argv ?? [];
+    this.argv = options.argv?.map(maskArgument) ?? [];
     this.hint = options.hint;
   }
+}
+
+/** Masks credentials in diagnostics, including messages reconstructed from older agents. */
+function maskCredentials(text: string): string {
+  return text
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s?#"'<>]+@/gi, "$1[REDACTED]@")
+    .replace(
+      /(\bauthorization\b["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token)\s+)?|\bbearer\s+)[^\s"';,]+/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(\b(?:token|[a-z0-9_]+_(?:key|token|secret))\b["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^']*'|[^\s"'&;,<>]+)/gi,
+      "$1[REDACTED]",
+    );
+}
+
+/** Uses the argument boundary to cover unquoted assignment values containing spaces. */
+function maskArgument(arg: string): string {
+  return maskCredentials(
+    arg.replace(/(^|\s)([a-z0-9_]+_(?:key|token|secret)\s*=)[\s\S]+$/i, "$1$2[REDACTED]"),
+  );
 }
 
 /**
@@ -87,7 +108,7 @@ export function gitErrorFromAgentError(error: unknown): GitError | undefined {
 /**
  * Builds a minimal typed error for the local-process fallback that fires
  * when the agent envelope is unavailable. Stderr classification belongs to
- * the agent path; this helper carries the raw stream verbatim.
+ * the agent path; this helper carries the sanitized diagnostic.
  */
 export function gitErrorFromExit(options: {
   readonly args: readonly string[];
@@ -172,7 +193,7 @@ function processExitMessage(
 ): string {
   const trimmed = stderr.trim();
   if (trimmed.length > 0) return trimmed;
-  const renderedCommand = renderGitCommand(args);
+  const renderedCommand = renderGitCommand(args.map(maskArgument));
   if (signal) return `${renderedCommand} exited with signal ${signal}`;
   if (exitCode !== null) return `${renderedCommand} exited with code ${exitCode}`;
   return `${renderedCommand} failed`;

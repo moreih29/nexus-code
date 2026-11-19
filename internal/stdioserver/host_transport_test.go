@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // errReader returns a non-EOF error on the first Read, simulating an SSH
@@ -186,5 +188,71 @@ func TestLineReaderMatchesScanLines(t *testing.T) {
 	want := []got{{"a", false}, {"", false}, {"0123456789ab", true}, {"b", false}, {"c", false}}
 	if !reflect.DeepEqual(lines, want) {
 		t.Fatalf("lines = %#v, want %#v", lines, want)
+	}
+}
+
+// TestDispatchRejectsOverloadWithoutQueuingAck holds the ordered queue full
+// and verifies that an ACK still enters its handler.
+func TestDispatchRejectsOverloadWithoutQueuingAck(t *testing.T) {
+	in, writer := io.Pipe()
+	defer writer.Close()
+	out, replies := io.Pipe()
+	defer out.Close()
+	defer replies.Close()
+	d := dispatch.New()
+	release := make(chan struct{})
+	defer close(release)
+	acked := make(chan struct{})
+	d.RegisterOrdered("slow", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		select {
+		case <-release:
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	d.Register("pty.ack", func(context.Context, json.RawMessage) (any, error) {
+		close(acked)
+		return nil, nil
+	})
+	host := New(d, in, replies, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	host.SetExitFunc(func(int) {})
+	go host.Run()
+	go func() {
+		var frames strings.Builder
+		for i := 0; i < 128; i++ {
+			fmt.Fprintf(&frames, "{\"id\":\"%d\",\"method\":\"slow\"}\n", i)
+		}
+		frames.WriteString("{\"id\":\"overload\",\"method\":\"slow\"}\n{\"id\":\"ack\",\"method\":\"pty.ack\"}\n")
+		_, _ = io.WriteString(writer, frames.String())
+	}()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-acked:
+	case <-timer.C:
+		t.Fatal("ACK stalled behind regular requests")
+	}
+	got := make(chan proto.Response, 1)
+	go func() {
+		reader := json.NewDecoder(out)
+		for range 2 {
+			var response proto.Response
+			if reader.Decode(&response) != nil {
+				return
+			}
+			if response.ID == "overload" {
+				got <- response
+				return
+			}
+		}
+	}()
+	select {
+	case response := <-got:
+		if response.Error == nil || response.Error.Code != proto.CodeUnavailable {
+			t.Fatalf("overload response = %+v", response)
+		}
+	case <-timer.C:
+		t.Fatal("overload did not produce a rejection")
 	}
 }

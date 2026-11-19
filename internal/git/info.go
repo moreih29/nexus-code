@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -94,9 +94,10 @@ func inspectGitCandidate(ctx context.Context, candidate string) (string, string,
 
 	cmd := exec.CommandContext(ctx, abs, "--version")
 	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0")
-	var stdout bytes.Buffer
+	stdout := cappedBuffer{cap: defaultStdoutCapBytes}
 	cmd.Stdout = &stdout
-	if err := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run); err != nil {
+	cmd.WaitDelay = time.Second
+	if err := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run); stdout.overflow || err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return "", "", false
 	}
 
@@ -182,12 +183,17 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 	)
 	cmd.Env = withSafeGitConfig(cmd.Env)
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := cappedBuffer{cap: defaultStdoutCapBytes}
+	var stderr gitStderr
 	cmd.Stdout = &stdout
+	cmd.WaitDelay = time.Second
 	cmd.Stderr = &stderr
 
-	if runErr := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run); runErr != nil {
+	runErr := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run)
+	if stdout.overflow {
+		return "", "", outputLimitFailure(defaultStdoutCapBytes)
+	}
+	if runErr != nil && !errors.Is(runErr, exec.ErrWaitDelay) {
 		return "", "", runErr
 	}
 

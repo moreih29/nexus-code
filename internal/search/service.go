@@ -22,6 +22,7 @@ import (
 const (
 	defaultMaxResults   = 2000
 	defaultMaxFileSize  = 5 * 1024 * 1024
+	maxSearchFileSize   = 16 * 1024 * 1024
 	batchCountTrigger   = 50
 	batchMatchesTrigger = 200
 	batchTimeTrigger    = 30 * time.Millisecond
@@ -163,6 +164,9 @@ func (s *Service) Text(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	defer finish()
+	if p.Query.MaxFileSize > maxSearchFileSize {
+		return nil, proto.ProtocolError("search.text maxFileSize must be at most 16 MiB")
+	}
 	normalizeQuery(&p.Query)
 	re, err := compilePattern(p.Query)
 	if err != nil {
@@ -327,7 +331,10 @@ func (s *Service) walk(ctx context.Context, searchID string, q Query, re *regexp
 		if err != nil || info.Size() == 0 || info.Size() > q.MaxFileSize {
 			return nil
 		}
-		buf, err := readForSearch(abs, info.Size())
+		buf, err := readForSearch(ctx, abs, info.Size())
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || buf == nil {
 			return nil
 		}
@@ -395,7 +402,8 @@ func (s *Service) emitBatch(searchID string, state *batchState) {
 	}
 }
 
-func readForSearch(abs string, size int64) ([]byte, error) {
+// readForSearch probes binary files before reading the bounded text content.
+func readForSearch(ctx context.Context, abs string, size int64) ([]byte, error) {
 	file, err := os.Open(abs)
 	if err != nil {
 		return nil, err
@@ -407,7 +415,7 @@ func readForSearch(abs string, size int64) ([]byte, error) {
 		probeLen = size
 	}
 	probe := make([]byte, probeLen)
-	n, err := io.ReadFull(file, probe)
+	n, err := io.ReadFull(searchReader{ctx, file}, probe)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
@@ -421,7 +429,20 @@ func readForSearch(abs string, size int64) ([]byte, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return io.ReadAll(io.LimitReader(file, size))
+	return io.ReadAll(io.LimitReader(searchReader{ctx, file}, size))
+}
+
+// searchReader checks for cancellation between bounded reads.
+type searchReader struct {
+	ctx    context.Context
+	source io.Reader
+}
+
+func (r searchReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.source.Read(p[:min(len(p), 32<<10)])
 }
 
 func findMatches(buf []byte, re *regexp.Regexp, perFileCap int, remainingGlobal int) []Match {

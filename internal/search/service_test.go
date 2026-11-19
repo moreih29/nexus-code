@@ -158,3 +158,15 @@ func TestSplitLinesReusesCompiledPattern(t *testing.T) {
 		t.Fatalf("splitLines allocated %v times per call; the pattern is being recompiled", allocs)
 	}
 }
+
+// TestTextRejectsOversizedFileBudget checks the request fails before walking.
+func TestTextRejectsOversizedFileBudget(t *testing.T) {
+	service := mustSearch(t, t.TempDir())
+	_, err := service.Text(context.Background(), mustJSON(t, Params{
+		SearchID: "oversized-budget",
+		Query:    Query{Pattern: "needle", MaxFileSize: 16<<20 + 1},
+	}))
+	if err == nil || !strings.Contains(err.Error(), "16 MiB") {
+		t.Fatalf("expected a file budget error, got %v", err)
+	}
+}
