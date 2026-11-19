@@ -268,7 +268,7 @@ func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
 				return len(data), nil
 			}
 			// Simulates output the CLI produced before Write returned.
-			sess.addOutput([]byte(`{"type":"result"}`))
+			sess.addOutput(sess.proc, []byte(`{"type":"result"}`))
 			close(reading)
 			<-unblock
 			return len(data), nil
@@ -316,7 +316,7 @@ func TestFailedStdinWriteReplaysFailureInsteadOfApproval(t *testing.T) {
 			return 0, io.ErrClosedPipe
 		}),
 	}
-	sess.addOutput([]byte(`{"type":"control_request","request_id":"p","request":{"subtype":"can_use_tool"}}`))
+	sess.addOutput(sess.proc, []byte(`{"type":"control_request","request_id":"p","request":{"subtype":"can_use_tool"}}`))
 	params := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"type":"control_response","response":{"request_id":"p"}}}`)
 	if _, err := service.Send(context.Background(), params); err == nil {
 		t.Fatal("the write succeeded despite the broken pipe")
@@ -704,6 +704,25 @@ func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
 	case <-proc.done:
 		t.Fatal("stop released the process before publishing the exit")
 	default:
+	}
+}
+
+func TestDelayedStdoutCannotBeAttributedToTheReplacement(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &process{generation: "old"}
+	replacement := &process{generation: "current"}
+	sess.proc = replacement
+	sess.addOutput(old, []byte(`{"type":"result","subtype":"interrupted"}`))
+	sess.addOutput(replacement, []byte(`{"type":"result","subtype":"success"}`))
+	if len(rec.lines) != 1 || rec.lines[0].ProcessGeneration != "current" ||
+		!bytes.Contains(rec.lines[0].Message, []byte("success")) {
+		t.Fatalf("a delayed result was attributed to the replacement: %v", describe(rec.lines))
 	}
 }
 

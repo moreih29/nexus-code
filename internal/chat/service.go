@@ -249,7 +249,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stdoutDone)
-		sess.readStdout(stdout)
+		sess.readStdout(proc, stdout)
 	}()
 	go func() {
 		defer close(stderrDone)
@@ -582,16 +582,18 @@ func (sess *session) payload(e *entry) LinePayload {
 }
 
 // readStdout logs each line the program writes.
-func (sess *session) readStdout(stdout io.Reader) {
+func (sess *session) readStdout(proc *process, stdout io.Reader) {
 	reader := bufio.NewReaderSize(stdout, 64*1024)
 	for {
 		line, err := readLine(reader, maxLineBytes)
 		if len(line) > 0 {
-			sess.addOutput(line)
+			sess.addOutput(proc, line)
 		}
 		if errors.Is(err, errLineTooLong) {
 			sess.mu.Lock()
-			sess.addSysLocked(map[string]any{"event": "dropped", "reason": "line too long"})
+			if sess.proc == proc {
+				sess.addSysLocked(map[string]any{"event": "dropped", "reason": "line too long"})
+			}
 			sess.mu.Unlock()
 			continue
 		}
@@ -601,16 +603,20 @@ func (sess *session) readStdout(stdout io.Reader) {
 	}
 }
 
-func (sess *session) addOutput(line []byte) {
+// addOutput records only lines from the process that still owns the session.
+func (sess *session) addOutput(proc *process, line []byte) {
 	line = bytes.TrimRight(line, "\r\n")
 	if len(bytes.TrimSpace(line)) == 0 {
 		return
 	}
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
+	if sess.closed || sess.proc != proc {
+		return
+	}
 	if json.Valid(line) {
-		if sess.proc != nil && isCodexCompaction(line) {
-			sess.proc.codexCompactions.Add(1)
+		if isCodexCompaction(line) {
+			proc.codexCompactions.Add(1)
 		}
 		sess.addLocked(DirOut, json.RawMessage(line), "")
 		if sess.snaps != nil {
@@ -690,10 +696,12 @@ func (p *process) writeLocked(data []byte, context *codexContext) (int, error) {
 func (p *process) stop() {
 	p.stopOnce.Do(func() {
 		_ = p.signalTerm()
+		timer := time.NewTimer(stopGrace)
 		go func() {
+			defer timer.Stop()
 			select {
 			case <-p.done:
-			case <-time.After(stopGrace):
+			case <-timer.C:
 				p.kill()
 			}
 		}()

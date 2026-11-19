@@ -65,6 +65,7 @@ export type StartResult =
 interface Subscription {
   channel: AgentChannel;
   revision: number;
+  processes: Map<string, { generation: string; startSeq: number }>;
   dispose: () => void;
 }
 
@@ -78,7 +79,6 @@ export class ChatHost {
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly tabIntents = new Map<string, TabIntent>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
-  private readonly processGenerations = new Map<string, string>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
   private readonly disposeProviderReady: () => void;
@@ -319,7 +319,7 @@ export class ChatHost {
           ...(intent ? { tabGeneration: intent.generation } : {}),
         });
       } finally {
-        this.processGenerations.delete(key);
+        this.subscriptions.get(workspaceId)?.processes.delete(tabId);
         this.options.onProgramExit?.(workspaceId, tabId);
       }
     })();
@@ -515,27 +515,32 @@ export class ChatHost {
     this.subscriptions.clear();
     this.workspaces.clear();
     this.tabIntents.clear();
-    this.processGenerations.clear();
   }
 
   /** Drops exit and result events that belong to a replaced program. */
   private acceptProcessEvent(event: string, payload: Record<string, unknown>): boolean {
-    if (payload.replay === true || typeof payload.tabId !== "string") return true;
-    const key = `${payload.workspaceId}:${payload.tabId}`;
+    const { workspaceId, tabId, replay } = payload;
+    if (typeof workspaceId !== "string" || typeof tabId !== "string") return true;
+    const processes = this.subscriptions.get(workspaceId)?.processes;
+    if (!processes) return true;
+    const current = processes.get(tabId);
     const message = payload.message as { event?: unknown; processGeneration?: unknown } | undefined;
     if (event === "line" && payload.dir === "sys" && message?.event === "start") {
+      const startSeq = typeof payload.seq === "number" ? payload.seq : 0;
       if (typeof message.processGeneration === "string") {
-        this.processGenerations.set(key, message.processGeneration);
-      } else {
-        this.processGenerations.delete(key);
+        if (!replay || !current || startSeq > current.startSeq) {
+          processes.set(tabId, { generation: message.processGeneration, startSeq });
+        }
+      } else if (!replay) {
+        processes.delete(tabId);
       }
       return true;
     }
-    const current = this.processGenerations.get(key);
     return (
+      replay === true ||
       typeof payload.processGeneration !== "string" ||
       !current ||
-      current === payload.processGeneration
+      current.generation === payload.processGeneration
     );
   }
 
@@ -590,6 +595,7 @@ export class ChatHost {
     const subscription: Subscription = {
       channel,
       revision: 0,
+      processes: new Map(),
       dispose: () => {
         offLine();
         offExit();
@@ -615,6 +621,7 @@ export class ChatHost {
     switch (event.type) {
       case "reconnecting":
         subscription.revision += 1;
+        if (this.options.workspaceManager.isLocal?.(workspaceId)) subscription.processes.clear();
         this.options.broadcast("held", { workspaceId });
         return;
       case "ready":

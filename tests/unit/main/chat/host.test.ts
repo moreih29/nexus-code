@@ -544,6 +544,25 @@ describe("ChatHost", () => {
     expect(status).toEqual([`exit ${WS} ${TAB}`]);
   });
 
+  test("reattach recognizes a missed start without reverting to an older replayed process", async () => {
+    const { channel, host, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const start = (seq: number, generation: string, replay: boolean) =>
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        seq,
+        replay,
+        dir: "sys",
+        message: { event: "start", processGeneration: generation },
+      });
+    start(1, "old", false);
+    start(10, "current", true);
+    start(1, "old", true);
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "current" });
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+  });
+
   test("holds on reconnecting and resyncs when the agent is back", async () => {
     const { channel, events, host, providerReady } = setup();
     await host.start(WS, TAB, "/repo", {});
