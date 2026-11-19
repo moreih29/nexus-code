@@ -619,7 +619,7 @@ func (s *session) wiggleSIGWINCH() {
 	_ = setSize(cols, rows)
 }
 
-// write serializes and chunks input writes to preserve one-session input order.
+// write keeps each input frame whole even when multiple RPCs write at once.
 func (s *session) write(data []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
