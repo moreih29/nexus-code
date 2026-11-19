@@ -31,7 +31,7 @@ export interface LspHostHandle {
   rejectServerRequest: (id: string | number, message: string) => void;
   on: (event: string, cb: EventCallback) => () => void;
   isAlive: () => boolean;
-  dispose: () => void;
+  dispose: () => Promise<void> | void;
   /**
    * Dispose the LSP server for a single language within a workspace and
    * broadcast a workspaceLspReset event for that (workspace, language) pair.

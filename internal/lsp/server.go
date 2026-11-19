@@ -31,7 +31,9 @@ type serverProcess struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 
-	writeMu sync.Mutex
+	writeSlot chan struct{}
+	inputDone chan struct{}
+	abortOnce sync.Once
 
 	mu                              sync.Mutex
 	internalSeq                     uint64
@@ -76,6 +78,8 @@ func newServerProcess(service *Service, id string, p SpawnParams, idleTimeout ti
 		pendingServerRequests:           make(map[string]json.RawMessage),
 		pendingWatchedFileRegistrations: make(map[string][]watchedFileRegistration),
 		done:                            make(chan struct{}),
+		writeSlot:                       make(chan struct{}, 1),
+		inputDone:                       make(chan struct{}),
 	}
 }
 
@@ -192,7 +196,7 @@ func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, *Serve
 		}
 	}
 
-	if err := p.notify("initialized", map[string]any{}); err != nil {
+	if err := p.notify(ctx, "initialized", map[string]any{}); err != nil {
 		return nil, nil, err
 	}
 	return capabilities, serverInfo, nil
@@ -267,7 +271,7 @@ func (p *serverProcess) request(ctx context.Context, method string, params any) 
 		p.deleteInternal(key)
 		return nil, err
 	}
-	if err := p.sendRaw(raw); err != nil {
+	if err := p.sendRaw(ctx, raw); err != nil {
 		p.deleteInternal(key)
 		return nil, err
 	}
@@ -293,7 +297,7 @@ func (p *serverProcess) request(ctx context.Context, method string, params any) 
 	}
 }
 
-func (p *serverProcess) notify(method string, params any) error {
+func (p *serverProcess) notify(ctx context.Context, method string, params any) error {
 	message := struct {
 		JSONRPC string `json:"jsonrpc"`
 		Method  string `json:"method"`
@@ -307,10 +311,10 @@ func (p *serverProcess) notify(method string, params any) error {
 	if err != nil {
 		return err
 	}
-	return p.sendRaw(raw)
+	return p.sendRaw(ctx, raw)
 }
 
-func (p *serverProcess) cancel(requestID json.RawMessage) error {
+func (p *serverProcess) cancel(ctx context.Context, requestID json.RawMessage) error {
 	message := struct {
 		JSONRPC string `json:"jsonrpc"`
 		Method  string `json:"method"`
@@ -326,27 +330,59 @@ func (p *serverProcess) cancel(requestID json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	return p.sendRaw(raw)
+	return p.sendRaw(ctx, raw)
 }
 
-func (p *serverProcess) sendRaw(message json.RawMessage) error {
+// sendRaw bounds both writer acquisition and the pipe write. An interrupted
+// write may leave a partial frame, so that server's input is closed permanently.
+func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) error {
 	frame, err := EncodeRawMessage(message)
 	if err != nil {
 		return protocolError(err.Error())
 	}
 
-	p.mu.Lock()
-	exited := p.exited
-	p.mu.Unlock()
-	if exited {
+	writeCtx, cancel := context.WithTimeout(ctx, stdinWriteTimeout)
+	defer cancel()
+	select {
+	case p.writeSlot <- struct{}{}:
+		defer func() { <-p.writeSlot }()
+	case <-writeCtx.Done():
+		return writeCtx.Err()
+	case <-p.inputDone:
+		return requestFailed("lsp server input closed")
+	case <-p.done:
 		return requestFailed("lsp server exited")
 	}
-
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	_, err = p.stdin.Write(frame)
-	if err != nil {
-		return requestFailed("lsp write failed: %s", err)
+	if err := writeCtx.Err(); err != nil {
+		return err
 	}
-	return nil
+	select {
+	case <-p.inputDone:
+		return requestFailed("lsp server input closed")
+	case <-p.done:
+		return requestFailed("lsp server exited")
+	default:
+	}
+
+	// A write deadline is unavailable on some child pipes. Keep the waiter
+	// cancellable independently of the OS write and abort the pipe on timeout.
+	written := make(chan error, 1)
+	go func() {
+		_, err := p.stdin.Write(frame)
+		written <- err
+	}()
+	select {
+	case err := <-written:
+		if err != nil {
+			return requestFailed("lsp write failed: %s", err)
+		}
+		return nil
+	case <-writeCtx.Done():
+		p.abortInput()
+		return writeCtx.Err()
+	case <-p.inputDone:
+		return requestFailed("lsp server input closed")
+	case <-p.done:
+		return requestFailed("lsp server exited")
+	}
 }

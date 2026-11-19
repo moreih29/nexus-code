@@ -10,9 +10,9 @@
  * and tests (ad-hoc). Keeping path resolution outside this module also makes
  * the channel a thin glue layer that is straightforward to fake in unit tests.
  *
- * Lifecycle mirrors `ssh-channel`: a SIGTERM-then-SIGKILL dispose path, a
- * `failure` lifecycle event on spawn or terminal pipe errors, and an `exit`
- * event for clean closes that happened after `ready` settled.
+ * Disposal lets stdin EOF run the local agent's shutdown hooks before the
+ * hard-kill fallback. Transport failures and clean closes surface through the
+ * shared channel lifecycle.
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -24,6 +24,38 @@ import {
   type AgentReconnectOptions,
   createReconnectingProcessChannel,
 } from "./reconnecting-process-channel";
+
+// Allow the Go host's 75 ms request drain and 3 s of shutdown hooks to finish.
+const LOCAL_AGENT_SHUTDOWN_MS = 3_500;
+const pendingLocalShutdowns = new Set<Promise<void>>();
+
+/** Waits for local agents already being disposed, including removed workspaces. */
+export async function waitForLocalAgentShutdowns(): Promise<void> {
+  await Promise.all(pendingLocalShutdowns);
+}
+
+/** Tracks EOF-driven shutdown until the agent closes or the kill deadline. */
+function finishLocalAgentShutdown(child: ChildProcessWithoutNullStreams): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const shutdown = new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      child.off("close", finish);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } finally {
+        finish();
+      }
+    }, LOCAL_AGENT_SHUTDOWN_MS);
+    timer.unref?.();
+    child.once("close", finish);
+  });
+  pendingLocalShutdowns.add(shutdown);
+  void shutdown.then(() => pendingLocalShutdowns.delete(shutdown));
+}
 
 export interface CreateLocalChannelOptions {
   /** Absolute path to the `agent` binary. Caller resolves dev/prod. */
@@ -73,6 +105,7 @@ export function createLocalChannel(
         cwd: options.cwd,
         env,
       }),
+    disposeChild: finishLocalAgentShutdown,
     // Local stderr is not classified — the binary writes only human-readable
     // hints (e.g. usage), and terminal failures surface via exit code below.
     classifyStderr: () => null,

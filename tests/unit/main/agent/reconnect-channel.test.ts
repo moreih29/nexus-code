@@ -2,7 +2,10 @@ import { describe, expect, it, jest } from "bun:test";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ChannelLifecycleEvent } from "../../../../src/main/infra/agent/channel/index";
-import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
+import {
+  createLocalChannel,
+  waitForLocalAgentShutdowns,
+} from "../../../../src/main/infra/agent/channel/local-channel";
 import { createSshChannel } from "../../../../src/main/infra/agent/ssh/channel";
 
 class FakeStream extends EventEmitter {
@@ -34,6 +37,9 @@ class FakeAgentChild extends EventEmitter {
   readonly stderr = new FakeStream();
   readonly stdin = new FakeStdin();
   readonly killSignals: string[] = [];
+  pid: number | undefined;
+  exitCode = null;
+  signalCode = null;
   killed = false;
 
   kill(signal?: NodeJS.Signals | number): boolean {
@@ -107,6 +113,33 @@ function makeSshHarness(
 }
 
 describe("agent channel reconnect queue", () => {
+  it("lets a local agent finish its shutdown hooks before forced disposal", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeLocalHarness();
+      const child = children[0]!;
+      child.pid = 123;
+      child.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+      await channel.ready;
+
+      channel.dispose();
+      expect(child.stdin.ended).toBe(true);
+      let finished = false;
+      const shutdown = waitForLocalAgentShutdowns().then(() => {
+        finished = true;
+      });
+      jest.advanceTimersByTime(3_075);
+      expect(child.killSignals).toEqual([]);
+      await flushMicrotasks();
+      expect(finished).toBe(false);
+      jest.advanceTimersByTime(500);
+      await shutdown;
+      expect(child.killSignals).toEqual(["SIGKILL"]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("queues local calls during reconnect and flushes them after the new agent is ready", async () => {
     jest.useFakeTimers();
     try {

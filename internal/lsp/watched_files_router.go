@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path"
@@ -57,7 +58,7 @@ func (s *Service) HandleFSChanged(payload agentfs.FsChangedPayload) error {
 			continue
 		}
 		server.resetIdleTimer()
-		if err := server.notify(methodDidChangeWatchedFiles, didChangeWatchedFilesParams{Changes: changes}); err != nil {
+		if err := server.notify(context.Background(), methodDidChangeWatchedFiles, didChangeWatchedFilesParams{Changes: changes}); err != nil {
 			errs = append(errs, err)
 		}
 	}

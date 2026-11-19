@@ -78,6 +78,8 @@ export interface ChannelCloseContext {
 
 export interface ReconnectingProcessChannelOptions {
   readonly spawn: () => ChildProcessWithoutNullStreams;
+  /** Starts transport-specific cleanup after stdin has been ended. */
+  readonly disposeChild?: (child: ChildProcessWithoutNullStreams) => void;
   readonly classifyStderr: StderrClassifier;
   readonly closeError: (wasReady: boolean, context?: ChannelCloseContext) => Error;
   /**
@@ -192,7 +194,10 @@ export function createReconnectingProcessChannel(
       active?.pipe.dispose();
       if (active && !active.child.stdin.destroyed) active.child.stdin.end();
       if (!terminalError) emitLifecycle({ type: "disposed" });
-      if (active) terminateChild(active);
+      if (active && !active.closed) {
+        if (options.disposeChild) options.disposeChild(active.child);
+        else terminateChild(active);
+      }
     },
   };
 

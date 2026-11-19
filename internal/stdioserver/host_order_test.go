@@ -81,18 +81,84 @@ func TestRunKeepsOrderedMethodsInArrivalOrder(t *testing.T) {
 	}
 }
 
-func TestMethodAtStart(t *testing.T) {
-	cases := map[string]string{
-		`{"id":"r-1","method":"lsp.notify","params":{"serverId":"lsp-1"}}`: "lsp.notify",
-		` { "id" : "r-\"2" , "method" : "lsp.send" }`:                      "lsp.send",
-		// The method must follow the id: one inside params is not it.
-		`{"params":{"id":"x","method":"lsp.send"},"id":"r-3","method":"fs.readFile"}`: "",
-		`{"method":"lsp.send","id":"r-4"}`:                                            "",
-		`not json`:                                                                    "",
+// TestOrderedRequestsStayWithTheirServer verifies that LSP document updates,
+// requests and cancellations for one server can pass a stalled peer's queue.
+// The stalled queue's next request is discarded when the host cancels.
+func TestOrderedRequestsStayWithTheirServer(t *testing.T) {
+	type params struct {
+		ServerID string `json:"serverId"`
+		Step     string `json:"step"`
 	}
-	for line, want := range cases {
-		if got := methodAtStart([]byte(line)); got != want {
-			t.Errorf("methodAtStart(%s) = %q, want %q", line, got, want)
+	started, release := make(chan struct{}), make(chan struct{})
+	steps := make(chan string, 4)
+	d := dispatch.New()
+	for _, method := range []string{"lsp.notify", "lsp.send", "lsp.cancel"} {
+		d.RegisterOrderedBy(method, func(_ context.Context, raw json.RawMessage) (any, error) {
+			var p params
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return nil, err
+			}
+			if p.Step == "stall" {
+				close(started)
+				<-release
+			} else {
+				steps <- p.Step
+			}
+			return struct{}{}, nil
+		}, func(raw json.RawMessage) string {
+			var p params
+			_ = json.Unmarshal(raw, &p)
+			return p.ServerID
+		})
+	}
+	in, feed := io.Pipe()
+	defer feed.Close()
+	host := New(d, in, io.Discard, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ended := make(chan struct{})
+	host.exit = func(int) { close(ended) }
+	go host.Run()
+	releaseStall := sync.OnceFunc(func() { close(release) })
+	defer releaseStall()
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+	write := func(method, server, step string) {
+		t.Helper()
+		// Parsing the full envelope keeps the order independent of key layout.
+		if _, err := fmt.Fprintf(feed, `{"method":%q,"id":%q,"params":{"serverId":%q,"step":%q}}`+"\n", method, step, server, step); err != nil {
+			t.Fatal(err)
 		}
+	}
+	write("lsp.notify", "stalled", "stall")
+	select {
+	case <-started:
+	case <-timeout.C:
+		t.Fatal("first request did not start")
+	}
+	write("lsp.send", "stalled", "obsolete")
+	write("lsp.notify", "healthy", "change")
+	write("lsp.send", "healthy", "request")
+	write("lsp.cancel", "healthy", "cancel")
+	for _, want := range []string{"change", "request", "cancel"} {
+		select {
+		case got := <-steps:
+			if got != want {
+				t.Fatalf("request %q ran before %q", got, want)
+			}
+		case <-timeout.C:
+			t.Fatalf("healthy server never handled %q", want)
+		}
+	}
+	host.cancel()
+	releaseStall()
+	_ = feed.Close()
+	select {
+	case <-ended:
+	case <-timeout.C:
+		t.Fatal("canceled host did not end")
+	}
+	select {
+	case got := <-steps:
+		t.Fatalf("canceled request ran: %q", got)
+	default:
 	}
 }

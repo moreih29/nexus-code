@@ -103,6 +103,7 @@ import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { registerWslChannel } from "./features/wsl/ipc";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
+import { waitForLocalAgentShutdowns } from "./infra/agent/channel/local-channel";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createSshChannel } from "./infra/agent/ssh/channel";
@@ -134,7 +135,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 /** Opens the app window again after every one was closed; set once the app is ready. */
 let reopenAppWindow: (() => void) | null = null;
+let quitStarted = false;
 app.on("second-instance", () => {
+  if (quitStarted) return;
   if (hasAppWindow()) showAppWindow();
   else reopenAppWindow?.();
 });
@@ -838,7 +841,7 @@ app.whenReady().then(async () => {
   // With every window closed, as macOS keeps the app running: a click on its
   // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
-    if (hasAppWindow()) return;
+    if (quitStarted || hasAppWindow()) return;
     const newWin = createMainWindow(stateService.getState());
     wireAutofetchWindowFocus(newWin);
     // Reuse the existing permission manager with the new window.
@@ -877,34 +880,59 @@ app.on("window-all-closed", () => {
   }
 });
 
-// Single dispose path on quit. Order: process hosts first (kill children),
-// then process-local watchers/coalescers, then the registry that owns repo
-// queues, then storage close. Each disposer must be idempotent so this stays
-// safe regardless of how far whenReady() progressed.
-//
 // `will-quit`, not `before-quit`: a window can still cancel the quit after
 // before-quit (unsaved buffers), which would leave the app running with its
 // agents, terminals and storage already torn down. will-quit fires only
 // once every window has closed.
-app.on("will-quit", () => {
-  sshBrowseRegistry.dispose();
-  cliFeature?.dispose();
-  disposeClaudeFeature?.();
-  portWatcher?.dispose();
-  portForwards?.dispose();
-  agentPtyHost?.dispose();
-  chatHost?.dispose();
-  agentProfiles?.dispose();
-  remote?.dispose();
-  lspHost?.dispose();
-  agentFsWatcher?.dispose();
-  gitStatusCoalescer?.clearAll();
-  gitWatcher?.dispose();
-  gitAutofetch?.dispose();
-  void gitHelpersIpc?.dispose();
-  gitRegistry?.disposeAll();
-  workspaceManager.close();
+let quitReady = false;
+app.on("will-quit", (event) => {
+  if (quitReady) return;
+  event.preventDefault();
+  if (quitStarted) return;
+  quitStarted = true;
+  void shutDownMain()
+    .catch((error) => logger.error("App shutdown failed", error))
+    .finally(() => {
+      quitReady = true;
+      app.quit();
+    });
 });
+
+// Match the Go LSP request, exit and forced-exit grace periods.
+const LSP_QUIT_GRACE_MS = 2_250;
+
+/** Lets LSP servers shut down over the live channels before disposing agents. */
+async function shutDownMain(): Promise<void> {
+  let lspDeadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    sshBrowseRegistry.dispose();
+    cliFeature?.dispose();
+    disposeClaudeFeature?.();
+    portWatcher?.dispose();
+    portForwards?.dispose();
+    agentPtyHost?.dispose();
+    chatHost?.dispose();
+    agentProfiles?.dispose();
+    remote?.dispose();
+    const lspShutdown = lspHost?.dispose();
+    agentFsWatcher?.dispose();
+    gitStatusCoalescer?.clearAll();
+    gitWatcher?.dispose();
+    gitAutofetch?.dispose();
+    void gitHelpersIpc?.dispose();
+    gitRegistry?.disposeAll();
+    if (lspShutdown) {
+      const deadline = new Promise<void>((resolve) => {
+        lspDeadline = setTimeout(resolve, LSP_QUIT_GRACE_MS);
+      });
+      await Promise.race([lspShutdown, deadline]);
+    }
+  } finally {
+    clearTimeout(lspDeadline);
+    workspaceManager.close();
+    await waitForLocalAgentShutdowns();
+  }
+}
 
 /**
  * BrowserWindow focus/blur globally pauses only scheduler due checks. Any

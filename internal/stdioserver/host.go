@@ -85,9 +85,9 @@ type Host struct {
 	// Guarded by outMu.
 	outClosed bool
 
-	// orderedTail is closed when the last ordered request so far has been
-	// handled; the next one waits on it. Only Run's goroutine touches it.
-	orderedTail chan struct{}
+	// Each queue's tail closes once its last request has been handled.
+	orderedMu   sync.Mutex
+	orderedTail map[string]chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -132,15 +132,16 @@ type Host struct {
 func New(d *dispatch.Dispatcher, in io.Reader, out io.Writer, logger *slog.Logger) *Host {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{
-		dispatcher: d,
-		in:         in,
-		out:        out,
-		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
-		accepting:  true,
-		exit:       os.Exit,
-		startMono:  time.Now(),
+		dispatcher:  d,
+		in:          in,
+		out:         out,
+		logger:      logger,
+		ctx:         ctx,
+		cancel:      cancel,
+		accepting:   true,
+		orderedTail: make(map[string]chan struct{}),
+		exit:        os.Exit,
+		startMono:   time.Now(),
 	}
 }
 
@@ -245,34 +246,56 @@ func (h *Host) Run() {
 		}
 		// Any inbound line proves the client is alive — reset the idle watchdog.
 		h.stampInbound()
-		if !h.isAccepting() {
-			continue
-		}
 		if tooLong {
-			h.rejectOversizedLine(line)
+			if h.isAccepting() {
+				h.rejectOversizedLine(line)
+			}
 			continue
 		}
-		h.wg.Add(1)
-		if h.dispatcher.Ordered(methodAtStart(line)) {
-			prev := h.orderedTail
-			done := make(chan struct{})
-			h.orderedTail = done
-			go func() {
-				defer h.wg.Done()
-				defer close(done)
-				if prev != nil {
-					<-prev
-				}
-				h.handleLine(line)
-			}()
+		req, parseErr := proto.ParseRequest(line)
+		if !h.beginRequest() {
 			continue
+		}
+		var prev <-chan struct{}
+		var finish func()
+		if key, ordered := h.dispatcher.OrderKey(req); parseErr == nil && ordered {
+			prev, finish = h.enqueueOrdered(key)
 		}
 		go func() {
 			defer h.wg.Done()
-			h.handleLine(line)
+			if finish != nil {
+				defer finish()
+				if prev != nil {
+					select {
+					case <-prev:
+					case <-h.ctx.Done():
+						return
+					}
+				}
+			}
+			if h.ctx.Err() == nil {
+				h.handleRequest(line, req, parseErr)
+			}
 		}()
 	}
 	h.drainAndExit(0)
+}
+
+// enqueueOrdered appends a request in input order and removes idle queues.
+func (h *Host) enqueueOrdered(key string) (<-chan struct{}, func()) {
+	h.orderedMu.Lock()
+	defer h.orderedMu.Unlock()
+	prev := h.orderedTail[key]
+	done := make(chan struct{})
+	h.orderedTail[key] = done
+	return prev, func() {
+		h.orderedMu.Lock()
+		defer h.orderedMu.Unlock()
+		close(done)
+		if h.orderedTail[key] == done {
+			delete(h.orderedTail, key)
+		}
+	}
 }
 
 // maxLineBytes caps one inbound request line. It matches the largest request
@@ -340,21 +363,6 @@ func dropCR(line []byte) []byte {
 // which is how the client serializes every request ({id, method, params}).
 // Anchoring keeps an "id" inside params from being mistaken for it.
 var requestIDAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"`)
-
-// requestMethodAtStart matches the method of a request line serialized as
-// {id, method, params}.
-var requestMethodAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*"method"\s*:\s*"([^"\\]*)"`)
-
-// methodAtStart returns the method of a request line without parsing the
-// rest of it, which can be megabytes of params, or "" when the line is not
-// laid out as the client writes requests. Such a line is not ordered.
-func methodAtStart(line []byte) string {
-	head := line[:min(len(line), lineHeadBytes)]
-	if match := requestMethodAtStart.FindSubmatch(head); match != nil {
-		return string(match[1])
-	}
-	return ""
-}
 
 // rejectOversizedLine answers a request line that exceeded maxLineBytes
 // with a protocol error when its id can be read from the line's head, so the
@@ -508,11 +516,10 @@ func (h *Host) InstallSigtermHandler() {
 	}()
 }
 
-// handleLine parses one NDJSON line, dispatches the request, and writes
+// handleRequest dispatches a parsed request and writes
 // the resulting response. Parse failures are reported with the best id
 // recoverable from the raw bytes so the client can still correlate.
-func (h *Host) handleLine(line []byte) {
-	req, err := proto.ParseRequest(line)
+func (h *Host) handleRequest(line []byte, req proto.Request, err error) {
 	if err != nil {
 		id := proto.IDFromParsedFrame(line)
 		if id == "" {
@@ -526,6 +533,17 @@ func (h *Host) handleLine(line []byte) {
 	}
 
 	_ = h.WriteFrame(h.dispatcher.Dispatch(h.ctx, req))
+}
+
+// beginRequest reserves a drain slot before shutdown can begin waiting.
+func (h *Host) beginRequest() bool {
+	h.acceptMu.Lock()
+	defer h.acceptMu.Unlock()
+	if !h.accepting {
+		return false
+	}
+	h.wg.Add(1)
+	return true
 }
 
 // isAccepting reports whether the loop should still spawn handlers.

@@ -13,6 +13,7 @@ const (
 
 	defaultIdleTimeout     = 30 * time.Minute
 	initializeTimeout      = 5 * time.Second
+	stdinWriteTimeout      = 2 * time.Second
 	shutdownRequestTimeout = 750 * time.Millisecond
 	shutdownExitGrace      = 750 * time.Millisecond
 

@@ -27,7 +27,7 @@ func TestServerRequestCorrelationCleansThousandRequests(t *testing.T) {
 	var writes bytes.Buffer
 	server := newServerProcess(service, "lsp-test", SpawnParams{}, 0)
 	server.stdin = bufferWriteCloser{Buffer: &writes}
-	service.storeServer(server)
+	service.servers[server.id] = server
 
 	const requestCount = 1000
 	for i := 0; i < requestCount; i++ {

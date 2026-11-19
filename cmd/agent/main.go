@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
@@ -182,18 +183,19 @@ func main() {
 		// 다른 서비스(fs/git/pty)의 SetEventSink와 같은 패턴.
 		hooksrv.SetEventSink(host.EmitEvent)
 	}
-	defer fsys.Close()
-	defer git.Close()
-	defer lsp.Close()
-	// PTY cleanup runs as a shutdown hook, not a defer: every termination path
-	// (EOF, SIGTERM, idle watchdog) ends in drainAndExit → os.Exit, which skips
-	// defers. Pdeathsig (Linux only) and the master-fd-close SIGHUP are not
-	// enough on their own — a non-Linux remote has no Pdeathsig, and a shell
-	// that ignores SIGHUP would orphan. The hook hangs up each shell and kills
-	// what is left of its session if it does not end (pty.Service.Close).
-	host.RegisterShutdownHook(pty.Close)
-	// The Claude tabs' programs end with the agent the same way.
-	host.RegisterShutdownHook(chat.Close)
+	// Every stdio exit path ends at os.Exit. Start independent cleanup in
+	// parallel so a slow watcher or shell cannot keep other children alive.
+	host.RegisterShutdownHook(func() {
+		var cleanup sync.WaitGroup
+		for _, closeService := range []func(){pty.Close, chat.Close, lsp.Close, fsys.Close, git.Close} {
+			cleanup.Add(1)
+			go func() {
+				defer cleanup.Done()
+				closeService()
+			}()
+		}
+		cleanup.Wait()
+	})
 	if hooksrv != nil {
 		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
 		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
