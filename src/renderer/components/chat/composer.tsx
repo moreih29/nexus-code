@@ -46,12 +46,8 @@ import {
   type UserItem,
 } from "../../services/chat/model";
 import { withRelayed } from "../../services/chat/relayed";
-import {
-  type ChatTabState,
-  type QueuedMessage,
-  type RevealPart,
-  takeReveal,
-} from "../../services/chat/store";
+import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
+import type { QueuedMessage } from "../../services/chat/transport/queue";
 import { firstVersionOf } from "../../services/chat/versions";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";

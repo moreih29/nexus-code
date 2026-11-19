@@ -29,15 +29,17 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
-  clearObservedQueued,
-  dispatchQueuedMessage,
   emptyTabState,
-  isChatWriteRejected,
-  type QueuedMessage,
   useChatStore,
 } from "../store";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
+import {
+  clearObservedQueued,
+  dispatchQueuedMessage,
+  isChatWriteRejected,
+  type QueuedMessage,
+} from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
 import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "../versions";
 import {

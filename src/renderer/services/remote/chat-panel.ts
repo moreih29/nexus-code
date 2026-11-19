@@ -18,7 +18,8 @@ import { type GoalView, shownGoalOf } from "../chat/goal";
 import type { ChatItem, ToolCall } from "../chat/model";
 import { agentsOf, changedFilesOf, contextOf, jobsOf, todosOf } from "../chat/panel";
 import { followsMessage } from "../chat/profile-moves";
-import type { PeerSubmission, QueuedMessage } from "../chat/store";
+import type { QueuedMessage } from "../chat/transport/queue";
+import type { PeerSubmission } from "../chat/transport/submission";
 import { claudeUsageLine, codexUsageLine } from "../chat/usage-line";
 import { type ChatSource, conversationOf, viewTaskOf } from "./chat-page";
 

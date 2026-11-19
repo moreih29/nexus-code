@@ -1,5 +1,5 @@
 import { appErrorBug, appErrorCancelled, appErrorFailed } from "../../../shared/error/app-error";
-import { chatSendErrorKind } from "../../services/chat/store";
+import { chatSendErrorKind } from "../../services/chat/transport/queue";
 import { surfaceError } from "../../services/error-surface/surface-error";
 
 /** Reports send and approval failures without exposing transport details. */

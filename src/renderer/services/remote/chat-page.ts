@@ -33,7 +33,8 @@ import type {
 import { AGENT_TOOLS, jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
-import type { ChatTabState, PeerSubmission } from "../chat/store";
+import type { ChatTabState } from "../chat/store";
+import type { PeerSubmission } from "../chat/transport/submission";
 
 /** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;

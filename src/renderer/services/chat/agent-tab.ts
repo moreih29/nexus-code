@@ -14,8 +14,9 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
 import type { ImageBlock } from "./model";
-import { chatKey, type PeerSubmission, useChatStore } from "./store";
+import { chatKey, useChatStore } from "./store";
 import { clipTitle, titleOf } from "./tab-title";
+import { type PeerSubmission } from "./transport/submission";
 
 const log = createLogger("chat");
 

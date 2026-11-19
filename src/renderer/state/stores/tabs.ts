@@ -19,7 +19,7 @@ import type {
   DiffTabPayload,
   GitCommitTabPayload,
 } from "../../../shared/types/tab";
-import type { PeerSubmission } from "../../services/chat/store";
+import type { PeerSubmission } from "../../services/chat/transport/submission";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
