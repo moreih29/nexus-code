@@ -344,11 +344,18 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       write: async (args: unknown) => {
         const { workspaceId, tabId, data } = validateArgs(c.write.args, args);
         options.onInput?.(workspaceId, tabId, data);
-        // write/resize/ack/kill are fire-and-forget from the renderer and no-op
-        // when the workspace is already gone — agentHost.call returns undefined
-        // in that case. Return ipcOk so the router stays silent on either path.
-        await agentHost.call("write", { workspaceId, tabId, data });
-        return ipcOk(undefined);
+        try {
+          const sent = await agentHost.call("write", { workspaceId, tabId, data });
+          // A held session or removed workspace intentionally drops input.
+          // Cancel the renderer's queued suffix as well.
+          if (sent === undefined) return ipcErr("cancelled", "Terminal input was skipped");
+          return ipcOk(undefined);
+        } catch (error) {
+          return ipcErr("terminal-input-failed", String(error), {
+            category: "failed",
+            code: "terminal-input-failed",
+          });
+        }
       },
 
       resize: async (args: unknown) => {

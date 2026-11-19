@@ -162,6 +162,7 @@ function buildInvalidInputMessage(error: AppError): string {
 
 /** Friendly message for failed errors with fs / git code awareness. */
 function buildFailedMessage(error: AppError): string {
+  if (error.code === "terminal-input-failed") return i18next.t("errors:terminal.inputFailed");
   if (error.domain === "fs" && error.code) {
     return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
   }
