@@ -1,5 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapClaudeStatus, bootstrapWorkbench } from "./bootstrap";
@@ -62,6 +62,7 @@ export function App() {
   // workspace's tabs below it, for each connection status and progress.
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
+  const [restoringWorkbench, setRestoringWorkbench] = useState(true);
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
@@ -91,9 +92,10 @@ export function App() {
     initializeEditorServices(monaco);
   }, [monaco]);
 
-  // Restore the tabs and workspace selection before opening the CLI gate.
+  // The workspace list arrives before the restored selection. Wait for both
+  // before showing a welcome screen.
   useEffect(() => {
-    void bootstrapWorkbench();
+    void bootstrapWorkbench().finally(() => setRestoringWorkbench(false));
     void bootstrapClaudeStatus();
   }, []);
 
@@ -283,9 +285,11 @@ export function App() {
           >
             {/* In the one cell, as the panels are: the agent view, kept
                 mounted there, would push it into a row of its own below. */}
-            {workspaces.length === 0 && !agentView && (
+            {!restoringWorkbench && activeWorkspaceId === null && !agentView && (
               <div className="col-start-1 row-start-1 flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
-                <WelcomeScreen onAddWorkspace={handleAddWorkspace} />
+                <WelcomeScreen
+                  onAddWorkspace={workspaces.length === 0 ? handleAddWorkspace : undefined}
+                />
               </div>
             )}
             {mountedWorkspaces.map((ws) => (
