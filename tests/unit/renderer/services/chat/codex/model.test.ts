@@ -70,8 +70,8 @@ function started(): ChatLine[] {
 test("a known child leaves running on its own terminal signal after the parent turn ends", () => {
   const child = "child";
   const sibling = "sibling";
-  const status = (threadId: string, type: string) =>
-    note("thread/statusChanged", {
+  const status = (threadId: string, type: string, method = "thread/statusChanged") =>
+    note(method, {
       threadId,
       status: { type, ...(type === "active" ? { activeFlags: ["waitingOnApproval"] } : {}) },
     });
@@ -98,6 +98,7 @@ test("a known child leaves running on its own terminal signal after the parent t
   expect(activity(launch).running.map((row) => row.key)).toEqual([child, sibling]);
   const cases = [
     { end: [status(child, "idle")], expected: "completed" },
+    { end: [status(child, "idle", "thread/status/changed")], expected: "completed" },
     { end: [status(child, "systemError")], expected: "failed" },
     {
       end: [

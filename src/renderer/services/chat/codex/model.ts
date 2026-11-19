@@ -626,6 +626,13 @@ function nativeTurnEnd(status: unknown): string | undefined {
   }
 }
 
+export const THREAD_STATUS_CHANGED = "thread/status/changed";
+
+/** Recognizes the current notification and the spelling accepted by older app logs. */
+export function isThreadStatusChanged(method: string | undefined): boolean {
+  return method === THREAD_STATUS_CHANGED || method === "thread/statusChanged";
+}
+
 /** Updates a known child from its own thread and turn events. */
 function applyNativeAgentNotification(
   m: CodexModel,
@@ -636,12 +643,13 @@ function applyNativeAgentNotification(
 ): void {
   const task = m.tasks[id];
   if (task?.type !== "codex_subagent") return;
+  if (isThreadStatusChanged(method)) {
+    if (!["active", "idle", "systemError"].includes(String(rec(params.status)?.type))) return;
+    applyNativeAgent(m, id, { status: params.status }, undefined, undefined, at);
+    return;
+  }
   let status: string | undefined;
   switch (method) {
-    case "thread/statusChanged":
-      if (!["active", "idle", "systemError"].includes(String(rec(params.status)?.type))) return;
-      applyNativeAgent(m, id, { status: params.status }, undefined, undefined, at);
-      return;
     case "thread/closed":
       if (task.status === "running") status = "stopped";
       break;
