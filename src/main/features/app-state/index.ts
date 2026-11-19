@@ -62,7 +62,7 @@ export interface AppStateChannelOptions {
 }
 
 export function registerAppStateChannel(
-  stateService: StateService,
+  stateService: Pick<StateService, "getState" | "setState">,
   opts: AppStateChannelOptions = {},
 ): void {
   register("appState", {
