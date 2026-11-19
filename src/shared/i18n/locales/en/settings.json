@@ -387,7 +387,7 @@
     "section": {
       "app": "Application",
       "editor": "Editor",
-      "editorDescription": "Monaco editor commands — active only while the editor is focused. Changing one twice in a session may need an app restart to fully settle."
+      "editorDescription": "Active only in the editor. Changing a binding twice in one session may require a restart."
     },
     "editorCommand": {
       "commentLine": "Toggle Line Comment",

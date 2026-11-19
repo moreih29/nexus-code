@@ -220,8 +220,8 @@
   "workspace": {
     "remove_title": "Nexus에서 “{{name}}”을(를) 제거하시겠습니까?",
     "remove_description": "워크스페이스 등록을 제거합니다. 폴더는 디스크에 남습니다.",
-    "remove_unsaved_one": "저장하지 않은 파일 {{count}}개의 변경 사항이 사라집니다.",
-    "remove_unsaved_other": "저장하지 않은 파일 {{count}}개의 변경 사항이 사라집니다.",
+    "remove_unsaved_one": "파일 {{count}}개의 미저장 변경을 잃습니다.",
+    "remove_unsaved_other": "파일 {{count}}개의 미저장 변경을 잃습니다.",
     "remove_tasks_one": "작업 {{count}}개도 함께 닫힙니다. 워크트리와 브랜치는 디스크에 남습니다.",
     "remove_tasks_other": "작업 {{count}}개도 함께 닫힙니다. 워크트리와 브랜치는 디스크에 남습니다.",
     "add_title": "워크스페이스 추가",
@@ -245,7 +245,7 @@
     "remove_from_favorites": "즐겨찾기에서 제거",
     "remove_from_list": "목록에서 제거",
     "could_not_open": "워크스페이스를 열 수 없습니다.",
-    "profile_not_found": "연결 프로파일을 찾을 수 없습니다. 삭제된 것 같습니다."
+    "profile_not_found": "연결 프로필을 찾을 수 없습니다."
   },
   "ssh": {
     "title_password": "SSH 비밀번호 필요",
@@ -302,7 +302,7 @@
     "path_suggestions": "경로 제안",
     "directory_listing": "디렉토리 목록",
     "loading_listing": "디렉토리 목록 로딩 중",
-    "loading": "로딩 중…",
+    "loading": "불러오는 중…",
     "no_matching_folders": "일치하는 폴더 없음",
     "this_folder_empty": "이 폴더는 비어 있습니다.",
     "truncated": "일부 항목이 숨겨졌습니다 (목록이 잘렸습니다).",
@@ -442,7 +442,7 @@
     "shell_removed": "이 탭의 셸이 설정에서 삭제되어 기본 셸로 열었습니다.",
     "init_failed": "터미널을 준비하지 못했습니다: {{reason}}",
     "close_running_title": "실행 중인 프로세스를 종료할까요?",
-    "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
+    "close_running_description": "터미널을 닫으면 “{{name}}” 프로세스도 종료됩니다.",
     "close_running_confirm": "종료"
   },
   "previewFind": {
@@ -595,8 +595,8 @@
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
         "running_for": "{{duration}}째",
-        "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다.",
-        "permission_hint_claude": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. Claude 탭에서 응답합니다."
+        "permission_hint": "터미널에서 서브에이전트의 권한 요청에 답하세요.",
+        "permission_hint_claude": "Claude 탭에서 서브에이전트의 권한 요청에 답하세요."
       },
       "parent": "{{title}}의 서브에이전트",
       "close_card": "닫기"
@@ -679,7 +679,7 @@
     "turnFailed": "오류로 Claude가 멈췄습니다"
   },
   "saveConfirm": {
-    "title": "{{filename}}의 변경사항을 저장하시겠습니까?",
+    "title": "“{{filename}}”의 변경을 저장할까요?",
     "description": "저장하지 않으면 변경사항이 사라집니다.",
     "dont_save": "저장 안 함"
   },
@@ -790,7 +790,7 @@
   },
   "conflictDialog": {
     "title": "저장 충돌 — {{filename}}이(가) 디스크에서 변경되었습니다",
-    "description": "편집을 시작한 후 파일이 디스크에서 수정되었습니다. 충돌 해결 방법을 선택하세요.",
+    "description": "편집 중 디스크의 파일이 바뀌었습니다.",
     "reload_from_disk": "디스크에서 새로 고침",
     "overwrite": "덮어쓰기"
   },
@@ -1338,21 +1338,21 @@
       "open_in_tab": "탭으로 열기"
     },
     "sessions": {
-      "title": "이전 세션",
+      "title": "이전 대화",
       "open": "탭에 열려 있음",
       "more": "{{count}}개 더 보기",
-      "resume_failed": "세션을 이어가지 못했습니다: {{message}}",
+      "resume_failed": "대화를 이어가지 못했습니다. {{message}}",
       "show": "이전 대화 이어가기 · {{count}}개",
       "all_profiles": "전체",
-      "show_others": "다른 프로필의 세션 · {{count}}개",
-      "title_query": "이전 세션 · \"{{query}}\"",
-      "loading": "세션을 읽는 중…",
-      "none_in_profile": "이 프로필에는 이 폴더의 세션이 없습니다.",
-      "none": "이 폴더에 이어갈 세션이 없습니다.",
-      "delete": "이 세션 지우기",
+      "show_others": "다른 프로필의 대화 · {{count}}개",
+      "title_query": "이전 대화 · “{{query}}”",
+      "loading": "대화 불러오는 중…",
+      "none_in_profile": "이 프로필의 이 폴더에 대화가 없습니다.",
+      "none": "이 폴더에 이어갈 대화가 없습니다.",
+      "delete": "이 대화 삭제",
       "delete_hint": "삭제하면 되돌릴 수 없습니다.",
       "deleting": "지우는 중…",
-      "delete_failed": "세션을 지우지 못했습니다: {{message}}"
+      "delete_failed": "대화 삭제 실패. {{message}}"
     },
     "commands": {
       "close": "닫기",
@@ -1918,7 +1918,7 @@
       "exitConfirm": "탭 닫기",
       "failed": "전달하지 못했습니다: {{message}}",
       "filesRefused": "그 컴퓨터의 앱이 이전 버전이라 이미지만 보낼 수 있습니다",
-      "noChanges": "이 채팅이 바꾼 파일이 없습니다",
+      "noChanges": "이 대화에서 변경한 파일이 없습니다.",
       "offline": "{{device}}이(가) 오프라인입니다",
       "disconnected": "서버에 연결되지 않음",
       "outdated": "이 버전으로는 연결할 수 없습니다",
@@ -1946,7 +1946,7 @@
     "loading": "릴리스 노트를 불러오는 중…",
     "failed": "릴리스 노트를 불러오지 못했습니다.",
     "failedNetwork": "릴리스 노트를 불러오지 못했습니다. 네트워크 연결을 확인하세요.",
-    "failedRateLimited": "릴리스 노트를 불러오지 못했습니다. GitHub 요청이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.",
+    "failedRateLimited": "GitHub 요청 한도에 도달했습니다. 잠시 후 릴리스 노트를 다시 불러오세요.",
     "retry": "다시 시도",
     "empty": "아직 릴리스가 없습니다.",
     "news": "{{version}} 새 소식",

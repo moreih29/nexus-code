@@ -465,9 +465,7 @@ describe("services/terminal open and close", () => {
       confirmReply = false;
 
       expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("cancelled");
-      expect(confirmRequests).toEqual([
-        "“sleep” is still running in this terminal. Closing the terminal will terminate it.",
-      ]);
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “sleep”."]);
       expect(killCalls()).toEqual([]);
       expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeDefined();
 

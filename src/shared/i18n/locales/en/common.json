@@ -220,8 +220,8 @@
   "workspace": {
     "remove_title": "Remove “{{name}}” from Nexus?",
     "remove_description": "Remove the workspace registration. Its folder stays on disk.",
-    "remove_unsaved_one": "{{count}} file has unsaved changes that will be lost.",
-    "remove_unsaved_other": "{{count}} files have unsaved changes that will be lost.",
+    "remove_unsaved_one": "Unsaved changes in {{count}} file will be lost.",
+    "remove_unsaved_other": "Unsaved changes in {{count}} files will be lost.",
     "remove_tasks_one": "Its {{count}} task closes too. Its worktree and branch stay on disk.",
     "remove_tasks_other": "Its {{count}} tasks close too. Their worktrees and branches stay on disk.",
     "add_title": "Add Workspace",
@@ -245,7 +245,7 @@
     "remove_from_favorites": "Remove from favorites",
     "remove_from_list": "Remove from list",
     "could_not_open": "Could not open workspace.",
-    "profile_not_found": "Connection profile not found. It may have been deleted."
+    "profile_not_found": "Connection profile not found."
   },
   "ssh": {
     "title_password": "SSH password required",
@@ -442,7 +442,7 @@
     "shell_removed": "This tab's shell was removed from the settings, so it opened with the default shell.",
     "init_failed": "Couldn't set up the terminal: {{reason}}",
     "close_running_title": "Terminate the running process?",
-    "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
+    "close_running_description": "Closing the terminal also terminates “{{name}}”.",
     "close_running_confirm": "Terminate"
   },
   "previewFind": {
@@ -595,8 +595,8 @@
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
         "running_for": "{{duration}} so far",
-        "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal.",
-        "permission_hint_claude": "This subagent is waiting on a permission request. Answer it in the Claude tab."
+        "permission_hint": "Answer the subagent’s permission request in the terminal.",
+        "permission_hint_claude": "Answer the subagent’s permission request in the Claude tab."
       },
       "parent": "A subagent of {{title}}",
       "close_card": "Close"
@@ -679,7 +679,7 @@
     "turnFailed": "Claude stopped on an error"
   },
   "saveConfirm": {
-    "title": "Do you want to save the changes you made to {{filename}}?",
+    "title": "Save changes to “{{filename}}”?",
     "description": "Your changes will be lost if you don't save them.",
     "dont_save": "Don't Save"
   },
@@ -790,7 +790,7 @@
   },
   "conflictDialog": {
     "title": "Save conflict — {{filename}} changed on disk",
-    "description": "The file was modified on disk after you started editing. Choose how to resolve the conflict.",
+    "description": "The file changed on disk while you were editing.",
     "reload_from_disk": "Reload from Disk",
     "overwrite": "Overwrite"
   },
@@ -1338,21 +1338,21 @@
       "open_in_tab": "Open as a tab"
     },
     "sessions": {
-      "title": "Earlier sessions",
+      "title": "Earlier conversations",
       "open": "Open in a tab",
       "more": "Show {{count}} more",
-      "resume_failed": "Could not go on with the session: {{message}}",
+      "resume_failed": "Couldn’t resume the conversation. {{message}}",
       "show": "Resume a conversation · {{count}}",
       "all_profiles": "All",
-      "show_others": "Sessions of other profiles · {{count}}",
-      "title_query": "Earlier sessions · \"{{query}}\"",
-      "loading": "Reading the sessions…",
-      "none_in_profile": "This profile has no sessions of this folder.",
-      "none": "No sessions of this folder to go on with.",
-      "delete": "Delete this session",
+      "show_others": "Conversations from other profiles · {{count}}",
+      "title_query": "Earlier conversations · “{{query}}”",
+      "loading": "Loading conversations…",
+      "none_in_profile": "No conversations in this folder for this profile.",
+      "none": "No conversations to resume in this folder.",
+      "delete": "Delete this conversation",
       "delete_hint": "This cannot be undone.",
       "deleting": "Deleting…",
-      "delete_failed": "Could not delete the session: {{message}}"
+      "delete_failed": "Couldn’t delete the conversation. {{message}}"
     },
     "commands": {
       "close": "Close",
@@ -1840,7 +1840,7 @@
       "rule": "Rule",
       "switchTo": "Switch to another profile",
       "continueIn": "Continue in another profile",
-      "newChat": "New chat",
+      "newChat": "New conversation",
       "stops": "The reply under way stops",
       "moved": "Continued in {{name}}",
       "source": {
@@ -1918,7 +1918,7 @@
       "exitConfirm": "Close tab",
       "failed": "Didn't go through: {{message}}",
       "filesRefused": "That computer's app is too old to take files other than images",
-      "noChanges": "This chat has not changed any files",
+      "noChanges": "No files changed in this conversation.",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
       "outdated": "This version can't connect",
@@ -1946,7 +1946,7 @@
     "loading": "Loading release notes…",
     "failed": "Couldn't load the release notes.",
     "failedNetwork": "Couldn't load the release notes. Check your network connection.",
-    "failedRateLimited": "Couldn't load the release notes. GitHub is limiting requests right now; try again in a moment.",
+    "failedRateLimited": "GitHub rate-limited the request. Try loading release notes again shortly.",
     "retry": "Try Again",
     "empty": "No releases yet.",
     "news": "What's new in {{version}}",

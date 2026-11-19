@@ -387,7 +387,7 @@
     "section": {
       "app": "애플리케이션",
       "editor": "에디터",
-      "editorDescription": "Monaco 에디터 커맨드 — 에디터에 포커스가 있을 때만 동작합니다. 한 세션에서 같은 항목을 두 번 바꾸면 완전히 반영되는 데 앱 재시작이 필요할 수 있습니다."
+      "editorDescription": "편집기 포커스에서만 동작합니다. 같은 명령을 한 세션에서 두 번 바꾸면 재시작이 필요할 수 있습니다."
     },
     "editorCommand": {
       "commentLine": "한 줄 주석 토글",
@@ -533,9 +533,9 @@
         "open": "설정 열기"
       },
       "workbench": {
-        "toggleFilesPanel": "파일 패널 토글",
+        "toggleFilesPanel": "파일 패널 전환",
         "toggleSidebar": "사이드바 토글",
-        "toggleAgentView": "에이전트 뷰 토글"
+        "toggleAgentView": "에이전트 뷰 전환"
       },
       "terminal": {
         "new": "새 터미널"
@@ -557,7 +557,7 @@
       },
       "chat": {
         "voiceToggle": "음성 입력",
-        "togglePanel": "채팅 사이드 패널 토글"
+        "togglePanel": "채팅 사이드 패널 전환"
       }
     }
   },

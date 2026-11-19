@@ -599,7 +599,7 @@
         "squash": "Squash and commit manually",
         "squashDescription": "Stage the combined changes without creating MERGE_HEAD."
       },
-      "squashNote": "Squash stages the merged changes and fills a commit message draft. Review the staged result, then commit manually.",
+      "squashNote": "Squash stages the changes and drafts a commit message. Review and commit manually.",
       "submitMerge": "Merge",
       "submitSquash": "Squash",
       "cancel": "Cancel"

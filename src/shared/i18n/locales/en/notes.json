@@ -75,8 +75,8 @@
   "agent": {
     "title": "Send to an agent",
     "destination": "Send to",
-    "claude": "New Claude chat",
-    "codex": "New Codex chat",
+    "claude": "New Claude conversation",
+    "codex": "New Codex conversation",
     "message": "Message",
     "defaultMessage": "Read this note and start the work.",
     "hint": "The agent reads the note with nexus note read. No files are copied.",
@@ -94,7 +94,7 @@
     "files": "Files",
     "images": "Images",
     "orphan": "Not linked",
-    "orphanHint": "No workspace in the app is at this location. Add the same folder again and its notes come back.",
+    "orphanHint": "Add the same folder as a workspace to see these notes again.",
     "reveal": "Show folder",
     "remove": "Delete",
     "removeConfirm": {
@@ -122,7 +122,7 @@
     "failure": {
       "recognition": "Something went wrong with the transcription.",
       "dropped": "The connection to the server dropped, so the recording paused. You can resume it.",
-      "write": "The recording's file could not be written. The transcript goes on."
+      "write": "Couldn’t save the recording file. Transcription continues."
     }
   },
   "transcript": {

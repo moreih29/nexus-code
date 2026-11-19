@@ -112,7 +112,7 @@
       "outsideWorkspace": "이 경로는 워크스페이스 밖에 있습니다.",
       "alreadyExists": "이미 있습니다.",
       "notFound": "경로를 찾을 수 없습니다.",
-      "permissionDenied": "접근이 거부되었습니다.",
+      "permissionDenied": "접근 권한이 없습니다.",
       "notEmpty": "폴더가 비어 있지 않습니다.",
       "notDirectory": "폴더가 아닌 경로입니다.",
       "crossDevice": "다른 파일 시스템으로는 이동할 수 없습니다.",
@@ -120,7 +120,7 @@
       "fileNotFound": "파일을 찾을 수 없습니다.",
       "folderNotFound": "폴더를 찾을 수 없습니다.",
       "itemNotFound": "항목을 찾을 수 없습니다.",
-      "nameTaken": "같은 이름의 파일이나 폴더가 이미 있습니다."
+      "nameTaken": "같은 이름의 항목이 이미 있습니다."
     },
     "create": {
       "fileFailed": "파일을 만들지 못했습니다.",
@@ -599,7 +599,7 @@
         "squash": "스쿼시 후 수동 커밋",
         "squashDescription": "MERGE_HEAD 없이 결합된 변경 사항을 스테이징합니다."
       },
-      "squashNote": "스쿼시는 병합된 변경 사항을 스테이징하고 커밋 메시지 초안을 채웁니다. 스테이징된 결과를 검토한 후 수동으로 커밋하세요.",
+      "squashNote": "스쿼시는 변경을 스테이징하고 커밋 메시지 초안을 만듭니다. 검토 후 직접 커밋하세요.",
       "submitMerge": "병합",
       "submitSquash": "스쿼시",
       "cancel": "취소"
