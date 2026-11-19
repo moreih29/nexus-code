@@ -89,6 +89,8 @@ export interface NotesFeature {
   recording(): NoteRecording | undefined;
   /** Drops recordings and in-flight reports for a removed workspace. */
   forgetWorkspace(workspaceId: string): void;
+  /** Releases the notes feature's process and recording state at app shutdown. */
+  dispose(): void;
   /** Makes a note, and tells the windows. */
   create(workspaceId: string, title: string): Promise<NoteContent>;
   /**
@@ -429,6 +431,11 @@ export function registerNotesChannel(opts: {
     attachPhoto,
     recording,
     forgetWorkspace,
+    dispose: () => {
+      pendingRecordings.clear();
+      recordings.clear();
+      voicePrints.stop();
+    },
     create,
     append,
     addAsset,

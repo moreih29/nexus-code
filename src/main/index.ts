@@ -920,6 +920,7 @@ async function shutDownMain(): Promise<void> {
     chatHost?.dispose();
     agentProfiles?.dispose();
     remote?.dispose();
+    notesFeature?.dispose();
     const lspShutdown = lspHost?.dispose();
     agentFsWatcher?.dispose();
     gitStatusCoalescer?.clearAll();
