@@ -15,6 +15,22 @@ export interface TypedInput {
 /** Most keys a send takes (terminal.input's keys), and most text. */
 const MAX_KEYS = 64;
 const MAX_TEXT = 64 * 1024;
+const MAX_WAITING_BYTES = 1024 * 1024;
+const encoder = new TextEncoder();
+
+/** A new input could not be queued without exceeding the pending byte budget. */
+export class TerminalInputQueueFullError extends Error {
+  readonly code = "terminal-input-queue-full";
+
+  constructor() {
+    super("Remote terminal input queue exceeds 1 MiB");
+  }
+}
+
+interface QueuedInput {
+  input: TypedInput;
+  bytes: number;
+}
 
 const NAMED: Record<string, TerminalKey> = {
   Enter: "enter",
@@ -72,34 +88,77 @@ function joined(last: TypedInput, next: TypedInput): TypedInput | null {
 }
 
 export class TerminalTyping {
-  private waiting: TypedInput[] = [];
+  private waiting: QueuedInput[] = [];
+  private waitingBytes = 0;
   private sending = false;
+  private disposed = false;
 
   constructor(
     private readonly send: (input: TypedInput) => Promise<void>,
     private readonly failed: (error: unknown) => void,
   ) {}
 
+  /** Queues input in send order, retaining accepted input when a new one will not fit. */
   type(input: TypedInput): void {
-    if (!input.text && !input.keys?.length) return;
+    if (this.disposed || (!input.text && !input.keys?.length)) return;
+    const text = input.text ?? "";
+    const available = MAX_WAITING_BYTES - this.waitingBytes;
+    // A very large paste already exceeds the budget even before UTF-8 encoding.
+    if (text.length > available) {
+      this.failed(new TerminalInputQueueFullError());
+      return;
+    }
+    const keyBytes = input.keys?.reduce((bytes, key) => bytes + key.length, 0) ?? 0;
+    const bytes = encoder.encode(text).byteLength + keyBytes;
+    if (bytes > available) {
+      this.failed(new TerminalInputQueueFullError());
+      return;
+    }
+    // An input must also fit one terminal.input request so it cannot fail
+    // after earlier queued inputs have been accepted.
+    if (text.length > MAX_TEXT || (input.keys?.length ?? 0) > MAX_KEYS) {
+      this.failed(new Error("Remote terminal input exceeds one request"));
+      return;
+    }
     const last = this.waiting.at(-1);
-    const both = last ? joined(last, input) : null;
-    if (both) this.waiting[this.waiting.length - 1] = both;
-    else this.waiting.push(input);
+    const both = last && joined(last.input, input);
+    if (last && both) {
+      last.input = both;
+      last.bytes += bytes;
+    } else {
+      this.waiting.push({ input, bytes });
+    }
+    this.waitingBytes += bytes;
     void this.flush();
   }
 
+  /** Ends this connection's queue and reports whether unsent input was discarded. */
+  dispose(): boolean {
+    this.disposed = true;
+    const hadWaiting = this.waiting.length > 0;
+    this.clearWaiting();
+    return hadWaiting;
+  }
+
+  /** Releases queued inputs and restores the full budget. */
+  private clearWaiting(): void {
+    this.waiting = [];
+    this.waitingBytes = 0;
+  }
+
+  /** Keeps exactly one request in flight and drains accepted inputs in order. */
   private async flush(): Promise<void> {
     if (this.sending) return;
     this.sending = true;
     try {
       for (let next = this.waiting.shift(); next; next = this.waiting.shift()) {
-        await this.send(next);
+        this.waitingBytes -= next.bytes;
+        await this.send(next.input);
       }
     } catch (error) {
       // What waited after it would go in out of its place.
-      this.waiting = [];
-      this.failed(error);
+      this.clearWaiting();
+      if (!this.disposed) this.failed(error);
     } finally {
       this.sending = false;
     }
