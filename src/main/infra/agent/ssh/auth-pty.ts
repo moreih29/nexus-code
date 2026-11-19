@@ -2,6 +2,7 @@ import type { IPty } from "node-pty";
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/ssh/auth-prompt";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
 import { createSshError } from "../pipe";
+import { AuthCancelledError } from "./auth";
 import {
   buildSshControlMasterArgs,
   createSshControlMaster,
@@ -110,7 +111,12 @@ export function authenticateSshControlMaster(
         }
         throw createSshError("ssh.auth-failed");
       } catch (error) {
-        failAuth(createSshError("ssh.auth-failed", error));
+        failAuth(
+          createSshError(
+            error instanceof AuthCancelledError ? "ssh.auth-cancelled" : "ssh.auth-failed",
+            error,
+          ),
+        );
       } finally {
         promptInFlight = false;
       }

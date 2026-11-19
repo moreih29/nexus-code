@@ -38,6 +38,7 @@ import type {
 import type { SshAuthPrompt } from "../../../../../shared/ssh/auth-prompt";
 import type { SshErrorCode } from "../../../../../shared/ssh/errors";
 import { createSshError } from "../../pipe";
+import { AuthCancelledError } from "../auth";
 import type { SshAuthPromptHandler } from "../auth-pty";
 import { resolveSshHostConfig, type SshHostConfig, type SshTarget } from "./config";
 import {
@@ -238,6 +239,9 @@ function authenticate(
       disarmTimer();
       try {
         return await promptHandler(prompt);
+      } catch (error) {
+        if (error instanceof AuthCancelledError) fail("ssh.auth-cancelled", error);
+        throw error;
       } finally {
         promptsOpen -= 1;
         if (promptsOpen === 0 && !settled) armTimer();

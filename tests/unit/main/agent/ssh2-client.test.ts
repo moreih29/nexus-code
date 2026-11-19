@@ -3,11 +3,13 @@
  * authentication prompts, and commands sharing one connection as they would
  * a ControlMaster.
  */
+
 import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type Connection, Server, utils } from "ssh2";
+import { AuthCancelledError } from "../../../../src/main/infra/agent/ssh/auth";
 import { buildSshArgs } from "../../../../src/main/infra/agent/ssh/master";
 import type { SshHostConfig } from "../../../../src/main/infra/agent/ssh/ssh2/config";
 import { connectSsh2 } from "../../../../src/main/infra/agent/ssh/ssh2/connect";
@@ -244,16 +246,16 @@ describe("connectSsh2", () => {
     ]);
   });
 
-  it("fails as an authentication failure when the user cancels", async () => {
+  it("preserves explicit authentication cancellation", async () => {
     const t = await setup({ password: "pw" });
     const cancelling = async (prompt: SshAuthPrompt): Promise<SshAuthResponse> => {
       if (prompt.kind === "host-key")
         return { kind: "host-key", promptId: prompt.promptId, trust: "yes" };
-      throw new Error("cancelled");
+      throw new AuthCancelledError("test-prompt");
     };
 
     await expect(connectSsh2(t.target, cancelling, t.dependencies)).rejects.toMatchObject({
-      code: "ssh.auth-failed",
+      code: "ssh.auth-cancelled",
     });
   });
 

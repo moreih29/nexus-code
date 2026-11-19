@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { AuthCancelledError } from "../../../../src/main/infra/agent/ssh/auth";
 import { authenticateSshControlMaster } from "../../../../src/main/infra/agent/ssh/auth-pty";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
@@ -181,14 +182,14 @@ describe("authenticateSshControlMaster", () => {
     await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
   });
 
-  it("kills the PTY, reports ssh.auth-failed, and unlinks the socket when cancelled", async () => {
+  it("kills the PTY, reports ssh.auth-cancelled, and unlinks the socket when cancelled", async () => {
     const pty = new FakePty();
     const unlinkCalls: string[] = [];
     const disposeSpawnCalls: string[][] = [];
     const promise = authenticateSshControlMaster(
       { host: "127.0.0.1", user: "alice", port: 2223, controlPath: "/tmp/nexus-test.sock" },
       async () => {
-        throw new Error("cancelled");
+        throw new AuthCancelledError("test-prompt");
       },
       {
         promptIdPrefix: "prompt-1",
@@ -206,7 +207,7 @@ describe("authenticateSshControlMaster", () => {
     );
 
     pty.emitData("alice@127.0.0.1's password:");
-    await expect(promise).rejects.toMatchObject({ code: "ssh.auth-failed" });
+    await expect(promise).rejects.toMatchObject({ code: "ssh.auth-cancelled" });
 
     expect(pty.killed).toEqual([undefined]);
     expect(disposeSpawnCalls[0]).toContain("-O");

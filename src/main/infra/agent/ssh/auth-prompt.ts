@@ -7,6 +7,10 @@ import {
 } from "../../../../shared/ssh/auth-prompt";
 import { register, validateArgs } from "../../ipc-router";
 
+import { AuthCancelledError } from "./auth";
+
+export { AuthCancelledError } from "./auth";
+
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 
 interface PendingSshAuthPrompt {
@@ -14,14 +18,6 @@ interface PendingSshAuthPrompt {
   readonly prompt: SshAuthPrompt;
   readonly resolve: (response: SshAuthResponse) => void;
   readonly reject: (error: AuthCancelledError) => void;
-}
-
-/** Error raised when the renderer cancels an active SSH authentication prompt. */
-export class AuthCancelledError extends Error {
-  constructor(promptId: string) {
-    super(`SSH authentication prompt cancelled: ${promptId}`);
-    this.name = "AuthCancelledError";
-  }
 }
 
 /**
