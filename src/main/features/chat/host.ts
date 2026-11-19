@@ -35,6 +35,8 @@ const VERSION_TIMEOUT_MS = 20_000;
 const WORKSPACE_CHAT_CLOSE_MS = 5000;
 /** How long a `claude` command may take: an install fetches the plugin. */
 const COMMAND_TIMEOUT_MS = 30_000;
+/** The agent needs time to close the child's pipes and return its timed-out result. */
+const COMMAND_REPLY_TIMEOUT_MS = COMMAND_TIMEOUT_MS + 5_000;
 
 export interface ChatWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
@@ -443,16 +445,20 @@ export class ChatHost {
       dir: cwd,
     });
     if (!found.path) throw new Error("claude was not found on the PATH");
-    return channel.call("chat.exec", {
-      cwd,
-      program: found.path,
-      args: claudeCommandArgs(command, cwd),
-      env: {
-        ...(found.envPath ? { PATH: found.envPath } : {}),
-        ...(await this.profileEnv(channel, "claude", profileId)),
+    return channel.call(
+      "chat.exec",
+      {
+        cwd,
+        program: found.path,
+        args: claudeCommandArgs(command, cwd),
+        env: {
+          ...(found.envPath ? { PATH: found.envPath } : {}),
+          ...(await this.profileEnv(channel, "claude", profileId)),
+        },
+        timeoutMs: COMMAND_TIMEOUT_MS,
       },
-      timeoutMs: COMMAND_TIMEOUT_MS,
-    });
+      { timeoutMs: COMMAND_REPLY_TIMEOUT_MS },
+    );
   }
 
   async sessions(workspaceId: string, cwd: string, profileId?: string): Promise<unknown> {
