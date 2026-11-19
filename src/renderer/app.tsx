@@ -311,8 +311,10 @@ export function App() {
             className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden"
             {...{ [LOOK_AREA_ATTR]: "" }}
           >
+            {/* In the one cell, as the panels are: the agent view, kept
+                mounted there, would push it into a row of its own below. */}
             {workspaces.length === 0 && !agentView && (
-              <div className="flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
+              <div className="col-start-1 row-start-1 flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
                 <WelcomeScreen onAddWorkspace={handleAddWorkspace} />
               </div>
             )}
