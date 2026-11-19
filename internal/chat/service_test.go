@@ -716,7 +716,6 @@ func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
 	defer service.Close()
 	exiting := make(chan struct{})
 	proceed := make(chan struct{})
-	defer close(proceed)
 	service.SetEventSink(func(event string, _ any) error {
 		if event == EventExit {
 			close(exiting)
@@ -726,7 +725,15 @@ func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
 	})
 	startFake(t, service, "tab", nil)
 	proc := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
-	go service.Stop(context.Background(), tabParams("tab"))
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_, _ = service.Stop(context.Background(), tabParams("tab"))
+	}()
+	defer func() {
+		close(proceed)
+		<-stopped
+	}()
 	select {
 	case <-exiting:
 	case <-time.After(10 * time.Second):
