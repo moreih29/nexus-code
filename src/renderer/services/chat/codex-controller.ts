@@ -400,6 +400,7 @@ export class CodexController {
     this.canonicalCwd = result.canonicalCwd;
     this.update((prev) => ({ ...prev, version: result.version }));
     if (result.attached) {
+      if (options.resetLog) return this.rejectStartup("Codex attached to the previous program");
       // A program this controller started a moment ago, whose start line has
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
@@ -418,11 +419,15 @@ export class CodexController {
     );
     const handshake = (catalogOnly ? introduced : this.handshake(introduced, forkSettings))
       .then(
-        async () => {
+        async (threadId) => {
           if (this.disposed) return false;
           this.flushNow();
           if (this.model.process === "exited")
             return this.rejectStartup("Codex exited during startup");
+          if (typeof threadId === "string" && this.model.threadId !== threadId) {
+            this.patchModel({ threadId });
+            this.rememberThread(threadId);
+          }
           this.startup.failed = false;
           this.update((prev) => ({ ...prev, phase: "ready" }));
           if (!catalogOnly) this.showPicks();
@@ -466,7 +471,7 @@ export class CodexController {
   private async handshake(
     introduced: Promise<void>,
     forkSettings?: ReturnType<typeof profileForkSettings>,
-  ): Promise<boolean> {
+  ): Promise<string> {
     await introduced;
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
@@ -489,14 +494,14 @@ export class CodexController {
         // profile keeps the name it had there, which Codex does not copy.
         this.titled = true;
         if (fork.title) {
-          this.hooks.onTitle?.(fork.title);
+          if (!this.resumingSelection) this.hooks.onTitle?.(fork.title);
           if (staged && copy) {
             void this.request("thread/name/set", { threadId: copy, name: fork.title }).catch(
               () => {},
             );
           }
         }
-        return true;
+        return copy;
       } catch (err) {
         const message = (err as Error).message;
         log.warn(`thread ${fork.threadId} not forked: ${message}`);
@@ -520,13 +525,13 @@ export class CodexController {
         requireThreadId(resumed, threadId);
         this.emptyThread = undefined;
         this.readGoal(threadId);
-        return true;
+        return threadId;
       }
     }
     this.emptyThread = requireThreadId(
       await this.request("thread/start", threadStartParams(this.target, this.next)),
     );
-    return true;
+    return this.emptyThread;
   }
 
   /** A missing rollout is safe to replace only when this tab knows the thread was empty. */
@@ -838,19 +843,11 @@ export class CodexController {
    */
   async resumeThread(threadId: string, title: string, profileId = this.profileId): Promise<void> {
     this.requireHistoryIdle();
-    this.resumingSelection = true;
-    try {
-      const { workspaceId, tabId } = this.target;
-      if (this.model.process === "running") {
-        unwrapIpcResult(await ipcCallResult("chat", "stop", { workspaceId, tabId }));
-      }
-      this.flushNow();
+    await this.changeThread(async () => {
       const switching = !sameProfile(profileId, this.target.profileId);
       if (switching) {
         this.next = {};
         this.pickedPermissionMode = undefined;
-        this.hooks.onProfile?.(profileId);
-        this.hooks.onChosen?.({});
       }
       this.target = {
         ...this.target,
@@ -859,11 +856,7 @@ export class CodexController {
         moves: undefined,
         profileId: isDefaultProfileId(profileId) ? undefined : profileId,
       };
-      this.hooks.onThread?.(threadId);
-      this.hooks.onMoves?.([]);
-      this.hooks.onTitle?.(title);
       this.titled = true;
-      // A command's card told of the thread the tab had.
       this.update((prev) => ({
         ...prev,
         history: null,
@@ -873,13 +866,17 @@ export class CodexController {
           ? { ...emptyCodexModel(), lastSeq: this.model.lastSeq }
           : nextThreadModel(this.model),
       }));
-      if (!(await this.start({ resetLog: true })) || !(await this.ready)) {
+      if (!(await this.start({ resetLog: true }))) {
         throw new Error(this.state.error ?? "Codex could not resume this thread");
       }
-      this.flushNow();
-    } finally {
-      this.resumingSelection = false;
-    }
+      if (switching) {
+        this.hooks.onProfile?.(profileId);
+        this.hooks.onChosen?.({});
+      }
+      this.hooks.onThread?.(threadId);
+      this.hooks.onMoves?.([]);
+      this.hooks.onTitle?.(this.model.threadName ?? title);
+    });
   }
 
   /**
@@ -929,32 +926,89 @@ export class CodexController {
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
     if (sameProfile(profileId, this.target.profileId)) return;
-    const { workspaceId, tabId } = this.target;
-    if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    await this.changeThread(async () => {
+      this.next = {};
+      this.pickedPermissionMode = undefined;
+      this.target = {
+        ...this.target,
+        threadId: undefined,
+        fork: undefined,
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+        moves: undefined,
+      };
+      this.titled = false;
+      this.update((prev) => ({
+        ...prev,
+        history: null,
+        queue: [],
+        card: undefined,
+        model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq },
+      }));
+      if (!(await this.start({ resetLog: true }))) {
+        throw new Error(this.state.error ?? "Codex could not switch profiles");
+      }
+      this.hooks.onProfile?.(profileId);
+      const threadId = this.currentThread();
+      if (threadId) this.hooks.onThread?.(threadId);
+      this.hooks.onTitle?.(this.model.threadName ?? "");
+    });
+  }
+
+  /** Holds sends while the source stops and restores it if the destination fails. */
+  private async changeThread(change: () => Promise<void>): Promise<void> {
+    if (
+      this.disposed ||
+      this.rewinding ||
+      this.resumingSelection ||
+      this.startup.pending ||
+      this.startingTurn ||
+      this.state.queue.some((item) => item.status === "sending")
+    ) {
+      throw new Error("Codex is changing the conversation");
     }
-    this.flushNow();
-    this.next = {};
-    this.pickedPermissionMode = undefined;
-    this.target = {
-      ...this.target,
-      threadId: undefined,
-      fork: undefined,
-      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
-      moves: undefined,
-    };
-    this.hooks.onProfile?.(profileId);
-    this.hooks.onTitle?.("");
-    this.titled = false;
-    // The account and its limits are the old profile's too.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      queue: [],
-      card: undefined,
-      model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq },
-    }));
-    await this.start({ resetLog: true });
+    this.resumingSelection = true;
+    try {
+      this.flushNow();
+      if (this.model.process === "running") {
+        await stopChatProgram(this.target.workspaceId, this.target.tabId);
+      }
+      this.flushNow();
+      if (this.disposed) throw new Error("the tab closed");
+      const source = this.state;
+      const sourceModel = this.model;
+      const target = this.target;
+      const next = this.next;
+      const permissionMode = this.pickedPermissionMode;
+      const titled = this.titled;
+      const emptyThread = this.emptyThread;
+      try {
+        await change();
+      } catch (error) {
+        this.target = target;
+        this.next = next;
+        this.pickedPermissionMode = permissionMode;
+        this.titled = titled;
+        this.emptyThread = emptyThread;
+        this.startup.failed = true;
+        this.update((prev) => ({
+          ...source,
+          phase: "failed",
+          error: (error as Error).message,
+          model: {
+            ...sourceModel,
+            lastSeq: Math.max(sourceModel.lastSeq, prev.model.lastSeq),
+            process: "exited",
+            running: false,
+            turn: null,
+            turnId: undefined,
+            permissions: [],
+          } satisfies CodexModel,
+        }));
+        throw error;
+      }
+    } finally {
+      this.resumingSelection = false;
+    }
   }
 
   /**
@@ -979,7 +1033,7 @@ export class CodexController {
       await this.switchProfile(profileId);
       return;
     }
-    const { workspaceId, tabId, cwd } = this.target;
+    const { workspaceId, cwd } = this.target;
     const sourceProfile = this.profileId;
     const forkSettings = await CodexController.destinationForkSettings(
       { workspaceId, cwd, profileId },
@@ -992,45 +1046,42 @@ export class CodexController {
     if (sourceProfile !== this.profileId || threadId !== this.currentThread()) {
       throw new Error("The Codex source thread changed while resolving the destination profile");
     }
-    // Messages held for the turn's end would go to the program that stops.
-    this.update((prev) => (prev.queue.length > 0 ? { ...prev, queue: [] } : prev));
-    if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
-    }
-    this.flushNow();
-    // Codex numbers a thread's items anew as it reads it; its turns keep their ids.
-    const after = lastMessageId(this.model.items.filter((item) => item.kind === "assistant"));
-    const moves = after
-      ? withMove(this.target.moves, { profileId, after, at: Date.now() })
-      : [...(this.target.moves ?? [])];
-    this.next = {};
-    this.pickedPermissionMode = undefined;
-    const title = this.model.threadName;
-    this.target = {
-      ...this.target,
-      threadId: undefined,
-      fork: {
-        threadId,
-        ...(title ? { title } : {}),
-        profileId: this.target.profileId ?? defaultProfileId("codex"),
-      },
-      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
-      moves,
-    };
-    this.hooks.onProfile?.(profileId);
-    this.hooks.onMoves?.(moves);
-    // The fork's answer brings the turns back; the account and its limits
-    // are the old profile's.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      card: undefined,
-      model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq },
-    }));
-    if (!(await this.start({ resetLog: true }, false, forkSettings)) || !(await this.ready)) {
-      throw new Error(this.state.error ?? "Codex could not continue in the destination profile");
-    }
-    this.flushNow();
+    await this.changeThread(async () => {
+      // Codex numbers a thread's items anew as it reads it; its turns keep their ids.
+      const after = lastMessageId(this.model.items.filter((item) => item.kind === "assistant"));
+      const moves = after
+        ? withMove(this.target.moves, { profileId, after, at: Date.now() })
+        : [...(this.target.moves ?? [])];
+      this.next = {};
+      this.pickedPermissionMode = undefined;
+      const title = this.model.threadName;
+      this.target = {
+        ...this.target,
+        threadId: undefined,
+        fork: {
+          threadId,
+          ...(title ? { title } : {}),
+          profileId: this.target.profileId ?? defaultProfileId("codex"),
+        },
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+        moves,
+      };
+      this.update((prev) => ({
+        ...prev,
+        history: null,
+        queue: [],
+        card: undefined,
+        model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq },
+      }));
+      if (!(await this.start({ resetLog: true }, false, forkSettings))) {
+        throw new Error(this.state.error ?? "Codex could not continue in the destination profile");
+      }
+      this.hooks.onProfile?.(profileId);
+      const copy = this.currentThread();
+      if (copy) this.hooks.onThread?.(copy);
+      if (title) this.hooks.onTitle?.(title);
+      this.hooks.onMoves?.(moves);
+    });
   }
 
   /** Asks the program for a command (/mcp, /goal, /compact…), once it is running. */
@@ -1188,6 +1239,13 @@ export class CodexController {
   /** The thread the tab goes on with, once it has one. */
   currentThread(): string | undefined {
     return this.model.threadId ?? this.target.threadId;
+  }
+
+  /** Persists the program's thread after the current selection commits. */
+  private rememberThread(threadId: string): void {
+    if (threadId === this.target.threadId) return;
+    this.target = { ...this.target, threadId, fork: undefined };
+    if (!this.resumingSelection) this.hooks.onThread?.(threadId);
   }
 
   /** Reads again what the program is signed in with: after a sign-in in a terminal. */
@@ -1529,6 +1587,7 @@ export class CodexController {
   }
 
   private sendNextQueued(): void {
+    if (this.resumingSelection) return;
     dispatchQueuedMessage(
       this.state.queue,
       (update) => this.update(update),
@@ -1802,7 +1861,7 @@ export class CodexController {
    * opens (its list of threads, its defaults) would come before that.
    */
   private async ensureRunning(): Promise<boolean> {
-    if (this.disposed) return false;
+    if (this.disposed || this.resumingSelection) return false;
     if (this.opening) {
       await this.opening;
       if (this.state.phase === "failed") return false;
@@ -2027,10 +2086,7 @@ export class CodexController {
     if (model === before) return;
     if (model.running || model.lastResult) this.emptyThread = undefined;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
-    if (model.threadId && model.threadId !== this.target.threadId) {
-      this.target = { ...this.target, threadId: model.threadId, fork: undefined };
-      this.hooks.onThread?.(model.threadId);
-    }
+    if (model.threadId) this.rememberThread(model.threadId);
     if (model.threadId && model.threadId !== before.threadId) {
       this.dirtyAgents.clear();
       this.readAgentAt.clear();
@@ -2041,7 +2097,7 @@ export class CodexController {
     // The thread's name, when it gets one or another (/rename), is the tab's.
     if (model.threadName && model.threadName !== before.threadName) {
       this.titled = true;
-      this.hooks.onTitle?.(model.threadName);
+      if (!this.resumingSelection) this.hooks.onTitle?.(model.threadName);
     }
     if (
       model.items !== before.items &&

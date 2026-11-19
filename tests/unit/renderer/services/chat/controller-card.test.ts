@@ -6,18 +6,39 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
+
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
   // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
-  ipcCallResult: (_channel: string, method: string) => {
-    // A start that does not come up: nothing past it runs here.
+  ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
     if (method === "start" || method === "codexStart") {
       return Promise.resolve({
         ok: true,
-        value: { ok: false, reason: "failed", message: "not here" },
+        value: { ok: true, pid: 1, attached: false, version: null },
       });
+    }
+    if (method === "send") {
+      const message = args.message as Record<string, unknown>;
+      const c = live.find((entry) => entry.key === `${args.workspaceId}:${args.tabId}`);
+      if (message.type === "control_request") {
+        c?.receive({
+          seq: ++lineSeq,
+          dir: "out",
+          message: {
+            type: "control_response",
+            response: { subtype: "success", request_id: message.request_id, response: {} },
+          },
+        } as never);
+      } else if (message.id !== undefined) {
+        c?.receive({
+          seq: ++lineSeq,
+          dir: "out",
+          message: { id: message.id, result: { thread: { id: "other" } } },
+        } as never);
+      }
     }
     if (method === "transcript") return Promise.resolve({ ok: true, value: { found: false } });
     return Promise.resolve({ ok: true, value: undefined });
@@ -30,7 +51,8 @@ const { CodexController } = await import(
 );
 
 let seq = 0;
-const live: { dispose: () => void }[] = [];
+let lineSeq = 0;
+const live: (InstanceType<typeof ChatController> | InstanceType<typeof CodexController>)[] = [];
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
@@ -56,7 +78,7 @@ describe("a Codex tab's card", () => {
 
   test("closes as another thread goes on in the tab", async () => {
     const c = codex();
-    await expect(c.resumeThread("other", "Other")).rejects.toThrow("not here");
+    await c.resumeThread("other", "Other");
     expect(c.state.card).toBeUndefined();
   });
 });

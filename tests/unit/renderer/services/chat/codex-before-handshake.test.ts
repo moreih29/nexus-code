@@ -260,6 +260,25 @@ test("a known empty Codex thread can be replaced when it has no rollout", async 
   expect(c.currentThread()).toBe("empty-2");
 });
 
+test("a refused profile resume does not persist the destination thread or title", async () => {
+  const c = tab();
+  const persisted: string[] = [];
+  c.setHooks({
+    onProfile: (id) => persisted.push(id),
+    onThread: (id) => persisted.push(id),
+    onTitle: (title) => persisted.push(title),
+  });
+  scriptProgram(c, (message) =>
+    message.method === "thread/resume"
+      ? { error: { code: -32600, message: "resume refused" } }
+      : { result: {} },
+  );
+  await expect(c.resumeThread("dest", "Destination", "work")).rejects.toThrow("resume refused");
+  expect(c.currentThread()).toBe("t1");
+  expect(c.profileId).toBe("codex-default");
+  expect(persisted).toEqual([]);
+});
+
 test("resumes a Codex thread after agent replacement and queues against the new log", async () => {
   jest.useFakeTimers();
   const c = tab();

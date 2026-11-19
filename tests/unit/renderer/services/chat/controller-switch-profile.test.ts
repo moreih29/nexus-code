@@ -7,11 +7,11 @@
  * keep its other exports.
  */
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-
 import {
   type ContinuedCodexChoices,
   profileForkSettings,
 } from "../../../../../src/renderer/services/chat/codex-profile-fork";
+import { ipcErr } from "../../../../../src/shared/ipc/result";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -19,8 +19,10 @@ import {
 const calls: { method: string; args: Record<string, unknown> }[] = [];
 /** What a stopped program does to the tab's lines: none come here unless a test says. */
 let onStop: (() => void) | undefined;
+let stopFails = false;
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
+let claudeSeq = 500;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -28,8 +30,24 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
+    const input = args.message as { type?: string; request_id?: string } | undefined;
+    if (method === "send" && input?.type === "control_request") {
+      const controller = live.find((c) => c.key === `${args.workspaceId}:${args.tabId}`);
+      controller?.receive({
+        seq: ++claudeSeq,
+        dir: "out",
+        message: {
+          type: "control_response",
+          response: { subtype: "success", request_id: input.request_id, response: {} },
+        },
+      } as never);
+      return Promise.resolve({ ok: true, value: undefined });
+    }
     calls.push({ method, args });
-    if (method === "stop") onStop?.();
+    if (method === "stop") {
+      if (stopFails) return Promise.resolve(ipcErr("chat.stop-failed", "stop refused"));
+      onStop?.();
+    }
     if (method === "send") codex?.(args.message as Record<string, unknown>);
     if (method === "stageThread") {
       return Promise.resolve({ ok: true, value: { found: args.threadId !== "gone" } });
@@ -52,8 +70,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (method === "transcript") {
       return Promise.resolve({ ok: true, value: { found: false, lines: [], truncated: false } });
     }
-    // A start that does not come up: nothing past it runs here.
-    if (method === "start" || method === "codexStart") {
+    if (method === "start") {
+      return Promise.resolve({
+        ok: true,
+        value: { ok: true, pid: 1, attached: false, version: null },
+      });
+    }
+    // Codex starts only when the test scripts a destination program.
+    if (method === "codexStart") {
       return Promise.resolve({
         ok: true,
         value: { ok: false, reason: "failed", message: "not here" },
@@ -71,7 +95,7 @@ const { useChatStore } = await import("../../../../../src/renderer/services/chat
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
 
 let seq = 0;
-const live: { dispose: () => void }[] = [];
+const live: (InstanceType<typeof ChatController> | InstanceType<typeof CodexController>)[] = [];
 
 let restoreDestination: (() => void) | undefined;
 afterEach(() => {
@@ -80,6 +104,7 @@ afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   calls.length = 0;
   onStop = undefined;
+  stopFails = false;
   codex = undefined;
 });
 
@@ -129,7 +154,7 @@ describe("a Claude tab switched to another profile", () => {
     const state = c.state;
     expect(state.history).toBeNull();
     expect(state.model.items).toEqual([]);
-    expect(state.model.lastSeq).toBe(7);
+    expect(state.model.lastSeq).toBeGreaterThan(7);
     expect(state.queue).toEqual([]);
   });
 
@@ -139,10 +164,20 @@ describe("a Claude tab switched to another profile", () => {
     expect(calls).toEqual([]);
     expect(seen).toEqual({});
   });
+
+  test("a failed Claude stop leaves the source profile and held message", async () => {
+    const { c, seen } = claude();
+    stopFails = true;
+    await expect(c.switchProfile("work")).rejects.toThrow("stop refused");
+    expect(calls.map((call) => call.method)).toEqual(["stop"]);
+    expect(c.currentSession()).toBe("old");
+    expect(c.state.queue.map((item) => item.id)).toEqual(["q"]);
+    expect(seen).toEqual({});
+  });
 });
 
 describe("a Codex tab switched to another profile", () => {
-  function codex() {
+  function codexTab() {
     const seen: { profile?: string; title?: string } = {};
     const c = new CodexController(
       { workspaceId: "ws-switch", tabId: `x${++seq}`, cwd: "/p", threadId: "old" },
@@ -174,22 +209,43 @@ describe("a Codex tab switched to another profile", () => {
   }
 
   test("starts a new thread with the destination profile defaults", async () => {
-    const { c, seen } = codex();
+    const { c, seen } = codexTab();
+    let seq = 100;
+    codex = (message) => {
+      if (message.id === undefined) return;
+      const result = message.method === "thread/start" ? { thread: { id: "new" } } : {};
+      c.receive({ seq: ++seq, dir: "out", message: { id: message.id, result } } as never);
+    };
     await c.setPermissionMode("fullAccess");
     await c.setModel("gpt-old");
     await c.setEffort("high");
     await c.switchProfile("work");
-    expect(calls.map((call) => call.method)).toEqual(["stop", "codexStart"]);
+    expect(calls.map((call) => call.method).filter((method) => method !== "send")).toEqual([
+      "stop",
+      "codexStart",
+    ]);
     expect(calls[1]?.args.profileId).toBe("work");
     expect(calls[1]?.args.resetLog).toBe(true);
-    expect(c.currentThread()).toBeUndefined();
+    expect(c.currentThread()).toBe("new");
     expect(seen).toEqual({ profile: "work", title: "" });
     const model = c.state.model as Record<string, unknown>;
     expect(model.items).toEqual([]);
-    expect(model.lastSeq).toBe(3);
+    expect(model.lastSeq as number).toBeGreaterThan(3);
     expect(model.model).toBeUndefined();
     expect(model.account).toBeUndefined();
     expect(model.permissionMode).toBeUndefined();
+  });
+
+  test("a rejected Codex destination startup leaves the source thread and queue available", async () => {
+    const { c, seen } = codexTab();
+    const held = { id: "draft", text: "keep this", images: [] };
+    useChatStore.getState().update(c.key, (prev) => ({ ...prev, queue: [held] }));
+    await expect(c.switchProfile("work")).rejects.toThrow("not here");
+    expect(c.profileId).toBe("codex-default");
+    expect(c.currentThread()).toBe("old");
+    expect(c.state.queue).toEqual([held]);
+    expect(c.state.model.items.map((item) => item.key)).toEqual(["u1"]);
+    expect(seen).toEqual({});
   });
 });
 
@@ -271,7 +327,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     const state = c.state;
     expect(state.history?.items.map((item) => item.key)).toEqual(["u0", "u1", "a1"]);
     expect(state.model.items).toEqual([]);
-    expect(state.model.lastSeq).toBe(7);
+    expect(state.model.lastSeq).toBeGreaterThan(7);
     expect(state.queue).toEqual([]);
   });
 
@@ -323,9 +379,11 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
 
   test("a session gone from the old profile fails the start", async () => {
     const { c } = claude({ sessionId: "gone" });
-    await c.continueInProfile("work");
+    await expect(c.continueInProfile("work")).rejects.toThrow();
     expect(calls.map((call) => call.method)).toEqual(["stop", "sessionFile"]);
     expect(c.state.phase).toBe("failed");
+    expect(c.currentSession()).toBe("gone");
+    expect(c.profileId).toBe("claude-default");
   });
 
   test("a tab with no session yet just switches", async () => {
@@ -413,7 +471,7 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     expect(calls.map((call) => call.method)).not.toContain("codexStart");
   });
 
-  test("stops its program and starts one that forks the thread", async () => {
+  test("preserves the source after a failed fork startup", async () => {
     const resolve = resolveDestination();
     const seen: { profile?: string; moves?: readonly unknown[] } = {};
     const c = new CodexController(
@@ -446,12 +504,12 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     await expect(c.continueInProfile("work")).rejects.toThrow("not here");
     expect(calls.map((call) => call.method)).toEqual(["stop", "codexStart"]);
     expect(calls[1]?.args.profileId).toBe("work");
-    expect(seen.profile).toBe("work");
-    // A turn's id holds in the copy; its items are numbered anew.
-    expect(seen.moves).toEqual([{ profileId: "work", after: "turn-1", at: expect.any(Number) }]);
+    expect(seen).toEqual({});
+    expect(c.profileId).toBe("codex-default");
+    expect(c.currentThread()).toBe("old");
     const model = c.state.model as Record<string, unknown>;
-    expect(model.items).toEqual([]);
-    expect(model.permissionMode).toBeUndefined();
+    expect(c.state.model.items.map((item) => item.key)).toEqual(["u1", "a1"]);
+    expect(model.permissionMode).toBe("fullAccess");
     expect(resolve.mock.calls[0]?.[1]).toEqual({
       model: undefined,
       effort: undefined,
@@ -597,8 +655,9 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     codex = (message) => {
       sent.push(message);
       if (message.id === undefined) return;
+      const result = message.method === "thread/start" ? { thread: { id: "new" } } : {};
       queueMicrotask(() =>
-        c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result: {} } } as never),
+        c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never),
       );
     };
     await c.continueInProfile("work");
