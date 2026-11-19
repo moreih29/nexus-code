@@ -22,6 +22,7 @@ import {
   type BranchPickerSourceMode,
   type BranchPickItem,
   createBranchPickerSource,
+  normalizeBranchPickerMode,
 } from "./picker-source";
 
 interface BranchPickerProps {
@@ -196,17 +197,6 @@ export interface ConfirmDeleteDeps {
   deleteBranch: (workspaceId: string, name: string, force?: boolean) => Promise<void>;
   deleteRemoteBranch: (workspaceId: string, remote: string, name: string) => Promise<void>;
   setDeleteRequest: Dispatch<SetStateAction<BranchDeleteRequest | null>>;
-}
-
-/**
- * Keeps the legacy `checkout` spelling as a compatibility alias for the
- * default switch mode.
- */
-function normalizeBranchPickerMode(
-  mode: BranchPickerMode | undefined,
-): Exclude<BranchPickerMode, "checkout"> {
-  if (!mode || mode === "checkout") return "switch";
-  return mode;
 }
 
 /**

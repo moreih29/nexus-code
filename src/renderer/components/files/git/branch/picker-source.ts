@@ -72,7 +72,7 @@ export interface CreateBranchPickerSourceInput {
 export function createBranchPickerSource(
   input: CreateBranchPickerSourceInput,
 ): PaletteSource<BranchPickItem> {
-  const mode = normalizeBranchPickerSourceMode(input.mode);
+  const mode = normalizeBranchPickerMode(input.mode);
 
   return {
     id: "git.branch-picker",
@@ -229,7 +229,7 @@ export function createBranchPickerSource(
  * Keeps the historic `checkout` mode spelling as an alias for the default
  * switch/checkout behavior used by the Source Control panel.
  */
-function normalizeBranchPickerSourceMode(
+export function normalizeBranchPickerMode(
   mode: BranchPickerSourceMode | undefined,
 ): NormalizedBranchPickerSourceMode {
   if (!mode || mode === "checkout") return "switch";
