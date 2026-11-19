@@ -3,6 +3,7 @@ package chat
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -20,18 +21,18 @@ func TestCodexContextAugmentsOnlyTurnStart(t *testing.T) {
 	context := codexContext{Files: "File links", CLI: &codexCLIContext{Status: "CLI guidance", Commands: "Commands"}}
 	start := `{"method":"turn/start","id":"turn","params":{"threadId":"` + notesThread +
 		`","input":[{"type":"text","text":"Hello"}],"additionalContext":{"other":{"kind":"untrusted","value":"other context"}}}}`
-	fragments := testCodexContext(t, proc.withCodexContext([]byte(start), context))
+	fragments := testCodexContext(t, applyTestCodexContext(proc, []byte(start), context))
 	if len(fragments) != 4 || fragments["other"].Value != "other context" ||
 		fragments[codexFileLinks].Kind != "application" || fragments[codexCLI].Kind != "application" {
 		t.Fatalf("unexpected fragments: %#v", fragments)
 	}
 	for _, method := range []string{"thread/start", "thread/resume", "thread/fork", "turn/steer"} {
 		request := `{"method":"` + method + `","params":{"threadId":"` + notesThread + `"}}`
-		if got := string(proc.withCodexContext([]byte(request), context)); got != request {
+		if got := string(applyTestCodexContext(proc, []byte(request), context)); got != request {
 			t.Errorf("%s unexpectedly changed: %s", method, got)
 		}
 	}
-	disabled := testCodexContext(t, proc.withCodexContext([]byte(start), codexContext{Files: "File links"}))
+	disabled := testCodexContext(t, applyTestCodexContext(proc, []byte(start), codexContext{Files: "File links"}))
 	if disabled[codexCLI].Value != cliDisabled {
 		t.Fatalf("did not revoke earlier CLI guidance: %#v", disabled)
 	}
@@ -68,14 +69,14 @@ func TestCodexContextUsesHostedProfileAndForkBoundary(t *testing.T) {
 	proc := testCodexContextProcess(profile)
 	turn := `{"method":"turn/start","params":{"threadId":"` + notesFork + `"}}`
 	context := codexContext{Files: filePrompt, CLI: &codexCLIContext{Status: cli, Commands: commands}}
-	if got := string(proc.withCodexContext([]byte(turn), context)); got != turn {
+	if got := string(applyTestCodexContext(proc, []byte(turn), context)); got != turn {
 		t.Fatalf("repeated inherited guidance: %s", got)
 	}
-	changed := testCodexContext(t, proc.withCodexContext([]byte(turn), codexContext{Files: filePrompt, CLI: &codexCLIContext{Status: "Other tab", Commands: commands}}))
+	changed := testCodexContext(t, applyTestCodexContext(proc, []byte(turn), codexContext{Files: filePrompt, CLI: &codexCLIContext{Status: "Other tab", Commands: commands}}))
 	if len(changed) != 1 || changed[codexCLI].Kind != "application" {
 		t.Fatalf("did not refresh only the CLI guidance: %#v", changed)
 	}
-	disabled := testCodexContext(t, proc.withCodexContext([]byte(turn), codexContext{Files: filePrompt}))
+	disabled := testCodexContext(t, applyTestCodexContext(proc, []byte(turn), codexContext{Files: filePrompt}))
 	if len(disabled) != 1 || disabled[codexCLI].Value != cliDisabled {
 		t.Fatalf("did not revoke inherited CLI guidance: %#v", disabled)
 	}
@@ -84,7 +85,7 @@ func TestCodexContextUsesHostedProfileAndForkBoundary(t *testing.T) {
 func TestCodexContextDisabledForNewThread(t *testing.T) {
 	proc := testCodexContextProcess(t.TempDir())
 	turn := `{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`
-	fragments := testCodexContext(t, proc.withCodexContext([]byte(turn), codexContext{Files: "File links"}))
+	fragments := testCodexContext(t, applyTestCodexContext(proc, []byte(turn), codexContext{Files: "File links"}))
 	if len(fragments) != 1 || fragments[codexFileLinks].Value != "File links" {
 		t.Fatalf("expected file guidance only: %#v", fragments)
 	}
@@ -95,10 +96,10 @@ func TestCodexContextWriteKeepsJSONLFraming(t *testing.T) {
 	var stdin bytes.Buffer
 	proc.stdin = testCodexStdin{&stdin}
 	turn := `{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`
-	if _, err := proc.writeLocked([]byte(turn), &codexContext{Files: "File links"}); err != nil {
+	if _, err := proc.writeLocked(context.Background(), []byte(turn), &codexContext{Files: "File links"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := proc.writeLocked([]byte(`{"method":"initialized"}`), nil); err != nil {
+	if _, err := proc.writeLocked(context.Background(), []byte(`{"method":"initialized"}`), nil); err != nil {
 		t.Fatal(err)
 	}
 	reader := bufio.NewReader(&stdin)
@@ -120,6 +121,10 @@ func TestCodexContextWriteKeepsJSONLFraming(t *testing.T) {
 
 type testCodexStdin struct{ *bytes.Buffer }
 
+func (w testCodexStdin) WriteContext(_ context.Context, p []byte) (int, error) {
+	return w.Write(p)
+}
+
 func (testCodexStdin) Close() error { return nil }
 
 func TestCodexContextAfterCompaction(t *testing.T) {
@@ -137,7 +142,7 @@ func TestCodexContextAfterCompaction(t *testing.T) {
 	proc := testCodexContextProcess(profile)
 	turn := `{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`
 	context := codexContext{Files: filePrompt}
-	if got := string(proc.withCodexContext([]byte(turn), context)); got != turn {
+	if got := string(applyTestCodexContext(proc, []byte(turn), context)); got != turn {
 		t.Fatalf("repeated existing guidance: %s", got)
 	}
 
@@ -150,11 +155,11 @@ func TestCodexContextAfterCompaction(t *testing.T) {
 		t.Fatal("did not recognize the compacted notification")
 	}
 	proc.codexCompactions.Add(1)
-	result := proc.withCodexContext([]byte(turn), context)
+	result := applyTestCodexContext(proc, []byte(turn), context)
 	if got := testCodexContext(t, result)[codexFileLinks].Value; got != filePrompt+refreshSuffix+"1" {
 		t.Fatalf("did not refresh removed guidance: %q", got)
 	}
-	if got := proc.withCodexContext([]byte(turn), context); !bytes.Equal(result, got) {
+	if got := applyTestCodexContext(proc, []byte(turn), context); !bytes.Equal(result, got) {
 		t.Fatalf("subsequent turns require the same value for Codex deduplication: %s", got)
 	}
 
@@ -164,7 +169,7 @@ func TestCodexContextAfterCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	proc.codexCompactions.Add(1)
-	if got := string(proc.withCodexContext([]byte(turn), context)); got != turn {
+	if got := string(applyTestCodexContext(proc, []byte(turn), context)); got != turn {
 		t.Fatalf("repeated guidance kept in the replacement history: %s", got)
 	}
 }
@@ -218,9 +223,18 @@ func TestCodexContextWaitsForAnInitializeThatAskedForExperimentalApi(t *testing.
 		for _, request := range c.requests {
 			proc.noteCodexInitialize(request)
 		}
-		got := proc.withCodexContext([]byte(turn), context)
+		got := applyTestCodexContext(proc, []byte(turn), context)
 		if c.guidanceOn != (string(got) != turn) {
 			t.Errorf("%s: guidance added = %v, want %v: %s", c.name, string(got) != turn, c.guidanceOn, got)
 		}
 	}
+}
+
+// applyTestCodexContext models guidance accepted by the child.
+func applyTestCodexContext(p *process, data []byte, guidance codexContext) []byte {
+	edited, commit := p.prepareCodexContext(data, guidance)
+	if commit != nil {
+		commit()
+	}
+	return edited
 }
