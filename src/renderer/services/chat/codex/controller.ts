@@ -70,6 +70,7 @@ import {
   codexModelsOf,
   emptyCodexModel,
   idKey,
+  isThreadStatusChanged,
   loseCodexLog,
   nextThreadModel,
   shownUserText,
@@ -2107,7 +2108,7 @@ export class CodexController {
       invalidateCodexHistory(this.target.workspaceId);
     }
     const childBecameIdle =
-      method === "thread/statusChanged" &&
+      isThreadStatusChanged(method) &&
       (params?.status?.type === "idle" || params?.status?.type === "systemError");
     if (
       (method === "item/completed" || method === "turn/completed" || childBecameIdle) &&

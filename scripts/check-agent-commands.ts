@@ -26,6 +26,7 @@ import {
   parseConfigUsage,
 } from "../src/renderer/services/chat/claude/config";
 import { CODEX_COMMANDS } from "../src/renderer/services/chat/codex/commands";
+import { THREAD_STATUS_CHANGED } from "../src/renderer/services/chat/codex/model";
 
 /** A command its definition turns off; the check says when it is on again. */
 const OFF = "off in its definition";
@@ -516,6 +517,8 @@ function methodsTheAppUses() {
       (m) => m[1],
     ),
   );
+  // The shared predicate accepts a compatibility alias. The schema must list the current name.
+  read.add(THREAD_STATUS_CHANGED);
   const experimentalOptIn = /capabilities:\s*\{[^}]*\bexperimentalApi:\s*true\b/.test(controller);
   return { requests, read, experimentalOptIn };
 }
