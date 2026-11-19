@@ -11,6 +11,8 @@ import type { ImageBlock } from "./model";
 export interface ChatFiles {
   /** The peer connection and foreground lifetime; null while unavailable. */
   epoch: number | null;
+  /** The peer connection alone, which a return to the foreground keeps; null while unavailable. */
+  connection: number | null;
   /** Which of these absolute paths are files. */
   there(paths: readonly string[]): Promise<ReadonlySet<string>>;
   /** An image file's picture, small enough for a card. */
