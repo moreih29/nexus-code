@@ -20,10 +20,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-import {
-  deleteClaudeSession,
-  withTranscriptSizes,
-} from "../../../../../src/renderer/services/chat/sessions";
+import { deleteClaudeSession } from "../../../../../src/renderer/services/chat/claude/sessions";
+import { withTranscriptSizes } from "../../../../../src/renderer/services/chat/sessions";
 
 beforeEach(() => {
   ipcCalls.length = 0;

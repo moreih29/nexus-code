@@ -12,13 +12,10 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { backgroundIdOf } from "../app-commands";
 import {
-  applyLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
-  endGoal,
   type ImageBlock,
   type PermissionRequest,
   type UserItem,
@@ -29,17 +26,19 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
-  clearObservedQueued,
-  dispatchQueuedMessage,
   emptyTabState,
-  isChatWriteRejected,
-  type QueuedMessage,
   useChatStore,
 } from "../store";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
+import {
+  clearObservedQueued,
+  dispatchQueuedMessage,
+  isChatWriteRejected,
+  type QueuedMessage,
+} from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
-import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "../versions";
+import { backgroundIdOf } from "./command-data";
 import {
   configUsageOf,
   LISTED_KEYS_STORAGE,
@@ -62,6 +61,8 @@ import {
   withSubagentLog,
 } from "./history";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
+import { applyLines, endGoal } from "./stream-model";
+import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
 const log = createLogger("chat");
 

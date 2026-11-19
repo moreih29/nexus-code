@@ -21,7 +21,10 @@ const { ChatController } = await import(
 const { CodexController } = await import(
   "../../../../../src/renderer/services/chat/codex/controller"
 );
-const { clearObservedQueued, dispatchQueuedMessage, emptyTabState, useChatStore } = await import(
+const { clearObservedQueued, dispatchQueuedMessage } = await import(
+  "../../../../../src/renderer/services/chat/transport/queue"
+);
+const { emptyTabState, useChatStore } = await import(
   "../../../../../src/renderer/services/chat/store"
 );
 

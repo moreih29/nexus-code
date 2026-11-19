@@ -17,7 +17,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { sendToAgentTab, sendUnseen } = await import(
-  "../../../../../src/renderer/services/chat/agent-tab"
+  "../../../../../src/renderer/services/chat/transport/submission"
 );
 const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 

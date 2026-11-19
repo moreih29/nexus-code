@@ -4,6 +4,8 @@ import { join } from "node:path";
 import {
   applyLine,
   applyLines,
+} from "../../../../../src/renderer/services/chat/claude/stream-model";
+import {
   type ChatLine,
   type ChatModel,
   emptyModel,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
-  applyLines,
   type ChatLine,
   type ChatModel,
   emptyModel,

@@ -36,13 +36,8 @@ import {
 } from "../chat/app-commands";
 import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex/commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
-import {
-  type ChatTabState,
-  type CommandCard,
-  emptyTabState,
-  type QueuedMessage,
-  type RevealPart,
-} from "../chat/store";
+import { type ChatTabState, type CommandCard, emptyTabState, type RevealPart } from "../chat/store";
+import type { QueuedMessage } from "../chat/transport/queue";
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";

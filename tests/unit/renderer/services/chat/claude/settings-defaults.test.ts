@@ -12,8 +12,8 @@ import {
   settingsChoice,
   settingsModel,
 } from "../../../../../../src/renderer/services/chat/claude/settings-defaults";
+import { applyLines } from "../../../../../../src/renderer/services/chat/claude/stream-model";
 import {
-  applyLines,
   type ChatLine,
   currentModelInfo,
   emptyModel,

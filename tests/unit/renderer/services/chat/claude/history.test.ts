@@ -15,7 +15,8 @@ import {
   uuidBefore,
   withSubagentLog,
 } from "../../../../../../src/renderer/services/chat/claude/history";
-import { applyLines, emptyModel } from "../../../../../../src/renderer/services/chat/model";
+import { applyLines } from "../../../../../../src/renderer/services/chat/claude/stream-model";
+import { emptyModel } from "../../../../../../src/renderer/services/chat/model";
 
 // A transcript's entries as Claude Code writes them: bookkeeping between
 // the messages, which have uuids.

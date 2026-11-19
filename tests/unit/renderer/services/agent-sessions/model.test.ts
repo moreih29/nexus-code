@@ -7,7 +7,7 @@ import {
   buildFamily,
   type FamilyInput,
 } from "../../../../../src/renderer/services/agent-sessions/model";
-import { applyLine } from "../../../../../src/renderer/services/chat/model";
+import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";

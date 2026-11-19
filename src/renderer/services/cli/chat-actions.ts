@@ -18,15 +18,9 @@ import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import {
-  type AgentTabController,
-  agentTabController,
-  sendToAgentTab,
-  sendUnseen,
-  startAgentTab,
-  submissionAt,
-} from "../chat/agent-tab";
+import { type AgentTabController, agentTabController, startAgentTab } from "../chat/agent-tab";
 import type { ForkPoint } from "../chat/claude/controller";
+import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
 import { CodexReplyError } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
@@ -36,7 +30,7 @@ import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
-import { firstVersionOf } from "../chat/versions";
+import { sendToAgentTab, sendUnseen, submissionAt } from "../chat/transport/submission";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";

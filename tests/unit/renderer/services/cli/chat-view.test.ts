@@ -3,6 +3,7 @@
  * stands, and its last messages.
  */
 import { describe, expect, it, test } from "bun:test";
+import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
   applyCodexLine,
   type CodexModel,
@@ -13,7 +14,7 @@ import type {
   ChatModel,
   PermissionRequest,
 } from "../../../../../src/renderer/services/chat/model";
-import { applyLine, emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   chatEntriesOf,

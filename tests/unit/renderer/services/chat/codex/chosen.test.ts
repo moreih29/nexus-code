@@ -53,7 +53,9 @@ const { CodexController, closeCodexTab, codexController } = await import(
 const { useChatStore } = await import("../../../../../../src/renderer/services/chat/store");
 const { chatHandlers } = await import("../../../../../../src/renderer/services/cli/chat-actions");
 const { useTabsStore } = await import("../../../../../../src/renderer/state/stores/tabs");
-const { sendToAgentTab } = await import("../../../../../../src/renderer/services/chat/agent-tab");
+const { sendToAgentTab } = await import(
+  "../../../../../../src/renderer/services/chat/transport/submission"
+);
 const { chatPanelOf } = await import("../../../../../../src/renderer/services/remote/chat-panel");
 const { chatPageOf } = await import("../../../../../../src/renderer/services/remote/chat-page");
 type Controller = InstanceType<typeof CodexController>;

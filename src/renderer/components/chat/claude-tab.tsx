@@ -18,6 +18,7 @@ import {
   pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { runAppCommand } from "../../services/chat/claude/run-command";
+import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
@@ -66,7 +67,6 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
-import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
