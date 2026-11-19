@@ -594,6 +594,7 @@ export const ipcContract = {
   workspace: {
     call: {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
+      connectionSnapshot: call(z.void(), z.array(WorkspaceConnectionChangedEventSchema)),
       create: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
       /**
        * Atomic workspace creation: for SSH locations, authenticates and

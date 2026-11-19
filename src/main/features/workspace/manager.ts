@@ -6,6 +6,7 @@ import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
   rootPathFromLocation,
+  type WorkspaceConnectionChangedEvent,
   type WorkspaceConnectionEventStatus,
   type WorkspaceLocation,
   WorkspaceLocationSchema,
@@ -532,6 +533,14 @@ export class WorkspaceManager {
       }
     }
     return null;
+  }
+
+  /** Current remote connection statuses for a newly opened renderer. */
+  connectionSnapshot(): WorkspaceConnectionChangedEvent[] {
+    return Array.from(this.connectionStatuses, ([workspaceId, status]) => ({
+      workspaceId,
+      status,
+    }));
   }
 
   getActiveId(): string | null {
