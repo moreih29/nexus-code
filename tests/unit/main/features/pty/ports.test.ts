@@ -5,7 +5,7 @@
  * attached again, and not at all when it is quiet with none, unless a
  * command asks; and which answers it shows.
  */
-import { afterEach, beforeEach, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, mock, test } from "bun:test";
 import { PortWatcher } from "../../../../../src/main/features/pty/ports";
 import type { ListeningPort, WorkspacePorts } from "../../../../../src/shared/pty/ports";
 
@@ -284,4 +284,20 @@ test("a refresh during a look shows the newer answer, whichever ends first", asy
   expect(watcher.get("w")).toEqual([port(3000), port(4000)]);
   expect(changes).toEqual([{ workspaceId: "w", ports: [port(3000), port(4000)] }]);
   watcher.dispose();
+});
+
+test("removing a workspace cancels its scheduled port lookup", async () => {
+  const pty = host();
+  const lookup = mock(async (_workspaceId: string) => []);
+  const watcher = new PortWatcher(pty, lookup, () => {});
+  try {
+    pty.emit("data", { workspaceId: "removed", tabId: "t", replay: true });
+    pty.emit("data", { workspaceId: "kept", tabId: "t", replay: true });
+    watcher.forgetWorkspace("removed");
+    jest.advanceTimersByTime(0);
+
+    expect(lookup.mock.calls).toEqual([["kept"]]);
+  } finally {
+    watcher.dispose();
+  }
 });

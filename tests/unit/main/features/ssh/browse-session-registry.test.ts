@@ -12,7 +12,7 @@
  * injected nowFn; tests advance a mutable fakeNow variable instead of
  * sleeping for real milliseconds.
  */
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, jest, mock, test } from "bun:test";
 import {
   BROWSE_IDLE_TTL_MS,
   SshBrowseSessionRegistry,
@@ -134,4 +134,27 @@ describe("SshBrowseSessionRegistry", () => {
       registry.dispose();
     });
   });
+});
+
+test("browsing after every window closed still reaps abandoned sessions", () => {
+  jest.useFakeTimers();
+  let now = 0;
+  const registry = new SshBrowseSessionRegistry(100, () => now);
+  const channel = makeChannel();
+  const next = makeChannel();
+  try {
+    registry.register(channel, null);
+    registry.closeAll();
+    expect(channel.dispose).toHaveBeenCalledTimes(1);
+
+    const id = registry.register(next, null);
+    now = 30_000;
+    jest.advanceTimersByTime(30_000);
+
+    expect(registry.get(id)).toBeNull();
+    expect(next.dispose).toHaveBeenCalledTimes(1);
+  } finally {
+    registry.dispose();
+    jest.useRealTimers();
+  }
 });
