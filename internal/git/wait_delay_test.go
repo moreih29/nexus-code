@@ -31,14 +31,20 @@ func runWaitDelayFixture(addr string) int {
 	if len(os.Args) < 2 {
 		return 1
 	}
-	if os.Args[1] == "--hold-pipes" {
+	if os.Args[1] == "--hold-pipes" || os.Args[1] == "--overflow-child" {
 		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 		if err != nil {
 			return 1
 		}
 		defer conn.Close()
 		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		_, _ = io.Copy(io.Discard, conn)
+		if os.Args[1] == "--overflow-child" {
+			if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+				return 1
+			}
+			_, _ = io.WriteString(os.Stdout, strings.Repeat("x", 2048))
+		}
+		_, _ = io.Copy(conn, conn)
 		return 0
 	}
 	if os.Args[1] == "log" {
@@ -47,14 +53,18 @@ func runWaitDelayFixture(addr string) int {
 		_, _ = io.WriteString(os.Stdout, waitDelayStdout)
 	}
 	_, _ = io.WriteString(os.Stderr, waitDelayStderr)
-	helper := exec.Command(os.Getenv(waitDelayFixtureExe), "--hold-pipes")
+	helperArg := "--hold-pipes"
+	if os.Args[1] == "overflow" {
+		helperArg = "--overflow-child"
+	}
+	helper := exec.Command(os.Getenv(waitDelayFixtureExe), helperArg)
 	helper.Stdout = os.Stdout
 	helper.Stderr = os.Stderr
 	if err := helper.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if os.Args[1] == "wait-for-helper" {
+	if os.Args[1] == "wait-for-helper" || os.Args[1] == "overflow" {
 		// The cancelled launcher is still running when the helper connects.
 		if err := helper.Wait(); err != nil {
 			return 1
@@ -157,6 +167,16 @@ func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 			case got := <-finished:
 				if got.err != nil || !reflect.DeepEqual(got.value, tc.want) {
 					t.Fatalf("result = %+v, %v; want %+v", got.value, got.err, tc.want)
+				}
+				// A successful command can leave a credential or SSH helper alive.
+				if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := conn.Write([]byte{1}); err != nil {
+					t.Fatal("Git's successful reply terminated its helper:", err)
+				}
+				if _, err := io.ReadFull(conn, make([]byte, 1)); err != nil {
+					t.Fatal("Git's successful reply terminated its helper:", err)
 				}
 				if tc.name == "stream" && streamed.String() != waitDelayStdout {
 					t.Fatalf("streamed stdout = %q, want %q", streamed.String(), waitDelayStdout)

@@ -65,7 +65,10 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err, cleanupErr := runGitWithOutputLimit(cmd, &stdout)
+	if cleanupErr != nil {
+		return nil, mapGitStartError(cleanupErr, nil)
+	}
 	if stdout.overflow {
 		return outputLimitResult(stderr.String(), stdoutCap), nil
 	}
