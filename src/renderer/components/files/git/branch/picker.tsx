@@ -10,8 +10,8 @@ import type React from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
+import { classifyGitError } from "../../../../utils/error-classification";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { DialogHeader } from "../../../ui/dialog-header";
@@ -250,7 +250,7 @@ export async function confirmBranchDelete(
     }
     deps.setDeleteRequest(null);
   } catch (error) {
-    const gitError = gitStoreErrorFromUnknown(error);
+    const gitError = classifyGitError(error);
     if (request.kind === "local" && gitError.kind === "branch-not-fully-merged" && !request.force) {
       deps.setDeleteRequest({
         ...request,
@@ -380,21 +380,4 @@ function splitRemoteRef(remoteRef: string): { remote: string; name: string } | n
   const slash = remoteRef.indexOf("/");
   if (slash <= 0 || slash === remoteRef.length - 1) return null;
   return { remote: remoteRef.slice(0, slash), name: remoteRef.slice(slash + 1) };
-}
-
-/**
- * Normalizes thrown IPC errors into the subset needed by the delete flow.
- */
-function gitStoreErrorFromUnknown(error: unknown): Pick<GitStoreError, "kind" | "message"> {
-  if (typeof error === "object" && error !== null) {
-    const record = error as { kind?: unknown; message?: unknown };
-    return {
-      kind: typeof record.kind === "string" ? record.kind : "unknown",
-      message:
-        typeof record.message === "string"
-          ? record.message
-          : i18next.t("files:git.gitOperationFailed"),
-    };
-  }
-  return { kind: "unknown", message: String(error) };
 }

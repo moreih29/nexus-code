@@ -7,9 +7,9 @@
  * `git.ts` itself or in a dedicated subscription module — not here.
  */
 
-import i18next from "i18next";
 import { toSlashPath } from "../../../../shared/fs/drive-path";
 import type { GitActionHint, RepoInfo } from "../../../../shared/git/types";
+import { classifyGitError } from "../../../utils/error-classification";
 import { isRecord } from "../../../utils/is-record";
 import type {
   GitOperationKind,
@@ -67,15 +67,8 @@ export function gitStoreErrorFromUnknown(
   error: unknown,
   operation?: GitOperationKind,
 ): GitStoreError {
+  const { kind, message } = classifyGitError(error, "name");
   if (isRecord(error)) {
-    const message =
-      typeof error.message === "string" ? error.message : i18next.t("files:git.gitOperationFailed");
-    const kind =
-      typeof error.kind === "string"
-        ? error.kind
-        : typeof error.name === "string"
-          ? error.name
-          : "unknown";
     const rawDetails =
       typeof error.details === "string"
         ? error.details
@@ -92,7 +85,7 @@ export function gitStoreErrorFromUnknown(
     return { kind, message, details, operation, hint };
   }
 
-  return { kind: "unknown", message: String(error), operation };
+  return { kind, message, operation };
 }
 
 /**

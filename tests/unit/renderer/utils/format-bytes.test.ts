@@ -20,3 +20,14 @@ describe("formatBytes", () => {
     expect(formatBytes(10_235)).toBe("10 KB");
   });
 });
+
+describe("notes storage sizes", () => {
+  test("preserves raw unit thresholds and one decimal in MB and GB", () => {
+    expect(formatBytes(512, "notes")).toBe("512 B");
+    expect(formatBytes(10_235, "notes")).toBe("10.0 KB");
+    expect(formatBytes(10_240, "notes")).toBe("10 KB");
+    expect(formatBytes(1_048_575, "notes")).toBe("1024 KB");
+    expect(formatBytes(87 * 1024 ** 2, "notes")).toBe("87.0 MB");
+    expect(formatBytes(1024 ** 3, "notes")).toBe("1.0 GB");
+  });
+});

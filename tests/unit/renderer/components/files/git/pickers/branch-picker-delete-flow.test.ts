@@ -99,6 +99,20 @@ describe("BranchPicker delete confirmation flow", () => {
     expect(state.current).toBeNull();
   });
 
+  it("does not offer force delete on an error name alone", async () => {
+    const request: BranchDeleteRequest = { kind: "local", name: "feature", force: false };
+    const state = deleteState(request);
+    await confirmBranchDelete(request, {
+      workspaceId: "ws-1",
+      deleteBranch: async () => {
+        throw Object.assign(new Error("delete failed"), { name: "branch-not-fully-merged" });
+      },
+      deleteRemoteBranch: async () => {},
+      setDeleteRequest: state.set,
+    });
+    expect(state.current).toBeNull();
+  });
+
   it("routes remote delete confirmation to deleteRemoteBranch", async () => {
     const deleteBranch = mock(async () => {});
     const deleteRemoteBranch = mock(async () => {});

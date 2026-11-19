@@ -10,8 +10,9 @@
 
 import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
-import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
+import { FS_ERROR } from "../../../shared/fs/errors";
 import { isAppError } from "../../hooks/use-ipc-action";
+import { classifyFsError } from "../../utils/error-classification";
 import { surfaceError } from "../error-surface/surface-error";
 
 export interface FsToastMessages {
@@ -33,6 +34,19 @@ export interface FsToastMessages {
   unsupportedRemote?: string;
 }
 
+// Keep this order when multiple codes appear in an IPC wrapper.
+const MESSAGE_OVERRIDES = {
+  [FS_ERROR.ALREADY_EXISTS]: "alreadyExists",
+  [FS_ERROR.NOT_FOUND]: "notFound",
+  [FS_ERROR.PERMISSION_DENIED]: "permissionDenied",
+  [FS_ERROR.NOT_EMPTY]: "notEmpty",
+  [FS_ERROR.NOT_DIRECTORY]: "notDirectory",
+  [FS_ERROR.CROSS_DEVICE]: "crossDevice",
+  [FS_ERROR.UNSUPPORTED_REMOTE]: "unsupportedRemote",
+} as const;
+const MUTATION_CODES = Object.keys(MESSAGE_OVERRIDES) as (keyof typeof MESSAGE_OVERRIDES)[];
+
+/** Shows the mutation-specific copy and severity for the classified failure. */
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
   // Structured transport and bug outcomes use the common policy; keep the
   // existing file-operation copy and warning severity for domain FsErrorCode.
@@ -40,56 +54,13 @@ export function toFsToast(error: unknown, msgs: FsToastMessages): void {
     surfaceError(error, { surface: "auto" });
     return;
   }
-  if (hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) {
-    showToast({
-      kind: "error",
-      message: msgs.alreadyExists ?? i18next.t("files:fileTree.fsError.alreadyExists"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) {
-    showToast({
-      kind: "error",
-      message: msgs.notFound ?? i18next.t("files:fileTree.fsError.notFound"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.PERMISSION_DENIED)) {
-    showToast({
-      kind: "error",
-      message: msgs.permissionDenied ?? i18next.t("files:fileTree.fsError.permissionDenied"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.NOT_EMPTY)) {
-    // NOT_EMPTY is a user-decision point (system is healthy), not a system
-    // error — designer decision: warning severity, polite aria-live (Nielsen H5).
-    showToast({
-      kind: "warning",
-      message: msgs.notEmpty ?? i18next.t("files:fileTree.fsError.notEmpty"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.NOT_DIRECTORY)) {
-    showToast({
-      kind: "error",
-      message: msgs.notDirectory ?? i18next.t("files:fileTree.fsError.notDirectory"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.CROSS_DEVICE)) {
-    showToast({
-      kind: "error",
-      message: msgs.crossDevice ?? i18next.t("files:fileTree.fsError.crossDevice"),
-    });
-    return;
-  }
-  if (hasFsErrorCode(error, FS_ERROR.UNSUPPORTED_REMOTE)) {
-    showToast({
-      kind: "error",
-      message: msgs.unsupportedRemote ?? i18next.t("files:fileTree.fsError.unsupportedRemote"),
-    });
-    return;
-  }
-  showToast({ kind: "error", message: msgs.fallback });
+
+  const code = classifyFsError(error, MUTATION_CODES);
+  const key = code === undefined ? undefined : MESSAGE_OVERRIDES[code];
+  showToast({
+    // NOT_EMPTY asks the user to decide before a destructive operation.
+    kind: code === FS_ERROR.NOT_EMPTY ? "warning" : "error",
+    message:
+      key === undefined ? msgs.fallback : (msgs[key] ?? i18next.t(`files:fileTree.fsError.${key}`)),
+  });
 }
