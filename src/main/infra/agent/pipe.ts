@@ -19,6 +19,15 @@ import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Match the Go agent's per-line limit, measured before UTF-8 decoding. */
+const MAX_AGENT_LINE_BYTES = 64 * 1024 * 1024;
+
+/** The active transport must be replaced after an oversized agent line. */
+export class AgentLineTooLongError extends Error {
+  constructor() {
+    super(`Agent output line exceeded ${MAX_AGENT_LINE_BYTES} bytes`);
+  }
+}
 /** How many timed-out request ids to remember for absorbing late answers. */
 const ABANDONED_REQUEST_IDS_MAX = 1024;
 
@@ -170,7 +179,7 @@ export interface NdjsonPipeDependencies {
   readonly stderr: Readable;
   readonly stdin: Writable;
   readonly classifyStderr: StderrClassifier;
-  readonly onTerminalError: (error: SshError) => void;
+  readonly onTerminalError: (error: SshError, wasReady: boolean) => void;
   readonly requestTimeoutMs?: number;
   readonly readyTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
@@ -261,13 +270,16 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   // dead workspace. Insertion-ordered, so the oldest id is evicted first.
   const abandonedRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
-  const stdoutLines = createLineSplitter(handleStdoutLine, {
+  /** Stops this transport without buffering or logging the oversized line. */
+  const onLineTooLong = () =>
+    selfFail(createSshError("server.protocol-error", new AgentLineTooLongError()));
+  const stdoutLines = createLineSplitter(handleStdoutLine, onLineTooLong, {
     hwm: STDOUT_BACKPRESSURE_HWM,
     lwm: STDOUT_BACKPRESSURE_LWM,
     pause: () => deps.stdout.pause(),
     resume: () => deps.stdout.resume(),
   });
-  const stderrLines = createLineSplitter(handleStderrLine);
+  const stderrLines = createLineSplitter(handleStderrLine, onLineTooLong);
 
   // Ring buffer of the most recent raw stderr lines. Retained regardless of
   // classification so an unrecognized fatal line (e.g. a glibc loader error)
@@ -366,11 +378,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   /** Records a terminal pipe failure detected from stream data. */
   function selfFail(error: SshError): void {
-    if (terminalError) return;
+    if (disposed || terminalError) return;
     terminalError = error;
+    clearHeartbeatWatchdog();
+    clearKeepalive();
     rejectReady(error);
     rejectPendingRequests(error);
-    deps.onTerminalError(error);
+    deps.onTerminalError(error, readyReceived);
   }
 
   /** Parses one stdout NDJSON line and routes it to ready, call, or event state. */
@@ -1080,6 +1094,7 @@ interface LineSplitterBackpressure {
  */
 function createLineSplitter(
   onLine: (line: string) => void,
+  onLineTooLong: () => void,
   backpressure?: LineSplitterBackpressure,
 ): {
   push(chunk: Buffer): void;
@@ -1092,7 +1107,9 @@ function createLineSplitter(
   // growing string for "\n" on every chunk made a large frame quadratic.
   // 0x0A never occurs inside a multi-byte UTF-8 sequence, so splitting the
   // raw bytes on it is safe.
-  let pending: Buffer[] = [];
+  let pending: Buffer | undefined;
+  let pendingBytes = 0;
+  let oversized = false;
   // Running tally of bytes from completed lines dispatched since the last
   // gate transition. Resets to zero after each pause() or resume() call
   // so each measurement window starts fresh.
@@ -1147,34 +1164,67 @@ function createLineSplitter(
     }
   }
 
+  /** Reject an oversized line before retaining or concatenating its bytes. */
+  function fits(bytes: number): boolean {
+    if (pendingBytes + bytes <= MAX_AGENT_LINE_BYTES) return true;
+    pending = undefined;
+    pendingBytes = 0;
+    oversized = true;
+    onLineTooLong();
+    return false;
+  }
+
+  /** Packs small chunks so retained buffer objects cannot grow with the number of reads. */
+  function append(tail: Buffer): Buffer {
+    const end = pendingBytes + tail.length;
+    if (!pending || pending.length < end) {
+      const capacity = Math.min(MAX_AGENT_LINE_BYTES, Math.max(end, (pending?.length ?? 64) * 2));
+      const grown = Buffer.allocUnsafe(capacity);
+      pending?.copy(grown, 0, 0, pendingBytes);
+      pending = grown;
+    }
+    tail.copy(pending, pendingBytes);
+    pendingBytes = end;
+    return pending.subarray(0, end);
+  }
+
   return {
     push(chunk) {
+      if (oversized) return;
       let start = 0;
       let newlineIndex = chunk.indexOf(0x0a);
       while (newlineIndex !== -1) {
         const tail = chunk.subarray(start, newlineIndex);
-        const bytes = pending.length === 0 ? tail : Buffer.concat([...pending, tail]);
-        pending = [];
+        if (!fits(tail.length)) return;
+        const bytes = pending ? append(tail) : tail;
+        pending = undefined;
+        pendingBytes = 0;
         start = newlineIndex + 1;
         try {
           dispatchLine(bytes.toString("utf8").replace(/\r$/, ""));
         } catch (err) {
           // Keep the chunk's remaining lines for the next push, as before.
-          if (start < chunk.length) pending.push(chunk.subarray(start));
+          if (start < chunk.length && fits(chunk.length - start)) {
+            append(chunk.subarray(start));
+          }
           throw err;
         }
         newlineIndex = chunk.indexOf(0x0a, start);
       }
-      if (start < chunk.length) pending.push(chunk.subarray(start));
+      if (start < chunk.length) {
+        if (!fits(chunk.length - start)) return;
+        append(chunk.subarray(start));
+      }
       postBurstResumeCheck();
     },
     flush() {
-      if (pending.length === 0) {
+      if (!pending) {
         postBurstResumeCheck();
         return;
       }
-      const line = Buffer.concat(pending).toString("utf8").replace(/\r$/, "");
-      pending = [];
+      const line = pending.toString("utf8", 0, pendingBytes).replace(/\r$/, "");
+      pending = undefined;
+      pendingBytes = 0;
       dispatchLine(line);
       postBurstResumeCheck();
     },
