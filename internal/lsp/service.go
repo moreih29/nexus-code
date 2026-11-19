@@ -23,6 +23,7 @@ type Service struct {
 	mu      sync.Mutex
 	sink    EventSink
 	servers map[string]*serverProcess
+	closed  bool
 
 	// serverIDPrefix sets this agent's server ids apart from those of the
 	// agent it replaced: when a local agent restarts, calls queued for the
@@ -82,6 +83,7 @@ func (s *Service) SetEventSink(sink EventSink) {
 // Close terminates all active language server processes.
 func (s *Service) Close() {
 	s.mu.Lock()
+	s.closed = true
 	servers := make([]*serverProcess, 0, len(s.servers))
 	for id, server := range s.servers {
 		servers = append(servers, server)
@@ -89,9 +91,15 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 
+	var cleanup sync.WaitGroup
 	for _, server := range servers {
-		server.forceClose()
+		cleanup.Add(1)
+		go func() {
+			defer cleanup.Done()
+			server.forceClose()
+		}()
 	}
+	cleanup.Wait()
 }
 
 func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -174,6 +182,9 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 func (s *Service) startServer(ctx context.Context, server *serverProcess) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return requestFailed("lsp service closed")
+	}
 	if err := server.start(ctx); err != nil {
 		return err
 	}

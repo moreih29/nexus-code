@@ -49,6 +49,7 @@ class FakeAgentChannel implements AgentChannel {
   // The id the next lsp.spawn assigns.
   serverId = "srv-1";
   emitConfigurationRequest = false;
+  shutdownReply?: Promise<void>;
 
   constructor(
     private readonly capabilities: Record<string, unknown> = {
@@ -62,6 +63,8 @@ class FakeAgentChannel implements AgentChannel {
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     this.calls.push({ method, params });
+
+    if (method === "lsp.shutdown") await this.shutdownReply;
 
     if (method === "lsp.spawn") {
       // Mirror the real agent: serverAssigned is emitted before any
@@ -274,6 +277,33 @@ class SharedAgentChannel implements AgentChannel {
 }
 
 describe("AgentLspHostHandle", () => {
+  test("keeps host shutdown pending until the agent finishes stopping its server", async () => {
+    const channel = new FakeAgentChannel();
+    let reply!: () => void;
+    channel.shutdownReply = new Promise<void>((resolve) => {
+      reply = resolve;
+    });
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    await host.call("didOpen", {
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/ws",
+      uri: URI,
+      languageId: "python",
+      version: 1,
+      text: "print(1)\n",
+    });
+
+    let finished = false;
+    const shutdown = Promise.resolve(host.dispose()).then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(channel.calls.at(-1)?.method).toBe("lsp.shutdown");
+    expect(finished).toBe(false);
+    reply();
+    await shutdown;
+  });
+
   test("spawns through the workspace agent and resolves LSP responses", async () => {
     const channel = new FakeAgentChannel();
     channel.emitConfigurationRequest = true;
