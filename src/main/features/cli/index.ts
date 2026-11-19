@@ -18,6 +18,7 @@ import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/typ
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -223,7 +224,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     try {
       return await savePickPicture(tmpdir(), shortId(tabId), picked.png, Date.now());
     } catch (error) {
-      log.warn(`saving a picked element's picture failed: ${(error as Error).message}`);
+      log.warn(
+        `saving a picked element's picture failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
       return undefined;
     }
   };
@@ -231,7 +234,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
     workspaceManager.connect(workspaceId).catch((error: unknown) => {
-      log.warn(`connecting ${workspaceId} failed: ${(error as Error).message}`);
+      log.warn(
+        `connecting ${workspaceId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
     });
     options.broadcast("pty", "notificationClick", { workspaceId, tabId });
   };
@@ -371,7 +376,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
       })
       .catch((error: unknown) => {
-        log.warn(`cli request ${requestId} failed: ${(error as Error).message}`);
+        log.warn(
+          `cli request ${requestId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+        );
       })
       .finally(() => running.delete(requestId));
   });

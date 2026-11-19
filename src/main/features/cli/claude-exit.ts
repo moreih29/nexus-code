@@ -24,6 +24,7 @@ export type ForegroundGroupLookup = (
 
 /** Claude Code's state per terminal, as the hooks' broker keeps it. */
 export interface ClaudeEntries {
+  /** Returns the same entry until a hook or a clear replaces it. */
   get(workspaceId: string, tabId: string): { since: number } | null;
   clear(workspaceId: string, tabId: string): void;
 }
@@ -33,6 +34,7 @@ export class ClaudeExitWatch {
   private readonly lastOutputAt = new Map<string, number>();
   /** Each Claude tab's timer for its output going quiet. */
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lookups = new Map<string, symbol>();
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -63,10 +65,12 @@ export class ClaudeExitWatch {
   dispose(): void {
     for (const dispose of this.disposers.splice(0)) dispose();
     for (const key of [...this.timers.keys()]) this.forget(key);
+    this.lookups.clear();
   }
 
   private output(workspaceId: string, tabId: string): void {
     const key = `${workspaceId}:${tabId}`;
+    this.lookups.delete(key);
     this.lastOutputAt.set(key, this.now());
     if (!this.timers.has(key)) this.arm(workspaceId, tabId, this.quietMs);
   }
@@ -89,24 +93,29 @@ export class ClaudeExitWatch {
   }
 
   private async check(workspaceId: string, tabId: string): Promise<void> {
-    const askedAt = this.now();
+    const entry = this.claude.get(workspaceId, tabId);
+    if (!entry) return;
+    const key = `${workspaceId}:${tabId}`;
+    const lookup = Symbol();
+    this.lookups.set(key, lookup);
     let front: Awaited<ReturnType<ForegroundGroupLookup>>;
     try {
       front = await this.foreground(workspaceId, tabId);
     } catch {
-      return;
+      front = null;
     }
+    if (this.lookups.get(key) !== lookup) return;
+    this.lookups.delete(key);
     // Claude, or a program it runs: Claude Code installed with npm is "node".
     // A shell not alone is a script's, waiting for the Claude it started.
     if (front === null || !isLoginShell(front.name) || front.alone === false) return;
-    const entry = this.claude.get(workspaceId, tabId);
-    // A state set while the program was looked up is a Claude started since.
-    if (entry && entry.since <= askedAt) this.claude.clear(workspaceId, tabId);
+    if (this.claude.get(workspaceId, tabId) === entry) this.claude.clear(workspaceId, tabId);
   }
 
   private forget(key: string): void {
     clearTimeout(this.timers.get(key));
     this.timers.delete(key);
     this.lastOutputAt.delete(key);
+    this.lookups.delete(key);
   }
 }

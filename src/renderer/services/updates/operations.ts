@@ -37,12 +37,20 @@
 
 import i18next from "i18next";
 import type { UpdateStatus } from "../../../shared/updates/status";
-import { showToast } from "../../components/ui/toast";
+import { dismissToast, showToast, type ToastInput } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useUpdatesStore } from "../../state/stores/updates";
 import { updateCheckFailedMessage } from "./update-check-failure";
 
 type NewerStatus = Extract<UpdateStatus, { kind: "newer" }>;
+
+let updateToastId: number | undefined;
+
+/** Puts the latest update message in the updater's single toast slot. */
+function showUpdateToast(input: ToastInput): void {
+  if (updateToastId !== undefined) dismissToast(updateToastId);
+  updateToastId = showToast(input);
+}
 
 /**
  * Starts the in-place update to `version`. Main looks the version up again
@@ -81,7 +89,7 @@ function announceNewer(status: NewerStatus, asked: boolean): void {
     store.setAnnouncedVersion(latest);
     void ipcCallResult("appState", "set", { announcedUpdateVersion: latest });
   }
-  showToast({
+  showUpdateToast({
     kind: "info",
     message: i18next.t("common:updates.available", { version: latest }),
     actions: [
@@ -128,7 +136,7 @@ export function initUpdatesSubscriptions(): void {
     switch (status.kind) {
       case "checking":
         // Only broadcast for manual trigger (main suppresses auto-trigger checking).
-        showToast({
+        showUpdateToast({
           kind: "info",
           message: i18next.t("common:updates.checking"),
           durationMs: 3000,
@@ -142,7 +150,7 @@ export function initUpdatesSubscriptions(): void {
       case "current":
         // Only show a toast for manual triggers; auto-triggered "current" is silent.
         if (status.trigger === "manual") {
-          showToast({
+          showUpdateToast({
             kind: "info",
             message: i18next.t("common:updates.upToDate"),
             durationMs: 3000,
@@ -153,7 +161,7 @@ export function initUpdatesSubscriptions(): void {
       case "error":
         // Only show a toast for manual triggers; auto-triggered errors are silent.
         if (status.trigger === "manual") {
-          showToast({
+          showUpdateToast({
             kind: "error",
             message: updateCheckFailedMessage(status),
           });
@@ -167,7 +175,7 @@ export function initUpdatesSubscriptions(): void {
 
       case "installFailed": {
         const { releaseUrl } = status;
-        showToast({
+        showUpdateToast({
           kind: "error",
           message: i18next.t("common:updates.installFailed"),
           actions: [

@@ -9,6 +9,7 @@ import { runCli } from "../../../../src/main/features/cli/registry";
 import { ForwardError } from "../../../../src/main/features/pty/forwards";
 import type { ListeningPort } from "../../../../src/shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import { mainWarnMock } from "../../../log-test-spies";
 import {
   API,
   APP,
@@ -272,4 +273,26 @@ describe("tabs, browsers and workspaces", () => {
       "nexus: app is on this machine; its ports need no forwarding\n",
     );
   });
+});
+
+test("the CLI masks unexpected exceptions in the log while retaining its error output", async () => {
+  const detail = "command failed: https://example.test?access_token=cli-fixture";
+  const start = mainWarnMock.mock.calls.length;
+  const commands = [
+    {
+      path: ["crash"],
+      summary: "Test command",
+      run: async () => {
+        throw new Error(detail);
+      },
+    },
+  ];
+  const result = await runCli(commands, contextFor(fakeApp(), ["crash"]));
+  expect(result.stderr).toBe(`nexus: ${detail}\n`);
+  const messages = mainWarnMock.mock.calls
+    .slice(start)
+    .map(([message]) => message)
+    .join("\n");
+  expect(messages).toContain("command failed");
+  expect(messages).not.toContain("cli-fixture");
 });

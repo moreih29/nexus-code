@@ -1366,6 +1366,7 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(GitEditorPromptSchema),
+      closed: listen(GitHelperPromptIdArgsSchema),
     },
   },
 

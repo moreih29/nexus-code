@@ -28,13 +28,19 @@
  */
 
 import { gt, rcompare, valid } from "semver";
+import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 /** Why an update check failed; the renderer words the user's message from it. */
-export type PollFailureReason = "rate-limited" | "http" | "network" | "unexpected";
+export type PollFailureReason =
+  | "rate-limited"
+  | "http"
+  | "network"
+  | "unexpected"
+  | "response-too-large";
 
 export type PollResult =
   | { kind: "newer"; current: string; latest: string; releaseUrl: string }
@@ -162,7 +168,7 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
     } else if (!response.ok) {
       return httpError(response.status);
     } else {
-      const text = await response.text();
+      const text = await readResponseText(response);
       resolved = channel === "stable" ? parseLatestYml(text, REPO_BASE) : parseAtomFeed(text);
 
       if (cache !== undefined) {
@@ -172,6 +178,9 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
       }
     }
   } catch (err) {
+    if (err instanceof ResponseTooLargeError) {
+      return { kind: "error", reason: err.code, message: err.message };
+    }
     const message = err instanceof Error ? err.message : String(err);
     return { kind: "error", reason: "network", message: `Network error: ${message}` };
   }

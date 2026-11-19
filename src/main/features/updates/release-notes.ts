@@ -9,10 +9,12 @@
 
 import { prerelease, rcompare, valid } from "semver";
 import type { ReleaseNote, ReleaseNotesResult } from "../../../shared/updates/release-notes";
+import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { REPO_BASE } from "./poller";
 
 const FEED_URL = `${REPO_BASE}/releases.atom`;
 const TIMEOUT_MS = 15_000;
+const RELEASE_NOTES_MAX_BYTES = 1024 * 1024;
 
 /** The last feed read, to ask GitHub whether it changed since. */
 export interface ReleaseNotesCache {
@@ -50,14 +52,17 @@ export async function fetchReleaseNotes(
     } else if (!response.ok) {
       return { kind: "error", reason: "http" };
     } else {
-      notes = parseReleaseNotes(await response.text());
+      notes = parseReleaseNotes(await readResponseText(response, RELEASE_NOTES_MAX_BYTES));
       if (cache) {
         cache.etag = response.headers.get("etag");
         cache.notes = notes;
       }
     }
-  } catch {
-    return { kind: "error", reason: "network" };
+  } catch (error) {
+    return {
+      kind: "error",
+      reason: error instanceof ResponseTooLargeError ? error.code : "network",
+    };
   }
   return {
     kind: "ok",

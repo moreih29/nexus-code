@@ -29,6 +29,8 @@ export const VOICE_FAILURES = [
   "in-use",
   /** The server no longer takes this version of the app (400 unsupported_version). */
   "outdated",
+  /** The server's HTTP response exceeded the desktop client's byte limit. */
+  "response-too-large",
   /** Anything else the server answered. */
   "failed",
 ] as const;

@@ -25,7 +25,8 @@
     "bug": "Something went wrong. Check the log for details."
   },
   "terminal": {
-    "inputFailed": "Terminal input could not be sent. Check the terminal before typing again."
+    "inputFailed": "Terminal input could not be sent. Check the terminal before typing again.",
+    "inputQueueFull": "Terminal input queue is full. New input was blocked."
   },
   "clipboard": {
     "writeFailed": "Could not copy to the clipboard."

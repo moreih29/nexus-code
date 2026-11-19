@@ -56,7 +56,7 @@ describe("typing", () => {
       const now = release;
       release = [];
       for (const r of now) r();
-      await new Promise((r) => setTimeout(r, 0));
+      await Promise.resolve();
     };
     return { t, sent, errors, settle, failNext: () => (fail = true) };
   }
@@ -117,6 +117,31 @@ describe("typing", () => {
     expect(sent).toEqual([{ text: "a" }]);
     t.type({ text: "c" });
     expect(sent.at(-1)).toEqual({ text: "c" });
+  });
+
+  test("caps queued UTF-8 text and keys at one MiB and keeps accepted input in order", async () => {
+    const { t, sent, errors, settle } = typing();
+    t.type({ text: "in flight" });
+    const text = Array.from({ length: 15 }, (_, i) => String.fromCharCode(0xc0 + i).repeat(32768));
+    text.push("x".repeat(65531));
+    for (const chunk of text) t.type({ text: chunk });
+    t.type({ keys: ["enter"] });
+    t.type({ text: "blocked" });
+
+    expect(errors).toEqual([expect.objectContaining({ code: "terminal-input-queue-full" })]);
+    expect(sent).toEqual([{ text: "in flight" }]);
+
+    await settle();
+    t.type({ text: "accepted after draining", keys: ["end"] });
+    for (let i = 0; i < 18; i += 1) await settle();
+    expect(
+      sent
+        .slice(1, -1)
+        .map((input) => input.text)
+        .join(""),
+    ).toBe(text.join(""));
+    expect(sent.at(-2)?.keys).toEqual(["enter"]);
+    expect(sent.at(-1)).toEqual({ text: "accepted after draining", keys: ["end"] });
   });
 
   test("sends nothing for nothing", () => {

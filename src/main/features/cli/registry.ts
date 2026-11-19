@@ -5,6 +5,7 @@
  */
 import type { CliFile, CliResult } from "../../../shared/cli/protocol";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { CliUsageError, type FlagSpec, GLOBAL_FLAGS, type ParsedArgs, parseArgs } from "./args";
 import { type CliContext, CliError } from "./context";
 
@@ -178,7 +179,9 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
         error.exitCode,
       );
     }
-    log.warn(`nexus ${command.path.join(" ")} failed: ${(error as Error).message}`);
+    log.warn(
+      `nexus ${command.path.join(" ")} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+    );
     return result("", `nexus: ${(error as Error).message}\n`, 1);
   }
 }

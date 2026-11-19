@@ -4,7 +4,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { AgentProfileSelectionError, ChatHost, type ChatHostOptions } from "./host";
-import { OAuthCallbacks } from "./oauth-callback";
+import { OAuthCallbacksClosedError } from "./oauth-callback";
 
 const c = ipcContract.chat.call;
 
@@ -27,7 +27,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
     ...options,
     broadcast: (event, args) => broadcast("chat", event, args),
   });
-  const oauth = new OAuthCallbacks();
+  const { oauth } = host;
 
   register("chat", {
     call: {
@@ -154,7 +154,17 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           validateArgs(c.claudeConfig.result, { found: true, values: result.values ?? {} }),
         );
       }),
-      oauthListen: async () => ipcOk(await oauth.listen()),
+      oauthListen: async () => {
+        try {
+          return ipcOk(await oauth.listen());
+        } catch (error) {
+          if (error instanceof OAuthCallbacksClosedError) {
+            return ipcErr("chat.oauth-closed", error.message, { category: "cancelled" });
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          return ipcErr("chat.oauth-listen-failed", message, { category: "failed" });
+        }
+      },
       oauthWait: async (args: unknown) => {
         const { id } = validateArgs(c.oauthWait.args, args);
         return ipcOk({ url: await oauth.wait(id) });
