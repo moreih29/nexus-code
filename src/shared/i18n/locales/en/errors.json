@@ -24,6 +24,9 @@
     "failed": "The operation failed.",
     "bug": "Something went wrong. Check the log for details."
   },
+  "terminal": {
+    "inputFailed": "Terminal input could not be sent. Check the terminal before typing again."
+  },
   "open": {
     "TOO_LARGE": "File too large to open (max {{maxMb}} MB).",
     "failed": "Failed to open file."

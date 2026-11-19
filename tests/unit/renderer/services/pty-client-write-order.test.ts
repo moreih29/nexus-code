@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 interface WriteCall {
   readonly tabId: string;
   readonly data: string;
-  settle(fail?: boolean): void;
+  settle(outcome?: "rejected" | "failed"): void;
 }
 
 const writes: WriteCall[] = [];
@@ -20,8 +20,12 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       writes.push({
         tabId: args.tabId,
         data: args.data,
-        settle: (fail) =>
-          fail ? reject(new Error("agent gone")) : resolve({ ok: true, value: undefined }),
+        settle: (outcome) => {
+          if (outcome === "rejected") reject(new Error("agent gone"));
+          else if (outcome === "failed")
+            resolve({ ok: false, kind: "terminal-input-failed", message: "PTY closed" });
+          else resolve({ ok: true, value: undefined });
+        },
       });
     });
   }),
@@ -29,10 +33,12 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   unwrapIpcResult: (result: { value: unknown }) => result.value,
 }));
 
-const { writeSession } = await import("../../../../src/renderer/services/terminal/pty-client");
+const { forgetSession, writeSession } = await import(
+  "../../../../src/renderer/services/terminal/pty-client"
+);
 
 /** Lets the settled write's continuation run. */
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 beforeEach(() => {
   writes.length = 0;
@@ -66,12 +72,34 @@ describe("writeSession", () => {
     for (const write of writes) write.settle();
   });
 
-  it("sends the input after a write that failed", async () => {
-    writeSession("ws", "tab-d", "a");
-    writeSession("ws", "tab-d", "b");
-    writes[0].settle(true);
+  for (const outcome of ["failed", "rejected"] as const) {
+    it(`drops queued Enter after a ${outcome} write, then accepts newly typed input`, async () => {
+      writeSession("ws", `tab-${outcome}`, "한");
+      writeSession("ws", `tab-${outcome}`, "\r");
+      writes[0].settle(outcome);
+      await flush();
+      expect(writes.map((w) => w.data)).toEqual(["한"]);
+
+      writeSession("ws", `tab-${outcome}`, "new");
+      expect(writes.map((w) => w.data)).toEqual(["한", "new"]);
+      writes[1].settle();
+    });
+  }
+
+  it("keeps pending input for a reopened session separate from the previous write", async () => {
+    writeSession("ws", "reopen", "old");
+    writeSession("ws", "reopen", "old suffix");
+    forgetSession("ws", "reopen");
+
+    writeSession("ws", "reopen", "new");
+    writeSession("ws", "reopen", "new suffix");
+    expect(writes.map((w) => w.data)).toEqual(["old", "new"]);
+    writes[0].settle("rejected");
     await flush();
-    expect(writes.map((w) => w.data)).toEqual(["a", "b"]);
+    expect(writes.map((w) => w.data)).toEqual(["old", "new"]);
     writes[1].settle();
+    await flush();
+    expect(writes.map((w) => w.data)).toEqual(["old", "new", "new suffix"]);
+    writes[2].settle();
   });
 });
