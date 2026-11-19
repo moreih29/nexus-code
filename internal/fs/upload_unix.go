@@ -5,6 +5,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -19,6 +20,25 @@ var newUploadMode = func() os.FileMode {
 
 func openUploadParent(path string) (*os.File, error) {
 	return openCanonicalPath(path, true)
+}
+
+// The upload's parent handle only has search access. Open a listing
+// relative to it so a path rename cannot redirect the sweep.
+func openUploadListing(dir *os.File) (*os.File, error) {
+	fd, err := unix.Openat(int(dir.Fd()), ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), dir.Name()), nil
+}
+
+func removeStaleUploadAt(dir *os.File, name string, cutoff time.Time) {
+	var info unix.Stat_t
+	if unix.Fstatat(int(dir.Fd()), name, &info, unix.AT_SYMLINK_NOFOLLOW) == nil &&
+		info.Mode&unix.S_IFMT == unix.S_IFREG &&
+		time.Unix(int64(info.Mtim.Sec), int64(info.Mtim.Nsec)).Before(cutoff) {
+		_ = removeUploadAt(dir, name)
+	}
 }
 
 func availableUploadSpace(dir *os.File) (*uploadSpace, error) {

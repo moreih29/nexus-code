@@ -23,6 +23,9 @@ const (
 	maxUploadSize  = 20 * 1024 * 1024 * 1024
 	maxUploadChunk = 512 * 1024
 	uploadIdle     = 2 * time.Minute
+	staleUploadAge = 24 * time.Hour
+	uploadPrefix   = ".nexus-push-"
+	uploadSuffix   = ".tmp"
 )
 
 var uploadIDPattern = regexp.MustCompile(`^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$`)
@@ -239,16 +242,17 @@ func (s *Service) beginUpload(ctx context.Context, p uploadParams) (_ any, err e
 	if err != nil {
 		return nil, err
 	}
-	if err = s.reserveUpload(u); err != nil {
+	if _, err = uploadTarget(u.dest.path, false); err != nil {
 		return nil, err
 	}
-	if _, err = uploadTarget(u.dest.path, false); err != nil {
+	removeStaleUploads(u.ctx, u.dir, filepath.Base(u.dest.path))
+	if err = s.reserveUpload(u); err != nil {
 		return nil, err
 	}
 	if err = u.ctx.Err(); err != nil {
 		return nil, err
 	}
-	name := ".nexus-push-" + p.UploadID + ".tmp"
+	name := uploadPrefix + p.UploadID + uploadSuffix
 	u.file, err = createUploadAt(u.dir, name)
 	if err != nil {
 		return nil, mapWriteError(err, u.dest.path)
@@ -256,6 +260,29 @@ func (s *Service) beginUpload(ctx context.Context, p uploadParams) (_ any, err e
 	u.temp = name
 	s.touchUpload(p.UploadID, u)
 	return struct{}{}, nil
+}
+
+// Reap only regular files under the generated name and older than a day.
+func removeStaleUploads(ctx context.Context, dir *os.File, target string) {
+	listing, err := openUploadListing(dir)
+	if err != nil {
+		return
+	}
+	defer listing.Close()
+	cutoff := time.Now().Add(-staleUploadAge)
+	for ctx.Err() == nil {
+		names, err := listing.Readdirnames(64)
+		for _, name := range names {
+			id, hasPrefix := strings.CutPrefix(name, uploadPrefix)
+			id, hasSuffix := strings.CutSuffix(id, uploadSuffix)
+			if hasPrefix && hasSuffix && uploadIDPattern.MatchString(id) && !strings.EqualFold(name, target) {
+				removeStaleUploadAt(dir, name, cutoff)
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (s *Service) reserveUpload(u *fileUpload) error {

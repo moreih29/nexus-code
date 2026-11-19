@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { RpcErrorCode } from "../../../../packages/remote-protocol/src";
+import type { AgentCallOptions } from "../../infra/agent/channel";
 import { parseAgentResult } from "../fs/bridge/agent-provider";
 import type { AgentBackedProvider } from "../fs/bridge/provider";
-import { filePathRules, validFileName } from "./file-io";
+import { filePathRules, fileVerifyTimeoutMs, validFileName } from "./file-io";
 import { workspaceWritePath } from "./file-writes";
 import { RpcFailure } from "./room";
 
@@ -42,8 +43,8 @@ export class AgentFileWrites {
     await this.call("chunk", { uploadId, offset, data });
   }
 
-  async verify(uploadId: string, sha256: string): Promise<void> {
-    await this.call("verify", { uploadId, sha256 });
+  async verify(uploadId: string, sha256: string, size: number): Promise<void> {
+    await this.call("verify", { uploadId, sha256 }, { timeoutMs: fileVerifyTimeoutMs(size) });
   }
 
   async commit(uploadId: string): Promise<void> {
@@ -54,9 +55,9 @@ export class AgentFileWrites {
     await this.call("abort", { uploadId });
   }
 
-  private async call(method: string, params: object): Promise<unknown> {
+  private async call(method: string, params: object, options?: AgentCallOptions): Promise<unknown> {
     try {
-      return await this.fs.callAgentMethod(`fs.upload.${method}`, params);
+      return await this.fs.callAgentMethod(`fs.upload.${method}`, params, options);
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
       const message = error instanceof Error ? error.message : String(error);

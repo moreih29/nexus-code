@@ -23,6 +23,8 @@ func createUploadAt(dir *os.File, name string) (*os.File, error) {
 	return os.NewFile(uintptr(handle), path), nil
 }
 
+// Path-based operations assume openUploadParent's os.Open holds the parent
+// without FILE_SHARE_DELETE, preventing its name from being swapped while open.
 func publishUploadAt(dir *os.File, temp, target string, _ *os.File, _ os.FileInfo) error {
 	// Windows uses inherited ACLs and the Go rename replaces existing files.
 	return os.Rename(filepath.Join(dir.Name(), temp), filepath.Join(dir.Name(), target))

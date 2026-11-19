@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -864,6 +865,46 @@ func TestUploadCleanup(t *testing.T) {
 			}
 			if data, err := os.ReadFile(dest.path); err != nil || string(data) != want {
 				t.Fatalf("destination changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestBeginUploadRemovesStaleTemporaryFiles(t *testing.T) {
+	for _, test := range []struct {
+		kind, name string
+		kept       bool
+	}{
+		{"abandoned file", uploadPrefix + "a0000000-0000-4000-8000-000000000000" + uploadSuffix, false},
+		{"recent file", uploadPrefix + "b0000000-0000-4000-8000-000000000000" + uploadSuffix, true},
+		{"unrelated file", uploadPrefix + "not-an-upload" + uploadSuffix, true},
+		{"matching directory", uploadPrefix + "c0000000-0000-4000-8000-000000000000" + uploadSuffix, true},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			root := t.TempDir()
+			entry := filepath.Join(root, test.name)
+			if test.kind == "matching directory" {
+				must(t, os.Mkdir(entry, 0o700))
+			} else {
+				must(t, os.WriteFile(entry, nil, 0o600))
+			}
+			if test.kind != "recent file" {
+				old := time.Now().Add(-25 * time.Hour)
+				must(t, os.Chtimes(entry, old, old))
+			}
+			s, err := New(root)
+			must(t, err)
+			t.Cleanup(s.Close)
+			dest, err := s.uploadDestination("data", false)
+			must(t, err)
+			_, err = s.beginUpload(context.Background(), uploadParams{
+				UploadID: "d0000000-0000-4000-8000-000000000000",
+				RelPath:  "data", ExpectedPath: dest.path,
+			})
+			must(t, err)
+			_, err = os.Lstat(entry)
+			if test.kept && err != nil || !test.kept && !os.IsNotExist(err) {
+				t.Fatalf("expected kept=%v, got stat error %v", test.kept, err)
 			}
 		})
 	}

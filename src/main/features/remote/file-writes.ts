@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   open,
+  opendir,
   realpath,
   rename,
   stat,
@@ -30,6 +31,8 @@ const MAX_UPLOADS = 8;
 const MAX_ACTIVE_CHUNKS = 4;
 const MAX_RANGES = 4096;
 const MAX_IDLE_MS = 120_000;
+const STALE_TEMP_MS = 24 * 60 * 60_000;
+const TEMP_UPLOAD = /^\.nexus-push-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.tmp$/;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 type Begin = RpcParams<"files.write.begin">;
@@ -206,6 +209,31 @@ export async function makeRemoteDirectory(
   }
 }
 
+/** Best-effort cleanup of abandoned push files from earlier processes. */
+async function removeStaleUploads(
+  destination: Destination,
+  checkDestination: () => Promise<void>,
+): Promise<void> {
+  const cutoff = Date.now() - STALE_TEMP_MS;
+  const target = path.basename(destination.path).toLowerCase();
+  try {
+    const folder = await opendir(destination.parent);
+    for await (const entry of folder) {
+      if (entry.name === target || !entry.isFile() || !TEMP_UPLOAD.test(entry.name)) continue;
+      const temporary = path.join(destination.parent, entry.name);
+      const info = await optionalStat(temporary).catch(() => undefined);
+      if (!info?.isFile() || info.mtimeMs >= cutoff) continue;
+      await checkDestination();
+      const current = await optionalStat(temporary).catch(() => undefined);
+      if (current?.isFile() && current.mtimeMs < cutoff && sameFile(info, current)) {
+        await unlink(temporary).catch(() => {});
+      }
+    }
+  } catch {
+    // Listing access is optional; begin rechecks the destination before it creates a file.
+  }
+}
+
 /** Device-owned uploads, written to disk as pieces arrive and published by rename. */
 export class FileWrites {
   private readonly uploads = new Map<string, Upload>();
@@ -252,6 +280,14 @@ export class FileWrites {
           return;
         }
         const destination = await locate(root, request);
+        const checkDestination = async () => {
+          await this.verifyParent(root, request, destination);
+          upload.controller.signal.throwIfAborted();
+          authorize(destination.path);
+        };
+        await existingFile(destination.path);
+        await checkDestination();
+        await removeStaleUploads(destination, checkDestination);
         const space = await statfs(destination.parent, { bigint: true });
         const reserved = [...this.uploads.values()]
           .filter((other) => other.destination?.parentInfo.dev === destination.parentInfo.dev)
@@ -264,10 +300,7 @@ export class FileWrites {
         }
         upload.destination = destination;
         upload.reserved = request.size;
-        await existingFile(destination.path);
-        await this.verifyParent(root, request, destination);
-        upload.controller.signal.throwIfAborted();
-        authorize(destination.path);
+        await checkDestination();
         const temporary = path.join(destination.parent, `.nexus-push-${uploadId}.tmp`);
         upload.file = await open(temporary, "wx+", 0o600);
         upload.temporary = temporary;
@@ -337,7 +370,7 @@ export class FileWrites {
         }
         let destination: string;
         if (agent) {
-          await agent.writer.verify(request.uploadId, request.sha256);
+          await agent.writer.verify(request.uploadId, request.sha256, size);
           signal.throwIfAborted();
           upload.authorize(agent.path);
           await agent.writer.commit(request.uploadId);
