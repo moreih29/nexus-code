@@ -9,13 +9,14 @@
 
 import { createLogger } from "../../../../shared/log/renderer";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
+import { createKeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../../../shared/util/timing-constants";
 import { canUseIpcBridge, ipcCallResult } from "../../../ipc/client";
 
 const log = createLogger("panel-view-options");
 
 /** Module-private debounce timers keyed by `panelKind:workspaceId`. */
-const viewOptionsSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const viewOptionsSaves = createKeyedDebouncer<string>({ delayMs: STATE_PERSIST_DEBOUNCE_MS });
 
 function timerKey(panelKind: PanelKind, workspaceId: string): string {
   return `${panelKind}:${workspaceId}`;
@@ -33,12 +34,7 @@ export function scheduleViewOptionsSave(
 ): void {
   if (!canUseIpcBridge()) return;
 
-  const key = timerKey(panelKind, workspaceId);
-  const existing = viewOptionsSaveTimers.get(key);
-  if (existing) clearTimeout(existing);
-
-  const handle = setTimeout(() => {
-    viewOptionsSaveTimers.delete(key);
+  viewOptionsSaves.schedule(timerKey(panelKind, workspaceId), () => {
     // Fire-and-forget: view-option persistence is best-effort; local state is never rolled back.
     void ipcCallResult("panel", "setViewOptions", {
       workspaceId,
@@ -47,9 +43,7 @@ export function scheduleViewOptionsSave(
     }).then((result) => {
       if (!result.ok) log.error(`setViewOptions failed for ${panelKind}: ${result.message}`);
     });
-  }, STATE_PERSIST_DEBOUNCE_MS);
-
-  viewOptionsSaveTimers.set(key, handle);
+  });
 }
 
 /**
@@ -59,11 +53,6 @@ export function scheduleViewOptionsSave(
  */
 export function cancelViewOptionsSave(workspaceId: string): void {
   for (const panelKind of ["git", "search"] as PanelKind[]) {
-    const key = timerKey(panelKind, workspaceId);
-    const existing = viewOptionsSaveTimers.get(key);
-    if (existing) {
-      clearTimeout(existing);
-      viewOptionsSaveTimers.delete(key);
-    }
+    viewOptionsSaves.cancel(timerKey(panelKind, workspaceId));
   }
 }
