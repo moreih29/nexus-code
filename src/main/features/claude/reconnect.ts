@@ -15,10 +15,8 @@
  * and only on such a sign, so it never flickers while the replay comes in.
  */
 import { isLoginShell } from "../../../shared/pty/login-shell";
+import { isClaudeIdleTitle } from "./idle-title";
 import type { ClaudeStatusBroker } from "./status";
-
-/** The mark Claude Code puts at the start of its title between turns. */
-const IDLE_MARK = "✳";
 
 /** A terminal title, set with OSC 0 or 2 and ended by BEL or ST. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC sequences start with ESC
@@ -95,7 +93,7 @@ export class ClaudeReconnectCheck {
       this.broker.clear(workspaceId, tabId);
       return;
     }
-    if (restoring.status === "running" && restoring.title?.startsWith(IDLE_MARK)) {
+    if (restoring.status === "running" && isClaudeIdleTitle(restoring.title)) {
       this.broker.set(workspaceId, tabId, "needsInput");
     }
   }
