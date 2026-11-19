@@ -36,6 +36,11 @@ test.each([
     ["--workspace"],
     "--workspace needs a value (an empty one: --workspace=, which every shell passes)",
   ],
+  // ...so `--workspace '' --json` reaches us as `--workspace --json`.
+  [
+    ["--workspace", "--json"],
+    "--workspace needs a value (an empty one: --workspace=, which every shell passes)",
+  ],
 ])("%j is refused", (argv, message) => {
   expect(() => parseArgs(argv, SPECS)).toThrow(new CliUsageError(message));
 });
