@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -32,21 +34,8 @@ type processTree struct {
 // process it starts before it is in the job is left out. What is in the
 // job when it is let go of keeps running, as it did before.
 func holdTree(p *os.Process) *processTree {
-	job, err := windows.CreateJobObject(nil, nil)
+	job, err := hostproc.AssignJob(p.Pid, false)
 	if err != nil {
-		return nil
-	}
-	// The job sets no limits, so no process may leave it: Git Bash, which
-	// runs codex's commands, starts each program out of any job that lets it.
-	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-		false, uint32(p.Pid))
-	if err != nil {
-		_ = windows.CloseHandle(job)
-		return nil
-	}
-	defer windows.CloseHandle(process)
-	if err := windows.AssignProcessToJobObject(job, process); err != nil {
-		_ = windows.CloseHandle(job)
 		return nil
 	}
 	return &processTree{job: job}

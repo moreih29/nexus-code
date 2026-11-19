@@ -801,7 +801,7 @@ func notRunning(key tabKey) error {
 }
 
 func requestFailed(format string, args ...any) error {
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: fmt.Sprintf(format, args...)}
+	return proto.RequestFailed(format, args...)
 }
 
 func protocolError(message string) error {

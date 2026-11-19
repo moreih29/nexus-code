@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,13 +54,4 @@ func TestRefsThatReadAsOptionsAreRefused(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
 }
