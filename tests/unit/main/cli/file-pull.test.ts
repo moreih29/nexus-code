@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   MAX_BYTES_CHUNK,
   RpcErrorCode,
@@ -193,14 +193,19 @@ test("starts four positioned chunk reads and assembles out-of-order answers", as
   );
   let active = 0;
   let peak = 0;
+  const batchArrived = Promise.withResolvers<void>();
+  const laterCompleted = Promise.withResolvers<void>();
   const completed: number[] = [];
   const app = peer(async (request) => {
     if (request.offset === 0) return piece(request, data);
     const offset = request.offset ?? 0;
     peak = Math.max(++active, peak);
+    if (active === 4) batchArrived.resolve();
     try {
-      await delay(offset === MAX_BYTES_CHUNK ? 40 : 5);
+      await batchArrived.promise;
+      if (offset === MAX_BYTES_CHUNK) await laterCompleted.promise;
       completed.push(offset);
+      if (offset !== MAX_BYTES_CHUNK) laterCompleted.resolve();
       return piece(request, data);
     } finally {
       active--;
@@ -225,18 +230,19 @@ test("a changed version lets outstanding reads unwind and keeps the old file", a
   const data = Buffer.alloc(MAX_BYTES_CHUNK * 2 + 1, 42);
   const saved = path.join(cwd, "source.bin");
   await writeFile(saved, "previous");
+  const otherArrived = Promise.withResolvers<void>();
   let otherAborted = false;
   const app = peer(async (request, signal) => {
     if (request.offset === 0) return piece(request, data);
     if (request.offset === MAX_BYTES_CHUNK) {
-      await delay(5);
+      await otherArrived.promise;
       return fail(RpcErrorCode.InvalidParams, "file version changed");
     }
-    try {
-      await delay(2000, undefined, { signal });
-    } finally {
-      otherAborted = signal?.aborted ?? false;
-    }
+    if (!signal) throw new Error("the outstanding read must be cancellable");
+    const aborted = once(signal, "abort");
+    otherArrived.resolve();
+    await aborted;
+    otherAborted = signal.aborted;
   });
   const result = await pull(app, "source.bin");
   expect(result.stderr).toContain("changed while copying");

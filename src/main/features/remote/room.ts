@@ -103,19 +103,17 @@ class FileReadBudget {
   }
 }
 
-const imageReadBudget = new FileReadBudget(2, 16);
-const fileReadBudget = new FileReadBudget(8, 32);
 const FILE_READ_SOCKET_HIGH_WATER = 4 * MAX_FRAME_BYTES;
 
-function readBudget(params: unknown): FileReadBudget {
+function readsWholeImage(params: unknown): boolean {
   const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
   const image = /\.(png|jpe?g|gif|webp)$/i;
-  return as !== "bytes" &&
+  return (
+    as !== "bytes" &&
     typeof path === "string" &&
     (image.test(posix.normalize(path).replace(/\/+$/, "")) ||
       image.test(win32.normalize(path).replace(/\\+$/, "")))
-    ? imageReadBudget
-    : fileReadBudget;
+  );
 }
 
 /** A request that failed, with its JSON-RPC error. */
@@ -184,6 +182,8 @@ interface Pending {
 
 export class RemoteRoom {
   private readonly connection: RoomConnection;
+  private readonly imageReadBudget = new FileReadBudget(2, 16);
+  private readonly fileReadBudget = new FileReadBudget(8, 32);
   private status: RoomStatus = "off";
   private peers = new Map<string, RoomPeer>();
   private seq = 0;
@@ -576,7 +576,7 @@ export class RemoteRoom {
         this.heard.get(from)?.epoch === epoch &&
         this.peers.get(from)?.online === true;
       if (message.method === "files.read") {
-        const budget = readBudget(message.params);
+        const budget = readsWholeImage(message.params) ? this.imageReadBudget : this.fileReadBudget;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
           // Every refused request is told, each with its own small reply: left
@@ -674,8 +674,8 @@ export class RemoteRoom {
   }
 
   private cancelQueuedReads(): void {
-    imageReadBudget.cancelWaiting();
-    fileReadBudget.cancelWaiting();
+    this.imageReadBudget.cancelWaiting();
+    this.fileReadBudget.cancelWaiting();
   }
 
   private async answer(

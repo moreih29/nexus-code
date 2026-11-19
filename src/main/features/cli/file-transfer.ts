@@ -12,7 +12,7 @@ import {
 import { speaks } from "../../../shared/remote/room";
 import { FILE_WRITE_BUSY, filePathRules } from "../remote/file-io";
 import { RpcFailure } from "../remote/room";
-import { type CliContext, type CliDevice, CliError } from "./context";
+import { type CliContext, type CliDevice, CliError, type CliRemote } from "./context";
 import { onAppMachine } from "./paths";
 import {
   agentSenderOf,
@@ -61,11 +61,12 @@ const BUSY_RETRIES = 5;
 const BUSY_RETRY_BASE_MS = 250;
 // Leave room for chats and terminals on the relay's 50-frame-per-second budget.
 const REQUESTS_PER_SECOND = 24;
-const sent: number[] = [];
+// Pulls and pushes on the same app connection share its request budget.
+const sentByRemote = new WeakMap<CliRemote, number[]>();
 // Leave time to unwind before the hook server (35m) and client (36m) deadlines.
 const TRANSFER_TIMEOUT_MS = 34 * 60_000;
 
-async function waitForFileRequest(signal: AbortSignal): Promise<void> {
+async function waitForFileRequest(sent: number[], signal: AbortSignal): Promise<void> {
   for (;;) {
     signal.throwIfAborted();
     const now = performance.now();
@@ -154,6 +155,10 @@ function filePeer(
 ): FilePeer {
   const current = speaks(device.schema, "0.14.0");
   let sender: Promise<AgentSender> | undefined;
+  const remote = ctx.services.remote;
+  const previous = sentByRemote.get(remote);
+  const sent = previous ?? [];
+  if (!previous) sentByRemote.set(remote, sent);
   const transferId = current ? randomUUID() : undefined;
   return async <M extends FileMethod>(
     method: M,
@@ -172,7 +177,7 @@ function filePeer(
       ...(anywhere ? { anywhere: true } : {}),
     } as RpcParams<M>;
     for (let retry = 0; ; retry++) {
-      await waitForFileRequest(signal);
+      await waitForFileRequest(sent, signal);
       try {
         return await askDevice(ctx, device, method, request, signal);
       } catch (error) {

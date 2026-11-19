@@ -14,7 +14,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   MAX_BYTES_CHUNK,
   RpcErrorCode,
@@ -208,12 +207,25 @@ test("another peer cannot complete or abort an upload; owner abort is idempotent
   expect(await readdir(root)).toEqual([]);
 });
 
-test("idle expiry and device disconnect remove incomplete files", async () => {
-  writes = new FileWrites(80);
-  await begin("idle", 0);
-  for (let attempt = 0; attempt < 30 && (await readdir(root)).length > 0; attempt++)
-    await delay(20);
+test("idle expiry is reset by a chunk and removes the temporary file", async () => {
+  const pending = new Set<() => Promise<void>>();
+  writes = new FileWrites((expire, idleMs) => {
+    expect(idleMs).toBe(120_000);
+    pending.add(expire);
+    return () => pending.delete(expire);
+  });
+  const { uploadId } = await begin("idle", 3);
+  expect(pending.size).toBe(1);
+  const [atBegin] = pending;
+  await writes.chunk(DEVICE, piece(uploadId, 0, "new"));
+  expect(pending.size).toBe(1);
+  expect(pending.has(atBegin as () => Promise<void>)).toBe(false);
+  await Promise.all([...pending].map((expire) => expire()));
+  expect(pending.size).toBe(0);
   expect(await readdir(root)).toEqual([]);
+});
+
+test("disconnect waits for a pending chunk before removing its temporary file", async () => {
   const { uploadId } = await begin("gone", 3);
   await Promise.all([writes.chunk(DEVICE, piece(uploadId, 0, "new")), writes.drop(DEVICE)]);
   expect(await readdir(root)).toEqual([]);

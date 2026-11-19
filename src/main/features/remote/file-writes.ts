@@ -38,6 +38,14 @@ type UploadResult = RpcResult<"files.write.end">;
 type Range = [start: number, end: number];
 type Authorize = (destination?: string) => void;
 
+type ScheduleExpiry = (expire: () => Promise<void>, idleMs: number) => () => void;
+
+const scheduleExpiry: ScheduleExpiry = (expire, idleMs) => {
+  const timer = setTimeout(() => void expire(), idleMs);
+  timer.unref();
+  return () => clearTimeout(timer);
+};
+
 interface Destination {
   path: string;
   parent: string;
@@ -58,7 +66,7 @@ interface Upload {
   file?: FileHandle;
   fileInfo?: Stats;
   reserved: number;
-  timer?: ReturnType<typeof setTimeout>;
+  cancelExpiry?: () => void;
   cleanup?: Promise<void>;
 }
 
@@ -194,7 +202,7 @@ export async function makeRemoteDirectory(
 export class FileWrites {
   private readonly uploads = new Map<string, Upload>();
 
-  constructor(private readonly idleMs = MAX_IDLE_MS) {}
+  constructor(private readonly schedule: ScheduleExpiry = scheduleExpiry) {}
 
   async begin(
     device: string,
@@ -293,7 +301,7 @@ export class FileWrites {
     if (!file || !destination || !temporary || !fileInfo)
       throw invalid("the upload has not started");
     upload.sealed = true;
-    clearTimeout(upload.timer);
+    upload.cancelExpiry?.();
     const signal = upload.controller.signal;
     try {
       return await this.work(upload, async () => {
@@ -391,15 +399,14 @@ export class FileWrites {
   }
 
   private touch(id: string, upload: Upload): void {
-    clearTimeout(upload.timer);
-    upload.timer = setTimeout(() => void this.discard(id, upload), this.idleMs);
-    upload.timer.unref();
+    upload.cancelExpiry?.();
+    upload.cancelExpiry = this.schedule(() => this.discard(id, upload), MAX_IDLE_MS);
   }
 
   private discard(id: string, upload: Upload): Promise<void> {
     if (upload.cleanup) return upload.cleanup;
     upload.controller.abort(new RpcFailure(RpcErrorCode.Unavailable, "the upload was cancelled"));
-    clearTimeout(upload.timer);
+    upload.cancelExpiry?.();
     upload.cleanup = (async () => {
       try {
         await Promise.allSettled(upload.work);
