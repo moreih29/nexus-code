@@ -10,11 +10,52 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
+
+// handshakingConn signals that the handler is waiting for the first line.
+type handshakingConn struct {
+	net.Conn
+	reading chan struct{}
+	started sync.Once
+}
+
+func (c *handshakingConn) Read(p []byte) (int, error) {
+	c.started.Do(func() { close(c.reading) })
+	return c.Conn.Read(p)
+}
+
+// TestCloseReleasesIncompleteRequests covers accepted connections that are
+// still waiting to finish their first frame when the server closes.
+func TestCloseReleasesIncompleteRequests(t *testing.T) {
+	srv := newTestServer(t, nil)
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	conn := &handshakingConn{Conn: server, reading: make(chan struct{})}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		srv.handleConn(conn)
+	}()
+	select {
+	case <-conn.reading:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not begin reading")
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("the incomplete request is still waiting after Close")
+	}
+}
 
 // TestMain points HOME at a scratch directory, so the servers the tests open
 // put their sockets there, and the stale-socket sweep in New runs there, not

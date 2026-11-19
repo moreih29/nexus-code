@@ -70,7 +70,10 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 	}
 
 	_ = conn.SetDeadline(time.Time{})
-	request := storeRequest(&s.cliInflight, requestID, conn)
+	request := s.storeRequest(&s.cliInflight, requestID, conn)
+	if request == nil {
+		return
+	}
 	payload := CLIEventPayload{
 		RequestID:   requestID,
 		WorkspaceID: req.WorkspaceID,

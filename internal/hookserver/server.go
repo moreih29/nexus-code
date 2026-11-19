@@ -150,10 +150,19 @@ type pendingRequest struct {
 }
 
 // storeRequest registers a waiting connection in the hook or CLI map.
-func storeRequest(requests *sync.Map, id string, conn net.Conn) *pendingRequest {
+// A closing server may have finished draining that map already.
+func (s *Server) storeRequest(requests *sync.Map, id string, conn net.Conn) *pendingRequest {
 	request := &pendingRequest{conn: conn, done: make(chan struct{})}
 	requests.Store(id, request)
-	return request
+	select {
+	case <-s.done:
+		if c, ok := takeRequest(requests, id); ok {
+			_ = c.Close()
+		}
+		return nil
+	default:
+		return request
+	}
 }
 
 // takeRequest claims the only right to reply and releases the deadline wait.
@@ -180,6 +189,8 @@ type Server struct {
 	inflight sync.Map
 	// cliInflight holds the CLI requests waiting on main, by request id.
 	cliInflight sync.Map
+	// handshakes holds accepted connections until their handlers return.
+	handshakes sync.Map
 
 	closeOnce sync.Once
 	done      chan struct{} // Close() 호출 시 닫혀 accept loop를 깨운다
@@ -324,6 +335,10 @@ func (s *Server) Close() error {
 		// 아직 살아 있는 in-flight 연결에 응답 생략 동등(exit 0) 응답을 보내고 닫는다.
 		s.ReleaseHooks()
 		s.closeCLI()
+		s.handshakes.Range(func(key, _ any) bool {
+			_ = key.(net.Conn).Close()
+			return true
+		})
 
 		_ = os.Remove(s.socketPath)
 	})
@@ -351,6 +366,15 @@ func (s *Server) acceptLoop() {
 // 요청 1줄을 읽고 검증한 뒤 in-flight 맵에 등록하고 EventSink를 호출한다.
 // 120초 deadline 내에 Respond()가 호출되지 않으면 exit 0 응답으로 연결을 닫는다.
 func (s *Server) handleConn(conn net.Conn) {
+	s.handshakes.Store(conn, struct{}{})
+	defer s.handshakes.Delete(conn)
+	select {
+	case <-s.done:
+		_ = conn.Close()
+		return
+	default:
+	}
+
 	// 120초 deadline을 소켓 read에 적용한다.
 	_ = conn.SetDeadline(time.Now().Add(s.connDeadline()))
 
@@ -394,7 +418,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	request := storeRequest(&s.inflight, hookID, conn)
+	request := s.storeRequest(&s.inflight, hookID, conn)
+	if request == nil {
+		return
+	}
 
 	// read deadline을 해제하고 응답 대기 상태로 전환한다.
 	// 이후 Respond()에서 conn.Close()가 호출될 때까지 연결이 살아 있어야 한다.
