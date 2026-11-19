@@ -12,7 +12,6 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { backgroundIdOf } from "../app-commands";
 import {
   applyLines,
   type ChatLine,
@@ -41,6 +40,7 @@ import {
   type QueuedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
+import { backgroundIdOf } from "./command-data";
 import {
   configUsageOf,
   LISTED_KEYS_STORAGE,

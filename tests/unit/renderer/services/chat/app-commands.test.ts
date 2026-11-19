@@ -1,22 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
   appCommandsBeside,
-  backgroundIdOf,
-  backgroundSessionsOf,
   branchTitle,
   COMMAND_LINKS,
   directoryArg,
   exportFileName,
   exportRelPath,
-  memoryFilesOf,
   parseAppCommand,
+  skillsOf,
+  terminalCommandOf,
+} from "../../../../../src/renderer/services/chat/app-commands";
+import {
+  backgroundIdOf,
+  backgroundSessionsOf,
+  memoryFilesOf,
   planOf,
   pluginResultOf,
   pluginsOf,
   sandboxOn,
-  skillsOf,
-  terminalCommandOf,
-} from "../../../../../src/renderer/services/chat/app-commands";
+} from "../../../../../src/renderer/services/chat/claude/command-data";
 import type { ChatItem } from "../../../../../src/renderer/services/chat/model";
 
 const user = (key: string, text: string): ChatItem => ({

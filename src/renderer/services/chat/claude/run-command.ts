@@ -15,7 +15,6 @@ import { queueStartupInput } from "../../terminal/pty-client";
 import { agentCommandLine } from "../../workspace/tasks";
 import {
   APP_COMMANDS,
-  backgroundSessionsOf,
   branchTitle,
   COMMAND_LINKS,
   conversationMarkdown,
@@ -23,9 +22,18 @@ import {
   directoryArg,
   exportFileName,
   exportRelPath,
+  nthAnswer,
+  RESTART_AFTER,
+  skillsOf,
+  subtaskPrompt,
+  terminalCommandOf,
+} from "../app-commands";
+import type { ChatItem, ToolCall } from "../model";
+import { type CardSection, chatKey, revealPart, useChatStore } from "../store";
+import {
+  backgroundSessionsOf,
   hooksMarkdown,
   memoryFilesOf,
-  nthAnswer,
   type PluginAction,
   permissionFiles,
   permissionsMarkdown,
@@ -33,14 +41,8 @@ import {
   planOf,
   pluginResultOf,
   pluginsOf,
-  RESTART_AFTER,
   sandboxOn,
-  skillsOf,
-  subtaskPrompt,
-  terminalCommandOf,
-} from "../app-commands";
-import type { ChatItem, ToolCall } from "../model";
-import { type CardSection, chatKey, revealPart, useChatStore } from "../store";
+} from "./command-data";
 import type { ChatController } from "./controller";
 import { firstVersionOf } from "./versions";
 
