@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+// TestFailedStagedCopyKeepsExistingRollout covers a source that fails during
+// reading after its open succeeds. The old rollout remains usable by forks.
+func TestFailedStagedCopyKeepsExistingRollout(t *testing.T) {
+	dir := t.TempDir()
+	to := filepath.Join(dir, "copied.jsonl")
+	const old = "{\"type\":\"session_meta\"}\n"
+	writeTestFile(t, to, old)
+	// os.Open can open a directory, but it cannot provide rollout bytes.
+	if err := copyFile(t.TempDir(), to); err == nil {
+		t.Fatal("copying from a directory succeeded")
+	}
+	if got, err := os.ReadFile(to); err != nil || string(got) != old {
+		t.Fatalf("existing rollout changed: %q, %v", got, err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("failed copy left temporary files: %v, %v", entries, err)
+	}
+}
+
 func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
 	service := New()
 	stage := func(params StageThreadParams) StageThreadResult {

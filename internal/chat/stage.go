@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // stagedDir is where a thread another Codex profile keeps is put for this
@@ -21,6 +22,10 @@ const stagedDir = "nexus-staged"
 // stagedLineage is how many threads back a staged thread's forks are
 // followed, so a lineage that loops ends.
 const stagedLineage = 64
+
+// stagedPublishMu keeps the final length check and replacement together
+// when this agent stages the same rollout for concurrent forks.
+var stagedPublishMu sync.Mutex
 
 // StageThread puts a copy of a Codex thread another profile keeps where the
 // tab's profile's program finds it, for thread/fork, with the threads it was
@@ -112,21 +117,37 @@ func copyGrown(from, to string) error {
 	return copyFile(from, to)
 }
 
+// copyFile writes a private sibling file before replacing the rollout a fork
+// may still be reading. A failed copy leaves the previous rollout intact.
 func copyFile(from, to string) error {
 	in, err := os.Open(from)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	out, err := os.CreateTemp(filepath.Dir(to), ".nexus-rollout-*")
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+	defer os.Remove(out.Name())
+	defer out.Close()
+	n, err := io.Copy(out, in)
+	if err != nil {
 		return err
 	}
-	return out.Close()
+	if err := out.Sync(); err != nil {
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+
+	stagedPublishMu.Lock()
+	defer stagedPublishMu.Unlock()
+	if copied, err := os.Stat(to); err == nil && copied.Size() >= n {
+		return nil
+	}
+	return os.Rename(out.Name(), to)
 }
 
 // rolloutPath is the file Codex keeps a thread in, "" when none is found:
