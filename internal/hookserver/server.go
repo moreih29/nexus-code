@@ -64,7 +64,7 @@ const permissionRequestSubcmd = "permission-request"
 // printWatchSubcmd is the hook a `claude -p` run holds open while it goes on.
 const printWatchSubcmd = "print-watch"
 
-// goneRecheck is how often watchGone reads again for a client that went
+// goneRecheck is how often waitForClientGone reads again for a client that went
 // away. On Windows a read started as the client closes can wait on with
 // the close missed, where a read started again returns at once.
 const goneRecheck = 500 * time.Millisecond
@@ -424,18 +424,9 @@ func (s *Server) handleConn(conn net.Conn) {
 // watchGone tells main when the client of a waiting hook goes away before
 // it is answered: Claude Code ends a PermissionRequest hook as the user
 // interrupts at its dialog, and the app must stop offering an answer; a
-// print watch's client ends with its run. The client writes nothing after
-// its request, so a read returns only once the connection closes, from
-// either side, or as its deadline passes, when it reads again (see
-// goneRecheck).
+// print watch's client ends with its run.
 func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
-	var b [1]byte
-	for {
-		_ = conn.SetReadDeadline(time.Now().Add(goneRecheck))
-		if _, err := conn.Read(b[:]); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
-			break
-		}
-	}
+	waitForClientGone(conn)
 	if _, waiting := s.inflight.LoadAndDelete(hookID); !waiting {
 		return
 	}
@@ -457,6 +448,19 @@ func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
 	}
 	if err := sink("claude.hookGone", gone); err != nil {
 		fmt.Fprintf(os.Stderr, "hookserver: sink error for gone hookId %s: %v\n", hookID, err)
+	}
+}
+
+// waitForClientGone observes either side closing a connection after the
+// request frame. Refreshing the read deadline lets Windows report an EOF
+// that the read racing the peer's close missed (see goneRecheck).
+func waitForClientGone(conn net.Conn) {
+	var b [1]byte
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(goneRecheck))
+		if _, err := conn.Read(b[:]); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
+			return
+		}
 	}
 }
 
