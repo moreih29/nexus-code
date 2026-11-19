@@ -37,8 +37,10 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       }
     }
     if (method === "send") codex?.(args.message as Message);
+    if (method === "replay") return Promise.resolve({ ok: true, value: replayResponse?.() });
     if (method === "codexStart") {
       starts.push(args);
+      onStart?.();
       const value = { ok: true, pid: 1, attached: false, version: null, ...hostFolder };
       return Promise.resolve({
         ok: true,
@@ -67,6 +69,8 @@ const live: Controller[] = [];
 const sent: Message[] = [];
 const starts: Message[] = [];
 let hostFolder: { canonicalCwd?: string } = {};
+let replayResponse: (() => unknown) | undefined;
+let onStart: (() => void) | undefined;
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
@@ -77,6 +81,8 @@ afterEach(() => {
   catalogCalls.length = 0;
   invalidateCodexHistory(catalogWorkspace);
   hostFolder = {};
+  replayResponse = undefined;
+  onStart = undefined;
 });
 
 /** A tab whose program is not running and answers initialize a while after it is asked. */
@@ -119,6 +125,102 @@ function tab(respond?: (message: Message) => unknown | Promise<unknown>): Contro
 }
 
 const order = () => sent.map((m) => m.method);
+
+test("resumes a Codex thread after agent replacement and queues against the new log", async () => {
+  jest.useFakeTimers();
+  const c = tab();
+  let seq = 400;
+  const line = (dir: "sys" | "in" | "out", message: Message, replay = false) =>
+    c.receive({ seq: ++seq, dir, message, replay } as never);
+  const turn = (id: string) =>
+    line("out", { method: "turn/started", params: { threadId: "t1", turn: { id } } });
+  const approve = (turnId: string) =>
+    line("out", {
+      id: 1,
+      method: "item/commandExecution/requestApproval",
+      params: { turnId, command: "pwd" },
+    });
+  codex = () => {};
+  replayResponse = () => {
+    line("sys", { event: "start" }, true);
+    line("in", { id: "resume", method: "thread/resume" }, true);
+    line("out", { id: "resume", result: { thread: { id: "t1" } } }, true);
+    line(
+      "in",
+      { method: "turn/start", params: { input: [{ type: "text", text: "old prompt" }] } },
+      true,
+    );
+    line("sys", { event: "dropped" }, true);
+    return { found: true, running: true, truncated: false, lastSeq: seq };
+  };
+  await c.open();
+  turn("old");
+  approve("old");
+  await c.sendWithTiming("queued prompt", [], "next", undefined, undefined, "queued");
+  const oldPermission = c.model.permissions[0];
+  expect(oldPermission?.requestId).toBe("1");
+  expect(c.state.queue[0]?.afterTool).toBe(seq);
+
+  c.held();
+  replayResponse = () => ({ found: false, running: false, truncated: false, lastSeq: 0 });
+  await c.resync();
+  expect(c.model.lastSeq).toBe(0);
+  expect(c.model.permissions).toEqual([]);
+  expect(c.model.requests).toEqual({});
+  await c.answerPermission(oldPermission, { kind: "allow" });
+  expect(c.state.queue[0]?.afterTool).toBe(0);
+
+  seq = 0;
+  const steered = Promise.withResolvers<Message>();
+  onStart = () => line("sys", { event: "start" });
+  codex = (message) => {
+    sent.push(message);
+    line("in", message);
+    if (message.id === undefined) return;
+    const result = message.method === "thread/resume" ? { thread: { id: "t1" } } : {};
+    line("out", { id: message.id, result });
+    if (message.method === "turn/steer") steered.resolve(message);
+  };
+  await c.prepareSend();
+  expect(sent.find((m) => m.method === "thread/resume")?.params).toMatchObject({
+    threadId: "t1",
+    excludeTurns: true,
+  });
+  expect(c.model.process).toBe("running");
+  expect(c.model.items.filter((item) => item.kind === "user").map((item) => item.text)).toEqual([
+    "old prompt",
+  ]);
+  expect(new Set(c.model.items.map((item) => item.key)).size).toBe(c.model.items.length);
+
+  turn("new");
+  approve("new");
+  c.flushNow();
+  expect(c.model.requests["1"]?.params.turnId).toBe("new");
+  const writes = sent.length;
+  await c.answerPermission(oldPermission, { kind: "allow" });
+  expect(sent).toHaveLength(writes);
+  await c.answerPermission(c.model.permissions[0], { kind: "allow" });
+  expect(order()).not.toContain("turn/steer");
+  line("out", {
+    method: "item/completed",
+    params: {
+      threadId: "t1",
+      turnId: "new",
+      item: { id: "cmd", type: "commandExecution", command: "pwd", status: "completed" },
+    },
+  });
+  c.flushNow();
+  expect(c.model.toolCompletedSeq).toBe(seq);
+  expect((await steered.promise).params).toMatchObject({
+    threadId: "t1",
+    expectedTurnId: "new",
+    input: [{ type: "text", text: "queued prompt" }],
+  });
+  seq = 404;
+  line("sys", { event: "dropped" });
+  c.flushNow();
+  expect(new Set(c.model.items.map((item) => item.key)).size).toBe(c.model.items.length);
+});
 
 describe("what a Codex tab asks as its program starts", () => {
   test("goes after the program knows the app", async () => {

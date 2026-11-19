@@ -47,6 +47,7 @@ import {
   num,
   type PermissionRequest,
   rec,
+  stopRunningTasks,
   stopRunningTools,
   str,
   type TaskInfo,
@@ -85,6 +86,8 @@ export interface CodexServerRequest {
 }
 
 export interface CodexModel extends ChatModel {
+  /** Keeps sequence-based item keys unique across the tab's agent logs. */
+  logSeqOffset?: number;
   /** The thread the program runs, once it started or resumed one. */
   threadId?: string;
   appServerVersion?: string;
@@ -136,6 +139,33 @@ export interface CodexModel extends ChatModel {
 
 export function emptyCodexModel(): CodexModel {
   return { ...emptyModel(), blocks: {}, requests: {}, originals: {} };
+}
+
+/** Keeps the conversation when the agent loses its log and sequence counter. */
+export function loseCodexLog(prev: CodexModel): CodexModel {
+  const draft = new Draft<CodexModel>({
+    ...prev,
+    logSeqOffset: (prev.logSeqOffset ?? 0) + prev.lastSeq,
+    lastSeq: 0,
+    process: "exited",
+    running: false,
+    turn: null,
+    turnId: undefined,
+    toolCompletedSeq: undefined,
+    interrupting: false,
+    streaming: null,
+    permissions: [],
+    requests: {},
+    outgoing: {},
+    blocks: {},
+    forkSource: undefined,
+    reviewTurn: undefined,
+    mcpServers: undefined,
+    mcpLogin: undefined,
+  });
+  stopRunningTools(draft);
+  stopRunningTasks(draft, undefined);
+  return draft.next;
 }
 
 /**
@@ -212,6 +242,7 @@ export function applyCodexLine(
   const message = rec(line.message);
   if (!message) return draft.next;
   const at = line.at ?? (line.replay ? undefined : now);
+  const keySeq = (prev.logSeqOffset ?? 0) + line.seq;
   if (line.dir === "sys" && message.event === "snapshot") {
     const path = str(message.path);
     const before = message.before;
@@ -219,7 +250,7 @@ export function applyCodexLine(
       draft.next.originals = { ...draft.next.originals, [path]: before };
     }
   } else if (line.dir === "sys") {
-    applySys(draft, message, line.seq, at);
+    applySys(draft, message, keySeq, at);
     if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
@@ -231,7 +262,7 @@ export function applyCodexLine(
       draft.next.mcpServers = undefined;
       draft.next.mcpLogin = undefined;
     }
-  } else if (line.dir === "in") applyIn(draft, message, line.seq, at);
+  } else if (line.dir === "in") applyIn(draft, message, keySeq, at);
   else applyOut(draft, message, line.seq, at);
   return draft.next;
 }
@@ -318,7 +349,7 @@ function applyOut(draft: CodexDraft, message: Rec, seq: number, at: number | und
   const params = rec(message.params) ?? {};
   if (method && key) applyServerRequest(draft, key, method, params);
   else if (method) applyNotification(draft, method, params, seq, at);
-  else if (key) applyResponse(draft, key, message, seq, at);
+  else if (key) applyResponse(draft, key, message, (draft.next.logSeqOffset ?? 0) + seq, at);
 }
 
 function applyResponse(
@@ -814,7 +845,8 @@ function applyNotification(
   at: number | undefined,
 ): void {
   const m = draft.next;
-  const tag = String(seq);
+  const keySeq = (m.logSeqOffset ?? 0) + seq;
+  const tag = String(keySeq);
   // Another thread's (a subagent's) turns and items are not the tab's, nor
   // its context's size and compactions.
   const threadId = str(params.threadId);
@@ -838,7 +870,7 @@ function applyNotification(
       return;
     }
     case "turn/completed":
-      applyTurnCompleted(draft, rec(params.turn) ?? {}, seq, at);
+      applyTurnCompleted(draft, rec(params.turn) ?? {}, keySeq, at);
       return;
     case "item/started":
     case "item/completed": {
@@ -990,7 +1022,7 @@ function applyNotification(
       return;
     }
     case "thread/compacted":
-      pushCompacted(draft, `n${seq}`, at);
+      pushCompacted(draft, `n${keySeq}`, at);
       return;
     case "thread/goal/updated":
       m.threadGoal = nextGoal(m.threadGoal, params.goal, at);
@@ -1019,7 +1051,7 @@ function applyNotification(
         }
         return;
       }
-      pushError(draft, str(error?.message) ?? "error", `n${seq}`, at);
+      pushError(draft, str(error?.message) ?? "error", `n${keySeq}`, at);
       return;
     }
     case "serverRequest/resolved": {

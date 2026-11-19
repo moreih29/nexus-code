@@ -858,7 +858,7 @@ function applyTask(draft: Draft, message: Rec, at: number | undefined): void {
 }
 
 /** The program ended: so did the tasks it ran. */
-function stopRunningTasks(draft: Draft, at: number | undefined): void {
+export function stopRunningTasks(draft: Draft, at: number | undefined): void {
   const m = draft.next;
   let tasks: Record<string, TaskInfo> | null = null;
   for (const task of Object.values(m.tasks)) {

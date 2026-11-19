@@ -40,6 +40,7 @@ import {
   codexModelsOf,
   emptyCodexModel,
   idKey,
+  loseCodexLog,
   nextThreadModel,
   shownUserText,
 } from "./codex-model";
@@ -1205,11 +1206,21 @@ export class CodexController {
       }
       return;
     }
-    // A new agent: what the tab showed stays, and the thread goes on when it starts again.
+    // The next program starts a fresh log for the same conversation.
+    this.limitsReadable = false;
+    this.ready = Promise.resolve(false);
+    this.canonicalCwd = undefined;
+    this.deferToolSendsForTurn = undefined;
     this.update((prev) => ({
       ...prev,
       phase: "ended",
-      model: { ...this.model, process: "exited", running: false, turn: null, permissions: [] },
+      model: loseCodexLog(this.model),
+      // In-flight entries keep their identity until delivery settles.
+      queue: prev.queue.map((item) =>
+        item.afterTool !== undefined && item.status !== "sending"
+          ? { ...item, afterTool: 0 }
+          : item,
+      ),
     }));
     this.rejectPending("the program is gone");
   }
@@ -1456,12 +1467,17 @@ export class CodexController {
       this.state.queue,
       (update) => this.update(update),
       async (next) => {
+        const offset = this.model.logSeqOffset;
         const held = await this.sendMessage(next.text, next.images, {
           from: next.from,
           id: next.id,
           queued: next,
         });
-        if (held) return held.afterTurn ? { ...next, afterTool: undefined } : next;
+        if (!held) return;
+        if (held.afterTurn) return { ...next, afterTool: undefined };
+        if (next.afterTool !== undefined && offset !== this.model.logSeqOffset)
+          return { ...next, afterTool: 0 };
+        return next;
       },
       (error) => error instanceof CodexReplyError,
       (id) => this.sawQueuedMessage(id),
@@ -1656,6 +1672,7 @@ export class CodexController {
 
   /** Answers an approval or a question the server asked. */
   async answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {
+    if (!this.model.permissions.includes(request)) return;
     const asked = this.model.requests[request.requestId];
     if (!asked) return;
     const id = JSON.parse(request.requestId) as string | number;
