@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex-model";
+import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex/model";
 import { emptyModel, type ToolCall } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import { originalOf } from "../../../../../src/renderer/services/remote/chat-original";

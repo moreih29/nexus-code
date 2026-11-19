@@ -24,8 +24,8 @@ import {
   CONFIG_KEYS,
   type ListedKey,
   parseConfigUsage,
-} from "../src/renderer/services/chat/claude-config";
-import { CODEX_COMMANDS } from "../src/renderer/services/chat/codex-commands";
+} from "../src/renderer/services/chat/claude/config";
+import { CODEX_COMMANDS } from "../src/renderer/services/chat/codex/commands";
 
 /** A command its definition turns off; the check says when it is on again. */
 const OFF = "off in its definition";
@@ -502,17 +502,17 @@ function codexMethods(program: string, experimental = false) {
 function methodsTheAppUses() {
   const renderer = path.join(ROOT, "src/renderer");
   const source = (file: string) => readFileSync(path.join(renderer, file), "utf8");
-  const controller = source("services/chat/codex-controller.ts");
+  const controller = source("services/chat/codex/controller.ts");
   const callers = [
     controller,
-    source("services/chat/run-codex-command.ts"),
+    source("services/chat/codex/run-command.ts"),
     source("components/chat/codex-tab.tsx"),
   ].join("\n");
   const requests = new Set(
     [...callers.matchAll(/\b(?:request|ask)\(\s*"([a-z][\w/]*)"/g)].map((m) => m[1]),
   );
   const read = new Set(
-    [...source("services/chat/codex-model.ts").matchAll(/case "([a-z]\w*(?:\/\w+)+)"/g)].map(
+    [...source("services/chat/codex/model.ts").matchAll(/case "([a-z]\w*(?:\/\w+)+)"/g)].map(
       (m) => m[1],
     ),
   );

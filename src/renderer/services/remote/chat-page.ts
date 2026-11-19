@@ -20,7 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { CodexModel, CodexRateLimits } from "../chat/codex-model";
+import type { CodexModel, CodexRateLimits } from "../chat/codex/model";
 import type {
   AssistantItem,
   ChatItem,

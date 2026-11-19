@@ -46,8 +46,8 @@ import {
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { markRead } from "../../services/agent-sessions/use-inbox";
 import { useFirstPermission, useRowFacts } from "../../services/agent-sessions/use-row-facts";
-import { existingCodexController } from "../../services/chat/codex-controller";
-import { existingChatController } from "../../services/chat/controller";
+import { existingChatController } from "../../services/chat/claude/controller";
+import { existingCodexController } from "../../services/chat/codex/controller";
 import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";

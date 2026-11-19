@@ -10,7 +10,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import {
   type ContinuedCodexChoices,
   profileForkSettings,
-} from "../../../../../src/renderer/services/chat/codex-profile-fork";
+} from "../../../../../src/renderer/services/chat/codex/profile-fork";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 
 // The version the app tells Codex it is.
@@ -87,9 +87,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { CodexController } = await import(
-  "../../../../../src/renderer/services/chat/codex-controller"
+  "../../../../../src/renderer/services/chat/codex/controller"
 );
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");

@@ -23,7 +23,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { artifactsOf } from "../../services/chat/artifact";
-import type { ChatController } from "../../services/chat/controller";
+import type { ChatController } from "../../services/chat/claude/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";

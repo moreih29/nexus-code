@@ -9,9 +9,9 @@
 
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
+import { appliedEffort, settingsChoice, settingsModel } from "./claude/settings-defaults";
+import { usageLimitsOf } from "./claude/usage-limits";
 import { type ClaudeGoal, goalFeedbackReason } from "./goal";
-import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
-import { usageLimitsOf } from "./usage-limits";
 
 export type LineDir = "out" | "in" | "sys";
 

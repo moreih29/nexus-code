@@ -26,8 +26,8 @@ import {
   defaultEffortOf,
   effortModelOf,
   modelChoiceOf,
-} from "../../services/chat/claude-config";
-import type { ChatController } from "../../services/chat/controller";
+} from "../../services/chat/claude/config";
+import type { ChatController } from "../../services/chat/claude/controller";
 import type { ModelInfo } from "../../services/chat/model";
 import type { ChatTabState } from "../../services/chat/store";
 import { cn } from "../../utils/cn";

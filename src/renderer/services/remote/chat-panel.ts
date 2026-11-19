@@ -12,8 +12,8 @@ import {
   type ViewGoal,
   type ViewUsageMeter,
 } from "../../../../packages/remote-protocol/src";
-import { codexServerVersion } from "../chat/codex-history";
-import type { CodexModel } from "../chat/codex-model";
+import { codexServerVersion } from "../chat/codex/history";
+import type { CodexModel } from "../chat/codex/model";
 import { type GoalView, shownGoalOf } from "../chat/goal";
 import type { ChatItem, ToolCall } from "../chat/model";
 import { agentsOf, changedFilesOf, contextOf, jobsOf, todosOf } from "../chat/panel";

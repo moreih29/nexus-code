@@ -18,7 +18,7 @@ import {
   defaultEffortLevels,
   effortModelOf,
   type ListedKey,
-} from "../chat/claude-config";
+} from "../chat/claude/config";
 import type { ModelInfo } from "../chat/model";
 
 /** The longest value told: a setting's text is a few words. */

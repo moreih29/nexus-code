@@ -28,7 +28,7 @@ import { sameShellChoice } from "../../../shared/pty/shell";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
-import { existingChatController } from "../chat/controller";
+import { existingChatController } from "../chat/claude/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { isPreviewable } from "../editor/preview/previewable";

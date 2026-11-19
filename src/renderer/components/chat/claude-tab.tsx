@@ -10,13 +10,14 @@ import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
-import { configCommandOf } from "../../services/chat/claude-config";
+import { configCommandOf } from "../../services/chat/claude/config";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
   pruneAttachmentsOnce,
-} from "../../services/chat/controller";
+} from "../../services/chat/claude/controller";
+import { runAppCommand } from "../../services/chat/claude/run-command";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
@@ -55,7 +56,6 @@ import {
 } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
   type ComposerDraft,

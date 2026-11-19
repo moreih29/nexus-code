@@ -5,10 +5,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  historyModel,
+  transcriptGoal,
+} from "../../../../../src/renderer/services/chat/claude/history";
+import {
   applyCodexLines,
   type CodexModel,
   emptyCodexModel,
-} from "../../../../../src/renderer/services/chat/codex-model";
+} from "../../../../../src/renderer/services/chat/codex/model";
 import {
   clockLabel,
   firstLineOf,
@@ -16,7 +20,6 @@ import {
   goalSeconds,
   goalViewOf,
 } from "../../../../../src/renderer/services/chat/goal";
-import { historyModel, transcriptGoal } from "../../../../../src/renderer/services/chat/history";
 import {
   applyLines,
   type ChatLine,

@@ -45,9 +45,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { CodexController } = await import(
-  "../../../../../src/renderer/services/chat/codex-controller"
+  "../../../../../src/renderer/services/chat/codex/controller"
 );
 
 let seq = 0;

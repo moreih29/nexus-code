@@ -34,7 +34,7 @@ import {
   RESTART_AFTER,
   terminalCommandOf,
 } from "../chat/app-commands";
-import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex-commands";
+import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex/commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,

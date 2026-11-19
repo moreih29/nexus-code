@@ -4,7 +4,7 @@ import {
   CODEX_CATALOG_TTL_MS,
   invalidateCodexHistory,
   readCodexHistoryCatalog,
-} from "../../../../../src/renderer/services/chat/codex-history-catalog";
+} from "../../../../../src/renderer/services/chat/codex/history-catalog";
 import type { ListedSession } from "../../../../../src/renderer/services/chat/sessions";
 import {
   mergedSessions,
