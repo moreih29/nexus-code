@@ -58,6 +58,7 @@ function setup(program: () => Front | Promise<Front>) {
   return {
     broker,
     looked,
+    watch,
     print: (chunk = "x", terminal = T) => emit("data", { ...terminal, chunk }),
   };
 }
@@ -112,11 +113,23 @@ test("a Claude started while the program was looked up keeps its state", async (
   expect(looked).toEqual(["w:t"]);
   // The shell was in front when looked at; the wrapper then started Claude,
   // whose SessionStart lands before the answer.
-  await advance(1);
   broker.set(T.workspaceId, T.tabId, "idle", undefined, null);
   answer(front("bash"));
   await advance(0);
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("idle");
+});
+
+test("disposing a foreground lookup keeps its late answer from changing state", async () => {
+  const foreground = Promise.withResolvers<Front>();
+  const { broker, print, watch } = setup(() => foreground.promise);
+  broker.set(T.workspaceId, T.tabId, "running");
+  print();
+  await advance();
+
+  watch.dispose();
+  foreground.resolve(front("bash"));
+  await advance(0);
+  expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
 });
 
 test("Claude started by a script keeps its state: the script's shell waits for it", async () => {

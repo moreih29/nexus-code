@@ -262,6 +262,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       offData();
       offRestored();
       offReplayed();
+      reconnects.dispose();
     },
     broker,
     activeContext,
