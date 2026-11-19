@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -115,7 +115,16 @@ test.each([
     sha256: hash(DATA),
   });
   expect(await readFile(target)).toEqual(DATA);
-  expect(reads(app).every((r) => r.path === source && r.workspaceId === WS.id)).toBe(true);
+  expect(reads(app)).toEqual([
+    {
+      workspaceId: WS.id,
+      path: source,
+      as: "bytes",
+      offset: 0,
+      length: MAX_BYTES_CHUNK,
+      versioned: true,
+    },
+  ]);
 });
 
 test("uses an existing directory or an explicit file name relative to the CLI cwd", async () => {
@@ -132,6 +141,36 @@ test("uses an existing directory or an explicit file name relative to the CLI cw
   expect(await readFile(file)).toEqual(DATA);
   expect((await readdir(cwd)).sort()).toEqual(["downloads", "renamed.bin"]);
 });
+
+test("a file exactly one chunk long uses just one read", async () => {
+  const data = Buffer.alloc(MAX_BYTES_CHUNK, 42);
+  const app = peer((request) => piece(request, data));
+  expect((await pull(app, "source.bin")).stderr).toBe("");
+  expect(reads(app)).toHaveLength(1);
+  expect(await readFile(path.join(cwd, "source.bin"))).toEqual(data);
+});
+
+test.skipIf(process.platform === "win32")(
+  "applies umask to new files and preserves an existing file's mode",
+  async () => {
+    const target = path.join(cwd, "source.bin");
+    expect((await pull(peer(), "source.bin")).stderr).toBe("");
+    expect((await stat(target)).mode & 0o7777).toBe(0o666 & ~process.umask());
+
+    await chmod(target, 0o751);
+    const replacement = Buffer.from("replacement");
+    expect(
+      (
+        await pull(
+          peer((read) => piece(read, replacement)),
+          "source.bin",
+        )
+      ).stderr,
+    ).toBe("");
+    expect(await readFile(target)).toEqual(replacement);
+    expect((await stat(target)).mode & 0o7777).toBe(0o751);
+  },
+);
 
 test.skipIf(process.platform !== "win32")(
   "uses the Git Bash temp path as a local directory",
@@ -156,11 +195,11 @@ test("starts four positioned chunk reads and assembles out-of-order answers", as
   let peak = 0;
   const completed: number[] = [];
   const app = peer(async (request) => {
-    if (request.length === 0) return piece(request, data);
+    if (request.offset === 0) return piece(request, data);
     const offset = request.offset ?? 0;
     peak = Math.max(++active, peak);
     try {
-      await delay(offset === 0 ? 40 : 5);
+      await delay(offset === MAX_BYTES_CHUNK ? 40 : 5);
       completed.push(offset);
       return piece(request, data);
     } finally {
@@ -170,26 +209,26 @@ test("starts four positioned chunk reads and assembles out-of-order answers", as
   const result = await pull(app, "source.bin", "--json");
   expect(result.stderr).toBe("");
   expect(peak).toBe(4);
-  expect(completed[0]).not.toBe(0);
+  expect(completed[0]).not.toBe(MAX_BYTES_CHUNK);
   expect(await readFile(path.join(cwd, "source.bin"))).toEqual(data);
   expect(JSON.parse(result.stdout).sha256).toBe(hash(data));
-  expect(reads(app)[0]).toMatchObject({ as: "bytes", length: 0, versioned: true });
+  expect(reads(app)).toHaveLength(6);
+  expect(reads(app)[0]).toMatchObject({ as: "bytes", length: MAX_BYTES_CHUNK, versioned: true });
   expect(
     reads(app)
       .slice(1)
       .every((r) => r.requireVersion === VERSION),
   ).toBe(true);
-  expect(reads(app).at(-1)).toMatchObject({ length: 0, requireVersion: VERSION });
 });
 
 test("a changed version lets outstanding reads unwind and keeps the old file", async () => {
-  const data = Buffer.alloc(MAX_BYTES_CHUNK + 1, 42);
+  const data = Buffer.alloc(MAX_BYTES_CHUNK * 2 + 1, 42);
   const saved = path.join(cwd, "source.bin");
   await writeFile(saved, "previous");
   let otherAborted = false;
   const app = peer(async (request, signal) => {
-    if (!request.length) return piece(request, data);
-    if (!request.offset) {
+    if (request.offset === 0) return piece(request, data);
+    if (request.offset === MAX_BYTES_CHUNK) {
       await delay(5);
       return fail(RpcErrorCode.InvalidParams, "file version changed");
     }
@@ -207,27 +246,27 @@ test("a changed version lets outstanding reads unwind and keeps the old file", a
   expect(await readdir(cwd)).toEqual(["source.bin"]);
 });
 
-test("a change after the data reads also prevents replacement", async () => {
+test("a chunk with a different version prevents replacement", async () => {
+  const data = Buffer.alloc(MAX_BYTES_CHUNK + 1, 42);
   const app = peer((request) =>
-    piece(
-      request,
-      DATA,
-      REMOTE,
-      request.length === 0 && request.requireVersion ? "version-b" : VERSION,
-    ),
+    piece(request, data, REMOTE, request.offset ? "version-b" : VERSION),
   );
   expect((await pull(app, "source.bin")).stderr).toContain("changed while copying");
   expect(await readdir(cwd)).toEqual([]);
 });
 
-test("cancellation unwinds reads and removes the temporary file", async () => {
+test("cancellation during busy backoff removes the temporary file", async () => {
   const controller = new AbortController();
-  const app = peer(async (request, signal) => {
-    if (!request.length) return piece(request);
-    expect((await readdir(cwd))[0]).toMatch(/^\.nexus-pull-/);
-    controller.abort();
-    signal?.throwIfAborted();
-    throw new Error("cancellation did not reach remote.request");
+  const data = Buffer.alloc(MAX_BYTES_CHUNK + 1, 42);
+  const app = peer(async (request) => {
+    if (request.offset === 0) return piece(request, data);
+    const [temporary] = await readdir(cwd);
+    expect(temporary).toMatch(/^\.nexus-pull-/);
+    if (process.platform !== "win32" && temporary) {
+      expect((await stat(path.join(cwd, temporary))).mode & 0o777).toBe(0o600 & ~process.umask());
+    }
+    setImmediate(() => controller.abort());
+    return fail(RpcErrorCode.Unavailable, "the host is busy reading files");
   });
   const result = await run(
     app,
@@ -236,8 +275,35 @@ test("cancellation unwinds reads and removes the temporary file", async () => {
   );
   expect(result.stderr).toContain("file pull cancelled");
   expect(result.exitCode).not.toBe(0);
+  expect(reads(app)).toHaveLength(2);
   expect(await readdir(cwd)).toEqual([]);
 });
+
+test("retries a busy host and saves the complete file", async () => {
+  const data = Buffer.alloc(MAX_BYTES_CHUNK + 1, 42);
+  let attempts = 0;
+  const app = peer((request) => {
+    if (request.offset && ++attempts <= 2) {
+      return fail(RpcErrorCode.Unavailable, "the host is busy reading files");
+    }
+    return piece(request, data);
+  });
+  expect((await pull(app, "source.bin")).stderr).toBe("");
+  expect(await readFile(path.join(cwd, "source.bin"))).toEqual(data);
+  expect(reads(app)).toHaveLength(4);
+  expect(reads(app).slice(1)).toEqual(
+    Array(3).fill(expect.objectContaining({ offset: MAX_BYTES_CHUNK, requireVersion: VERSION })),
+  );
+});
+
+test("reports the busy error after five retries", async () => {
+  const app = peer(() => fail(RpcErrorCode.Unavailable, "the host is busy reading files"));
+  const result = await pull(app, "source.bin");
+  expect(result.stderr).toContain("the host is busy reading files");
+  expect(result.exitCode).not.toBe(0);
+  expect(reads(app)).toHaveLength(6);
+  expect(await readdir(cwd)).toEqual([]);
+}, 12000);
 
 test("a failed rename leaves no temporary file", async () => {
   await mkdir(path.join(cwd, "source.bin"));
@@ -295,7 +361,11 @@ describe("recursive pull", () => {
         skipped: "symlink",
       },
     ]);
-    expect(reads(app).every((r) => !r.path.endsWith("shortcut"))).toBe(true);
+    expect(reads(app).map((r) => r.path)).toEqual([
+      ".",
+      path.win32.join(root, "root.txt"),
+      path.win32.join(nested, "leaf.txt"),
+    ]);
   });
 
   test("refuses to copy any of a tree with a truncated nested listing", async () => {
@@ -327,17 +397,17 @@ describe("older hosts", () => {
     const result = await pull(app, "source.bin");
     expect(result.stderr).toBe("");
     expect(await readFile(path.join(cwd, "source.bin"))).toEqual(DATA);
-    expect(reads(app)[0]?.length).toBe(schema === "0.13.4" ? 0 : 1);
-    expect(
-      reads(app)
-        .slice(1)
-        .every((r) => !r.versioned && !r.requireVersion),
-    ).toBe(true);
+    expect(reads(app)).toHaveLength(2);
+    expect(reads(app)[0]).toMatchObject({ offset: 0, length: MAX_BYTES_CHUNK });
+    expect(reads(app)[0]?.versioned).toBe(schema === "0.13.4" ? true : undefined);
+    expect(reads(app)[1]).toMatchObject({ offset: 0, length: 1 });
+    expect(reads(app)[1]?.versioned).toBeUndefined();
+    expect(reads(app)[1]?.requireVersion).toBeUndefined();
   });
 
   test("detects a size change without a version", async () => {
     const app = peer((read) =>
-      piece(read, read.length === 1 ? DATA : Buffer.concat([DATA, DATA]), REMOTE, null),
+      piece(read, read.length === 1 ? Buffer.concat([DATA, DATA]) : DATA, REMOTE, null),
     );
     app.peers.devices = [{ ...DEVICE, schema: "0.13.3" }];
     expect((await pull(app, "source.bin")).stderr).toContain("changed while copying");
@@ -402,5 +472,6 @@ test.each([
   );
   expect(result.stderr.trimEnd().split("\n")).toHaveLength(1);
   expect(result.exitCode).not.toBe(0);
+  expect(reads(app)).toHaveLength(1);
   expect(await readdir(cwd)).toEqual([]);
 });

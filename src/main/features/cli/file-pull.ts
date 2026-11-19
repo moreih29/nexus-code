@@ -29,7 +29,7 @@ type FilePeer = <M extends FileMethod>(
   params: Omit<RpcParams<M>, "workspaceId">,
   signal: AbortSignal,
 ) => Promise<RpcResult<M>>;
-type Bytes = Extract<RpcResult<"files.read">, { kind: "bytes" }>;
+type Bytes = Omit<Extract<RpcResult<"files.read">, { kind: "bytes" }>, "data"> & { data: Buffer };
 type Source =
   | { kind: "file"; remotePath: string }
   | { kind: "link"; remotePath: string }
@@ -46,6 +46,8 @@ interface SavedFile {
 type PullEntry = SavedFile | { remotePath: string; skipped: "symlink" };
 
 const PARALLEL_CHUNKS = 4;
+const BUSY_RETRIES = 5;
+const BUSY_RETRY_BASE_MS = 250;
 // All pulls share the relay socket with chat and terminal traffic. Allow bursts
 // of chunks, with room left in the relay's 50-frame-per-second budget.
 const REQUESTS_PER_SECOND = 24;
@@ -85,27 +87,20 @@ function changed(remotePath: string): CliError {
 
 async function readBytes(
   peer: FilePeer,
-  remotePath: string,
-  offset: number,
-  length: number,
+  request: { path: string; offset: number; length: number; versioned?: true },
   signal: AbortSignal,
   generation?: Bytes,
 ): Promise<Bytes> {
+  const { path: remotePath, offset, length } = request;
   const version = generation?.version;
   let result: RpcResult<"files.read">;
   try {
     result = await peer(
       "files.read",
       {
-        path: remotePath,
+        ...request,
         as: "bytes",
-        offset,
-        length,
-        ...(version !== undefined
-          ? { requireVersion: version }
-          : length === 0
-            ? { versioned: true }
-            : {}),
+        ...(version !== undefined ? { requireVersion: version } : {}),
       },
       signal,
     );
@@ -128,10 +123,15 @@ async function readBytes(
   )
     throw changed(remotePath);
   try {
-    return bytesOf(result, offset, length);
+    bytesOf(result, offset, length);
   } catch {
     throw changed(remotePath);
   }
+  const data = Buffer.from(result.data, "base64");
+  if (data.length !== Math.max(0, Math.min(length, result.size - offset))) {
+    throw changed(remotePath);
+  }
+  return { ...result, data };
 }
 
 function validName(name: string, rules: path.PlatformPath): boolean {
@@ -245,6 +245,17 @@ async function writeChunk(file: FileHandle, bytes: Buffer, offset: number): Prom
   }
 }
 
+/** Use the current destination's mode when replacing a regular file. */
+async function destinationMode(destination: string): Promise<number> {
+  try {
+    const existing = await lstat(destination);
+    if (existing.isFile()) return existing.mode & 0o7777;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return 0o666 & ~process.umask();
+}
+
 async function copyFile(
   peer: FilePeer,
   remotePath: string,
@@ -261,7 +272,9 @@ async function copyFile(
   let saved = false;
   try {
     try {
-      for (let offset = 0; offset < first.size; ) {
+      await localIO(destination, () => writeChunk(file, first.data, 0));
+      hash.update(first.data);
+      for (let offset = first.data.length; offset < first.size; ) {
         signal.throwIfAborted();
         const batch: Promise<Buffer>[] = [];
         for (let i = 0; i < PARALLEL_CHUNKS && offset < first.size; i++) {
@@ -269,12 +282,15 @@ async function copyFile(
           const length = Math.min(MAX_BYTES_CHUNK, first.size - at);
           batch.push(
             (async () => {
-              const piece = await readBytes(peer, remotePath, at, length, pieceSignal, first);
-              const bytes = Buffer.from(piece.data, "base64");
-              if (bytes.length !== length) throw changed(remotePath);
+              const { data } = await readBytes(
+                peer,
+                { path: remotePath, offset: at, length },
+                pieceSignal,
+                first,
+              );
               pieceSignal.throwIfAborted();
-              await localIO(destination, () => writeChunk(file, bytes, at));
-              return bytes;
+              await localIO(destination, () => writeChunk(file, data, at));
+              return data;
             })(),
           );
           offset += length;
@@ -288,7 +304,13 @@ async function copyFile(
           throw error;
         }
       }
-      await readBytes(peer, remotePath, 0, first.version === undefined ? 1 : 0, signal, first);
+      if (first.version === undefined) {
+        await readBytes(peer, { path: remotePath, offset: 0, length: 1 }, signal, first);
+      }
+      signal.throwIfAborted();
+      if (process.platform !== "win32") {
+        await localIO(destination, async () => file.chmod(await destinationMode(destination)));
+      }
     } finally {
       await localIO(destination, () => file.close());
     }
@@ -312,14 +334,22 @@ function filePeer(ctx: CliContext, device: CliDevice, workspace: RemoteWorkspace
     params: Omit<RpcParams<M>, "workspaceId">,
     signal: AbortSignal,
   ) => {
-    await waitForFileRequest(signal);
-    return askDevice(
-      ctx,
-      device,
-      method,
-      { ...params, workspaceId: workspace.id } as RpcParams<M>,
-      signal,
-    );
+    const request = { ...params, workspaceId: workspace.id } as RpcParams<M>;
+    for (let retry = 0; ; retry++) {
+      await waitForFileRequest(signal);
+      try {
+        return await askDevice(ctx, device, method, request, signal);
+      } catch (error) {
+        if (
+          method !== "files.read" ||
+          retry >= BUSY_RETRIES ||
+          rpcMessage(error, RpcErrorCode.Unavailable) !== "the host is busy reading files"
+        ) {
+          throw error;
+        }
+      }
+      await delay(BUSY_RETRY_BASE_MS * 2 ** retry, undefined, { signal });
+    }
   };
 }
 
@@ -357,11 +387,22 @@ export async function pull(
     const rules = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(workspace.path)
       ? path.win32
       : path.posix;
-    const metadataLength = supportsFileVersions(device.schema) ? 0 : 1;
+    const versioned = supportsFileVersions(device.schema);
+    const readFirst = (remotePath: string) =>
+      readBytes(
+        peer,
+        {
+          path: remotePath,
+          offset: 0,
+          length: MAX_BYTES_CHUNK,
+          ...(versioned ? { versioned: true } : {}),
+        },
+        signal,
+      );
     let first: Bytes | undefined;
     let source: Source;
     try {
-      first = await readBytes(peer, options.remotePath, 0, metadataLength, signal);
+      first = await readFirst(options.remotePath);
       source = { kind: "file", remotePath: options.remotePath };
     } catch (error) {
       if (!isFolder(error)) throw error;
@@ -386,9 +427,8 @@ export async function pull(
       else if (item.kind === "link")
         entries.push({ remotePath: item.remotePath, skipped: "symlink" });
       else {
-        const metadata =
-          first ?? (await readBytes(peer, item.remotePath, 0, metadataLength, signal));
-        entries.push(await copyFile(peer, item.remotePath, target, metadata, signal));
+        const head = first ?? (await readFirst(item.remotePath));
+        entries.push(await copyFile(peer, item.remotePath, target, head, signal));
       }
     }
     signal.throwIfAborted();
