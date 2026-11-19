@@ -34,9 +34,9 @@ type Service struct {
 
 // pendingSpawn publishes one shell startup result to concurrent callers.
 type pendingSpawn struct {
-	done   chan struct{}
-	result SpawnResult
-	err    error
+	done    chan struct{}
+	session *session
+	err     error
 }
 
 // outputSink identifies a connection and captures its event destination.
@@ -246,18 +246,17 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		s.mu.Unlock()
 		select {
 		case <-starting.done:
-			return starting.result, starting.err
+			if starting.err != nil {
+				return nil, starting.err
+			}
+			return starting.session.attach(p.Cols, p.Rows), nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
 	if existing := s.sessions[key]; existing != nil {
 		s.mu.Unlock()
-		// The session outlived its previous client (an app restart or a window
-		// reload).  Fit it to the new client, which replays it to redraw the
-		// screen.  Best-effort: a session that is exiting reports exit anyway.
-		_ = existing.resize(p.Cols, p.Rows)
-		return SpawnResult{PID: existing.child.Pid, Attached: true}, nil
+		return existing.attach(p.Cols, p.Rows), nil
 	}
 	attempt := &pendingSpawn{done: make(chan struct{})}
 	s.spawning[key] = attempt
@@ -265,16 +264,19 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	s.mu.Unlock()
 	defer s.starts.Done()
 
-	attempt.result, attempt.err = s.spawnSession(key, p)
+	attempt.session, attempt.err = s.spawnSession(key, p)
 	s.mu.Lock()
 	delete(s.spawning, key)
 	close(attempt.done)
 	s.mu.Unlock()
-	return attempt.result, attempt.err
+	if attempt.err != nil {
+		return nil, attempt.err
+	}
+	return SpawnResult{PID: attempt.session.child.Pid}, nil
 }
 
 // spawnSession starts and registers a shell for a reserved tab.
-func (s *Service) spawnSession(key tabKey, p SpawnParams) (SpawnResult, error) {
+func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 	shell := strings.TrimSpace(p.Shell)
 	if shell == "" {
 		shell = defaultShell()
@@ -288,7 +290,7 @@ func (s *Service) spawnSession(key tabKey, p SpawnParams) (SpawnResult, error) {
 		rows:  p.Rows,
 	})
 	if err != nil {
-		return SpawnResult{}, requestFailed("failed to spawn PTY: %s", err)
+		return nil, requestFailed("failed to spawn PTY: %s", err)
 	}
 
 	session := newSession(s, key, child, master)
@@ -305,7 +307,14 @@ func (s *Service) spawnSession(key tabKey, p SpawnParams) (SpawnResult, error) {
 		// The tab's kill overtook this spawn: end the shell as it would have.
 		session.stop()
 	}
-	return SpawnResult{PID: child.Pid}, nil
+	return session, nil
+}
+
+// attach fits a running shell to its caller, which replays the session to
+// redraw the screen. A shell exiting during the resize reports its exit.
+func (s *session) attach(cols, rows int) SpawnResult {
+	_ = s.resize(cols, rows)
+	return SpawnResult{PID: s.child.Pid, Attached: true}
 }
 
 // Write sends user input bytes to the child PTY.

@@ -249,35 +249,37 @@ func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 		<-release
 		return startTerminal(spec)
 	}
-	params := mustJSON(t, SpawnParams{
+	params := SpawnParams{
 		WorkspaceID: testWorkspaceID, TabID: "racing-spawns", Cwd: t.TempDir(),
 		Shell: "/bin/sh", Args: []string{"-c", "exec /bin/sleep 60"}, Cols: 80, Rows: 24,
-	})
+	}
 	type response struct {
 		value any
 		err   error
 	}
 	var calls sync.WaitGroup
-	spawn := func(ctx context.Context) <-chan response {
+	spawn := func(ctx context.Context, params SpawnParams) <-chan response {
+		raw := mustJSON(t, params)
 		done := make(chan response, 1)
 		calls.Add(1)
 		go func() {
 			defer calls.Done()
-			value, err := service.Spawn(ctx, params)
+			value, err := service.Spawn(ctx, raw)
 			done <- response{value, err}
 		}()
 		return done
 	}
 	defer func() { unblock(); calls.Wait() }()
 
-	owner := spawn(context.Background())
+	owner := spawn(context.Background(), params)
 	select {
 	case <-first:
 	case <-time.After(2 * time.Second):
 		t.Fatal("first request never attempted to start a shell")
 	}
 	waiting := make(chan struct{})
-	joined := spawn(spawnWaitContext{context.Background(), sync.OnceFunc(func() { close(waiting) })})
+	params.Cols, params.Rows = 120, 40
+	joined := spawn(spawnWaitContext{context.Background(), sync.OnceFunc(func() { close(waiting) })}, params)
 	select {
 	case <-waiting:
 	case <-duplicate:
@@ -288,8 +290,21 @@ func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 
 	unblock()
 	a, b := <-owner, <-joined
-	if a.err != nil || b.err != nil || a.value != b.value || starts.Load() != 1 {
+	firstSpawn, firstOK := a.value.(SpawnResult)
+	attached, attachedOK := b.value.(SpawnResult)
+	if a.err != nil || b.err != nil || !firstOK || !attachedOK || starts.Load() != 1 ||
+		firstSpawn.Attached || !attached.Attached || firstSpawn.PID != attached.PID {
 		t.Fatalf("spawns returned %+v and %+v with %d starts", a, b, starts.Load())
+	}
+	session := service.lookup(tabKey{workspaceID: testWorkspaceID, tabID: params.TabID})
+	if session == nil {
+		t.Fatal("the shared shell exited before the attach finished")
+	}
+	session.sizeMu.Lock()
+	cols, rows := session.lastCols, session.lastRows
+	session.sizeMu.Unlock()
+	if cols != params.Cols || rows != params.Rows {
+		t.Fatalf("joined terminal is %dx%d, want %dx%d", cols, rows, params.Cols, params.Rows)
 	}
 }
 
