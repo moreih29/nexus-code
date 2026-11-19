@@ -399,12 +399,12 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
  * save and reload). Any stat failure falls through to the full reconcile,
  * which owns error handling.
  */
-async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
+export async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
   try {
     const loaded = deps.getDirtyEntry(entry.cacheUri);
-    if (loaded) {
+    if (loaded && entry.phase === "ready") {
       const stat = await deps.statFileForModel(entry.input);
       if (entry.disposed) return;
       if (stat.mtime === loaded.loadedMtime && stat.size === loaded.loadedSize) return;
