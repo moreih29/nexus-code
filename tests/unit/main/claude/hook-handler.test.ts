@@ -33,6 +33,7 @@ mock.module("electron", () => ({
 }));
 
 const { registerHookHandler } = await import("../../../../src/main/features/claude/hook-handler");
+const { setupClaudeFeature } = await import("../../../../src/main/features/claude/index");
 const { ClaudeStatusBroker } = await import("../../../../src/main/features/claude/status");
 const { ActiveContextStore } = await import("../../../../src/main/features/claude/active-context");
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
@@ -953,6 +954,40 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
       ["claude.respondHook", { hookId: hook.hookId, response: { exitCode: 0 } }],
     ]);
   });
+});
+
+test("a terminal exit rejects a late hook from the ended Claude turn", async () => {
+  const agentHost = makeHookAgentHost();
+  const feature = setupClaudeFeature({
+    agentHost: {
+      ...agentHost,
+      call: async () => undefined,
+      isAlive: () => true,
+      dispose: () => {},
+      closeWorkspaceSessions: () => {},
+      restoreAfterReauth: async () => {},
+      releaseHeld: () => {},
+    },
+    workspaceManager: {
+      getName: () => "TestWorkspace",
+      tryGetAgentChannel: async () => null,
+      connect: async () => {},
+    },
+    broadcastFn: () => {},
+    notificationsEnabled: () => false,
+  });
+  const turn = { prompt_id: "ended-prompt" };
+  const prompt = makeHookPayload("user-prompt-submit", turn);
+  try {
+    agentHost.emit("claude.hook", prompt);
+    expect(feature.broker.get(prompt.workspaceId, prompt.tabId)?.status).toBe("running");
+    agentHost.emit("exit", { workspaceId: prompt.workspaceId, tabId: prompt.tabId });
+    agentHost.emit("claude.hook", makeHookPayload("stop", turn));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(feature.broker.get(prompt.workspaceId, prompt.tabId)).toBeNull();
+  } finally {
+    feature.dispose();
+  }
 });
 
 // ---------------------------------------------------------------------------

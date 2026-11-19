@@ -175,15 +175,22 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     return name === "" ? null : name;
   });
 
+  /** Clears the live hook state when either a chat program or a terminal exits. */
+  const noteProgramExit = (workspaceId: string, tabId: string): void => {
+    turns.end(workspaceId, tabId);
+    dialogs.clear(`${workspaceId}:${tabId}`);
+    broker.clear(workspaceId, tabId);
+    activity.clear(workspaceId, tabId);
+    asks.clear(workspaceId, tabId);
+  };
+
   // 4. broker.clear on PTY exit — remove the status entry when a tab closes (prevents a memory leak).
   const offExit = agentHost.on("exit", (args) => {
     const a = args as Record<string, unknown>;
     const workspaceId = typeof a?.workspaceId === "string" ? a.workspaceId : null;
     const tabId = typeof a?.tabId === "string" ? a.tabId : null;
     if (workspaceId && tabId) {
-      broker.clear(workspaceId, tabId);
-      activity.clear(workspaceId, tabId);
-      asks.clear(workspaceId, tabId);
+      noteProgramExit(workspaceId, tabId);
       interrupts.forget(workspaceId, tabId);
       reconnects.forget(workspaceId, tabId);
     }
@@ -248,13 +255,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
         );
       }
     },
-    noteProgramExit: (workspaceId, tabId) => {
-      turns.end(workspaceId, tabId);
-      dialogs.clear(`${workspaceId}:${tabId}`);
-      broker.clear(workspaceId, tabId);
-      activity.clear(workspaceId, tabId);
-      asks.clear(workspaceId, tabId);
-    },
+    noteProgramExit,
     dispose: () => {
       offHook();
       offCleared();
