@@ -3,6 +3,7 @@ package chat
 import (
 	"bufio"
 	"bytes"
+	"container/list"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -29,13 +30,31 @@ type Service struct {
 	mu         sync.Mutex
 	sink       EventSink
 	sessions   map[tabKey]*session
-	closedTabs map[tabKey]map[string]struct{}
-	closed     bool
+	closedTabs map[closedTabGeneration]struct{}
+	// closedOrder lets expiry and capacity discard the oldest closes first.
+	closedOrder list.List
+	closed      bool
 }
 
 type tabKey struct {
 	workspaceID string
 	tabID       string
+}
+
+const (
+	maxClosedTabGenerations = 4096
+	// Covers a reconnect queue wait, an agent request, and login environment setup.
+	closedTabRetention = 2 * time.Minute
+)
+
+type closedTabGeneration struct {
+	key        tabKey
+	generation string
+}
+
+type closedTabRecord struct {
+	closedTabGeneration
+	expiresAt time.Time
 }
 
 // session is one tab: its log, and the program running for it, if any. A
@@ -95,7 +114,7 @@ type process struct {
 
 // New constructs an empty service.
 func New() *Service {
-	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[tabKey]map[string]struct{})}
+	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[closedTabGeneration]struct{})}
 }
 
 // Register binds the chat.* methods onto the dispatcher.
@@ -357,12 +376,7 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 	}
 	s.mu.Lock()
 	if p.TabGeneration != "" {
-		closed := s.closedTabs[key]
-		if closed == nil {
-			closed = make(map[string]struct{})
-			s.closedTabs[key] = closed
-		}
-		closed[p.TabGeneration] = struct{}{}
+		s.rememberClosedTabLocked(closedTabGeneration{key, p.TabGeneration}, time.Now())
 	}
 	sess := s.sessions[key]
 	s.mu.Unlock()
@@ -479,8 +493,38 @@ func (s *Service) sessionFor(key tabKey, generation string) (*session, error) {
 
 // tabClosedLocked checks close intents even when they arrived before session creation.
 func (s *Service) tabClosedLocked(key tabKey, generation string) bool {
-	_, closed := s.closedTabs[key][generation]
+	s.expireClosedTabsLocked(time.Now())
+	_, closed := s.closedTabs[closedTabGeneration{key, generation}]
 	return s.closed || closed
+}
+
+// rememberClosedTabLocked keeps a bounded window for rejecting late starts.
+func (s *Service) rememberClosedTabLocked(tab closedTabGeneration, now time.Time) {
+	s.expireClosedTabsLocked(now)
+	if _, exists := s.closedTabs[tab]; exists {
+		return
+	}
+	if len(s.closedTabs) == maxClosedTabGenerations {
+		s.forgetClosedTabLocked(s.closedOrder.Front())
+	}
+	s.closedTabs[tab] = struct{}{}
+	s.closedOrder.PushBack(closedTabRecord{tab, now.Add(closedTabRetention)})
+}
+
+// expireClosedTabsLocked purges expired generations without a background timer.
+func (s *Service) expireClosedTabsLocked(now time.Time) {
+	for oldest := s.closedOrder.Front(); oldest != nil; oldest = s.closedOrder.Front() {
+		if now.Before(oldest.Value.(closedTabRecord).expiresAt) {
+			return
+		}
+		s.forgetClosedTabLocked(oldest)
+	}
+}
+
+// forgetClosedTabLocked removes one generation from the index and expiry order.
+func (s *Service) forgetClosedTabLocked(element *list.Element) {
+	record := s.closedOrder.Remove(element).(closedTabRecord)
+	delete(s.closedTabs, record.closedTabGeneration)
 }
 
 func staleTab(key tabKey) error {

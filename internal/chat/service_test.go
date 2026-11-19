@@ -679,6 +679,58 @@ func TestClosedTabGenerationRejectsLateStart(t *testing.T) {
 	}
 }
 
+func TestClosedTabGenerationsStayBounded(t *testing.T) {
+	useAttachRoot(t)
+	service := New()
+	defer service.Close()
+	ctx := context.Background()
+	const limit = maxClosedTabGenerations
+	closeTab := func(tabID, generation string) {
+		t.Helper()
+		raw, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID, TabGeneration: generation})
+		if _, err := service.CloseTab(ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range limit + 1 {
+		closeTab(fmt.Sprintf("tab-%d", i), "first")
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed tabs, limit %d", got, limit)
+	}
+	for i := range limit + 1 {
+		closeTab("reopened", fmt.Sprintf("generation-%d", i))
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed generations, limit %d", got, limit)
+	}
+	if got := service.closedOrder.Len(); got != len(service.closedTabs) {
+		t.Fatalf("expiry queue has %d records for %d closed generations", got, len(service.closedTabs))
+	}
+	key := tabKey{workspaceID: "ws", tabID: "reopened"}
+	if _, err := service.sessionFor(key, fmt.Sprintf("generation-%d", limit)); err == nil {
+		t.Fatal("the latest closed generation could start")
+	}
+	if _, err := service.sessionFor(key, "generation-0"); err != nil {
+		t.Fatalf("the oldest generation was not evicted: %v", err)
+	}
+}
+
+func TestClosedTabGenerationsExpire(t *testing.T) {
+	service := New()
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	tab := closedTabGeneration{key, "old"}
+	service.mu.Lock()
+	service.rememberClosedTabLocked(tab, time.Now().Add(-closedTabRetention))
+	service.mu.Unlock()
+	if _, err := service.sessionFor(key, tab.generation); err != nil {
+		t.Fatalf("the expired generation was not removed: %v", err)
+	}
+	if len(service.closedTabs) != 0 || service.closedOrder.Len() != 0 {
+		t.Fatal("the expired generation stayed in the index or expiry queue")
+	}
+}
+
 func TestStartCannotUseARemovedSession(t *testing.T) {
 	for _, closeTab := range []bool{true, false} {
 		name := "failed start"
