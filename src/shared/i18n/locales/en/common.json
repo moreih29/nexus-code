@@ -1891,6 +1891,10 @@
         "idle": "Idle",
         "ended": "Ended"
       },
+      "worktreesShow_one": "Show 1 worktree in {{workspace}}",
+      "worktreesShow_other": "Show {{count}} worktrees in {{workspace}}",
+      "worktreesHide_one": "Hide 1 worktree in {{workspace}}",
+      "worktreesHide_other": "Hide {{count}} worktrees in {{workspace}}",
       "terminalsShow_one": "Show 1 terminal",
       "terminalsShow_other": "Show {{count}} terminals",
       "terminalsHide": "Hide terminals",

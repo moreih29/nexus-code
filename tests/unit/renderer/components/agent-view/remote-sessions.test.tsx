@@ -13,6 +13,7 @@ const {
   listedByDefault,
   listedSessions,
   remoteSessionMenu,
+  workspaceGroups,
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, peerServes, servingPeers } = await import(
   "../../../../../src/renderer/services/remote/room"
@@ -42,6 +43,35 @@ const list = (sessions: RemoteSession[]) => ({
   ],
   sessions,
 });
+
+const worktreeList = {
+  workspaces: [
+    { id: "w1", name: "api", path: "/src/api" },
+    { id: "running", name: "api-fix", path: "/wt/api-fix", parentId: "w1" },
+    { id: "docs", name: "api-docs", path: "/wt/api-docs", parentId: "w1" },
+    { id: "w2", name: "web", path: "/src/web" },
+    { id: "cache", name: "web-cache", path: "/wt/web-cache", parentId: "w2" },
+    { id: "tests", name: "web-tests", path: "/wt/web-tests", parentId: "w2" },
+    { id: "waiting", name: "web-review", path: "/wt/web-review", parentId: "w2" },
+    { id: "open", name: "web-open", path: "/wt/web-open", parentId: "w2" },
+    { id: "empty", name: "web-empty", path: "/wt/web-empty", parentId: "w2" },
+    { id: "tools", name: "tools", path: "/src/tools" },
+    { id: "orphan", name: "orphan", path: "/wt/orphan", parentId: "missing" },
+  ],
+  sessions: [
+    session({ workspaceId: "w1", kind: "terminal", title: "api shell" }),
+    session({ workspaceId: "running", title: "Fix login", state: "running" }),
+    session({ workspaceId: "docs", title: "Update API docs" }),
+    session({ workspaceId: "docs", tabId: "t2", title: "Check schemas" }),
+    session({ workspaceId: "cache", title: "Review cache", last: "Found cache misses" }),
+    session({ workspaceId: "tests", kind: "terminal", title: "Run web tests" }),
+    session({ workspaceId: "waiting", title: "Approve refactor", state: "needs-you" }),
+    session({ workspaceId: "open", kind: "terminal", title: "Open shell" }),
+    session({ workspaceId: "tools", title: "Update tools" }),
+    session({ workspaceId: "orphan", title: "Fix standalone branch" }),
+    session({ workspaceId: "missing", title: "Session without workspace metadata" }),
+  ],
+};
 
 describe("the agent view's other computers", () => {
   test("lists only the devices in the room that serve their sessions", () => {
@@ -284,6 +314,144 @@ describe("the agent view's other computers", () => {
     expect(rows[1]).toContain("zsh");
   });
 
+  test("each read-only workspace discloses only its own quiet worktrees in peer order", () => {
+    const grouped = (...expanded: string[]) =>
+      workspaceGroups(worktreeList, {
+        query: "",
+        opens: false,
+        inPanel: (s) => s.workspaceId === "open",
+        worktreesIn: new Set(expanded),
+      });
+    const ids = (...expanded: string[]) => grouped(...expanded).groups.map(([id]) => id);
+    expect(ids()).toEqual(["w1", "running", "w2", "waiting", "open", "tools", "orphan", "missing"]);
+    expect(ids("w2")).toEqual([
+      "w1",
+      "running",
+      "w2",
+      "cache",
+      "tests",
+      "waiting",
+      "open",
+      "tools",
+      "orphan",
+      "missing",
+    ]);
+    expect(ids("w1")).toEqual([
+      "w1",
+      "running",
+      "docs",
+      "w2",
+      "waiting",
+      "open",
+      "tools",
+      "orphan",
+      "missing",
+    ]);
+    expect([...grouped("w1", "w2").worktreeCounts]).toEqual([
+      ["w1", 1],
+      ["w2", 2],
+    ]);
+    expect(grouped("w2").groups.find(([id]) => id === "tests")).toEqual(["tests", []]);
+    expect(
+      grouped("w2")
+        .plain.get("tests")
+        ?.map((s) => s.title),
+    ).toEqual(["Run web tests"]);
+    expect(grouped().plain.has("open")).toBe(false);
+  });
+
+  test("a read-only parent with no sessions shows a worktree pill, before the terminal pill when present", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup peer={peer} query="" sessions={{ status: "ready", list: worktreeList }} />,
+    );
+    const headers = html.split('data-testid="remote-workspace"').slice(1);
+    const api = headers[0]?.split("</div>")[0];
+    const web = headers[2]?.split("</div>")[0];
+    expect(api).toContain('aria-label="Show 1 worktree in api"');
+    expect(api).toContain('data-testid="remote-worktrees-toggle" data-workspace="w1"');
+    expect(api).toContain('aria-expanded="false"');
+    expect(api).toContain("lucide-git-branch");
+    expect(api).toContain("lucide-chevron-down");
+    expect(api?.indexOf("remote-worktrees-toggle")).toBeLessThan(
+      api?.indexOf("remote-terminals-toggle") ?? -1,
+    );
+    expect(web).toContain('aria-label="Show 3 worktrees in web"');
+    expect(html.match(/data-testid="remote-worktrees-toggle"/g)).toHaveLength(2);
+    expect(html).toContain("Fix login");
+    expect(html).toContain("Approve refactor");
+    expect(html).toContain("Fix standalone branch");
+    expect(html).not.toContain("Review cache");
+    expect(html).not.toContain("Update API docs");
+    expect(html).not.toContain("api shell");
+  });
+
+  test("search finds a collapsed worktree's chat or terminal without creating empty headings", () => {
+    const render = (query: string) =>
+      renderToStaticMarkup(
+        <PeerGroup peer={peer} query={query} sessions={{ status: "ready", list: worktreeList }} />,
+      );
+    const chat = render("CACHE MISSES");
+    expect(chat).toContain("Review cache");
+    expect(chat).toContain(">web-cache<");
+    expect(chat).not.toContain(">web<");
+    expect(chat).not.toContain("data-task");
+    expect(chat).not.toContain("remote-worktrees-toggle");
+    const terminal = render("web tests");
+    expect(terminal).toContain("Run web tests");
+    expect(terminal).not.toContain("remote-terminals-toggle");
+  });
+
+  test("controls can start sessions in empty worktrees under known parents", () => {
+    const empty = {
+      workspaces: [
+        { id: "w1", name: "api", path: "/src/api" },
+        { id: "docs", name: "api-docs", path: "/wt/api-docs", parentId: "w1" },
+        { id: "orphan", name: "orphan", path: "/wt/orphan", parentId: "missing" },
+      ],
+      sessions: [],
+    };
+    const grouped = (opens: boolean, ...expanded: string[]) =>
+      workspaceGroups(empty, {
+        query: "",
+        opens,
+        inPanel: () => false,
+        worktreesIn: new Set(expanded),
+      });
+    expect(grouped(false).groups).toEqual([]);
+    expect(grouped(true).groups).toEqual([["w1", []]]);
+    expect([...grouped(true).worktreeCounts]).toEqual([["w1", 1]]);
+    expect(grouped(true, "w1").groups).toEqual([
+      ["w1", []],
+      ["docs", []],
+    ]);
+  });
+
+  test.each([
+    ["running", true],
+    ["permissionPending", true],
+    ["completed", false],
+    ["stopped", false],
+    ["failed", false],
+  ] as const)("a child with a %s subagent stays visible only while the subagent is active", (state, live) => {
+    const group = workspaceGroups(
+      {
+        workspaces: [
+          { id: "w1", name: "api", path: "/src/api" },
+          { id: "docs", name: "api-docs", path: "/wt/api-docs", parentId: "w1" },
+        ],
+        sessions: [
+          session({
+            workspaceId: "docs",
+            agents: [{ id: "agent", kind: "subagent", state, start: 0 }],
+          }),
+        ],
+      },
+      { query: "", opens: false, inPanel: () => false, worktreesIn: new Set() },
+    );
+    expect(group.groups.map(([id]) => id)).toEqual(live ? ["w1", "docs"] : ["w1"]);
+    expect(group.worktreeCounts.get("w1")).toBe(live ? undefined : 1);
+  });
+
   test("heads a workspace as its group's title: a folder, or a task's branch and how it stands", () => {
     const html = renderToStaticMarkup(
       <PeerGroup
@@ -304,7 +472,7 @@ describe("the agent view's other computers", () => {
             ],
             sessions: [
               session({ tabId: "t1", title: "Fix the build" }),
-              session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+              session({ tabId: "t2", workspaceId: "w2", title: "Fix login", state: "running" }),
             ],
           },
         }}
@@ -318,8 +486,8 @@ describe("the agent view's other computers", () => {
     expect(headings[1]).toContain("fix/login ↑2 ●");
   });
 
-  test("hangs a task from a line under its workspace's folder, where that is listed", () => {
-    const render = (sessions: RemoteSession[]) =>
+  test("hangs active worktrees under their known parent, even if it has no sessions", () => {
+    const render = (sessions: RemoteSession[], parentKnown = true) =>
       renderToStaticMarkup(
         <PeerGroup
           peer={peer}
@@ -328,7 +496,7 @@ describe("the agent view's other computers", () => {
             status: "ready",
             list: {
               workspaces: [
-                { id: "w1", name: "api", path: "/src/api" },
+                ...(parentKnown ? [{ id: "w1", name: "api", path: "/src/api" }] : []),
                 { id: "w2", name: "api-fix", path: "/wt/api-fix", parentId: "w1" },
               ],
               sessions,
@@ -342,18 +510,22 @@ describe("the agent view's other computers", () => {
         .split('data-testid="remote-workspace"')
         .slice(0, -1)
         .map((before) => before.slice(before.lastIndexOf('<div class="flex flex-col not-first')));
-    const both = groups(
-      render([
-        session({ tabId: "t1", title: "Fix the build" }),
-        session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
-      ]),
-    );
+    const active = session({
+      tabId: "t2",
+      workspaceId: "w2",
+      title: "Fix login",
+      state: "running",
+    });
+    const html = render([active]);
+    expect(html).toContain(">api<");
+    expect(html).toContain("Fix login");
+    expect(html).not.toContain("remote-worktrees-toggle");
+    const both = groups(html);
     expect(both).toHaveLength(2);
     expect(both[0]).not.toContain("data-task");
     expect(both[1]).toContain("data-task");
     expect(both[1]).toContain("ml-3.5 border-border border-l");
-    // Its workspace not listed, it has nothing to hang from.
-    const alone = groups(render([session({ tabId: "t2", workspaceId: "w2", title: "Fix login" })]));
+    const alone = groups(render([active], false));
     expect(alone).toHaveLength(1);
     expect(alone[0]).not.toContain("data-task");
   });
