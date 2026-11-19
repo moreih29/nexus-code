@@ -36,6 +36,7 @@ import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
+import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
 import { imageOf, readChatImage } from "../remote/chat-image";
@@ -771,9 +772,15 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         },
         { background: true },
       );
-      const child = await openedTab(workspaceId, newTab);
-      if (child.agent !== "codex") throw new UiRequestError("the forked tab is gone");
-      await child.controller.prepareSend();
+      try {
+        const child = await openedTab(workspaceId, newTab);
+        if (child.agent !== "codex") throw new UiRequestError("the forked tab is gone");
+        await child.controller.prepareSend();
+      } catch (error) {
+        // A fork that did not start is no tab to keep: the device that asked is told.
+        await closeTabWithConfirm(workspaceId, newTab).catch(() => {});
+        throw error;
+      }
       return { tabId: newTab, ...(item?.kind === "user" ? { draft: item.text } : {}) };
     }
     const controller = target.controller;
