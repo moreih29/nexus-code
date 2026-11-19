@@ -52,21 +52,28 @@ export const CODEX_CMD_BATCH_HELP = [
  */
 export const CODEX_POWERSHELL_PROBE = `function Test-NexusCodexNoDaemon {
   param([string]$Program, [string]$BatchHelper)
-  $worker = @'
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  if ($BatchHelper) {
+    $start.FileName = $env:ComSpec
+    $start.Arguments = '/d /v:on /s /c ""!NEXUS_CODEX_PROBE_HELPER!" & exit"'
+    $start.EnvironmentVariables['NEXUS_CODEX_PROBE_HELPER'] = $BatchHelper
+  } elseif ([IO.Path]::GetExtension($Program) -in @('.cmd', '.bat')) {
+    # An implicit cmd /c can lose an early exit /b inside a batch block.
+    # Expand the program path once with delayed expansion off, then exit
+    # the cmd process with the batch file's errorlevel.
+    $start.FileName = $env:ComSpec
+    $start.Arguments = '/d /v:off /s /c ""%NEXUS_CODEX_PROBE_PROGRAM%" --help & exit"'
+  } else {
+    $worker = @'
 $ErrorActionPreference = 'Stop'
 $global:LASTEXITCODE = 0
 & $env:NEXUS_CODEX_PROBE_PROGRAM --help
 exit $LASTEXITCODE
 '@
-  $start = New-Object System.Diagnostics.ProcessStartInfo
-  $shell = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
-  $start.FileName = Join-Path $PSHOME $shell
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($worker))
-  $start.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
-  if ($BatchHelper) {
-    $start.FileName = $env:ComSpec
-    $start.Arguments = '/d /v:on /s /c ""!NEXUS_CODEX_PROBE_HELPER!""'
-    $start.EnvironmentVariables['NEXUS_CODEX_PROBE_HELPER'] = $BatchHelper
+    $shell = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
+    $start.FileName = Join-Path $PSHOME $shell
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($worker))
+    $start.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
   }
   $start.UseShellExecute = $false
   $start.CreateNoWindow = $true

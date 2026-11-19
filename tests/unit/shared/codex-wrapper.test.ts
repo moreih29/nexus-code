@@ -314,6 +314,7 @@ describeOnWindows("cmd Codex launcher", () => {
         '  if "!NEXUS_CMD_TEST_PERCENT!"=="unexpected expansion" exit /b 8',
         "  if not defined FAKE_OLD echo --no-daemon",
         '  if defined FAKE_STALLED "%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul',
+        "  if defined FAKE_BROKEN exit /b 1",
         "  exit /b 0",
         ")",
         "echo ARGS:%*",
@@ -330,6 +331,7 @@ describeOnWindows("cmd Codex launcher", () => {
       '"--remote=ws://x"',
       "resume",
       "stall",
+      "broken",
       "hi",
     ];
     const batch = cases.flatMap((args, i) => {
@@ -337,7 +339,8 @@ describeOnWindows("cmd Codex launcher", () => {
       write(path.join(tmp, command), `@echo off\r\ncodex ${args}\r\n`);
       return [
         ...(args === "stall" ? ["set FAKE_STALLED=1"] : []),
-        ...(args === "hi" ? ["set FAKE_STALLED=", "set FAKE_OLD=1"] : []),
+        ...(args === "broken" ? ["set FAKE_STALLED=", "set FAKE_BROKEN=1"] : []),
+        ...(args === "hi" ? ["set FAKE_BROKEN=", "set FAKE_OLD=1"] : []),
         `"%ComSpec%" /d /v:off /c ${command}`,
         "echo EXIT:%errorlevel%",
       ];
@@ -371,6 +374,7 @@ describeOnWindows("cmd Codex launcher", () => {
         '"--remote=ws://x"',
         "--no-daemon resume",
         "stall",
+        "broken",
         "hi",
       ].flatMap((args) => [`ARGS:${args}`, "EXIT:23"]),
     );
