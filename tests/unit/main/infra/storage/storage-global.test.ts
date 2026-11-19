@@ -124,16 +124,15 @@ describe("applyMigrations", () => {
     db.close();
   });
 
-  // v10 replaces the unused tone with a color: whatever the tone was, "auto".
+  // v10 adds the color: whatever the old tone was, "auto". The tone column stays for older builds.
   it.each([
     "subdued",
     "default",
     "prominent",
     "pinned",
-  ])("v10 reads the old %s tone as an automatic color and drops the tone column", (tone) => {
+  ])("v10 reads the old %s tone as an automatic color and keeps the tone column", (tone) => {
     const db = makeDb();
     applyMigrations(db);
-    db.exec("ALTER TABLE workspaces ADD COLUMN color_tone TEXT NOT NULL DEFAULT 'default';");
     db.exec("ALTER TABLE workspaces DROP COLUMN color;");
     db.prepare("UPDATE _meta SET value = '9' WHERE key = 'schemaVersion'").run();
     db.prepare(
@@ -155,7 +154,19 @@ describe("applyMigrations", () => {
       (c) => c.name,
     );
     expect(cols).toContain("color");
-    expect(cols).not.toContain("color_tone");
+    expect(cols).toContain("color_tone");
+    expect(new GlobalStorage(db).listWorkspaces()[0]?.color).toBe("auto");
+    db.close();
+  });
+
+  it("v10 leaves room for an older build's insert, which names no color", () => {
+    const db = makeDb();
+    applyMigrations(db);
+    db.prepare(
+      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at)
+       VALUES ('00000000-0000-0000-0000-000000000098', 'older', '/o',
+               '{"kind":"local","rootPath":"/o"}', 'default', 0, 1700000000000)`,
+    ).run();
     expect(new GlobalStorage(db).listWorkspaces()[0]?.color).toBe("auto");
     db.close();
   });

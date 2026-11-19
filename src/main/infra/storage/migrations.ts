@@ -291,15 +291,14 @@ export const MIGRATIONS: Migration[] = [
   },
   // A workspace's color replaces its tone (subdued, default, prominent, pinned),
   // which no screen used: every workspace starts as "auto", whatever its tone
-  // was. Idempotent: a half-run migration resumes where it stopped.
+  // was. The `color_tone` column stays, unused, so an older build opening the
+  // same database still inserts into it (it has a DEFAULT) and a downgrade is
+  // safe; nothing reads or writes it now. Idempotent.
   {
     version: 10,
     up: (db) => {
       if (!hasColumn(db, "workspaces", "color")) {
         db.exec("ALTER TABLE workspaces ADD COLUMN color TEXT NOT NULL DEFAULT 'auto';");
-      }
-      if (hasColumn(db, "workspaces", "color_tone")) {
-        db.exec("ALTER TABLE workspaces DROP COLUMN color_tone;");
       }
     },
   },
