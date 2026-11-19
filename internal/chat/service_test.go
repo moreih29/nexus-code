@@ -539,6 +539,86 @@ func TestCloseForgetsTheTab(t *testing.T) {
 	}
 }
 
+func TestClosedTabGenerationRejectsLateStart(t *testing.T) {
+	service := New()
+	defer service.Close()
+	closed := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","tabGeneration":"old"}`)
+	if _, err := service.CloseTab(context.Background(), closed); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := json.Marshal(map[string]any{
+		"workspaceId": "ws", "tabId": "tab", "tabGeneration": "old",
+		"cwd": t.TempDir(), "program": os.Args[0],
+		"args": []string{"-test.run=^TestFakeProgramHelper$"}, "env": map[string]string{"NEXUS_CHAT_FAKE": "1"},
+	})
+	if _, err := service.Start(context.Background(), start); err == nil {
+		t.Fatal("a start from the closed tab reached the process")
+	}
+	if service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}) != nil {
+		t.Fatal("late start registered a chat session")
+	}
+}
+
+func TestStartCannotUseARemovedSession(t *testing.T) {
+	for _, closeTab := range []bool{true, false} {
+		name := "failed start"
+		if closeTab {
+			name = "close"
+		}
+		t.Run(name, func(t *testing.T) {
+			service := New()
+			defer service.Close()
+			key := tabKey{workspaceID: "ws", tabID: "tab"}
+			held, err := service.sessionFor(key, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if closeTab {
+				if _, err := service.CloseTab(context.Background(), tabParams("tab")); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := service.startSession(held, StartParams{Cwd: dir, Program: filepath.Join(dir, "missing")}, nil); err == nil {
+				t.Fatal("the invalid process started")
+			}
+			if _, err := service.startSession(held, StartParams{
+				Cwd: dir, Program: os.Args[0], Args: []string{"-test.run=^TestFakeProgramHelper$"},
+			}, mergeEnv(map[string]string{"NEXUS_CHAT_FAKE": "1"})); err == nil {
+				t.Fatal("a retained session could start an untracked process")
+			}
+			startFake(t, service, "tab", nil)
+		})
+	}
+}
+
+func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
+	service := New()
+	defer service.Close()
+	exiting := make(chan struct{})
+	proceed := make(chan struct{})
+	defer close(proceed)
+	service.SetEventSink(func(event string, _ any) error {
+		if event == EventExit {
+			close(exiting)
+			<-proceed
+		}
+		return nil
+	})
+	startFake(t, service, "tab", nil)
+	proc := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	go service.Stop(context.Background(), tabParams("tab"))
+	select {
+	case <-exiting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("agent did not emit the exit")
+	}
+	select {
+	case <-proc.done:
+		t.Fatal("stop released the process before publishing the exit")
+	default:
+	}
+}
+
 func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")

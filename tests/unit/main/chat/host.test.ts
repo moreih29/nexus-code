@@ -34,13 +34,17 @@ class FakeChannel implements AgentChannel {
     envPath: "/home/u/.local/bin:/usr/bin",
   };
   versionOutput = "2.1.318 (Claude Code)\n";
+  versionWait?: Promise<void>;
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
     this.calls.push({ method, params });
     if (method === "lsp.findBinary") return this.found as T;
-    if (method === "chat.exec") return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
+    if (method === "chat.exec") {
+      await this.versionWait;
+      return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
+    }
     if (method === "chat.start") return { pid: 42 } as T;
     return {} as T;
   }
@@ -392,6 +396,7 @@ describe("ChatHost", () => {
     expect(channel.calls.find((c) => c.method === "chat.start")?.params).toEqual({
       workspaceId: WS,
       tabId: TAB,
+      tabGeneration: expect.any(String),
       cwd: "/repo",
       program: "/home/u/.local/bin/codex",
       args: ["app-server"],
@@ -494,6 +499,49 @@ describe("ChatHost", () => {
     result({ subtype: "error_during_execution" }, { replay: true });
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
     expect(status).toEqual([`stopped ${WS} ${TAB}`, `stopped ${WS} ${TAB}`, `exit ${WS} ${TAB}`]);
+  });
+
+  test("closing a chat during version discovery cancels its late spawn", async () => {
+    const { host, channel } = setup();
+    const version = Promise.withResolvers<void>();
+    channel.versionWait = version.promise;
+    const start = host.start(WS, TAB, "/repo", {});
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(channel.calls.some((call) => call.method === "chat.exec")).toBe(true);
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    version.resolve();
+    expect(await start).toMatchObject({ ok: false });
+    expect(channel.calls.some((call) => call.method === "chat.start")).toBe(false);
+    expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    const generation = (method: string) =>
+      (channel.calls.find((call) => call.method === method)?.params as { tabGeneration?: string })
+        ?.tabGeneration;
+    const closed = generation("chat.close");
+    expect(typeof closed).toBe("string");
+    expect(generation("chat.start")).not.toBe(closed);
+  });
+
+  test("an old process exit and result leave the replacement's hook state alone", async () => {
+    const { channel, host, status, events } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "sys",
+      message: { event: "start", processGeneration: "new" },
+    });
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      processGeneration: "old",
+      message: { type: "result", subtype: "error" },
+    });
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "old" });
+    expect(status).toEqual([]);
+    expect(events.map((event) => event.event)).toEqual(["line"]);
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "new" });
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
   });
 
   test("holds on reconnecting and resyncs when the agent is back", async () => {

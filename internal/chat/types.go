@@ -55,7 +55,9 @@ type EventSink func(event string, payload any) error
 type StartParams struct {
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
-	Cwd         string `json:"cwd"`
+	// TabGeneration identifies the open tab that requested the start.
+	TabGeneration string `json:"tabGeneration,omitempty"`
+	Cwd           string `json:"cwd"`
 	// Program is the program to run, an absolute path on the agent's host.
 	Program string            `json:"program"`
 	Args    []string          `json:"args,omitempty"`
@@ -91,6 +93,8 @@ type SendParams struct {
 type TabParams struct {
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
+	// TabGeneration limits a close to one opening of the tab.
+	TabGeneration string `json:"tabGeneration,omitempty"`
 }
 
 // ReplayParams is the wire shape for chat.replay.
@@ -143,6 +147,8 @@ type LinePayload struct {
 	Dir         string          `json:"dir"`
 	Message     json.RawMessage `json:"message,omitempty"`
 	Text        string          `json:"text,omitempty"`
+	// ProcessGeneration identifies the running program that produced a live line.
+	ProcessGeneration string `json:"processGeneration,omitempty"`
 	// At is when the agent got the line, in Unix milliseconds.
 	At int64 `json:"at"`
 	// Replay marks a line sent again by chat.replay.
@@ -151,11 +157,12 @@ type LinePayload struct {
 
 // ExitPayload is the chat.exit event.
 type ExitPayload struct {
-	WorkspaceID string  `json:"workspaceId"`
-	TabID       string  `json:"tabId"`
-	Code        *int    `json:"code"`
-	Signal      *string `json:"signal,omitempty"`
-	StderrTail  string  `json:"stderrTail,omitempty"`
+	WorkspaceID       string  `json:"workspaceId"`
+	TabID             string  `json:"tabId"`
+	Code              *int    `json:"code"`
+	Signal            *string `json:"signal,omitempty"`
+	StderrTail        string  `json:"stderrTail,omitempty"`
+	ProcessGeneration string  `json:"processGeneration,omitempty"`
 }
 
 // ExecParams is the wire shape for chat.exec: a short run of the program,

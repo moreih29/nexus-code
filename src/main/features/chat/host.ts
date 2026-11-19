@@ -1,6 +1,7 @@
 // Main-process side of the Claude tabs: starts each tab's program through
 // the workspace's agent and relays its chat.* events to the renderer.
 
+import { randomUUID } from "node:crypto";
 import {
   type AgentProfile,
   PROFILE_DIR_ENV,
@@ -67,8 +68,17 @@ interface Subscription {
   dispose: () => void;
 }
 
+interface TabIntent {
+  generation: string;
+  starts: Set<Promise<unknown>>;
+}
+
+/** Owns chat programs and events for the desktop's workspace channels. */
 export class ChatHost {
   private readonly subscriptions = new Map<string, Subscription>();
+  private readonly tabIntents = new Map<string, TabIntent>();
+  private readonly closingTabs = new Map<string, Promise<unknown>>();
+  private readonly processGenerations = new Map<string, string>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
   private readonly disposeProviderReady: () => void;
@@ -102,6 +112,8 @@ export class ChatHost {
     resume: ResumeOptions,
     profileId?: string,
   ): Promise<StartResult> {
+    const key = `${workspaceId}:${tabId}`;
+    const intent = this.openTab(key);
     const channel = await this.channelFor(workspaceId);
     const { workspaceManager } = this.options;
     const windows =
@@ -150,6 +162,7 @@ export class ChatHost {
     }
     try {
       const profile = await this.profileEnv(channel, "claude", profileId);
+      await this.closingTabs.get(key);
       const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
       const env = claudeTabEnv({
         workspaceId,
@@ -163,7 +176,7 @@ export class ChatHost {
         ...(gitBash ? { gitBash } : {}),
       });
       Object.assign(env, profile);
-      const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
+      const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
@@ -192,6 +205,8 @@ export class ChatHost {
     cwd: string,
     options: { resetLog?: boolean; profileId?: string },
   ): Promise<StartResult> {
+    const key = `${workspaceId}:${tabId}`;
+    const intent = this.openTab(key);
     const channel = await this.channelFor(workspaceId);
     const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
       name: "codex",
@@ -220,6 +235,7 @@ export class ChatHost {
       workspaceManager.isLocal?.(workspaceId) === true;
     try {
       const profile = await this.profileEnv(channel, "codex", options.profileId);
+      await this.closingTabs.get(key);
       const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
       const env = codexTabEnv({
         workspaceId,
@@ -232,18 +248,15 @@ export class ChatHost {
         shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
       });
       Object.assign(env, profile);
-      const result = await channel.call<{ pid: number; attached?: boolean; canonicalCwd?: string }>(
-        "chat.start",
-        {
-          workspaceId,
-          tabId,
-          cwd,
-          program: found.path,
-          args: ["app-server"],
-          env,
-          ...(options.resetLog ? { resetLog: true } : {}),
-        },
-      );
+      const result = await this.spawn(key, intent, channel, {
+        workspaceId,
+        tabId,
+        cwd,
+        program: found.path,
+        args: ["app-server"],
+        env,
+        ...(options.resetLog ? { resetLog: true } : {}),
+      });
       return {
         ok: true,
         pid: result.pid,
@@ -253,6 +266,68 @@ export class ChatHost {
       };
     } catch (err) {
       return { ok: false, reason: "failed", message: (err as Error).message };
+    }
+  }
+
+  /** Marks a tab as wanted before any asynchronous startup preparation. */
+  private openTab(key: string): TabIntent {
+    const known = this.tabIntents.get(key);
+    if (known) return known;
+    const intent = { generation: randomUUID(), starts: new Set<Promise<unknown>>() };
+    this.tabIntents.set(key, intent);
+    return intent;
+  }
+
+  /** Starts only the still-wanted tab. */
+  private async spawn(
+    key: string,
+    intent: TabIntent,
+    channel: AgentChannel,
+    params: Record<string, unknown>,
+  ): Promise<{ pid: number; attached?: boolean; canonicalCwd?: string }> {
+    if (this.tabIntents.get(key) !== intent) throw new Error("chat tab closed before it started");
+    const run = channel.call<{ pid: number; attached?: boolean; canonicalCwd?: string }>(
+      "chat.start",
+      {
+        ...params,
+        tabGeneration: intent.generation,
+      },
+    );
+    intent.starts.add(run);
+    try {
+      return await run;
+    } finally {
+      intent.starts.delete(run);
+    }
+  }
+
+  /** Invalidates preparation at once and closes any start already sent to the agent. */
+  private async closeTab(workspaceId: string, tabId: string): Promise<unknown> {
+    const key = `${workspaceId}:${tabId}`;
+    const intent = this.tabIntents.get(key);
+    const previous = this.closingTabs.get(key);
+    if (previous && !intent) return previous;
+    this.tabIntents.delete(key);
+    const run = (async () => {
+      if (previous) await previous.catch(() => undefined);
+      if (intent) await Promise.allSettled(intent.starts);
+      try {
+        const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+        return await channel?.call("chat.close", {
+          workspaceId,
+          tabId,
+          ...(intent ? { tabGeneration: intent.generation } : {}),
+        });
+      } finally {
+        this.processGenerations.delete(key);
+        this.options.onProgramExit?.(workspaceId, tabId);
+      }
+    })();
+    this.closingTabs.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (this.closingTabs.get(key) === run) this.closingTabs.delete(key);
     }
   }
 
@@ -274,14 +349,9 @@ export class ChatHost {
     method: "stop" | "close" | "replay" | "attach" | "pruneAttachments",
     args: unknown,
   ): Promise<unknown> {
-    const workspaceId = (args as { workspaceId: string }).workspaceId;
-    const channel =
-      method === "close"
-        ? await this.options.workspaceManager.tryGetAgentChannel(workspaceId)
-        : await this.channelFor(workspaceId);
-    if (!channel) return undefined;
-    if (method !== "close") this.subscribe(workspaceId, channel);
-    return channel.call(`chat.${method}`, args);
+    const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
+    if (method === "close") return this.closeTab(workspaceId, tabId);
+    return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
@@ -444,6 +514,29 @@ export class ChatHost {
     for (const subscription of this.subscriptions.values()) subscription.dispose();
     this.subscriptions.clear();
     this.workspaces.clear();
+    this.tabIntents.clear();
+    this.processGenerations.clear();
+  }
+
+  /** Drops exit and result events that belong to a replaced program. */
+  private acceptProcessEvent(event: string, payload: Record<string, unknown>): boolean {
+    if (payload.replay === true || typeof payload.tabId !== "string") return true;
+    const key = `${payload.workspaceId}:${payload.tabId}`;
+    const message = payload.message as { event?: unknown; processGeneration?: unknown } | undefined;
+    if (event === "line" && payload.dir === "sys" && message?.event === "start") {
+      if (typeof message.processGeneration === "string") {
+        this.processGenerations.set(key, message.processGeneration);
+      } else {
+        this.processGenerations.delete(key);
+      }
+      return true;
+    }
+    const current = this.processGenerations.get(key);
+    return (
+      typeof payload.processGeneration !== "string" ||
+      !current ||
+      current === payload.processGeneration
+    );
   }
 
   private async channelFor(workspaceId: string): Promise<AgentChannel> {
@@ -487,8 +580,10 @@ export class ChatHost {
         );
         return;
       }
+      const frame = payload as Record<string, unknown>;
+      if (!this.acceptProcessEvent(event, frame)) return;
       this.options.broadcast(event, payload);
-      this.noteForStatus(event, payload as Record<string, unknown>);
+      this.noteForStatus(event, frame);
     };
     const offLine = channel.on("chat.line", relay("line"));
     const offExit = channel.on("chat.exit", relay("exit"));

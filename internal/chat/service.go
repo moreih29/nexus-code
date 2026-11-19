@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,9 +26,11 @@ import (
 
 // Service owns the tabs' programs and their logs.
 type Service struct {
-	mu       sync.Mutex
-	sink     EventSink
-	sessions map[tabKey]*session
+	mu         sync.Mutex
+	sink       EventSink
+	sessions   map[tabKey]*session
+	closedTabs map[tabKey]map[string]struct{}
+	closed     bool
 }
 
 type tabKey struct {
@@ -51,11 +55,13 @@ type session struct {
 	snaps *snapshots
 	// closed is set once the tab is closed: its program, still ending,
 	// sends nothing more, as the tab may already run another.
-	closed bool
+	closed        bool
+	tabGeneration string
 }
 
 // process is one run of a tab's program.
 type process struct {
+	generation   string
 	canonicalCwd string
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
@@ -86,7 +92,7 @@ type process struct {
 
 // New constructs an empty service.
 func New() *Service {
-	return &Service{sessions: make(map[tabKey]*session)}
+	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[tabKey]map[string]struct{})}
 }
 
 // Register binds the chat.* methods onto the dispatcher.
@@ -121,6 +127,7 @@ func (s *Service) SetEventSink(sink EventSink) {
 // Close kills every program, as the agent shuts down.
 func (s *Service) Close() {
 	s.mu.Lock()
+	s.closed = true
 	sessions := make([]*session, 0, len(s.sessions))
 	for key, sess := range s.sessions {
 		sessions = append(sessions, sess)
@@ -128,7 +135,11 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 	for _, sess := range sessions {
-		if p := sess.running(); p != nil {
+		sess.mu.Lock()
+		sess.closed = true
+		p := sess.proc
+		sess.mu.Unlock()
+		if p != nil {
 			p.kill()
 		}
 	}
@@ -150,11 +161,37 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 
 	// Out of the tab's lock: the login shell may take a while to answer.
 	env := mergeEnv(p.Env)
-	sess := s.sessionFor(key)
+	sess, err := s.sessionFor(key, p.TabGeneration)
+	if err != nil {
+		return nil, err
+	}
+	return s.startSession(sess, p, env)
+}
+
+// startSession starts only while the session still owns the tab.
+func (s *Service) startSession(sess *session, p StartParams, env []string) (any, error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
+	s.mu.Lock()
+	stale := s.sessions[sess.key] != sess || s.tabClosedLocked(sess.key, p.TabGeneration)
+	s.mu.Unlock()
+	if stale {
+		return nil, staleTab(sess.key)
+	}
+	if p.TabGeneration != "" {
+		sess.tabGeneration = p.TabGeneration
+	}
 	if sess.proc != nil {
 		return StartResult{PID: sess.proc.cmd.Process.Pid, Attached: true, CanonicalCwd: sess.proc.canonicalCwd}, nil
+	}
+	defer func() {
+		if sess.proc == nil {
+			s.dropIfEmpty(sess)
+		}
+	}()
+	var generation [16]byte
+	if _, err := rand.Read(generation[:]); err != nil {
+		return nil, requestFailed("chat.start process generation: %s", err)
 	}
 
 	// A node package's command runs as node on its script: through npm's
@@ -176,11 +213,11 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, requestFailed("chat.start: %s", err)
 	}
 	if err := cmd.Start(); err != nil {
-		s.dropIfEmpty(sess)
 		return nil, requestFailed("chat.start: %s", err)
 	}
 	canonicalCwd, _ := filepath.EvalSymlinks(p.Cwd)
 	proc := &process{
+		generation:   hex.EncodeToString(generation[:]),
 		canonicalCwd: canonicalCwd,
 		cmd:          cmd,
 		stdin:        stdin,
@@ -196,7 +233,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	if p.ResetLog || sess.snaps == nil || sess.snaps.cwd != p.Cwd {
 		sess.snaps = newSnapshots(p.Cwd)
 	}
-	start := map[string]any{"event": "start", "pid": cmd.Process.Pid}
+	start := map[string]any{"event": "start", "pid": cmd.Process.Pid, "processGeneration": proc.generation}
 	if canonicalCwd != "" {
 		start["canonicalCwd"] = canonicalCwd
 	}
@@ -286,12 +323,31 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 		return nil, err
 	}
 	s.mu.Lock()
+	if p.TabGeneration != "" {
+		closed := s.closedTabs[key]
+		if closed == nil {
+			closed = make(map[string]struct{})
+			s.closedTabs[key] = closed
+		}
+		closed[p.TabGeneration] = struct{}{}
+	}
 	sess := s.sessions[key]
-	delete(s.sessions, key)
 	s.mu.Unlock()
 	if sess != nil {
 		sess.mu.Lock()
+		s.mu.Lock()
+		current := s.sessions[key] == sess
+		if !current || (p.TabGeneration != "" && sess.tabGeneration != "" && sess.tabGeneration != p.TabGeneration) {
+			s.mu.Unlock()
+			sess.mu.Unlock()
+			return struct{}{}, nil
+		}
+		delete(s.sessions, key)
+		s.mu.Unlock()
 		sess.closed = true
+		if p.TabGeneration != "" {
+			sess.tabGeneration = p.TabGeneration
+		}
 		proc := sess.proc
 		sess.mu.Unlock()
 		if proc != nil {
@@ -370,16 +426,29 @@ func (s *Service) List(_ context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// sessionFor returns the tab's session, making one when there is none.
-func (s *Service) sessionFor(key tabKey) *session {
+// sessionFor returns or creates the session for a still-open generation.
+func (s *Service) sessionFor(key tabKey, generation string) (*session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess := s.sessions[key]; sess != nil {
-		return sess
+	if s.tabClosedLocked(key, generation) {
+		return nil, staleTab(key)
 	}
-	sess := &session{service: s, key: key, createdAt: time.Now(), log: newLineLog()}
+	if sess := s.sessions[key]; sess != nil {
+		return sess, nil
+	}
+	sess := &session{service: s, key: key, createdAt: time.Now(), log: newLineLog(), tabGeneration: generation}
 	s.sessions[key] = sess
-	return sess
+	return sess, nil
+}
+
+// tabClosedLocked checks close intents even when they arrived before session creation.
+func (s *Service) tabClosedLocked(key tabKey, generation string) bool {
+	_, closed := s.closedTabs[key][generation]
+	return s.closed || closed
+}
+
+func staleTab(key tabKey) error {
+	return proto.NewError("chat.tab-closed", "chat tab "+key.tabID+" is closed")
 }
 
 // dropIfEmpty forgets a session made for a program that did not start.
@@ -424,7 +493,11 @@ func (sess *session) addLocked(dir string, message json.RawMessage, text string)
 		return
 	}
 	e := sess.log.add(dir, message, text)
-	_ = sess.service.emit(EventLine, sess.payload(e))
+	payload := sess.payload(e)
+	if sess.proc != nil {
+		payload.ProcessGeneration = sess.proc.generation
+	}
+	_ = sess.service.emit(EventLine, payload)
 }
 
 // addSysLocked logs a line of the agent's own.
@@ -530,10 +603,8 @@ drain:
 
 	exit := exitPayload(sess.key, state, err)
 	exit.StderrTail = proc.stderr()
+	exit.ProcessGeneration = proc.generation
 	sess.mu.Lock()
-	if sess.proc == proc {
-		sess.proc = nil
-	}
 	fields := map[string]any{"event": "exit", "code": exit.Code}
 	if exit.Signal != nil {
 		fields["signal"] = *exit.Signal
@@ -542,13 +613,17 @@ drain:
 		fields["stderrTail"] = exit.StderrTail
 	}
 	sess.addSysLocked(fields)
-	// A closed tab's program is told gone only while no other runs for the tab.
-	told := !sess.closed || sess.service.lookup(sess.key) == nil
-	sess.mu.Unlock()
-	close(proc.done)
+	// Explicit close already told the host its generation was gone. Legacy
+	// close still expects the exit while no replacement session is present.
+	told := !sess.closed || (sess.tabGeneration == "" && sess.service.lookup(sess.key) == nil)
 	if told {
 		_ = sess.service.emit(EventExit, exit)
 	}
+	if sess.proc == proc {
+		sess.proc = nil
+	}
+	close(proc.done)
+	sess.mu.Unlock()
 }
 
 func (p *process) write(data []byte, context *codexContext) error {
