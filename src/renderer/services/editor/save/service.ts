@@ -197,7 +197,7 @@ export async function saveModel(
   // SaveReason.EXPLICIT before invoking the model's save. saveModel is
   // only called from explicit user gestures (Cmd+S, close-confirm), so
   // every entry counts as EXPLICIT.
-  promoteAllPreviewTabsForFile(resolved.filePath);
+  promoteAllPreviewTabsForFile(resolved.workspaceId, resolved.filePath);
 
   const dirtyEntry = getDirtyEntry(resolved.cacheUri);
   if (!dirtyEntry) return { kind: "no-model" };
