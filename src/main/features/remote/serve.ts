@@ -41,6 +41,8 @@ import { type AgentGate, type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
+import { isFileTransferMethod } from "./file-io";
+import { FileWrites, makeRemoteDirectory } from "./file-writes";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { type FolderSystem, folderToAdd, listFolders, SYSTEM_FOLDERS } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
@@ -68,6 +70,7 @@ export const SERVES: readonly Capability[] = [
   "terminal.read",
   "terminal.control",
   "files",
+  "files.write",
   "git",
   "notes",
   "workspace.create",
@@ -88,6 +91,7 @@ export function servesWith(
   return SERVES.filter(
     (c) =>
       ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
+      (c !== "files.write" || (allowControl && allowAgents)) &&
       (c !== "terminal.control" || allowTerminal) &&
       (c !== "agents" || allowAgents),
   );
@@ -1338,6 +1342,24 @@ export async function closeChat(
 /** Most files.find and files.search one device may have running here at once. */
 export const MAX_SEARCHES_PER_DEVICE = 2;
 
+function checkFileControl(
+  anywhere: true | undefined,
+  by: AgentSender | undefined,
+  agents: AgentGate | undefined,
+  controls: ConsentControls | undefined,
+): void {
+  if (!by || !agents) throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
+  agents.checkRead();
+  if (anywhere ? !controls?.terminal : !controls?.chat) {
+    throw new RpcFailure(
+      RpcErrorCode.Forbidden,
+      anywhere
+        ? "file access outside the workspace requires terminal control"
+        : "workspace file writes require chat control",
+    );
+  }
+}
+
 /** Answers another device's request with this device's services. */
 export function serveWith(
   services: () => CliServices | null,
@@ -1351,6 +1373,7 @@ export function serveWith(
     attachments?: Attachments;
     /** The files devices are sending a piece at a time; fresh ones when not given. */
     uploads?: Uploads;
+    fileWrites?: FileWrites;
     /** The workspaces' file systems, and how an image is drawn smaller. */
     files?: Omit<RemoteFiles, "folders">;
     /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
@@ -1375,6 +1398,7 @@ export function serveWith(
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
   const uploads = watches.uploads ?? new Uploads(attachments);
+  const fileWrites = watches.fileWrites ?? new FileWrites();
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
@@ -1405,8 +1429,9 @@ export function serveWith(
     if (by && !watches.agents) {
       throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
     }
-    if (by && AGENT_READS.has(method)) watches.agents?.checkRead();
-    if (by && watches.agents && !AGENT_READS.has(method)) {
+    const withoutConsent = AGENT_READS.has(method) || isFileTransferMethod(method);
+    if (by && withoutConsent) watches.agents?.checkRead();
+    if (by && watches.agents && !withoutConsent) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
       await watches.agents.check(s, {
         device,
@@ -1460,14 +1485,62 @@ export function serveWith(
           { device: from, attachments },
           relay,
         );
+      case "files.write.begin":
+      case "files.mkdir": {
+        const write = request.params as RpcParams<"files.write.begin">;
+        const workspace = workspaceOf(s, write.workspaceId);
+        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const root = workspace.rootPath;
+        const location = structuredClone(workspace.location);
+        const authorize = () => {
+          checkFileControl(write.anywhere, by, watches.agents, watches.controls?.());
+          const current = workspaceOf(s, write.workspaceId);
+          if (
+            !current ||
+            current.rootPath !== root ||
+            !isDeepStrictEqual(current.location, location)
+          ) {
+            throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+          }
+          if (location.kind !== "local") {
+            throw new RpcFailure(
+              RpcErrorCode.Unavailable,
+              "file writes require a local workspace on the serving computer",
+            );
+          }
+        };
+        authorize();
+        if (method === "files.mkdir") return makeRemoteDirectory(root, write, authorize);
+        return fileWrites.begin(from, root, write, authorize);
+      }
+      case "files.write.chunk":
+        await fileWrites.chunk(from, request.params as RpcParams<"files.write.chunk">);
+        return {};
+      case "files.write.end":
+        return fileWrites.end(from, request.params as RpcParams<"files.write.end">);
+      case "files.write.abort":
+        await fileWrites.abort(from, request.params as RpcParams<"files.write.abort">);
+        return {};
       case "files.list":
       case "files.read": {
         if (!watches.files) {
           throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
         }
-        const { workspaceId } = request.params as { workspaceId: string };
+        const { workspaceId, anywhere } = request.params as RpcParams<"files.list">;
         const workspace = workspaceOf(s, workspaceId);
         if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const authorizeAnywhere = () => {
+          if (anywhere) {
+            checkFileControl(true, by, watches.agents, watches.controls?.());
+            if (workspace.location.kind !== "local") {
+              throw new RpcFailure(
+                RpcErrorCode.Unavailable,
+                "absolute file access requires a local workspace on the serving computer",
+              );
+            }
+          }
+        };
+        authorizeAnywhere();
         const files: RemoteFiles = {
           ...watches.files,
           folders: (id) =>
@@ -1482,11 +1555,18 @@ export function serveWith(
               .catch(() => []),
         };
         if (request.method === "files.list") {
-          return listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">);
+          const result = await listFiles(
+            files,
+            workspace.rootPath,
+            request.params as RpcParams<"files.list">,
+          );
+          authorizeAnywhere();
+          return result;
         }
         const rootPath = workspace.rootPath;
         const location = structuredClone(workspace.location);
         const result = await readFile(files, rootPath, request.params as RpcParams<"files.read">);
+        authorizeAnywhere();
         const current = workspaceOf(s, workspaceId);
         if (
           !current ||

@@ -33,6 +33,7 @@ import {
   type ServerFrame,
 } from "../../../../packages/remote-protocol/src";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
+import { isFileTransferMethod } from "./file-io";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
@@ -152,6 +153,8 @@ export interface RemoteRoomDeps {
   /** Answers another device's request; a RpcFailure for an error it should see. */
   serve(request: { from: string; method: RpcMethod; params: unknown }): Promise<unknown>;
   onChange(state: RoomState): void;
+  /** Drop device-owned work when a peer disconnects, or all work when this device does. */
+  onDisconnect?(peer?: string): void;
   onNotification?(from: string, method: string, params: unknown): void;
   /**
    * A message sealed with a newer version of the account key came: it may
@@ -217,6 +220,7 @@ export class RemoteRoom {
   stop(): void {
     this.connection.stop();
     this.failPending("left the room");
+    this.deps.onDisconnect?.();
     this.status = "off";
     this.cancelQueuedReads();
     this.changed();
@@ -232,6 +236,7 @@ export class RemoteRoom {
 
   /** Starts a new epoch: nothing sealed for the last is taken, so what it asked in it fails now. */
   private renew(why: string): void {
+    this.deps.onDisconnect?.();
     this.epoch = newEpoch();
     this.heard.clear();
     this.past.clear();
@@ -402,6 +407,7 @@ export class RemoteRoom {
   private onStatus(status: RelayStatus): void {
     this.status = status;
     if (status !== "online") {
+      this.deps.onDisconnect?.();
       // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
       this.cancelQueuedReads();
@@ -427,6 +433,9 @@ export class RemoteRoom {
           ...(known?.online && known.schema ? { schema: known.schema } : {}),
           ...(known?.rejoins ? { rejoins: known.rejoins } : {}),
         });
+      }
+      for (const peer of this.peers.values()) {
+        if (peer.online && !next.get(peer.id)?.online) this.deps.onDisconnect?.(peer.id);
       }
       this.peers = next;
       this.cancelQueuedReads();
@@ -522,6 +531,7 @@ export class RemoteRoom {
    * there, which is asked for again as its `rejoins` grows.
    */
   private rejoined(from: string): void {
+    this.deps.onDisconnect?.(from);
     this.cancelQueuedReads();
     const peer = this.peers.get(from);
     if (!peer) return;
@@ -591,6 +601,11 @@ export class RemoteRoom {
         }
         return;
       }
+      if (
+        isFileTransferMethod(message.method) &&
+        (this.status !== "online" || !this.peers.get(from)?.online)
+      )
+        return;
       const answer = await this.answer(from, message.method, message.params);
       void this.reply(from, epoch, message, answer);
       return;
@@ -689,7 +704,24 @@ export class RemoteRoom {
     }
     // An agent may do only what people may do from other devices here, and only when agents may.
     const serves = this.serves();
-    if (!serves.includes(spec.capability as Capability)) {
+    const anywhere = parsed.success && (parsed.data as { anywhere?: true }).anywhere === true;
+    const capability =
+      anywhere && (method === "files.write.begin" || method === "files.mkdir")
+        ? "terminal.control"
+        : spec.capability;
+    if (
+      anywhere &&
+      (method === "files.list" || method === "files.read") &&
+      !serves.includes("terminal.control")
+    ) {
+      return {
+        error: {
+          code: RpcErrorCode.Forbidden,
+          message: "file access outside the workspace requires terminal control",
+        },
+      };
+    }
+    if (!serves.includes(capability as Capability)) {
       return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
     }
     if (byAgent && !serves.includes("agents")) {

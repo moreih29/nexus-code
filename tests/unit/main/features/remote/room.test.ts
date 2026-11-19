@@ -1,5 +1,9 @@
 /** Devices of one account in a room, through an in-memory relay. */
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type {
   ClientFrame,
   Delivered,
@@ -8,11 +12,15 @@ import type {
 } from "../../../../../packages/remote-protocol/src";
 import {
   MAX_BYTES_CHUNK,
+  RPC_METHODS,
   RpcErrorCode,
   type RpcParams,
   SCHEMA_VERSION,
 } from "../../../../../packages/remote-protocol/src";
+import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remote/account-key";
+import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
+import { FileWrites } from "../../../../../src/main/features/remote/file-writes";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
@@ -22,6 +30,9 @@ import {
   RpcFailure,
 } from "../../../../../src/main/features/remote/room";
 import type { RoomKey } from "../../../../../src/main/features/remote/seal";
+
+import { servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import { fakeApp } from "../../cli/fake-services";
 
 type Handlers = Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">;
 
@@ -825,4 +836,119 @@ test("peer cache transfer through sealed room requests on open, reopen and same-
     client.room.stop();
     host.room.stop();
   }
+});
+
+test("serves file transfers by scope and cleans pending uploads when the sending peer disconnects", async () => {
+  const tmp = await realpath(await mkdtemp(path.join(tmpdir(), "nexus-transfer-room-")));
+  const root = path.join(tmp, "workspace");
+  const outside = path.join(tmp, "outside.txt");
+  await mkdir(root);
+  await writeFile(outside, "outside");
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const app = fakeApp();
+  const workspace = app.workspaces[0];
+  if (!workspace) throw new Error("workspace fixture is missing");
+  const location = { kind: "local" as const, rootPath: root };
+  Object.assign(workspace, { rootPath: root, location });
+  const fs = {
+    kind: "local",
+    readPreview: async ({ absolutePath }: { absolutePath: string }) => {
+      expect(absolutePath).toBe(outside);
+      const bytes = await readFile(absolutePath);
+      return { kind: "content", base64: bytes.toString("base64"), sizeBytes: bytes.length };
+    },
+  } as unknown as FsProvider;
+  let chat = false;
+  let terminal = false;
+  let allowAgents = true;
+  const fileWrites = new FileWrites();
+  let cleanup: Promise<void> | undefined;
+  const host = device(relay, "host", key, {
+    serves: () => servesWith(chat, terminal, allowAgents),
+    serve: serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => (allowAgents ? "ask" : "deny") }),
+      controls: () => ({ chat, terminal }),
+      fileWrites,
+      files: { fs: async () => fs, shrink: () => null },
+    }),
+    onDisconnect: (peer) => {
+      cleanup = fileWrites.drop(peer);
+    },
+  }).room;
+  const peer = device(relay, "peer", key).room;
+  host.start();
+  peer.start();
+  try {
+    await tick();
+    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
+    const scoped = { workspaceId: workspace.id, path: "data", size: 0, from };
+    const absolute = { ...scoped, path: outside, anywhere: true as const };
+    const outsideRead = { workspaceId: workspace.id, path: outside, from, anywhere: true as const };
+    await expect(peer.request("host", "files.write.begin", scoped)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    await expect(peer.request("host", "files.read", outsideRead)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    await expect(peer.request("host", "files.write.begin", absolute)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    terminal = true;
+    const { uploadId } = await peer.request("host", "files.write.begin", absolute);
+    const sha256 = createHash("sha256").digest("hex");
+    terminal = false;
+    await expect(
+      peer.request("host", "files.write.end", { uploadId, sha256 }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    terminal = true;
+    await expect(peer.request("host", "files.read", outsideRead)).resolves.toMatchObject({
+      path: outside,
+      text: "outside",
+    });
+    await expect(
+      peer.request("host", "files.list", { ...outsideRead, path: tmp }),
+    ).resolves.toMatchObject({ path: tmp });
+    allowAgents = false;
+    await expect(peer.request("host", "files.read", outsideRead)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    await expect(peer.request("host", "files.write.begin", absolute)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    allowAgents = true;
+    chat = true;
+    await peer.request("host", "files.mkdir", { workspaceId: workspace.id, path: "folder", from });
+    await peer.request("host", "files.write.begin", scoped);
+    expect(await readdir(root)).toHaveLength(2);
+    peer.stop();
+    await cleanup;
+    expect(await readdir(root)).toEqual(["folder"]);
+    expect((await readdir(tmp)).sort()).toEqual(["outside.txt", "workspace"]);
+    expect(app.asked).toEqual([]);
+  } finally {
+    peer.stop();
+    host.stop();
+    await fileWrites.drop();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("the 0.14 file schemas preserve 0.13 requests and tolerate old readers stripping scope", () => {
+  const request = {
+    workspaceId: "w",
+    path: "/outside",
+    as: "bytes" as const,
+    offset: 0,
+    length: 64,
+  };
+  const currentRead = RPC_METHODS["files.read"].params;
+  const oldRead = currentRead.omit({ anywhere: true, from: true });
+  expect(currentRead.parse(request)).toEqual(request);
+  expect(oldRead.parse({ ...request, anywhere: true })).toEqual(request);
+  const currentList = RPC_METHODS["files.list"].params;
+  const oldList = currentList.omit({ anywhere: true, from: true });
+  const list = { workspaceId: "w", path: "." };
+  expect(currentList.parse(list)).toEqual(list);
+  expect(oldList.parse({ ...list, anywhere: true })).toEqual(list);
 });

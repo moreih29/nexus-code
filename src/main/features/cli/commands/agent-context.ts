@@ -51,7 +51,7 @@ export function chatAgentContext(
 const remoteInstructions = [
   "The user's other computers in the remote (nexus device list) are reached the same way:",
   "session list --device all, then chat or terminal read/send/wait ... --device NAME.",
-  "Copy remote files with nexus file pull --device DEVICE --workspace WS REMOTE [LOCAL] (add -r for a folder).",
+  "Copy files with nexus file pull --device DEVICE --workspace WS REMOTE [LOCAL] or nexus file push --device DEVICE --workspace WS LOCAL... REMOTE (add -r for a folder).",
 ];
 
 function locationOf(

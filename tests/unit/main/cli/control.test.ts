@@ -176,10 +176,10 @@ describe("changing another workspace", () => {
         .split(/[|\n]/)
         .map((line) => line.trim())
         .filter(Boolean);
-    // file pull.test.ts covers the remote-only --workspace on file pull.
+    // File transfers use --workspace on the remote computer.
     const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace)
       .map((c) => c.path.join(" "))
-      .filter((p) => p !== "file pull");
+      .filter((p) => p !== "file pull" && p !== "file push");
     const commandOf = (line: string) =>
       paths.filter((p) => `${line} `.startsWith(`${p} `)).sort((a, b) => b.length - a.length)[0];
     const runs = [

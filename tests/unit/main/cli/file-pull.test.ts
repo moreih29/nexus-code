@@ -475,3 +475,35 @@ test.each([
   expect(reads(app)).toHaveLength(1);
   expect(await readdir(cwd)).toEqual([]);
 });
+
+test("attaches the agent and selects anywhere for outside absolute paths on a new host", async () => {
+  const outside = "D:/outside/source.bin";
+  const app = peer((read) => piece(read, DATA, outside));
+  app.peers.devices = [
+    { ...DEVICE, schema: "0.14.0", serves: [...DEVICE.serves, "terminal.control"] },
+  ];
+  const result = await pull(app, outside);
+  expect(result.stderr).toBe("");
+  expect(reads(app)[0]).toMatchObject({ anywhere: true, from: { tabId: SHELL_TAB } });
+  expect(await readFile(path.join(cwd, "source.bin"))).toEqual(DATA);
+});
+
+test("explains an old host's refusal of an outside absolute path without sending a new method", async () => {
+  const outside = "D:/outside/source.bin";
+  const app = peer((read) =>
+    fail(RpcErrorCode.Forbidden, `${read.path} is outside the workspace's folders`),
+  );
+  app.peers.devices = [{ ...DEVICE, serves: [...DEVICE.serves, "terminal.control"] }];
+  const result = await pull(app, outside);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain("Update NexusCode there and enable terminal control");
+  expect(reads(app)[0]).toMatchObject({ path: outside, anywhere: true });
+  expect(reads(app)[0]?.from).toBeUndefined();
+});
+
+test("requires terminal control before asking a new host for outside files", async () => {
+  const app = peer();
+  app.peers.devices = [{ ...DEVICE, schema: "0.14.0" }];
+  expect((await pull(app, "D:/outside/source.bin")).stderr).toContain("requires terminal control");
+  expect(reads(app)).toEqual([]);
+});
