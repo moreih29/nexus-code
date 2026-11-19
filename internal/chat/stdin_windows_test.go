@@ -49,7 +49,9 @@ process.stdin.on("end", () => process.stdout.write('{"eof":true}\n'));
 		}
 		return rec.sink(event, payload)
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A whole run takes well under a second, but the first cmd and Node start
+	// on a fresh Windows runner has taken over 10 s, so allow 30 s here alone.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	key := tabKey{workspaceID: "ws", tabID: "windows-node-stdin"}
