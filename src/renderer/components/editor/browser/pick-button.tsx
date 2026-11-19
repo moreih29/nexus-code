@@ -104,13 +104,12 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
     [tabId],
   );
 
-  const copyInstead = (text: string, message: string) => {
-    copyTextViaIpc(text);
-    showToast({ kind: "info", message });
+  const copyInstead = async (text: string, message: string) => {
+    if (await copyTextViaIpc(text)) showToast({ kind: "info", message });
   };
 
   const deliver = (session: AgentSession, text: string) => {
-    if (!pasteInto(session, text)) copyInstead(text, t("browser.pick_terminal_closed"));
+    if (!pasteInto(session, text)) void copyInstead(text, t("browser.pick_terminal_closed"));
   };
 
   const start = async () => {
@@ -129,7 +128,7 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
       if (!("text" in result.value)) return;
       const { text } = result.value;
       const sessions = await agentSessions(workspaceId);
-      if (sessions.length === 0) copyInstead(text, t("browser.pick_no_agent"));
+      if (sessions.length === 0) void copyInstead(text, t("browser.pick_no_agent"));
       else if (sessions.length === 1 && sessions[0]) deliver(sessions[0], text);
       else setChoice({ text, sessions });
     } catch (error) {

@@ -16,16 +16,13 @@ export function startNoteRemovalListener(): () => void {
   return notesApi.onChanged((event) => {
     if (event.change !== "removed") return;
     const byWorkspace = useTabsStore.getState().byWorkspace;
+    const affectedWorkspaces = new Set(event.workspaceIds);
     for (const [workspaceId, tabs] of Object.entries(byWorkspace)) {
+      if (!event.noteId && !affectedWorkspaces.has(workspaceId)) continue;
       for (const tab of Object.values(tabs ?? {})) {
         if (tab.type !== "note") continue;
         const { noteId } = tab.props;
-        if (event.noteId) {
-          if (noteId === event.noteId) closeNoteTabs(workspaceId, noteId);
-          continue;
-        }
-        // A whole location's notes: close the tabs whose note is no longer there.
-        notesApi.read(workspaceId, noteId).catch(() => closeNoteTabs(workspaceId, noteId));
+        if (!event.noteId || noteId === event.noteId) closeNoteTabs(workspaceId, noteId);
       }
     }
   });

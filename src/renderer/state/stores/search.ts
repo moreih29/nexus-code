@@ -7,7 +7,6 @@ import type {
 } from "../../../shared/search/types";
 import { ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
-import { usePanelViewOptionsStore } from "./panel-view-options";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -298,8 +297,6 @@ export const useSearchStore = create<SearchState>((set, get) => {
         ctrl.abort();
         controllers.delete(wsId);
       }
-      // Delegate view-option timer cancellation to the shared store.
-      usePanelViewOptionsStore.getState().closeForWorkspace(wsId);
       set((state) => {
         const nextSessions = new Map(state.sessions);
         nextSessions.delete(wsId);
