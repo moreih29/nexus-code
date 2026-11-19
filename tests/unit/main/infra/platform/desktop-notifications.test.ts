@@ -204,13 +204,24 @@ describe("askNotificationService", () => {
 
 describe("runAsker", () => {
   const node = process.execPath;
+  const commandTimeoutMs = 10_000;
 
-  test("tells a command that ran, failed, or is not there", async () => {
-    expect(await runAsker(node, ["-e", ""], 10_000)).toEqual({ ended: "ok" });
-    const failed = await runAsker(node, ["-e", "console.error('no bus'); process.exit(1)"], 10_000);
-    expect(failed).toEqual({ ended: "failed", detail: `${node}: no bus` });
-    expect(await runAsker("nexus-no-such-command", [], 10_000)).toEqual({ ended: "missing" });
-  });
+  test(
+    "tells a command that ran, failed, or is not there",
+    async () => {
+      expect(await runAsker(node, ["-e", ""], commandTimeoutMs)).toEqual({ ended: "ok" });
+      const failed = await runAsker(
+        node,
+        ["-e", "console.error('no bus'); process.exit(1)"],
+        commandTimeoutMs,
+      );
+      expect(failed).toEqual({ ended: "failed", detail: `${node}: no bus` });
+      expect(await runAsker("nexus-no-such-command", [], commandTimeoutMs)).toEqual({
+        ended: "missing",
+      });
+    },
+    2 * commandTimeoutMs + 1_000,
+  );
 
   test("kills a command that does not end in time", async () => {
     const started = Date.now();

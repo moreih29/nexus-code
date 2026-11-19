@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -24,9 +23,20 @@ type Service struct {
 	mu       sync.Mutex
 	output   *outputSink
 	sessions map[tabKey]*session
+	startPTY func(spawnSpec) (*terminal, *child, error)
+	spawning map[tabKey]*pendingSpawn
+	starts   sync.WaitGroup
+	closed   bool
 	// closedTabs are the tabs a kill came for while they had no session,
 	// and when: see Kill.
 	closedTabs map[tabKey]time.Time
+}
+
+// pendingSpawn publishes one shell startup result to concurrent callers.
+type pendingSpawn struct {
+	done    chan struct{}
+	session *session
+	err     error
 }
 
 // outputSink identifies a connection and captures its event destination.
@@ -153,6 +163,8 @@ func New() *Service {
 		output:     &outputSink{ctx: context.Background()},
 		sessions:   make(map[tabKey]*session),
 		closedTabs: make(map[tabKey]time.Time),
+		startPTY:   startTerminal,
+		spawning:   make(map[tabKey]*pendingSpawn),
 	}
 }
 
@@ -187,6 +199,11 @@ func (s *Service) SetEventSink(ctx context.Context, sink EventSink) {
 // their shells are gone: hung up, or killed hangupGrace later.
 func (s *Service) Close() {
 	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	s.starts.Wait()
+
+	s.mu.Lock()
 	sessions := make([]*session, 0, len(s.sessions))
 	for key, session := range s.sessions {
 		sessions = append(sessions, session)
@@ -204,7 +221,7 @@ func (s *Service) Close() {
 }
 
 // Spawn starts one shell process under a PTY and begins forwarding output events.
-func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SpawnParams
 	if err := decodeParams(raw, &p, "pty.spawn params must include workspaceId, tabId, cwd, cols, and rows"); err != nil {
 		return nil, err
@@ -220,19 +237,51 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 
-	if existing := s.lookup(key); existing != nil {
-		// The session outlived its previous client (an app restart or a window
-		// reload).  Fit it to the new client, which replays it to redraw the
-		// screen.  Best-effort: a session that is exiting reports exit anyway.
-		_ = existing.resize(p.Cols, p.Rows)
-		return SpawnResult{PID: existing.child.Pid, Attached: true}, nil
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, requestFailed("PTY service is closed")
 	}
+	if starting := s.spawning[key]; starting != nil {
+		s.mu.Unlock()
+		select {
+		case <-starting.done:
+			if starting.err != nil {
+				return nil, starting.err
+			}
+			return starting.session.attach(p.Cols, p.Rows), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if existing := s.sessions[key]; existing != nil {
+		s.mu.Unlock()
+		return existing.attach(p.Cols, p.Rows), nil
+	}
+	attempt := &pendingSpawn{done: make(chan struct{})}
+	s.spawning[key] = attempt
+	s.starts.Add(1)
+	s.mu.Unlock()
+	defer s.starts.Done()
 
+	attempt.session, attempt.err = s.spawnSession(key, p)
+	s.mu.Lock()
+	delete(s.spawning, key)
+	close(attempt.done)
+	s.mu.Unlock()
+	if attempt.err != nil {
+		return nil, attempt.err
+	}
+	return SpawnResult{PID: attempt.session.child.Pid}, nil
+}
+
+// spawnSession starts and registers a shell for a reserved tab.
+func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 	shell := strings.TrimSpace(p.Shell)
 	if shell == "" {
 		shell = defaultShell()
 	}
-	master, child, err := startTerminal(spawnSpec{
+	master, child, err := s.startPTY(spawnSpec{
 		shell: shell,
 		args:  p.Args,
 		dir:   p.Cwd,
@@ -250,12 +299,7 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	session.lastRows = p.Rows
 	session.sizeMu.Unlock()
 
-	stored, closed := s.storeSession(key, session)
-	if stored != session {
-		// Another spawn of the tab, racing this one, got there first.
-		session.discard()
-		return SpawnResult{PID: stored.child.Pid}, nil
-	}
+	closed := s.storeSession(key, session)
 
 	go session.readLoop()
 	go session.waitLoop()
@@ -263,7 +307,14 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 		// The tab's kill overtook this spawn: end the shell as it would have.
 		session.stop()
 	}
-	return SpawnResult{PID: child.Pid}, nil
+	return session, nil
+}
+
+// attach fits a running shell to its caller, which replays the session to
+// redraw the screen. A shell exiting during the resize reports its exit.
+func (s *session) attach(cols, rows int) SpawnResult {
+	_ = s.resize(cols, rows)
+	return SpawnResult{PID: s.child.Pid, Attached: true}
 }
 
 // Write sends user input bytes to the child PTY.
@@ -649,18 +700,6 @@ func (s *session) stop() <-chan struct{} {
 	return s.stopDone
 }
 
-// discard ends the shell of a session no tab took, as another spawn of the
-// tab won: it never ran anything of the user's, so it is killed outright.
-// Nothing else waits for it, so this does, or it stays a zombie.
-func (s *session) discard() {
-	s.stopOnce.Do(func() {
-		_ = s.child.signalGroup(syscall.SIGKILL)
-		s.stopReading()
-		close(s.stopDone)
-	})
-	go func() { _, _ = s.child.wait() }()
-}
-
 // stopReading wakes any paused reader and closes the PTY master.
 func (s *session) stopReading() {
 	s.service.mu.Lock()
@@ -818,20 +857,16 @@ func writeFull(writer io.Writer, data []byte) error {
 	return nil
 }
 
-// storeSession inserts a session unless another goroutine already claimed
-// the key, and reports whether a kill for the tab came first (see Kill).
-func (s *Service) storeSession(key tabKey, session *session) (stored *session, closed bool) {
+// storeSession publishes the tab's reserved shell and reports an early kill.
+func (s *Service) storeSession(key tabKey, session *session) (closed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing := s.sessions[key]; existing != nil {
-		return existing, false
-	}
 	s.sessions[key] = session
 	if at, ok := s.closedTabs[key]; ok {
 		delete(s.closedTabs, key)
 		closed = time.Since(at) <= closedTabMemory
 	}
-	return session, closed
+	return closed
 }
 
 // lookup returns the active session for key, if any.
