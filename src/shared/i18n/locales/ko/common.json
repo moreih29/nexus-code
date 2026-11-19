@@ -1891,6 +1891,10 @@
         "idle": "대기",
         "ended": "종료"
       },
+      "worktreesShow_one": "{{workspace}}의 워크트리 {{count}}개 펼치기",
+      "worktreesShow_other": "{{workspace}}의 워크트리 {{count}}개 펼치기",
+      "worktreesHide_one": "{{workspace}}의 워크트리 {{count}}개 접기",
+      "worktreesHide_other": "{{workspace}}의 워크트리 {{count}}개 접기",
       "terminalsShow_one": "터미널 {{count}}개 보기",
       "terminalsShow_other": "터미널 {{count}}개 보기",
       "terminalsHide": "터미널 숨기기",

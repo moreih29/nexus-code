@@ -5,8 +5,8 @@
 // last line, as it does this computer's. A terminal with only its shell is
 // out of sight until the user asks for its workspace's terminals, with the
 // chip in its heading, or searches for it; asked for, they hang under the
-// heading from its icon, as the phone shows them. A task's workspace hangs
-// from a line under its workspace's, as well.
+// heading from its icon, as the phone shows them. Quiet worktrees wait behind
+// their parent workspace's own chip and hang from a line under its heading.
 //
 // Where the computer lets this one control its chats or terminals, a
 // workspace's heading has a + to open one there, and a session's row a
@@ -50,6 +50,7 @@ import {
   type PeerSessions,
   peerServes,
   refreshPeerSessions,
+  type SessionsList,
   servingPeers,
   usePeerSessions,
   useRemoteRoom,
@@ -132,6 +133,68 @@ function matches(session: RemoteSession, query: string): boolean {
   return session.title.toLowerCase().includes(q) || (session.last ?? "").toLowerCase().includes(q);
 }
 
+/** The eligible workspace groups in the peer's order, with quiet worktrees behind their parents. */
+export function workspaceGroups(
+  list: SessionsList | null,
+  {
+    query,
+    opens,
+    inPanel,
+    worktreesIn,
+  }: {
+    query: string;
+    opens: boolean;
+    inPanel: (session: RemoteSession) => boolean;
+    worktreesIn: ReadonlySet<string>;
+  },
+) {
+  const searching = query.trim().length > 0;
+  const { listed, plain } = listedSessions(list?.sessions ?? [], query, inPanel);
+  const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
+  const byWorkspace = new Map<string, RemoteSession[]>();
+  for (const id of workspaces.keys()) byWorkspace.set(id, []);
+  for (const s of list?.sessions ?? []) {
+    if (!byWorkspace.has(s.workspaceId)) byWorkspace.set(s.workspaceId, []);
+  }
+  for (const s of listed) byWorkspace.get(s.workspaceId)?.push(s);
+
+  const eligible = new Set<string>();
+  const worktreeCounts = new Map<string, number>();
+  const hidden = new Set<string>();
+  const keepsWorktreeVisible = (s: RemoteSession) =>
+    s.state === "running" ||
+    s.state === "needs-you" ||
+    s.waiting !== undefined ||
+    s.agents?.some((a) => a.state === "running" || a.state === "permissionPending") ||
+    inPanel(s);
+  for (const [id, rows] of byWorkspace) {
+    const workspace = workspaces.get(id);
+    const parent =
+      workspace?.parentId === undefined ? undefined : workspaces.get(workspace.parentId);
+    const rootParent = parent?.parentId === undefined ? parent : undefined;
+    const canStart =
+      opens && !searching && workspace && (workspace.parentId === undefined || rootParent);
+    const terminals = plain.get(id);
+    if (rows.length === 0 && !terminals && !canStart) continue;
+    eligible.add(id);
+
+    if (searching || !rootParent) continue;
+    eligible.add(rootParent.id);
+    if (rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible)) continue;
+    worktreeCounts.set(rootParent.id, (worktreeCounts.get(rootParent.id) ?? 0) + 1);
+    if (!worktreesIn.has(rootParent.id)) hidden.add(id);
+  }
+
+  const groups = [...byWorkspace].filter(([id]) => eligible.has(id) && !hidden.has(id));
+  return { groups, workspaces, plain, worktreeCounts };
+}
+
+function toggleWorkspace(current: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  const next = new Set(current);
+  if (!next.delete(id)) next.add(id);
+  return next;
+}
+
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
   const { t } = useTranslation();
   const room = useRemoteRoom();
@@ -211,12 +274,7 @@ export function PeerGroup({
   // The workspaces whose terminals with only their shell are shown, each
   // asked for on its own; not kept.
   const [terminalsIn, setTerminalsIn] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleTerminals = (workspaceId: string) =>
-    setTerminalsIn((now) => {
-      const next = new Set(now);
-      if (!next.delete(workspaceId)) next.add(workspaceId);
-      return next;
-    });
+  const [worktreesIn, setWorktreesIn] = useState<ReadonlySet<string>>(() => new Set());
   // The consent prompts answered here, or found answered there: left out until asked again.
   const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   // The session being renamed, while the dialog asks its new title.
@@ -225,15 +283,17 @@ export function PeerGroup({
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
   const root = useAgentViewStore((s) => s.root);
-  const { listed: shownSessions, plain } = listedSessions(
-    list?.sessions ?? [],
+  // Where it lets this one open chats or terminals there, each workspace's heading has a +.
+  const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
+  const { groups, workspaces, plain, worktreeCounts } = workspaceGroups(list, {
     query,
-    (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
-  );
+    opens,
+    inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
+    worktreesIn,
+  });
   const consents = (list?.consents ?? []).filter((c) => !settled.has(c.id));
   const waiting =
     (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length;
-  const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
   const open = useRemoteViewStore((s) => s.open);
@@ -241,23 +301,6 @@ export function PeerGroup({
   useEffect(() => {
     if (list) useRemoteViewStore.getState().refresh(peer.id, list);
   }, [peer.id, list]);
-  // Where it lets this one open chats or terminals there, each workspace's heading has a +.
-  const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
-  // In the order the computer lists them: a workspace with sessions shown, or
-  // with only terminals behind its chip; one with neither, not a task, for
-  // its + (as this computer's list shows a workspace), unless searched.
-  const byWorkspace = new Map<string, RemoteSession[]>();
-  for (const w of list?.workspaces ?? []) byWorkspace.set(w.id, []);
-  for (const s of list?.sessions ?? []) {
-    if (!byWorkspace.has(s.workspaceId)) byWorkspace.set(s.workspaceId, []);
-  }
-  for (const s of shownSessions) byWorkspace.get(s.workspaceId)?.push(s);
-  const groups = [...byWorkspace].filter(
-    ([id, rows]) =>
-      rows.length > 0 ||
-      (plain.get(id)?.length ?? 0) > 0 ||
-      (opens && !query.trim() && workspaces.has(id) && !workspaces.get(id)?.parentId),
-  );
   const headed = new Set(groups.map(([id]) => id));
   const renameRequest = useMemo<PromptRequest | null>(
     () =>
@@ -393,11 +436,12 @@ export function PeerGroup({
                   const terminals = plain.get(workspaceId) ?? [];
                   const unfolded = terminalsIn.has(workspaceId);
                   const workspace = workspaces.get(workspaceId);
+                  const worktreeCount = worktreeCounts.get(workspaceId);
                   // A task hangs from a line under its workspace's folder, where
                   // that is listed (the computer lists a workspace's tasks right
                   // after it), so its rows read as its own, as the phone shows them.
                   const parent = workspace?.parentId;
-                  const hung = parent !== undefined && headed.has(parent);
+                  const hung = parent !== undefined && workspaces.has(parent) && headed.has(parent);
                   return (
                     <div
                       key={workspaceId}
@@ -410,12 +454,23 @@ export function PeerGroup({
                       <WorkspaceHeading
                         name={names.get(workspaceId) ?? workspaceId}
                         workspace={workspace}
+                        worktrees={
+                          worktreeCount === undefined
+                            ? undefined
+                            : {
+                                count: worktreeCount,
+                                open: worktreesIn.has(workspaceId),
+                                toggle: () =>
+                                  setWorktreesIn((now) => toggleWorkspace(now, workspaceId)),
+                              }
+                        }
                         terminals={
                           terminals.length > 0
                             ? {
                                 count: terminals.length,
                                 open: unfolded,
-                                toggle: () => toggleTerminals(workspaceId),
+                                toggle: () =>
+                                  setTerminalsIn((now) => toggleWorkspace(now, workspaceId)),
                               }
                             : undefined
                         }
@@ -498,23 +553,23 @@ export function remoteSessionMenu(actions: { rename(): void; close(): void }): M
   ];
 }
 
-/**
- * A workspace's sessions' heading: a folder, or a task's branch, and how its
- * git stands; a chip with how many terminals with only their shell it has,
- * which shows them under it, or puts them away; and its + (`menu`), where
- * there is one.
- */
+type WorkspaceDisclosure = { count: number; open: boolean; toggle(): void };
+
+/** A workspace's heading, with its git status, disclosures, and new-session menu. */
 function WorkspaceHeading({
   name,
   workspace,
+  worktrees,
   terminals,
   menu,
 }: {
   name: string;
   workspace: RemoteWorkspace | undefined;
-  terminals?: { count: number; open: boolean; toggle(): void };
+  worktrees?: WorkspaceDisclosure;
+  terminals?: WorkspaceDisclosure;
   menu?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
   const git = workspace?.git;
   const stands = git
@@ -534,15 +589,41 @@ function WorkspaceHeading({
     >
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className="truncate font-semibold text-app-micro text-foreground">{name}</span>
-      {/* How git stands takes what room the name and the chip leave, so the name gives way last. */}
+      {/* The git status takes the space left by the name and controls. */}
       {stands && (
         <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
           {stands}
         </span>
       )}
-      {(terminals || menu) && (
+      {(worktrees || terminals || menu) && (
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          {terminals && <TerminalsChip terminals={terminals} workspaceId={workspace?.id} />}
+          {worktrees && (
+            <DisclosureChip
+              disclosure={worktrees}
+              icon={GitBranch}
+              label={t(
+                worktrees.open
+                  ? "agentView.remote.worktreesHide"
+                  : "agentView.remote.worktreesShow",
+                { count: worktrees.count, workspace: name },
+              )}
+              testId="remote-worktrees-toggle"
+              workspaceId={workspace?.id}
+            />
+          )}
+          {terminals && (
+            <DisclosureChip
+              disclosure={terminals}
+              icon={SquareTerminal}
+              label={
+                terminals.open
+                  ? t("agentView.remote.terminalsHide")
+                  : t("agentView.remote.terminalsShow", { count: terminals.count })
+              }
+              testId="remote-terminals-toggle"
+              workspaceId={workspace?.id}
+            />
+          )}
           {menu}
         </span>
       )}
@@ -550,41 +631,34 @@ function WorkspaceHeading({
   );
 }
 
-/** The chip with how many terminals with only their shell a workspace has: it shows or hides them. */
-function TerminalsChip({
-  terminals,
+function DisclosureChip({
+  disclosure: { count, open, toggle },
+  icon: Icon,
+  label,
+  testId,
   workspaceId,
 }: {
-  terminals: { count: number; open: boolean; toggle(): void };
+  disclosure: WorkspaceDisclosure;
+  icon: typeof GitBranch;
+  label: string;
+  testId: string;
   workspaceId: string | undefined;
 }) {
-  const { t } = useTranslation();
+  const Chevron = open ? ChevronUp : ChevronDown;
   return (
     <button
       type="button"
-      aria-expanded={terminals.open}
-      onClick={terminals.toggle}
-      title={
-        terminals.open
-          ? t("agentView.remote.terminalsHide")
-          : t("agentView.remote.terminalsShow", { count: terminals.count })
-      }
-      aria-label={
-        terminals.open
-          ? t("agentView.remote.terminalsHide")
-          : t("agentView.remote.terminalsShow", { count: terminals.count })
-      }
-      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)]"
-      data-testid="remote-terminals-toggle"
+      aria-expanded={open}
+      onClick={toggle}
+      title={label}
+      aria-label={label}
+      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      data-testid={testId}
       data-workspace={workspaceId}
     >
-      <SquareTerminal aria-hidden className="size-3 shrink-0" />
-      {terminals.count}
-      {terminals.open ? (
-        <ChevronUp aria-hidden className="size-3 shrink-0" />
-      ) : (
-        <ChevronDown aria-hidden className="size-3 shrink-0" />
-      )}
+      <Icon aria-hidden className="size-3 shrink-0" />
+      {count}
+      <Chevron aria-hidden className="size-3 shrink-0" />
     </button>
   );
 }
