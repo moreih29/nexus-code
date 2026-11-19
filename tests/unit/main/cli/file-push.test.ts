@@ -191,3 +191,23 @@ test("retries a busy chunk and aborts an upload when a later operation fails", a
   expect(saved.size).toBe(0);
   expect(app.peers.requests.at(-1)?.method).toBe("files.write.abort");
 });
+
+test("outside recursive push shares one transfer ID with its destination probe", async () => {
+  await mkdir(path.join(cwd, "src"));
+  await writeFile(path.join(cwd, "src", "file"), "content");
+  const destination = "D:/outside";
+  const { app } = peer([destination], {
+    ...HOST,
+    serves: ["sessions", "files", "agents", "terminal.control"],
+  });
+  const result = await push(app, "-r", "src", destination);
+  expect(result.stderr).toBe("");
+  const requests = app.peers.requests.filter((r) =>
+    ["files.list", "files.mkdir", "files.write.begin"].includes(r.method),
+  );
+  const params = requests.map((r) => r.params as RpcParams<"files.list">);
+  expect(requests.map((r) => r.timeoutMs)).toEqual([100_000, 100_000, 100_000]);
+  expect(params[0]).toMatchObject({ path: destination, writeTarget: true, anywhere: true });
+  expect(params[0]?.transferId).toBeString();
+  expect(params.map((entry) => entry.transferId)).toEqual(Array(3).fill(params[0]?.transferId));
+});

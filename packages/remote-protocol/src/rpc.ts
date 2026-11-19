@@ -809,6 +809,10 @@ const FileScope = {
   /** An absolute path on the serving device, with terminal control. Since 0.14.0. */
   anywhere: z.literal(true).optional(),
 };
+const FileTransferRef = {
+  /** Keep a one-time approval within the paths used by this copy. */
+  transferId: z.string().uuid().optional(),
+};
 const FileUploadRef = {
   ...FileScope,
   uploadId: z.string().min(1).max(64),
@@ -1692,6 +1696,9 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       path: z.string().max(4096),
       ...FileScope,
+      ...FileTransferRef,
+      /** Recursive push checks its destination without listing its contents. */
+      writeTarget: z.literal(true).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1725,6 +1732,7 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
       ...FileScope,
+      ...FileTransferRef,
       ...ReadBy,
       maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
       as: z.literal("bytes").optional(),
@@ -1782,6 +1790,7 @@ export const RPC_METHODS = {
     capability: "files.write",
     params: z.object({
       ...FileScope,
+      ...FileTransferRef,
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
       size: z.number().int().nonnegative().max(MAX_FILE_WRITE_BYTES),
@@ -1823,6 +1832,7 @@ export const RPC_METHODS = {
     capability: "files.write",
     params: z.object({
       ...FileScope,
+      ...FileTransferRef,
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
       from: AgentSenderSchema,

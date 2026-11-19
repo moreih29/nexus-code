@@ -179,6 +179,17 @@ export function absoluteFilePath(asked: string): string {
   return cleanPath;
 }
 
+/** Resolve an outside source to the path the user approves. */
+export async function outsideFileSource(asked: string): Promise<string> {
+  const absolute = absoluteFilePath(asked);
+  return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+      throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
+    }
+    throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
+  });
+}
+
 /**
  * Where `asked` is, as placeOf finds it; outside the workspace's folders,
  * one of the files its chats name (took, wrote, linked, or a job's output),
@@ -362,6 +373,7 @@ export async function listFiles(
   files: RemoteFiles,
   root: string,
   { workspaceId, path: asked, anywhere }: RpcParams<"files.list">,
+  approvedPath?: string,
 ): Promise<RpcResult<"files.list">> {
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place: Place = anywhere
@@ -388,7 +400,10 @@ export async function listFiles(
       );
     }
     if (!anywhere) await realWithin(fs, style, folders, place.absolute);
-    entries = await listHere(place.absolute);
+    entries = await listHere(approvedPath ?? place.absolute);
+    if (approvedPath && (await outsideFileSource(asked)) !== approvedPath) {
+      throw fileChanged(false);
+    }
     absolute = place.absolute;
   }
   entries.sort((a, b) =>
@@ -430,6 +445,7 @@ export async function readFile(
     requireVersion,
     anywhere,
   }: RpcParams<"files.read">,
+  approvedPath?: string,
 ): Promise<RpcResult<"files.read">> {
   const optedIn = versioned === true || ifVersion !== undefined || requireVersion !== undefined;
   if (ifVersion !== undefined && requireVersion !== undefined) {
@@ -465,8 +481,9 @@ export async function readFile(
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
     absolute = place.absolute;
-    source =
-      anywhere || "output" in place
+    source = anywhere
+      ? { absolutePath: absolute, ...(approvedPath ? { expectedRealPath: approvedPath } : {}) }
+      : "output" in place
         ? { absolutePath: absolute }
         : {
             absolutePath: absolute,

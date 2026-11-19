@@ -1,13 +1,21 @@
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-/** These methods use device settings directly, without an agent consent prompt. */
+/** RPCs used to copy files between devices. */
 export function isFileTransferMethod(method: string): boolean {
   return (
     method === "files.read" ||
     method === "files.list" ||
     method === "files.mkdir" ||
     method.startsWith("files.write.")
+  );
+}
+
+export function needsFileConsent(method: string, params: { anywhere?: true }): boolean {
+  return (
+    method === "files.write.begin" ||
+    method === "files.mkdir" ||
+    (params.anywhere === true && (method === "files.read" || method === "files.list"))
   );
 }
 

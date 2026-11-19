@@ -20,11 +20,17 @@ import {
   RpcErrorCode,
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
+import type { CliServices } from "../../../../../src/main/features/cli/context";
+import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import {
   FileWrites,
   makeRemoteDirectory,
 } from "../../../../../src/main/features/remote/file-writes";
 import { RpcFailure } from "../../../../../src/main/features/remote/room";
+
+import { serveWith } from "../../../../../src/main/features/remote/serve";
+import type { RemoteAgentsPolicy } from "../../../../../src/shared/types/app-state";
+import { fakeApp } from "../../cli/fake-services";
 
 const FROM = { kind: "tab", workspaceId: "source", tabId: "tab" } as const;
 const DEVICE = "device";
@@ -222,4 +228,107 @@ test("reserves concurrent slots before checking files and releases them when upl
   await expect(begin("extra", 0, {}, "a")).rejects.toThrow("busy writing files");
   await begin("extra", 0, {}, "c");
   expect(await readdir(root)).toHaveLength(5);
+});
+
+function consentHost(
+  policy: RemoteAgentsPolicy,
+  ...answers: Array<"once" | "session" | "deny" | "timeout">
+) {
+  const app = fakeApp();
+  const workspace = app.workspaces[0];
+  if (!workspace) throw new Error("workspace fixture is missing");
+  Object.assign(workspace, { rootPath: root, location: { kind: "local", rootPath: root } });
+  const prompts: unknown[] = [];
+  const services = {
+    ...app.services,
+    ui: async (op: string, args: unknown) => {
+      if (op !== "consent.ask") throw new Error(`unexpected ${op}`);
+      prompts.push(args);
+      expect(await readdir(root)).not.toContainEqual(expect.stringMatching(/^\.nexus-push-/));
+      return { answer: answers.shift() ?? "deny" };
+    },
+  } as CliServices;
+  const serve = serveWith(() => services, {
+    controls: () => ({ chat: true, terminal: true }),
+    agents: new AgentGate({ policy: () => policy }),
+    fileWrites: writes,
+    files: {
+      fs: async () => {
+        throw new Error("probing a write target reads no entries");
+      },
+      shrink: () => null,
+    },
+  });
+  const from = { from: FROM, workspaceId: workspace.id };
+  const transferId = "10000000-0000-4000-8000-000000000000";
+  const invoke = (method: Parameters<typeof serve>[0]["method"], params: object) =>
+    serve({ from: DEVICE, method, params: { ...from, transferId, ...params } });
+  const empty = async (target: string, anywhere?: true) => {
+    const { uploadId } = (await invoke("files.write.begin", {
+      path: target,
+      size: 0,
+      anywhere,
+    })) as { uploadId: string };
+    return invoke("files.write.end", { uploadId, sha256: digest("") });
+  };
+  return { prompts, invoke, empty };
+}
+
+test.each([
+  "deny",
+  "timeout",
+] as const)("leaves no temporary file when the consent prompt answers %s", async (answer) => {
+  const { invoke, prompts } = consentHost("ask", answer);
+  await expect(invoke("files.write.begin", { path: "data", size: 1 })).rejects.toThrow(
+    answer === "deny" ? "did not allow" : "did not answer in time",
+  );
+  expect(prompts).toHaveLength(1);
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("agent deny blocks file access without asking, and allow proceeds without asking", async () => {
+  const deny = consentHost("deny");
+  await expect(deny.invoke("files.write.begin", { path: "data", size: 1 })).rejects.toThrow(
+    "agents are off",
+  );
+  await expect(deny.invoke("files.list", { path: tmp, anywhere: true })).rejects.toThrow(
+    "agents are off",
+  );
+  expect(deny.prompts).toEqual([]);
+  const allow = consentHost("allow");
+  await allow.empty("data");
+  expect(await readdir(root)).toEqual(["data"]);
+  expect(allow.prompts).toEqual([]);
+});
+
+test("recursive workspace push asks once for its tree and can exceed the messaging limit", async () => {
+  const { invoke, empty, prompts } = consentHost("ask", "once");
+  await invoke("files.mkdir", { path: "dest" });
+  await invoke("files.mkdir", { path: "dest/folder" });
+  for (let i = 0; i < 22; i++) await empty(`dest/folder/file-${i}`);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toMatchObject({
+    change: { kind: "fileWriteTree", detail: path.join(root, "dest") },
+  });
+  expect(await readdir(path.join(root, "dest", "folder"))).toHaveLength(22);
+  await expect(empty("dest-other")).rejects.toThrow("did not allow");
+  expect(prompts).toHaveLength(2);
+});
+
+test("recursive push outside the workspace can approve the destination probe and writes with one prompt", async () => {
+  const { invoke, empty, prompts } = consentHost("ask", "once");
+  const dest = path.join(tmp, "dest");
+  await mkdir(dest);
+  await writeFile(path.join(dest, "private"), "existing");
+  expect(await invoke("files.list", { path: dest, anywhere: true, writeTarget: true })).toEqual({
+    path: dest,
+    entries: [],
+  });
+  await invoke("files.mkdir", { path: path.join(dest, "folder"), anywhere: true });
+  await empty(path.join(dest, "folder", "new"), true);
+  expect(await readdir(path.join(dest, "folder"))).toEqual(["new"]);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toMatchObject({
+    change: { kind: "fileWriteTree", detail: dest, terminal: true },
+  });
 });

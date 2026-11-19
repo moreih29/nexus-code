@@ -14,7 +14,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import { isFileTransferMethod } from "../remote/file-io";
+import { isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { senderOf } from "./sender";
@@ -226,7 +226,10 @@ export async function askDevice<M extends RpcMethod>(
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? 5 * 60_000
-        : from && !reads && !isFileTransferMethod(method)
+        : from &&
+            !reads &&
+            (!isFileTransferMethod(method) ||
+              needsFileConsent(method, params as { anywhere?: true }))
           ? AGENT_REQUEST_MS
           : undefined;
   try {

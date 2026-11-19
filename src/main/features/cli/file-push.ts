@@ -73,9 +73,16 @@ async function remoteDirectory(
   peer: FilePeer,
   remotePath: string,
   signal: AbortSignal,
+  writeTarget: boolean,
 ): Promise<string | undefined> {
   try {
-    return (await peer("files.list", { path: remotePath }, signal)).path;
+    return (
+      await peer(
+        "files.list",
+        { path: remotePath, ...(writeTarget ? { writeTarget: true } : {}) },
+        signal,
+      )
+    ).path;
   } catch (error) {
     if (
       rpcMessage(error, RpcErrorCode.NotFound) !== undefined ||
@@ -160,19 +167,31 @@ export async function push(
   },
 ): Promise<FileTransfer> {
   return withFileTransfer(ctx, "push", async (signal) => {
-    const { device, rules, peer } = await fileTransferTarget(ctx, options, "push", signal);
+    const { device, rules, anywhere, peer } = await fileTransferTarget(
+      ctx,
+      options,
+      "push",
+      signal,
+    );
+    const inspectSources = () =>
+      Promise.all(
+        options.localPaths.map(async (given) => {
+          const local = callerPath(ctx, given);
+          return { local, info: await sourceStat(local) };
+        }),
+      );
+    const sources = anywhere && options.recursive ? await inspectSources() : undefined;
+    const writeTarget = sources?.some(({ info }) => info.isDirectory()) === true;
     // Use the caller's path spelling to compose children. In workspace mode
     // the host's listing may return a differently spelled absolute root.
-    const directory = await remoteDirectory(peer, options.remotePath, signal);
+    const directory = await remoteDirectory(peer, options.remotePath, signal, writeTarget);
     if (!directory && options.localPaths.length > 1) {
       throw new CliError(
         "the remote destination must be an existing directory for multiple sources",
       );
     }
     const copies: Copy[] = [];
-    for (const given of options.localPaths) {
-      const local = callerPath(ctx, given);
-      const info = await sourceStat(local);
+    for (const { local, info } of sources ?? (await inspectSources())) {
       if (
         !directory &&
         !info.isDirectory() &&

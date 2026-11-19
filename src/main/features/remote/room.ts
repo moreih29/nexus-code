@@ -151,7 +151,12 @@ export interface RemoteRoomDeps {
     handlers: Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">,
   ): RoomConnection;
   /** Answers another device's request; a RpcFailure for an error it should see. */
-  serve(request: { from: string; method: RpcMethod; params: unknown }): Promise<unknown>;
+  serve(request: {
+    from: string;
+    method: RpcMethod;
+    params: unknown;
+    isCurrent?: () => boolean;
+  }): Promise<unknown>;
   onChange(state: RoomState): void;
   /** Drop device-owned work when a peer disconnects, or all work when this device does. */
   onDisconnect?(peer?: string): void;
@@ -566,12 +571,12 @@ export class RemoteRoom {
       return;
     }
     if ("method" in message && "id" in message) {
+      const current = () =>
+        this.status === "online" &&
+        this.heard.get(from)?.epoch === epoch &&
+        this.peers.get(from)?.online === true;
       if (message.method === "files.read") {
         const budget = readBudget(message.params);
-        const current = () =>
-          this.status === "online" &&
-          this.heard.get(from)?.epoch === epoch &&
-          this.peers.get(from)?.online === true;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
           // Every refused request is told, each with its own small reply: left
@@ -594,19 +599,21 @@ export class RemoteRoom {
         try {
           await this.waitForFileReadSocket(current);
           if (!current()) return;
-          const answer = await this.answer(from, message.method, message.params);
+          const answer = await this.answer(from, message.method, message.params, current);
           if (current()) await this.reply(from, epoch, message, answer, current);
         } finally {
           budget.release();
         }
         return;
       }
-      if (
-        isFileTransferMethod(message.method) &&
-        (this.status !== "online" || !this.peers.get(from)?.online)
-      )
-        return;
-      const answer = await this.answer(from, message.method, message.params);
+      const transfer = isFileTransferMethod(message.method);
+      if (transfer && !current()) return;
+      const answer = await this.answer(
+        from,
+        message.method,
+        message.params,
+        transfer ? current : undefined,
+      );
       void this.reply(from, epoch, message, answer);
       return;
     }
@@ -675,6 +682,7 @@ export class RemoteRoom {
     from: string,
     method: string,
     params: unknown,
+    isCurrent?: () => boolean,
   ): Promise<{ result: unknown } | { error: RpcError }> {
     if (!isRpcMethod(method)) {
       return { error: { code: RpcErrorCode.MethodNotFound, message: `no method ${method}` } };
@@ -736,7 +744,14 @@ export class RemoteRoom {
       return { error: { code: RpcErrorCode.InvalidParams, message: parsed.error.message } };
     }
     try {
-      return { result: await this.deps.serve({ from, method, params: parsed.data }) };
+      return {
+        result: await this.deps.serve({
+          from,
+          method,
+          params: parsed.data,
+          ...(isCurrent ? { isCurrent } : {}),
+        }),
+      };
     } catch (error) {
       if (error instanceof RpcFailure) {
         return {

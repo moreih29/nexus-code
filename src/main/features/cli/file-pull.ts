@@ -6,6 +6,7 @@ import {
   RpcErrorCode,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { speaks } from "../../../shared/remote/room";
 import { validFileName, writeFileChunk } from "../remote/file-io";
 import { bytesOf, supportsFileVersions } from "../remote/peer-file-reads";
 import { type CliContext, CliError } from "./context";
@@ -254,7 +255,12 @@ export async function pull(
   },
 ): Promise<FileTransfer> {
   return withFileTransfer(ctx, "pull", async (signal) => {
-    const { device, rules, peer } = await fileTransferTarget(ctx, options, "pull", signal);
+    const { device, rules, anywhere, peer } = await fileTransferTarget(
+      ctx,
+      options,
+      "pull",
+      signal,
+    );
     const versioned = supportsFileVersions(device.schema);
     const readFirst = (remotePath: string) =>
       readBytes(
@@ -268,18 +274,31 @@ export async function pull(
         signal,
       );
     let first: Bytes | undefined;
-    let source: Source;
-    try {
-      first = await readFirst(options.remotePath);
-      source = { kind: "file", remotePath: options.remotePath };
-    } catch (error) {
-      if (!isFolder(error)) throw error;
-      if (!options.recursive) {
-        throw new CliError(
-          `${JSON.stringify(options.remotePath)} is a directory (use -r to copy it)`,
-        );
+    let source: Source | undefined;
+    if (anywhere && options.recursive && speaks(device.schema, "0.14.0")) {
+      // Approve the tree at its root before reading children.
+      try {
+        source = await listTree(peer, options.remotePath, rules, signal);
+      } catch (error) {
+        if (
+          !rpcMessage(error, RpcErrorCode.InvalidParams)?.endsWith("is a file: files.read reads it")
+        )
+          throw error;
       }
-      source = await listTree(peer, options.remotePath, rules, signal);
+    }
+    if (!source) {
+      try {
+        first = await readFirst(options.remotePath);
+        source = { kind: "file", remotePath: options.remotePath };
+      } catch (error) {
+        if (!isFolder(error)) throw error;
+        if (!options.recursive) {
+          throw new CliError(
+            `${JSON.stringify(options.remotePath)} is a directory (use -r to copy it)`,
+          );
+        }
+        source = await listTree(peer, options.remotePath, rules, signal);
+      }
     }
     const destination = await destinationOf(
       ctx,

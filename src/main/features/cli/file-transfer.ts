@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
@@ -153,6 +154,7 @@ function filePeer(
 ): FilePeer {
   const current = speaks(device.schema, "0.14.0");
   let sender: Promise<AgentSender> | undefined;
+  const transferId = current ? randomUUID() : undefined;
   return async <M extends FileMethod>(
     method: M,
     params: FilePeerParams<M>,
@@ -165,7 +167,7 @@ function filePeer(
     if (current) sender ??= agentSenderOf(ctx);
     const request = {
       ...params,
-      ...(!continuation ? { workspaceId } : {}),
+      ...(!continuation ? { workspaceId, ...(transferId ? { transferId } : {}) } : {}),
       ...(sender ? { from: await sender } : {}),
       ...(anywhere ? { anywhere: true } : {}),
     } as RpcParams<M>;
@@ -231,5 +233,5 @@ export async function fileTransferTarget(
       `"${device.name}" requires chat control and agent access for workspace file writes (Settings › Remote)`,
     );
   }
-  return { device, rules, peer: filePeer(ctx, device, workspace.id, anywhere) };
+  return { device, rules, anywhere, peer: filePeer(ctx, device, workspace.id, anywhere) };
 }

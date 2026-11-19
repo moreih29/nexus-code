@@ -36,7 +36,7 @@ type Scope = Pick<Begin, "path" | "anywhere">;
 type UploadRef = RpcParams<"files.write.abort">;
 type UploadResult = RpcResult<"files.write.end">;
 type Range = [start: number, end: number];
-type Authorize = () => void;
+type Authorize = (destination?: string) => void;
 
 interface Destination {
   path: string;
@@ -130,6 +130,19 @@ async function locate(root: string, request: Scope, directory = false): Promise<
   return { path: workspaceRoot ? parent : path.join(parent, name), parent, parentInfo };
 }
 
+/** Resolve the path to show before a write is approved. */
+export async function fileWriteDestination(
+  root: string,
+  request: Scope,
+  directory: boolean,
+): Promise<string> {
+  try {
+    return (await locate(root, request, directory)).path;
+  } catch (error) {
+    return fileError(error);
+  }
+}
+
 async function existingFile(target: string): Promise<Stats | undefined> {
   const current = await optionalStat(target);
   if (current?.isSymbolicLink()) throw forbidden("the destination is a symbolic link");
@@ -162,7 +175,7 @@ export async function makeRemoteDirectory(
 ): Promise<RpcResult<"files.mkdir">> {
   try {
     const destination = await locate(root, request, true);
-    authorize();
+    authorize(destination.path);
     try {
       await mkdir(destination.path);
     } catch (error) {
@@ -229,7 +242,7 @@ export class FileWrites {
         await existingFile(destination.path);
         await this.verifyParent(root, request, destination);
         upload.controller.signal.throwIfAborted();
-        authorize();
+        authorize(destination.path);
         const temporary = path.join(destination.parent, `.nexus-push-${uploadId}.tmp`);
         upload.file = await open(temporary, "wx+", 0o600);
         upload.temporary = temporary;
@@ -314,7 +327,7 @@ export class FileWrites {
           throw forbidden("the temporary file changed during the upload");
         }
         signal.throwIfAborted();
-        upload.authorize();
+        upload.authorize(destination.path);
         await rename(temporary, destination.path);
         delete upload.temporary;
         const result = { path: destination.path, size, sha256 };

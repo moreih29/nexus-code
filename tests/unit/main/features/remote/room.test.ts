@@ -867,7 +867,7 @@ test("serves file transfers by scope and cleans pending uploads when the sending
   const host = device(relay, "host", key, {
     serves: () => servesWith(chat, terminal, allowAgents),
     serve: serveWith(() => app.services, {
-      agents: new AgentGate({ policy: () => (allowAgents ? "ask" : "deny") }),
+      agents: new AgentGate({ policy: () => (allowAgents ? "allow" : "deny") }),
       controls: () => ({ chat, terminal }),
       fileWrites,
       files: { fs: async () => fs, shrink: () => null },
@@ -943,11 +943,16 @@ test("the 0.14 file schemas preserve 0.13 requests and tolerate old readers stri
     length: 64,
   };
   const currentRead = RPC_METHODS["files.read"].params;
-  const oldRead = currentRead.omit({ anywhere: true, from: true });
+  const oldRead = currentRead.omit({ anywhere: true, from: true, transferId: true });
   expect(currentRead.parse(request)).toEqual(request);
   expect(oldRead.parse({ ...request, anywhere: true })).toEqual(request);
   const currentList = RPC_METHODS["files.list"].params;
-  const oldList = currentList.omit({ anywhere: true, from: true });
+  const oldList = currentList.omit({
+    anywhere: true,
+    from: true,
+    transferId: true,
+    writeTarget: true,
+  });
   const list = { workspaceId: "w", path: "." };
   expect(currentList.parse(list)).toEqual(list);
   expect(oldList.parse({ ...list, anywhere: true })).toEqual(list);
