@@ -90,6 +90,9 @@ export type IpcResult<T = unknown, K extends IpcResultKind = IpcResultKind> =
   | IpcOkResult<T>
   | IpcErrResult<K>;
 
+/** Result of starting a stream before any stream events are sent. */
+export type IpcStreamStartResult = IpcResult<{ streamId: string }>;
+
 // ---------------------------------------------------------------------------
 // Type guards
 // ---------------------------------------------------------------------------

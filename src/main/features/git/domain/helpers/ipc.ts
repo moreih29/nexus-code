@@ -166,7 +166,9 @@ export class GitHelpersIpcManager {
       await closed;
     }
     if (endpoint?.kind === "unix") {
-      await fs.unlink(endpoint.path).catch(() => {});
+      await fs.unlink(endpoint.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
     }
   }
 
@@ -468,6 +470,7 @@ export function registerGitHelperIpcChannels(manager: GitHelpersIpcManager): voi
   });
 
   register("editor", {
+    keepOnRendererClose: ["save"],
     call: {
       save: (args) => manager.saveEditor(args),
       cancel: (args) => manager.cancelEditor(args),

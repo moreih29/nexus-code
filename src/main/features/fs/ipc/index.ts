@@ -40,6 +40,7 @@ export function registerFsChannel(
   storage: WorkspaceStorage,
 ): void {
   register("fs", {
+    keepOnRendererClose: ["writeFile", "createFile"],
     call: {
       readdir: readdirHandler(manager),
       stat: statHandler(manager),

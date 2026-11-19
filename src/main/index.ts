@@ -111,6 +111,7 @@ import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { installErrorSafetyNet } from "./infra/error-safety-net";
 import { broadcast, setupRouter } from "./infra/ipc-router";
+import { finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/platform/shell-path";
@@ -909,12 +910,9 @@ app.on("will-quit", (event) => {
     });
 });
 
-// Match the Go LSP request, exit and forced-exit grace periods.
-const LSP_QUIT_GRACE_MS = 2_250;
-
-/** Lets LSP servers shut down over the live channels before disposing agents. */
+/** Stops main services and waits for writes and children within the quit budget. */
 async function shutDownMain(): Promise<void> {
-  let lspDeadline: ReturnType<typeof setTimeout> | undefined;
+  let lspShutdown: Promise<void> | undefined;
   try {
     sshBrowseRegistry.dispose();
     cliFeature?.dispose();
@@ -926,23 +924,24 @@ async function shutDownMain(): Promise<void> {
     agentProfiles?.dispose();
     remote?.dispose();
     notesFeature?.dispose();
-    const lspShutdown = lspHost?.dispose();
+    lspShutdown = lspHost?.dispose() ?? undefined;
     agentFsWatcher?.dispose();
     gitStatusCoalescer?.clearAll();
     gitWatcher?.dispose();
     gitAutofetch?.dispose();
-    void gitHelpersIpc?.dispose();
     gitRegistry?.disposeAll();
-    if (lspShutdown) {
-      const deadline = new Promise<void>((resolve) => {
-        lspDeadline = setTimeout(resolve, LSP_QUIT_GRACE_MS);
-      });
-      await Promise.race([lspShutdown, deadline]);
-    }
   } finally {
-    clearTimeout(lspDeadline);
-    workspaceManager.close();
-    await waitForLocalAgentShutdowns();
+    await finishMainShutdown(
+      {
+        waitForNotes: () => notesFeature?.waitForWrites(),
+        disposeGitHelpers: () => gitHelpersIpc?.dispose(),
+        ...(lspShutdown ? { lspShutdown } : {}),
+        closeWorkspaces: () => workspaceManager.close(),
+        waitForLocalAgents: waitForLocalAgentShutdowns,
+        warn: (message) => logger.warn(message),
+      },
+      closePersistence.remainingQuitMs(),
+    );
   }
 }
 
