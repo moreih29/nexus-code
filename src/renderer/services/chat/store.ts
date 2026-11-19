@@ -29,6 +29,8 @@ export interface ChatTabState {
   model: ChatModel;
   /** What the tab showed before its program's log: a transcript, an earlier agent's log. */
   history: ChatModel | null;
+  /** A private transcript snapshot can have unread pages before the displayed tail. */
+  historyPage?: { hasEarlier: boolean; loading: boolean };
   /** Messages the app holds for a tool completion or the end of the turn. */
   queue: QueuedMessage[];
   /** Authenticated remote user submissions, keyed by the host-generated message ID. */

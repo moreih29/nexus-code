@@ -74,10 +74,16 @@ function opened(workspaceId: string, tabId: string): boolean {
   return useChatStore.getState().tabs[chatKey(workspaceId, tabId)] !== undefined;
 }
 
-async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabController> {
+async function openedTab(
+  workspaceId: string,
+  tabId: string,
+  fullTranscript = false,
+): Promise<AgentTabController> {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) await target.controller.open();
+  const cold = !opened(workspaceId, tabId);
+  if (target.agent === "claude" && fullTranscript) await target.controller.openToRead(cold);
+  else if (cold) await target.controller.open();
   return target;
 }
 
@@ -90,9 +96,8 @@ async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabCo
 async function readableTab(workspaceId: string, tabId: string): Promise<AgentTabController> {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) {
-    await (target.agent === "claude" ? target.controller.openToRead() : target.controller.open());
-  }
+  if (target.agent === "claude") await target.controller.openToRead();
+  else if (!opened(workspaceId, tabId)) await target.controller.open();
   return target;
 }
 
@@ -431,7 +436,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.read": async ({ workspaceId, tabId, messages, since, subagents }) => {
-    const target = await openedTab(workspaceId, tabId);
+    const target = await openedTab(workspaceId, tabId, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     return {
       ...infoOf(workspaceId, tabId, target),
@@ -609,7 +614,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.entryItem": async ({ workspaceId, tabId, i }) => {
     // Opened as chat.read opens it, so that the entries are counted alike.
-    const { agent } = await openedTab(workspaceId, tabId);
+    const { agent } = await openedTab(workspaceId, tabId, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     const index = chatItemIndexOf(chat, i, extrasOf(workspaceId, tabId, agent));
     const item =

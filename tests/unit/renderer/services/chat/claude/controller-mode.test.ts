@@ -91,7 +91,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
     if (method === "sessionFile") {
       return Promise.resolve({ ok: true, value: { found: true, path: `/h/${args.sessionId}` } });
     }
-    if (method === "transcript") {
+    if (method === "transcriptPage") {
       return Promise.resolve({ ok: true, value: { found: false, lines: [], truncated: false } });
     }
     return Promise.resolve({ ok: true, value: undefined });

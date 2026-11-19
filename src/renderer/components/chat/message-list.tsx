@@ -126,7 +126,9 @@ interface MessageListProps {
 }
 
 export interface OlderMessages {
-  count: number;
+  count?: number;
+  /** A local transcript cursor has an unknown number of preceding messages. */
+  hasEarlier?: boolean;
   loading: boolean;
   load(): void;
 }
@@ -239,7 +241,13 @@ export function MessageList({
   // Earlier messages asked for beyond the last WINDOW_ITEMS, and where the
   // view was when they were, to stay on what it showed.
   const [more, setMore] = useState(0);
-  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const anchor = useRef<{
+    height: number;
+    top: number;
+    row?: HTMLElement;
+    rowTop?: number;
+    historyCount?: number;
+  } | null>(null);
 
   const toBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -315,7 +323,8 @@ export function MessageList({
     [items, model.items, relayed],
   );
   const streaming = items ? null : model.streaming;
-  const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
+  const nothing =
+    historyItems.length === 0 && liveItems.length === 0 && !streaming && !older?.hasEarlier;
   emptyShown.current = nothing && empty !== undefined;
   const tools = useMemo(
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
@@ -419,25 +428,60 @@ export function MessageList({
   const unread = older?.count ?? 0;
   const showEarlier = useCallback(() => {
     const el = scrollRef.current;
-    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    if (el) {
+      const top = el.getBoundingClientRect().top;
+      const row = Array.from(
+        contentRef.current?.querySelectorAll<HTMLElement>("[data-chat-row]") ?? [],
+      )
+        .map((wrapper) => wrapper.firstElementChild)
+        .find(
+          (node): node is HTMLElement =>
+            node instanceof HTMLElement && node.getBoundingClientRect().bottom > top,
+        );
+      anchor.current = {
+        height: el.scrollHeight,
+        top: el.scrollTop,
+        row,
+        rowTop: row?.getBoundingClientRect().top,
+        historyCount: start === 0 && older?.hasEarlier ? historyItems.length : undefined,
+      };
+    }
     stuck.current = false;
     if (start > 0) setMore((m) => m + WINDOW_ITEMS);
     else older?.load();
-  }, [start, older]);
+  }, [start, older, historyItems.length]);
   // Messages read in before the first ones render at once.
   const wasUnread = useRef(unread);
   useLayoutEffect(() => {
-    const read = wasUnread.current - unread;
+    const count = wasUnread.current - unread;
     wasUnread.current = unread;
-    if (read > 0) setMore((m) => m + read);
+    if (count > 0) setMore((m) => m + count);
   }, [unread]);
-  // The messages put above keep the view on what it showed.
+  const historyRead = useRef(false);
+  useLayoutEffect(() => {
+    const before = anchor.current?.historyCount;
+    if (before === undefined || older?.loading) return;
+    const added = historyItems.length - before;
+    // A page that completed a tool or only carried part of a large row can add no items.
+    if (added > 0) {
+      historyRead.current = true;
+      setMore((m) => m + added);
+    } else {
+      anchor.current = null;
+    }
+  }, [historyItems.length, older?.loading]);
+  // Keep the same row at the same height, even when live items also arrived below it.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const was = anchor.current;
-    if (!el || !was || more === 0) return;
+    if (!el || !was || more === 0 || (was.historyCount !== undefined && !historyRead.current))
+      return;
     anchor.current = null;
-    el.scrollTop = was.top + (el.scrollHeight - was.height);
+    historyRead.current = false;
+    el.scrollTop =
+      was.row?.isConnected && was.rowTop !== undefined
+        ? el.scrollTop + was.row.getBoundingClientRect().top - was.rowTop
+        : was.top + (el.scrollHeight - was.height);
     ownTop.current = el.scrollTop;
     lastTop.current = el.scrollTop;
   }, [more]);
@@ -477,19 +521,23 @@ export function MessageList({
           )}
         >
           {nothing && empty}
-          {start + unread > 0 && (
+          {(start + unread > 0 || older?.hasEarlier) && (
             <button
               type="button"
               onClick={showEarlier}
               disabled={start === 0 && older?.loading}
               className="self-center rounded-(--radius-control) border border-border px-3 py-1 text-app-micro text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
-              {t("chat.show_earlier", { count: start + unread })}
+              {older?.hasEarlier
+                ? t("chat.show_earlier_unknown")
+                : t("chat.show_earlier", { count: start + unread })}
             </button>
           )}
           {historyItems.slice(Math.min(start, historyItems.length)).map((item) => (
             <Fragment key={`h-${item.key}`}>
-              <Item item={item} ctx={ctx} view={views.get(item)} />
+              <div className="contents" data-chat-row>
+                <Item item={item} ctx={ctx} view={views.get(item)} />
+              </div>
               {movesAfter.get(item)?.map((move) => (
                 <MoveLine key={`m-${move.at}`} move={move} />
               ))}
@@ -497,7 +545,9 @@ export function MessageList({
           ))}
           {liveItems.slice(Math.max(0, start - historyItems.length)).map((item) => (
             <Fragment key={item.key}>
-              <Item item={item} ctx={ctx} view={views.get(item)} />
+              <div className="contents" data-chat-row>
+                <Item item={item} ctx={ctx} view={views.get(item)} />
+              </div>
               {movesAfter.get(item)?.map((move) => (
                 <MoveLine key={`m-${move.at}`} move={move} />
               ))}

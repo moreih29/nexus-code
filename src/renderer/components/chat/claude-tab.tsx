@@ -17,6 +17,7 @@ import {
   type PermissionAnswer,
   pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
+import { historyForDisplay } from "../../services/chat/claude/history";
 import { runAppCommand } from "../../services/chat/claude/run-command";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
@@ -223,19 +224,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const running = state.model.running;
   const canFork = controller.forkPoint("", { before: false }) !== null;
   const asking = state.model.permissions;
+  const unverifiedStart = controller.unverifiedHistoryStart();
   // Set below, where the agents are known; read when a row renders.
   const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   const actions = useMemo<MessageActions>(
     () => ({
       running,
       canFork,
+      canForkItem: (item) =>
+        !!item.uuid &&
+        (item.kind !== "user" || (item.state === "taken" && item.uuid !== unverifiedStart)),
+      canRewindItem: (item) =>
+        item.state === "taken" && !!item.uuid && item.uuid !== unverifiedStart,
       onRewind: (item) => setRewinding(item),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
       onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       taskShower: (item) => taskShower.current(item),
     }),
-    [running, canFork, controller, workspaceId, props.cwd, asking],
+    [running, canFork, controller, workspaceId, props.cwd, asking, unverifiedStart],
   );
 
   // Where the side panel goes follows the tab's width.
@@ -303,7 +310,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
   // Its history's subagents too, which ended: a conversation resumed shows them.
-  const pastModel = state.history;
+  const pastHistory = state.history;
+  const pastModel = useMemo(
+    () => (pastHistory ? historyForDisplay(pastHistory) : null),
+    [pastHistory],
+  );
   const { tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls } = state.model;
   const pastAgents = useMemo(() => (pastModel ? pastAgentsOf(pastModel) : []), [pastModel]);
   const liveAgents = useMemo(
@@ -668,13 +679,26 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               tabId={tabId}
               cwd={props.cwd}
               rootPath={rootPath}
-              history={state.history}
+              history={pastModel}
               model={state.model}
               actions={shown ? undefined : actions}
               items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
+              older={
+                !shown && state.historyPage
+                  ? {
+                      ...state.historyPage,
+                      load: () =>
+                        void controller
+                          .loadEarlier()
+                          .catch((error: Error) =>
+                            showToast({ kind: "error", message: error.message }),
+                          ),
+                    }
+                  : undefined
+              }
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
