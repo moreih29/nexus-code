@@ -21,6 +21,7 @@ import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
 import type { FsProvider } from "../fs/bridge/provider";
+import { validFileName } from "./file-io";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 
 /** How much of a text file a read gives when it does not say. */
@@ -157,6 +158,36 @@ export function placeOf(root: string, folders: readonly string[], asked: string)
   const folder = folders.map((f) => clean(style, f)).find((f) => within(style, f, absolute));
   if (folder) return { kind: "folder", absolute };
   throw forbidden(`${asked} is outside the workspace's folders`);
+}
+
+/** Fully qualified paths on the desktop host, without Windows device paths or streams. */
+export function absoluteFilePath(asked: string): string {
+  const windows = process.platform === "win32";
+  if (
+    asked.includes("\0") ||
+    (windows
+      ? !WINDOWS_ABSOLUTE.test(asked) || /^[\\/]{2}[?.][\\/]/.test(asked)
+      : !path.isAbsolute(asked))
+  ) {
+    throw forbidden("an absolute file path on this computer is required");
+  }
+  const cleanPath = clean(windows ? WINDOWS : POSIX, asked);
+  const parts = cleanPath.slice(path.parse(cleanPath).root.length).split(path.sep).filter(Boolean);
+  if (windows && !parts.every((part) => validFileName(part, path))) {
+    throw forbidden("that is no file path on this computer");
+  }
+  return cleanPath;
+}
+
+/** Resolve an outside source to the path the user approves. */
+export async function outsideFileSource(asked: string): Promise<string> {
+  const absolute = absoluteFilePath(asked);
+  return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+      throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
+    }
+    throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
+  });
 }
 
 /**
@@ -341,10 +372,13 @@ async function listHere(absolute: string): Promise<Entry[]> {
 export async function listFiles(
   files: RemoteFiles,
   root: string,
-  { workspaceId, path: asked }: RpcParams<"files.list">,
+  { workspaceId, path: asked, anywhere }: RpcParams<"files.list">,
+  approvedPath?: string,
 ): Promise<RpcResult<"files.list">> {
-  const folders = await files.folders(workspaceId);
-  const place = placeOf(root, folders, asked);
+  const folders = anywhere ? [] : await files.folders(workspaceId);
+  const place: Place = anywhere
+    ? { kind: "folder", absolute: absoluteFilePath(asked) }
+    : placeOf(root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   let entries: Entry[];
@@ -365,8 +399,11 @@ export async function listFiles(
         "a folder outside the workspace's is listed only on this computer, not on its host",
       );
     }
-    await realWithin(fs, style, folders, place.absolute);
-    entries = await listHere(place.absolute);
+    if (!anywhere) await realWithin(fs, style, folders, place.absolute);
+    entries = await listHere(approvedPath ?? place.absolute);
+    if (approvedPath && (await outsideFileSource(asked)) !== approvedPath) {
+      throw fileChanged(false);
+    }
     absolute = place.absolute;
   }
   entries.sort((a, b) =>
@@ -406,7 +443,9 @@ export async function readFile(
     versioned,
     ifVersion,
     requireVersion,
+    anywhere,
   }: RpcParams<"files.read">,
+  approvedPath?: string,
 ): Promise<RpcResult<"files.read">> {
   const optedIn = versioned === true || ifVersion !== undefined || requireVersion !== undefined;
   if (ifVersion !== undefined && requireVersion !== undefined) {
@@ -424,8 +463,10 @@ export async function readFile(
   if (length === 0 && !optedIn) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a zero-length read requires version opt-in");
   }
-  const folders = await files.folders(workspaceId);
-  const place = await placeToRead(files, workspaceId, root, folders, asked);
+  const folders = anywhere ? [] : await files.folders(workspaceId);
+  const place = anywhere
+    ? { kind: "folder" as const, absolute: absoluteFilePath(asked) }
+    : await placeToRead(files, workspaceId, root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   let source: FsPreviewPath;
@@ -440,8 +481,9 @@ export async function readFile(
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
     absolute = place.absolute;
-    source =
-      "output" in place
+    source = anywhere
+      ? { absolutePath: absolute, ...(approvedPath ? { expectedRealPath: approvedPath } : {}) }
+      : "output" in place
         ? { absolutePath: absolute }
         : {
             absolutePath: absolute,
@@ -454,7 +496,7 @@ export async function readFile(
   const readLength = as === "bytes" ? (length ?? MAX_BYTES_CHUNK) : mediaType ? 0 : maxBytes;
 
   const verifyGrant = async () => {
-    if (place.kind !== "folder") return;
+    if (anywhere || place.kind !== "folder") return;
     // The grant may have been revoked while the workspace's agent was reading.
     const currentFolders = await files.folders(workspaceId);
     const current = await placeToRead(files, workspaceId, root, currentFolders, asked);
@@ -494,6 +536,22 @@ export async function readFile(
     return version === undefined ? content : { ...content, version };
   }
 
+  if (anywhere) {
+    const target = await nodeFs.stat(absolute).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
+      }
+      throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be read");
+    });
+    if (target.isDirectory()) throw folderReadError(asked);
+    if (!target.isFile())
+      throw new RpcFailure(RpcErrorCode.InvalidParams, "a regular file is required");
+    // Older filesystem agents cannot safely open an arbitrary path as a regular file.
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "the filesystem agent must be updated to read this file",
+    );
+  }
   const legacy = await legacyPreview(
     fs,
     files,

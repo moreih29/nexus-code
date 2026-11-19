@@ -1,5 +1,6 @@
 /** Whether an agent on another computer may do what it asks here. */
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { AgentGate, relaySenderOf } from "../../../../../src/main/features/remote/agent-gate";
 import type { RemoteAgentsPolicy } from "../../../../../src/shared/types/app-state";
@@ -271,4 +272,66 @@ test("the sender a chat keeps: who, and on which computer", () => {
   // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
   expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
   expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
+});
+
+test("outside read approval is scoped to the canonical tree and expires two idle minutes later", async () => {
+  const { g, services, asked, later } = gate("ask", ["once", "deny", "deny", "deny", "deny"]);
+  const root = path.resolve("/workspace");
+  const outside = path.resolve("/outside");
+  const child = path.join(outside, "child");
+  const transferId = "10000000-0000-4000-8000-000000000000";
+  const read = (path: string, tree: boolean, tabId = from.tabId, copyId = transferId) =>
+    g.checkFile(
+      services,
+      {
+        device,
+        method: tree ? "files.list" : "files.read",
+        params: {
+          path,
+          from: { ...from, tabId },
+          workspaceId: "w1",
+          anywhere: true,
+          transferId: copyId,
+        },
+      },
+      { path, tree, workspaceRoot: root },
+    );
+  await read(outside, true);
+  expect(asked[0]).toMatchObject({ change: { kind: "fileReadTree", detail: outside } });
+  later(110_000);
+  await read(child, false);
+  await expect(read(path.resolve("/outside-sibling/child"), false)).rejects.toThrow(
+    "did not allow",
+  );
+  await expect(read(child, false, "other-tab")).rejects.toThrow("did not allow");
+  await expect(
+    read(child, false, from.tabId, "20000000-0000-4000-8000-000000000000"),
+  ).rejects.toThrow("did not allow");
+  later(119_999);
+  expect(asked).toHaveLength(4);
+  later(1);
+  await expect(read(child, false)).rejects.toThrow("did not allow");
+  expect(asked).toHaveLength(5);
+});
+
+test("a session approval for a file control is the existing device and workspace approval", async () => {
+  const { g, services, asked } = gate("ask", ["session"]);
+  const upload = (workspaceId: string, path: string) =>
+    g.checkFile(
+      services,
+      {
+        device,
+        method: "files.write.begin",
+        params: { path, size: 30, from, workspaceId },
+      },
+      { path, tree: false, workspaceRoot: "/workspace" },
+    );
+  await upload("w1", "/workspace/first");
+  await upload("w1", "/workspace/second");
+  await g.check(services, send({ tabId: "other-tab" }));
+  await expect(upload("w2", "/workspace/first")).rejects.toThrow("did not allow");
+  expect(asked[0]).toMatchObject({
+    change: { kind: "fileWrite", detail: "/workspace/first", body: "30 B" },
+  });
+  expect(asked).toHaveLength(2);
 });

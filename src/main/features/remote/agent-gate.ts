@@ -9,6 +9,7 @@
  * command's changes to another workspace are: for this once, or for every
  * change from that computer's workspace to this one until the app restarts.
  */
+import path from "node:path";
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
@@ -46,6 +47,32 @@ export interface AgentGateDeps {
   now?: () => number;
 }
 
+const FILE_CONSENT_IDLE_MS = 120_000;
+const MAX_FILE_GRANTS = 256;
+
+interface FileConsent {
+  /** A host-resolved path: reads follow links, writes resolve their parent. */
+  path: string;
+  tree: boolean;
+  /** Keep approvals tied to the workspace location used when the user answered. */
+  workspaceRoot: string;
+}
+
+interface FileGrant {
+  readonly key: string;
+  readonly path: string;
+  readonly tree: boolean;
+  expiresAt: number;
+}
+
+function covers(grant: FileGrant, target: string): boolean {
+  return (
+    target === grant.path ||
+    (grant.tree &&
+      target.startsWith(grant.path.endsWith(path.sep) ? grant.path : grant.path + path.sep))
+  );
+}
+
 const forbidden = (message: string) => new RpcFailure(RpcErrorCode.Forbidden, message);
 
 export class AgentGate {
@@ -58,6 +85,8 @@ export class AgentGate {
   private readonly prompting = new Map<string, number>();
   /** "device|its workspace>this workspace" pairs the user allowed until restart. */
   private readonly allowed = new Set<string>();
+
+  private fileGrants: FileGrant[] = [];
 
   constructor(private readonly deps: AgentGateDeps) {}
 
@@ -88,11 +117,65 @@ export class AgentGate {
       "too many messages from that agent",
     );
     refuseBeyondAsked(request);
+    await this.consent(services, request);
+  }
+
+  /** File transfers use the same prompt and session approvals as other controls. */
+  async checkFile(services: CliServices, request: AgentRequest, scope: FileConsent): Promise<void> {
+    const { device, method, params } = request;
+    const reading =
+      method === "files.read" || (method === "files.list" && params.writeTarget !== true);
+    const transferId = params.transferId;
+    // Writing one file takes one approval at begin. A recursive copy starts
+    // with mkdir and may reuse that approval for the directory's children.
+    if (!reading && typeof transferId !== "string") {
+      await this.consent(services, request, scope);
+      return;
+    }
+    const key = JSON.stringify([
+      device.id,
+      params.from.workspaceId,
+      params.from.tabId,
+      params.workspaceId,
+      scope.workspaceRoot,
+      reading,
+      params.anywhere === true,
+      transferId,
+    ]);
+    this.checkRead();
+    const now = this.now();
+    this.fileGrants = this.fileGrants.filter((grant) => grant.expiresAt > now);
+    const grant = this.fileGrants.find(
+      (entry) =>
+        entry.key === key &&
+        covers(entry, scope.path) &&
+        (entry.tree || !scope.tree) &&
+        (method !== "files.write.begin" || entry.path !== scope.path),
+    );
+    if (grant) {
+      grant.expiresAt = now + FILE_CONSENT_IDLE_MS;
+      return;
+    }
+    const answer = await this.consent(services, request, scope);
+    if (answer === "once" && (reading || scope.tree)) {
+      if (this.fileGrants.length >= MAX_FILE_GRANTS) this.fileGrants.shift();
+      this.fileGrants.push({
+        key,
+        path: scope.path,
+        tree: scope.tree,
+        expiresAt: this.now() + FILE_CONSENT_IDLE_MS,
+      });
+    }
+  }
+
+  private async consent(services: CliServices, request: AgentRequest, scope?: FileConsent) {
+    const { device, params } = request;
+    const { from } = params;
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
-    const change = await changeOf(services, request);
-    const pair = `${device.id}|${from.workspaceId}>${params.workspaceId}`;
+    const change = await changeOf(services, request, scope);
+    const pair = JSON.stringify([device.id, from.workspaceId, params.workspaceId]);
     if (this.allowed.has(pair)) return;
     const waiting = this.prompting.get(device.id) ?? 0;
     if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
@@ -128,8 +211,11 @@ export class AgentGate {
         if (left > 0) this.prompting.set(device.id, left);
         else this.prompting.delete(device.id);
       });
-    if (answer === "session") this.allowed.add(pair);
-    if (answer === "once" || answer === "session") return;
+    if (answer === "once" || answer === "session") {
+      this.checkRead();
+      if (answer === "session") this.allowed.add(pair);
+      return answer;
+    }
     throw forbidden(
       answer === "timeout"
         ? "the user there did not answer in time; nothing was done"
@@ -199,10 +285,32 @@ async function tabTitle(services: CliServices, workspaceId: string, tabId: strin
 async function changeOf(
   services: CliServices,
   { method, params }: AgentRequest,
+  scope?: FileConsent,
 ): Promise<CliChange> {
   const { workspaceId, tabId = "" } = params;
   const title = () => tabTitle(services, workspaceId, tabId);
   switch (method) {
+    case "files.write.begin":
+      return {
+        kind: "fileWrite",
+        detail: scope?.path ?? String(params.path),
+        body: `${String(params.size)} B`,
+        terminal: params.anywhere === true,
+      };
+    case "files.mkdir":
+      return {
+        kind: scope?.tree ? "fileWriteTree" : "fileMkdir",
+        detail: scope?.path ?? String(params.path),
+        terminal: params.anywhere === true,
+      };
+    case "files.list":
+    case "files.read":
+      return {
+        kind:
+          params.writeTarget === true ? "fileWriteTree" : scope?.tree ? "fileReadTree" : "fileRead",
+        detail: scope?.path ?? String(params.path),
+        terminal: true,
+      };
     case "chat.send":
       return { kind: "chatInput", detail: await title(), body: String(params.text) };
     case "chat.new":

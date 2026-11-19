@@ -26,6 +26,7 @@ import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
 import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { FileWrites } from "./file-writes";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
 import { installIdAt } from "./install-id";
@@ -345,6 +346,7 @@ export async function registerRemoteChannel(options: {
     if (room || !want) return;
     const { device } = want.signedIn;
     roomFor = id;
+    const fileWrites = new FileWrites();
     room = new RemoteRoom({
       self: { id: device.id, name: device.name, platform: device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
@@ -387,10 +389,12 @@ export async function registerRemoteChannel(options: {
           : {}),
         ...(options.notes ? { notes: options.notes } : {}),
         agents: agentGate,
+        fileWrites,
         deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
         controls,
       }),
       onChange: setRoomState,
+      onDisconnect: (peer) => void fileWrites.drop(peer),
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {

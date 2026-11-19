@@ -14,6 +14,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { senderOf } from "./sender";
@@ -223,9 +224,14 @@ export async function askDevice<M extends RpcMethod>(
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
-      : from && !reads
-        ? AGENT_REQUEST_MS
-        : undefined;
+      : method === "files.write.end"
+        ? 5 * 60_000
+        : from &&
+            !reads &&
+            (!isFileTransferMethod(method) ||
+              needsFileConsent(method, params as { anywhere?: true }))
+          ? AGENT_REQUEST_MS
+          : undefined;
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {

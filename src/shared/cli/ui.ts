@@ -229,6 +229,11 @@ export type CliChangeKind =
   | "commit"
   | "terminalNew"
   | "terminalInput"
+  | "fileWrite"
+  | "fileWriteTree"
+  | "fileMkdir"
+  | "fileRead"
+  | "fileReadTree"
   | "chatNew"
   | "chatInput"
   | "chatInterrupt"
@@ -277,7 +282,7 @@ export interface CliChange {
    * message or the prompt.
    */
   readonly body?: string;
-  /** A tabClose's tab is a terminal (or one of the tabs is). */
+  /** This change requires terminal control. */
   readonly terminal?: boolean;
 }
 
@@ -287,7 +292,7 @@ export function isTerminalChange(change: CliChange): boolean {
     change.kind === "terminalInput" ||
     change.kind === "terminalNew" ||
     change.kind === "groupClose" ||
-    (change.kind === "tabClose" && change.terminal === true)
+    change.terminal === true
   );
 }
 

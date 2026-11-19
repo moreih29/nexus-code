@@ -407,7 +407,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const agents: FakeApp["agents"] = new Map();
   const stops: string[] = [];
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
-  const workspaces = [...WORKSPACES];
+  const workspaces = structuredClone(WORKSPACES);
   const added: FakeApp["added"] = [];
   const sidebar: FakeApp["sidebar"] = [];
   /**

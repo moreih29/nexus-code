@@ -33,6 +33,7 @@ import {
   type ServerFrame,
 } from "../../../../packages/remote-protocol/src";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
+import { isFileTransferMethod } from "./file-io";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
@@ -102,19 +103,17 @@ class FileReadBudget {
   }
 }
 
-const imageReadBudget = new FileReadBudget(2, 16);
-const fileReadBudget = new FileReadBudget(8, 32);
 const FILE_READ_SOCKET_HIGH_WATER = 4 * MAX_FRAME_BYTES;
 
-function readBudget(params: unknown): FileReadBudget {
+function readsWholeImage(params: unknown): boolean {
   const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
   const image = /\.(png|jpe?g|gif|webp)$/i;
-  return as !== "bytes" &&
+  return (
+    as !== "bytes" &&
     typeof path === "string" &&
     (image.test(posix.normalize(path).replace(/\/+$/, "")) ||
       image.test(win32.normalize(path).replace(/\\+$/, "")))
-    ? imageReadBudget
-    : fileReadBudget;
+  );
 }
 
 /** A request that failed, with its JSON-RPC error. */
@@ -150,8 +149,15 @@ export interface RemoteRoomDeps {
     handlers: Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">,
   ): RoomConnection;
   /** Answers another device's request; a RpcFailure for an error it should see. */
-  serve(request: { from: string; method: RpcMethod; params: unknown }): Promise<unknown>;
+  serve(request: {
+    from: string;
+    method: RpcMethod;
+    params: unknown;
+    isCurrent?: () => boolean;
+  }): Promise<unknown>;
   onChange(state: RoomState): void;
+  /** Drop device-owned work when a peer disconnects, or all work when this device does. */
+  onDisconnect?(peer?: string): void;
   onNotification?(from: string, method: string, params: unknown): void;
   /**
    * A message sealed with a newer version of the account key came: it may
@@ -176,6 +182,8 @@ interface Pending {
 
 export class RemoteRoom {
   private readonly connection: RoomConnection;
+  private readonly imageReadBudget = new FileReadBudget(2, 16);
+  private readonly fileReadBudget = new FileReadBudget(8, 32);
   private status: RoomStatus = "off";
   private peers = new Map<string, RoomPeer>();
   private seq = 0;
@@ -217,6 +225,7 @@ export class RemoteRoom {
   stop(): void {
     this.connection.stop();
     this.failPending("left the room");
+    this.deps.onDisconnect?.();
     this.status = "off";
     this.cancelQueuedReads();
     this.changed();
@@ -232,6 +241,7 @@ export class RemoteRoom {
 
   /** Starts a new epoch: nothing sealed for the last is taken, so what it asked in it fails now. */
   private renew(why: string): void {
+    this.deps.onDisconnect?.();
     this.epoch = newEpoch();
     this.heard.clear();
     this.past.clear();
@@ -402,6 +412,7 @@ export class RemoteRoom {
   private onStatus(status: RelayStatus): void {
     this.status = status;
     if (status !== "online") {
+      this.deps.onDisconnect?.();
       // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
       this.cancelQueuedReads();
@@ -427,6 +438,9 @@ export class RemoteRoom {
           ...(known?.online && known.schema ? { schema: known.schema } : {}),
           ...(known?.rejoins ? { rejoins: known.rejoins } : {}),
         });
+      }
+      for (const peer of this.peers.values()) {
+        if (peer.online && !next.get(peer.id)?.online) this.deps.onDisconnect?.(peer.id);
       }
       this.peers = next;
       this.cancelQueuedReads();
@@ -522,6 +536,7 @@ export class RemoteRoom {
    * there, which is asked for again as its `rejoins` grows.
    */
   private rejoined(from: string): void {
+    this.deps.onDisconnect?.(from);
     this.cancelQueuedReads();
     const peer = this.peers.get(from);
     if (!peer) return;
@@ -556,12 +571,12 @@ export class RemoteRoom {
       return;
     }
     if ("method" in message && "id" in message) {
+      const current = () =>
+        this.status === "online" &&
+        this.heard.get(from)?.epoch === epoch &&
+        this.peers.get(from)?.online === true;
       if (message.method === "files.read") {
-        const budget = readBudget(message.params);
-        const current = () =>
-          this.status === "online" &&
-          this.heard.get(from)?.epoch === epoch &&
-          this.peers.get(from)?.online === true;
+        const budget = readsWholeImage(message.params) ? this.imageReadBudget : this.fileReadBudget;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
           // Every refused request is told, each with its own small reply: left
@@ -584,14 +599,21 @@ export class RemoteRoom {
         try {
           await this.waitForFileReadSocket(current);
           if (!current()) return;
-          const answer = await this.answer(from, message.method, message.params);
+          const answer = await this.answer(from, message.method, message.params, current);
           if (current()) await this.reply(from, epoch, message, answer, current);
         } finally {
           budget.release();
         }
         return;
       }
-      const answer = await this.answer(from, message.method, message.params);
+      const transfer = isFileTransferMethod(message.method);
+      if (transfer && !current()) return;
+      const answer = await this.answer(
+        from,
+        message.method,
+        message.params,
+        transfer ? current : undefined,
+      );
       void this.reply(from, epoch, message, answer);
       return;
     }
@@ -652,14 +674,15 @@ export class RemoteRoom {
   }
 
   private cancelQueuedReads(): void {
-    imageReadBudget.cancelWaiting();
-    fileReadBudget.cancelWaiting();
+    this.imageReadBudget.cancelWaiting();
+    this.fileReadBudget.cancelWaiting();
   }
 
   private async answer(
     from: string,
     method: string,
     params: unknown,
+    isCurrent?: () => boolean,
   ): Promise<{ result: unknown } | { error: RpcError }> {
     if (!isRpcMethod(method)) {
       return { error: { code: RpcErrorCode.MethodNotFound, message: `no method ${method}` } };
@@ -689,7 +712,24 @@ export class RemoteRoom {
     }
     // An agent may do only what people may do from other devices here, and only when agents may.
     const serves = this.serves();
-    if (!serves.includes(spec.capability as Capability)) {
+    const anywhere = parsed.success && (parsed.data as { anywhere?: true }).anywhere === true;
+    const capability =
+      anywhere && (method === "files.write.begin" || method === "files.mkdir")
+        ? "terminal.control"
+        : spec.capability;
+    if (
+      anywhere &&
+      (method === "files.list" || method === "files.read") &&
+      !serves.includes("terminal.control")
+    ) {
+      return {
+        error: {
+          code: RpcErrorCode.Forbidden,
+          message: "file access outside the workspace requires terminal control",
+        },
+      };
+    }
+    if (!serves.includes(capability as Capability)) {
       return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
     }
     if (byAgent && !serves.includes("agents")) {
@@ -704,7 +744,14 @@ export class RemoteRoom {
       return { error: { code: RpcErrorCode.InvalidParams, message: parsed.error.message } };
     }
     try {
-      return { result: await this.deps.serve({ from, method, params: parsed.data }) };
+      return {
+        result: await this.deps.serve({
+          from,
+          method,
+          params: parsed.data,
+          ...(isCurrent ? { isCurrent } : {}),
+        }),
+      };
     } catch (error) {
       if (error instanceof RpcFailure) {
         return {

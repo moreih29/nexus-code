@@ -1,34 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
-import { type FileHandle, lstat, mkdir, open, rename, stat, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   MAX_BYTES_CHUNK,
-  type RemoteWorkspace,
   RpcErrorCode,
-  type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { speaks } from "../../../shared/remote/room";
+import { validFileName, writeFileChunk } from "../remote/file-io";
 import { bytesOf, supportsFileVersions } from "../remote/peer-file-reads";
-import { RpcFailure } from "../remote/room";
-import { type CliContext, type CliDevice, CliError } from "./context";
-import { callerPath, onAppMachine } from "./paths";
+import { type CliContext, CliError } from "./context";
 import {
-  askDevice,
-  deviceRef,
-  offline,
-  peerSessions,
-  pickPeerWorkspace,
-  resolveDevice,
-} from "./remote";
+  type FilePeer,
+  type FileTransfer,
+  fileTransferTarget,
+  rpcMessage,
+  transferChunks,
+  withFileTransfer,
+} from "./file-transfer";
+import { callerPath } from "./paths";
+import { deviceRef } from "./remote";
 
-type FileMethod = "files.list" | "files.read";
-type FilePeer = <M extends FileMethod>(
-  method: M,
-  params: Omit<RpcParams<M>, "workspaceId">,
-  signal: AbortSignal,
-) => Promise<RpcResult<M>>;
 type Bytes = Omit<Extract<RpcResult<"files.read">, { kind: "bytes" }>, "data"> & { data: Buffer };
 type Source =
   | { kind: "file"; remotePath: string }
@@ -44,35 +36,6 @@ interface SavedFile {
 }
 
 type PullEntry = SavedFile | { remotePath: string; skipped: "symlink" };
-
-const PARALLEL_CHUNKS = 4;
-const BUSY_RETRIES = 5;
-const BUSY_RETRY_BASE_MS = 250;
-// All pulls share the relay socket with chat and terminal traffic. Allow bursts
-// of chunks, with room left in the relay's 50-frame-per-second budget.
-const REQUESTS_PER_SECOND = 24;
-const sent: number[] = [];
-// Leave time to unwind before the hook server (35m) and client (36m) deadlines.
-const PULL_TIMEOUT_MS = 34 * 60_000;
-
-async function waitForFileRequest(signal: AbortSignal): Promise<void> {
-  for (;;) {
-    signal.throwIfAborted();
-    const now = performance.now();
-    while (sent.length > 0 && now - (sent[0] as number) >= 1000) sent.shift();
-    if (sent.length < REQUESTS_PER_SECOND) {
-      sent.push(now);
-      return;
-    }
-    await delay(Math.ceil(1000 - (now - (sent[0] as number))), undefined, { signal });
-  }
-}
-
-function rpcMessage(error: unknown, code: number): string | undefined {
-  if (error instanceof CliError && error.cause instanceof RpcFailure && error.cause.code === code) {
-    return error.cause.message;
-  }
-}
 
 function isFolder(error: unknown): boolean {
   return (
@@ -134,24 +97,6 @@ async function readBytes(
   return { ...result, data };
 }
 
-function validName(name: string, rules: path.PlatformPath): boolean {
-  if (
-    !name ||
-    name === "." ||
-    name === ".." ||
-    name.includes("\0") ||
-    rules.basename(name) !== name
-  ) {
-    return false;
-  }
-  if (rules !== path.win32) return true;
-  return (
-    !/[<>:"|?*]|[. ]$/.test(name) &&
-    !Array.from(name).some((c) => c.charCodeAt(0) < 32) &&
-    !/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$)(?:\.|$)/i.test(name)
-  );
-}
-
 async function listTree(
   peer: FilePeer,
   remotePath: string,
@@ -165,7 +110,7 @@ async function listTree(
   }
   const children: Extract<Source, { kind: "dir" }>["children"] = [];
   for (const entry of listing.entries) {
-    if (!validName(entry.name, rules)) {
+    if (!validFileName(entry.name, rules)) {
       throw new CliError(`invalid entry name from the remote: ${JSON.stringify(entry.name)}`);
     }
     const child = rules.join(listing.path, entry.name);
@@ -187,7 +132,7 @@ async function localIO<T>(destination: string, act: () => Promise<T>): Promise<T
 }
 
 function localChild(parent: string, name: string): string {
-  if (!validName(name, path)) {
+  if (!validFileName(name, path)) {
     throw new CliError(`cannot save the remote name ${JSON.stringify(name)} on this computer`);
   }
   return path.join(parent, name);
@@ -231,20 +176,6 @@ async function makeDirectory(destination: string): Promise<void> {
   }
 }
 
-async function writeChunk(file: FileHandle, bytes: Buffer, offset: number): Promise<void> {
-  let written = 0;
-  while (written < bytes.length) {
-    const { bytesWritten } = await file.write(
-      bytes,
-      written,
-      bytes.length - written,
-      offset + written,
-    );
-    if (bytesWritten === 0) throw new Error("the write made no progress");
-    written += bytesWritten;
-  }
-}
-
 /** Use the current destination's mode when replacing a regular file. */
 async function destinationMode(destination: string): Promise<number> {
   try {
@@ -267,43 +198,28 @@ async function copyFile(
   const temporary = path.join(path.dirname(destination), `.nexus-pull-${randomUUID()}.tmp`);
   const file = await localIO(destination, () => open(temporary, "wx", 0o600));
   const hash = createHash("sha256");
-  const stopBatch = new AbortController();
-  const pieceSignal = AbortSignal.any([signal, stopBatch.signal]);
   let saved = false;
   try {
     try {
-      await localIO(destination, () => writeChunk(file, first.data, 0));
+      await localIO(destination, () => writeFileChunk(file, first.data, 0));
       hash.update(first.data);
-      for (let offset = first.data.length; offset < first.size; ) {
-        signal.throwIfAborted();
-        const batch: Promise<Buffer>[] = [];
-        for (let i = 0; i < PARALLEL_CHUNKS && offset < first.size; i++) {
-          const at = offset;
-          const length = Math.min(MAX_BYTES_CHUNK, first.size - at);
-          batch.push(
-            (async () => {
-              const { data } = await readBytes(
-                peer,
-                { path: remotePath, offset: at, length },
-                pieceSignal,
-                first,
-              );
-              pieceSignal.throwIfAborted();
-              await localIO(destination, () => writeChunk(file, data, at));
-              return data;
-            })(),
+      await transferChunks(
+        first.data.length,
+        first.size,
+        signal,
+        async (offset, length, pieceSignal) => {
+          const { data } = await readBytes(
+            peer,
+            { path: remotePath, offset, length },
+            pieceSignal,
+            first,
           );
-          offset += length;
-        }
-        try {
-          for (const bytes of await Promise.all(batch)) hash.update(bytes);
-        } catch (error) {
-          stopBatch.abort();
-          // No positioned write may outlive the file handle or cleanup.
-          await Promise.allSettled(batch);
-          throw error;
-        }
-      }
+          pieceSignal.throwIfAborted();
+          await localIO(destination, () => writeFileChunk(file, data, offset));
+          return data;
+        },
+        (bytes) => hash.update(bytes),
+      );
       if (first.version === undefined) {
         await readBytes(peer, { path: remotePath, offset: 0, length: 1 }, signal, first);
       }
@@ -328,31 +244,6 @@ async function copyFile(
   }
 }
 
-function filePeer(ctx: CliContext, device: CliDevice, workspace: RemoteWorkspace): FilePeer {
-  return async <M extends FileMethod>(
-    method: M,
-    params: Omit<RpcParams<M>, "workspaceId">,
-    signal: AbortSignal,
-  ) => {
-    const request = { ...params, workspaceId: workspace.id } as RpcParams<M>;
-    for (let retry = 0; ; retry++) {
-      await waitForFileRequest(signal);
-      try {
-        return await askDevice(ctx, device, method, request, signal);
-      } catch (error) {
-        if (
-          method !== "files.read" ||
-          retry >= BUSY_RETRIES ||
-          rpcMessage(error, RpcErrorCode.Unavailable) !== "the host is busy reading files"
-        ) {
-          throw error;
-        }
-      }
-      await delay(BUSY_RETRY_BASE_MS * 2 ** retry, undefined, { signal });
-    }
-  };
-}
-
 export async function pull(
   ctx: CliContext,
   options: {
@@ -362,31 +253,14 @@ export async function pull(
     localPath?: string;
     recursive: boolean;
   },
-): Promise<{ device: ReturnType<typeof deviceRef>; destination: string; entries: PullEntry[] }> {
-  if (!onAppMachine(ctx)) {
-    throw new CliError("run file pull in a local workspace on the app's computer");
-  }
-  const deadline = new AbortController();
-  const timer = setTimeout(
-    () => deadline.abort(new CliError("file pull timed out", 3)),
-    PULL_TIMEOUT_MS,
-  );
-  const signal = ctx.signal ? AbortSignal.any([ctx.signal, deadline.signal]) : deadline.signal;
-  try {
-    signal.throwIfAborted();
-    const device = await resolveDevice(ctx, options.device);
-    if (!device) throw new CliError("give --device to choose a remote computer", 2);
-    if (!device.online) throw offline(device, ctx.services.clock.now());
-    if (!device.serves.includes("files")) {
-      throw new CliError(`"${device.name}" does not share files (Settings › Remote)`);
-    }
-    const { workspaces } = await peerSessions(ctx, device, signal);
-    const workspace = pickPeerWorkspace(device, workspaces, options.workspace);
-    const peer = filePeer(ctx, device, workspace);
-    // The serving device also accepts UNC paths with forward slashes.
-    const rules = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(workspace.path)
-      ? path.win32
-      : path.posix;
+): Promise<FileTransfer> {
+  return withFileTransfer(ctx, "pull", async (signal) => {
+    const { device, rules, anywhere, peer } = await fileTransferTarget(
+      ctx,
+      options,
+      "pull",
+      signal,
+    );
     const versioned = supportsFileVersions(device.schema);
     const readFirst = (remotePath: string) =>
       readBytes(
@@ -400,18 +274,31 @@ export async function pull(
         signal,
       );
     let first: Bytes | undefined;
-    let source: Source;
-    try {
-      first = await readFirst(options.remotePath);
-      source = { kind: "file", remotePath: options.remotePath };
-    } catch (error) {
-      if (!isFolder(error)) throw error;
-      if (!options.recursive) {
-        throw new CliError(
-          `${JSON.stringify(options.remotePath)} is a directory (use -r to copy it)`,
-        );
+    let source: Source | undefined;
+    if (anywhere && options.recursive && speaks(device.schema, "0.14.0")) {
+      // Approve the tree at its root before reading children.
+      try {
+        source = await listTree(peer, options.remotePath, rules, signal);
+      } catch (error) {
+        if (
+          !rpcMessage(error, RpcErrorCode.InvalidParams)?.endsWith("is a file: files.read reads it")
+        )
+          throw error;
       }
-      source = await listTree(peer, options.remotePath, rules, signal);
+    }
+    if (!source) {
+      try {
+        first = await readFirst(options.remotePath);
+        source = { kind: "file", remotePath: options.remotePath };
+      } catch (error) {
+        if (!isFolder(error)) throw error;
+        if (!options.recursive) {
+          throw new CliError(
+            `${JSON.stringify(options.remotePath)} is a directory (use -r to copy it)`,
+          );
+        }
+        source = await listTree(peer, options.remotePath, rules, signal);
+      }
     }
     const destination = await destinationOf(
       ctx,
@@ -433,10 +320,5 @@ export async function pull(
     }
     signal.throwIfAborted();
     return { device: deviceRef(device), destination, entries };
-  } catch (error) {
-    signal.throwIfAborted();
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  });
 }
