@@ -6,6 +6,7 @@
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
+  MAX_FILE_WRITE_BYTES,
   MAX_WAIT_MS,
   type RemoteSession,
   type RemoteWorkspace,
@@ -14,7 +15,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import { isFileTransferMethod, needsFileConsent } from "../remote/file-io";
+import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { senderOf } from "./sender";
@@ -32,6 +33,8 @@ export const NOT_IN_ROOM = "this computer is not in the remote room (Settings â€
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
 /** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
+// The peer may need to verify a maximum-size upload and then commit it.
+const FILE_WRITE_END_REQUEST_MS = fileVerifyTimeoutMs(MAX_FILE_WRITE_BYTES) + 35_000;
 
 /** A device as JSON names it beside what came from it. */
 export function deviceRef(device: CliDevice): { id: string; name: string } {
@@ -225,7 +228,7 @@ export async function askDevice<M extends RpcMethod>(
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
-        ? 5 * 60_000
+        ? FILE_WRITE_END_REQUEST_MS
         : from &&
             !reads &&
             (!isFileTransferMethod(method) ||

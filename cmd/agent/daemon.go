@@ -229,6 +229,8 @@ func runDaemon(root string) {
 
 	// Step 6: bind the Unix socket. The run directory (0700) is already
 	// ensured above; explicit socket chmod 0600 guards against any umask.
+	// The socket trusts callers running as this user: they can already read
+	// the user's files, so the daemon requires no separate connection token.
 	ln, err := net.Listen("unix", paths.Sock)
 	if err != nil {
 		agentLogger.Error("daemon listen failed", "path", paths.Sock, "err", err)
@@ -314,6 +316,7 @@ func runDaemon(root string) {
 			pty.Close()  // hang up every terminal, as closing its tab does
 			chat.Close() // and end every Claude tab's program
 			lsp.Close()
+			fsys.DropUploads(nil)
 			if hooksrv != nil {
 				_ = hooksrv.Close()
 			}
@@ -391,6 +394,7 @@ func runDaemon(root string) {
 		var preempted atomic.Int32
 
 		host := stdioserver.New(d, conn, conn, agentLogger)
+		host.RegisterShutdownHook(func() { fsys.DropUploads(host.Context()) })
 
 		// Ready goes first: the client takes the first frame it gets for the
 		// handshake, and an event ahead of it reads as an agent without an

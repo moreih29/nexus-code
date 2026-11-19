@@ -266,6 +266,9 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 		if err := hs.WaitReady(waitCtx); err != nil {
 			return nil, proto.NewError(proto.CodeUnavailable, "hookserver not ready: "+err.Error())
 		}
+		// The daemon's 0600 socket trusts this user, whose processes can
+		// already read the user's files. The master hook token can be returned
+		// over that connection without a separate connection token.
 		return map[string]any{
 			"socketPath": hs.SocketPath(),
 			"token":      hs.Token(),

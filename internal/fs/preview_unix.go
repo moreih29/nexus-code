@@ -13,15 +13,22 @@ import (
 // Open the resolved absolute path one component at a time. O_NOFOLLOW
 // protects each component if it changes after the grant's symlink checks.
 func openPreviewFile(real string) (*os.File, error) {
+	return openCanonicalPath(real, false)
+}
+
+func openCanonicalPath(real string, directory bool) (*os.File, error) {
 	const flags = unix.O_CLOEXEC | unix.O_NOFOLLOW
 	fd, err := unix.Open("/", flags|previewDirOpenFlags, 0)
 	if err != nil {
 		return nil, err
 	}
+	if real == "/" && directory {
+		return os.NewFile(uintptr(fd), real), nil
+	}
 	parts := strings.Split(strings.TrimPrefix(real, "/"), "/")
 	for i, part := range parts {
 		mode := flags | unix.O_RDONLY | unix.O_NONBLOCK
-		if i < len(parts)-1 {
+		if directory || i < len(parts)-1 {
 			mode = flags | previewDirOpenFlags
 		}
 		next, err := unix.Openat(fd, part, mode, 0)

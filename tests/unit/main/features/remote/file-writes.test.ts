@@ -10,6 +10,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,7 +21,10 @@ import {
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
+import { AgentFsProvider } from "../../../../../src/main/features/fs/bridge/agent-provider";
+import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
+import { fileVerifyTimeoutMs } from "../../../../../src/main/features/remote/file-io";
 import {
   FileWrites,
   makeRemoteDirectory,
@@ -207,6 +211,23 @@ test("another peer cannot complete or abort an upload; owner abort is idempotent
   expect(await readdir(root)).toEqual([]);
 });
 
+test.each([
+  ["abandoned file", ".nexus-push-a0000000-0000-4000-8000-000000000000.tmp", "old", false],
+  ["recent file", ".nexus-push-b0000000-0000-4000-8000-000000000000.tmp", "recent", true],
+  ["unrelated file", ".nexus-push-not-an-upload.tmp", "old", true],
+  ["matching directory", ".nexus-push-c0000000-0000-4000-8000-000000000000.tmp", "dir", true],
+] as const)("begin handles %s in the destination folder", async (_, name, kind, kept) => {
+  const target = path.join(root, name);
+  if (kind === "dir") await mkdir(target);
+  else await writeFile(target, "");
+  if (kind !== "recent") {
+    const old = new Date(Date.now() - 25 * 60 * 60_000);
+    await utimes(target, old, old);
+  }
+  await begin("data", 0);
+  expect((await readdir(root)).includes(name)).toBe(kept);
+});
+
 test("idle expiry is reset by a chunk and removes the temporary file", async () => {
   const pending = new Set<() => Promise<void>>();
   writes = new FileWrites((expire, idleMs) => {
@@ -246,10 +267,27 @@ function consentHost(
   policy: RemoteAgentsPolicy,
   ...answers: Array<"once" | "session" | "deny" | "timeout">
 ) {
+  return fileHost(policy, answers);
+}
+
+function fileHost(
+  policy: RemoteAgentsPolicy,
+  answers: Array<"once" | "session" | "deny" | "timeout">,
+  agent?: FsProvider,
+) {
   const app = fakeApp();
   const workspace = app.workspaces[0];
   if (!workspace) throw new Error("workspace fixture is missing");
-  Object.assign(workspace, { rootPath: root, location: { kind: "local", rootPath: root } });
+  const location =
+    agent?.kind === "ssh"
+      ? { kind: "ssh", host: "host", remotePath: "/remote" }
+      : agent?.kind === "wsl"
+        ? { kind: "wsl", distro: "Ubuntu", remotePath: "/remote" }
+        : { kind: "local", rootPath: root };
+  Object.assign(workspace, {
+    rootPath: "remotePath" in location ? location.remotePath : root,
+    location,
+  });
   const prompts: unknown[] = [];
   const services = {
     ...app.services,
@@ -266,6 +304,7 @@ function consentHost(
     fileWrites: writes,
     files: {
       fs: async () => {
+        if (agent) return agent;
         throw new Error("probing a write target reads no entries");
       },
       shrink: () => null,
@@ -343,4 +382,66 @@ test("recursive push outside the workspace can approve the destination probe and
   expect(prompts[0]).toMatchObject({
     change: { kind: "fileWriteTree", detail: dest, terminal: true },
   });
+});
+
+test.each([
+  ["ssh", true],
+  ["wsl", true],
+  ["ssh", false],
+  ["wsl", false],
+] as const)("%s workspace push with upload RPC support %s", async (kind, supported) => {
+  const fs = new AgentFsProvider(kind);
+  const calls: Array<{ method: string; params: unknown; timeoutMs?: number }> = [];
+  fs.callAgentMethod = async <T>(
+    method: string,
+    params?: unknown,
+    options?: { timeoutMs?: number },
+  ): Promise<T> => {
+    calls.push({ method, params, ...options });
+    if (!supported)
+      throw Object.assign(new Error("method unavailable"), { code: "unsupported-method" });
+    if (method === "fs.upload.resolve") {
+      return { path: `/remote/${(params as { relPath: string }).relPath}` } as T;
+    }
+    return {} as T;
+  };
+  const { invoke, prompts } = fileHost("ask", ["once"], fs);
+  if (!supported) {
+    for (const method of ["files.write.begin", "files.mkdir"] as const) {
+      await expect(invoke(method, { path: "folder", size: 3 })).rejects.toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: "the remote filesystem agent must be updated to write files",
+      });
+    }
+    expect(prompts).toHaveLength(0);
+    expect(calls.every(({ method }) => method === "fs.upload.resolve")).toBe(true);
+    return;
+  }
+  if (kind === "ssh") expect(fileVerifyTimeoutMs(8 * 1024 ** 3)).toBe(286_000);
+  expect(await invoke("files.mkdir", { path: "folder" })).toEqual({ path: "/remote/folder" });
+  const { uploadId } = (await invoke("files.write.begin", {
+    path: "/remote/folder/data",
+    size: 3,
+  })) as { uploadId: string };
+  const chunk = piece(uploadId, 0, "new");
+  await invoke("files.write.chunk", chunk);
+  const sha256 = digest("new");
+  expect(await invoke("files.write.end", { uploadId, sha256 })).toEqual({
+    path: "/remote/folder/data",
+    size: 3,
+    sha256,
+  });
+  expect(prompts).toHaveLength(1);
+  expect(calls).toEqual([
+    { method: "fs.upload.resolve", params: { relPath: "folder", directory: true } },
+    { method: "fs.upload.mkdir", params: { relPath: "folder", expectedPath: "/remote/folder" } },
+    { method: "fs.upload.resolve", params: { relPath: "folder/data", directory: false } },
+    {
+      method: "fs.upload.begin",
+      params: { relPath: "folder/data", expectedPath: "/remote/folder/data", uploadId, size: 3 },
+    },
+    { method: "fs.upload.chunk", params: chunk },
+    { method: "fs.upload.verify", params: { uploadId, sha256 }, timeoutMs: 30_001 },
+    { method: "fs.upload.commit", params: { uploadId } },
+  ]);
 });

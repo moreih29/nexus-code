@@ -21,6 +21,11 @@ export function needsFileConsent(method: string, params: { anywhere?: true }): b
 
 export const FILE_WRITE_BUSY = "the host is busy writing files";
 
+/** Budget for a full re-read and hash at 32 MiB/s, plus request overhead. */
+export function fileVerifyTimeoutMs(size: number): number {
+  return 30_000 + Math.ceil((size * 1000) / (32 * 1024 ** 2));
+}
+
 export function filePathRules(root: string): path.PlatformPath {
   return /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(root) ? path.win32 : path.posix;
 }

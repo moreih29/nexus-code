@@ -597,7 +597,7 @@ func (h *Host) beginRequest(method string, size int) (release func(), accepting 
 	}
 	usage, countLimit, byteLimit := &h.regular, maxDispatchRequests, maxDispatchBytes
 	switch method {
-	case "pty.ack", "search.cancel", "git.cancel", "lsp.cancel", "chat.stop", "lsp.shutdown":
+	case "pty.ack", "search.cancel", "git.cancel", "lsp.cancel", "chat.stop", "lsp.shutdown", "fs.upload.abort":
 		usage, countLimit, byteLimit = &h.control, maxControlRequests, maxControlBytes
 	}
 	if usage.requests >= countLimit || size > byteLimit-usage.bytes {
