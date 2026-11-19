@@ -40,6 +40,10 @@ type EventSink func(event string, payload any) error
 type Service struct {
 	root string
 
+	uploadMu     sync.Mutex
+	uploads      map[string]*fileUpload
+	uploadClosed bool
+
 	// watchMu serializes fs.watch, fs.unwatch and Close, so fsnotify Add and
 	// Remove run in call order without holding mu, which the event loop
 	// needs before it can take the next event from fsnotify.
@@ -63,6 +67,7 @@ func New(root string) (*Service, error) {
 	}
 	return &Service{
 		root:    filepath.Clean(abs),
+		uploads: make(map[string]*fileUpload),
 		watches: make(map[string]*watchEntry),
 		buffers: make(map[string]filewatch.FsChangeKind),
 	}, nil
@@ -75,8 +80,9 @@ func (s *Service) SetEventSink(sink EventSink) {
 	s.sink = sink
 }
 
-// Close stops watcher goroutines and clears buffered fs events.
+// Close discards uploads, stops watchers, and clears buffered fs events.
 func (s *Service) Close() {
+	s.DropUploads(nil)
 	s.watchMu.Lock()
 	defer s.watchMu.Unlock()
 	s.mu.Lock()
@@ -108,6 +114,13 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readAbsoluteRange", fsys.ReadAbsoluteRange)
 	d.Register("fs.readPreview", fsys.ReadPreview)
 	d.Register("fs.writeFile", fsys.WriteFile)
+	d.Register("fs.upload.resolve", bindUpload(fsys.resolveUpload))
+	d.Register("fs.upload.mkdir", bindUpload(fsys.mkdirUpload))
+	d.Register("fs.upload.begin", bindUpload(fsys.beginUpload))
+	d.Register("fs.upload.chunk", bindUpload(fsys.chunkUpload))
+	d.Register("fs.upload.verify", bindUpload(fsys.verifyUpload))
+	d.Register("fs.upload.commit", bindUpload(fsys.commitUpload))
+	d.Register("fs.upload.abort", bindUpload(fsys.abortUpload))
 	d.Register("fs.createFile", fsys.CreateFile)
 	d.Register("fs.mkdir", fsys.Mkdir)
 	d.Register("fs.unlink", fsys.Unlink)

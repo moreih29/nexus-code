@@ -9,7 +9,6 @@
  * command's changes to another workspace are: for this once, or for every
  * change from that computer's workspace to this one until the app restarts.
  */
-import path from "node:path";
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
@@ -22,6 +21,7 @@ import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliChange } from "../../../shared/cli/ui";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
+import { filePathRules } from "./file-io";
 import { RpcFailure } from "./room";
 
 const MINUTE_MS = 60_000;
@@ -66,10 +66,10 @@ interface FileGrant {
 }
 
 function covers(grant: FileGrant, target: string): boolean {
+  const { sep } = filePathRules(grant.path);
   return (
     target === grant.path ||
-    (grant.tree &&
-      target.startsWith(grant.path.endsWith(path.sep) ? grant.path : grant.path + path.sep))
+    (grant.tree && target.startsWith(grant.path.endsWith(sep) ? grant.path : grant.path + sep))
   );
 }
 

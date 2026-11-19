@@ -6,6 +6,8 @@ import {
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../cli/context";
+import { isAgentBackedProvider } from "../../fs/bridge/provider";
+import { AgentFileWrites } from "../agent-file-writes";
 import type { AgentGate } from "../agent-gate";
 import type { ConsentControls } from "../consents";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
@@ -65,16 +67,28 @@ export async function serveFileDestination(
     if (!current || current.rootPath !== root || !isDeepStrictEqual(current.location, location)) {
       throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
     }
-    if (location.kind !== "local") {
+    if (write.anywhere && location.kind !== "local") {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
-        "file writes require a local workspace on the serving computer",
+        "absolute file access requires a local workspace on the serving computer",
       );
     }
   };
   authorize();
   const directory = method === "files.mkdir";
-  approvedPath = await fileWriteDestination(root, write, directory);
+  let agent: AgentFileWrites | undefined;
+  if (location.kind !== "local") {
+    const fs = await watches.files?.fs(write.workspaceId).catch(unavailable);
+    if (!fs || fs.kind !== location.kind || !isAgentBackedProvider(fs)) {
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        "the workspace's filesystem agent is unavailable",
+      );
+    }
+    agent = new AgentFileWrites(fs, root, write.path, directory);
+  }
+  approvedPath = await (agent?.resolve() ?? fileWriteDestination(root, write, directory));
+  authorize();
   await watches.agents?.checkFile(
     s,
     {
@@ -89,8 +103,16 @@ export async function serveFileDestination(
     },
   );
   authorize();
-  if (directory) return makeRemoteDirectory(root, write, authorize);
-  return fileWrites.begin(from, root, write, authorize);
+  if (directory) {
+    return agent ? agent.mkdir(approvedPath) : makeRemoteDirectory(root, write, authorize);
+  }
+  return fileWrites.begin(
+    from,
+    root,
+    write,
+    authorize,
+    agent && { writer: agent, path: approvedPath },
+  );
 }
 
 /** Lists or reads a file with the request's workspace and access checks. */

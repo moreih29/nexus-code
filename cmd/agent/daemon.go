@@ -314,6 +314,7 @@ func runDaemon(root string) {
 			pty.Close()  // hang up every terminal, as closing its tab does
 			chat.Close() // and end every Claude tab's program
 			lsp.Close()
+			fsys.DropUploads(nil)
 			if hooksrv != nil {
 				_ = hooksrv.Close()
 			}
@@ -391,6 +392,7 @@ func runDaemon(root string) {
 		var preempted atomic.Int32
 
 		host := stdioserver.New(d, conn, conn, agentLogger)
+		host.RegisterShutdownHook(func() { fsys.DropUploads(host.Context()) })
 
 		// Ready goes first: the client takes the first frame it gets for the
 		// handshake, and an event ahead of it reads as an agent without an

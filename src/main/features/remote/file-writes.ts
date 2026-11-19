@@ -19,6 +19,7 @@ import {
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
+import type { AgentFileWrites } from "./agent-file-writes";
 import { FILE_WRITE_BUSY, readFileChunk, validFileName, writeFileChunk } from "./file-io";
 import { absoluteFilePath, placeOf } from "./files";
 import { RpcFailure } from "./room";
@@ -61,7 +62,9 @@ interface Upload {
   work: Set<Promise<unknown>>;
   ranges: Range[];
   sealed: boolean;
+  started: boolean;
   destination?: Destination;
+  agent?: { writer: AgentFileWrites; path: string };
   temporary?: string;
   file?: FileHandle;
   fileInfo?: Stats;
@@ -100,18 +103,23 @@ function optionalStat(target: string): Promise<Stats | undefined> {
   });
 }
 
+export function workspaceWritePath(root: string, requested: string, directory: boolean): string {
+  const place = placeOf(root, [], requested);
+  if (place.kind !== "workspace") throw forbidden("the path is outside the workspace's folder");
+  if (!place.rel && !directory) throw invalid("the destination is a folder");
+  return place.rel;
+}
+
 async function locate(root: string, request: Scope, directory = false): Promise<Destination> {
   let asked: string;
   if (request.anywhere) {
     asked = absoluteFilePath(request.path);
   } else {
-    const place = placeOf(root, [], request.path);
-    if (place.kind !== "workspace") throw forbidden("the path is outside the workspace's folder");
-    if (!place.rel && !directory) throw invalid("the destination is a folder");
-    asked = absoluteFilePath(path.join(root, place.rel));
-    if (place.rel) {
+    const rel = workspaceWritePath(root, request.path, directory);
+    asked = absoluteFilePath(path.join(root, rel));
+    if (rel) {
       let prefix = root;
-      for (const part of place.rel.split("/").slice(0, -1)) {
+      for (const part of rel.split("/").slice(0, -1)) {
         prefix = path.join(prefix, part);
         if ((await lstat(prefix)).isSymbolicLink()) {
           throw forbidden("the path goes through a symbolic link");
@@ -209,6 +217,7 @@ export class FileWrites {
     root: string,
     request: Begin,
     authorize: Authorize,
+    agent?: Upload["agent"],
   ): Promise<RpcResult<"files.write.begin">> {
     authorize();
     if (
@@ -228,12 +237,20 @@ export class FileWrites {
       work: new Set(),
       ranges: [],
       sealed: false,
+      started: false,
       reserved: 0,
+      agent,
     };
     this.uploads.set(uploadId, upload);
     this.touch(uploadId, upload);
     try {
       await this.work(upload, async () => {
+        if (agent) {
+          authorize(agent.path);
+          await agent.writer.begin(uploadId, agent.path, request.size);
+          upload.controller.signal.throwIfAborted();
+          return;
+        }
         const destination = await locate(root, request);
         const space = await statfs(destination.parent, { bigint: true });
         const reserved = [...this.uploads.values()]
@@ -258,6 +275,7 @@ export class FileWrites {
         await this.verifyParent(root, request, destination);
         upload.controller.signal.throwIfAborted();
       });
+      upload.started = true;
       return { uploadId };
     } catch (error) {
       await this.discard(uploadId, upload);
@@ -267,7 +285,7 @@ export class FileWrites {
 
   async chunk(device: string, request: RpcParams<"files.write.chunk">): Promise<void> {
     const upload = this.mine(device, request);
-    if (upload.sealed || !upload.file) throw invalid("the upload is not accepting pieces");
+    if (upload.sealed || !upload.started) throw invalid("the upload is not accepting pieces");
     if (upload.work.size >= MAX_ACTIVE_CHUNKS) throw busy();
     if (!BASE64.test(request.data)) throw invalid("the piece is not base64");
     const bytes = Buffer.from(request.data, "base64");
@@ -281,12 +299,16 @@ export class FileWrites {
     const end = request.offset + bytes.length;
     if (end > upload.request.size) throw invalid("the piece exceeds the declared file size");
     cover(upload.ranges, request.offset, end);
-    const file = upload.file;
     this.touch(request.uploadId, upload);
     try {
       await this.work(upload, async () => {
-        await writeFileChunk(file, bytes, request.offset);
-        upload.reserved -= bytes.length;
+        if (upload.agent) {
+          await upload.agent.writer.chunk(request.uploadId, request.offset, request.data);
+        } else {
+          if (!upload.file) throw invalid("the upload has not started");
+          await writeFileChunk(upload.file, bytes, request.offset);
+          upload.reserved -= bytes.length;
+        }
       });
     } catch (error) {
       await this.discard(request.uploadId, upload);
@@ -296,10 +318,9 @@ export class FileWrites {
 
   async end(device: string, request: RpcParams<"files.write.end">): Promise<UploadResult> {
     const upload = this.mine(device, request);
-    const { file, destination, temporary, fileInfo } = upload;
+    const { agent } = upload;
     if (upload.sealed || upload.work.size > 0) throw busy();
-    if (!file || !destination || !temporary || !fileInfo)
-      throw invalid("the upload has not started");
+    if (!upload.started) throw invalid("the upload has not started");
     upload.sealed = true;
     upload.cancelExpiry?.();
     const signal = upload.controller.signal;
@@ -307,38 +328,25 @@ export class FileWrites {
       return await this.work(upload, async () => {
         const size = upload.request.size;
         if (
-          (size !== 0 &&
-            (upload.ranges.length !== 1 ||
-              upload.ranges[0]?.[0] !== 0 ||
-              upload.ranges[0][1] !== size)) ||
-          (await file.stat()).size !== size
+          size !== 0 &&
+          (upload.ranges.length !== 1 ||
+            upload.ranges[0]?.[0] !== 0 ||
+            upload.ranges[0][1] !== size)
         ) {
           throw invalid("the upload did not receive all the declared bytes");
         }
-        const hash = createHash("sha256");
-        for (let offset = 0; offset < size; offset += MAX_BYTES_CHUNK) {
+        let destination: string;
+        if (agent) {
+          await agent.writer.verify(request.uploadId, request.sha256);
           signal.throwIfAborted();
-          hash.update(await readFileChunk(file, offset, Math.min(MAX_BYTES_CHUNK, size - offset)));
+          upload.authorize(agent.path);
+          await agent.writer.commit(request.uploadId);
+          delete upload.agent;
+          destination = agent.path;
+        } else {
+          destination = await this.commitLocal(upload, request.sha256);
         }
-        const sha256 = hash.digest("hex");
-        if (sha256 !== request.sha256) throw invalid("the upload's SHA-256 did not match");
-        await this.verifyParent(upload.root, upload.request, destination);
-        const current = await existingFile(destination.path);
-        if (process.platform !== "win32") {
-          const mode = current ? current.mode & 0o7777 : 0o666 & ~process.umask();
-          await file.chmod(mode);
-        }
-        await file.close();
-        delete upload.file;
-        await this.verifyParent(upload.root, upload.request, destination);
-        if (!sameFile(fileInfo, await lstat(temporary))) {
-          throw forbidden("the temporary file changed during the upload");
-        }
-        signal.throwIfAborted();
-        upload.authorize(destination.path);
-        await rename(temporary, destination.path);
-        delete upload.temporary;
-        const result = { path: destination.path, size, sha256 };
+        const result = { path: destination, size, sha256: request.sha256 };
         log.info(
           `Received remote file ${JSON.stringify({ device, from: upload.request.from, ...result })}`,
         );
@@ -349,6 +357,40 @@ export class FileWrites {
     } finally {
       await this.discard(request.uploadId, upload);
     }
+  }
+
+  private async commitLocal(upload: Upload, sha256: string): Promise<string> {
+    const { file, destination, temporary, fileInfo } = upload;
+    if (!file || !destination || !temporary || !fileInfo)
+      throw invalid("the upload has not started");
+    const { size } = upload.request;
+    if ((await file.stat()).size !== size) {
+      throw invalid("the upload did not receive all the declared bytes");
+    }
+    const signal = upload.controller.signal;
+    const hash = createHash("sha256");
+    for (let offset = 0; offset < size; offset += MAX_BYTES_CHUNK) {
+      signal.throwIfAborted();
+      hash.update(await readFileChunk(file, offset, Math.min(MAX_BYTES_CHUNK, size - offset)));
+    }
+    if (hash.digest("hex") !== sha256) throw invalid("the upload's SHA-256 did not match");
+    await this.verifyParent(upload.root, upload.request, destination);
+    const current = await existingFile(destination.path);
+    if (process.platform !== "win32") {
+      const mode = current ? current.mode & 0o7777 : 0o666 & ~process.umask();
+      await file.chmod(mode);
+    }
+    await file.close();
+    delete upload.file;
+    await this.verifyParent(upload.root, upload.request, destination);
+    if (!sameFile(fileInfo, await lstat(temporary))) {
+      throw forbidden("the temporary file changed during the upload");
+    }
+    signal.throwIfAborted();
+    upload.authorize(destination.path);
+    await rename(temporary, destination.path);
+    delete upload.temporary;
+    return destination.path;
   }
 
   async abort(device: string, request: UploadRef): Promise<void> {
@@ -409,7 +451,16 @@ export class FileWrites {
     upload.cancelExpiry?.();
     upload.cleanup = (async () => {
       try {
-        await Promise.allSettled(upload.work);
+        if (upload.started && upload.agent) {
+          const [abort] = await Promise.allSettled([
+            upload.agent.writer.abort(id),
+            Promise.allSettled(upload.work),
+          ]);
+          if (abort.status === "rejected") throw abort.reason;
+        } else {
+          await Promise.allSettled(upload.work);
+          await upload.agent?.writer.abort(id);
+        }
         try {
           await upload.file?.close();
         } finally {
