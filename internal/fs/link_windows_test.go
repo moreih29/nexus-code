@@ -60,7 +60,7 @@ func TestSymlinkFallbackCopiesAFileLinkAsItsFile(t *testing.T) {
 	dst := filepath.Join(root, "copy.txt")
 
 	refused := &os.LinkError{Op: "symlink", Old: "real.txt", New: dst, Err: windows.ERROR_PRIVILEGE_NOT_HELD}
-	if err := symlinkFallback(src, dst, "real.txt", refused); err != nil {
+	if _, err := symlinkFallback(context.Background(), src, dst, "real.txt", refused); err != nil {
 		t.Fatalf("symlinkFallback: %v", err)
 	}
 	if got, err := os.ReadFile(dst); err != nil || string(got) != "payload" {
@@ -80,7 +80,7 @@ func TestSymlinkFallbackKeepsARelativeDirectoryLinkRelative(t *testing.T) {
 	refused := &os.LinkError{Op: "symlink", Old: "real", New: dst, Err: windows.ERROR_PRIVILEGE_NOT_HELD}
 	// src stands for the link: os.Stat follows a link, so the directory it
 	// leads to does as well.
-	if err := symlinkFallback(filepath.Join(root, "src", "real"), dst, "real", refused); err != nil {
+	if _, err := symlinkFallback(context.Background(), filepath.Join(root, "src", "real"), dst, "real", refused); err != nil {
 		t.Fatalf("symlinkFallback: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "mine.txt")); err != nil {
@@ -94,7 +94,7 @@ func TestSymlinkFallbackLeavesOtherErrors(t *testing.T) {
 	src := filepath.Join(root, "real.txt")
 	must(t, os.WriteFile(src, nil, 0o644))
 	other := &os.LinkError{Op: "symlink", Err: windows.ERROR_ACCESS_DENIED}
-	if err := symlinkFallback(src, filepath.Join(root, "copy.txt"), "real.txt", other); err != other {
+	if _, err := symlinkFallback(context.Background(), src, filepath.Join(root, "copy.txt"), "real.txt", other); err != other {
 		t.Fatalf("symlinkFallback = %v, want the error back", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "copy.txt")); err == nil {
