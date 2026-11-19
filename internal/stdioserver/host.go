@@ -144,6 +144,12 @@ func New(d *dispatch.Dispatcher, in io.Reader, out io.Writer, logger *slog.Logge
 	}
 }
 
+// Context returns the connection context passed to request handlers. The
+// host cancels it once the drain finishes or reaches its deadline.
+func (h *Host) Context() context.Context {
+	return h.ctx
+}
+
 // stampInbound records "now" (monotonic, relative to startMono) as the last
 // time an inbound line arrived. Single encoding point for lastInbound so the
 // watchdog's idleElapsed reads the same units.

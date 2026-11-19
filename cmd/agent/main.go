@@ -174,7 +174,7 @@ func main() {
 	})
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
-	pty.SetEventSink(host.EmitEvent)
+	pty.SetEventSink(host.Context(), host.EmitEvent)
 	chat.SetEventSink(host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	if hooksrv != nil {

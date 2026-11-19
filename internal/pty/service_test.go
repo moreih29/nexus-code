@@ -221,7 +221,7 @@ func newTestService(t *testing.T) (*Service, *eventRecorder) {
 	t.Helper()
 	recorder := &eventRecorder{}
 	service := New()
-	service.SetEventSink(recorder.sink)
+	service.SetEventSink(context.Background(), recorder.sink)
 	t.Cleanup(service.Close)
 	return service, recorder
 }

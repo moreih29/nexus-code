@@ -26,7 +26,7 @@ func newConsoleService(t *testing.T) (*Service, *consoleRecorder) {
 	t.Helper()
 	svc := New()
 	rec := &consoleRecorder{}
-	svc.SetEventSink(func(event string, payload any) error {
+	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		switch p := payload.(type) {
