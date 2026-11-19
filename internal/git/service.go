@@ -24,6 +24,8 @@ const maxGitFileContentBytes = 5 * 1024 * 1024
 
 type Service struct {
 	root string
+	// commandWaitDelay bounds draining output inherited by Git's helpers.
+	commandWaitDelay time.Duration
 
 	mu       sync.Mutex
 	sink     EventSink
@@ -52,11 +54,12 @@ func New(root string) *Service {
 		abs = root
 	}
 	return &Service{
-		root:           filepath.Clean(abs),
-		streams:        make(map[string]context.CancelFunc),
-		watches:        make(map[string]*watchEntry),
-		gitDirty:       make(map[string]struct{}),
-		askpassPending: make(map[string]*askpassPending),
+		root:             filepath.Clean(abs),
+		commandWaitDelay: time.Second,
+		streams:          make(map[string]context.CancelFunc),
+		watches:          make(map[string]*watchEntry),
+		gitDirty:         make(map[string]struct{}),
+		askpassPending:   make(map[string]*askpassPending),
 	}
 }
 

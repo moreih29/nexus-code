@@ -10,9 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,9 +20,9 @@ import (
 const (
 	waitDelayFixtureAddr = "NEXUS_TEST_GIT_WAIT_ADDR"
 	waitDelayFixtureExe  = "NEXUS_TEST_GIT_WAIT_EXE"
-	waitDelayFixturePipe = "NEXUS_TEST_GIT_WAIT_PIPE"
 	waitDelayStdout      = "git's stdout\n"
 	waitDelayStderr      = "git's stderr\n"
+	fixtureWaitDelay     = 50 * time.Millisecond
 )
 
 // runWaitDelayFixture either runs the fake Git or holds the inherited pipes
@@ -32,17 +30,6 @@ const (
 func runWaitDelayFixture(addr string) int {
 	if len(os.Args) < 2 {
 		return 1
-	}
-	if os.Args[1] == "bulk" {
-		size, _ := strconv.Atoi(os.Args[2])
-		chunk := strings.Repeat("a", 32<<10)
-		for size > 0 {
-			n := min(len(chunk), size)
-			_, _ = io.WriteString(os.Stdout, chunk[:n])
-			size -= n
-		}
-		_, _ = io.WriteString(os.Stderr, "first diagnostic\n"+strings.Repeat("discard me\n", 100_000)+"last diagnostic\n")
-		return 0
 	}
 	if os.Args[1] == "--hold-pipes" {
 		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
@@ -61,57 +48,82 @@ func runWaitDelayFixture(addr string) int {
 	}
 	_, _ = io.WriteString(os.Stderr, waitDelayStderr)
 	helper := exec.Command(os.Getenv(waitDelayFixtureExe), "--hold-pipes")
-	if os.Getenv(waitDelayFixturePipe) != "stderr" {
-		helper.Stdout = os.Stdout
-	}
+	helper.Stdout = os.Stdout
 	helper.Stderr = os.Stderr
 	if err := helper.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	_ = helper.Process.Release()
+	if os.Args[1] == "wait-for-helper" {
+		// The cancelled launcher is still running when the helper connects.
+		if err := helper.Wait(); err != nil {
+			return 1
+		}
+	} else {
+		_ = helper.Process.Release()
+	}
 	return 0
+}
+
+// setupInheritedPipeFixture lets the fake Git start a descendant which
+// holds its pipes open until the test closes a separate control connection.
+func setupInheritedPipeFixture(t *testing.T) {
+	t.Helper()
+	setFakeGitExecutable(t, "wait-delay")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(waitDelayFixtureExe, exe)
+}
+
+// listenForPipeHolder exposes the control connection for one child process.
+func listenForPipeHolder(t *testing.T) *net.TCPListener {
+	t.Helper()
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv(waitDelayFixtureAddr, listener.Addr().String())
+	if err := listener.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	return listener
 }
 
 // TestGitSuccessWithInheritedOutputPipes starts an executable fixture on
 // both Windows and Unix. A helper holds the pipes open past Git's exit.
 func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
-	setFakeGitExecutable(t)
+	setupInheritedPipeFixture(t)
 	wantRun := RunResult{Stdout: waitDelayStdout, Stderr: waitDelayStderr, Code: 0}
 	logCall := func(s *Service, ctx context.Context) (any, error) {
 		return s.Log(ctx, json.RawMessage(`{"source":false}`))
 	}
 	for _, tc := range []struct {
 		name     string
-		hold     string
 		call     func(*Service, context.Context) (any, error)
 		want     any
 		logBatch bool
 	}{
-		{"run", "both", func(s *Service, ctx context.Context) (any, error) {
+		{"run", func(s *Service, ctx context.Context) (any, error) {
 			return s.Run(ctx, json.RawMessage(`{"args":["status"]}`))
 		}, wantRun, false},
-		{"capture", "both", func(s *Service, ctx context.Context) (any, error) {
+		{"capture", func(s *Service, ctx context.Context) (any, error) {
 			out, stderr, code, err := s.capture(ctx, "", []string{"status"}, false)
 			return RunResult{Stdout: out, Stderr: stderr, Code: code}, err
 		}, wantRun, false},
-		{"stream", "both", func(s *Service, ctx context.Context) (any, error) {
+		{"stream", func(s *Service, ctx context.Context) (any, error) {
 			return s.Stream(ctx, json.RawMessage(`{"streamId":"status","args":["status"]}`))
 		}, RunResult{Stderr: waitDelayStderr, Code: 0}, false},
-		{"log stderr", "stderr", logCall, LogResult{Count: 1}, true},
-		{"log both", "both", logCall, LogResult{Count: 1}, true},
+		{"log", logCall, LogResult{Count: 1}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer listener.Close()
-			t.Setenv(waitDelayFixtureAddr, listener.Addr().String())
-			t.Setenv(waitDelayFixturePipe, tc.hold)
+			listener := listenForPipeHolder(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			svc := New(t.TempDir())
+			svc.commandWaitDelay = fixtureWaitDelay
 			var entries []LogEntry
 			var streamed strings.Builder
 			svc.SetEventSink(func(_ string, payload any) error {
@@ -136,7 +148,6 @@ func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 				value, err := tc.call(svc, ctx)
 				finished <- response{value, err}
 			}()
-			_ = listener.SetDeadline(time.Now().Add(5 * time.Second))
 			conn, err := listener.AcceptTCP()
 			if err != nil {
 				t.Fatal("helper never connected:", err)
@@ -162,49 +173,91 @@ func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 	}
 }
 
-// setFakeGitExecutable exposes the test binary as Git on all supported OSes.
-func setFakeGitExecutable(t *testing.T) {
-	t.Helper()
-	exe, err := os.Executable()
+// TestCancelledGitReturnsWithInheritedOutputPipes cancels a running Git
+// command while a live descendant holds its stdout open.
+func TestCancelledGitReturnsWithInheritedOutputPipes(t *testing.T) {
+	setupInheritedPipeFixture(t)
+	listener := listenForPipeHolder(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := New(t.TempDir())
+	svc.commandWaitDelay = fixtureWaitDelay
+	cmd, err := svc.command(ctx, []string{"wait-for-helper"}, "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin, err := os.ReadFile(exe)
+	cmd.Stdout = io.Discard
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() { finished <- cmd.Wait() }()
+	conn, err := listener.AcceptTCP()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("helper never connected:", err)
 	}
-	dir := t.TempDir()
-	name := "git"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-		t.Setenv("PATHEXT", ".EXE")
+	defer conn.Close()
+
+	cancel()
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("cancelled Git unexpectedly succeeded")
+		}
+	case <-time.After(3 * time.Second):
+		_ = conn.Close()
+		<-finished
+		t.Fatal("Git wait is still blocked on the helper's output pipe")
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), bin, 0o700); err != nil {
-		t.Fatal(err)
+}
+
+// runOutputBudgetFixture produces controlled stdout and, when requested,
+// enough stderr to exceed the tail budget.
+func runOutputBudgetFixture() int {
+	if len(os.Args) < 3 {
+		return 1
 	}
-	t.Setenv("PATH", dir)
-	t.Setenv(waitDelayFixtureExe, exe)
+	size, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		return 1
+	}
+	chunk := strings.Repeat("a", 32<<10)
+	for size > 0 {
+		n := min(len(chunk), size)
+		if _, err := io.WriteString(os.Stdout, chunk[:n]); err != nil {
+			return 1
+		}
+		size -= n
+	}
+	if len(os.Args) > 3 && os.Args[3] == "stderr-tail" {
+		_, _ = io.WriteString(os.Stderr, "first diagnostic\n"+strings.Repeat("discard me\n", 100_000)+"last diagnostic\n")
+	}
+	return 0
 }
 
 // TestGitOutputBudgets exercises default, requested and hard limits through
 // the public command path, and retains only the latest diagnostic stderr.
 func TestGitOutputBudgets(t *testing.T) {
-	setFakeGitExecutable(t)
-	t.Setenv(waitDelayFixtureAddr, "bulk fixture")
+	setFakeGitExecutable(t, "output-budget")
 	svc := New(t.TempDir())
 	for _, tc := range []struct {
-		name   string
-		bytes  int
-		budget int
-		want   Kind
+		name       string
+		bytes      int
+		budget     int
+		want       Kind
+		stderrTail bool
 	}{
-		{"default", 12 << 20, 0, ""},
-		{"default overflow", (16 << 20) + 1, 0, KindOutputTooLarge},
-		{"requested", 17 << 20, 20 << 20, ""},
-		{"hard limit", (64 << 20) + 1, 65 << 20, KindOutputTooLarge},
+		{"default", 12 << 20, 0, "", true},
+		{"default overflow", (16 << 20) + 1, 0, KindOutputTooLarge, false},
+		{"requested", 17 << 20, 20 << 20, "", false},
+		{"hard limit", (64 << 20) + 1, 65 << 20, KindOutputTooLarge, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := json.Marshal(RunParams{Args: []string{"bulk", strconv.Itoa(tc.bytes)}, StdoutCapBytes: int64(tc.budget)})
+			args := []string{"bulk", strconv.Itoa(tc.bytes)}
+			if tc.stderrTail {
+				args = append(args, "stderr-tail")
+			}
+			raw, err := json.Marshal(RunParams{Args: args, StdoutCapBytes: int64(tc.budget)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,8 +269,11 @@ func TestGitOutputBudgets(t *testing.T) {
 			if got.ErrorKind != tc.want {
 				t.Fatalf("Git error kind = %q, want %q", got.ErrorKind, tc.want)
 			}
-			if tc.want == "" && (len(got.Stdout) != tc.bytes || strings.Contains(got.Stderr, "first diagnostic") || !strings.HasSuffix(got.Stderr, "last diagnostic\n")) {
-				t.Fatalf("Git retained %d stdout bytes and %d stderr bytes with expected tail: %t", len(got.Stdout), len(got.Stderr), strings.HasSuffix(got.Stderr, "last diagnostic\n"))
+			if tc.want == "" && len(got.Stdout) != tc.bytes {
+				t.Fatalf("Git retained %d stdout bytes, want %d", len(got.Stdout), tc.bytes)
+			}
+			if tc.stderrTail && (strings.Contains(got.Stderr, "first diagnostic") || !strings.HasSuffix(got.Stderr, "last diagnostic\n")) {
+				t.Fatalf("Git retained %d stderr bytes with expected tail: %t", len(got.Stderr), strings.HasSuffix(got.Stderr, "last diagnostic\n"))
 			}
 		})
 	}
