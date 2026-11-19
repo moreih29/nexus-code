@@ -3,7 +3,7 @@
  * the store the Settings dialog uses, and saved as the dialog saves it.
  */
 
-import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 const writes: unknown[] = [];
 
@@ -76,6 +76,10 @@ beforeEach(() => {
   usePreviewDefaultsStore.getState().hydrate({});
   useTerminalStore.getState().hydrateShells({ customShells: [] });
   writes.length = 0;
+});
+
+afterEach(() => {
+  usePreviewDefaultsStore.getState().hydrate({});
 });
 
 describe("settings.set", () => {
