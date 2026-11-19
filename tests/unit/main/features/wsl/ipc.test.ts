@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { SshBrowseSessionRegistry } from "../../../../src/main/features/ssh/browse-session-registry";
-import { openWslBrowseSessionHandler } from "../../../../src/main/features/wsl/ipc";
-import { createSshError } from "../../../../src/main/infra/agent/pipe";
+import { SshBrowseSessionRegistry } from "../../../../../src/main/features/ssh/browse-session-registry";
+import { openWslBrowseSessionHandler } from "../../../../../src/main/features/wsl/ipc";
+import { createSshError } from "../../../../../src/main/infra/agent/pipe";
 
 const registries: SshBrowseSessionRegistry[] = [];
 afterEach(() => {

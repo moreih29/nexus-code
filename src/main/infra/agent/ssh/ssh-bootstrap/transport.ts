@@ -10,7 +10,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { collectProcess } from "../../collect-process";
 import { createSshError } from "../../pipe";
-import { defaultSpawnSsh } from "../master";
+import { defaultSpawnSsh, sshDestination } from "../master";
 import {
   type EnsureRemoteAgentOptions,
   type LspBootstrapProgressEvent,
@@ -56,7 +56,7 @@ export async function runSsh(
 ): Promise<SshBootstrapRunnerResult> {
   return runner(
     "ssh",
-    [...buildSshTransportArgs(options), "--", destinationForOptions(options), remoteCommand],
+    [...buildSshTransportArgs(options), "--", sshDestination(options), remoteCommand],
     input,
   );
 }
@@ -67,7 +67,7 @@ export function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
   if (options.port !== undefined) args.push("-P", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
   if (options.controlPath) args.push("-o", `ControlPath=${options.controlPath}`);
-  args.push(destinationForOptions(options));
+  args.push(sshDestination(options));
   return args;
 }
 
@@ -87,11 +87,6 @@ export function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string
   if (options.port !== undefined) args.push("-p", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
   return args;
-}
-
-/** Composes `user@host` if a user was supplied, otherwise just the host. */
-export function destinationForOptions(options: EnsureRemoteAgentOptions): string {
-  return options.user ? `${options.user}@${options.host}` : options.host;
 }
 
 /** Uploads a local file to a remote path, retries once, and verifies sha256. */

@@ -54,4 +54,4 @@
 - 로그는 반드시 facade만 사용한다: main 프로세스는 `src/shared/log/main.ts`의 `createLogger(source)`, 렌더러는 `src/shared/log/renderer.ts`의 `createLogger(source)`. `console.log` / `console.error` 등 직접 호출 금지.
 - `source`는 모듈 또는 서브시스템 식별자를 바인딩하고, 관련 로그를 연결할 때 `correlationId`를 `meta`로 전달한다.
 - `internalMessage`는 로그에만 기록하고 화면에 노출하지 않는다.
-- 전역 안전망(`src/main/error-safety-net.ts`, `src/renderer/services/window-error-handler.ts`, `src/renderer/components/ui/error-boundary.tsx`)은 놓친 에러의 최후 수단이다. 각 핸들러에서 이미 잡힌 에러를 다시 전역 안전망에 의존하지 않는다.
+- 전역 안전망(`src/main/infra/error-safety-net.ts`, `src/renderer/services/window-error-handler.ts`, `src/renderer/components/ui/error-boundary.tsx`)은 놓친 에러의 최후 수단이다. 각 핸들러에서 이미 잡힌 에러를 다시 전역 안전망에 의존하지 않는다.

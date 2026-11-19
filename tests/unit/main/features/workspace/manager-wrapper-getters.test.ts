@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+import { AGENT_PROTOCOL_VERSION } from "../../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
 // electron mock — isPackaged=false (dev mode). #5 switches it to packaged for
@@ -34,18 +34,20 @@ mock.module("electron", () => ({
 // launchers to the real ~/.nexus-code/cli and returns it; on a runner without
 // one it returns null. The tests name a directory instead.
 const WINDOWS_LAUNCHER_DIR = path.join(os.tmpdir(), "nexus-cli-launchers");
-const realLaunchers = await import("../../../../src/main/features/cli/launchers");
-mock.module("../../../../src/main/features/cli/launchers", () => ({
+const realLaunchers = await import("../../../../../src/main/features/cli/launchers");
+mock.module("../../../../../src/main/features/cli/launchers", () => ({
   ...realLaunchers,
   windowsCliLauncherDir: () => WINDOWS_LAUNCHER_DIR,
 }));
 
 // dynamic import — after mock.module
-const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
-const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
-const { loginShell } = await import("../../../../src/main/infra/platform");
+const { GlobalStorage } = await import("../../../../../src/main/infra/storage/global-storage");
+const { WorkspaceStorage } = await import(
+  "../../../../../src/main/infra/storage/workspace-storage"
+);
+const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
+const { loginShell } = await import("../../../../../src/main/infra/platform");
 
 // ---------------------------------------------------------------------------
 // Helpers

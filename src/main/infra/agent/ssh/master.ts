@@ -93,7 +93,7 @@ export function buildSshArgs(options: SshMasterOptions): string[] {
   if (options.identityFile) {
     args.push("-i", options.identityFile);
   }
-  args.push("--", destinationForOptions(options), options.remoteCommand);
+  args.push("--", sshDestination(options), options.remoteCommand);
   return args;
 }
 
@@ -185,7 +185,7 @@ export function buildSshControlMasterArgs(
   ];
   if (options.port !== undefined) args.push("-p", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
-  args.push("--", destinationForOptions(options));
+  args.push("--", sshDestination(options));
   return args;
 }
 
@@ -196,14 +196,14 @@ export function buildSshControlExitArgs(
   const args = ["-S", options.controlPath, "-O", "exit"];
   if (options.port !== undefined) args.push("-p", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
-  args.push("--", destinationForOptions(options));
+  args.push("--", sshDestination(options));
   return args;
 }
 
 /**
  * Renders the OpenSSH destination from an optional user and host.
  */
-function destinationForOptions(options: Omit<SshMasterOptions, "remoteCommand">): string {
+export function sshDestination(options: Pick<SshMasterOptions, "host" | "user">): string {
   return options.user ? `${options.user}@${options.host}` : options.host;
 }
 

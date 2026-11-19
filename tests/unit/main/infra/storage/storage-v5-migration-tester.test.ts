@@ -13,8 +13,8 @@
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
-import { applyMigrations, MIGRATIONS } from "../../../../src/main/infra/storage/migrations";
+import { GlobalStorage } from "../../../../../src/main/infra/storage/global-storage";
+import { applyMigrations, MIGRATIONS } from "../../../../../src/main/infra/storage/migrations";
 
 // ---------------------------------------------------------------------------
 // Helpers

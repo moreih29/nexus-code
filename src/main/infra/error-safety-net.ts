@@ -26,7 +26,7 @@
  *   needs to change.
  */
 
-import { createLogger } from "../shared/log/main";
+import { createLogger } from "../../shared/log/main";
 
 const log = createLogger("main");
 

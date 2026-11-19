@@ -10,8 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
-import { closeTestDatabases, openTestDatabase } from "../../../helpers/test-database";
+import { WorkspaceStorage } from "../../../../../src/main/infra/storage/workspace-storage";
+import { closeTestDatabases, openTestDatabase } from "../../../../helpers/test-database";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-origin-perm-test-"));

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { isLinux, isMac, loginShell } from "./platform";
+import { isLinux, isMac, loginShell } from "./";
 
 /**
  * A macOS GUI app is started by launchd, so it only gets the system default PATH

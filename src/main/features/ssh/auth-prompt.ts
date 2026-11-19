@@ -4,12 +4,11 @@ import {
   SshAuthPromptSchema,
   SshAuthRespondArgsSchema,
   type SshAuthResponse,
-} from "../../../../shared/ssh/auth-prompt";
-import { register, validateArgs } from "../../ipc-router";
+} from "../../../shared/ssh/auth-prompt";
+import { AuthCancelledError } from "../../infra/agent/ssh/auth";
+import { register, validateArgs } from "../../infra/ipc-router";
 
-import { AuthCancelledError } from "./auth";
-
-export { AuthCancelledError } from "./auth";
+export { AuthCancelledError } from "../../infra/agent/ssh/auth";
 
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 

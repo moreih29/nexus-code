@@ -13,7 +13,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { mainErrorMock } from "../log-test-spies";
+import { mainErrorMock } from "../../log-test-spies";
 
 // ---------------------------------------------------------------------------
 // Fake Electron harness
@@ -77,11 +77,11 @@ mock.module("electron", () => ({
 }));
 
 const { broadcast, excludeFromBroadcast, register, setupRouter, validateArgs } = await import(
-  "../../src/main/infra/ipc-router"
+  "../../../src/main/infra/ipc-router"
 );
-const { registerRemoteChannel } = await import("../../src/main/features/remote");
-const { remoteServer } = await import("../../src/main/features/remote/server");
-const { isIpcErrResult } = await import("../../src/shared/ipc/result");
+const { registerRemoteChannel } = await import("../../../src/main/features/remote");
+const { remoteServer } = await import("../../../src/main/features/remote/server");
+const { isIpcErrResult } = await import("../../../src/shared/ipc/result");
 
 // ---------------------------------------------------------------------------
 // Wire up router once — registers the ipcMain.handle('ipc:call') handler.
@@ -236,7 +236,7 @@ describe("ipc round-trip — routing errors", () => {
   });
 
   it("maps workspace activation and connection failures through the call envelope", async () => {
-    const { registerWorkspaceChannel } = await import("../../src/main/features/workspace/ipc");
+    const { registerWorkspaceChannel } = await import("../../../src/main/features/workspace/ipc");
     const id = "123e4567-e89b-12d3-a456-426614174000";
     let name: string | null = "Workspace";
     let failure: unknown;
@@ -278,9 +278,9 @@ describe("ipc round-trip — routing errors", () => {
   });
 
   it("returns a recoverable SSH browse error after the session closes", async () => {
-    const { browseSessionHandler } = await import("../../src/main/features/ssh/ipc");
+    const { browseSessionHandler } = await import("../../../src/main/features/ssh/ipc");
     const { SshBrowseSessionRegistry } = await import(
-      "../../src/main/features/ssh/browse-session-registry"
+      "../../../src/main/features/ssh/browse-session-registry"
     );
     const registry = new SshBrowseSessionRegistry();
     const sessionId = registry.register({ dispose: () => {} } as never, null);
@@ -302,8 +302,8 @@ describe("ipc round-trip — routing errors", () => {
   });
 
   it("returns typed transport failures from FS watch and write provider startup", async () => {
-    const { watchHandler } = await import("../../src/main/features/fs/ipc/watch-handlers");
-    const { writeFileHandler } = await import("../../src/main/features/fs/ipc/write-handlers");
+    const { watchHandler } = await import("../../../src/main/features/fs/ipc/watch-handlers");
+    const { writeFileHandler } = await import("../../../src/main/features/fs/ipc/write-handlers");
     const offline = async () => {
       throw Object.assign(new Error("timed out"), { code: "transport.timeout" });
     };

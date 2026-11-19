@@ -32,12 +32,14 @@ mock.module("electron", () => ({
 // Dynamic imports — after mock.module
 // ---------------------------------------------------------------------------
 
-const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
-const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
+const { GlobalStorage } = await import("../../../../../src/main/infra/storage/global-storage");
+const { WorkspaceStorage } = await import(
+  "../../../../../src/main/infra/storage/workspace-storage"
+);
+const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { createAgentReconnectError } = await import(
-  "../../../../src/main/infra/agent/channel/reconnecting-process-channel"
+  "../../../../../src/main/infra/agent/channel/reconnecting-process-channel"
 );
 
 // ---------------------------------------------------------------------------

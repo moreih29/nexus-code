@@ -16,7 +16,7 @@
 
 import net from "node:net";
 import type { Duplex } from "node:stream";
-import { defaultSpawnSsh, type SpawnSshProcess } from "./master";
+import { defaultSpawnSsh, type SpawnSshProcess, sshDestination } from "./master";
 import { createSsh2Forwarder, type Ssh2Forwarder, usesSsh2Client } from "./ssh2";
 
 /** Where a workspace's SSH connection goes, and the master it shares, if any. */
@@ -71,10 +71,6 @@ export function forwardSpec(localPort: number, remotePort: number): string {
   return `127.0.0.1:${localPort}:${REMOTE_HOST}:${remotePort}`;
 }
 
-function destination(target: SshForwardTarget): string {
-  return target.user ? `${target.user}@${target.host}` : target.host;
-}
-
 function connectionArgs(target: SshForwardTarget): string[] {
   const args: string[] = [];
   if (target.port !== undefined) args.push("-p", String(target.port));
@@ -98,7 +94,7 @@ export function buildSshMuxForwardArgs(
     forwardSpec(localPort, remotePort),
     ...connectionArgs(target),
     "--",
-    destination(target),
+    sshDestination(target),
   ];
 }
 
@@ -121,7 +117,7 @@ export function buildSshOwnForwardArgs(
     forwardSpec(localPort, remotePort),
     ...connectionArgs(target),
     "--",
-    destination(target),
+    sshDestination(target),
     // ssh binds the forward before it opens the session, so the line means
     // the forward listens; cat ends when the app closes its stdin.
     `echo ${READY_LINE}; exec cat >/dev/null`,

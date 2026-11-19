@@ -14,9 +14,9 @@ import {
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
-import { fsErrorToIpcResult, isFsError } from "../../features/fs/ipc/fs-result";
 import { GitError } from "../../features/git/domain/error";
 import { agentCallError } from "./agent-errors";
+import { fsCallError } from "./fs-errors";
 
 const log = createLogger("main");
 
@@ -173,8 +173,7 @@ export function setupRouter(): void {
         if (error instanceof IpcValidationError) {
           return ipcErr("invalid-args", error.message, { category: "invalid-input" });
         }
-        if (isFsError(error)) return fsErrorToIpcResult(error);
-        const expected = agentCallError(error);
+        const expected = fsCallError(error) ?? agentCallError(error);
         if (expected) return expected;
         const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         return reportCallBug(procedure, correlationId, detail);

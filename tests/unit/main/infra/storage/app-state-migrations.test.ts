@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { migrateAppState } from "../../../../src/main/infra/storage/app-state-migrations";
-import { StateService } from "../../../../src/main/infra/storage/state-service";
+import { migrateAppState } from "../../../../../src/main/infra/storage/app-state-migrations";
+import { StateService } from "../../../../../src/main/infra/storage/state-service";
 
 const WS = "123e4567-e89b-12d3-a456-426614174000";
 const LEAF = "123e4567-e89b-12d3-a456-426614174001";
