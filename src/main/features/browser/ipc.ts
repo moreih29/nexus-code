@@ -256,29 +256,17 @@ export function registerBrowserChannel(
 
       suspendAll: async (args: unknown) => {
         const { captureSnapshot } = validateArgs(c.suspendAll.args, args);
-        // The registry's suspendAll captures BEFORE hiding (VSCode pattern) so
-        // the renderer can overlay each snapshot on top of the still-visible
-        // placeholder before the native view goes dark — no flash, no blank.
+        // Capture before hiding so the renderer can show the last frame under the overlay.
         const snapshots = await registry.suspendAll({ captureSnapshot });
         for (const { tabId, dataUrl } of snapshots) {
-          // Only broadcast when capture succeeded and produced a usable
-          // payload; tiny/empty captures arrive as null and the renderer
-          // keeps the prior placeholder without harm.
-          if (dataUrl !== null) {
-            broadcast("browser", "snapshot", { kind: "set", tabId, dataUrl });
-          }
+          broadcast("browser", "snapshot", { kind: "set", tabId, dataUrl });
         }
         return ipcOk(undefined);
       },
 
       resumeAll: (args: unknown) => {
         validateArgs(c.resumeAll.args, args);
-        const resumed = registry.resumeAll();
-        for (const tabId of resumed) {
-          // Drop the cached snapshot in the renderer so the live view shows
-          // through again.  Sent even when no snapshot was previously
-          // broadcast for this tab (e.g. drag-mode suspend with
-          // captureSnapshot=false) — harmless on the renderer side.
+        for (const tabId of registry.resumeAll()) {
           broadcast("browser", "snapshot", { kind: "cleared", tabId });
         }
         return ipcOk(undefined);
