@@ -58,14 +58,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcStream: mockIpcStream,
 }));
 
-mock.module("../../../../../src/renderer/state/stores/panel-view-options", () => ({
-  usePanelViewOptionsStore: {
-    getState: () => ({
-      closeForWorkspace: () => {},
-    }),
-  },
-}));
-
 mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
