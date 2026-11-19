@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -35,8 +35,41 @@ describe("StateService", () => {
 
     // The .vsctmp file must have been renamed away.
     expect(fs.existsSync(tmpPath)).toBe(false);
-    // The final file must exist.
-    expect(fs.existsSync(filePath)).toBe(true);
+    // A newly written file takes the temporary file's default mode.
+    const persisted = fs.statSync(filePath);
+    if (process.platform !== "win32") {
+      expect(persisted.mode & 0o777).toBe(0o666 & ~process.umask());
+    }
+  });
+
+  it.each([
+    "write",
+    "rename",
+  ] as const)("preserves app state and removes its temporary file after a %s failure", (stage) => {
+    const filePath = path.join(tmpDir, "state.json");
+    const service = new StateService(filePath);
+    service.setState({ lastActiveWorkspaceId: "old" });
+    const original = fs.readFileSync(filePath);
+    const error = new Error(`state ${stage} failed`);
+    const write = fs.writeSync;
+    const fail =
+      stage === "write"
+        ? spyOn(fs, "writeSync").mockImplementationOnce((fd) => {
+            write(fd, "{");
+            throw error;
+          })
+        : spyOn(fs, "renameSync").mockImplementationOnce(() => {
+            throw error;
+          });
+    try {
+      expect(() => service.setState({ lastActiveWorkspaceId: "new" })).toThrow(error.message);
+    } finally {
+      fail.mockRestore();
+    }
+
+    expect(service.getState().lastActiveWorkspaceId).toBe("old");
+    expect(fs.readFileSync(filePath)).toEqual(original);
+    expect(fs.readdirSync(tmpDir)).toEqual(["state.json"]);
   });
 
   it("mergeState merges without overwriting unrelated fields", () => {
