@@ -68,8 +68,9 @@ export interface RelayConnectionDeps {
   /**
    * The socket's address, with a fresh ticket: ws(s)://server/relay?v=2&ticket=...
    * SignedOutError and OutdatedError give up; any other failure tries again.
+   * The signal is aborted if this attempt is replaced or stopped.
    */
-  url(): Promise<string>;
+  url(signal: AbortSignal): Promise<string>;
   onOpen(): void;
   onFrame(frame: ServerFrame): void;
   onStatus(status: RelayStatus): void;
@@ -85,14 +86,23 @@ export interface RelayConnectionDeps {
   heartbeat?: { every: number; wait: number };
 }
 
+/** A socket and the origin it reached, stable for the life of this connection. */
+interface ActiveSocket {
+  readonly socket: Socket;
+  readonly origin: string;
+}
+
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
 export function defaultBackoff(attempt: number): number {
   const base = Math.min(30_000, 1000 * 2 ** attempt);
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
+/** Owns the current relay attempt from ticket acquisition through socket close. */
 export class RelayConnection {
-  private socket: Socket | null = null;
+  private connection: ActiveSocket | null = null;
+  /** The controller identifies the current attempt even before a socket exists. */
+  private owner: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private running = false;
@@ -130,15 +140,22 @@ export class RelayConnection {
 
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
   send(frame: ClientFrame): boolean {
-    if (this.status !== "online" || !this.socket) return false;
+    const socket = this.connection?.socket;
+    if (this.status !== "online" || !socket) return false;
     const text = JSON.stringify(frame);
     if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) return false;
-    this.socket.send(text);
+    socket.send(text);
     return true;
   }
 
   get bufferedAmount(): number {
-    return this.socket?.bufferedAmount ?? 0;
+    return this.connection?.socket.bufferedAmount ?? 0;
+  }
+
+  /** The route of the actual open socket, with identity stable across probes. */
+  onlineRoute(): { readonly origin: string } | null {
+    const connection = this.connection;
+    return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
 
   /** The room answered: the connection is good, and the next loss starts the backoff over. */
@@ -146,32 +163,49 @@ export class RelayConnection {
     this.attempt = 0;
   }
 
+  /** Gets a ticket and opens a socket only while this attempt owns the relay. */
   private async connect(): Promise<void> {
+    if (!this.running) return;
+    const owner = new AbortController();
+    this.owner = owner;
     this.set("connecting");
+    if (!this.owns(owner)) return;
+
     let url: string;
+    let connection: ActiveSocket;
     try {
-      url = await this.deps.url();
+      url = await this.deps.url(owner.signal);
+      if (!this.owns(owner)) return;
+      const origin = new URL(url).origin;
+      const socket = (this.deps.socket ?? ((address) => new WebSocket(address) as Socket))(url);
+      if (!this.owns(owner)) {
+        if (socket.readyState <= 1) socket.close(1000, "bye");
+        return;
+      }
+      connection = { origin, socket };
     } catch (error) {
+      if (!this.owns(owner)) return;
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
       } else if (error instanceof OutdatedError) this.giveUp("outdated");
-      else this.retry();
+      else this.retry(owner);
       return;
     }
-    if (!this.running) return;
-    const socket = (this.deps.socket ?? ((u) => new WebSocket(u) as Socket))(url);
-    this.socket = socket;
+
+    const { socket } = connection;
+    this.connection = connection;
     let opened = false;
     socket.addEventListener("open", () => {
-      if (this.socket !== socket) return;
+      if (this.connection !== connection) return;
       opened = true;
       this.set("online");
-      this.startHeartbeat(socket);
+      if (this.connection !== connection) return;
+      this.startHeartbeat(connection, owner);
       this.deps.onOpen();
     });
     socket.addEventListener("message", (event: { data: unknown }) => {
-      if (this.socket !== socket) return;
+      if (this.connection !== connection) return;
       // Anything from the relay answers the heartbeat.
       this.clearPongTimer();
       if (typeof event.data !== "string" || event.data === RELAY_PONG) return;
@@ -185,8 +219,8 @@ export class RelayConnection {
       if (parsed.success) this.deps.onFrame(parsed.data);
     });
     socket.addEventListener("close", (event: { code: number }) => {
-      if (this.socket !== socket) return;
-      this.socket = null;
+      if (this.connection !== connection) return;
+      this.connection = null;
       this.stopHeartbeat();
       if (event.code === CLOSE_REPLACED) this.giveUp("replaced");
       else if (event.code === CLOSE_SIGNED_OUT) {
@@ -196,7 +230,7 @@ export class RelayConnection {
         void this.connect();
       } else {
         if (!opened) this.deps.unreachable?.(url);
-        this.retry();
+        this.retry(owner);
       }
     });
     // An error is followed by a close, which decides what comes next.
@@ -208,14 +242,15 @@ export class RelayConnection {
    * not answered in time lets the socket go and joins the room again, as a
    * socket that closed does. Its own close may come long after, or never.
    */
-  private startHeartbeat(socket: Socket): void {
+  private startHeartbeat(connection: ActiveSocket, owner: AbortController): void {
+    const { socket } = connection;
     this.stopHeartbeat();
     const { every, wait } = this.deps.heartbeat ?? {
       every: HEARTBEAT_EVERY_MS,
       wait: PONG_WAIT_MS,
     };
     this.beat = setInterval(() => {
-      if (this.socket !== socket || this.pongTimer) return;
+      if (this.connection !== connection || this.pongTimer) return;
       try {
         socket.send(RELAY_PING);
       } catch {
@@ -223,8 +258,8 @@ export class RelayConnection {
       }
       this.pongTimer = setTimeout(() => {
         this.pongTimer = null;
-        if (this.socket !== socket) return;
-        this.socket = null;
+        if (this.connection !== connection) return;
+        this.connection = null;
         this.stopHeartbeat();
         try {
           socket.close();
@@ -232,7 +267,7 @@ export class RelayConnection {
           // Closing already.
         }
         if (this.quickRetry()) void this.connect();
-        else this.retry();
+        else this.retry(owner);
       }, wait);
     }, every);
   }
@@ -257,15 +292,17 @@ export class RelayConnection {
     return true;
   }
 
-  private retry(): void {
-    if (!this.running) return;
+  /** Schedules backoff only for the attempt that reported the loss. */
+  private retry(owner: AbortController): void {
+    if (!this.owns(owner)) return;
     this.set("waiting");
+    if (!this.owns(owner)) return;
     const delay = (this.deps.backoff ?? defaultBackoff)(this.attempt);
     this.attempt += 1;
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.running) void this.connect();
+      if (this.owns(owner)) void this.connect();
     }, delay);
   }
 
@@ -276,11 +313,20 @@ export class RelayConnection {
     this.set(status);
   }
 
+  /** Invalidates the attempt and detaches its socket before closing it. */
   private drop(): void {
-    const socket = this.socket;
-    this.socket = null;
+    const owner = this.owner;
+    const socket = this.connection?.socket;
+    this.owner = null;
+    this.connection = null;
     this.stopHeartbeat();
+    owner?.abort();
     if (socket && socket.readyState <= 1) socket.close(1000, "bye");
+  }
+
+  /** Whether pending work still belongs to the active relay attempt. */
+  private owns(owner: AbortController): boolean {
+    return this.running && this.owner === owner;
   }
 
   private clearTimer(): void {
