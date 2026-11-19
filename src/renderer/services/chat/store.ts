@@ -40,7 +40,7 @@ export interface QueuedMessage {
 export function dispatchQueuedMessage(
   queue: readonly QueuedMessage[],
   update: (change: (prev: ChatTabState) => ChatTabState) => void,
-  send: (item: QueuedMessage) => Promise<string | void>,
+  send: (item: QueuedMessage) => Promise<string | undefined>,
   rejected: (error: unknown) => boolean,
   observed: (id: string) => boolean,
   settled: () => void,

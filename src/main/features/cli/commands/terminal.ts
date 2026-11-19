@@ -26,7 +26,6 @@ import {
   pickPeerWorkspace,
   resolveDevice,
 } from "../remote";
-import { senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
   DEFAULT_WAIT_MS,
