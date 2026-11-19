@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	agentfs "github.com/nexus-code/nexus-code/internal/fs"
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
 type recordedEvent struct {
@@ -276,10 +276,10 @@ func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	}
 	waitUntil(t, 2*time.Second, func() bool { return service.serverRequestCount(result.ServerID) == 0 })
 
-	err := service.HandleFSChanged(agentfs.FsChangedPayload{
-		Changes: []agentfs.FsChange{
-			{RelPath: "src/main.go", Kind: agentfs.FsChangeModified},
-			{RelPath: "README.md", Kind: agentfs.FsChangeModified},
+	err := service.HandleFSChanged(filewatch.FsChangedPayload{
+		Changes: []filewatch.FsChange{
+			{RelPath: "src/main.go", Kind: filewatch.FsChangeModified},
+			{RelPath: "README.md", Kind: filewatch.FsChangeModified},
 		},
 	})
 	if err != nil {

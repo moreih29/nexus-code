@@ -20,6 +20,7 @@ import (
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
 	"github.com/nexus-code/nexus-code/internal/hookclient"
@@ -168,7 +169,7 @@ func main() {
 	fsys.SetEventSink(func(event string, payload any) error {
 		err := host.EmitEvent(event, payload)
 		if event == "fs.changed" {
-			if changed, ok := payload.(agentfs.FsChangedPayload); ok {
+			if changed, ok := payload.(filewatch.FsChangedPayload); ok {
 				if routeErr := lsp.HandleFSChanged(changed); err == nil {
 					err = routeErr
 				}

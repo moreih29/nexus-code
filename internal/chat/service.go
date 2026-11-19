@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -776,116 +775,6 @@ func (p *process) stderr() string {
 	p.stderrMu.Lock()
 	defer p.stderrMu.Unlock()
 	return strings.ToValidUTF8(string(p.stderrTail), "")
-}
-
-var errLineTooLong = errors.New("line too long")
-
-// readLine reads one line of at most limit bytes. A longer line is read to
-// its end and dropped, with errLineTooLong.
-func readLine(reader *bufio.Reader, limit int) ([]byte, error) {
-	var line []byte
-	tooLong := false
-	for {
-		chunk, err := reader.ReadSlice('\n')
-		if !tooLong {
-			if len(line)+len(chunk) > limit {
-				tooLong = true
-				line = nil
-			} else {
-				line = append(line, chunk...)
-			}
-		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		if tooLong && err == nil {
-			return nil, errLineTooLong
-		}
-		return line, err
-	}
-}
-
-// mergeEnv overlays the login shell's environment (./login_env.go), then
-// the tab's variables, on the agent's environment. The app's wrapper
-// directory goes first on the PATH, as for terminals, and variables a
-// parent Claude Code session sets are left out, so the program starts as
-// its own session.
-func mergeEnv(overrides map[string]string) []string {
-	merged := make(map[string]string)
-	for _, entry := range os.Environ() {
-		key, value, ok := strings.Cut(entry, "=")
-		if !ok || inheritedOnly(key) {
-			continue
-		}
-		merged[key] = value
-	}
-	for key, value := range loginEnv() {
-		merged[key] = value
-	}
-	for key, value := range overrides {
-		for existing := range merged {
-			if sameEnvKey(existing, key) {
-				delete(merged, existing)
-			}
-		}
-		merged[key] = value
-	}
-	if dir := overrides[wrapperDirEnv]; dir != "" {
-		prependPath(merged, dir)
-	}
-	if !hasLocale(merged) {
-		merged["LANG"] = "C.UTF-8"
-	}
-	keys := make([]string, 0, len(merged))
-	for key := range merged {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	env := make([]string, 0, len(keys))
-	for _, key := range keys {
-		env = append(env, key+"="+merged[key])
-	}
-	return env
-}
-
-const wrapperDirEnv = "NEXUS_WRAPPER_SELF_DIR"
-
-// inheritedOnly names the variables of a Claude Code session the agent may
-// have been started from, which would make the program take itself for a
-// part of that session.
-func inheritedOnly(key string) bool {
-	switch key {
-	case "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT":
-		return true
-	}
-	return false
-}
-
-// prependPath puts dir first on env's PATH, unless it is first already.
-func prependPath(env map[string]string, dir string) {
-	sep := string(os.PathListSeparator)
-	for key, value := range env {
-		if sameEnvKey(key, "PATH") {
-			if value == dir || strings.HasPrefix(value, dir+sep) {
-				return
-			}
-			if value != "" {
-				dir += sep + value
-			}
-			env[key] = dir
-			return
-		}
-	}
-	env["PATH"] = dir
-}
-
-func hasLocale(env map[string]string) bool {
-	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE"} {
-		if env[key] != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func decodeParams(raw json.RawMessage, target any, message string) error {

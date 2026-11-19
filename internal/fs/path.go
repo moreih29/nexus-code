@@ -65,3 +65,7 @@ func parseAbsolutePath(raw json.RawMessage) (string, error) {
 	}
 	return filepath.Clean(p.AbsolutePath), nil
 }
+
+func hasDotDotPrefix(rel string) bool {
+	return rel == ".." || len(rel) > 3 && rel[:3] == ".."+string(filepath.Separator)
+}
