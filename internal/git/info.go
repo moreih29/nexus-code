@@ -95,7 +95,7 @@ func inspectGitCandidate(ctx context.Context, candidate string) (string, string,
 	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	if err := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run); err != nil {
 		return "", "", false
 	}
 
@@ -186,7 +186,7 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if runErr := cmd.Run(); runErr != nil {
+	if runErr := runGitProbe(ctx, runtime.GOOS, cmd, (*exec.Cmd).Run); runErr != nil {
 		return "", "", runErr
 	}
 
@@ -208,6 +208,33 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 	gd := normalizeDetectedPath(cwd, lines[1])
 	logical := logicalTopLevel(cwd, cdup, tl)
 	return logical, rebasePath(gd, tl, logical), nil
+}
+
+// runGitProbe checks Apple's Git launcher for an active developer directory
+// before running it. On a fresh Mac starting the launcher itself can prompt
+// to install Command Line Tools. Third-party Git works independently.
+func runGitProbe(ctx context.Context, goos string, cmd *exec.Cmd, run func(*exec.Cmd) error) error {
+	if cmd.Err != nil {
+		return cmd.Err
+	}
+	if goos == "darwin" {
+		path := filepath.Clean(cmd.Path)
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		if path == "/usr/bin/git" {
+			probe := exec.CommandContext(ctx, "/usr/bin/xcode-select", "--print-path")
+			probe.Env = cmd.Environ()
+			if err := run(probe); err != nil {
+				var exit *exec.ExitError
+				if ctx.Err() == nil && errors.As(err, &exit) {
+					return exec.ErrNotFound
+				}
+				return err
+			}
+		}
+	}
+	return run(cmd)
 }
 
 // logicalTopLevel returns the repository root git reports — with symlinks
