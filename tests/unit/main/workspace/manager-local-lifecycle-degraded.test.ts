@@ -18,7 +18,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
@@ -155,6 +155,9 @@ for (const available of [true, false]) {
   test(`local reconnect waits for refreshed hooks before resync and spawn (${available ? "available" : "unavailable"})`, async () => {
     const harness = makeHarness();
     const { manager, channels, globalDb } = harness;
+    // Windows CI has no packaged nexus.exe to install. The launched chat
+    // needs a wrapper directory here so this test exercises hook refresh.
+    const wrapperDir = spyOn(manager, "getWrapperBinDir").mockReturnValue("/stub/wrappers");
     const resynced = Promise.withResolvers<void>();
     const events: string[] = [];
     const host = new ChatHost({
@@ -196,6 +199,7 @@ for (const available of [true, false]) {
       }
       expect(events).toEqual(["held", "resync"]);
     } finally {
+      wrapperDir.mockRestore();
       host.dispose();
       globalDb.close();
     }
