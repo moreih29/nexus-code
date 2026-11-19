@@ -10,6 +10,11 @@
 # release builds the renderer on each OS again.
 # Whenever node-pty, better-sqlite3 or Electron changes, each runner builds
 # the native modules against Electron on its own OS, proving they build there.
+#
+# macOS runs only for main: PRs into it, pushes to it and runs by hand. PRs
+# into develop skip it, since they are tested on a Mac before merging and the
+# macOS runners can queue for many minutes; the release PR into main still
+# checks macOS on a clean runner.
 
 name: CI
 
@@ -116,7 +121,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: ${{ fromJSON(github.base_ref == 'develop' && '["ubuntu-latest","windows-latest"]' || '["macos-15","ubuntu-latest","windows-latest"]') }}
 
     steps:
       - name: Checkout
@@ -169,7 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: ${{ fromJSON(github.base_ref == 'develop' && '["ubuntu-latest","windows-latest"]' || '["macos-15","ubuntu-latest","windows-latest"]') }}
 
     steps:
       - name: Checkout
