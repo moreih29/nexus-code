@@ -145,7 +145,9 @@ export function QuickLook({
   const peer = peerOf(workspaceId) !== null;
   const chatFiles = useChatFiles();
   const peerUnavailable = peer && chatFiles?.epoch === null;
-  const previewKey = peer ? JSON.stringify([workspaceId, path, chatFiles?.epoch]) : path;
+  // A return to the foreground rechecks an image (imageRevision) but keeps a
+  // document's scroll, page and zoom: only a new connection reads it again.
+  const previewKey = peer ? JSON.stringify([workspaceId, path, chatFiles?.connection]) : path;
 
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);

@@ -169,6 +169,31 @@ func TestPreviewSymlinkRootAndGrantPolicy(t *testing.T) {
 	}
 }
 
+func TestPreviewFolderGrantAcceptsAnotherSpellingOfTheAuthorizedFile(t *testing.T) {
+	s, root := previewFixture(t)
+	dir := filepath.Join(root, "Proj")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "README.md")
+	putPreviewFile(t, file, "readme")
+	other := filepath.Join(dir, "other.md")
+	putPreviewFile(t, other, "other")
+	// The caller resolves names to their on-disk case; the request may spell
+	// the path otherwise on a case-insensitive file system.
+	respelled := filepath.Join(root, "proj", "readme.md")
+	if _, err := os.Stat(respelled); err != nil {
+		t.Skip("file system is case-sensitive")
+	}
+	got, err := previewRequest(t, s, previewParams{AbsolutePath: respelled, ExpectedRealPath: file, Length: 6})
+	if err != nil || got.Base64 != "cmVhZG1l" {
+		t.Fatalf("respelled path of the authorized file: %+v %v", got, err)
+	}
+	if _, err := previewRequest(t, s, previewParams{AbsolutePath: respelled, ExpectedRealPath: other, Length: 6}); proto.ErrorCode(err) != CodeOutOfWorkspace {
+		t.Fatalf("another file must be refused: %v", err)
+	}
+}
+
 func TestPreviewLargeFileFallsBackToFreshRange(t *testing.T) {
 	s, root := previewFixture(t)
 	const name = "large.bin"

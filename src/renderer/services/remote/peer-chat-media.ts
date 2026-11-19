@@ -251,6 +251,7 @@ export function peerChatFiles(
     });
   return {
     epoch: access?.id ?? null,
+    connection: access?.cacheId ?? null,
     async there(paths) {
       if (!access || access.signal.aborted) return new Set<string>();
       const byDir = new Map<string, { path: string; name: string }[]>();

@@ -315,6 +315,9 @@ describe("another computer's chat, read from there", () => {
     await Promise.resolve();
     desktop.dispatchEvent(new Event("focus"));
     expect(peerChatAccess("d1")).not.toBe(old);
+    // The foreground rechecks what a connection holds, but is still that connection.
+    expect(peerChatFiles(target, peerChatAccess("d1")).epoch).not.toBe(stale.epoch);
+    expect(peerChatFiles(target, peerChatAccess("d1")).connection).toBe(stale.connection);
     answer = () => pictureResult("new");
     const current = peerChatFiles(target, peerChatAccess("d1"));
     expect((await current.picture(picturePath)).data).toBe("new");
@@ -323,6 +326,7 @@ describe("another computer's chat, read from there", () => {
     await expect(stale.picture(picturePath)).rejects.toThrow();
     events.get("roomChanged")?.(online(1));
     expect(peerChatAccess("d1")?.id).not.toBe(current.epoch!);
+    expect(peerChatFiles(target, peerChatAccess("d1")).connection).not.toBe(current.connection);
     events.get("accountChanged")?.({ status: "signed-out" });
     expect(peerChatAccess("d1")).toBeNull();
     await expect(current.picture(picturePath)).rejects.toThrow();

@@ -170,7 +170,7 @@ func TestCodexContextAfterCompaction(t *testing.T) {
 }
 
 func testCodexContextProcess(profile string) *process {
-	return &process{cmd: &exec.Cmd{Env: []string{"CODEX_HOME=" + profile}}}
+	return &process{cmd: &exec.Cmd{Env: []string{"CODEX_HOME=" + profile}}, codexInitialized: true, codexExperimental: true}
 }
 
 func testCodexContextRecord(ordinal int, key, value string) string {
@@ -190,4 +190,37 @@ func testCodexContext(t *testing.T, message []byte) map[string]struct{ Kind, Val
 		t.Fatal(err)
 	}
 	return decoded.Params.AdditionalContext
+}
+
+// A program started before the app asked for experimentalApi, or one whose
+// initialize this agent never saw, rejects every turn that carries
+// additionalContext: such a turn goes without the guidance.
+func TestCodexContextWaitsForAnInitializeThatAskedForExperimentalApi(t *testing.T) {
+	const turn = `{"method":"turn/start","id":"turn","params":{"threadId":"` + notesThread + `","input":[]}}`
+	context := codexContext{Files: "File links"}
+	initialize := func(capabilities string) []byte {
+		return []byte(`{"method":"initialize","id":"1","params":{"clientInfo":{"name":"nexus-code"},"capabilities":` + capabilities + `}}`)
+	}
+	cases := []struct {
+		name       string
+		requests   [][]byte
+		guidanceOn bool
+	}{
+		{"initialize not seen", nil, false},
+		{"capabilities null", [][]byte{initialize(`null`)}, false},
+		{"experimentalApi false", [][]byte{initialize(`{"experimentalApi":false}`)}, false},
+		{"experimentalApi true", [][]byte{initialize(`{"experimentalApi":true}`)}, true},
+		{"later initialize does not count", [][]byte{initialize(`null`), initialize(`{"experimentalApi":true}`)}, false},
+		{"unrelated lines do not count", [][]byte{[]byte(`{"method":"turn/start","params":{"input":[{"text":"initialize"}]}}`)}, false},
+	}
+	for _, c := range cases {
+		proc := &process{cmd: &exec.Cmd{Env: []string{"CODEX_HOME=" + t.TempDir()}}}
+		for _, request := range c.requests {
+			proc.noteCodexInitialize(request)
+		}
+		got := proc.withCodexContext([]byte(turn), context)
+		if c.guidanceOn != (string(got) != turn) {
+			t.Errorf("%s: guidance added = %v, want %v: %s", c.name, string(got) != turn, c.guidanceOn, got)
+		}
+	}
 }

@@ -14,6 +14,8 @@ import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../src/renderer/services/c
 type Message = Record<string, unknown> & { params?: Record<string, unknown> };
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Message) => void) | undefined;
+/** Whether a Codex program fails to come up, as a fork's does when its thread cannot be read. */
+let startFails = false;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -24,7 +26,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (method === "codexStart") {
       return Promise.resolve({
         ok: true,
-        value: { ok: true, pid: 1, attached: false, version: null },
+        value: startFails
+          ? { ok: false, reason: "failed", message: "no thread to fork" }
+          : { ok: true, pid: 1, attached: false, version: null },
       });
     }
     return Promise.resolve({ ok: true, value: undefined });
@@ -46,6 +50,7 @@ const sent: Message[] = [];
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
+  startFails = false;
   codex = undefined;
   sent.length = 0;
 });
@@ -542,6 +547,26 @@ describe("Codex collaboration modes", () => {
           settings: { developer_instructions: "" },
         });
       }
+    } finally {
+      closeCodexTab(workspaceId, t.id);
+    }
+  });
+
+  test("a fork that does not start leaves no tab behind and tells the device that asked", async () => {
+    const workspaceId = "ws-codex-fork-fails";
+    const t = useTabsStore
+      .getState()
+      .createTab(workspaceId, { type: "codex", props: { cwd: "/p" } });
+    const ref = { workspaceId, tabId: t.id };
+    const c = tab(undefined, undefined, (message) => collaborationServer(message, false), ref);
+    const tabsOf = () => Object.keys(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
+    try {
+      await c.prepareSend();
+      // A conversation with something to fork, as the tab has once it has run.
+      c.forkPoint = () => ({ threadId: "t1" });
+      startFails = true;
+      await expect(chatHandlers["chat.fork"](ref)).rejects.toThrow("Codex is not running");
+      expect(tabsOf()).toEqual([t.id]);
     } finally {
       closeCodexTab(workspaceId, t.id);
     }

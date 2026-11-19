@@ -20,6 +20,10 @@ const (
 	cliDisabled    = "NexusCode's CLI guidance is disabled for this tab. Disregard earlier NexusCode CLI guidance for this conversation."
 )
 
+// maxInitializeBytes bounds the lines checked for initialize: it is small, and
+// other lines may carry several MiB of images.
+const maxInitializeBytes = 16 * 1024
+
 type codexContext struct {
 	Files string           `json:"files"`
 	CLI   *codexCLIContext `json:"cli"`
@@ -40,7 +44,35 @@ type codexGuidance struct {
 	compactions uint64
 }
 
+// noteCodexInitialize records whether the program's initialize request asked
+// for experimentalApi. Only the first counts: Codex refuses a second one and
+// keeps the first's capabilities. A program this agent never saw initialize,
+// as when its initialize failed, is treated as not having asked.
+func (p *process) noteCodexInitialize(data []byte) {
+	if p.codexInitialized || len(data) > maxInitializeBytes || !bytes.Contains(data, []byte(`"initialize"`)) {
+		return
+	}
+	var request struct {
+		Method string `json:"method"`
+		Params struct {
+			Capabilities *struct {
+				ExperimentalAPI bool `json:"experimentalApi"`
+			} `json:"capabilities"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(data, &request) != nil || request.Method != "initialize" {
+		return
+	}
+	p.codexInitialized = true
+	p.codexExperimental = request.Params.Capabilities != nil && request.Params.Capabilities.ExperimentalAPI
+}
+
 func (p *process) withCodexContext(data []byte, context codexContext) []byte {
+	// Without experimentalApi Codex rejects every turn/start that carries
+	// additionalContext, so a turn goes without the guidance instead.
+	if !p.codexExperimental {
+		return data
+	}
 	var request map[string]json.RawMessage
 	var method string
 	var params map[string]json.RawMessage
