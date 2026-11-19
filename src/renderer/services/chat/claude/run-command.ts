@@ -41,8 +41,8 @@ import {
 } from "../app-commands";
 import type { ChatItem, ToolCall } from "../model";
 import { type CardSection, chatKey, revealPart, useChatStore } from "../store";
-import { firstVersionOf } from "../versions";
 import type { ChatController } from "./controller";
+import { firstVersionOf } from "./versions";
 
 export interface AppCommandContext {
   controller: ChatController;

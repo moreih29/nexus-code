@@ -41,7 +41,6 @@ import {
   type QueuedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
-import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "../versions";
 import {
   configUsageOf,
   LISTED_KEYS_STORAGE,
@@ -64,6 +63,7 @@ import {
   withSubagentLog,
 } from "./history";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
+import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
 const log = createLogger("chat");
 

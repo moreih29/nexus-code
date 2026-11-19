@@ -30,6 +30,7 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
+import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
   completionAt,
@@ -48,7 +49,6 @@ import {
 import { withRelayed } from "../../services/chat/relayed";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import type { QueuedMessage } from "../../services/chat/transport/queue";
-import { firstVersionOf } from "../../services/chat/versions";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
