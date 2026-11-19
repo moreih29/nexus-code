@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   cutEntries,
   type HistoryCut,
+  historyForDisplay,
   historyModel,
   joinHistory,
   modelBefore,
@@ -16,6 +17,7 @@ import {
   withSubagentLog,
 } from "../../../../../../src/renderer/services/chat/claude/history";
 import { applyLines } from "../../../../../../src/renderer/services/chat/claude/stream-model";
+import { TranscriptPages } from "../../../../../../src/renderer/services/chat/claude/transcript-pages";
 import { emptyModel } from "../../../../../../src/renderer/services/chat/model";
 
 // A transcript's entries as Claude Code writes them: bookkeeping between
@@ -385,5 +387,50 @@ describe("a subagent's file", () => {
       "other",
       "toolu_agent",
     ]);
+  });
+});
+
+test("a bounded row split at a UTF-8 boundary is rebuilt before projecting its tool", () => {
+  const entry = {
+    type: "assistant",
+    uuid: "callSliced",
+    message: {
+      id: "messageSliced",
+      content: [{ type: "tool_use", id: "sliced", name: "Read", input: { file_path: "한글" } }],
+    },
+  };
+  const wire = Buffer.from(JSON.stringify(entry));
+  const boundary = wire.indexOf(Buffer.from("한")) + 1;
+  const base = { found: true, snapshot: "example", truncated: false, lines: [], positions: [] };
+  const history = new TranscriptPages(
+    {
+      ...base,
+      cursor: "remaining-fragment",
+      fragment: {
+        position: 0,
+        data: wire.subarray(boundary).toString("base64"),
+        first: false,
+        last: true,
+      },
+    },
+    base.snapshot,
+  );
+  expect(history.project().items).toEqual([]);
+  history.prepend({
+    ...base,
+    fragment: {
+      position: 0,
+      data: wire.subarray(0, boundary).toString("base64"),
+      first: true,
+      last: false,
+    },
+  });
+  expect(history.lines).toEqual([entry]);
+  const projected = history.project();
+  expect(projected.tools).toEqual(historyModel([entry]).tools);
+  expect(historyForDisplay(projected).tools.sliced).toMatchObject({
+    name: "Read",
+    status: "stopped",
+    input: { file_path: "한글" },
   });
 });

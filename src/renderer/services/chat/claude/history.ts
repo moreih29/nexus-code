@@ -29,13 +29,17 @@ function rec(value: unknown): Rec | null {
 }
 
 /** Turns transcript entries into stream-json lines. */
-export function transcriptLines(entries: readonly unknown[]): TranscriptLine[] {
+export function transcriptLines(
+  entries: readonly unknown[],
+  positions?: readonly number[],
+): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
-  for (const raw of entries) {
+  for (const [index, raw] of entries.entries()) {
+    const seq = positions ? positions[index] + 1 : lines.length + 1;
     const entry = rec(raw);
     if (!entry || entry.isSidechain === true) continue;
     // A message that came while a turn ran is kept apart from the others.
-    const queued = queuedLine(entry, lines.length + 1);
+    const queued = queuedLine(entry, seq);
     if (queued) {
       lines.push(queued);
       continue;
@@ -48,7 +52,7 @@ export function transcriptLines(entries: readonly unknown[]): TranscriptLine[] {
       origin !== undefined && (SENDER_KINDS.has(origin) || origin === "task-notification");
     if (entry.isMeta === true && !told) continue;
     if (entry.type === "user" && entry.promptSource === "system" && !told) continue;
-    const goal = goalLine(entry, lines.length + 1);
+    const goal = goalLine(entry, seq);
     if (goal) {
       lines.push(goal);
       continue;
@@ -66,7 +70,7 @@ export function transcriptLines(entries: readonly unknown[]): TranscriptLine[] {
     }
     if (entry.type === "assistant") {
       lines.push({
-        seq: lines.length + 1,
+        seq,
         dir: "out",
         replay: true,
         message: { type: "assistant", message, uuid: entry.uuid, timestamp: entry.timestamp },
@@ -75,7 +79,7 @@ export function transcriptLines(entries: readonly unknown[]): TranscriptLine[] {
       const content = message.content;
       const results = Array.isArray(content) && content.some((b) => rec(b)?.type === "tool_result");
       lines.push({
-        seq: lines.length + 1,
+        seq,
         dir: "out",
         replay: true,
         message: results
@@ -290,9 +294,26 @@ export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): u
 }
 
 /** The model of a transcript: its items and tools, nothing running. */
-export function historyModel(entries: readonly unknown[], cut?: HistoryCut): ChatModel {
-  const model = applyTranscriptLines(transcriptLines(cut ? cutEntries(entries, cut) : entries));
+export function historyModel(
+  entries: readonly unknown[],
+  cut?: HistoryCut,
+  positions?: readonly number[],
+): ChatModel {
+  const model = applyTranscriptLines(
+    cut ? transcriptLines(cutEntries(entries, cut)) : transcriptLines(entries, positions),
+  );
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
+}
+
+/** A historical call without a recorded result cannot be treated as still running. */
+export function historyForDisplay(history: ChatModel): ChatModel {
+  let tools = history.tools;
+  for (const [id, tool] of Object.entries(history.tools)) {
+    if (tool.status !== "running" && tool.status !== "streaming") continue;
+    if (tools === history.tools) tools = { ...tools };
+    tools[id] = { ...tool, status: "stopped" };
+  }
+  return tools === history.tools ? history : { ...history, tools };
 }
 
 /**

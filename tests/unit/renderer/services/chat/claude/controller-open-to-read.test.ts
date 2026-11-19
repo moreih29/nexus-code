@@ -5,11 +5,16 @@
  * files keep its other exports.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { historyModel } from "../../../../../../src/renderer/services/chat/claude/history";
+import type { TranscriptPageResult } from "../../../../../../src/shared/ipc/contract";
 
 let releaseStart: () => void = () => {};
 let started = false;
 let replyToInitialize: ((requestId: string) => void) | undefined;
 let onStartRequested: (() => void) | undefined;
+let transcriptPage: ((cursor?: string) => Promise<TranscriptPageResult>) | undefined;
+let completeLines: readonly unknown[] | undefined;
+let completeReads = 0;
 
 const realIpc = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
@@ -17,17 +22,22 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (
     _channel: string,
     method: string,
-    args: { message?: { request_id?: string } },
+    args: { message?: { request_id?: string }; cursor?: string },
   ) => {
     if (method === "replay") {
       return Promise.resolve({ ok: true, value: { found: false } });
     }
+    if (method === "transcriptPage" && transcriptPage) {
+      return transcriptPage(args.cursor).then((value) => ({ ok: true, value }));
+    }
     if (method === "transcript") {
+      completeReads++;
       return Promise.resolve({
         ok: true,
         value: {
           found: true,
-          lines: [
+          truncated: false,
+          lines: completeLines ?? [
             {
               type: "user",
               uuid: "u1",
@@ -71,6 +81,9 @@ afterEach(() => {
   started = false;
   replyToInitialize = undefined;
   onStartRequested = undefined;
+  transcriptPage = undefined;
+  completeLines = undefined;
+  completeReads = 0;
 });
 
 describe("opening a Claude tab to read it", () => {
@@ -112,4 +125,155 @@ describe("opening a Claude tab to read it", () => {
     expect(started).toBe(false);
     expect(useChatStore.getState().tabs[chatKey("ws-read", "t-new")]?.history ?? null).toBeNull();
   });
+});
+
+function user(uuid: string, content: string) {
+  return { type: "user", uuid, message: { role: "user", content } };
+}
+
+function goal(condition: string) {
+  return {
+    type: "attachment",
+    timestamp: "2026-11-10T13:52:53.172Z",
+    attachment: { type: "goal_status", met: true, condition },
+  };
+}
+
+function page(lines: unknown[], positions: number[], cursor?: string): TranscriptPageResult {
+  return { found: true, truncated: false, snapshot: "same-snapshot", lines, positions, cursor };
+}
+
+function openTail(hooks = {}) {
+  const controller = new ChatController(
+    {
+      workspaceId: "ws-tail",
+      tabId: "tail",
+      cwd: "/p",
+      sessionId: "session-tail",
+    },
+    hooks,
+  );
+  live.push(controller);
+  const started = Promise.withResolvers<void>();
+  onStartRequested = started.resolve;
+  void controller.open();
+  return { controller, shown: started.promise };
+}
+
+test("the tail and previous pages reconstruct the full history while live output stays separate", async () => {
+  const first = user("first", "first");
+  const recent = user("recent", "recent");
+  const call = {
+    type: "assistant",
+    uuid: "calling",
+    message: {
+      id: "tool-message",
+      content: [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "/p/a" } }],
+    },
+  };
+  const result = {
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: "read", content: "file result" }] },
+  };
+  const oldLines = [
+    { type: "custom-title", customTitle: "old title" },
+    goal("old goal"),
+    first,
+    call,
+  ];
+  const newLines = [
+    result,
+    recent,
+    goal("new goal"),
+    { type: "custom-title", customTitle: "new title" },
+  ];
+  const pending = Promise.withResolvers<TranscriptPageResult>();
+  const requested: string[] = [];
+  transcriptPage = (cursor) => {
+    if (!cursor) return Promise.resolve(page(newLines, [500, 660, 750, 810], "older"));
+    requested.push(cursor);
+    return pending.promise;
+  };
+  completeLines = [...oldLines, ...newLines];
+
+  const onTitle = mock((_title: string) => {});
+  const onFirstMessage = mock((_text: string) => {});
+  const { controller, shown } = openTail({ onTitle, onFirstMessage });
+  await shown;
+  expect(completeReads).toBe(0);
+  expect(controller.state.history?.items.find((item) => item.kind === "user")?.key).toBe(
+    "same-snapshot:u661",
+  );
+  expect(() => controller.forkPoint("recent", { before: true })).toThrow("Read earlier messages");
+  await expect(controller.previewRewind("recent")).rejects.toThrow("Read earlier messages");
+  const replayedUser = controller.state.history?.items[0];
+  if (replayedUser?.kind !== "user") throw new Error("expected a recorded user item");
+  await expect(controller.rewind(replayedUser, { files: true })).rejects.toThrow(
+    "Read earlier messages",
+  );
+
+  const older = controller.loadEarlier();
+  await controller.loadEarlier();
+  expect(requested).toEqual(["older"]);
+  controller.receive({
+    dir: "out",
+    seq: 50,
+    message: {
+      type: "assistant",
+      uuid: "new-live",
+      message: { id: "live", content: [{ type: "text", text: "new live output" }] },
+    },
+  });
+  controller.flushNow();
+  const liveModel = controller.state.model;
+  pending.resolve(page(oldLines, [0, 100, 200, 350]));
+  await older;
+
+  const expected = historyModel(completeLines);
+  const actual = controller.state.history;
+  // File offsets give the private pages stable row keys when a prefix is added.
+  const content = (model: ReturnType<typeof historyModel> | null) =>
+    model?.items.map(({ key: _key, ...item }) => item);
+  expect(content(actual)).toEqual(content(expected));
+  expect(actual?.tools).toEqual(expected.tools);
+  expect(actual?.goal).toEqual(expected.goal);
+  expect(actual?.items.find((item) => item.kind === "user" && item.uuid === "recent")?.key).toBe(
+    "same-snapshot:u661",
+  );
+  expect(controller.state.model).toBe(liveModel);
+  expect(liveModel.goal?.condition).toBe("new goal");
+  expect(onTitle.mock.calls).toEqual([["new title"]]);
+  expect(onFirstMessage).not.toHaveBeenCalled();
+  expect(controller.forkPoint("recent", { before: true })).toMatchObject({ at: "calling" });
+  expect(controller.forkPoint("first", { before: true })).toBeNull();
+
+  await controller.openToRead();
+  expect(completeReads).toBe(1);
+  expect(controller.state.history?.items.map((item) => item.key)).toEqual(
+    expected.items.map((item) => item.key),
+  );
+});
+
+test.each([
+  "different snapshot",
+  "conversation reset",
+])("an earlier page cannot replace the current history after %s", async (change) => {
+  const pending = Promise.withResolvers<TranscriptPageResult>();
+  transcriptPage = (cursor) =>
+    cursor ? pending.promise : Promise.resolve(page([user("recent", "recent")], [250], "older"));
+  const { controller, shown } = openTail();
+  await shown;
+  const older = controller.loadEarlier();
+  if (change === "conversation reset") {
+    controller.receive({ dir: "out", seq: 1, message: { type: "conversation_reset" } });
+    controller.flushNow();
+  }
+  const before = controller.state.history;
+  pending.resolve({
+    ...page([user("old", "old")], [0]),
+    snapshot: change === "different snapshot" ? "other-snapshot" : "same-snapshot",
+  });
+  if (change === "different snapshot") await expect(older).rejects.toThrow("no longer joins");
+  else await older;
+  expect(controller.state.history).toBe(before);
 });

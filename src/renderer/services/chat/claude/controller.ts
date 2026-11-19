@@ -62,6 +62,7 @@ import {
 } from "./history";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import { applyLines, endGoal } from "./stream-model";
+import { TranscriptPages } from "./transcript-pages";
 import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
 const log = createLogger("chat");
@@ -107,6 +108,15 @@ const CONTEXT_RETRY_MS = 3_000;
  */
 const MCP_EMPTY_RETRY_MS = 2_000;
 const MCP_EMPTY_ASKS = 4;
+
+interface TranscriptSource {
+  sessionId: string;
+  profileId?: string;
+  cut?: HistoryCut;
+  title?: string;
+  /** The live log kept after the agent that held it was replaced. */
+  appended?: ChatModel;
+}
 
 interface ReplayResult {
   found: boolean;
@@ -264,6 +274,13 @@ export class ChatController {
   /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
   private shown: Promise<void> | null = null;
   private disposed = false;
+  private transcriptSource: TranscriptSource | undefined;
+  private transcriptPages: TranscriptPages | undefined;
+  private earlierHistoryUnknown = false;
+  private liveGoalChanged = false;
+  private fullTranscript: Promise<void> | undefined;
+  /** Public pages and watches use complete history and its original item keys. */
+  private publicHistory = false;
   private titled = false;
   /** Subagents whose file is being read (loadSubagent), and those found nowhere. */
   private subagentsReading = new Set<string>();
@@ -372,9 +389,13 @@ export class ChatController {
    * shown: the transcript read, while a program started on it may still be
    * starting. Another device reading the chat sees it without waiting.
    */
-  openToRead(): Promise<void> {
-    const opening = this.open();
-    return this.shown ? Promise.race([opening, this.shown]) : opening;
+  async openToRead(waitForProgram = false): Promise<void> {
+    this.publicHistory = true;
+    if (this.opening || this.state.phase === "idle") {
+      const opening = this.open();
+      await (!waitForProgram && this.shown ? Promise.race([opening, this.shown]) : opening);
+    }
+    await this.completeTranscript();
   }
 
   private async doOpen(shown: () => void): Promise<void> {
@@ -403,7 +424,8 @@ export class ChatController {
       // is in the transcript.
       if (this.state.model.resumed) await this.loadResumedHistory();
       // A goal met while no window looked on.
-      if (!this.state.model.running) void this.syncGoal();
+      if (!this.state.model.running) void this.syncGoal(!this.publicHistory);
+      shown();
       return;
     }
     // The agent has no log: a new tab, or one whose agent restarted.
@@ -447,52 +469,183 @@ export class ChatController {
     return from && !sameProfile(from, this.target.profileId) ? from : undefined;
   }
 
+  private transcriptArgs({ sessionId, profileId }: TranscriptSource) {
+    return { workspaceId: this.target.workspaceId, sessionId, ...profileArg(profileId) };
+  }
+
   private async loadTranscript(
     sessionId: string,
     cut?: HistoryCut,
     profileId = this.target.profileId,
   ): Promise<void> {
+    this.resetTranscript();
+    const fork = this.target.fork;
+    const source = {
+      sessionId,
+      profileId,
+      cut,
+      title: fork?.sessionId === sessionId ? fork.title : undefined,
+    };
+    this.transcriptSource = source;
+    const args = this.transcriptArgs(source);
     try {
-      const result = unwrapIpcResult(
-        await ipcCallResult("chat", "transcript", {
-          workspaceId: this.target.workspaceId,
-          sessionId,
-          ...profileArg(profileId),
+      if (this.publicHistory) {
+        await this.readFullTranscript(source);
+        return;
+      }
+      const page = unwrapIpcResult(
+        await ipcCallResult("chat", "transcriptPage", {
+          ...args,
+          upTo: cut?.upTo,
+          before: cut?.before ? [...cut.before] : undefined,
         }),
       );
-      if (!result.found) return;
-      const read = historyModel(result.lines, cut);
-      // A task's end the log tells too is the log's: it has no uuid to cut at.
-      const told = new Set(
-        this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
-      );
-      const history =
-        told.size > 0 ? { ...read, items: read.items.filter((item) => !told.has(item.key)) } : read;
+      if (this.disposed || this.transcriptSource !== source || !page.found) return;
+      if (page.snapshot) {
+        const pages = new TranscriptPages(page, page.snapshot);
+        this.transcriptPages = pages;
+        this.publishTranscript(source, pages.project(), pages.lines, page.truncated, true);
+      } else {
+        this.publishTranscript(
+          source,
+          historyModel(page.lines, cut),
+          page.lines,
+          page.truncated,
+          true,
+        );
+      }
+    } catch (error) {
+      log.warn(`transcript of ${sessionId} not read: ${(error as Error).message}`);
+    }
+  }
+
+  private async readFullTranscript(source: TranscriptSource): Promise<void> {
+    const result = unwrapIpcResult(
+      await ipcCallResult("chat", "transcript", this.transcriptArgs(source)),
+    );
+    if (this.disposed || this.transcriptSource !== source) return;
+    if (!result.found && this.transcriptPages)
+      throw new Error("The transcript is no longer available");
+    if (!result.found) return;
+    const live = source.appended ?? this.state.model;
+    const before =
+      this.transcriptPages &&
+      !source.cut &&
+      (source.appended || live.sessionId === source.sessionId)
+        ? modelUuids(live)
+        : undefined;
+    const history = historyModel(
+      result.lines,
+      source.cut ?? (before?.size ? { before } : undefined),
+    );
+    this.transcriptPages = undefined;
+    this.publishTranscript(
+      source,
+      source.appended ? { ...joinHistory(history, source.appended), goal: history.goal } : history,
+      result.lines,
+      result.truncated,
+      true,
+    );
+  }
+
+  private completeTranscript(): Promise<void> | undefined {
+    if (this.fullTranscript) return this.fullTranscript;
+    const source = this.transcriptSource;
+    if (!source || !this.transcriptPages) return;
+    const read = this.readFullTranscript(source).finally(() => {
+      if (this.fullTranscript === read) this.fullTranscript = undefined;
+    });
+    this.fullTranscript = read;
+    return read;
+  }
+
+  async loadEarlier(): Promise<void> {
+    const source = this.transcriptSource;
+    const pages = this.transcriptPages;
+    const cursor = pages?.cursor;
+    if (!source || !pages || !cursor || this.state.historyPage?.loading) return;
+    const current = () =>
+      !this.disposed &&
+      !this.changingSession &&
+      this.transcriptSource === source &&
+      this.transcriptPages === pages;
+    this.update((prev) => ({ ...prev, historyPage: { hasEarlier: true, loading: true } }));
+    try {
+      const result = await ipcCallResult("chat", "transcriptPage", {
+        ...this.transcriptArgs(source),
+        cursor,
+      });
+      if (!current()) return;
+      if (!result.ok && result.kind === "chat.transcript-cursor-stale") pages.cursor = undefined;
+      const page = unwrapIpcResult(result);
+      pages.prepend(page);
+      this.publishTranscript(source, pages.project(), pages.lines, pages.truncated, false);
+    } catch (error) {
+      if (current()) throw error;
+    } finally {
+      if (this.transcriptPages === pages && this.transcriptSource === source) {
+        this.update((prev) => ({
+          ...prev,
+          historyPage: { hasEarlier: !!pages.cursor, loading: false },
+        }));
+      }
+    }
+  }
+
+  private publishTranscript(
+    source: TranscriptSource,
+    read: ChatModel,
+    lines: readonly unknown[],
+    truncated: boolean,
+    initial: boolean,
+  ): void {
+    const pages = this.transcriptPages;
+    this.earlierHistoryUnknown = truncated || pages?.cursor !== undefined;
+    // A task's end the log tells too is the log's: it has no uuid to cut at.
+    const told = new Set(
+      this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
+    );
+    const history =
+      told.size > 0 ? { ...read, items: read.items.filter((item) => !told.has(item.key)) } : read;
+    const title = source.title ?? (source.cut ? undefined : sessionTitleOf(lines));
+    if (!this.titled && title) {
+      this.titled = true;
+      this.hooks.onTitle?.(title);
+    } else if (!this.titled && (!pages || !this.earlierHistoryUnknown)) {
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
-      // A session that was named, by the user or by Claude, is called by its
-      // name; a branch, by the one it is to take.
-      const fork = this.target.fork;
-      const branch = fork?.sessionId === sessionId ? fork.title : undefined;
-      const title = branch ?? (cut ? undefined : sessionTitleOf(result.lines));
-      if (!this.titled && title) {
-        this.titled = true;
-        this.hooks.onTitle?.(title);
-      } else if (!this.titled && first?.kind === "user") {
+      if (first?.kind === "user") {
         this.titled = true;
         this.hooks.onFirstMessage?.(first.text.trim());
       }
-      this.update((prev) => ({
+    }
+    this.update((prev) => {
+      const agentItems = { ...history.agentItems, ...prev.history?.agentItems };
+      return {
         ...prev,
-        history: history.items.length > 0 ? history : null,
-        // The goal the session had goes on with it: Claude Code sets it again.
+        history:
+          history.items.length > 0 || Object.keys(agentItems).length > 0
+            ? { ...history, agentItems }
+            : null,
+        historyPage: pages ? { hasEarlier: !!pages.cursor, loading: false } : undefined,
+        // A previously unread page must not replace a goal that the live log set or cleared.
         model:
-          prev.model.goal === undefined && history.goal
+          (initial || !prev.history?.goal) &&
+          !this.liveGoalChanged &&
+          prev.model.goal === undefined &&
+          history.goal
             ? { ...prev.model, goal: history.goal }
             : prev.model,
-      }));
-    } catch (err) {
-      log.warn(`transcript of ${sessionId} not read: ${(err as Error).message}`);
-    }
+      };
+    });
+  }
+
+  private resetTranscript(): void {
+    this.transcriptSource = undefined;
+    this.transcriptPages = undefined;
+    this.fullTranscript = undefined;
+    this.earlierHistoryUnknown = false;
+    this.liveGoalChanged = false;
+    if (this.state.historyPage) this.update((prev) => ({ ...prev, historyPage: undefined }));
   }
 
   /**
@@ -744,11 +897,26 @@ export class ChatController {
     if (!sessionId) return null;
     if (!before) return { sessionId, at: uuid };
     const at = uuidBefore(joinHistory(this.state.history, this.state.model), uuid);
+    if (!at && this.earlierHistoryUnknown) {
+      throw new Error("Read earlier messages before using this point");
+    }
     return at ? { sessionId, at } : null;
+  }
+
+  /** The oldest visible message has no verified predecessor yet. */
+  unverifiedHistoryStart(): string | undefined {
+    if (!this.earlierHistoryUnknown) return;
+    const { history, model } = this.state;
+    for (const items of [history?.items ?? [], model.items]) {
+      for (const item of items) {
+        if ((item.kind === "user" || item.kind === "assistant") && item.uuid) return item.uuid;
+      }
+    }
   }
 
   /** What rewinding the files to before a message would change. */
   async previewRewind(uuid: string): Promise<RewindPreview> {
+    this.forkPoint(uuid, { before: true });
     if (!(await this.ensureRunning())) throw new Error("the program is not running");
     return rewindOf(await this.request("rewind_files", { user_message_id: uuid, dry_run: true }));
   }
@@ -766,18 +934,20 @@ export class ChatController {
     const uuid = item.uuid;
     if (!uuid) throw new Error("the message has no uuid yet");
     if (this.state.model.running) throw new Error("a turn is running");
+    const fork = this.forkPoint(uuid, { before: true }) ?? undefined;
+    const incomplete = this.earlierHistoryUnknown;
     if (files) {
       if (!(await this.ensureRunning())) throw new Error("the program is not running");
       const result = rewindOf(await this.request("rewind_files", { user_message_id: uuid }));
       if (!result.canRewind) throw new Error(result.error ?? "the files were not rewound");
     }
     const all = joinHistory(this.state.history, this.state.model);
-    const fork = this.forkPoint(uuid, { before: true }) ?? undefined;
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
     }
     this.flushNow();
+    this.resetTranscript();
     this.sessionId = undefined;
     this.target = { ...this.target, sessionId: undefined, fork };
     this.hooks.onTarget?.(fork ? { fork } : {});
@@ -789,6 +959,8 @@ export class ChatController {
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
       ...(draft ? { draft: { text: item.text, images: item.images, nonce: Date.now() } } : {}),
     }));
+    if (incomplete && fork)
+      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
     if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }
 
@@ -877,6 +1049,10 @@ export class ChatController {
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
       const source = this.state;
+      const transcriptSource = this.transcriptSource;
+      const transcriptPages = this.transcriptPages;
+      const earlierHistoryUnknown = this.earlierHistoryUnknown;
+      const liveGoalChanged = this.liveGoalChanged;
       const target = this.target;
       const sessionId = this.sessionId;
       const sessionName = this.sessionName;
@@ -884,9 +1060,15 @@ export class ChatController {
       const pendingName = this.pendingName;
       const named = this.named;
       const lastMode = this.lastMode;
+      this.resetTranscript();
       try {
         await change(shown);
       } catch (error) {
+        this.resetTranscript();
+        this.transcriptSource = transcriptSource && { ...transcriptSource };
+        this.transcriptPages = transcriptPages;
+        this.earlierHistoryUnknown = earlierHistoryUnknown;
+        this.liveGoalChanged = liveGoalChanged;
         this.target = target;
         this.sessionId = sessionId;
         this.sessionName = sessionName;
@@ -897,6 +1079,7 @@ export class ChatController {
         this.startup.failed = true;
         this.update((prev) => ({
           ...source,
+          historyPage: source.historyPage && { ...source.historyPage, loading: false },
           phase: "failed",
           error: (error as Error).message,
           model: {
@@ -944,6 +1127,7 @@ export class ChatController {
       await this.switchProfile(profileId);
       return;
     }
+    await this.completeTranscript();
     await this.changeSession(async (shown) => {
       // The program stopped here told of its exit; the conversation goes on.
       const model = this.state.model;
@@ -1094,7 +1278,20 @@ export class ChatController {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       return;
     }
-    // A new agent: what the tab showed becomes its history.
+    // A new agent: what the tab showed becomes its history. Its cursor died with the old agent.
+    const earlierHistoryUnknown = this.earlierHistoryUnknown;
+    const source = this.transcriptSource;
+    const pages = this.transcriptPages;
+    this.resetTranscript();
+    this.earlierHistoryUnknown = earlierHistoryUnknown;
+    if (source && pages) {
+      this.transcriptSource = {
+        ...source,
+        appended: joinHistory(source.appended ?? null, this.state.model),
+      };
+      pages.cursor = undefined;
+      this.transcriptPages = pages;
+    }
     this.update((prev) => ({
       ...prev,
       phase: "ended",
@@ -1778,12 +1975,12 @@ export class ChatController {
    * has it running: a check that finds it met, or impossible, ends the
    * turn, and only the transcript says so.
    */
-  private async syncGoal(): Promise<void> {
+  private async syncGoal(latestPage = false): Promise<void> {
     const sessionId = this.state.model.sessionId ?? this.sessionId;
     if (this.disposed || this.state.model.goal?.status !== "active" || !sessionId) return;
     try {
       const result = unwrapIpcResult(
-        await ipcCallResult("chat", "transcript", {
+        await ipcCallResult("chat", latestPage ? "transcriptPage" : "transcript", {
           workspaceId: this.target.workspaceId,
           sessionId,
           ...profileArg(this.target.profileId),
@@ -2055,6 +2252,7 @@ export class ChatController {
   }
 
   private afterModel(before: ChatModel, model: ChatModel): void {
+    if (before.goal !== model.goal) this.liveGoalChanged = true;
     // The mode the program is in, for one started again in the tab to go on in.
     if (model.permissionMode) this.lastMode = model.permissionMode;
     if (model.sessionId && model.sessionId !== this.sessionId) {
@@ -2072,6 +2270,7 @@ export class ChatController {
     }
     // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {
+      this.resetTranscript();
       this.update((prev) =>
         prev.history || prev.card ? { ...prev, history: null, card: undefined } : prev,
       );

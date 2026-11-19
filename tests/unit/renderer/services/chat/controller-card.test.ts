@@ -40,7 +40,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
         } as never);
       }
     }
-    if (method === "transcript") return Promise.resolve({ ok: true, value: { found: false } });
+    if (method === "transcriptPage") return Promise.resolve({ ok: true, value: { found: false } });
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));

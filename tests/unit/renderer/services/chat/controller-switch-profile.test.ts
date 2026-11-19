@@ -67,7 +67,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
           : { found },
       });
     }
-    if (method === "transcript") {
+    if (method === "transcriptPage") {
       return Promise.resolve({ ok: true, value: { found: false, lines: [], truncated: false } });
     }
     if (method === "start") {
@@ -415,7 +415,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     expect(seen.profile).toBeUndefined();
     expect(c.profileId).toBe("work");
     expect(seen.target).toEqual({ fork: { sessionId: "theirs", profileId: "claude-default" } });
-    const transcript = calls.find((call) => call.method === "transcript")?.args ?? {};
+    const transcript = calls.find((call) => call.method === "transcriptPage")?.args ?? {};
     expect(transcript.profileId).toBe("claude-default");
     const start = calls.find((call) => call.method === "start")?.args ?? {};
     expect(start.resume).toBe("/home/claude-default/theirs.jsonl");

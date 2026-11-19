@@ -826,6 +826,7 @@
     "copy": "Copy",
     "jump_to_bottom": "Scroll to the latest message",
     "show_earlier": "Show earlier messages ({{count}})",
+    "show_earlier_unknown": "Show earlier messages",
     "thinking": "Thinking",
     "thinking_live": "Thinking…",
     "received": {
