@@ -16,12 +16,15 @@ import {
   THINKING_DISPLAY_FROM,
   takesThinkingDisplay,
 } from "../../../../src/main/features/chat/launch";
+import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
+import { sessionAgents } from "../../../../src/main/features/remote/serving/sessions";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
+import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -74,6 +77,7 @@ class FakeChannel implements AgentChannel {
 function setup(
   overrides: Partial<ChatWorkspaceManager> = {},
   agentContext?: ChatHostOptions["agentContext"],
+  onTaskEvent?: ChatHostOptions["onTaskEvent"],
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -96,6 +100,7 @@ function setup(
   const host = new ChatHost({
     workspaceManager: manager,
     agentContext,
+    onTaskEvent,
     broadcast: (event, args) => events.push({ event, args }),
     onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
@@ -287,6 +292,59 @@ describe("chat launch", () => {
 });
 
 describe("ChatHost", () => {
+  test("a killed chat task ends its background agent in the phone and desktop session lists", async () => {
+    const activity = new SessionActivityLog(() => 1234);
+    const { host, channel } = setup({}, undefined, (workspaceId, tabId, message) =>
+      activity.noteTask(workspaceId, tabId, message),
+    );
+    await host.start(WS, TAB, "/repo", {});
+    const input = { subagent_type: "Explore", run_in_background: true };
+    activity.noteHook(WS, TAB, "pre-tool-use", {
+      tool_name: "Agent",
+      tool_use_id: "toolu_agent",
+      tool_input: input,
+    });
+    activity.noteHook(WS, TAB, "subagent-start", { agent_id: "agent-A", agent_type: "Explore" });
+    const current = () => activity.get(WS, TAB)?.agents ?? [];
+    expect(sessionAgents(current())?.map((agent) => agent.id)).toEqual(["agent-A"]);
+    expect(liveAgents(current())).toHaveLength(1);
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      message: {
+        type: "system",
+        subtype: "task_started",
+        task_type: "local_agent",
+        task_id: "task-A",
+        tool_use_id: "toolu_agent",
+      },
+    });
+    // The stream can report the kill before the async Agent result hook reaches main.
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      replay: true,
+      message: {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-A",
+        status: "killed",
+      },
+    });
+    activity.noteHook(WS, TAB, "post-tool-use", {
+      tool_name: "Agent",
+      tool_use_id: "toolu_agent",
+      tool_input: input,
+      tool_response: { status: "async_launched", agentId: "agent-A" },
+    });
+    expect(current()[0]).toMatchObject({ id: "agent-A", state: "stopped", end: 1234 });
+    expect(sessionAgents(current())).toBeUndefined();
+    expect(liveAgents(current())).toHaveLength(0);
+    host.dispose();
+  });
+
   test("start runs the wrapper with the PATH claude was found on", async () => {
     const { channel, host } = setup();
     const result = await host.start(WS, TAB, "/repo", { resume: "s1" });
