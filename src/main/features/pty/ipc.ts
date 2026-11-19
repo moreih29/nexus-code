@@ -269,7 +269,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         args: shimmedArgs,
         settingsPath: files?.settingsPath,
         wrapperDir: files?.binDir,
-        ...(files ? { codex: { cmd: files.cmdCodexNoDaemon } } : {}),
+        ...(files ? { codex: { cmdLauncherDir: files.cmdLauncherDir } } : {}),
         // A local agent, and so the shell, inherits this process's environment.
         originalPath: process.env.ORIGINAL_PATH,
       });

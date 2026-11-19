@@ -195,3 +195,17 @@ func TestMergeEnvOverridesPathWhateverItsCase(t *testing.T) {
 		t.Fatalf("PATH entries = %q, want only the override", paths)
 	}
 }
+
+// TestMergeEnvKeepsBothCmdLaunchers verifies codex.cmd takes precedence
+// while nexus.exe stays on PATH and the directory names stay intact.
+func TestMergeEnvKeepsBothCmdLaunchers(t *testing.T) {
+	t.Setenv("Path", `C:\Windows`)
+	env := mergeEnv(map[string]string{
+		wrapperDirEnv:         `C:\Nexus Work\cli`,
+		"NEXUS_CMD_CODEX_DIR": `C:\Nexus Work & Notes\cmd!`,
+	})
+	want := `C:\Nexus Work & Notes\cmd!;C:\Nexus Work\cli;C:\Windows`
+	if got := pathValues(env); len(got) != 1 || got[0] != want {
+		t.Fatalf("PATH = %q, want [%q]", got, want)
+	}
+}
