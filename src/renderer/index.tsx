@@ -6,6 +6,7 @@ import { initRendererI18n } from "./i18n";
 import { installCspViolationLogger } from "./services/csp-violation-logger";
 import { installUnsavedChangesUnloadGuard } from "./services/editor/save/unsaved-guard";
 import { installWindowErrorHandlers } from "./services/window-error-handler";
+import { installLayoutClosePersistence } from "./state/persistence";
 
 // Install the unified window 'error' + 'unhandledrejection' safety net before
 // mounting React. Cancellation rejections are silenced; all other errors are
@@ -19,6 +20,7 @@ import { installWindowErrorHandlers } from "./services/window-error-handler";
 installWindowErrorHandlers();
 installCspViolationLogger();
 installUnsavedChangesUnloadGuard();
+installLayoutClosePersistence();
 
 const log = createLogger("renderer-bootstrap");
 

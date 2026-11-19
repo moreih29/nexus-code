@@ -61,9 +61,10 @@ export class StateService {
   }
 
   setState(partial: Partial<AppState>): void {
-    AppStateSchema.parse({ ...this.state, ...partial });
-    this.state = { ...this.state, ...partial };
-    this.flush();
+    const next = { ...this.state, ...partial };
+    AppStateSchema.parse(next);
+    this.flush(next);
+    this.state = next;
   }
 
   mergeState(partial: Partial<AppState>): void {
@@ -82,10 +83,10 @@ export class StateService {
     this.flush();
   }
 
-  private flush(): void {
+  private flush(state = this.state): void {
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });
-    const serialized = JSON.stringify(this.state, null, 2);
+    const serialized = JSON.stringify(state, null, 2);
     // fsync before the rename so a crash or power loss cannot leave the
     // renamed file empty.
     const fd = fs.openSync(this.tmpPath, "w");

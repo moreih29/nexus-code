@@ -25,25 +25,12 @@
  * - browser:loadFailureChanged → set or clear the tab's failure
  * - browser:titleUpdated   → setRuntime(tabId, { title })
  *
- * LAST-URL PERSISTENCE
- * --------------------
- * A `useBrowserRuntimeStore` zustand subscription watches `currentUrl`
- * changes for every tracked tab.  Changes are debounced 250 ms per tab via
- * `createKeyedDebouncer`, then dispatched to `setBrowserLastUrl` in the tabs
- * store so the URL survives app restarts.
- *
- * `initBrowserLastUrlPersistence()` must be called after
- * `initBrowserRuntimeSubscriptions()` during bootstrap.  It is also
- * idempotent — a second call tears down the previous subscription.
  */
 
 import i18next from "i18next";
 import { Grid } from "@/engine";
 import { loopbackPort } from "../../../shared/pty/ports";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
-import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
-import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
-import { BROWSER_LAST_URL_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { showToast } from "../../components/ui/toast";
 import { ipcListen } from "../../ipc/client";
 import { useBrowserRuntimeStore } from "../stores/browser-runtime";
@@ -79,6 +66,9 @@ export function initBrowserRuntimeSubscriptions(): void {
         canGoBack,
         canGoForward,
       });
+      // Capture the committed URL before layout persistence takes its snapshot.
+      const workspaceId = findWorkspaceForTab(tabId);
+      if (workspaceId) useTabsStore.getState().setBrowserLastUrl(workspaceId, tabId, url);
     }),
   );
 
@@ -203,19 +193,9 @@ export function activateGroupForTab(tabId: string): void {
   useLayoutStore.getState().setActiveGroup(workspaceId, owner.id);
 }
 
-// ---------------------------------------------------------------------------
-// Last-URL persistence — debounced runtime store → tabs store dispatch
-// ---------------------------------------------------------------------------
-
-/** Unsubscribe handle returned by zustand subscribe. */
-let lastUrlPersistUnsub: (() => void) | null = null;
-
 /**
  * Resolve the workspaceId that owns `tabId` by scanning the tabs store.
  * Returns `undefined` when no workspace has an entry for `tabId`.
- *
- * Linear scan is acceptable here: the number of workspaces × tabs is small
- * (tens at most) and this path is debounced to at most 4 calls/sec.
  */
 function findWorkspaceForTab(tabId: string): string | undefined {
   const byWorkspace = useTabsStore.getState().byWorkspace;
@@ -223,51 +203,6 @@ function findWorkspaceForTab(tabId: string): string | undefined {
     if (tabId in tabRecord) return workspaceId;
   }
   return undefined;
-}
-
-/**
- * Install (or reinstall) the runtime store → tabs store last-URL persistence
- * subscription.
- *
- * Accepts an optional `scheduler` so tests can inject a fake timer without
- * touching the global clock.
- *
- * Safe to call multiple times — the previous subscription is torn down first.
- */
-export function initBrowserLastUrlPersistence(scheduler?: TimerScheduler): void {
-  // Tear down any prior subscription.
-  if (lastUrlPersistUnsub) {
-    lastUrlPersistUnsub();
-    lastUrlPersistUnsub = null;
-  }
-
-  const debouncer = createKeyedDebouncer<string>({
-    delayMs: BROWSER_LAST_URL_SAVE_DEBOUNCE_MS,
-    ...(scheduler ? { scheduler } : {}),
-  });
-
-  // Track the previous snapshot of runtimes so we can detect per-tab URL
-  // changes without reacting to unrelated fields (isLoading, title, etc.).
-  let prevRuntimes = useBrowserRuntimeStore.getState().runtimes;
-
-  lastUrlPersistUnsub = useBrowserRuntimeStore.subscribe((state) => {
-    const nextRuntimes = state.runtimes;
-    if (nextRuntimes === prevRuntimes) return;
-
-    for (const [tabId, runtime] of nextRuntimes) {
-      const prev = prevRuntimes.get(tabId);
-      if (prev?.currentUrl === runtime.currentUrl) continue;
-      // currentUrl changed for this tab — schedule a debounced persist.
-      const url = runtime.currentUrl;
-      debouncer.schedule(tabId, () => {
-        const workspaceId = findWorkspaceForTab(tabId);
-        if (!workspaceId) return;
-        useTabsStore.getState().setBrowserLastUrl(workspaceId, tabId, url);
-      });
-    }
-
-    prevRuntimes = nextRuntimes;
-  });
 }
 
 // ---------------------------------------------------------------------------

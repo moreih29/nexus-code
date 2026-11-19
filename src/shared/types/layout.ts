@@ -22,6 +22,7 @@ export type TerminalTabProps = z.infer<typeof TerminalTabPropsSchema>;
 export const EditorTabPropsSchema = z.object({
   filePath: z.string(),
   workspaceId: WorkspaceIdSchema,
+  origin: z.enum(["workspace", "external"]).optional(),
 });
 export type EditorTabProps = z.infer<typeof EditorTabPropsSchema>;
 

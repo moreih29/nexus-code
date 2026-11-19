@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, type BrowserWindow, powerMonitor, session } from "electron";
+import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "electron";
 import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
 import { DEFAULT_THEME } from "../shared/design-tokens";
 import { createLogger, initMainLogger } from "../shared/log/main";
@@ -82,11 +82,17 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { appPage, createMainWindow, updateTitleBarOverlays } from "./features/window";
+import {
+  appPage,
+  closePersistence,
+  createMainWindow,
+  updateTitleBarOverlays,
+} from "./features/window";
 import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
+  getAppWindows,
   getFocusedAppWindow,
   hasAppWindow,
   showAppWindow,
@@ -305,6 +311,7 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService, {
+  listWorkspaces: () => workspaceManager.list(),
   /**
    * Called synchronously inside the appState.set IPC handler whenever the
    * renderer persists a new language preference.  By the time any renderer
@@ -428,7 +435,7 @@ registerSystemChannel({
     },
   }),
 });
-registerWindowChannel();
+registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
@@ -855,6 +862,12 @@ app.whenReady().then(async () => {
   };
   app.on("activate", reopenAppWindow);
 });
+
+app.on("before-quit", (event) => {
+  closePersistence.interceptQuit(event, getAppWindows(), () => app.quit());
+});
+// Native updates close their windows before before-quit and own the replay.
+autoUpdater?.on("before-quit-for-update", () => closePersistence.allowUpdaterClose());
 
 app.on("window-all-closed", () => {
   // All renderers are gone — no consumer can use browse sessions any more.
