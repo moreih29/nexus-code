@@ -6,7 +6,7 @@
 // We inject deps directly to avoid touching the real dirty-tracker, file-loader,
 // or Monaco singleton — keeping this test self-contained and fast.
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type {
   ModelEntry,
   ModelEntryDeps,
@@ -15,6 +15,7 @@ import {
   reconcileExternalChange,
   reloadEntryFromDisk,
 } from "../../../../../src/renderer/services/editor/model/entry";
+import type { FileLoadResult } from "../../../../../src/renderer/services/editor/model/file-loader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,13 +26,16 @@ import {
  */
 function makeModel(value: string) {
   let content = value;
+  let version = 1;
   return {
     getValue: () => content,
     setValue: (next: string) => {
       content = next;
+      version += 1;
     },
     isDisposed: () => false,
     getAlternativeVersionId: () => 1,
+    getVersionId: () => version,
   };
 }
 
@@ -49,6 +53,7 @@ function makeDeps(overrides: Partial<ModelEntryDeps> = {}): ModelEntryDeps {
     }),
     detachDirtyTracker: () => {},
     markDirtyTrackerSaved: () => {},
+    getDirtyEntry: () => undefined,
     readFileForModel: () =>
       Promise.resolve({
         content: "disk-content",
@@ -170,6 +175,92 @@ describe("reconcileExternalChange — clean buffer", () => {
 // ---------------------------------------------------------------------------
 
 describe("reloadEntryFromDisk", () => {
+  test("keeps edits made while reopening with another encoding", async () => {
+    const read = Promise.withResolvers<FileLoadResult>();
+    const markDirtyTrackerSaved = mock(() => {});
+    const entry = makeEntry(
+      "base",
+      "base",
+      makeDeps({
+        readFileForModel: () => read.promise,
+        markDirtyTrackerSaved,
+      }),
+    );
+    entry.encoding = "utf8";
+
+    const reload = reloadEntryFromDisk(entry, "shift_jis");
+    entry.model?.setValue("typed while waiting");
+    read.resolve({
+      content: "disk",
+      mtime: "T2",
+      sizeBytes: 4,
+      isBinary: false,
+      encoding: "shift_jis",
+    });
+    await reload;
+
+    expect(entry.model?.getValue()).toBe("typed while waiting");
+    expect(entry.encoding).toBe("utf8");
+    expect(entry.lastLoadedValue).toBe("base");
+    expect(markDirtyTrackerSaved).not.toHaveBeenCalled();
+  });
+
+  test("preserves edits made after approving a discard even when the read fails", async () => {
+    const read = Promise.withResolvers<FileLoadResult>();
+    const entry = makeEntry(
+      "discard approved",
+      "base",
+      makeDeps({
+        readFileForModel: () => read.promise,
+      }),
+    );
+    const reload = reloadEntryFromDisk(entry);
+    entry.model?.setValue("edit after approval");
+    read.reject(new Error("NOT_FOUND: file deleted"));
+    await reload;
+
+    expect(entry.phase).toBe("ready");
+    expect(entry.model?.getValue()).toBe("edit after approval");
+    expect(entry.lastLoadedValue).toBe("base");
+  });
+
+  test("keeps the newer manual reload when an older read completes last without changing the model version", async () => {
+    const first = Promise.withResolvers<FileLoadResult>();
+    const second = Promise.withResolvers<FileLoadResult>();
+    const reads = [first.promise, second.promise];
+    const markDirtyTrackerSaved = mock(() => {});
+    const entry = makeEntry(
+      "same",
+      "same",
+      makeDeps({
+        readFileForModel: () => reads.shift()!,
+        markDirtyTrackerSaved,
+      }),
+    );
+
+    const earlier = reloadEntryFromDisk(entry);
+    const later = reloadEntryFromDisk(entry);
+    second.resolve({
+      content: "same",
+      mtime: "T2",
+      sizeBytes: 4,
+      isBinary: false,
+      encoding: "utf8",
+    });
+    await later;
+    first.resolve({
+      content: "old disk",
+      mtime: "T1",
+      sizeBytes: 8,
+      isBinary: false,
+      encoding: "utf8",
+    });
+    await earlier;
+
+    expect(entry.model?.getValue()).toBe("same");
+    expect(markDirtyTrackerSaved).toHaveBeenCalledTimes(1);
+  });
+
   test("replaces dirty buffer with disk content and clears diskDiverged", async () => {
     const deps = makeDeps({
       readFileForModel: () =>

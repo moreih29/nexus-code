@@ -7,11 +7,14 @@ import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
+import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../../state/stores/workspaces";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import type { TextEncoding } from "../encoding/text-encoding";
 import { registerKnownModelUri } from "../lsp/known-uris";
 import { initializeMonacoSingleton, requireMonaco } from "../runtime/monaco-singleton";
+import { workingFileOfDiff } from "../tabs/diff-working-file";
 import { attachDirtyTracker } from "./dirty-tracker";
 import {
   cleanupEntry,
@@ -19,6 +22,7 @@ import {
   createUntitledEntry,
   errorCodeFromUnknown,
   notifySubscribers,
+  reconcileIfStatChanged,
   rehydrateEntry,
   reloadEntryFromDisk,
   snapshot,
@@ -99,6 +103,7 @@ export function initializeModelCache(monaco: typeof Monaco): void {
 }
 
 const entries = new Map<string, ModelEntry>();
+const retainedByTabs = new Map<string, ModelEntry>();
 
 /**
  * External loads in flight by cacheUri. Their entry is registered only
@@ -119,6 +124,37 @@ function cacheUriForInput(input: EditorInput): string {
   }
   return cacheUriFor(input.workspaceId, input.filePath);
 }
+
+/** Whether an open tab still owns this editable buffer between view mounts. */
+function hasOpenBufferTab(entry: ModelEntry, tabs: Record<string, Tab> | undefined): boolean {
+  if (!tabs) return false;
+  const { filePath, workspaceId } = entry.input;
+  return Object.values(tabs).some((tab) => {
+    if (entry.origin === "untitled") {
+      return tab.type === "untitled" && `Untitled-${tab.props.untitledIndex}` === filePath;
+    }
+    if (tab.type === "editor") {
+      return tab.props.origin !== "external" && tab.props.filePath === filePath;
+    }
+    return (
+      tab.type === "editor.diff" &&
+      tab.props.workspaceId === workspaceId &&
+      workingFileOfDiff(tab.props) === filePath
+    );
+  });
+}
+
+// Remote views unmount when the connection expires. An open tab keeps its
+// loaded model until a view acquires it again or the tab is closed.
+useTabsStore.subscribe((state, previous) => {
+  for (const [cacheUri, entry] of retainedByTabs) {
+    const { workspaceId } = entry.input;
+    const tabs = state.byWorkspace[workspaceId];
+    if (tabs !== previous.byWorkspace[workspaceId] && !hasOpenBufferTab(entry, tabs)) {
+      disposeReleasedEntry(cacheUri, entry);
+    }
+  }
+});
 
 export function subscribeOnRelease(callback: ModelReleaseSubscriber): () => void {
   releaseSubscribers.add(callback);
@@ -198,6 +234,14 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   }
 
   entry.refCount += 1;
+  if (
+    retainedByTabs.delete(cacheUri) &&
+    entry.origin === "workspace" &&
+    selectIsWorkspaceOnline(useWorkspacesStore.getState(), input.workspaceId)
+  ) {
+    // Changes made while the daemon was away may have had no watcher event.
+    void reconcileIfStatChanged(entry);
+  }
   try {
     await entry.loadPromise;
     return snapshot(entry);
@@ -214,11 +258,32 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
 export function releaseModel(input: EditorInput): void {
   const cacheUri = cacheUriForInput(input);
   const entry = entries.get(cacheUri);
-  if (!entry) return;
+  if (!entry || entry.refCount === 0) return;
 
   entry.refCount -= 1;
   if (entry.refCount > 0) return;
 
+  const workspace = useWorkspacesStore
+    .getState()
+    .workspaces.find((w) => w.id === input.workspaceId);
+  if (
+    workspace &&
+    workspace.location.kind !== "local" &&
+    entry.origin !== "external" &&
+    entry.model &&
+    !entry.model.isDisposed() &&
+    hasOpenBufferTab(entry, useTabsStore.getState().byWorkspace[input.workspaceId])
+  ) {
+    retainedByTabs.set(cacheUri, entry);
+    return;
+  }
+
+  disposeReleasedEntry(cacheUri, entry);
+}
+
+/** Evict a model after its final view and tab owners are gone. */
+function disposeReleasedEntry(cacheUri: string, entry: ModelEntry): void {
+  retainedByTabs.delete(cacheUri);
   entries.delete(cacheUri);
   const released: ReleasedModelInfo = {
     input: entry.input,
@@ -300,15 +365,15 @@ export function getEntryLspVersion(cacheUri: string): number | null {
 }
 
 /**
- * Reload the model entry for `input` from disk, replacing the buffer with
- * the on-disk content. Used by the conflict-resolution "reload" path.
- * Returns false when no tracked entry exists for the input.
+ * Ask to revert a buffer to disk, or reopen a clean buffer in `encoding`.
+ * Returns true only when the requested disk result was applied.
  */
-export async function reloadModelFromDisk(input: EditorInput): Promise<boolean> {
+export async function reloadModelFromDisk(
+  input: EditorInput,
+  encoding?: TextEncoding,
+): Promise<boolean> {
   const entry = entries.get(cacheUriForInput(input));
-  if (!entry) return false;
-  await reloadEntryFromDisk(entry);
-  return true;
+  return entry ? reloadEntryFromDisk(entry, encoding) : false;
 }
 
 /**
@@ -447,6 +512,7 @@ export function forceDisposeExternalsForWorkspace(workspaceId: string): void {
     const isUntitledForWorkspace =
       entry.origin === "untitled" && entry.input.workspaceId === workspaceId;
     if (isExternalForWorkspace || isUntitledForWorkspace) {
+      retainedByTabs.delete(cacheUri);
       entries.delete(cacheUri);
       cleanupEntry(entry);
     }
