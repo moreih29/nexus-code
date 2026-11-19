@@ -67,7 +67,6 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
-  chatSendErrorKind,
   clearObservedQueued,
   dispatchQueuedMessage,
   emptyTabState,
@@ -253,6 +252,7 @@ export class CodexController {
   private mcpRead: object | undefined;
   /** What the user picked for the next turn. */
   private next: CodexPicks = {};
+  private turnPicks?: { threadId: string; clientId: string; picks: CodexPicks };
   private readonly removeReceiver: () => void;
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
   private readonly leavePlanUsage: () => void;
@@ -1449,7 +1449,7 @@ export class CodexController {
         this.hooks.onFirstMessage?.(shownUserText(text).trim());
       }
     }
-    const clientUserMessageId = id ? `peer-${id}` : nextId();
+    const clientUserMessageId = queued?.clientUserMessageId ?? (id ? `peer-${id}` : nextId());
     // Kept before the message is written, so it never shows as the user's;
     // with its turn too, which a resumed thread keeps (not the message's id).
     const record = from ? { id: clientUserMessageId, from, at: Date.now() } : undefined;
@@ -1469,12 +1469,7 @@ export class CodexController {
         told(result, turnId);
         return;
       } catch (err) {
-        if (
-          !(err instanceof CodexReplyError) &&
-          (id || isChatWriteRejected(err) || chatSendErrorKind(err) === "chat.stdin-incomplete")
-        ) {
-          throw err;
-        }
+        if (!(err instanceof CodexReplyError)) throw err;
         this.flushNow();
         log.info(`steer not taken: ${(err as Error).message}`);
         // The active turn refused the message. Wait for a turn boundary.
@@ -1483,16 +1478,23 @@ export class CodexController {
             this.deferToolSendsForTurn = this.model.turnId;
             return { heldId: queued.id, afterTurn: true };
           }
-          return { heldId: this.holdMessage(text, images, from, device, id) };
+          return {
+            heldId: this.holdMessage(
+              text,
+              images,
+              from,
+              device,
+              id ?? clientUserMessageId,
+              undefined,
+              clientUserMessageId,
+            ),
+          };
         }
         // The turn ended meanwhile: the message starts the next one.
       }
     }
     const { model, effort, mode } = this.next;
-    this.next = {};
-    // The thread holds them from this turn on: the tab keeps a pick only
-    // until it is sent, so a thread changed since is not overridden.
-    if (model || effort) this.hooks.onChosen?.({});
+    this.turnPicks = { threadId, clientId: clientUserMessageId, picks: this.next };
     // Its answer comes in the log. The composer waits for the separate write outcome.
     const { reply, written } = this.requestWithWrite("turn/start", {
       threadId,
@@ -1503,7 +1505,21 @@ export class CodexController {
       ...(mode ? MODE_SETTINGS[mode] : {}),
     });
     const start = reply
-      .then((result) => told(result))
+      .then(
+        (result) => {
+          this.confirmTurnPicks(clientUserMessageId);
+          told(result);
+        },
+        (error: unknown) => {
+          if (
+            this.turnPicks?.clientId === clientUserMessageId &&
+            (error instanceof CodexReplyError || isChatWriteRejected(error))
+          ) {
+            this.turnPicks = undefined;
+          }
+          throw error;
+        },
+      )
       .finally(() => {
         this.flushNow();
         this.startingTurn = undefined;
@@ -1515,6 +1531,25 @@ export class CodexController {
       void start.catch(() => {});
       await written;
       this.flushNow();
+    }
+  }
+
+  /** Keeps newer selections when the program takes the choices sent with a turn. */
+  private confirmTurnPicks(clientId: string): void {
+    const sent = this.turnPicks;
+    if (sent?.clientId !== clientId || sent.threadId !== this.currentThread()) return;
+    this.turnPicks = undefined;
+    const latest = this.next;
+    const model = latest.model === sent.picks.model ? undefined : latest.model;
+    const effort = latest.effort === sent.picks.effort ? undefined : latest.effort;
+    const mode = latest.mode === sent.picks.mode ? undefined : latest.mode;
+    this.next = {
+      ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+      ...(mode !== undefined ? { mode } : {}),
+    };
+    if (model !== latest.model || effort !== latest.effort) {
+      this.hooks.onChosen?.({ model, effort });
     }
   }
 
@@ -1544,6 +1579,7 @@ export class CodexController {
     device?: string,
     id?: string,
     afterTool?: number,
+    clientUserMessageId?: string,
   ): string {
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
@@ -1552,6 +1588,7 @@ export class CodexController {
       text,
       images,
       ...(afterTool !== undefined ? { afterTool } : {}),
+      ...(clientUserMessageId ? { clientUserMessageId } : {}),
       ...(from ? { from } : {}),
       ...(device ? { device } : {}),
     };
@@ -1628,7 +1665,11 @@ export class CodexController {
   }
 
   private sawQueuedMessage(id: string): boolean {
-    return this.model.items.some((item) => item.kind === "user" && item.key === `u-peer-${id}`);
+    const clientId =
+      this.state.queue.find((item) => item.id === id)?.clientUserMessageId ?? `peer-${id}`;
+    return this.model.items.some(
+      (item) => item.kind === "user" && item.key === `u-${clientId}` && item.state === "taken",
+    );
   }
 
   async interrupt(): Promise<unknown> {
@@ -2086,6 +2127,19 @@ export class CodexController {
     if (model === before) return;
     if (model.running || model.lastResult) this.emptyThread = undefined;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
+    const pendingPick = this.turnPicks;
+    if (
+      pendingPick &&
+      model.items !== before.items &&
+      model.items.some(
+        (item) =>
+          item.kind === "user" &&
+          item.key === `u-${pendingPick.clientId}` &&
+          item.state === "taken",
+      )
+    ) {
+      this.confirmTurnPicks(pendingPick.clientId);
+    }
     if (model.threadId) this.rememberThread(model.threadId);
     if (model.threadId && model.threadId !== before.threadId) {
       this.dirtyAgents.clear();
