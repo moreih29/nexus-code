@@ -261,7 +261,7 @@
   "notifications": {
     "osEnabled": {
       "label": "Desktop notifications",
-      "description": "When an agent in a tab you aren't viewing finishes or waits"
+      "description": "When an agent finishes or needs you in a tab you aren’t viewing"
     },
     "rateLimitWarnings": {
       "label": "Usage limit warnings",
@@ -741,7 +741,7 @@
       "signOut": "Sign out",
       "server": "Server: {{server}}",
       "failure": {
-        "cancelled": "Sign-in cancelled.",
+        "cancelled": "Sign-in cancelled",
         "timed-out": "Sign-in timed out. Try again.",
         "access_denied": "Sign-in was declined.",
         "unverified_email": "That account's email isn't verified.",

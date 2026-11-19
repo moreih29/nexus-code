@@ -261,7 +261,7 @@
   "notifications": {
     "osEnabled": {
       "label": "데스크톱 알림",
-      "description": "보고 있지 않은 탭의 에이전트가 끝나거나 기다릴 때"
+      "description": "보고 있지 않은 탭에서 에이전트가 작업을 완료하거나 응답을 기다릴 때"
     },
     "rateLimitWarnings": {
       "label": "사용량 한도 경고",
@@ -741,7 +741,7 @@
       "signOut": "로그아웃",
       "server": "서버: {{server}}",
       "failure": {
-        "cancelled": "로그인을 취소했습니다.",
+        "cancelled": "로그인 취소",
         "timed-out": "로그인 시간이 지났습니다. 다시 시도하세요.",
         "access_denied": "로그인이 거절됐습니다.",
         "unverified_email": "이메일이 인증되지 않은 계정입니다.",
