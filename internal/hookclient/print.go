@@ -225,6 +225,12 @@ func runPrint(
 		}
 	}
 	cmd := nodeshim.Command(claude, args...)
+	releaseChild, err := preparePrintChild(cmd)
+	if err != nil {
+		fmt.Fprintf(stderr, "nexus: %v\n", err)
+		return 127, 0
+	}
+	defer releaseChild()
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
 	// A json or stream-json run's output tells of the run, and a text run's
