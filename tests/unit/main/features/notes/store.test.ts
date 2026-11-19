@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -73,6 +73,42 @@ describe("notes on disk", () => {
     const read = await store.read(here, a.id);
     expect(read.doc).toEqual(doc("본문입니다"));
     expect(read.title).toBe("첫 노트");
+    if (process.platform !== "win32") {
+      expect((await fs.stat(path.join(a.dir, "note.json"))).mode & 0o777).toBe(
+        0o666 & ~process.umask(),
+      );
+    }
+  });
+
+  test.each([
+    "write",
+    "rename",
+  ] as const)("preserves a saved note and removes its temporary file after a %s failure", async (stage) => {
+    const note = await store.create(here, "old");
+    const json = path.join(note.dir, "note.json");
+    const markdown = path.join(note.dir, "note.md");
+    const original = await fs.readFile(json);
+    const originalMarkdown = await fs.readFile(markdown);
+    const error = new Error(`note ${stage} failed`);
+    const write = fs.writeFile;
+    const fail =
+      stage === "write"
+        ? spyOn(fs, "writeFile").mockImplementationOnce(async (file) => {
+            await write(file, "{");
+            throw error;
+          })
+        : spyOn(fs, "rename").mockImplementationOnce(async () => {
+            throw error;
+          });
+    try {
+      await expect(store.save(here, note.id, { title: "new" })).rejects.toThrow(error.message);
+    } finally {
+      fail.mockRestore();
+    }
+
+    expect(await fs.readFile(json)).toEqual(original);
+    expect(await fs.readFile(markdown)).toEqual(originalMarkdown);
+    expect((await fs.readdir(note.dir)).sort()).toEqual(["note.json", "note.md"]);
   });
 
   test("a missing note or a bad id is an error, not a path", async () => {

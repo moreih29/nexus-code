@@ -1,0 +1,130 @@
+/**
+ * Unit tests for shell-shim.ts — applyShellPathShim pure function.
+ *
+ * Acceptance criteria:
+ *  1. shell="/bin/zsh"        → ZDOTDIR=<shimDir>, NEXUS_USER_ZDOTDIR=<original or "">
+ *  2. shell="zsh-5.9"         → zsh branch
+ *  3. shell="/bin/bash"       → args starts with --rcfile <shimDir>/bashrc -i
+ *  4. shell="/usr/local/bin/bash" → same
+ *  5. shell="/usr/local/bin/fish" → no-op
+ *  6. shell undefined + env.SHELL="/bin/zsh" → zsh branch
+ *  7. shell undefined + env.SHELL undefined   → no-op
+ *  8. zsh branch + existing args → args unchanged
+ *  9. bash branch + existing args → --rcfile/-i prepended before existing args,
+ *     after any long options (bash takes those first)
+ */
+
+import { describe, expect, test } from "bun:test";
+import { applyShellPathShim } from "../../../../../src/main/features/pty/shell-shim";
+
+const SHIM_DIR = "/home/user/.nexus-code/shim/ws-abc123";
+
+describe("applyShellPathShim", () => {
+  test("1: shell=/bin/zsh → ZDOTDIR=shimDir, NEXUS_USER_ZDOTDIR=original ZDOTDIR", () => {
+    const input = {
+      shell: "/bin/zsh",
+      env: { ZDOTDIR: "/home/user/.config/zsh", PATH: "/usr/bin" },
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
+    expect(output.env.NEXUS_USER_ZDOTDIR).toBe("/home/user/.config/zsh");
+    // Other env keys preserved
+    expect(output.env.PATH).toBe("/usr/bin");
+  });
+
+  test("1b: shell=/bin/zsh, no ZDOTDIR → NEXUS_USER_ZDOTDIR is empty string", () => {
+    const input = {
+      shell: "/bin/zsh",
+      env: { PATH: "/usr/bin" },
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
+    expect(output.env.NEXUS_USER_ZDOTDIR).toBe("");
+  });
+
+  test("3: shell=/bin/bash → args starts with --rcfile <shimDir>/bashrc -i", () => {
+    const input = {
+      shell: "/bin/bash",
+      env: {},
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.args).toBeDefined();
+    expect(output.args![0]).toBe("--rcfile");
+    expect(output.args![1]).toBe(`${SHIM_DIR}/bashrc`);
+    expect(output.args![2]).toBe("-i");
+  });
+
+  test("5: shell=/usr/local/bin/fish → no-op (input returned unchanged)", () => {
+    const env = { PATH: "/usr/bin" };
+    const args = ["--login"];
+    const input = {
+      shell: "/usr/local/bin/fish",
+      env,
+      args,
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.env).toBe(env);
+    expect(output.args).toBe(args);
+  });
+
+  test("6: shell undefined + env.SHELL=/bin/zsh → zsh branch", () => {
+    const input = {
+      env: { SHELL: "/bin/zsh" },
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
+    expect(output.env.NEXUS_USER_ZDOTDIR).toBe("");
+  });
+
+  test("9: bash branch + existing args → --rcfile/-i prepended before existing args", () => {
+    const existingArgs = ["-l"];
+    const input = {
+      shell: "/bin/bash",
+      env: {},
+      args: existingArgs,
+      shimDir: SHIM_DIR,
+    };
+    const output = applyShellPathShim(input);
+
+    expect(output.args).toEqual(["--rcfile", `${SHIM_DIR}/bashrc`, "-i", "-l"]);
+    // original args array not mutated
+    expect(existingArgs).toEqual(["-l"]);
+  });
+
+  test("bash branch keeps the shell's long options in front, where bash accepts them", () => {
+    const output = applyShellPathShim({
+      shell: "/bin/bash",
+      env: {},
+      args: ["--login", "--noprofile", "-x", "--", "script"],
+      shimDir: SHIM_DIR,
+    });
+
+    expect(output.args).toEqual([
+      "--login",
+      "--noprofile",
+      "--rcfile",
+      `${SHIM_DIR}/bashrc`,
+      "-i",
+      "-x",
+      "--",
+      "script",
+    ]);
+  });
+
+  test("bash branch leaves a shell that names its own rc file alone", () => {
+    const args = ["--rcfile", "/home/user/.myrc"];
+    const output = applyShellPathShim({ shell: "/bin/bash", env: {}, args, shimDir: SHIM_DIR });
+
+    expect(output.args).toEqual(args);
+  });
+});

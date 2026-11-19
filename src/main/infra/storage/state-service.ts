@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { createLogger } from "../../../shared/log/main";
 import {
   type AppState,
   AppStateSchema,
@@ -8,6 +9,8 @@ import {
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
 import { migrateAppState } from "./app-state-migrations";
+
+const log = createLogger("storage");
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
@@ -91,12 +94,23 @@ export class StateService {
     // renamed file empty.
     const fd = fs.openSync(this.tmpPath, "w");
     try {
-      fs.writeSync(fd, serialized, null, "utf8");
-      fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
+      try {
+        fs.writeSync(fd, serialized, null, "utf8");
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(this.tmpPath, this.filePath);
+    } catch (error) {
+      try {
+        fs.unlinkSync(this.tmpPath);
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+          log.warn(`Could not remove temporary app state: ${String(cleanupError)}`);
+        }
+      }
+      throw error;
     }
-    fs.renameSync(this.tmpPath, this.filePath);
   }
 }
 
