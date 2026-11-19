@@ -1,5 +1,7 @@
 /** The tasks' git facts the sessions' list tells: kept, and looked at again only once old. */
 import { describe, expect, test } from "bun:test";
+import type { CliServices } from "../../../../../src/main/features/cli/context";
+import { listSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { factsOf, REFRESH_MS, TaskGit } from "../../../../../src/main/features/remote/task-git";
 import type { GitStatus } from "../../../../../src/shared/git/types";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
@@ -70,5 +72,40 @@ describe("a task's git facts", () => {
     git.facts(task);
     await settle();
     expect(git.facts(task)).toMatchObject({ branch: "feat" });
+  });
+
+  test("removing a task leaves no cached git facts even when its lookup and session list finish late", async () => {
+    const oldStatus = Promise.withResolvers<GitStatus>();
+    const newStatus = Promise.withResolvers<GitStatus | null>();
+    let lookups = 0;
+    const git = new TaskGit(() => (++lookups === 1 ? oldStatus.promise : newStatus.promise));
+
+    let workspaces = [root, task];
+    let tabsReady = Promise.resolve();
+    const services = {
+      listWorkspaces: () => workspaces,
+      ui: async () => {
+        await tabsReady;
+        return { tabs: [] };
+      },
+    } as unknown as CliServices;
+    await listSessions(services, git.facts);
+    expect(lookups).toBe(1);
+
+    const tabs = Promise.withResolvers<void>();
+    tabsReady = tabs.promise;
+    const listing = listSessions(services, git.facts);
+    workspaces = [root];
+    git.forget(task.id);
+    oldStatus.resolve(status());
+    tabs.resolve();
+    await listing;
+    expect(lookups).toBe(1);
+
+    workspaces = [root, task];
+    const reopened = await listSessions(services, git.facts);
+    expect(reopened.workspaces.find(({ id }) => id === task.id)?.git).toBeUndefined();
+    expect(lookups).toBe(2);
+    newStatus.resolve(null);
   });
 });

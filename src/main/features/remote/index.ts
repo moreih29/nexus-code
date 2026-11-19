@@ -190,6 +190,8 @@ export async function registerRemoteChannel(options: {
   keys: AccountKeys;
   /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
+  /** Drops the removed workspace's cached Git facts. */
+  forgetWorkspace(workspaceId: string): void;
   /** The user's other computers, for the nexus command's --device. */
   cli: CliRemote;
   /** Reads a file of another computer's workspace, for the previews of quick look over its chats. */
@@ -926,6 +928,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {
       try {
         return await peerFiles.openBytes(peer, absPath, offset, length, signal);

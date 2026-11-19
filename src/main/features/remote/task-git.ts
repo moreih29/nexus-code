@@ -52,7 +52,7 @@ export class TaskGit {
     return kept?.facts ?? undefined;
   };
 
-  /** A workspace gone: its facts too. */
+  /** Drops the entry; a pending lookup can only update its detached copy. */
   forget(workspaceId: string): void {
     this.kept.delete(workspaceId);
   }
