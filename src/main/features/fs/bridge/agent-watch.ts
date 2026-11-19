@@ -3,6 +3,7 @@ import { FsChangeSchema } from "../../../../shared/fs/types";
 import { createLogger } from "../../../../shared/log/main";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { type AgentBackedProvider, isAgentBackedProvider } from "./provider";
+import { enqueueWatchOperation, subscribeAgentWatch } from "./watch-lifecycle";
 
 const log = createLogger("fs");
 const AgentFsChangedPayloadSchema = z.object({ changes: z.array(FsChangeSchema) });
@@ -113,9 +114,7 @@ export class AgentFsWatcher {
     relPath: string,
     run: () => Promise<void>,
   ): Promise<void> {
-    const previous = state.pending.get(relPath);
-    const pending = (previous ? previous.then(run, run) : run()).finally(() => {
-      if (state.pending.get(relPath) === pending) state.pending.delete(relPath);
+    return enqueueWatchOperation(state.pending, relPath, run, () => {
       if (
         this.workspaces.get(workspaceId) === state &&
         state.paths.size === 0 &&
@@ -125,8 +124,6 @@ export class AgentFsWatcher {
         this.workspaces.delete(workspaceId);
       }
     });
-    state.pending.set(relPath, pending);
-    return pending;
   }
 
   /** Moves the listener and desired paths to the new provider. */
@@ -139,28 +136,18 @@ export class AgentFsWatcher {
     if (previous?.provider === provider) return previous;
     previous?.unsubscribe();
 
-    const offChanged = provider.onAgentEvent("fs.changed", (payload) => {
-      if (this.workspaces.get(workspaceId) !== state || state.subscription !== subscription) return;
-      const parsed = AgentFsChangedPayloadSchema.safeParse(payload);
-      if (!parsed.success || parsed.data.changes.length === 0) return;
-      this.broadcast("fs", "changed", { workspaceId, changes: parsed.data.changes });
-    });
-    const offLifecycle = provider.onAgentLifecycle((event) => {
-      if (
-        event.type === "ready" &&
-        this.workspaces.get(workspaceId) === state &&
-        state.subscription === subscription
-      ) {
-        this.replay(workspaceId, state, subscription);
-      }
-    });
-    const subscription = {
+    const unsubscribe = subscribeAgentWatch(
       provider,
-      unsubscribe: () => {
-        offChanged();
-        offLifecycle();
+      "fs.changed",
+      () => this.workspaces.get(workspaceId) === state && state.subscription === subscription,
+      (payload) => {
+        const parsed = AgentFsChangedPayloadSchema.safeParse(payload);
+        if (!parsed.success || parsed.data.changes.length === 0) return;
+        this.broadcast("fs", "changed", { workspaceId, changes: parsed.data.changes });
       },
-    };
+      () => this.replay(workspaceId, state, subscription),
+    );
+    const subscription = { provider, unsubscribe };
     state.subscription = subscription;
     if (previous) this.replay(workspaceId, state, subscription);
     return subscription;

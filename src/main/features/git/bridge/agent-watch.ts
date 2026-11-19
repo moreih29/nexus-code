@@ -6,6 +6,7 @@ import {
 } from "../../../../shared/git/protocol";
 import { createLogger } from "../../../../shared/log/main";
 import { type AgentBackedProvider, isAgentBackedProvider } from "../../fs/bridge/provider";
+import { enqueueWatchOperation, subscribeAgentWatch } from "../../fs/bridge/watch-lifecycle";
 import type { WorkspaceManager } from "../../workspace/manager";
 
 const log = createLogger("git");
@@ -62,7 +63,7 @@ export class AgentGitWatcher {
     const entry = this.entries.get(workspaceId);
     if (!entry) return;
     this.detach(workspaceId, entry);
-    await this.enqueue(workspaceId, async () => {
+    await enqueueWatchOperation(this.pending, workspaceId, async () => {
       await entry.provider.callAgentMethod(GIT_UNWATCH_METHOD, { gitDir: entry.gitDir });
     });
   }
@@ -93,43 +94,43 @@ export class AgentGitWatcher {
       else this.detach(workspaceId, previous);
     }
 
-    const offChanged = provider.onAgentEvent(GIT_CHANGED_EVENT, (payload) => {
-      if (this.entries.get(workspaceId) !== entry) return;
-      const parsed = AgentGitChangedPayloadSchema.safeParse(payload);
-      if (parsed.success && parsed.data.gitDir === gitDir) this.onDirty(workspaceId);
-    });
-    const offLifecycle = provider.onAgentLifecycle((event) => {
-      if (event.type !== "ready" || this.entries.get(workspaceId) !== entry) return;
-      void this.enqueue(workspaceId, async () => {
-        if (this.entries.get(workspaceId) === entry) {
-          entry.registering = true;
-          try {
-            await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
-          } finally {
-            entry.registering = false;
+    const unsubscribe = subscribeAgentWatch(
+      provider,
+      GIT_CHANGED_EVENT,
+      () => this.entries.get(workspaceId) === entry,
+      (payload) => {
+        const parsed = AgentGitChangedPayloadSchema.safeParse(payload);
+        if (parsed.success && parsed.data.gitDir === gitDir) this.onDirty(workspaceId);
+      },
+      () => {
+        void enqueueWatchOperation(this.pending, workspaceId, async () => {
+          if (this.entries.get(workspaceId) === entry) {
+            entry.registering = true;
+            try {
+              await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
+            } finally {
+              entry.registering = false;
+            }
           }
-        }
-      }).catch((error: unknown) => {
-        log.warn(
-          `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
-        );
-      });
-      // Refresh status for changes the disconnected agent did not see.
-      this.onDirty(workspaceId);
-    });
+        }).catch((error: unknown) => {
+          log.warn(
+            `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
+          );
+        });
+        // Refresh status for changes the disconnected agent did not see.
+        this.onDirty(workspaceId);
+      },
+    );
 
     const entry: GitWatchEntry = {
       gitDir,
       provider,
-      unsubscribe: () => {
-        offChanged();
-        offLifecycle();
-      },
+      unsubscribe,
       ready: Promise.resolve(),
       registering: true,
     };
     this.entries.set(workspaceId, entry);
-    entry.ready = this.enqueue(workspaceId, async () => {
+    entry.ready = enqueueWatchOperation(this.pending, workspaceId, async () => {
       if (this.entries.get(workspaceId) !== entry) return;
       try {
         await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
@@ -153,15 +154,5 @@ export class AgentGitWatcher {
   private detach(workspaceId: string, entry: GitWatchEntry): void {
     this.entries.delete(workspaceId);
     entry.unsubscribe();
-  }
-
-  /** Orders replacement, replay and cleanup for one workspace's repository. */
-  private enqueue(workspaceId: string, run: () => Promise<void>): Promise<void> {
-    const previous = this.pending.get(workspaceId);
-    const pending = (previous ? previous.then(run, run) : run()).finally(() => {
-      if (this.pending.get(workspaceId) === pending) this.pending.delete(workspaceId);
-    });
-    this.pending.set(workspaceId, pending);
-    return pending;
   }
 }
