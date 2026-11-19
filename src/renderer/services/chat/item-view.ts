@@ -13,6 +13,7 @@
  */
 import type { AssistantBlock, AssistantItem, ChatItem, ToolCall } from "./model";
 import type { AnswerExtras, ImagesShownEarlier } from "./panel";
+import type { ToolRowStatus, ToolRowStatuses } from "./running";
 import type { ShownBlock } from "./tool-runs";
 
 /** A message's part of its list's sources. */
@@ -21,6 +22,8 @@ export interface ItemView {
   blocks: readonly ShownBlock[];
   /** Its calls and the calls they run (a subagent's), by id. */
   tools: Readonly<Record<string, ToolCall>>;
+  /** Statuses supplied by background jobs for these calls. */
+  toolStatuses: ToolRowStatuses;
   /** What its answer ends with. */
   extras?: AnswerExtras;
   /** By part, the image files it shows that its turn showed before. */
@@ -32,6 +35,7 @@ export interface ItemView {
 /** What a list renders its messages from. */
 export interface ListSources {
   tools: Record<string, ToolCall>;
+  toolStatuses: ToolRowStatuses;
   /** By a call's id, the calls it runs (callsUnder). */
   callsUnder: ReadonlyMap<string, readonly ToolCall[]>;
   shown: ReadonlyMap<AssistantItem, readonly ShownBlock[]>;
@@ -60,12 +64,15 @@ export function itemView(item: ChatItem, sources: ListSources): ItemView | undef
   if (item.kind !== "assistant") return undefined;
   const blocks = sources.shown.get(item) ?? item.blocks;
   const tools: Record<string, ToolCall> = {};
+  const toolStatuses: Partial<Record<string, ToolRowStatus>> = {};
   const taken = new Set<string>();
   const take = (id: string) => {
     if (taken.has(id)) return;
     taken.add(id);
     const tool = sources.tools[id];
     if (tool) tools[id] = tool;
+    const status = sources.toolStatuses[id];
+    if (status) toolStatuses[id] = status;
     for (const call of sources.callsUnder.get(id) ?? []) take(call.id);
   };
   const earlier = new Map<AssistantBlock | string, ReadonlySet<string>>();
@@ -91,6 +98,7 @@ export function itemView(item: ChatItem, sources: ListSources): ItemView | undef
   return {
     blocks,
     tools,
+    toolStatuses,
     earlier: earlier.size > 0 ? earlier : NO_EARLIER,
     ...(extras ? { extras } : {}),
     ...(asked ? { asked } : {}),
@@ -105,6 +113,7 @@ export function sameView(a: ItemView | undefined, b: ItemView | undefined): bool
     a.asked === b.asked &&
     sameBlocks(a.blocks, b.blocks) &&
     sameRecord(a.tools, b.tools) &&
+    sameRecord(a.toolStatuses, b.toolStatuses) &&
     sameExtras(a.extras, b.extras) &&
     sameEarlier(a.earlier, b.earlier)
   );

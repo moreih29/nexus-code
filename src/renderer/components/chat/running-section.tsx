@@ -42,7 +42,7 @@ import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
 import { relativeTime } from "./message-list";
 import { FirstFew, Row, Section, useFold, useRevealedRow } from "./panel-section";
-import { BackgroundIcon } from "./tool-row";
+import { BackgroundBadge, BackgroundIcon } from "./tool-row";
 
 /** How many ended rows show before the rest is asked for. */
 export const ENDED_FIRST = 5;
@@ -405,14 +405,7 @@ const RunningRow = memo(function RunningRow({
           <ActivityGlyph status={row.status} />
           <span className="min-w-0 flex-1 truncate">{row.description}</span>
         </button>
-        {row.background && (
-          <span
-            className="shrink-0 rounded-full border border-border px-1.5 text-app-micro leading-4 text-muted-foreground"
-            data-testid="running-background"
-          >
-            {t("chat.panel.running.background")}
-          </span>
-        )}
+        {row.background && <BackgroundBadge testId="running-background" />}
         <RunningFor from={row.startedAt} />
         {foreground && onBackground && (
           <IconButton

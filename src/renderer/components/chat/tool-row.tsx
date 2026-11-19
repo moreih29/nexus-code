@@ -16,7 +16,11 @@ import { useTranslation } from "react-i18next";
 import { imageFileOf } from "../../services/chat/image-look";
 import { slashWindowsPath } from "../../services/chat/links";
 import type { ToolCall } from "../../services/chat/model";
-import { canBackground } from "../../services/chat/running";
+import {
+  canBackground,
+  type ToolRowStatus,
+  type ToolRowStatuses,
+} from "../../services/chat/running";
 import { cn } from "../../utils/cn";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
@@ -26,6 +30,7 @@ interface ToolRowProps {
   toolUseId: string;
   /** Every tool call the tab knows, for an Agent call's own calls. */
   tools: Record<string, ToolCall>;
+  toolStatuses: ToolRowStatuses;
   cwd: string;
   /** Sends a running command or subagent to the background, as Ctrl+B does in the terminal. */
   onBackground?: (toolUseId: string) => void;
@@ -51,21 +56,35 @@ export function toolTint(name: string): string {
  */
 export const BackgroundIcon = Layers2;
 
+/** The label for a job running beside the turn, in the conversation and the panel. */
+export function BackgroundBadge({ testId }: { testId?: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className="shrink-0 rounded-full border border-border px-1.5 text-app-micro leading-4 text-muted-foreground"
+      data-testid={testId}
+    >
+      {t("chat.panel.running.background")}
+    </span>
+  );
+}
+
 /** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;
 
-export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowProps) {
+export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackground }: ToolRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const name = tool?.displayName || tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
-  const status = tool?.status ?? "running";
+  const jobStatus = toolStatuses[toolUseId];
+  const status = jobStatus ?? tool?.status ?? "running";
   const unsandboxed = tool ? isUnsandboxed(tool.input) : false;
   const children =
     tool && AGENT_TOOLS.has(tool.name)
       ? Object.values(tools).filter((t) => t.parentToolUseId === toolUseId)
       : [];
-  const backgroundable = onBackground && tool && canBackground(tool);
+  const backgroundable = onBackground && tool && jobStatus === undefined && canBackground(tool);
   return (
     <div className="my-1 text-app-ui-sm" data-tool-use-id={toolUseId}>
       <div className="flex min-w-0 items-center gap-1">
@@ -88,6 +107,7 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
               {t("chat.tool.unsandboxed")}
             </span>
           )}
+          {status === "background" && <BackgroundBadge />}
           {status === "denied" && (
             <span className="shrink-0 text-muted-foreground">{t("chat.tool.denied")}</span>
           )}
@@ -122,7 +142,14 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
       {open && children.length > 0 && (
         <div className="ml-4 border-l border-border pl-2">
           {children.map((child) => (
-            <ToolRow key={child.id} toolUseId={child.id} tool={child} tools={tools} cwd={cwd} />
+            <ToolRow
+              key={child.id}
+              toolUseId={child.id}
+              tool={child}
+              tools={tools}
+              toolStatuses={toolStatuses}
+              cwd={cwd}
+            />
           ))}
         </div>
       )}
@@ -143,11 +170,12 @@ export function isUnsandboxed(input: unknown): boolean {
   );
 }
 
-function StatusIcon({ status }: { status: ToolCall["status"] }) {
+function StatusIcon({ status }: { status: ToolRowStatus }) {
   const cls = "size-3.5 shrink-0";
   switch (status) {
     case "streaming":
     case "running":
+    case "background":
       return (
         <LoaderCircle className={cn(cls, "animate-spin text-[var(--state-loading-indicator)]")} />
       );

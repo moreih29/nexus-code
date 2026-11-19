@@ -58,6 +58,7 @@ import {
 } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { jobToolStatuses } from "../../services/chat/running";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -397,10 +398,14 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   }, [isVisible]);
   // The previews may read what the tab links outside the workspace, while it is open.
   const [looked, setLooked] = useState<readonly string[]>([]);
-  // Taken from the parts it reads, so a line that changes none of them (a
-  // usage report, a turn's end) does not walk the whole session again.
   const history = state.history;
   const { items: liveItems, tools: liveTools, tasks } = state.model;
+  const toolStatuses = useMemo(
+    () => jobToolStatuses({ tasks, tools: liveTools, running }),
+    [tasks, liveTools, running],
+  );
+  // Taken from the parts it reads, so a line that changes none of them (a
+  // usage report, a turn's end) does not walk the whole session again.
   const outside = useMemo(() => {
     const items = history ? [...history.items, ...liveItems] : liveItems;
     const tools = history ? { ...history.tools, ...liveTools } : liveTools;
@@ -681,6 +686,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               rootPath={rootPath}
               history={pastModel}
               model={state.model}
+              toolStatuses={toolStatuses}
               actions={shown ? undefined : actions}
               items={shownTranscript}
               reveal={shown ? null : callAsk}
