@@ -319,7 +319,11 @@ export function registerNotesChannel(opts: {
       removeLocation: async (args: unknown) => {
         const { key } = validateArgs(c.removeLocation.args, args);
         await store.removeLocation(key);
-        changed({ locationKey: key, change: "removed" });
+        const workspaces = opts.workspaces();
+        const workspaceIds = workspaces
+          .filter((workspace) => noteLocationOf(workspace, workspaces).key === key)
+          .map((workspace) => workspace.id);
+        changed({ locationKey: key, change: "removed", workspaceIds });
         return ipcOk(undefined);
       },
       recording: async (args: unknown, ctx) => {
