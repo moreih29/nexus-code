@@ -3,56 +3,17 @@
 // tab's own views. Codex's terminal-only ones (theme, keymap, vim, pets,
 // statusline…) are left out. Pure, for the tab and its tests.
 
+import {
+  CODEX_COMMANDS,
+  CODEX_REMOTE_COMMANDS,
+} from "../../../../../packages/remote-protocol/src/commands";
 import { type AppCommand, code, type Words } from "../app-commands";
 import type { CommandInfo } from "../model";
 import { collaborationModeOf } from "./collaboration";
 import type { CodexModel } from "./model";
 
-export const CODEX_COMMANDS: readonly AppCommand[] = [
-  { name: "model" },
-  { name: "effort" },
-  { name: "plan" },
-  { name: "default" },
-  { name: "fast", argumentHint: "[on|off|status]" },
-  { name: "config", aliases: ["settings"] },
-  { name: "new", aliases: ["clear"] },
-  { name: "resume", argumentHint: "[search]" },
-  { name: "fork" },
-  { name: "rename", argumentHint: "<name>" },
-  { name: "compact" },
-  { name: "review", argumentHint: "[instructions]" },
-  { name: "init" },
-  { name: "goal", argumentHint: "[<objective>|clear|pause|resume]" },
-  { name: "status" },
-  { name: "context" },
-  { name: "usage" },
-  { name: "diff" },
-  { name: "copy", argumentHint: "[N]" },
-  { name: "export", argumentHint: "[filename]" },
-  { name: "mcp" },
-  { name: "skills" },
-  { name: "logout" },
-  { name: "help" },
-  { name: "exit", aliases: ["quit"] },
-];
-
-/** Codex's commands the app runs that another device may run. */
-export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
-  "new",
-  "compact",
-  "fast",
-  "plan",
-  "default",
-  "review",
-  "init",
-  "goal",
-  "status",
-  "rename",
-  "fork",
-  "export",
-  "mcp",
-  "skills",
-]);
+// The list lives in the protocol package, which the mobile app shares.
+export { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS };
 
 function namesOf(command: AppCommand): string[] {
   return [command.name, ...(command.aliases ?? [])];
