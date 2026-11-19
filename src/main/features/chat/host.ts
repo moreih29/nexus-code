@@ -35,7 +35,7 @@ export interface ChatWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
   tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
   onProviderReady(listener: (workspaceId: string) => void): () => void;
-  getHookInfo(workspaceId: string): HookInfo | null;
+  getChatHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null>;
   getWrapperBinDir(workspaceId: string): string | null;
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
@@ -63,6 +63,7 @@ export type StartResult =
 
 interface Subscription {
   channel: AgentChannel;
+  revision: number;
   dispose: () => void;
 }
 
@@ -83,6 +84,8 @@ export class ChatHost {
         .then(async (channel) => {
           if (!channel) return;
           await channel.ready;
+          await this.options.workspaceManager.getChatHookInfo(workspaceId, channel);
+          if (this.disposed) return;
           this.subscribe(workspaceId, channel);
           this.options.broadcast("resync", { workspaceId });
         })
@@ -127,7 +130,6 @@ export class ChatHost {
       log.warn(`claude --version failed: ${(err as Error).message}`);
     }
 
-    const hookInfo = workspaceManager.getHookInfo(workspaceId);
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = found.path;
@@ -146,20 +148,21 @@ export class ChatHost {
       // the PATH has after it.
       program = hostJoin(wrapperBinDir, "claude", false);
     }
-    const env = claudeTabEnv({
-      workspaceId,
-      tabId,
-      path: found.envPath,
-      wrapperBinDir,
-      agentBin,
-      agentSocket: hookInfo?.socketPath,
-      hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
-      withoutWrapper: windows,
-      ...(gitBash ? { gitBash } : {}),
-    });
-
     try {
-      Object.assign(env, await this.profileEnv(channel, "claude", profileId));
+      const profile = await this.profileEnv(channel, "claude", profileId);
+      const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
+      const env = claudeTabEnv({
+        workspaceId,
+        tabId,
+        path: found.envPath,
+        wrapperBinDir,
+        agentBin,
+        agentSocket: hookInfo?.socketPath,
+        hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
+        withoutWrapper: windows,
+        ...(gitBash ? { gitBash } : {}),
+      });
+      Object.assign(env, profile);
       const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
         workspaceId,
         tabId,
@@ -211,23 +214,24 @@ export class ChatHost {
       log.warn(`codex --version failed: ${(err as Error).message}`);
     }
     const { workspaceManager } = this.options;
-    const hookInfo = workspaceManager.getHookInfo(workspaceId);
     // Windows commands run in PowerShell or cmd, which read no shim files.
     const windows =
       this.options.windowsAgentFiles !== undefined &&
       workspaceManager.isLocal?.(workspaceId) === true;
-    const env = codexTabEnv({
-      workspaceId,
-      tabId,
-      path: found.envPath,
-      wrapperBinDir: workspaceManager.getWrapperBinDir(workspaceId),
-      agentBin: workspaceManager.getWrapperAgentBin(workspaceId),
-      agentSocket: hookInfo?.socketPath,
-      hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
-      shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
-    });
     try {
-      Object.assign(env, await this.profileEnv(channel, "codex", options.profileId));
+      const profile = await this.profileEnv(channel, "codex", options.profileId);
+      const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
+      const env = codexTabEnv({
+        workspaceId,
+        tabId,
+        path: found.envPath,
+        wrapperBinDir: workspaceManager.getWrapperBinDir(workspaceId),
+        agentBin: workspaceManager.getWrapperAgentBin(workspaceId),
+        agentSocket: hookInfo?.socketPath,
+        hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
+        shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
+      });
+      Object.assign(env, profile);
       const result = await channel.call<{ pid: number; attached?: boolean; canonicalCwd?: string }>(
         "chat.start",
         {
@@ -488,28 +492,43 @@ export class ChatHost {
     };
     const offLine = channel.on("chat.line", relay("line"));
     const offExit = channel.on("chat.exit", relay("exit"));
-    const offLifecycle = channel.onLifecycle((event) => this.handleLifecycle(workspaceId, event));
-    this.subscriptions.set(workspaceId, {
+    const subscription: Subscription = {
       channel,
+      revision: 0,
       dispose: () => {
         offLine();
         offExit();
         offLifecycle();
       },
-    });
+    };
+    const offLifecycle = channel.onLifecycle((event) =>
+      this.handleLifecycle(workspaceId, subscription, event),
+    );
+    this.subscriptions.set(workspaceId, subscription);
   }
 
   /**
-   * A dropped connection holds the tabs; the same agent back (a daemon that
-   * survived) has them replay what they missed. A new agent comes through
-   * onProviderReady.
+   * A dropped connection holds the tabs. A replacement local process needs
+   * its hook endpoint before the tabs can resume. A surviving daemon can
+   * replay immediately.
    */
-  private handleLifecycle(workspaceId: string, event: ChannelLifecycleEvent): void {
+  private handleLifecycle(
+    workspaceId: string,
+    subscription: Subscription,
+    event: ChannelLifecycleEvent,
+  ): void {
     switch (event.type) {
       case "reconnecting":
+        subscription.revision += 1;
         this.options.broadcast("held", { workspaceId });
         return;
       case "ready":
+        if (this.options.workspaceManager.isLocal?.(workspaceId)) {
+          void this.resyncAfterHooks(workspaceId, subscription);
+          return;
+        }
+        this.options.broadcast("resync", { workspaceId });
+        return;
       // A new daemon behind the same channel: the tabs find it has no logs.
       case "held-then-expired":
         this.options.broadcast("resync", { workspaceId });
@@ -522,6 +541,22 @@ export class ChatHost {
         return;
       default:
         return;
+    }
+  }
+
+  /** Resyncs only if this ready event still belongs to the live connection. */
+  private async resyncAfterHooks(workspaceId: string, subscription: Subscription): Promise<void> {
+    const { revision, channel } = subscription;
+    try {
+      await this.options.workspaceManager.getChatHookInfo(workspaceId, channel);
+      if (
+        this.subscriptions.get(workspaceId) === subscription &&
+        revision === subscription.revision
+      ) {
+        this.options.broadcast("resync", { workspaceId });
+      }
+    } catch (error) {
+      log.warn(`chat reconnect failed for ${workspaceId}: ${(error as Error).message}`);
     }
   }
 }

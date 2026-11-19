@@ -18,7 +18,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,6 +32,7 @@ const { GlobalStorage } = await import("../../../../src/main/infra/storage/globa
 const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
 const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
+const { ChatHost } = await import("../../../../src/main/features/chat/host");
 
 type ChannelLifecycleCallback = (event: { type: string }) => void;
 
@@ -40,6 +41,8 @@ class StubChannel {
   private resolveReady!: () => void;
   private lifecycleListeners: Set<ChannelLifecycleCallback> = new Set();
   disposed = false;
+  hookInfo = mock(async (): Promise<unknown> => ({ socketPath: "/tmp/hook.sock", token: "tok" }));
+  readonly spawns: Array<{ env: Record<string, string> }> = [];
 
   constructor() {
     this.ready = new Promise<void>((res) => {
@@ -47,9 +50,13 @@ class StubChannel {
     });
   }
 
-  async call(method: string, _params?: unknown): Promise<unknown> {
-    if (method === "hook.getInfo") {
-      return { socketPath: "/tmp/hook.sock", token: "tok" };
+  async call(method: string, params?: unknown): Promise<unknown> {
+    if (method === "hook.getInfo") return this.hookInfo();
+    if (method === "lsp.findBinary") return { path: "/stub/model" };
+    if (method === "chat.exec") return { code: 0, stdout: "2.1.400" };
+    if (method === "chat.start") {
+      this.spawns.push(params as (typeof this.spawns)[number]);
+      return { pid: 1 };
     }
     return {};
   }
@@ -66,7 +73,7 @@ class StubChannel {
   }
 
   emitLifecycle(event: { type: string }): void {
-    for (const cb of this.lifecycleListeners) cb(event);
+    for (const cb of [...this.lifecycleListeners]) cb(event);
   }
 
   resolveChannel(): void {
@@ -98,33 +105,37 @@ function makeHarness() {
   );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});
 
+  const channels: StubChannel[] = [];
+  const createChannel = () => {
+    const channel = new StubChannel();
+    channels.push(channel);
+    if (channels.length > 1) {
+      channel.hookInfo.mockResolvedValue({ socketPath: "/tmp/new-provider.sock", token: "new" });
+    }
+    channel.resolveChannel();
+    return channel;
+  };
+  const bootstrap = async () => ({
+    remoteCommand: "/stub/agent --dial sock",
+    remoteHome: "/stub",
+    remoteBinDir: "/stub/bin",
+    platform: { os: "linux", arch: "amd64" } as const,
+    uploaded: false,
+  });
   const manager = new WorkspaceManager(
     globalStorage,
     workspaceStorage,
     stateService,
     broadcast,
-    undefined as never, // sshChannelFactory
-    undefined as never, // sshBootstrap
-    undefined as never, // localChannelFactory — overridden below
-    undefined as never, // localAgentCommandResolver — overridden below
+    createChannel as never, // sshChannelFactory
+    bootstrap,
+    createChannel as never, // localChannelFactory
+    () => ({ bin: "/stub/agent", args: [] }),
     undefined as never, // sshLspBootstrap
     writeShimFilesMock,
     removeShimDirMock,
+    { bootstrap, createChannel } as never,
   );
-
-  const channels: StubChannel[] = [];
-  const m = manager as unknown as {
-    localChannelFactory: unknown;
-    localAgentCommandResolver: unknown;
-  };
-  m.localAgentCommandResolver = () => ({ bin: "/usr/bin/agent", args: [] });
-  m.localChannelFactory = (_opts: unknown) => {
-    const channel = new StubChannel();
-    channels.push(channel);
-    // Resolve immediately so awaited boots settle without manual pumping.
-    channel.resolveChannel();
-    return channel;
-  };
 
   return { manager, globalDb, channels, removeShimDirMock };
 }
@@ -139,6 +150,143 @@ async function bootLocalWorkspace(harness: ReturnType<typeof makeHarness>) {
 }
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+for (const available of [true, false]) {
+  test(`local reconnect waits for refreshed hooks before resync and spawn (${available ? "available" : "unavailable"})`, async () => {
+    const harness = makeHarness();
+    const { manager, channels, globalDb } = harness;
+    // Windows CI has no packaged nexus.exe to install. The launched chat
+    // needs a wrapper directory here so this test exercises hook refresh.
+    const wrapperDir = spyOn(manager, "getWrapperBinDir").mockReturnValue("/stub/wrappers");
+    const resynced = Promise.withResolvers<void>();
+    const events: string[] = [];
+    const host = new ChatHost({
+      workspaceManager: manager,
+      broadcast: (event) => {
+        events.push(event);
+        if (event === "resync") resynced.resolve();
+      },
+    });
+    try {
+      const { id } = await bootLocalWorkspace(harness);
+      await host.startCodex(id, "before", "/project", {});
+      const [channel] = channels;
+      const answer = Promise.withResolvers<unknown>();
+      channel.hookInfo.mockImplementation(() => answer.promise);
+      channel.emitLifecycle({ type: "reconnecting" });
+      channel.emitLifecycle({ type: "ready" });
+      expect(events).toEqual(["held"]);
+      expect(channel.hookInfo).toHaveBeenCalledTimes(2);
+      const starting = Promise.all([
+        host.startCodex(id, "codex", "/project", {}),
+        host.start(id, "claude", "/project", {}),
+      ]);
+      // Let both starts reach the pending hook lookup.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(channel.spawns).toHaveLength(1);
+      expect(manager.getHookInfo(id)).toBeNull();
+      expect(events).toEqual(["held"]);
+      const socketPath = "/tmp/replacement.sock";
+      if (available) answer.resolve({ socketPath, token: "replacement-token" });
+      else answer.reject(Object.assign(new Error("unavailable"), { code: "server.unavailable" }));
+      const [results] = await Promise.all([starting, resynced.promise]);
+      expect(results.map((result) => result.ok)).toEqual([true, true]);
+      expect(channels).toHaveLength(1);
+      expect(channel.spawns).toHaveLength(3);
+      for (const { env } of channel.spawns.slice(1)) {
+        expect(env.NEXUS_AGENT_SOCKET).toBe(available ? socketPath : undefined);
+        expect(env.NEXUS_HOOK_TOKEN).toBe(available ? "replacement-token" : undefined);
+      }
+      expect(events).toEqual(["held", "resync"]);
+    } finally {
+      wrapperDir.mockRestore();
+      host.dispose();
+      globalDb.close();
+    }
+  });
+}
+
+test("a superseded local hook reply cannot release chat resync", async () => {
+  const harness = makeHarness();
+  const { manager, channels, globalDb } = harness;
+  const resynced = Promise.withResolvers<void>();
+  const events: string[] = [];
+  const host = new ChatHost({
+    workspaceManager: manager,
+    broadcast: (event) => {
+      events.push(event);
+      if (event === "resync") resynced.resolve();
+    },
+  });
+  try {
+    const { id } = await bootLocalWorkspace(harness);
+    await host.startCodex(id, "tab", "/project", {});
+    const [channel] = channels;
+    const first = Promise.withResolvers<unknown>();
+    const second = Promise.withResolvers<unknown>();
+    channel.hookInfo.mockImplementationOnce(() => first.promise);
+    channel.hookInfo.mockImplementationOnce(() => second.promise);
+    channel.emitLifecycle({ type: "reconnecting" });
+    channel.emitLifecycle({ type: "ready" });
+    channel.emitLifecycle({ type: "reconnecting" });
+    channel.emitLifecycle({ type: "ready" });
+    first.resolve({ socketPath: "/tmp/stale.sock", token: "stale" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(events).toEqual(["held", "held"]);
+    expect(manager.getHookInfo(id)).toBeNull();
+
+    const current = { socketPath: "/tmp/current.sock", token: "current" };
+    second.resolve(current);
+    await resynced.promise;
+    expect(events).toEqual(["held", "held", "resync"]);
+    expect(manager.getHookInfo(id)).toEqual(current);
+  } finally {
+    host.dispose();
+    globalDb.close();
+  }
+});
+
+for (const kind of ["ssh", "wsl"] as const) {
+  test(`${kind} reattach keeps hooks and daemon replacement loads them on a new provider`, async () => {
+    const { manager, channels, globalDb } = makeHarness();
+    const location =
+      kind === "ssh"
+        ? {
+            kind,
+            host: "example.test",
+            user: "test",
+            remotePath: "/project",
+            authMode: "key-only" as const,
+          }
+        : { kind, distro: "Test", remotePath: "/project" };
+    const context = manager.create({ location });
+    const host = new ChatHost({ workspaceManager: manager, broadcast: () => {} });
+    try {
+      await host.startCodex(context.id, "before", "/project", {});
+      const [first] = channels;
+      first.emitLifecycle({ type: "reconnecting" });
+      first.emitLifecycle({ type: "ready" });
+      expect(first.hookInfo).toHaveBeenCalledTimes(1);
+      expect(manager.getHookInfo(context.id)?.socketPath).toBe("/tmp/hook.sock");
+
+      first.emitLifecycle({ type: "reconnecting" });
+      first.emitLifecycle({ type: "held-then-expired" });
+      expect(manager.getHookInfo(context.id)).toBeNull();
+      await host.startCodex(context.id, "after", "/project", {});
+      expect(first.disposed).toBe(true);
+      expect(first.hookInfo).toHaveBeenCalledTimes(1);
+      expect(channels).toHaveLength(2);
+      expect(channels[1].hookInfo).toHaveBeenCalledTimes(1);
+      expect(channels[1].spawns[0]?.env).toMatchObject({
+        NEXUS_AGENT_SOCKET: "/tmp/new-provider.sock",
+        NEXUS_HOOK_TOKEN: "new",
+      });
+    } finally {
+      host.dispose();
+      globalDb.close();
+    }
+  });
+}
 
 describe("handleLocalChannelLifecycle: health signals must not tear down the provider", () => {
   for (const type of ["degraded", "degraded-recovered", "ready"] as const) {

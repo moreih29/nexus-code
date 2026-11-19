@@ -82,7 +82,7 @@ function setup(
       providerReady = listener;
       return () => {};
     },
-    getHookInfo: () => ({ socketPath: "/tmp/h.sock", token: "tok" }),
+    getChatHookInfo: async () => ({ socketPath: "/tmp/h.sock", token: "tok" }),
     getWrapperBinDir: () => "/home/u/.nexus-code/bin",
     getWrapperAgentBin: () => "/home/u/.nexus-code/bin/agent",
     getWrapperShimDir: () => "/home/u/.nexus-code/shim/ws",
@@ -336,7 +336,7 @@ describe("ChatHost", () => {
         getAgentChannel: async () => channel,
         tryGetAgentChannel: async () => channel,
         onProviderReady: () => () => {},
-        getHookInfo: () => null,
+        getChatHookInfo: async () => null,
         getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
         getWrapperAgentBin: () => null,
         getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
