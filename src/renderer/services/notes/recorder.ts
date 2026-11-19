@@ -230,6 +230,11 @@ function onEvent({ id, event }: VoiceEvent): void {
       endTake(event.reason === "session" ? "chain" : "stop");
       return;
     case "error":
+      // An error may still hand over the token: the recording can be heard again.
+      if (event.transcribeToken) {
+        const token = event.transcribeToken;
+        setTake((tk) => ({ ...tk, token }));
+      }
       if (event.code === "unauthorized") tellFailure("signed-out");
       else showToast({ kind: "error", message: t("failure.recognition") });
       return;
