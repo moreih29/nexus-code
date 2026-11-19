@@ -21,9 +21,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
+import { type DropZone, MIME_FILE, MIME_TAB } from "../../../types/workbench-dnd";
+import { hasSupportedMime, parseDragPayload } from "../../../utils/workbench-dnd-payload";
 import { DND_FILE_SURFACE_SELECTOR, DND_TAB_BAR_SELECTOR } from "./markers";
-import { hasSupportedMime, parseDragPayload } from "./payload";
-import { type DropZone, MIME_FILE, MIME_TAB } from "./types";
 
 const EDGE_THRESHOLD = 1 / 3;
 

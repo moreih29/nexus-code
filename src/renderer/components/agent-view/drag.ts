@@ -4,7 +4,7 @@
  * workspace's agents. The payload is the agent's session key.
  */
 
-import type { DropZone } from "../workspace/dnd/types";
+import type { DropZone } from "../../types/workbench-dnd";
 
 export const MIME_AGENT = "application/x-nexus-agent";
 

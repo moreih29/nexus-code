@@ -24,6 +24,7 @@ import {
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { type FileDragPayload, MIME_FILE } from "../../types/workbench-dnd";
 import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
@@ -34,7 +35,6 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
-import { type FileDragPayload, MIME_FILE } from "../workspace/dnd/types";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
 import { RecordControls } from "./record-controls";

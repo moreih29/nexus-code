@@ -8,9 +8,9 @@
  * hint only.
  */
 
-import type { DropZone } from "@/components/workspace/dnd/types";
 import { Grid } from "@/engine";
 import { findEditorTabInGroup } from "@/services/editor/tabs";
+import type { DropZone } from "@/types/workbench-dnd";
 import { useLayoutStore } from "../stores/layout";
 import type { SplitOrientation } from "../stores/layout/types";
 import { type EditorTabProps, useTabsStore } from "../stores/tabs";

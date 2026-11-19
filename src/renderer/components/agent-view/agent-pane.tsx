@@ -39,6 +39,7 @@ import {
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
+import type { DropZone } from "../../types/workbench-dnd";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
 import { Button } from "../ui/button";
@@ -46,7 +47,6 @@ import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
-import type { DropZone } from "../workspace/dnd/types";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
 import {

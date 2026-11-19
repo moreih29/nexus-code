@@ -4,9 +4,9 @@
  */
 import i18next from "i18next";
 import type { Tag } from "../../../../../shared/git/types";
+import { isAuthGitError } from "../../../../services/error-surface/git-error-placement";
 import { openTerminal } from "../../../../services/terminal";
 import type { GitStoreError } from "../../../../state/stores/git";
-import { isAuthGitError } from "../../../../state/stores/git/error-placement";
 import type { PromptRequest } from "../../../ui/prompt-dialog";
 
 /**
