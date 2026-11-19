@@ -1,9 +1,9 @@
 // Renderer-side handler for OS notification clicks emitted by the main process.
-// Activates the target workspace and reveals the specific tab in the layout.
+// Reveals the tab in the current view or its workspace.
 
 import { ipcListen } from "../ipc/client";
 import { showInAgentView } from "../services/agent-view/show";
-import { useActiveStore } from "./stores/active";
+import { focusWorkspace } from "./operations/workspace-selection";
 import { useAgentViewStore } from "./stores/agent-view";
 import { allLeaves } from "./stores/layout/helpers";
 import { useLayoutStore } from "./stores/layout/store";
@@ -24,11 +24,9 @@ export function startNotificationClickListener(): () => void {
         showInAgentView(workspaceId, tabId);
         return;
       }
-      agentView.setMode("workspace");
     }
 
-    // Activate the workspace in the renderer store.
-    useActiveStore.getState().setActiveWorkspaceId(workspaceId);
+    focusWorkspace(workspaceId, "workspace");
 
     // Reveal the tab in whichever leaf group contains it.
     const layout = useLayoutStore.getState().byWorkspace[workspaceId];

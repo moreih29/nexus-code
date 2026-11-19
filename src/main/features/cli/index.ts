@@ -78,7 +78,7 @@ export interface SetupCliFeatureOptions {
     ): WorkspaceMeta;
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
-    activate(id: string): Promise<void>;
+    connect(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
@@ -224,8 +224,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
-    workspaceManager.activate(workspaceId).catch((error: unknown) => {
-      log.warn(`activating ${workspaceId} failed: ${(error as Error).message}`);
+    workspaceManager.connect(workspaceId).catch((error: unknown) => {
+      log.warn(`connecting ${workspaceId} failed: ${(error as Error).message}`);
     });
     options.broadcast("pty", "notificationClick", { workspaceId, tabId });
   };

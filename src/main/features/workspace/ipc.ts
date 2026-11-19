@@ -132,10 +132,8 @@ export function registerWorkspaceChannel(
         manager.remove(id);
         return ipcOk(undefined);
       },
-      activate: (args: unknown) => {
-        const { id } = validateArgs(c.activate.args, args);
-        return manager.activate(id);
-      },
+      activate: workspaceConnectionHandler(manager, "activate"),
+      connect: workspaceConnectionHandler(manager, "connect"),
       testSsh: testSshHandler(dependencies.createSshChannel, dependencies.sshBootstrap),
     },
     listen: {
@@ -146,6 +144,33 @@ export function registerWorkspaceChannel(
       reordered: {},
     },
   });
+}
+
+/** Report connection and selection outcomes through the IPC result envelope. */
+function workspaceConnectionHandler(manager: WorkspaceManager, action: "activate" | "connect") {
+  return async (args: unknown) => {
+    const { id } = validateArgs(c[action].args, args);
+    if (manager.getName(id) === null) {
+      return ipcErr("not-found", `Workspace not found: ${id}`, { category: "failed" });
+    }
+    try {
+      await manager[action](id);
+      return ipcOk(undefined);
+    } catch (error) {
+      const code = sshErrorCodeFromError(error);
+      if (isSshAuthCancellation(error) || isAbortError(error) || code === "ssh.auth-cancelled") {
+        return ipcErr("cancelled", "Workspace connection cancelled", { category: "cancelled" });
+      }
+      if (code !== undefined) {
+        return ipcErr("connection-failed", messageForSshErrorCode(code), {
+          category: "failed",
+          domain: "ssh",
+          code,
+        });
+      }
+      return ipcErr("connection-failed", String(error), { category: "bug" });
+    }
+  };
 }
 
 /**

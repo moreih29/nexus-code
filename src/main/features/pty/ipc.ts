@@ -49,7 +49,7 @@ export interface PtyChannelOptions {
    * so the shim is skipped.
    */
   workspaceManager?: WorkspaceNameLookup & {
-    activate(id: string): Promise<void>;
+    connect(id: string): Promise<void>;
     getAgentChannel(workspaceId: string): Promise<unknown>;
     getWrapperBinDir(workspaceId: string): string | null;
     getWrapperAgentBin(workspaceId: string): string | null;
@@ -120,7 +120,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     getFocusedWindow: getFocusedAppWindow,
     isActiveTab: options.isActiveTab,
     notificationsEnabled: options.notificationsEnabled,
-    activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
+    connectWorkspace: wm ? (id) => wm.connect(id) : undefined,
     focusMainWindow: () => {
       const win = getActiveAppWindow();
       if (!win) return;
