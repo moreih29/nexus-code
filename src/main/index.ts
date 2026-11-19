@@ -878,8 +878,8 @@ app.on("before-quit", (event) => {
 autoUpdater?.on("before-quit-for-update", () => closePersistence.allowUpdaterClose());
 
 app.on("window-all-closed", () => {
-  // All renderers are gone — no consumer can use browse sessions any more.
-  sshBrowseRegistry.dispose();
+  // A reopened window can start new sessions with the same reaper.
+  sshBrowseRegistry.closeAll();
   if (!isMac()) {
     app.quit();
   }
