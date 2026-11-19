@@ -1,14 +1,11 @@
 import { expect, test } from "bun:test";
 import { generatingElapsed } from "../../../../../src/renderer/components/chat/status-line";
+import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
   applyCodexLine,
   emptyCodexModel,
 } from "../../../../../src/renderer/services/chat/codex/model";
-import {
-  applyLine,
-  type ChatModel,
-  emptyModel,
-} from "../../../../../src/renderer/services/chat/model";
+import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
 
 test("Codex silence is measured from the last turn, tool, text, or reasoning signal", () => {
   let model = { ...emptyCodexModel(), threadId: "thread" };

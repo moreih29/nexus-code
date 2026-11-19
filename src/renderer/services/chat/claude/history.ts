@@ -6,17 +6,19 @@
 import type { ClaudeGoal } from "../goal";
 import {
   type AssistantItem,
-  applyLines,
-  applyTranscriptLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
+  type ToolCall,
+} from "../model";
+import {
+  applyLines,
+  applyTranscriptLines,
   isCommandOutput,
   SENDER_KINDS,
-  type ToolCall,
   type TranscriptLine,
   typedCommand,
-} from "../model";
+} from "./stream-model";
 
 type Rec = Record<string, unknown>;
 

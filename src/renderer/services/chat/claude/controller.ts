@@ -13,11 +13,9 @@ import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import {
-  applyLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
-  endGoal,
   type ImageBlock,
   type PermissionRequest,
   type UserItem,
@@ -63,6 +61,7 @@ import {
   withSubagentLog,
 } from "./history";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
+import { applyLines, endGoal } from "./stream-model";
 import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
 const log = createLogger("chat");

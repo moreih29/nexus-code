@@ -8,6 +8,7 @@ import {
   historyModel,
   transcriptGoal,
 } from "../../../../../src/renderer/services/chat/claude/history";
+import { applyLines, endGoal } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
   applyCodexLines,
   type CodexModel,
@@ -21,11 +22,9 @@ import {
   goalViewOf,
 } from "../../../../../src/renderer/services/chat/goal";
 import {
-  applyLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
-  endGoal,
 } from "../../../../../src/renderer/services/chat/model";
 
 const GOAL = "npm test passes";
