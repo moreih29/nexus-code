@@ -4,7 +4,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isImeComposing } from "@/utils/ime";
-import { appErrorFailed } from "../../../../shared/error/app-error";
+import { appErrorInvalidInput } from "../../../../shared/error/app-error";
 import { ipcErrorToAppError } from "../../../../shared/ipc/result";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { surfaceError } from "../../../services/error-surface/surface-error";
@@ -282,7 +282,7 @@ export function SshNewConnectionView({
       // We throw an AppError so the hook normalises it into state:'error' and
       // the inline banner below renders the user message.
       runConnect(async () => {
-        throw appErrorFailed(t("ssh.invalid_host"), {
+        throw appErrorInvalidInput("Invalid SSH destination", {
           domain: "ssh",
           code: "invalid-host",
         });

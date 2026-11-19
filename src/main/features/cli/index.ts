@@ -16,7 +16,7 @@ import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { FS_READ_ABSOLUTE_BINARY_METHOD } from "../../../shared/fs/protocol";
 import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
@@ -190,12 +190,18 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       waits: async () => ipcOk(waits.snapshot()),
       pickElement: async (args: unknown) => {
         const { tabId } = validateArgs(ipcContract.cli.call.pickElement.args, args);
-        const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
-        if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
-        // The click left the keyboard in the page; the agent's terminal is next.
-        options.getWindow()?.webContents.focus();
-        const screenshot = await pickPicture(tabId, result.picked);
-        return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+        try {
+          const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
+          if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
+          // The click left the keyboard in the page; the agent's terminal is next.
+          options.getWindow()?.webContents.focus();
+          const screenshot = await pickPicture(tabId, result.picked);
+          return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+        } catch (error) {
+          if (error instanceof CliError)
+            return ipcErr("pick-failed", error.message, { category: "failed" });
+          throw error;
+        }
       },
       cancelPick: async (args: unknown) => {
         browser.cancelPick(validateArgs(ipcContract.cli.call.cancelPick.args, args).tabId);

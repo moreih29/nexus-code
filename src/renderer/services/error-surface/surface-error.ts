@@ -154,6 +154,8 @@ function buildUserMessage(error: AppError): string {
 
 /** Friendly message for invalid-input errors, with optional fs-code mapping. */
 function buildInvalidInputMessage(error: AppError): string {
+  if (error.domain === "ssh" && error.code === "invalid-host")
+    return i18next.t("common:ssh.invalid_host");
   if (error.domain === "fs" && error.code) {
     return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.invalid-input");
   }
