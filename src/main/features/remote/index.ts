@@ -201,6 +201,7 @@ export async function registerRemoteChannel(options: {
   );
   // In the account's room while signed in with the account key; out of it otherwise.
   let room: RemoteRoom | null = null;
+  let disposed = false;
   let roomFor = "";
   let roomState: RoomState = { status: "off", peers: [] };
   /** The room, to ask another device through; Unavailable while out of it. */
@@ -316,22 +317,23 @@ export async function registerRemoteChannel(options: {
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
-  const relayUrl = async () => {
-    const ticket = await askTicket(account);
+  /** Gets a ticket for the current attempt and builds its WebSocket URL. */
+  const relayUrl = async (signal: AbortSignal) => {
+    const ticket = await askTicket(account, undefined, signal);
+    signal.throwIfAborted();
     const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
-    relayVia = url.origin;
     return url.toString();
   };
-  /** Where the relay's socket went, and the socket: one that went straight goes back through the proxy. */
-  let relayVia: string | null = null;
   let relay: RelayConnection | null = null;
-  returnToProxy({
+  const proxyProbe = returnToProxy({
     route: account.route,
-    via: () => (roomState.status === "online" ? relayVia : null),
+    via: () => relay?.onlineRoute() ?? null,
     reconnect: () => relay?.reconnect(),
   });
+  /** Keeps the relay in the room for the signed-in account and current key. */
   function syncRoom(): void {
+    if (disposed) return;
     const signedIn = account.state();
     const key = keys?.key() ?? null;
     const want = signedIn.status === "signed-in" && key ? { signedIn, key } : null;
@@ -341,6 +343,7 @@ export async function registerRemoteChannel(options: {
     if (room && id !== roomFor) {
       room.stop();
       room = null;
+      relay = null;
       setRoomState({ status: "off", peers: [] });
     }
     if (room || !want) return;
@@ -971,6 +974,8 @@ export async function registerRemoteChannel(options: {
         inRoom().request(deviceId, method, params, timeoutMs, signal),
     },
     dispose: () => {
+      disposed = true;
+      proxyProbe.stop();
       account.cancelSignIn();
       voice.cancel();
       noteVoice.cancel();

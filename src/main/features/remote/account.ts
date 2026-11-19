@@ -245,17 +245,20 @@ export class RemoteAccount {
   /**
    * Asks the server as this device: the JSON it answered, or a ServerError;
    * a 401 signs the app out and throws SignedOutError. `headers` adds to the
-   * request's own (the account password's proof, say).
+   * request's own (the account password's proof, say). An aborted request
+   * cannot update the route or sign the account out.
    */
   request(
     method: string,
     path: string,
     body?: unknown,
     headers?: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     return this.call(method, path, {
       ...(body !== undefined ? { body } : {}),
       ...(headers ? { headers } : {}),
+      signal,
     });
   }
 
@@ -284,8 +287,11 @@ export class RemoteAccount {
       headers?: Record<string, string>;
       signedIn?: boolean;
       timeoutMs?: number;
+      signal?: AbortSignal;
     } = {},
   ): Promise<unknown> {
+    const { signal } = options;
+    signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
@@ -298,18 +304,21 @@ export class RemoteAccount {
       : options.body !== undefined
         ? JSON.stringify(options.body)
         : undefined;
-    const send = (base: string) =>
-      this.fetch(this.route.url(path, { base }), {
+    const send = (base: string) => {
+      const timeout = AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+      return this.fetch(this.route.url(path, { base }), {
         method,
         headers,
-        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
+    };
     const base = this.route.base();
     let res: Response;
     try {
       res = await send(base);
     } catch (error) {
+      signal?.throwIfAborted();
       // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
       // is slow. The proxy not reached, the server is asked straight, now and for a while; a
       // request that timed out may have gone through, and is not sent again.
@@ -317,14 +326,18 @@ export class RemoteAccount {
       try {
         res = await send(this.route.base());
       } catch (again) {
+        signal?.throwIfAborted();
         throw new UnreachableError(again);
       }
     }
+    // A stale relay ticket can no longer change the account or its route.
+    signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
       this.forget();
       throw new SignedOutError();
     }
     const text = await res.text();
+    signal?.throwIfAborted();
     const answer = parseJson(text);
     if (!res.ok) {
       const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;

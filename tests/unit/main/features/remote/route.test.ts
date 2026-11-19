@@ -1,5 +1,5 @@
 /** How requests reach the server: through the proxy, straight for a while when it fails. */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   PROXY_DOWN_MS,
   returnToProxy,
@@ -48,10 +48,16 @@ describe("the route to the server", () => {
 });
 
 describe("a socket that went straight", () => {
+  const probes: ReturnType<typeof returnToProxy>[] = [];
+  afterEach(() => {
+    for (const probe of probes.splice(0)) probe.stop();
+  });
+
+  /** Controls the socket and the route independently of the probe response. */
   function setup(answer: () => Response | Error) {
     let now = 0;
     const route = new ServerRoute(SERVER, PROXY, () => now);
-    let via: string | null = "wss://nexus.example";
+    let via: { origin: string } | null = { origin: "wss://nexus.example" };
     const asked: string[] = [];
     let reconnects = 0;
     const back = returnToProxy({
@@ -67,7 +73,7 @@ describe("a socket that went straight", () => {
         return result;
       }) as typeof fetch,
     });
-    back.stop();
+    probes.push(back);
     return {
       route,
       back,
@@ -77,7 +83,7 @@ describe("a socket that went straight", () => {
         now = ms;
       },
       goes: (to: string | null) => {
-        via = to;
+        via = to ? { origin: to } : null;
       },
     };
   }
@@ -101,6 +107,64 @@ describe("a socket that went straight", () => {
     t.goes(null);
     await t.back.check();
     expect([t.asked, t.reconnects()]).toEqual([[], 0]);
+  });
+
+  test.each([
+    "disconnected",
+    "replaced at the same origin",
+    "on another route",
+    "disposed",
+  ] as const)("ignores a late probe success after the original connection is %s", async (change) => {
+    const route = new ServerRoute(SERVER, PROXY, () => 0);
+    const response = Promise.withResolvers<Response>();
+    let via: { origin: string } | null = { origin: "wss://nexus.example" };
+    let reconnects = 0;
+    let probeSignal: AbortSignal | null | undefined;
+    const probe = returnToProxy({
+      route,
+      via: () => via,
+      reconnect: () => {
+        reconnects += 1;
+      },
+      fetch: ((_input, init) => {
+        probeSignal = init?.signal;
+        return response.promise;
+      }) as typeof fetch,
+    });
+    try {
+      const pending = probe.check();
+      if (change === "disconnected") via = null;
+      else if (change === "replaced at the same origin") via = { origin: "wss://nexus.example" };
+      else if (change === "on another route") route.unreachable(PROXY);
+      else {
+        probe.stop();
+        expect(probeSignal?.aborted).toBe(true);
+      }
+      response.resolve(new Response("{}"));
+      await pending;
+      expect(reconnects).toBe(0);
+    } finally {
+      probe.stop();
+    }
+  });
+
+  test("a late probe failure cannot put the proxy in cooldown for a new socket", async () => {
+    const route = new ServerRoute(SERVER, PROXY, () => 0);
+    const response = Promise.withResolvers<Response>();
+    let connection = { origin: "wss://nexus.example" };
+    const probe = returnToProxy({
+      route,
+      via: () => connection,
+      reconnect: () => {},
+      fetch: (() => response.promise) as typeof fetch,
+    });
+    probes.push(probe);
+    const pending = probe.check();
+    connection = { origin: "wss://nexus.example" };
+    response.reject(new TypeError("old probe failed"));
+    await pending;
+
+    expect(route.base()).toBe(PROXY);
   });
 
   test("a proxy that does not answer, or answers with an error, is passed by again", async () => {
