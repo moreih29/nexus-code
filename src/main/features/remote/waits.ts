@@ -14,7 +14,7 @@ import {
 import type { CliServices } from "../cli/context";
 import { DEFAULT_QUIET_MS, WAIT_POLL_MS, type WaitTarget, waitOnTerminal } from "../cli/wait";
 import { RpcFailure } from "./room";
-import { fitsAsResult, unavailable, workspaceOf } from "./serve";
+import { fitsAsResult, unavailable, workspaceOf } from "./serving/common";
 
 /**
  * After a chat.send, how long a chat that shows nothing newer than the

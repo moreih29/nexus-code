@@ -4,60 +4,72 @@
  * session list` would.
  */
 
-import { stat } from "node:fs/promises";
-import { posix, win32 } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import {
   type AgentSender,
-  type Capability,
-  type ChatPage,
-  type ChatRun,
-  MAX_AGENT_DESCRIPTION,
-  MAX_CHAT_RUNS,
-  MAX_FILE_SUGGESTIONS,
-  MAX_RUN_TEXT,
-  MAX_SESSION_AGENTS,
-  type RemoteSession,
-  type RemoteSessionAgent,
-  type RemoteWorkspace,
   RpcErrorCode,
-  type RpcMethod,
   type RpcParams,
-  type RpcResult,
-  type SessionState,
-  type ViewToolCall,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
-import type { AgentRun } from "../../../shared/claude/activity";
-import type { CliChatChoices, CliChatState } from "../../../shared/cli/ui";
-import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
-import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
-import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { compareWorkspaceOrder } from "../../../shared/workspace-order";
-import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
-import type { FsProvider } from "../fs/bridge/provider";
-import { type AgentGate, type AgentRequest, relaySenderOf } from "./agent-gate";
+import { type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
-import type { ChatWatches } from "./chat-watches";
-import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
+import { answerConsent } from "./consents";
 import { isFileTransferMethod } from "./file-io";
-import { FileWrites, fileWriteDestination, makeRemoteDirectory } from "./file-writes";
+import { FileWrites } from "./file-writes";
+import { listFolders } from "./folders";
+import { gitDiff, gitLog, gitShow, gitStatus } from "./git";
+import { attachToNote, listNotes, PhotoQuota } from "./notes";
+import { RpcFailure } from "./room";
 import {
-  absoluteFilePath,
-  folderIn,
-  listFiles,
-  outsideFileSource,
-  type RemoteFiles,
-  readFile,
-} from "./files";
-import { type FolderSystem, folderToAdd, listFolders, SYSTEM_FOLDERS } from "./folders";
-import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
-import { attachToNote, listNotes, PhotoQuota, type RemoteNotes } from "./notes";
-import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
-import { findFiles, searchFiles } from "./search";
-import type { SessionWatches } from "./session-watches";
+  answerChat,
+  attachToChat,
+  backgroundChatTool,
+  beginUpload,
+  changeChatProfile,
+  chatCommands,
+  chatFileSuggestions,
+  chatImage,
+  chatSettings,
+  checkChatSignIn,
+  closeChat,
+  configureChat,
+  editHeldChat,
+  forkChat,
+  hurryChat,
+  interruptChat,
+  listProfiles,
+  newChat,
+  renameChat,
+  restartChat,
+  resumeChat,
+  rewindChat,
+  runChatCommand,
+  sendChat,
+  setChatRemoteControl,
+  stopChatRun,
+  stopChatTask,
+  unqueueChat,
+  withdrawChat,
+  workChatConfig,
+  workChatMcp,
+} from "./serving/chat";
+import {
+  chatOriginal,
+  chatPanel,
+  chatRun,
+  chatRuns,
+  chatTool,
+  listHistory,
+  previewChatRewind,
+  readChat,
+  readEvents,
+} from "./serving/chat-details";
+import { workspaceOf } from "./serving/common";
+import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
+import { serveSessionsList } from "./serving/sessions";
+import { readTerminal } from "./serving/terminal";
+import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
+import { createWorkspace } from "./serving/workspaces";
 import {
   answerTerminal,
   closeTerminal,
@@ -66,44 +78,70 @@ import {
   renameTerminal,
   terminalShells,
 } from "./terminal-control";
-import type { TerminalWatches } from "./terminal-watches";
 import { Uploads } from "./uploads";
 import { waitOnChat, waitOnTerminalFor } from "./waits";
 
-/** What this version serves; a hello says so, and the others ask for nothing more. */
-export const SERVES: readonly Capability[] = [
-  "sessions",
-  "chat.read",
-  "chat.control",
-  "terminal.read",
-  "terminal.control",
-  "files",
-  "files.write",
-  "git",
-  "notes",
-  "workspace.create",
-  "agents",
-];
-
-/**
- * What this device serves as the user set it: its chats' controls, and
- * its terminals', each only when the user lets other devices have them
- * (Settings › Remote), else they may only look; agents' requests unless
- * the user turned them down.
- */
-export function servesWith(
-  allowControl: boolean,
-  allowTerminal = false,
-  allowAgents = false,
-): readonly Capability[] {
-  return SERVES.filter(
-    (c) =>
-      ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
-      (c !== "files.write" || (allowControl && allowAgents)) &&
-      (c !== "terminal.control" || allowTerminal) &&
-      (c !== "agents" || allowAgents),
-  );
-}
+export {
+  answerChat,
+  attachToChat,
+  backgroundChatTool,
+  beginUpload,
+  changeChatProfile,
+  chatCommands,
+  chatFileSuggestions,
+  chatImage,
+  chatSettings,
+  checkChatSignIn,
+  closeChat,
+  configureChat,
+  editHeldChat,
+  forkChat,
+  hurryChat,
+  interruptChat,
+  listProfiles,
+  newChat,
+  renameChat,
+  restartChat,
+  resumeChat,
+  rewindChat,
+  runChatCommand,
+  sendChat,
+  setChatRemoteControl,
+  settingsOf,
+  stopChatRun,
+  stopChatTask,
+  unqueueChat,
+  withdrawChat,
+  workChatConfig,
+  workChatMcp,
+} from "./serving/chat";
+export {
+  chatOriginal,
+  chatPanel,
+  chatRun,
+  chatRuns,
+  chatTool,
+  DEFAULT_READ_ITEMS,
+  fitOversizeCodexChildren,
+  fitPage,
+  listHistory,
+  previewChatRewind,
+  readChat,
+  readEvents,
+  runDetailOf,
+  runRowOf,
+} from "./serving/chat-details";
+export {
+  fitsAsResult,
+  SERVES,
+  servesWith,
+  tabOf,
+  unavailable,
+  workspaceOf,
+} from "./serving/common";
+export { listSessions, sessionAgents } from "./serving/sessions";
+export { DEFAULT_TERMINAL_LINES, readTerminal } from "./serving/terminal";
+export { createWorkspace } from "./serving/workspaces";
 
 /** What an agent reads (`from`, since 0.12.0): taken where agents are, with no prompt. */
 const AGENT_READS: ReadonlySet<string> = new Set([
@@ -115,1296 +153,8 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "events.read",
 ]);
 
-/** How many lines of a terminal a read gives when it does not say. */
-export const DEFAULT_TERMINAL_LINES = 1000;
-
-/** A chat's state as the agent lists show it. */
-const CHAT_STATES: Record<CliChatState, SessionState> = {
-  working: "running",
-  asking: "needs-you",
-  idle: "idle",
-  error: "idle",
-};
-
-/**
- * A terminal agent's state: Claude Code's from its hooks (idle, running,
- * completed, needsInput, permissionPending, error), or another agent's
- * from the terminal's activity (busy, completed, quiet).
- */
-function terminalSessionState(state: string): SessionState {
-  if (state === "needsInput" || state === "permissionPending") return "needs-you";
-  if (state === "running" || state === "busy") return "running";
-  if (state === "completed") return "new-result";
-  return "idle";
-}
-
-/**
- * The workspaces as the sidebar lists them: roots, pinned first and each
- * group in its own order, each followed by its task worktrees.
- */
-function ordered(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
-  const roots = workspaces.filter((w) => !w.task).sort(compareWorkspaceOrder);
-  const out: WorkspaceMeta[] = [];
-  for (const root of roots)
-    out.push(root, ...workspaces.filter((w) => w.task?.parentId === root.id));
-  for (const w of workspaces) if (!out.includes(w)) out.push(w);
-  return out;
-}
-
-function oneLine(text: string, max = 200): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
-
-/**
- * The agents a session runs that still run, as the agent list shows them
- * under its row: what each was asked to do on a line (a run told nothing
- * more, its prompt's start); none when there are none.
- */
-export function sessionAgents(agents: readonly AgentRun[]): RemoteSessionAgent[] | undefined {
-  const live = agents.filter((agent) => agent.end === undefined).slice(0, MAX_SESSION_AGENTS);
-  if (live.length === 0) return undefined;
-  return live.map((agent) => {
-    const said = agent.description ?? (agent.kind === "print" ? agent.prompt : undefined);
-    const description = said ? oneLine(said, MAX_AGENT_DESCRIPTION) : "";
-    return {
-      id: agent.id,
-      kind: agent.kind,
-      ...(agent.program ? { program: agent.program } : {}),
-      ...(agent.type ? { type: oneLine(agent.type, 60) } : {}),
-      ...(description ? { description } : {}),
-      state: agent.state,
-      start: agent.start,
-    };
-  });
-}
-
-function agentsField(
-  services: CliServices,
-  workspaceId: string,
-  tabId: string,
-): { agents?: RemoteSessionAgent[] } {
-  const agents = sessionAgents(services.claudeAgents.list(workspaceId, tabId));
-  return agents ? { agents } : {};
-}
-
-/** A task's git facts as last looked at; none for a workspace that is no task, or not looked at yet. */
-export type WorkspaceGit = (workspace: WorkspaceMeta) => RemoteWorkspace["git"] | undefined;
-
-/**
- * The workspaces and their sessions; a task's git facts from `git`, which
- * looks at them now and then rather than now.
- */
-export async function listSessions(
-  services: CliServices,
-  git?: WorkspaceGit,
-): Promise<RpcResult<"sessions.list">> {
-  const workspaces = ordered(services.listWorkspaces());
-  const sessions: RemoteSession[] = [];
-  const now = Date.now();
-  for (const workspace of workspaces) {
-    let tabs: Awaited<ReturnType<typeof services.ui<"tabs.list">>>["tabs"];
-    try {
-      tabs = (await services.ui("tabs.list", { workspaceId: workspace.id })).tabs;
-    } catch {
-      // A workspace the renderer does not hold (not opened yet): nothing to list.
-      continue;
-    }
-    for (const tab of tabs) {
-      if (tab.type === "claude" || tab.type === "codex") {
-        const info = await services
-          .ui("chat.state", { workspaceId: workspace.id, tabId: tab.id, peek: true })
-          .catch(() => null);
-        if (!info) continue;
-        sessions.push({
-          workspaceId: workspace.id,
-          tabId: tab.id,
-          kind: tab.type,
-          title: tab.title,
-          state: CHAT_STATES[info.state],
-          ...(info.since !== undefined ? { since: info.since } : {}),
-          ...(info.message ? { last: oneLine(info.message) } : {}),
-          ...(info.profile ? { profile: info.profile } : {}),
-          ...(info.cwd ? { cwd: info.cwd } : {}),
-          ...(info.state === "asking" && info.waiting
-            ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
-            : {}),
-          ...agentsField(services, workspace.id, tab.id),
-        });
-      } else if (tab.type === "terminal" && !tab.unstarted) {
-        // One not started has nothing to show another device until its workspace is opened here.
-        const claude = services.claudeStatus(workspace.id, tab.id);
-        const state = describeTerminal(
-          claude,
-          services.activity(workspace.id, tab.id),
-          tab.title,
-          now,
-        );
-        // A Claude Code there asking to run a tool: what it asks, as the app holds it.
-        const ask =
-          claude?.status === "permissionPending"
-            ? services.claudeAsks(workspace.id, tab.id)[0]
-            : undefined;
-        sessions.push({
-          workspaceId: workspace.id,
-          tabId: tab.id,
-          kind: "terminal",
-          title: tab.title,
-          state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
-          ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
-          ...(state.since !== undefined ? { since: state.since } : {}),
-          ...(state.message ? { last: oneLine(state.message) } : {}),
-          ...(ask
-            ? {
-                waiting: {
-                  kind: "permission" as const,
-                  text: oneLine(ask.target ? `${ask.tool} ${ask.target}` : ask.tool),
-                  requestId: ask.id,
-                  always: ask.always.length > 0,
-                  subagent: ask.agentId !== undefined,
-                },
-              }
-            : {}),
-          ...agentsField(services, workspace.id, tab.id),
-        });
-      }
-    }
-  }
-  const listed: RemoteWorkspace[] = workspaces.map((w) => {
-    const facts = w.task ? git?.(w) : undefined;
-    return {
-      id: w.id,
-      name: w.name,
-      path: w.rootPath,
-      ...(w.task ? { parentId: w.task.parentId } : {}),
-      ...(!w.task && w.pinned ? { pinned: true } : {}),
-      ...(facts ? { git: facts } : {}),
-    };
-  });
-  return { workspaces: listed, sessions };
-}
-
-/** The tab, when the workspace holds one of that kind; else NotFound. */
-export async function tabOf(
-  services: CliServices,
-  workspaceId: string,
-  tabId: string,
-  kinds: readonly string[],
-): Promise<{ id: string; type: string; title: string }> {
-  if (!workspaceOf(services, workspaceId)) {
-    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-  }
-  const { tabs } = await services
-    .ui("tabs.list", { workspaceId })
-    .catch(() => ({ tabs: [] as { id: string; type: string; title: string }[] }));
-  const tab = tabs.find((t) => t.id === tabId);
-  if (!tab || !kinds.includes(tab.type)) {
-    throw new RpcFailure(RpcErrorCode.NotFound, `no such ${kinds.join(" or ")} tab`);
-  }
-  return tab;
-}
-
-/** A workspace the sessions' list shows. */
-export function workspaceOf(services: CliServices, workspaceId: string): WorkspaceMeta | undefined {
-  return services.listWorkspaces().find((w) => w.id === workspaceId);
-}
-
-/**
- * The app failing or refusing to do it as the session stands (nothing to
- * stop, a request answered since), as another device is told it.
- */
-export function unavailable(error: unknown): never {
-  throw new RpcFailure(
-    RpcErrorCode.Unavailable,
-    error instanceof Error ? error.message : String(error),
-  );
-}
-
-/** How many items a chat read gives when it does not say (the renderer's default too). */
-export const DEFAULT_READ_ITEMS = 200;
-
-/** Room left in a frame for the answer's envelope around a result. */
-const ENVELOPE_BYTES = 1024;
-
-export function fitsAsResult(result: unknown): boolean {
-  return fitsInFrame({ result, pad: "x".repeat(ENVELOPE_BYTES) });
-}
-
-/**
- * A page of the chat, of up to `limit` items: fewer when that many would
- * not go in one frame (long tool results, a long reply), down to one item.
- */
-export async function readChat(
-  services: CliServices,
-  { workspaceId, tabId, before, limit }: RpcParams<"chat.read">,
-): Promise<RpcResult<"chat.read">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  let count = limit ?? DEFAULT_READ_ITEMS;
-  for (;;) {
-    const page = await services
-      .ui("chat.page", {
-        workspaceId,
-        tabId,
-        ...(before !== undefined ? { before } : {}),
-        limit: count,
-      })
-      .catch(unavailable);
-    if (fitsAsResult(page)) return page;
-    const fittedChildren = fitOversizeCodexChildren(page);
-    if (fittedChildren) return fittedChildren;
-    if (page.items.length <= 1) {
-      const fitted = fitPage(page);
-      if (fitted) return fitted;
-      throw new RpcFailure(RpcErrorCode.Unavailable, "that part of the chat is too large to send");
-    }
-    count = Math.max(1, Math.floor(page.items.length / 2));
-  }
-}
-
-/**
- * Native Codex children appear on the latest page regardless of its parent
- * item count. If their messages alone exceed the frame, the existing
- * subagent fallback can keep the parent page before it is narrowed.
- */
-export function fitOversizeCodexChildren<P extends ChatPage>(page: P): P | null {
-  if (
-    page.status?.agent !== "codex" ||
-    page.start + page.items.length !== page.total ||
-    fitsAsResult({ agentItems: page.agentItems })
-  ) {
-    return null;
-  }
-  const parent = withoutSubagentItems(page);
-  return fitsAsResult(parent) ? parent : null;
-}
-
-function withoutSubagentItems<P extends ChatPage>(page: P): P {
-  const tools = Object.fromEntries(
-    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
-  );
-  return { ...page, tools, agentItems: {} };
-}
-
-/** The most of each tool's result a page keeps, in turn, when one item is too large to send. */
-const FITTED_RESULT_CHARS = [8 * 1024, 1024, 0];
-
-/**
- * A page of one item too large for a frame as it is (a reply whose calls gave long results, a
- * subagent's whole run), made to go in one: its tools' results cut shorter, each marked
- * `truncated` (the other device reads a call whole by chat.tool), and at last its subagents'
- * messages and calls left out. Refused, the item would stop the chat being read further back
- * there at all. Null when even that is too large.
- */
-export function fitPage<P extends ChatPage>(page: P): P | null {
-  for (const most of FITTED_RESULT_CHARS) {
-    const cut = { ...page, tools: cutResults(page.tools, most) };
-    if (fitsAsResult(cut)) return cut;
-  }
-  const parent = withoutSubagentItems(page);
-  const bare = { ...parent, tools: cutResults(parent.tools, 0) };
-  return fitsAsResult(bare) ? bare : null;
-}
-
-/** Tools with at most `most` characters of each result, and no structured result where cut. */
-function cutResults(
-  tools: Record<string, ViewToolCall>,
-  most: number,
-): Record<string, ViewToolCall> {
-  const cut: Record<string, ViewToolCall> = {};
-  for (const [id, tool] of Object.entries(tools)) {
-    const result = tool.result;
-    if (!result || (result.text.length <= most && result.structured === undefined)) {
-      cut[id] = tool;
-      continue;
-    }
-    const { structured: _left, ...rest } = result;
-    let text = result.text.slice(0, most);
-    // A character of two halves is not split.
-    if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
-    cut[id] = { ...tool, result: { ...rest, text, truncated: true } };
-  }
-  return cut;
-}
-
-export async function readTerminal(
-  services: CliServices,
-  { workspaceId, tabId, lines, ansi }: RpcParams<"terminal.read">,
-): Promise<RpcResult<"terminal.read">> {
-  await tabOf(services, workspaceId, tabId, ["terminal"]);
-  const { text, caret } = await services
-    .ui("terminal.read", {
-      workspaceId,
-      tabId,
-      lines: lines ?? DEFAULT_TERMINAL_LINES,
-      ...(ansi ? { ansi } : {}),
-    })
-    .catch(unavailable);
-  // The end of it, as much as goes in a frame, from a line's start: no escape cut in two. The
-  // cursor goes up with the lines cut; above them, it is not told.
-  let shown = text;
-  let line = caret?.line;
-  while (!fitsAsResult({ text: shown, caret })) {
-    const cut = shown.slice(Math.floor(shown.length / 4));
-    const at = cut.indexOf("\n");
-    const kept = at >= 0 ? cut.slice(at + 1) : cut;
-    // Lines cut whole take the cursor up with them; one cut in two loses it.
-    if (line !== undefined) {
-      line =
-        at >= 0 ? line - (shown.slice(0, shown.length - kept.length).split("\n").length - 1) : -1;
-    }
-    shown = kept;
-  }
-  return caret && line !== undefined && line >= 0
-    ? { text: shown, caret: { line, column: caret.column } }
-    : { text: shown };
-}
-
-/*
- * The chat's controls, as its composer, request card, stop button and tab
- * do: the device asking is the user's own, holding the account key, so
- * what it sends is the user's, not an agent's.
- */
-
-/**
- * Sends the chat a message, with the images and files the device attached
- * for it (chat.attach, chat.upload), which then go; text or an attachment
- * at least.
- */
-export async function sendChat(
-  services: CliServices,
-  { workspaceId, tabId, text, attachments: ids = [], when, clientNonce }: RpcParams<"chat.send">,
-  attached?: { device: string; attachments: Attachments },
-  relay?: RelaySender,
-): Promise<RpcResult<"chat.send">> {
-  if (!text.trim() && ids.length === 0) {
-    throw new RpcFailure(RpcErrorCode.InvalidParams, "a message needs text or an attachment");
-  }
-  if (ids.length > 0 && !attached) {
-    throw new RpcFailure(RpcErrorCode.InvalidParams, "no attachments are kept here");
-  }
-  // An agent's message goes, or is turned down, while its request is weighed:
-  // held for later, it would go after the user may have turned agents off.
-  if (relay && when === "after") {
-    throw new RpcFailure(
-      RpcErrorCode.InvalidParams,
-      "an agent's message is not held for after the turn; send it as next or now",
-    );
-  }
-  const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const held =
-    attached && ids.length > 0
-      ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
-      : [];
-  const images = held.flatMap((h) =>
-    h.kind === "image" ? [{ mediaType: h.mediaType, data: h.data }] : [],
-  );
-  const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
-  // Before it goes: what the chat shows from here on is from this message on.
-  const at = services.clock.now();
-  const submission =
-    !relay && attached && clientNonce
-      ? { clientNonce, clientDeviceId: attached.device }
-      : undefined;
-  const { heldId, itemKey, rejected } = await services
-    .ui("chat.send", {
-      workspaceId,
-      tabId,
-      text,
-      // An agent's shows as its, and waits while the chat asks the user something.
-      ...(relay ? { from: relay } : { user: true }),
-      ...(images.length > 0 ? { images } : {}),
-      ...(files.length > 0 ? { files } : {}),
-      ...(when ? { when } : {}),
-      // Held, it is dropped if control from other computers is turned off first.
-      ...(attached && (when === "after" || tab.type === "codex")
-        ? { device: attached.device }
-        : {}),
-      ...(submission ? { submission } : {}),
-    })
-    .catch((error: unknown) => {
-      throw new RpcFailure(
-        RpcErrorCode.Unavailable,
-        error instanceof Error ? error.message : String(error),
-        { outcome: "unknown" },
-      );
-    });
-  if (rejected !== undefined) {
-    throw new RpcFailure(RpcErrorCode.Unavailable, rejected, { outcome: "rejected" });
-  }
-  attached?.attachments.drop(ids);
-  return {
-    at,
-    ...(heldId ? { heldId } : {}),
-    ...(itemKey ? { itemKey } : {}),
-    ...(submission ? { clientNonce: submission.clientNonce } : {}),
-  };
-}
-
-/** Takes back a message a chat holds for after its turn, with its whole text. */
-export async function unqueueChat(
-  services: CliServices,
-  { workspaceId, tabId, id }: RpcParams<"chat.unqueue">,
-): Promise<RpcResult<"chat.unqueue">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return services.ui("chat.unqueue", { workspaceId, tabId, id }).catch(chatFailure);
-}
-
-/** Changes the text of a message a chat holds for after its turn. */
-export async function editHeldChat(
-  services: CliServices,
-  { workspaceId, tabId, id, text }: RpcParams<"chat.editHeld">,
-  device?: string,
-): Promise<RpcResult<"chat.editHeld">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  // Changed by the user there, it is theirs now: an agent's no longer.
-  await services
-    .ui("chat.editHeld", { workspaceId, tabId, id, text, ...(device ? { device } : {}) })
-    .catch(chatFailure);
-  return {};
-}
-
-/** Takes back one of the user's messages a Claude chat has not read. */
-export async function withdrawChat(
-  services: CliServices,
-  { workspaceId, tabId, itemKey }: RpcParams<"chat.withdraw">,
-): Promise<RpcResult<"chat.withdraw">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
-  return services.ui("chat.withdraw", { workspaceId, tabId, itemKey }).catch(chatFailure);
-}
-
-/** Has a Claude chat read its unread messages now. */
-export async function hurryChat(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.hurry">,
-): Promise<RpcResult<"chat.hurry">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
-  await services.ui("chat.hurry", { workspaceId, tabId }).catch(chatFailure);
-  return {};
-}
-
-/**
- * Adds one of this device's folders as a workspace, as Add Workspace does;
- * the user is told which device added it.
- */
-export async function createWorkspace(
-  services: CliServices,
-  { path: asked, name }: RpcParams<"workspace.create">,
-  device: string | undefined,
-  system: FolderSystem = SYSTEM_FOLDERS,
-): Promise<RpcResult<"workspace.create">> {
-  const rootPath = await folderToAdd(asked, system);
-  const { workspace, added } = await services
-    .addWorkspace({ kind: "local", rootPath }, name)
-    .catch(unavailable);
-  if (added) {
-    const t = tryGetMainT();
-    const from = device ?? "another device";
-    const title = t ? String(t("common:remoteNotice.workspaceAdded", { device: from })) : "";
-    services.notify(workspace.id, "", title || `Workspace added from ${from}`, rootPath);
-  }
-  return {
-    workspace: { id: workspace.id, name: workspace.name, path: workspace.rootPath },
-    created: added,
-  };
-}
-
-/** Room an image's base64 may take in its answer: the frame, less the envelope and its other fields. */
-const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
-
-/** An image of the chat, drawn smaller where it would not go in a frame. */
-export async function chatImage(
-  services: CliServices,
-  { workspaceId, tabId, ref, maxEdge, versioned, ifVersion }: RpcParams<"chat.image">,
-): Promise<RpcResult<"chat.image">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const image = await services
-    .ui("chat.image", {
-      workspaceId,
-      tabId,
-      ref,
-      maxChars: IMAGE_CHARS,
-      ...(maxEdge !== undefined ? { maxEdge } : {}),
-      ...(versioned ? { versioned } : {}),
-      ...(ifVersion !== undefined ? { ifVersion } : {}),
-    })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/no such image/.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-      return unavailable(error);
-    });
-  if (!fitsAsResult(image)) {
-    throw new RpcFailure(RpcErrorCode.Unavailable, "the image would not go in a frame");
-  }
-  return image;
-}
-
-/** Keeps an image for the device's next message to the chat. */
-export async function attachToChat(
-  services: CliServices,
-  { workspaceId, tabId, mediaType, data }: RpcParams<"chat.attach">,
-  device: string,
-  attachments: Attachments,
-): Promise<RpcResult<"chat.attach">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return { attachmentId: attachments.take(device, workspaceId, tabId, { mediaType, data }) };
-}
-
-/** Starts a file's upload for the device's next message to the chat. */
-export async function beginUpload(
-  services: CliServices,
-  { workspaceId, tabId, name, size, mediaType }: RpcParams<"chat.upload.begin">,
-  device: string,
-  uploads: Uploads,
-): Promise<RpcResult<"chat.upload.begin">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return {
-    uploadId: uploads.begin(device, workspaceId, tabId, {
-      name,
-      size,
-      ...(mediaType ? { mediaType } : {}),
-    }),
-  };
-}
-
-export async function answerChat(
-  services: CliServices,
-  {
-    workspaceId,
-    tabId,
-    requestId,
-    decision,
-    message,
-    updatedInput,
-    stop,
-    always,
-    planMode,
-  }: RpcParams<"chat.answer">,
-): Promise<RpcResult<"chat.answer">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services
-    .ui("chat.answer", {
-      workspaceId,
-      tabId,
-      decision,
-      expect: requestId,
-      ...(message !== undefined ? { message } : {}),
-      ...(updatedInput ? { updatedInput } : {}),
-      ...(stop ? { stop } : {}),
-      ...(decision === "allow" && always?.length ? { always } : {}),
-      ...(decision === "allow" && planMode ? { planMode } : {}),
-    })
-    .catch(unavailable);
-  return {};
-}
-
-/** What a tab's choices are, as the protocol tells them; the modes named in this app's language. */
-export function settingsOf(choices: CliChatChoices): RpcResult<"chat.settings"> {
-  const set = CHAT_MODES[choices.agent];
-  const t = tryGetMainT();
-  return {
-    agent: choices.agent,
-    model: choices.model,
-    effort: choices.effort,
-    permissionMode: choices.mode,
-    options: {
-      models: choices.models.map((m) => ({ id: m.value, label: m.name })),
-      efforts: [...choices.efforts],
-      modes: set.modes.map((id) => ({
-        id,
-        label: t ? String(t(`common:${set.prefix}.${id}`)) : id,
-        ...(id === set.dangerous ? { dangerous: true } : {}),
-      })),
-    },
-  };
-}
-
-export async function chatSettings(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.settings">,
-): Promise<RpcResult<"chat.settings">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const choices = await services
-    .ui("chat.settings", { workspaceId, tabId, settings: {} })
-    .catch(unavailable);
-  return settingsOf(choices);
-}
-
-/**
- * Sets what the user asked from another device, as the composer's chips
- * do: the mode that lets everything run too, unless a policy keeps it off
- * here (Forbidden, with why).
- */
-export async function configureChat(
-  services: CliServices,
-  { workspaceId, tabId, model, effort, permissionMode }: RpcParams<"chat.configure">,
-  byAgent = false,
-): Promise<RpcResult<"chat.configure">> {
-  const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const settings = {
-    ...(model !== undefined ? { model } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    ...(permissionMode !== undefined ? { mode: permissionMode } : {}),
-  };
-  if (permissionMode !== undefined) {
-    const set = CHAT_MODES[tab.type as ChatAgent];
-    if (chatModeNamed(tab.type as ChatAgent, permissionMode) === set.dangerous) {
-      const now = await services
-        .ui("chat.settings", { workspaceId, tabId, settings: {} })
-        .catch(unavailable);
-      if (now.dangerousBlocked) {
-        throw new RpcFailure(
-          RpcErrorCode.Forbidden,
-          `${set.dangerous} is turned off on this computer: ${now.dangerousBlocked}`,
-        );
-      }
-    }
-  }
-  const choices = await services
-    .ui(
-      "chat.settings",
-      // An agent never takes the mode that lets everything run.
-      { workspaceId, tabId, settings, ...(byAgent ? {} : { user: true }) },
-      SETTINGS_TIMEOUT_MS,
-    )
-    .catch(unavailable);
-  return settingsOf(choices);
-}
-
-/** How long a change of settings may take: a model change restarts nothing, but waits to be shown. */
-const SETTINGS_TIMEOUT_MS = 60_000;
-
-export async function chatCommands(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.commands">,
-): Promise<RpcResult<"chat.commands">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
-}
-
-/** What an @ in the tab's composer may name, as its agent suggests it. */
-export async function chatFileSuggestions(
-  services: CliServices,
-  { workspaceId, tabId, query }: RpcParams<"chat.fileSuggestions">,
-): Promise<RpcResult<"chat.fileSuggestions">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const { paths } = await services
-    .ui("chat.fileSuggestions", { workspaceId, tabId, query })
-    .catch(unavailable);
-  return { paths: paths.slice(0, MAX_FILE_SUGGESTIONS) };
-}
-
-/**
- * Runs one of the app's commands the tab lists, as its composer runs it
- * typed; one the agent runs goes with chat.send, and the model and effort
- * with chat.configure.
- */
-export async function runChatCommand(
-  services: CliServices,
-  { workspaceId, tabId, name, args: given }: RpcParams<"chat.command">,
-  system: FolderSystem = SYSTEM_FOLDERS,
-): Promise<RpcResult<"chat.command">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const bare = name.replace(/^\//, "");
-  const lower = bare.toLowerCase();
-  const { commands } = await services
-    .ui("chat.commands", { workspaceId, tabId })
-    .catch(unavailable);
-  const command =
-    commands.find((c) => c.name.toLowerCase() === lower) ??
-    commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
-  if (command?.runs !== "command") {
-    throw new RpcFailure(
-      RpcErrorCode.InvalidParams,
-      !command
-        ? `/${bare} is not a command this chat lists (chat.commands)`
-        : command.runs === "send"
-          ? `/${bare} is the agent's own: send it as a message (chat.send)`
-          : `/${bare} sets what chat.configure sets`,
-    );
-  }
-  // A folder the chat may read, which the files methods then read too: by its
-  // real path, and not one that would open all of the disk.
-  const args =
-    command.name === "add-dir" && given?.trim()
-      ? await folderToAdd(await addDirPath(services, workspaceId, tabId, given, system), system)
-      : given;
-  return services
-    .ui(
-      "chat.command",
-      { workspaceId, tabId, name: command.name, ...(args ? { args } : {}) },
-      SETTINGS_TIMEOUT_MS,
-    )
-    .catch(unavailable);
-}
-
-/** The folder /add-dir names, as the composer reads it: from the chat's folder, or the home's. */
-async function addDirPath(
-  services: CliServices,
-  workspaceId: string,
-  tabId: string,
-  given: string,
-  system: FolderSystem,
-): Promise<string> {
-  const p = system.platform === "win32" ? win32 : posix;
-  const path = given.trim().replace(/^(["'])(.*)\1$/, "$2");
-  if (path === "~" || path.startsWith("~/") || path.startsWith("~\\")) {
-    return p.join(system.home(), path.slice(1));
-  }
-  if (p.isAbsolute(path)) return path;
-  const info = await services
-    .ui("chat.state", { workspaceId, tabId, peek: true })
-    .catch(() => null);
-  const cwd = info?.cwd ?? workspaceOf(services, workspaceId)?.rootPath ?? system.home();
-  return p.resolve(cwd, path);
-}
-
-/**
- * Has a chat run with another profile, as the CLI's chat profile does, the
- * user asking from another device: no one here is asked again.
- */
-export async function changeChatProfile(
-  services: CliServices,
-  { workspaceId, tabId, profile, fresh, stop }: RpcParams<"chat.profile">,
-): Promise<RpcResult<"chat.profile">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return services
-    .ui(
-      "chat.profile",
-      { workspaceId, tabId, profile, fresh: fresh ?? false, ...(stop ? { stop } : {}) },
-      SETTINGS_TIMEOUT_MS,
-    )
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/ has no profile /.test(message))
-        throw new RpcFailure(RpcErrorCode.InvalidParams, message);
-      return unavailable(error);
-    });
-}
-
-export async function interruptChat(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.interrupt">,
-): Promise<RpcResult<"chat.interrupt">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.interrupt", { workspaceId, tabId }).catch(unavailable);
-  return {};
-}
-
-/** Starts a chat's program again, as its banner does: the user's, from another device. */
-export async function restartChat(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.restart">,
-): Promise<RpcResult<"chat.restart">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.restart", { workspaceId, tabId }).catch(chatFailure);
-  return {};
-}
-
-/** Asks a Codex chat's program again whether it is signed in, as its banner does: the user's. */
-export async function checkChatSignIn(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.checkSignIn">,
-): Promise<RpcResult<"chat.checkSignIn">> {
-  await tabOf(services, workspaceId, tabId, ["codex"]);
-  return services.ui("chat.checkSignIn", { workspaceId, tabId }).catch(chatFailure);
-}
-
-export async function newChat(
-  services: CliServices,
-  {
-    workspaceId,
-    agent,
-    prompt,
-    model,
-    effort,
-    permissionMode,
-    profile,
-    folder,
-  }: RpcParams<"chat.new">,
-  fs?: (workspaceId: string) => Promise<FsProvider>,
-  relay?: RelaySender,
-): Promise<RpcResult<"chat.new">> {
-  const workspace = workspaceOf(services, workspaceId);
-  if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-  const cwd = folder
-    ? await folderIn(
-        fs ? await fs(workspaceId).catch(unavailable) : null,
-        workspace.rootPath,
-        folder,
-      )
-    : workspace.rootPath;
-  const settings = {
-    ...(model !== undefined ? { model } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    ...(permissionMode !== undefined ? { mode: permissionMode } : {}),
-  };
-  const opened = await services
-    .ui(
-      "chat.open",
-      {
-        workspaceId,
-        agent,
-        cwd,
-        prompt: prompt ?? "",
-        // Behind what the window shows: whoever sits at this computer keeps their place.
-        placement: { background: true },
-        ...(Object.keys(settings).length > 0 ? { settings } : {}),
-        ...(profile !== undefined ? { profile } : {}),
-        // An agent's prompt shows as its; its settings never the mode that lets everything run.
-        ...(relay ? { from: relay } : { user: true }),
-      },
-      SETTINGS_TIMEOUT_MS,
-    )
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/ has no profile /.test(message))
-        throw new RpcFailure(RpcErrorCode.InvalidParams, message);
-      return unavailable(error);
-    });
-  return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
-}
-
-/** How many session changes an events.read with no `limit` reads. */
-export const DEFAULT_EVENTS = 100;
-
-/**
- * The sessions' state changes, as `nexus events` lists them: after `since`
- * (the first ones, `more` when some were left out), or the last ones. As
- * many as go in a frame, each message in a line.
- */
-export async function readEvents(
-  services: CliServices,
-  { since, limit }: RpcParams<"events.read">,
-): Promise<RpcResult<"events.read">> {
-  const read = await services
-    .ui("events.read", {
-      ...(since !== undefined ? { since } : {}),
-      limit: limit ?? DEFAULT_EVENTS,
-    })
-    .catch(unavailable);
-  let events: RpcResult<"events.read">["events"] = read.events.map((e) => ({
-    seq: e.seq,
-    at: e.at,
-    workspaceId: e.workspaceId,
-    tabId: e.tabId,
-    title: e.title,
-    kind: e.kind,
-    ...(e.agent ? { agent: e.agent } : {}),
-    from: e.from,
-    to: e.to,
-    ...(e.message ? { message: oneLine(e.message, 500) } : {}),
-  }));
-  let more = read.more;
-  while (events.length > 0 && !fitsAsResult({ events, cursor: read.cursor, more })) {
-    const half = Math.ceil(events.length / 2);
-    if (since === undefined) {
-      // The last ones: the latest are kept.
-      events = events.slice(half);
-    } else {
-      // After `since`: the first are kept, and the rest left for the next read.
-      events = events.slice(0, events.length - half);
-      more = true;
-    }
-  }
-  return { events, cursor: read.cursor, more };
-}
-
-/** The agent profiles a new chat may run with. */
-export async function listProfiles(
-  services: CliServices,
-  { agent }: RpcParams<"profiles.list">,
-): Promise<RpcResult<"profiles.list">> {
-  return services.ui("chat.profiles", agent ? { agent } : {}).catch(unavailable);
-}
-
-/** Renames the chat, as its tab's rename does. */
-export async function renameChat(
-  services: CliServices,
-  { workspaceId, tabId, title }: RpcParams<"chat.rename">,
-): Promise<RpcResult<"chat.rename">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  if (!title.trim())
-    throw new RpcFailure(RpcErrorCode.InvalidParams, "a title needs more than spaces");
-  return services.ui("chat.rename", { workspaceId, tabId, title }).catch(unavailable);
-}
-
-/** Most characters of a tool's result asked for: more than a frame takes anyway. */
-const MAX_TOOL_TEXT = MAX_MESSAGE_BYTES;
-
-/** One tool call, a subagent's too, with as much of its result as a frame takes. */
-export async function chatTool(
-  services: CliServices,
-  { workspaceId, tabId, toolUseId }: RpcParams<"chat.tool">,
-): Promise<RpcResult<"chat.tool">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const ask = (maxText: number) =>
-    services
-      .ui("chat.toolCall", { workspaceId, tabId, toolUseId, maxText })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/^no tool call /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-        return unavailable(error);
-      });
-  let tool = await ask(MAX_TOOL_TEXT);
-  // Its input, or text that escapes long in JSON: asked again with less of the result.
-  for (let maxText = MAX_TOOL_TEXT / 2; !fitsAsResult(tool); maxText = Math.floor(maxText / 2)) {
-    if (maxText < 1024)
-      throw new RpcFailure(RpcErrorCode.Unavailable, "that call is too large to send");
-    tool = await ask(maxText);
-  }
-  return tool;
-}
-
-/** A file the chat changed as it was before, for its diff, where it is kept and goes in a frame. */
-export async function chatOriginal(
-  services: CliServices,
-  { workspaceId, tabId, path }: RpcParams<"chat.original">,
-): Promise<RpcResult<"chat.original">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const { found, before } = await services
-    .ui("chat.original", { workspaceId, tabId, path })
-    .catch(unavailable);
-  if (!found) throw new RpcFailure(RpcErrorCode.NotFound, `no original kept of ${path}`);
-  const result = { before };
-  if (!fitsAsResult(result)) {
-    throw new RpcFailure(RpcErrorCode.Unavailable, "that file is too large to send");
-  }
-  return result;
-}
-
-/** What the chat's side panel shows; its changed files cut to what goes in a frame. */
-export async function chatPanel(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.panel">,
-): Promise<RpcResult<"chat.panel">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const panel = await services.ui("chat.panel", { workspaceId, tabId }).catch(unavailable);
-  let { changedFiles } = panel;
-  while (changedFiles.length > 0 && !fitsAsResult({ ...panel, changedFiles })) {
-    changedFiles = changedFiles.slice(0, Math.floor(changedFiles.length / 2));
-  }
-  return { ...panel, changedFiles };
-}
-
-/** Text cut to `max` characters, an ellipsis where it was cut. */
-function cut(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-/** What a run's row and its pane both tell of it. */
-function runFactsOf(run: AgentRun): ChatRun {
-  return {
-    id: run.id,
-    ...(run.program ? { program: run.program } : {}),
-    ...(run.endpoint ? { endpoint: cut(run.endpoint, 200) } : {}),
-    ...(run.model ? { model: cut(run.model, 200) } : {}),
-    ...(run.description ? { description: oneLine(run.description, MAX_AGENT_DESCRIPTION) } : {}),
-    start: run.start,
-    ...(run.end !== undefined ? { end: run.end } : {}),
-    state: run.state,
-    toolCount: Math.max(0, run.toolCount),
-    failedCount: Math.max(0, run.failedCount),
-    ...(run.toolsTold ? { toolsTold: true } : {}),
-    ...(run.exitCode !== undefined ? { exitCode: run.exitCode } : {}),
-    ...(run.sessionId ? { sessionId: cut(run.sessionId, 200) } : {}),
-  };
-}
-
-/** How long a run row's prompt, tool and last words are. */
-const RUN_ROW_TEXT = 300;
-
-/**
- * A `claude -p` or `codex exec` run as the chat's agents list it: what it
- * is, how it stands, the tool it runs now and what it wrote last.
- */
-export function runRowOf(run: AgentRun): ChatRun {
-  const tool = [...run.tools].reverse().find((t) => t.end === undefined && !t.background);
-  const last = run.answer ?? run.messages?.at(-1)?.text;
-  return {
-    ...runFactsOf(run),
-    ...(run.prompt ? { prompt: cut(run.prompt, RUN_ROW_TEXT) } : {}),
-    ...(tool ? { current: cut(tool.target ? `${tool.name} ${tool.target}` : tool.name, 200) } : {}),
-    ...(last ? { last: cut(last, RUN_ROW_TEXT) } : {}),
-  };
-}
-
-/** A run as its pane shows it: its tools, messages and answer too, fewer messages where they would not fit. */
-export function runDetailOf(run: AgentRun): ChatRun {
-  const detail = (messages: NonNullable<AgentRun["messages"]> | undefined): ChatRun => ({
-    ...runFactsOf(run),
-    ...(run.prompt ? { prompt: cut(run.prompt, MAX_RUN_TEXT) } : {}),
-    tools: run.tools.slice(-30).map((tool) => ({
-      id: cut(tool.id, 200),
-      name: cut(tool.name, 200),
-      ...(tool.target ? { target: cut(tool.target, 2000) } : {}),
-      ...(tool.note ? { note: cut(tool.note, 2000) } : {}),
-      start: tool.start,
-      ...(tool.end !== undefined ? { end: tool.end } : {}),
-      ...(tool.failed ? { failed: true } : {}),
-      ...(tool.error ? { error: cut(tool.error, 2000) } : {}),
-      ...(tool.background ? { background: true } : {}),
-      ...(tool.denied ? { denied: true } : {}),
-    })),
-    ...(messages
-      ? { messages: messages.map((m) => ({ at: m.at, text: cut(m.text, MAX_RUN_TEXT) })) }
-      : {}),
-    ...(run.answer ? { answer: cut(run.answer, MAX_RUN_TEXT) } : {}),
-  });
-  let messages = run.messages?.slice(-20);
-  let shown = detail(messages);
-  while (messages && messages.length > 0 && !fitsAsResult({ run: shown })) {
-    messages = messages.slice(Math.ceil(messages.length / 2));
-    shown = detail(messages);
-  }
-  return shown;
-}
-
-/** The `claude -p` and `codex exec` runs of the chat's session, as its agents list them. */
-export async function chatRuns(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.runs">,
-): Promise<RpcResult<"chat.runs">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const runs = services.claudeAgents
-    .list(workspaceId, tabId)
-    .filter((agent) => agent.kind === "print")
-    .slice(0, MAX_CHAT_RUNS);
-  return { runs: runs.map(runRowOf) };
-}
-
-/** One of the chat's runs, as its pane shows it. */
-export async function chatRun(
-  services: CliServices,
-  { workspaceId, tabId, runId }: RpcParams<"chat.run">,
-): Promise<RpcResult<"chat.run">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const run = services.claudeAgents
-    .list(workspaceId, tabId)
-    .find((agent) => agent.kind === "print" && agent.id === runId);
-  if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
-  return { run: runDetailOf(run) };
-}
-
-/** Stops one of the chat's runs, as its pane's stop button does. */
-export async function stopChatRun(
-  services: CliServices,
-  { workspaceId, tabId, runId }: RpcParams<"chat.stopRun">,
-): Promise<RpcResult<"chat.stopRun">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return { stopped: await services.claudeAgents.stop(workspaceId, tabId, runId) };
-}
-
-/** Stops one of the chat's tasks, as its panel's stop button does. */
-export async function stopChatTask(
-  services: CliServices,
-  { workspaceId, tabId, taskId }: RpcParams<"chat.stopTask">,
-): Promise<RpcResult<"chat.stopTask">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.stopTask", { workspaceId, tabId, taskId }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/^no task /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-    return unavailable(error);
-  });
-  return {};
-}
-
-/** A tab's failure as another device is told it: an item or a call it does not have is not found. */
-function chatFailure(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/^no (item|tool call|message|held message) /.test(message)) {
-    throw new RpcFailure(RpcErrorCode.NotFound, message);
-  }
-  if (/^a message needs /.test(message)) throw new RpcFailure(RpcErrorCode.InvalidParams, message);
-  return unavailable(error);
-}
-
-/** Whether rewinding to before a user message can restore files. */
-export async function previewChatRewind(
-  services: CliServices,
-  { workspaceId, tabId, itemKey }: RpcParams<"chat.rewindPreview">,
-): Promise<RpcResult<"chat.rewindPreview">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const preview = await services
-    .ui("chat.rewindPreview", { workspaceId, tabId, itemKey })
-    .catch(chatFailure);
-  // A rewind that touches many files names as many as go in a frame.
-  let { filesChanged } = preview;
-  while (filesChanged.length > 0 && !fitsAsResult({ ...preview, filesChanged })) {
-    filesChanged = filesChanged.slice(0, Math.floor(filesChanged.length / 2));
-  }
-  return { ...preview, filesChanged };
-}
-
-/** Rewinds a chat to before one of the user's messages. */
-export async function rewindChat(
-  services: CliServices,
-  { workspaceId, tabId, itemKey, files }: RpcParams<"chat.rewind">,
-): Promise<RpcResult<"chat.rewind">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.rewind", { workspaceId, tabId, itemKey, files }).catch(chatFailure);
-  return {};
-}
-
-/** Forks a chat into a new tab in the background. */
-export async function forkChat(
-  services: CliServices,
-  { workspaceId, tabId, itemKey }: RpcParams<"chat.fork">,
-): Promise<RpcResult<"chat.fork">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return services
-    .ui("chat.fork", { workspaceId, tabId, ...(itemKey ? { itemKey } : {}) })
-    .catch(chatFailure);
-}
-
-/** Sends a Claude chat's running command or subagent to the background. */
-export async function backgroundChatTool(
-  services: CliServices,
-  { workspaceId, tabId, toolUseId }: RpcParams<"chat.background">,
-): Promise<RpcResult<"chat.background">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
-  await services.ui("chat.background", { workspaceId, tabId, toolUseId }).catch(chatFailure);
-  return {};
-}
-
-/** Turns a Claude chat's Remote Control on or off. */
-export async function setChatRemoteControl(
-  services: CliServices,
-  { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
-): Promise<RpcResult<"chat.remoteControl">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
-  await services.ui("chat.remoteControl", { workspaceId, tabId, enabled }).catch(chatFailure);
-  return {};
-}
-
-/**
- * A Claude chat's Claude Code settings, or a Codex chat's defaults, read or
- * changed as its dialog does: the user's, from another device.
- */
-export async function workChatConfig(
-  services: CliServices,
-  params: RpcParams<"chat.config">,
-): Promise<RpcResult<"chat.config">> {
-  await tabOf(services, params.workspaceId, params.tabId, ["claude", "codex"]);
-  return services.ui("chat.config", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
-}
-
-/** Works a Claude chat's MCP server, as its panel does: the user's, from another device. */
-export async function workChatMcp(
-  services: CliServices,
-  params: RpcParams<"chat.mcp">,
-): Promise<RpcResult<"chat.mcp">> {
-  await tabOf(services, params.workspaceId, params.tabId, ["claude"]);
-  return services.ui("chat.mcp", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
-}
-
-/** The workspace's conversations of the past that a new chat can go on with. */
-export async function listHistory(
-  services: CliServices,
-  { workspaceId, agent, query, limit }: RpcParams<"history.list">,
-): Promise<RpcResult<"history.list">> {
-  if (!workspaceOf(services, workspaceId)) {
-    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-  }
-  const { sessions } = await services
-    .ui("chat.history", {
-      workspaceId,
-      agent,
-      ...(agent === "codex" ? { peer: true } : {}),
-      ...(query ? { query } : {}),
-      ...(limit ? { limit } : {}),
-    })
-    .catch(unavailable);
-  // Long first prompts for titles: as many as go in a frame.
-  let shown = sessions;
-  while (shown.length > 0 && !fitsAsResult({ sessions: shown })) {
-    shown = shown.slice(0, Math.floor(shown.length / 2));
-  }
-  return { sessions: shown };
-}
-
-/** Goes on with a conversation of the past in a new chat, behind what this computer shows. */
-export async function resumeChat(
-  services: CliServices,
-  { workspaceId, agent, sessionId, tabId }: RpcParams<"chat.resume">,
-): Promise<RpcResult<"chat.resume">> {
-  if (!workspaceOf(services, workspaceId)) {
-    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-  }
-  if (tabId) await tabOf(services, workspaceId, tabId, [agent]);
-  return services
-    .ui("chat.resume", { workspaceId, agent, sessionId, ...(tabId ? { tabId } : {}) })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-      return unavailable(error);
-    });
-}
-
-export async function closeChat(
-  services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.close">,
-): Promise<RpcResult<"chat.close">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("tab.close", { workspaceId, tabId, force: false }).catch(unavailable);
-  return {};
-}
-
-/** Most files.find and files.search one device may have running here at once. */
-export const MAX_SEARCHES_PER_DEVICE = 2;
-
-function checkFileControl(
-  anywhere: true | undefined,
-  by: AgentSender | undefined,
-  agents: AgentGate | undefined,
-  controls: ConsentControls | undefined,
-): void {
-  if (!by || !agents) throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
-  agents.checkRead();
-  if (anywhere ? !controls?.terminal : !controls?.chat) {
-    throw new RpcFailure(
-      RpcErrorCode.Forbidden,
-      anywhere
-        ? "file access outside the workspace requires terminal control"
-        : "workspace file writes require chat control",
-    );
-  }
-}
-
 /** Answers another device's request with this device's services. */
-export function serveWith(
-  services: () => CliServices | null,
-  watches: {
-    chats?: ChatWatches;
-    sessions?: SessionWatches;
-    terminals?: TerminalWatches;
-    /** The tasks' git facts the sessions' list tells. */
-    git?: WorkspaceGit;
-    /** The images and files devices attached for their next messages. */
-    attachments?: Attachments;
-    /** The files devices are sending a piece at a time; fresh ones when not given. */
-    uploads?: Uploads;
-    fileWrites?: FileWrites;
-    /** The workspaces' file systems, and how an image is drawn smaller. */
-    files?: Omit<RemoteFiles, "folders">;
-    /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
-    repositories?: RemoteGit;
-    /** The workspaces' notes, for notes.list and notes.attach, and the note it records into. */
-    notes?: RemoteNotes;
-    /** How many photos each device put into notes lately; a fresh one when not given. */
-    photoQuota?: PhotoQuota;
-    /** Whether an agent on another device may do what it asks (a request with `from`). */
-    agents?: AgentGate;
-    /** A device of the room by its id, as it names itself. */
-    deviceName?: (id: string) => string | undefined;
-    /** The folders folders.list goes through; the system's when not given. */
-    folders?: FolderSystem;
-    /**
-     * What the user lets other devices control here, for the consent prompts
-     * they may answer; none when not told.
-     */
-    controls?: () => ConsentControls;
-  } = {},
-) {
+export function serveWith(services: () => CliServices | null, watches: RemoteServeOptions = {}) {
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
   const uploads = watches.uploads ?? new Uploads(attachments);
@@ -1412,12 +162,7 @@ export function serveWith(
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
-  return async (request: {
-    from: string;
-    method: RpcMethod;
-    params: unknown;
-    isCurrent?: () => boolean;
-  }) => {
+  return async (request: RemoteServeRequest) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
     const { from, method, params } = request;
@@ -1464,15 +209,8 @@ export function serveWith(
     };
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
     switch (request.method) {
-      case "sessions.list": {
-        const list = await listSessions(s, git);
-        const recording = watches.notes?.recording();
-        return {
-          ...list,
-          consents: await remoteConsents(s, from, controls),
-          ...(recording ? { recording } : {}),
-        };
-      }
+      case "sessions.list":
+        return serveSessionsList(s, git, watches.notes, from, controls);
       case "notes.list":
       case "notes.attach": {
         const notes = watches.notes;
@@ -1508,54 +246,8 @@ export function serveWith(
           relay,
         );
       case "files.write.begin":
-      case "files.mkdir": {
-        const write = request.params as RpcParams<"files.write.begin">;
-        const workspace = workspaceOf(s, write.workspaceId);
-        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-        const root = workspace.rootPath;
-        const location = structuredClone(workspace.location);
-        let approvedPath: string | undefined;
-        const authorize = (destination?: string) => {
-          checkCurrent();
-          checkFileControl(write.anywhere, by, watches.agents, watches.controls?.());
-          if (destination && approvedPath && destination !== approvedPath) {
-            throw new RpcFailure(RpcErrorCode.Forbidden, "the approved destination changed");
-          }
-          const current = workspaceOf(s, write.workspaceId);
-          if (
-            !current ||
-            current.rootPath !== root ||
-            !isDeepStrictEqual(current.location, location)
-          ) {
-            throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-          }
-          if (location.kind !== "local") {
-            throw new RpcFailure(
-              RpcErrorCode.Unavailable,
-              "file writes require a local workspace on the serving computer",
-            );
-          }
-        };
-        authorize();
-        const directory = method === "files.mkdir";
-        approvedPath = await fileWriteDestination(root, write, directory);
-        await watches.agents?.checkFile(
-          s,
-          {
-            device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
-            method,
-            params: write,
-          },
-          {
-            path: approvedPath,
-            tree: directory && write.transferId !== undefined,
-            workspaceRoot: root,
-          },
-        );
-        authorize();
-        if (directory) return makeRemoteDirectory(root, write, authorize);
-        return fileWrites.begin(from, root, write, authorize);
-      }
+      case "files.mkdir":
+        return serveFileDestination(s, request, watches, fileWrites, checkCurrent, by);
       case "files.write.chunk":
         await fileWrites.chunk(from, request.params as RpcParams<"files.write.chunk">);
         return {};
@@ -1565,145 +257,11 @@ export function serveWith(
         await fileWrites.abort(from, request.params as RpcParams<"files.write.abort">);
         return {};
       case "files.list":
-      case "files.read": {
-        if (!watches.files) {
-          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
-        }
-        const read = request.params as RpcParams<"files.list">;
-        const { workspaceId, anywhere } = read;
-        const workspace = workspaceOf(s, workspaceId);
-        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-        const rootPath = workspace.rootPath;
-        const location = structuredClone(workspace.location);
-        const checkWorkspace = () => {
-          const current = workspaceOf(s, workspaceId);
-          if (
-            !current ||
-            current.rootPath !== rootPath ||
-            !isDeepStrictEqual(current.location, location)
-          ) {
-            throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-          }
-        };
-        const authorizeAnywhere = () => {
-          if (anywhere) {
-            checkCurrent();
-            checkFileControl(true, by, watches.agents, watches.controls?.());
-            checkWorkspace();
-            if (location.kind !== "local") {
-              throw new RpcFailure(
-                RpcErrorCode.Unavailable,
-                "absolute file access requires a local workspace on the serving computer",
-              );
-            }
-          }
-        };
-        const writeTarget = method === "files.list" && read.writeTarget === true;
-        if (writeTarget && (!anywhere || !read.transferId)) {
-          throw new RpcFailure(
-            RpcErrorCode.InvalidParams,
-            "a write target requires an absolute path and transfer ID",
-          );
-        }
-        let approvedPath: string | undefined;
-        if (anywhere) {
-          authorizeAnywhere();
-          const absolute = absoluteFilePath(read.path);
-          const source = await outsideFileSource(absolute)
-            .then(async (path) => ({
-              path,
-              directory: method === "files.list" && (await stat(path)).isDirectory(),
-            }))
-            .catch((error: unknown) => ({ error }));
-          const target =
-            "path" in source
-              ? source.path
-              : writeTarget
-                ? await fileWriteDestination(rootPath, read, true)
-                : absolute;
-          await watches.agents?.checkFile(
-            s,
-            {
-              device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
-              method,
-              params: { ...read, from: by as AgentSender },
-            },
-            {
-              path: target,
-              tree: writeTarget || ("directory" in source && source.directory),
-              workspaceRoot: rootPath,
-            },
-          );
-          authorizeAnywhere();
-          if ("error" in source) throw source.error;
-          approvedPath = source.path;
-          if (writeTarget) {
-            if (!source.directory) {
-              throw new RpcFailure(
-                RpcErrorCode.InvalidParams,
-                `${read.path} is a file: files.read reads it`,
-              );
-            }
-            return { path: absolute, entries: [] };
-          }
-        }
-        const files: RemoteFiles = {
-          ...watches.files,
-          folders: (id) =>
-            s
-              .ui("workspace.folders", { workspaceId: id })
-              .then((r) => r.folders)
-              .catch(() => []),
-          named: (id) =>
-            s
-              .ui("chat.outsideFiles", { workspaceId: id })
-              .then((r) => r.files)
-              .catch(() => []),
-        };
-        if (request.method === "files.list") {
-          const result = await listFiles(files, workspace.rootPath, read, approvedPath);
-          authorizeAnywhere();
-          return result;
-        }
-        const result = await readFile(
-          files,
-          rootPath,
-          request.params as RpcParams<"files.read">,
-          approvedPath,
-        );
-        authorizeAnywhere();
-        checkWorkspace();
-        return result;
-      }
+      case "files.read":
+        return serveFileRead(s, request, watches, checkCurrent, by);
       case "files.find":
-      case "files.search": {
-        if (!watches.files) {
-          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
-        }
-        const { workspaceId } = request.params as { workspaceId: string };
-        if (!workspaceOf(s, workspaceId)) {
-          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-        }
-        // Each runs through a workspace's files on its host: a device runs a few at once, no more.
-        const running = searching.get(from) ?? 0;
-        if (running >= MAX_SEARCHES_PER_DEVICE) {
-          throw new RpcFailure(
-            RpcErrorCode.Unavailable,
-            `that device has ${running} searches running here already: ask again once one ends`,
-          );
-        }
-        searching.set(from, running + 1);
-        try {
-          const fs = await watches.files.fs(workspaceId).catch(unavailable);
-          return await (request.method === "files.find"
-            ? findFiles(fs, request.params as RpcParams<"files.find">)
-            : searchFiles(fs, request.params as RpcParams<"files.search">));
-        } finally {
-          const left = (searching.get(from) ?? 1) - 1;
-          if (left > 0) searching.set(from, left);
-          else searching.delete(from);
-        }
-      }
+      case "files.search":
+        return serveFileSearch(s, request, watches, searching);
       case "git.status":
       case "git.diff":
       case "git.log":
@@ -1848,3 +406,7 @@ export function serveWith(
     }
   };
 }
+
+export { DEFAULT_EVENTS } from "./serving/chat-details";
+export { MAX_SEARCHES_PER_DEVICE } from "./serving/files";
+export type { WorkspaceGit } from "./serving/sessions";
