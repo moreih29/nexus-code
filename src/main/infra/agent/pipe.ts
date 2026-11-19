@@ -15,6 +15,7 @@ import { z } from "zod";
 import { AGENT_PROTOCOL_VERSION } from "../../../shared/agent/envelope";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 
@@ -244,7 +245,7 @@ export interface NdjsonPipe {
   fail(error: Error): void;
   /**
    * Flushes buffered lines and reports whether the handshake had succeeded before close.
-   * `stderrTail` carries the last few raw stderr lines (loader errors, panics,
+   * `stderrTail` carries the last few masked stderr lines (loader errors, panics,
    * unclassified warnings) so the orchestrator can attach them to the terminal
    * error's cause — the file log is then self-sufficient for diagnosis.
    */
@@ -281,7 +282,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   });
   const stderrLines = createLineSplitter(handleStderrLine, onLineTooLong);
 
-  // Ring buffer of the most recent raw stderr lines. Retained regardless of
+  // Ring buffer of the most recent masked stderr lines. Retained regardless of
   // classification so an unrecognized fatal line (e.g. a glibc loader error)
   // is still available as diagnostic context when the process closes.
   const STDERR_TAIL_MAX_LINES = 20;
@@ -580,7 +581,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
     }
 
-    // Retain the raw line before classification so it survives even when no
+    // Retain the diagnostic before classification so it survives even when no
     // pattern matches — the close handler reads this tail for the cause.
     recordStderr(line);
 
@@ -604,7 +605,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   /** Appends one stderr line to the bounded diagnostic tail buffer. */
   function recordStderr(line: string): void {
-    recentStderr.push(line.slice(0, STDERR_TAIL_MAX_LINE_CHARS));
+    recentStderr.push(redactLogSecrets(line).slice(0, STDERR_TAIL_MAX_LINE_CHARS));
     if (recentStderr.length > STDERR_TAIL_MAX_LINES) {
       recentStderr.shift();
     }
@@ -815,8 +816,11 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
       cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
     // 600 chars (up from 300) so a close diagnostic carrying an exit code plus
     // a multi-line stderr tail is not truncated before the actual error text.
-    const causeSnippet = causeMsg.slice(0, 600);
-    const stack = (error.stack ?? "").split("\n").slice(1, 6).join(" | ");
+    const causeSnippet = redactLogSecrets(causeMsg).slice(0, 600);
+    const stack = redactLogSecrets(error.stack ?? "")
+      .split("\n")
+      .slice(1, 6)
+      .join(" | ");
     getMalformedStdoutLogger().warn(
       `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,
     );
@@ -887,16 +891,23 @@ function getMalformedStdoutLogger(): ReturnType<typeof createLogger> {
 }
 
 function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): void {
-  const preview = escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS));
-  const truncated = line.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
-  const reason = error instanceof Error ? error.message : String(error);
+  const preview = malformedLinePreview(line);
+  // JSON.parse may quote a fragment of the original input with no credential label.
+  const reason = error instanceof SyntaxError ? error.name : redactLogSecrets(String(error));
   // Route this through `createLogger` so it reaches the electron-log file transport. It used to
   // call `console.warn` directly, so it never reached main.log in a packaged app, but
   // this line is the top clue when diagnosing stdout pollution from a remote SSH agent, so file
   // visibility matters.
   getMalformedStdoutLogger().warn(
-    `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
+    `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}`,
   );
+}
+
+/** Redacts the whole line before clipping so a partially visible value cannot leak. */
+function malformedLinePreview(line: string): string {
+  const redacted = redactLogSecrets(line);
+  const truncated = redacted.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
+  return escapeControlChars(redacted.slice(0, MALFORMED_LINE_PREVIEW_CHARS)) + truncated;
 }
 
 /**
@@ -952,7 +963,7 @@ function parseFrame(line: string): ParsedFrame {
 
   if (!isRecord(parsed)) {
     getMalformedStdoutLogger().warn(
-      `parseFrame: parsed value is not a record. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+      `parseFrame: parsed value is not a record. line=${malformedLinePreview(line)}`,
     );
     throw createSshError("server.protocol-error");
   }
@@ -962,7 +973,7 @@ function parseFrame(line: string): ParsedFrame {
   const hasEvent = hasOwnKey(parsed, "event");
   if (hasResult && hasError) {
     getMalformedStdoutLogger().warn(
-      `parseFrame: frame has both result and error. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+      `parseFrame: frame has both result and error. line=${malformedLinePreview(line)}`,
     );
     throw createSshError("server.protocol-error");
   }
@@ -1008,7 +1019,7 @@ function parseFrame(line: string): ParsedFrame {
   }
 
   getMalformedStdoutLogger().warn(
-    `parseFrame: frame matched no known schema. hasResult=${hasResult} hasError=${hasError} hasEvent=${hasEvent} line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+    `parseFrame: frame matched no known schema. hasResult=${hasResult} hasError=${hasError} hasEvent=${hasEvent} line=${malformedLinePreview(line)}`,
   );
   throw createSshError("server.protocol-error");
 }

@@ -4,6 +4,7 @@
  * when notifications are off, and a click brings the user to the terminal.
  */
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 
 const log = createLogger("cli-notify");
 
@@ -41,7 +42,9 @@ export function notifyTab(
     try {
       deps.reveal(workspaceId, tabId);
     } catch (error) {
-      log.warn(`revealing the tab failed: ${(error as Error).message}`);
+      log.warn(
+        `revealing the tab failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
     }
   });
   n.on("close", release);
