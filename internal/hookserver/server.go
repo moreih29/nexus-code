@@ -78,7 +78,7 @@ const maxSocketPathLen = 104
 // Edit의 old/new 문자열, PostToolUse의 원본 파일과 patch까지 — 그래서 bufio.Scanner
 // 기본값 64 KiB로는 큰 파일을 쓰는 permission-request가 이벤트 없이 버려졌다.
 // 실제 payload는 모델 출력 한도에 묶여 수 MiB 이내이므로 16 MiB로 상한을 둔다.
-const maxRequestBytes = 16 * 1024 * 1024
+const maxRequestBytes = proto.MaxHookRequestBytes
 
 // EventSink 는 hook 이벤트를 main으로 push하는 콜백 타입이다.
 type EventSink func(name string, payload any) error

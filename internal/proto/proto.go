@@ -26,6 +26,9 @@ import (
 // -X); the default is what a plain `go build` or test reports.
 var ServerVersion = "0.1.0"
 
+// MaxHookRequestBytes bounds the NDJSON request accepted by the hook socket.
+const MaxHookRequestBytes = 16 * 1024 * 1024
+
 // Protocol version constants advertised on the boot Ready frame so the
 // client can refuse to talk to a server with an incompatible envelope
 // shape. Bump ProtocolVersion when the wire format changes in a way

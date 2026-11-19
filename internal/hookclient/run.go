@@ -20,6 +20,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // 환경 변수 키 상수 — hook 클라이언트가 읽는 연결 정보 집합.
@@ -125,7 +127,7 @@ func Run(args []string) int {
 	}
 
 	// stdin에서 Claude Code가 전달한 hook 이벤트 JSON payload를 읽는다.
-	payload, err := readStdinPayload()
+	payload, err := readStdinPayload(os.Stdin)
 	if err != nil {
 		// payload 읽기 실패는 경고만 출력하고 silent fallback한다.
 		fmt.Fprintf(os.Stderr, "nexus hook: stdin read failed: %v\n", err)
@@ -263,12 +265,18 @@ func readNDJSON(r io.Reader) (hookResponse, error) {
 	return resp, nil
 }
 
-// readStdinPayload 는 stdin 전체를 읽어 JSON RawMessage로 반환한다.
-// 읽은 내용이 유효한 JSON이 아니어도 그대로 전달해 agent에서 판단하도록 한다.
-func readStdinPayload() (json.RawMessage, error) {
-	data, err := io.ReadAll(os.Stdin)
+// readStdinPayload bounds buffering by the largest hook frame the server
+// accepts. Drain excess input so the hook caller can finish writing its pipe.
+func readStdinPayload(in io.Reader) (json.RawMessage, error) {
+	data, err := io.ReadAll(io.LimitReader(in, proto.MaxHookRequestBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > proto.MaxHookRequestBytes {
+		if _, err := io.Copy(io.Discard, in); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("payload exceeds the %d-byte hook request limit", proto.MaxHookRequestBytes)
 	}
 	if len(data) == 0 {
 		// 빈 stdin은 빈 JSON object로 대체한다.
