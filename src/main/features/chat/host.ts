@@ -25,6 +25,7 @@ import {
   parseClaudeVersion,
   type ResumeOptions,
 } from "./launch";
+import { OAuthCallbacks } from "./oauth-callback";
 
 const log = createLogger("chat-host");
 
@@ -89,6 +90,7 @@ interface WorkspaceChatClose {
 
 /** Owns chat programs and events for the desktop's workspace channels. */
 export class ChatHost {
+  readonly oauth = new OAuthCallbacks();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly tabIntents = new Map<string, TabIntent>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
@@ -565,6 +567,7 @@ export class ChatHost {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.oauth.dispose();
     this.disposeProviderReady();
     for (const subscription of this.subscriptions.values()) subscription.dispose();
     this.subscriptions.clear();
