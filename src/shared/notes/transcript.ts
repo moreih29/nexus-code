@@ -47,7 +47,7 @@ export const TranscriptTakeSchema = z.object({
   offsetMs: z.number().nonnegative(),
   /** Its length, as the server counted it once it was done. */
   seconds: z.number().nonnegative(),
-  /** The session's `done.transcribeToken`, until it is used. */
+  /** The session's `done` (or `error`) `transcribeToken`, until it is used. */
   token: z.string().optional(),
   /** The second pass on the server, while it is under way. */
   transcriptionId: z.string().optional(),

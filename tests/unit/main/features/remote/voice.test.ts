@@ -236,9 +236,11 @@ describe("a note's recording", () => {
     expect(voice.has(result.id)).toBe(true);
     expect(voice.has("another")).toBe(false);
     s.say({ t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 });
+    s.say({ t: "error", code: "provider-error", message: "x", transcribeToken: "tok" });
     s.say({ t: "done", seconds: 1, transcribeToken: "tok" });
     expect(events.map((e) => e.event)).toEqual([
       { t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 },
+      { t: "error", code: "provider-error", message: "x", transcribeToken: "tok" },
       { t: "done", seconds: 1, transcribeToken: "tok" },
     ]);
   });

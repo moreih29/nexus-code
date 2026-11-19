@@ -575,6 +575,8 @@ describe("the voice socket", () => {
       { t: "partial", text: "네, 512", speaker: "2" },
       { t: "final", text: "네, 512 KiB면 괜찮아요.", speaker: "2", startMs: 4210, endMs: 6930 },
       { t: "done", seconds: 1820.4, transcribeToken: "tt_1" },
+      { t: "error", code: "provider-error", message: "x", transcribeToken: "tt_2" },
+      { t: "error", code: "provider-error", message: "x" },
     ]) {
       expect(VoiceServerMessageSchema.parse(message)).toEqual(message as never);
     }
