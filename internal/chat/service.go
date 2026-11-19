@@ -67,7 +67,12 @@ type process struct {
 	// codexGuidance is used under writeMu, alongside the requests it accompanies.
 	codexGuidance    map[string]*codexGuidance
 	codexCompactions atomic.Uint64
-	done             chan struct{}
+	// codexInitialized and codexExperimental are set under writeMu by the
+	// program's first initialize request: Codex takes additionalContext only
+	// from a connection that asked for experimentalApi there.
+	codexInitialized  bool
+	codexExperimental bool
+	done              chan struct{}
 
 	stderrMu   sync.Mutex
 	stderrTail []byte
@@ -549,6 +554,7 @@ drain:
 func (p *process) write(data []byte, context *codexContext) error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
+	p.noteCodexInitialize(data)
 	if context != nil {
 		data = p.withCodexContext(data, *context)
 	}
