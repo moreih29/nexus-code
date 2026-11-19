@@ -41,7 +41,7 @@ interface HookDispatcher {
   useState(initial: unknown): [unknown, (next: unknown) => void];
   useCallback(cb: unknown, deps?: readonly unknown[]): unknown;
   useMemo(factory: () => unknown, deps?: readonly unknown[]): unknown;
-  useEffect(fn: () => void, deps?: readonly unknown[]): void;
+  useEffect(fn: () => undefined | (() => void), deps?: readonly unknown[]): void;
   useContext(ctx: unknown): unknown;
   useSyncExternalStore(subscribe: unknown, getSnapshot: () => unknown): unknown;
 }
@@ -136,11 +136,13 @@ type FormElement = ReactElement<{
 function mountView() {
   const refs: Array<{ current: unknown }> = [];
   const states: unknown[] = [];
-  let effects: Array<() => void> = [];
+  let effects: Array<() => undefined | (() => void)> = [];
+  let cleanups: Array<() => void> = [];
   let refCursor = 0;
   let stateCursor = 0;
   const phases: string[] = [];
   const onConnected = mock((_session: SshBrowseSession) => {});
+  const cancelConnectRef = { current: null as (() => void) | null };
 
   const dispatcher: HookDispatcher = {
     useRef(initial) {
@@ -177,6 +179,7 @@ function mountView() {
     try {
       element = SshNewConnectionView({
         onConnected,
+        cancelConnectRef,
         configHosts: [],
         configHostsLoading: false,
         onConnectPhaseChange: (phase) => phases.push(phase),
@@ -185,13 +188,17 @@ function mountView() {
     } finally {
       reactInternals.H = previous;
     }
-    for (const fn of effects) fn();
+    cleanups = effects.flatMap((fn) => fn() ?? []);
     return element;
   }
 
   return {
     render,
+    unmount: () => {
+      for (const cleanup of cleanups) cleanup();
+    },
     onConnected,
+    cancel: () => cancelConnectRef.current?.(),
     /** Submits the form from `form` (default: a fresh render). */
     submit: (form: FormElement = render()) => form.props.onSubmit({ preventDefault: () => {} }),
     /** Phase reported to the parent by the latest render. */
@@ -301,4 +308,39 @@ describe("SSH connect flow — double-submit during in-flight connect", () => {
     expect(view.onConnected).toHaveBeenCalledTimes(1);
     expect(view.phase()).toBe("idle");
   });
+});
+
+it("leaving before SSH browse completes closes the late session without saving or navigating", async () => {
+  const browse = Promise.withResolvers<unknown>();
+  openBrowseSession = () => browse.promise;
+  const view = mountView();
+  view.submit();
+  view.unmount();
+  browse.resolve(ipcOk(SESSION));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(callsTo("ssh.closeBrowseSession")).toEqual([
+    { method: "ssh.closeBrowseSession", args: { sessionId: SESSION.sessionId } },
+  ]);
+  expect(callsTo("connectionProfile.save")).toHaveLength(0);
+  expect(view.onConnected).not.toHaveBeenCalled();
+});
+
+it("leaving during profile save releases the session and suppresses the obsolete result", async () => {
+  const saving = Promise.withResolvers<void>();
+  const save = Promise.withResolvers<unknown>();
+  saveProfile = () => {
+    saving.resolve();
+    return save.promise;
+  };
+  const view = mountView();
+  view.submit();
+  await saving.promise;
+  view.cancel();
+  expect(callsTo("ssh.closeBrowseSession")).toHaveLength(1);
+  save.resolve(ipcErr("not-found", "profile unavailable"));
+  await save.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(view.onConnected).not.toHaveBeenCalled();
+  expect(toastCalls).toHaveLength(0);
 });
