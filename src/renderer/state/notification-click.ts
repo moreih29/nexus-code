@@ -26,24 +26,19 @@ export function startNotificationClickListener(): () => void {
       }
     }
 
-    focusWorkspace(workspaceId, "workspace");
-
-    // Reveal the tab in whichever leaf group contains it.
+    // Set the destination tab first. Active-context subscribers run
+    // synchronously and would mark any intermediate tab as seen.
     const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-    if (!layout) return;
-
-    for (const leaf of allLeaves(layout.root)) {
-      if (leaf.tabIds.includes(tabId)) {
-        useLayoutStore.getState().setActiveTabInGroup({
-          workspaceId,
-          groupId: leaf.id,
-          tabId,
-          activateGroup: true,
-        });
-        return;
-      }
+    const group = layout && allLeaves(layout.root).find((leaf) => leaf.tabIds.includes(tabId));
+    if (group) {
+      useLayoutStore.getState().setActiveTabInGroup({
+        workspaceId,
+        groupId: group.id,
+        tabId,
+        activateGroup: true,
+      });
     }
-    // Tab not found in layout (may have been closed) — workspace activation
-    // above is sufficient.
+    focusWorkspace(workspaceId, "preserve");
+    if (agentView.mode === "agents") agentView.setMode("workspace");
   });
 }
