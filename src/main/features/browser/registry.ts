@@ -55,11 +55,11 @@ import { createLogger } from "../../../shared/log/main";
 import { isTabLoadAllowed } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { showDialogsOverWindow } from "./dialogs";
+import { installLocalFileReadGuard } from "./local-files";
 import { installAppScrollbarStyle } from "./page-style";
 import { PopupTracker } from "./popup-tracker";
 import {
   buildBrowserTabWebPreferences,
-  installLocalFileReadGuard,
   installNavigationGuards,
   installPermissionHandler,
   type PermissionHandlerDeps,
@@ -219,7 +219,7 @@ export class BrowserTabRegistry {
     // workspaceId is bound here (not derived from the session) because Electron
     // does not expose the partition string on the Session object.
     installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
-    installLocalFileReadGuard(view.webContents.session);
+    installLocalFileReadGuard(view.webContents);
 
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
