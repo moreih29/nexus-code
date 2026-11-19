@@ -11,6 +11,7 @@
 import i18next from "i18next";
 import { showToast } from "../../components/ui/toast";
 import { useActiveStore } from "../stores/active";
+import { useAgentViewStore } from "../stores/agent-view";
 import { useGitStore } from "../stores/git";
 import { gitErrorPlacement, summarizeGitError } from "../stores/git/error-placement";
 import type { GitStoreError } from "../stores/git/types";
@@ -74,6 +75,7 @@ function surfaceGitError(workspaceId: string, error: GitStoreError): void {
 function isSourceControlVisible(workspaceId: string): boolean {
   const ui = useUIStore.getState();
   return (
+    useAgentViewStore.getState().mode === "workspace" &&
     useActiveStore.getState().activeWorkspaceId === workspaceId &&
     !ui.filesPanelHidden &&
     (ui.filesPanelModes.get(workspaceId) ?? FILES_PANEL_MODE_DEFAULT) === "git"
@@ -81,7 +83,7 @@ function isSourceControlVisible(workspaceId: string): boolean {
 }
 
 function revealSourceControl(workspaceId: string): void {
-  focusWorkspace(workspaceId, "preserve");
+  focusWorkspace(workspaceId, "workspace");
   const ui = useUIStore.getState();
   if (ui.filesPanelHidden) ui.toggleFilesPanel();
   ui.setFilesPanelMode(workspaceId, "git");
