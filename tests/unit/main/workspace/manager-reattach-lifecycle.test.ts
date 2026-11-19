@@ -93,6 +93,7 @@ function makeManager(overrides?: {
   sshChannelFactory?: Parameters<typeof WorkspaceManager>[4];
   writeShimFiles?: Parameters<typeof WorkspaceManager>[9];
   removeShimDir?: Parameters<typeof WorkspaceManager>[10];
+  wsl?: Parameters<typeof WorkspaceManager>[11];
   ptyRestoreAfterReauth?: (workspaceId: string) => Promise<void>;
   ptyReleaseHeld?: (workspaceId: string) => void;
 }) {
@@ -130,6 +131,7 @@ function makeManager(overrides?: {
     undefined as never, // sshLspBootstrap
     overrides?.writeShimFiles ?? defaultWriteShimFiles,
     overrides?.removeShimDir ?? defaultRemoveShimDir,
+    overrides?.wsl,
   );
 
   // Wire held-session callbacks — default no-ops when not provided.
@@ -799,6 +801,64 @@ describe("removing an SSH workspace", () => {
     await bootPromise;
     return { channel, manager, globalDb, meta };
   }
+
+  test.each([
+    "ssh",
+    "wsl",
+  ] as const)("%s removal during provider setup owns shutdown and defers re-add", async (kind) => {
+    const hookStarted = Promise.withResolvers<void>();
+    const hookReply = Promise.withResolvers<unknown>();
+    class BootingChannel extends ShutdownChannel {
+      override async call(method: string, params?: unknown): Promise<unknown> {
+        if (method !== "hook.getInfo") return super.call(method, params);
+        hookStarted.resolve();
+        return hookReply.promise;
+      }
+    }
+
+    const original = new BootingChannel();
+    const replacement = new StubChannel();
+    const createChannel = mock((): StubChannel => original);
+    createChannel.mockImplementationOnce(() => original);
+    createChannel.mockImplementationOnce(() => replacement);
+    const bootstrap = mock(async () => ({
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+    }));
+    const { manager, globalDb } = makeManager({
+      sshBootstrap: bootstrap,
+      sshChannelFactory: createChannel,
+      wsl: { bootstrap, createChannel, lspBootstrap: mock() },
+    });
+    const meta =
+      kind === "ssh"
+        ? makeSshMeta(manager)
+        : manager.create({
+            location: { kind: "wsl", distro: "Ubuntu", remotePath: "/home/user/project" },
+          });
+    const boot = manager.getAgentChannel(meta.id);
+    const removed = boot.catch((error: unknown) => error);
+    original.resolveChannel();
+    await hookStarted.promise;
+
+    manager.remove(meta.id);
+    const next = manager.create({ location: meta.location });
+    const nextBoot = manager.getAgentChannel(next.id);
+    replacement.resolveChannel();
+    hookReply.resolve({ socketPath: "/tmp/test.sock", token: "removed" });
+    expect(await removed).toMatchObject({ name: "AbortError" });
+
+    expect(manager.getHookInfo(meta.id)).toBeNull();
+    expect(createChannel).toHaveBeenCalledTimes(1);
+    expect(original.events).toEqual(["agent.shutdown"]);
+    original.answerShutdown();
+    expect(await nextBoot).toBe(replacement as never);
+    expect(original.events).toEqual(["agent.shutdown", "dispose"]);
+    globalDb.close();
+  });
 
   test("asks the remote agent to exit before closing its channel", async () => {
     const { channel, manager, globalDb, meta } = await bootSsh();

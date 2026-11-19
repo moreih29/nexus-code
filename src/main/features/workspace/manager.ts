@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -496,6 +496,9 @@ export class WorkspaceManager {
       channel.dispose();
     }
     this.sshChannels.clear();
+    for (const bootstrap of this.sshBootstraps.values()) {
+      bootstrap.dispose?.();
+    }
     this.sshBootstraps.clear();
     this.sshProviderReady.clear();
     for (const master of this.adoptedSshMasters.values()) {
@@ -1151,11 +1154,7 @@ export class WorkspaceManager {
     // One not connected, or whose agent cannot be reached, is stopped by
     // another agent on its host, if one is connected.
     const sshChannel = this.sshChannels.get(id);
-    const status = this.connectionStatuses.get(id);
-    if (
-      sshChannel &&
-      (status === "connected" || status === "unstable" || status === "reconnecting")
-    ) {
+    if (sshChannel) {
       this.stoppingSshChannels.add(sshChannel);
       const bootstrap = this.sshBootstraps.get(id);
       const meta = ctx.getMeta();
@@ -1177,7 +1176,6 @@ export class WorkspaceManager {
     this.localChannels.get(id)?.dispose();
     this.localChannels.delete(id);
     this.localProviderReady.delete(id);
-    this.sshChannels.get(id)?.dispose();
     this.sshChannels.delete(id);
     this.sshBootstraps.delete(id);
     this.sshProviderReady.delete(id);
@@ -1499,6 +1497,7 @@ export class WorkspaceManager {
     // A workspace removed and added again connects once its old daemon has
     // been stopped, not to it as that stop ends.
     await this.daemonStopped(location);
+    if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
     // A workspace created from a browse session inherits that session's
     // already-authenticated ControlMaster; reusing its socket lets bootstrap
     // skip the interactive auth round entirely (no second password prompt).
@@ -1541,8 +1540,9 @@ export class WorkspaceManager {
       // Bootstrap failed before any channel existed. Release the adopted
       // master (we own it now) and surface the error state instead of
       // leaving the renderer stuck on "connecting".
-      this.broadcastConnectionStatus(meta.id, "error");
       adoptedMaster?.dispose();
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
+      this.broadcastConnectionStatus(meta.id, "error");
       throw error;
     }
     // ensureRemoteAgent only returns a dispose handle for a master it
@@ -1597,6 +1597,7 @@ export class WorkspaceManager {
       // ownership of the ControlMaster to us, so we must dispose both
       // bootstrap (ControlMaster) and channel here before re-throwing.
       disposeLifecycleListener();
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
       this.broadcastConnectionStatus(meta.id, "error");
       if (this.sshChannels.get(meta.id) === channel) {
         this.sshChannels.delete(meta.id);
@@ -1605,17 +1606,22 @@ export class WorkspaceManager {
       bootstrap.dispose?.();
       channel.dispose();
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-      if (isAbortError(error) && this.sshChannels.get(meta.id) !== channel) {
-        throw error;
-      }
       throw error;
+    }
+
+    if (!this.isLiveContext(meta.id, ctx)) {
+      disposeLifecycleListener();
+      throw createWorkspaceRemovedError(meta.id);
     }
 
     try {
       const info = await this.readHookInfo(meta.id, channel);
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
       if (this.sshChannels.get(meta.id) === channel) this.cacheHookInfo(meta.id, info);
     } catch (err) {
       disposeLifecycleListener();
+      // Removal owns the daemon shutdown once the workspace is gone.
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
       this.broadcastConnectionStatus(meta.id, "error");
       if (this.sshChannels.get(meta.id) === channel) {
         this.sshChannels.delete(meta.id);
@@ -1641,8 +1647,6 @@ export class WorkspaceManager {
 
     if (!this.isLiveContext(meta.id, ctx)) {
       disposeLifecycleListener();
-      channel.dispose();
-      bootstrap.dispose?.();
       // remove() already deleted the shim dir; this boot rewrote it.
       this.removeShimDirQuietly(meta.id);
       throw createWorkspaceRemovedError(meta.id);
