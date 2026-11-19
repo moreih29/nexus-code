@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -218,11 +219,14 @@ func runGitProbe(ctx context.Context, goos string, cmd *exec.Cmd, run func(*exec
 		return cmd.Err
 	}
 	if goos == "darwin" {
-		path := filepath.Clean(cmd.Path)
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
-			path = resolved
+		const appleGit = "/usr/bin/git"
+		candidate := path.Clean(filepath.ToSlash(cmd.Path))
+		if candidate != appleGit {
+			if resolved, err := filepath.EvalSymlinks(cmd.Path); err == nil {
+				candidate = path.Clean(filepath.ToSlash(resolved))
+			}
 		}
-		if path == "/usr/bin/git" {
+		if candidate == appleGit {
 			probe := exec.CommandContext(ctx, "/usr/bin/xcode-select", "--print-path")
 			probe.Env = cmd.Environ()
 			if err := run(probe); err != nil {
