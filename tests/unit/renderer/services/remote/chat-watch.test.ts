@@ -17,6 +17,7 @@ import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   applyUpdate,
   keepEarlier,
+  watchMissedUpdate,
   withEarlier,
 } from "../../../../../src/renderer/services/remote/chat-model";
 import { chatPageOf } from "../../../../../src/renderer/services/remote/chat-page";
@@ -155,6 +156,49 @@ describe("a watched chat's changes", () => {
       }
     });
   }
+});
+
+describe("recovering a quiet watch from a page read", () => {
+  const items = [user("a"), said("b", "t1"), said("c")];
+  const tools = { t1: tool("t1") };
+  const request = { requestId: "p", toolName: "Bash", input: {}, suggestions: [] };
+  const read = (change: Partial<ChatModel>) =>
+    chatPageOf(source({ items, tools, running: true, permissions: [request], ...change }));
+
+  test("detects a lost turn end or approval cancellation without new messages", () => {
+    const current = read({});
+    const finished = read({ running: false });
+    const cancelled = read({ permissions: [] });
+    expect(finished.total).toBe(current.total);
+    expect(cancelled.total).toBe(current.total);
+    expect(watchMissedUpdate(current, finished)).toBe(true);
+    expect(watchMissedUpdate(current, cancelled)).toBe(true);
+  });
+
+  test("detects a lost tool completion on an older item with unchanged status and count", () => {
+    const current = read({});
+    const completed = read({ tools: { t1: tool("t1", "done") } });
+    expect(completed.status).toEqual(current.status);
+    expect(completed.total).toBe(current.total);
+    expect(watchMissedUpdate(current, completed)).toBe(true);
+  });
+
+  test("a narrower read and frame-truncated tool output do not restart an unchanged watch", () => {
+    const completed = {
+      ...tool("t1", "done"),
+      result: { text: "the complete output", isError: false, images: [] },
+    };
+    const current = read({ tools: { t1: completed } });
+    const narrowed: ChatPage = {
+      ...current,
+      start: 1,
+      items: current.items.slice(1),
+      tools: {
+        t1: { ...completed, result: { ...completed.result, text: "the", truncated: true } },
+      },
+    };
+    expect(watchMissedUpdate(current, narrowed)).toBe(false);
+  });
 });
 
 describe("text that only grew, sent as what it grew by", () => {
