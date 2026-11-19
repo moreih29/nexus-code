@@ -93,8 +93,14 @@ func TestExecCancelsOnlyOwnedProcessTrees(t *testing.T) {
 				if _, err := io.ReadFull(helper, make([]byte, 1)); err != nil {
 					t.Fatal("detached child exited with the launcher:", err)
 				}
-			} else if _, err := helper.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
-				t.Fatalf("owned child did not exit with its launcher: %v", err)
+			} else {
+				n, err := helper.Read(make([]byte, 1))
+				// Terminating the Windows job can reset the connection.
+				// A read deadline instead means the helper is still connected.
+				var networkErr net.Error
+				if n != 0 || err == nil || (errors.As(err, &networkErr) && networkErr.Timeout()) {
+					t.Fatalf("owned child's connection did not close: read %d bytes, error %v", n, err)
+				}
 			}
 		})
 	}
