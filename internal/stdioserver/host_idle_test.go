@@ -23,6 +23,7 @@ func newTestHost() *Host {
 
 // Watchdog fires when no inbound line arrives within the limit.
 func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
+	t.Parallel()
 	host := newTestHost()
 	exited := make(chan int, 1)
 	host.exit = func(code int) {
@@ -53,6 +54,7 @@ func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
 // runner stalling this goroutine for a while does not read as client silence:
 // a 60ms limit with 20ms stamps failed on macOS runners.
 func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
+	t.Parallel()
 	host := newTestHost()
 	exited := make(chan int, 1)
 	host.exit = func(code int) {
@@ -82,6 +84,7 @@ func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
 
 // A non-positive limit disables the watchdog entirely.
 func TestIdleWatchdogDisabledWhenLimitNonPositive(t *testing.T) {
+	t.Parallel()
 	host := newTestHost()
 	exited := make(chan int, 1)
 	host.exit = func(code int) {

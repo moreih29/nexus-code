@@ -138,7 +138,9 @@ const {
   oscCursorStyle,
   escapeDroppedPath,
 } = await import("../../../../src/renderer/services/terminal/controller");
-const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
+const { createPtyClient, STARTUP_INPUT_QUIET_MS } = await import(
+  "../../../../src/renderer/services/terminal/pty-client"
+);
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
 const { startTerminalExitListener } = await import("../../../../src/renderer/state/terminal-exit");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
@@ -976,7 +978,8 @@ describe("services/terminal controller focus asked for before xterm opens", () =
 });
 
 describe("services/terminal controller ready for input", () => {
-  beforeEach(() => resetIpc());
+  beforeEach(resetIpc);
+  afterEach(() => jest.useRealTimers());
 
   /**
    * A controller whose fonts load when `loaded` is called, and whose session
@@ -1003,8 +1006,6 @@ describe("services/terminal controller ready for input", () => {
     return { harness, controller, loaded: () => loaded() };
   }
 
-  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
   it("not before it opens; then at once, with no shell to wait for", async () => {
     const { controller, loaded } = terminal("tab-ready-ended");
     expect(controller.input("x", "keys")).toBe(false);
@@ -1018,31 +1019,38 @@ describe("services/terminal controller ready for input", () => {
   });
 
   it("tells a wait no once it is gone, or after it", async () => {
+    jest.useFakeTimers();
     const gone = terminal("tab-ready-gone");
     const waiting = gone.controller.whenReady(1000);
     gone.controller.dispose();
     expect(await waiting).toBe(false);
     const slow = terminal("tab-ready-slow");
-    expect(await slow.controller.whenReady(5)).toBe(false);
+    const timedOut = slow.controller.whenReady(5);
+    jest.advanceTimersByTime(5);
+    expect(await timedOut).toBe(false);
     slow.controller.dispose();
   });
 
   it("a shell just started: once it has printed its prompt and gone quiet", async () => {
+    jest.useFakeTimers();
     const { harness, controller, loaded } = terminal("tab-ready-shell", { pid: 7 });
     let ready: boolean | undefined;
-    void controller.whenReady(3000).then((answer) => {
+    const waiting = controller.whenReady(3000).then((answer) => {
       ready = answer;
+      return answer;
     });
     loaded();
     await flushTerminalInit();
     // Open, but the shell has not printed: PowerShell would drop the input.
-    await pause(20);
+    jest.advanceTimersByTime(20);
+    await Promise.resolve();
     expect(ready).toBeUndefined();
     harness.getPtyOptions()?.onData("PS C:\\> ", false);
-    await pause(100);
+    jest.advanceTimersByTime(STARTUP_INPUT_QUIET_MS - 1);
+    await Promise.resolve();
     expect(ready).toBeUndefined();
-    await pause(400);
-    expect(ready).toBe(true);
+    jest.advanceTimersByTime(1);
+    expect(await waiting).toBe(true);
     controller.dispose();
   });
 

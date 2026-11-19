@@ -833,19 +833,28 @@ describe("removing an SSH workspace", () => {
     channel.emitLifecycle({ type: "degraded" });
     channel.shutdownFailures.push(createAgentReconnectError("agent.reconnect-in-progress"));
 
-    manager.remove(meta.id);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(channel.events).toEqual(["agent.shutdown", "agent.shutdown"]);
+    jest.useFakeTimers();
+    try {
+      manager.remove(meta.id);
+      // Let the first rejection reach the shutdown loop and schedule its retry.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(channel.events).toEqual(["agent.shutdown"]);
+      jest.advanceTimersByTime(400);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(channel.events).toEqual(["agent.shutdown", "agent.shutdown"]);
 
-    channel.answerShutdown();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(channel.events).toEqual([
-      "agent.shutdown",
-      "agent.shutdown",
-      "dispose",
-      "bootstrap.dispose",
-    ]);
-    globalDb.close();
+      channel.answerShutdown();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(channel.events).toEqual([
+        "agent.shutdown",
+        "agent.shutdown",
+        "dispose",
+        "bootstrap.dispose",
+      ]);
+    } finally {
+      jest.useRealTimers();
+      globalDb.close();
+    }
   });
 
   test("closes a channel whose agent cannot be reached without asking again", async () => {

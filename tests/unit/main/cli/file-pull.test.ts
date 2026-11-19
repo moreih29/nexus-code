@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -303,13 +303,30 @@ test("retries a busy host and saves the complete file", async () => {
 });
 
 test("reports the busy error after five retries", async () => {
-  const app = peer(() => fail(RpcErrorCode.Unavailable, "the host is busy reading files"));
-  const result = await pull(app, "source.bin");
-  expect(result.stderr).toContain("the host is busy reading files");
-  expect(result.exitCode).not.toBe(0);
-  expect(reads(app)).toHaveLength(6);
-  expect(await readdir(cwd)).toEqual([]);
-}, 12000);
+  const firstRead = Promise.withResolvers<void>();
+  const app = peer(() => {
+    firstRead.resolve();
+    return fail(RpcErrorCode.Unavailable, "the host is busy reading files");
+  });
+  jest.useFakeTimers();
+  try {
+    const pending = pull(app, "source.bin");
+    await firstRead.promise;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      // Let each busy response schedule its retry before advancing time.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(reads(app)).toHaveLength(attempt);
+      jest.advanceTimersToNextTimer();
+    }
+    const result = await pending;
+    expect(result.stderr).toContain("the host is busy reading files");
+    expect(result.exitCode).not.toBe(0);
+    expect(reads(app)).toHaveLength(6);
+    expect(await readdir(cwd)).toEqual([]);
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 test("a failed rename leaves no temporary file", async () => {
   await mkdir(path.join(cwd, "source.bin"));
