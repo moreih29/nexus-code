@@ -193,6 +193,19 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 - `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
 - 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
 
+### 다른 컴퓨터에서 파일 가져오기
+
+```bash
+nexus file pull --device "Mac mini" --workspace site dist/report.pdf
+nexus file pull --device "Windows PC" --workspace site -r 'C:/work/site/dist' ./snapshot --json
+```
+
+`file pull` 에는 기기와 원격 워크스페이스를 모두 지정합니다. 원격 상대 경로는 지정한 워크스페이스를 기준으로 해석합니다. 절대 경로에는 원격 기기의 기존 파일 공유 규칙이 적용됩니다. 워크스페이스 조회에는 `workspace list --device` 와 같은 권한이 필요합니다.
+
+앱이 실행 중인 컴퓨터의 로컬 워크스페이스에서 실행합니다. 로컬 대상은 CLI 의 작업 디렉터리를 기준으로 해석합니다. 대상을 생략하거나 기존 폴더를 지정하면 원래 이름으로 저장합니다. 각 파일은 전송을 마친 뒤 대상에 배치되며 기존 파일을 덮어씁니다.
+
+출력에는 저장 경로, 바이트 수, SHA-256 이 들어갑니다. `--json` 으로 기기와 원격 경로도 받을 수 있습니다. `-r` 의 JSON 결과는 파일과 건너뛴 링크의 배열이며 링크에는 `"skipped": "symlink"` 가 붙습니다. 원격 폴더 목록이 잘렸으면 복사를 시작하기 전에 실패합니다.
+
 ## 세션의 에이전트 따라가기
 
 Claude Code 세션 안의 서브에이전트와, 그 세션이 Bash 로 실행한 `claude -p` · `codex exec` 를 봅니다. 세션이 `claude -p` 나 `codex exec` 를 서브에이전트처럼 쓸 때 유용합니다. Codex 탭이 명령으로 실행한 `claude -p` · `codex exec` 도 그 탭의 실행으로 보입니다.

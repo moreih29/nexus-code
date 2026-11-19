@@ -963,8 +963,8 @@ export async function registerRemoteChannel(options: {
           };
         });
       },
-      request: (deviceId, method, params, timeoutMs) =>
-        inRoom().request(deviceId, method, params, timeoutMs),
+      request: (deviceId, method, params, timeoutMs, signal) =>
+        inRoom().request(deviceId, method, params, timeoutMs, signal),
     },
     dispose: () => {
       account.cancelSignIn();

@@ -258,12 +258,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
-      request: (deviceId, method, params, timeoutMs) => {
+      request: (deviceId, method, params, timeoutMs, signal) => {
         const remote = options.remote?.();
         if (!remote) {
           throw new CliError("this computer is not in the remote room (Settings › Remote)", 3);
         }
-        return remote.request(deviceId, method, params, timeoutMs);
+        return remote.request(deviceId, method, params, timeoutMs, signal);
       },
     },
     consents,

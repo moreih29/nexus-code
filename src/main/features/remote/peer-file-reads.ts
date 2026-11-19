@@ -29,7 +29,9 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_PENDING = 64;
 const MAX_WHOLE_READS = 4;
 const MAX_SPAN_READS = 32;
-const FILE_VERSIONS = "0.13.4";
+export function supportsFileVersions(schema: string | undefined): boolean {
+  return speaks(schema, "0.13.4");
+}
 
 interface Entry {
   file: string;
@@ -52,7 +54,7 @@ function changed(): RpcFailure {
   return new RpcFailure(RpcErrorCode.InvalidParams, "file version changed");
 }
 
-function bytesOf(result: Content, offset: number, length: number): Bytes {
+export function bytesOf(result: Result, offset: number, length: number): Bytes {
   if (
     result.kind !== "bytes" ||
     result.offset !== offset ||
@@ -107,7 +109,7 @@ export class PeerFileReads {
       if (
         !peer ||
         scope.rejoins !== (peer.rejoins ?? 0) ||
-        scope.versioned !== speaks(peer.schema, FILE_VERSIONS) ||
+        scope.versioned !== supportsFileVersions(peer.schema) ||
         scope.files !== peer.serves?.includes("files")
       ) {
         this.invalidateDevice(id);
@@ -118,7 +120,7 @@ export class PeerFileReads {
       this.peers.set(id, {
         controller: new AbortController(),
         rejoins: peer.rejoins ?? 0,
-        versioned: speaks(peer.schema, FILE_VERSIONS),
+        versioned: supportsFileVersions(peer.schema),
         files: peer.serves?.includes("files"),
       });
     }

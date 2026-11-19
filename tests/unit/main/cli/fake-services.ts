@@ -190,7 +190,12 @@ export interface FakeApp {
     inRoom: boolean;
     devices: CliDevice[];
     requests: Array<{ deviceId: string; method: string; params: unknown; timeoutMs?: number }>;
-    answer: (deviceId: string, method: string, params: unknown) => Promise<unknown>;
+    answer: (
+      deviceId: string,
+      method: string,
+      params: unknown,
+      signal?: AbortSignal,
+    ) => Promise<unknown>;
   };
   /** Each terminal's screen as terminal.read gives it, by tab id; a test may change one. */
   screens: Map<string, string>;
@@ -509,14 +514,14 @@ export function fakeApp(now = Date.now()): FakeApp {
   const remote: CliRemote = {
     inRoom: () => peers.inRoom,
     devices: async () => peers.devices,
-    request: async (deviceId, method, params, timeoutMs) => {
+    request: async (deviceId, method, params, timeoutMs, signal) => {
       peers.requests.push({
         deviceId,
         method,
         params,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       });
-      return (await peers.answer(deviceId, method, params)) as never;
+      return (await peers.answer(deviceId, method, params, signal)) as never;
     },
   };
   const noteAssets: FakeApp["noteAssets"] = [];

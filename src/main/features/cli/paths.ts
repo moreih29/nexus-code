@@ -10,6 +10,12 @@ import { toSlashPath } from "../../../shared/fs/drive-path";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
+/** Whether the caller's shell paths refer to the app's own filesystem. */
+export function onAppMachine(ctx: CliContext): boolean {
+  const own = ctx.services.listWorkspaces().find((w) => w.id === ctx.caller.workspaceId);
+  return own?.location.kind === "local";
+}
+
 /** The path rules of the host `absolute` is a path on. */
 function rulesOf(absolute: string): path.PlatformPath {
   return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(absolute) ? path.win32 : path.posix;

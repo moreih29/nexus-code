@@ -13,6 +13,8 @@ export interface FlagSpec {
   readonly description: string;
   /** A short name for the value in help, such as "N" or "URL". */
   readonly value?: string;
+  /** A single-letter alias, spelled with one dash. */
+  readonly short?: string;
   /** A string flag that may be given again: its values, in order, as a list. */
   readonly repeat?: boolean;
 }
@@ -57,12 +59,16 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       flags.help = true;
       continue;
     }
-    if (!arg.startsWith("--") || arg === "--") {
+    const short =
+      arg.length === 2 && arg.startsWith("-")
+        ? Object.keys(specs).find((name) => specs[name]?.short === arg[1])
+        : undefined;
+    if (!arg.startsWith("--") && short === undefined) {
       positionals.push(arg);
       continue;
     }
     const eq = arg.indexOf("=");
-    const name = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+    const name = short ?? (eq === -1 ? arg.slice(2) : arg.slice(2, eq));
     const spec = all[name];
     if (!spec) throw new CliUsageError(`unknown flag --${name}`);
     let raw: string | undefined = eq === -1 ? undefined : arg.slice(eq + 1);
