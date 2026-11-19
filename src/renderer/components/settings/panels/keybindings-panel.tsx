@@ -675,17 +675,18 @@ function KeybindingRecorder({
 
       {conflicts.map((c, i) => {
         const key = `${c.kind}-${c.command ?? c.reserved?.accelerator ?? i}`;
+        const note = c.reserved ? t(`keybindings.reservedNote.${c.reserved.noteKey}`) : "";
         let message: string;
         if (c.kind === "blocking" || c.kind === "overlap") {
           message = t(`keybindings.conflict.${c.kind}`, {
             command: c.command !== undefined ? commandLabel(c.command) : "?",
           });
         } else if (c.kind === "system") {
-          message = t("keybindings.conflict.system", { note: c.reserved?.note ?? "" });
+          message = t("keybindings.conflict.system", { note: note });
         } else {
           message = t("keybindings.conflict.shadow", {
             owner: c.reserved !== undefined ? t(`keybindings.owner.${c.reserved.source}`) : "?",
-            note: c.reserved?.note ?? "",
+            note: note,
           });
         }
         const severe = c.kind === "blocking" || c.kind === "system";

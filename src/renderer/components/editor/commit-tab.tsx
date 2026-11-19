@@ -2,10 +2,13 @@ import i18next from "i18next";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CommitDetail, CommitFileChange } from "../../../shared/git/types";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, unwrapGitResult } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { Button } from "../ui/button";
+
+const log = createLogger("commit-tab");
 
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -48,7 +51,9 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
       })
       .catch((fetchError) => {
         if (controller.signal.aborted) return;
-        setError(commitTabErrorFrom(fetchError, sha));
+        const error = commitTabErrorFrom(fetchError, sha);
+        if (!error.notFound) log.warn(`Commit details failed to load: ${String(fetchError)}`);
+        setError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -194,15 +199,13 @@ export function formatCommitTime(value: string, locale: string): string {
 /**
  * Converts IPC failures into commit-tab rendering state.
  */
-function commitTabErrorFrom(error: unknown, sha: string): CommitTabError {
+export function commitTabErrorFrom(error: unknown, sha: string): CommitTabError {
   const notFound = isCommitNotFoundError(error);
   return {
     notFound,
     message: notFound
       ? i18next.t("editor.commit_not_found", { sha: sha.slice(0, 7) })
-      : error instanceof Error
-        ? error.message
-        : i18next.t("editor.commit_load_failed"),
+      : i18next.t("editor.commit_load_failed"),
   };
 }
 

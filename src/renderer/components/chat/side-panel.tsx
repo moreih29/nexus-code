@@ -1100,18 +1100,23 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
               key={server.name}
               title={signingIn ? t("chat.panel.mcp.signing_in_hint") : server.name}
             >
-              <span className="min-w-0 flex-1 truncate">{server.name}</span>
               {signingIn ? (
-                <span className="flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
-                  {t("chat.panel.mcp.signing_in")}
-                  <TextButton onClick={() => controller.reopenMcpSignIn()}>
-                    {t("chat.panel.mcp.reopen")}
-                  </TextButton>
-                  <TextButton onClick={() => controller.cancelMcpSignIn()}>
-                    {t("chat.panel.mcp.cancel")}
-                  </TextButton>
-                </span>
-              ) : server.status === "needs-auth" ? (
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="break-all">{server.name}</span>
+                  <div className="flex flex-wrap items-center gap-1 text-app-micro text-muted-foreground">
+                    <span>{t("chat.panel.mcp.signing_in")}</span>
+                    <TextButton onClick={() => controller.reopenMcpSignIn()}>
+                      {t("chat.panel.mcp.reopen")}
+                    </TextButton>
+                    <TextButton onClick={() => controller.cancelMcpSignIn()}>
+                      {t("chat.panel.mcp.cancel")}
+                    </TextButton>
+                  </div>
+                </div>
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              )}
+              {signingIn ? null : server.status === "needs-auth" ? (
                 <TextButton onClick={() => controller.mcpAuthenticate(server.name).catch(fail)}>
                   {t("chat.panel.mcp.sign_in")}
                 </TextButton>

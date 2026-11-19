@@ -53,7 +53,7 @@ export function installEditorIntegrations({
       opener.openCodeEditor(source, resource, selectionOrPosition),
   });
 
-  installEditorSaveAction(editor, input);
+  const saveAction = installEditorSaveAction(editor, input);
 
   // Install the conflict-resolution CodeLens + decoration provider. Activates
   // only when the current model contains Git conflict markers; disposal is
@@ -73,6 +73,7 @@ export function installEditorIntegrations({
   return {
     dispose() {
       openerDisposable.dispose();
+      saveAction.dispose();
       conflictCodelensDisposable.dispose();
       dirtyDiffDisposable.dispose();
     },
