@@ -154,14 +154,14 @@ func (h *Host) Context() context.Context {
 // stampInbound records "now" (monotonic, relative to startMono) as the last
 // time an inbound line arrived. Single encoding point for lastInbound so the
 // watchdog's idleElapsed reads the same units.
-func (h *Host) stampInbound() {
-	h.lastInbound.Store(int64(time.Since(h.startMono)))
+func (h *Host) stampInbound(now time.Time) {
+	h.lastInbound.Store(int64(now.Sub(h.startMono)))
 }
 
 // idleElapsed reports how long it has been since the last inbound line, using
 // the monotonic clock so it cannot be skewed by wall-clock adjustments.
-func (h *Host) idleElapsed() time.Duration {
-	return time.Since(h.startMono) - time.Duration(h.lastInbound.Load())
+func (h *Host) idleElapsed(now time.Time) time.Duration {
+	return now.Sub(h.startMono) - time.Duration(h.lastInbound.Load())
 }
 
 // WriteFrame serializes one frame as NDJSON onto `out`. Used by the
@@ -251,7 +251,7 @@ func (h *Host) Run() {
 			continue
 		}
 		// Any inbound line proves the client is alive — reset the idle watchdog.
-		h.stampInbound()
+		h.stampInbound(time.Now())
 		if tooLong {
 			if h.isAccepting() {
 				h.rejectOversizedLine(line)
@@ -433,23 +433,31 @@ func (h *Host) StartHeartbeat(interval time.Duration) {
 // orphan linger. A non-positive limit disables the watchdog. Call before Run();
 // the goroutine stops when h.ctx is cancelled (drain).
 func (h *Host) StartIdleWatchdog(limit time.Duration) {
+	h.startIdleWatchdog(limit, func(check time.Duration) (<-chan time.Time, func()) {
+		ticker := time.NewTicker(check)
+		return ticker.C, ticker.Stop
+	})
+}
+
+// startIdleWatchdog checks elapsed time at each tick of the supplied clock.
+func (h *Host) startIdleWatchdog(limit time.Duration, newTicker func(time.Duration) (<-chan time.Time, func())) {
 	if limit <= 0 {
 		return
 	}
-	h.stampInbound()
+	h.stampInbound(time.Now())
 	// Check at limit/6 (independent of the old limit/3) so raising the limit
 	// keeps the kill window tight: silence trips between limit and limit+limit/6.
 	check := limit / 6
 	if check <= 0 {
 		check = limit
 	}
+	ticks, stop := newTicker(check)
 	go func() {
-		ticker := time.NewTicker(check)
-		defer ticker.Stop()
+		defer stop()
 		for {
 			select {
-			case <-ticker.C:
-				if h.idleElapsed() >= limit {
+			case now := <-ticks:
+				if h.idleElapsed(now) >= limit {
 					// Exit non-zero so the client distinguishes a watchdog reap
 					// from a clean shutdown: its handleClose treats code 0 as a
 					// terminal exit (no reconnect) but reconnects on any other

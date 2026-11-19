@@ -21,85 +21,59 @@ func newTestHost() *Host {
 	return New(dispatch.New(), strings.NewReader(""), io.Discard, logger)
 }
 
-// Watchdog fires when no inbound line arrives within the limit.
-func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
+// TestIdleWatchdogWaitsForSilence advances watchdog ticks independently of
+// the scheduler and checks that each inbound line restarts the idle window.
+func TestIdleWatchdogWaitsForSilence(t *testing.T) {
 	t.Parallel()
 	host := newTestHost()
+	t.Cleanup(host.cancel)
 	exited := make(chan int, 1)
-	host.exit = func(code int) {
+	host.exit = func(code int) { exited <- code }
+	ticks := make(chan time.Time)
+	stopped := make(chan struct{})
+	const limit = time.Minute
+	host.startIdleWatchdog(limit, func(time.Duration) (<-chan time.Time, func()) {
+		return ticks, func() { close(stopped) }
+	})
+	start := host.startMono.Add(time.Duration(host.lastInbound.Load()))
+
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	tick := func(at time.Time) {
+		t.Helper()
 		select {
-		case exited <- code:
-		default:
+		case ticks <- at:
+		case code := <-exited:
+			t.Fatalf("watchdog exited before tick %s with code %d", at.Sub(start), code)
+		case <-deadline.C:
+			t.Fatal("watchdog never accepted the tick")
 		}
 	}
-
-	host.StartIdleWatchdog(30 * time.Millisecond)
-
+	for i := 1; i <= 6; i++ {
+		inbound := start.Add(time.Duration(i) * limit / 2)
+		host.stampInbound(inbound)
+		tick(inbound.Add(limit / 4))
+	}
+	last := start.Add(3 * limit)
+	tick(last.Add(limit - time.Nanosecond))
+	tick(last.Add(limit))
 	select {
 	case code := <-exited:
-		// Non-zero (EX_TEMPFAIL) so the client reconnects instead of treating
-		// the close as a clean shutdown.
 		if code != IdleWatchdogExitCode {
 			t.Fatalf("exit code = %d, want %d", code, IdleWatchdogExitCode)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("idle watchdog did not terminate within 2s of client silence")
+	case <-deadline.C:
+		t.Fatal("watchdog did not exit at its idle limit")
 	}
+	<-stopped
 }
 
-// Watchdog must NOT fire while inbound lines keep resetting lastInbound.
-//
-// The window runs three limits, so a watchdog that ignored the traffic would
-// fire in it. The limit is many times the stamping interval so that a busy CI
-// runner stalling this goroutine for a while does not read as client silence:
-// a 60ms limit with 20ms stamps failed on macOS runners.
-func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
-	t.Parallel()
-	host := newTestHost()
-	exited := make(chan int, 1)
-	host.exit = func(code int) {
-		select {
-		case exited <- code:
-		default:
-		}
-	}
-
-	const limit = 400 * time.Millisecond
-	host.StartIdleWatchdog(limit)
-
-	stop := time.After(3 * limit)
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-tick.C:
-			host.stampInbound()
-		case code := <-exited:
-			t.Fatalf("watchdog fired during active traffic (code=%d)", code)
-		case <-stop:
-			return // survived the window without firing
-		}
-	}
-}
-
-// A non-positive limit disables the watchdog entirely.
+// TestIdleWatchdogDisabledWhenLimitNonPositive checks the disabled option
+// without waiting for a watchdog that should never start.
 func TestIdleWatchdogDisabledWhenLimitNonPositive(t *testing.T) {
-	t.Parallel()
 	host := newTestHost()
-	exited := make(chan int, 1)
-	host.exit = func(code int) {
-		select {
-		case exited <- code:
-		default:
-		}
-	}
-
-	host.StartIdleWatchdog(0)
-
-	select {
-	case <-exited:
-		t.Fatal("watchdog fired despite a non-positive (disabled) limit")
-	case <-time.After(100 * time.Millisecond):
-		// expected: no termination
-	}
+	host.startIdleWatchdog(0, func(time.Duration) (<-chan time.Time, func()) {
+		t.Fatal("disabled idle watchdog started a ticker")
+		return nil, func() {}
+	})
 }
