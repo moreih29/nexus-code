@@ -53,7 +53,7 @@ const workspace: WorkspaceMeta = {
   rootPath: "/repo",
   name: "Repo",
   location: { kind: "local", rootPath: "/repo" },
-  colorTone: "default",
+  color: "auto",
   pinned: false,
   sortOrder: 1,
   pinnedSortOrder: 0,

@@ -15,7 +15,7 @@ const local: WorkspaceMeta = {
   name: "Local",
   location: { kind: "local", rootPath: "/repo" },
   rootPath: "/repo",
-  colorTone: "default",
+  color: "auto",
   pinned: false,
   tabs: [],
   sortOrder: 1,

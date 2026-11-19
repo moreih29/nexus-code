@@ -6,6 +6,11 @@
  */
 
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import {
+  WORKSPACE_COLORS,
+  type WorkspaceColor,
+  workspaceColorToken,
+} from "../../../shared/types/workspace-color";
 import { tasksOf, visibleWorkspaces } from "../../state/stores/workspaces";
 import {
   type AgentSession,
@@ -61,11 +66,16 @@ export function sameAgents(a: Agents, b: Agents): boolean {
 }
 
 /** The palette's colors, one per workspace and its tasks, so its panels read as its own. */
-const WORKSPACE_COLORS = 8;
+const WORKSPACE_PALETTE_SIZE = WORKSPACE_COLORS.length;
 
-/** The color of a workspace's agents: one of the theme's lane colors, by its id. */
-export function workspaceColor(rootId: string): string {
+/**
+ * The color of a workspace's agents: the one the user gave it, or, for "auto",
+ * one of the theme's lane colors picked by its id.
+ */
+export function workspaceColor(rootId: string, color: WorkspaceColor = "auto"): string {
+  const chosen = workspaceColorToken(color);
+  if (chosen !== null) return chosen;
   let hash = 0;
   for (let i = 0; i < rootId.length; i++) hash = (hash * 31 + rootId.charCodeAt(i)) | 0;
-  return `var(--color-git-lane-${Math.abs(hash) % WORKSPACE_COLORS})`;
+  return `var(--color-git-lane-${Math.abs(hash) % WORKSPACE_PALETTE_SIZE})`;
 }

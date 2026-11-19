@@ -50,6 +50,86 @@ describe("workspace pin and unpin", () => {
   });
 });
 
+describe("workspace edit", () => {
+  const cases: Array<{
+    name: string;
+    argv: string[];
+    edit: { name?: string; color?: string };
+    stdout: string;
+  }> = [
+    {
+      name: "renames",
+      argv: ["--name", " Backend "],
+      edit: { name: "Backend" },
+      stdout: "Backend (22222222): renamed from api.\n",
+    },
+    {
+      name: "colors",
+      argv: ["--color", "Blue"],
+      edit: { color: "blue" },
+      stdout: "api (22222222): color blue.\n",
+    },
+    {
+      name: "does both",
+      argv: ["--name", "Backend", "--color", "pink"],
+      edit: { name: "Backend", color: "pink" },
+      stdout: "Backend (22222222): renamed from api, color pink.\n",
+    },
+  ];
+
+  test.each(cases)("$name another workspace with leave", async ({ argv, edit, stdout }) => {
+    const app = fakeApp();
+    app.answers.push("once");
+    const result = await nexus(app, ["workspace", "edit", "api", ...argv]);
+    expect(result.stdout).toBe(stdout);
+    expect(app.asked[0]).toMatchObject({ toWorkspaceId: API, change: { kind: "workspaceEdit" } });
+    expect(app.edited).toEqual([{ id: API, edit }]);
+  });
+
+  test("asks nothing for its own workspace, and shows the color in --json", async () => {
+    const app = fakeApp();
+    const result = await nexus(
+      app,
+      ["workspace", "edit", "api", "--color", "red", "--json"],
+      IN_API,
+    );
+    expect(app.asked).toEqual([]);
+    expect(JSON.parse(result.stdout)).toMatchObject({ id: API, color: "red" });
+  });
+
+  const refused: Array<{ name: string; argv: string[]; message: RegExp }> = [
+    { name: "no change asked", argv: ["api"], message: /give --name, --color or both/ },
+    { name: "an unknown color", argv: ["api", "--color", "teal"], message: /--color is one of/ },
+    { name: "an empty name", argv: ["api", "--name", " "], message: /--name is empty/ },
+    { name: "a worktree", argv: ["fix-login", "--color", "red"], message: /is a worktree/ },
+  ];
+
+  test.each(refused)("refuses $name", async ({ argv, message }) => {
+    const app = fakeApp();
+    const result = await nexus(app, ["workspace", "edit", ...argv]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toMatch(message);
+    expect(app.edited).toEqual([]);
+    expect(app.asked).toEqual([]);
+  });
+
+  test("says so, asking nothing, when it is already as asked", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["workspace", "edit", "api", "--color", "auto"]);
+    expect(result.stdout).toBe("api is as asked.\n");
+    expect(app.asked).toEqual([]);
+    expect(app.edited).toEqual([]);
+  });
+
+  test("workspace add gives a new workspace its color", async () => {
+    const app = fakeApp();
+    await nexus(app, ["workspace", "add", "/w/lib", "--color", "green"]);
+    expect(app.added[0]).toMatchObject({ color: "green" });
+    const bad = await nexus(app, ["workspace", "add", "/w/lib2", "--color", "teal"]);
+    expect(bad.exitCode).not.toBe(0);
+  });
+});
+
 describe("workspace move", () => {
   test("puts a workspace above another, and asks nothing for its own", async () => {
     const app = fakeApp();

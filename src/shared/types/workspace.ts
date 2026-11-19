@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { LspBootstrapProgressPhaseSchema } from "../lsp/diagnostics";
-import { ColorToneSchema } from "./color-tone";
 import { TabMetaSchema } from "./tab";
+import { toWorkspaceColor, WorkspaceColorSchema } from "./workspace-color";
 import { WorkspaceIdSchema } from "./workspace-id";
 
 export const WorkspaceLocalLocationSchema = z.object({
@@ -214,10 +214,12 @@ export const WorkspaceMetaSchema = z.preprocess(
 
     // Default sort-order fields to 0 so callers that pre-date this field
     // (persisted data, IPC payloads, tests) parse without validation failure.
+    // The same goes for the color, which an older build's tone is read as "auto".
     return {
       sortOrder: 0,
       pinnedSortOrder: 0,
       ...value,
+      color: toWorkspaceColor(value.color),
       location,
       rootPath,
     };
@@ -231,7 +233,8 @@ export const WorkspaceMetaSchema = z.preprocess(
      * this mirrors `location.remotePath`.
      */
     rootPath: z.string(),
-    colorTone: ColorToneSchema,
+    /** The color that tells the workspace apart; "auto" leaves it to the app. */
+    color: WorkspaceColorSchema,
     pinned: z.boolean(),
     lastOpenedAt: z.string().datetime().optional(),
     tabs: z.array(TabMetaSchema),

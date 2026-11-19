@@ -22,7 +22,7 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
     name: "test-workspace",
     rootPath: path.join(os.tmpdir(), "test"),
     location: { kind: "local", rootPath: path.join(os.tmpdir(), "test") },
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date(1_700_000_000_000).toISOString(),
     tabs: [],
@@ -123,6 +123,53 @@ describe("applyMigrations", () => {
     expect(JSON.parse(row.location)).toEqual({ kind: "local", rootPath: "/legacy/root" });
     db.close();
   });
+
+  // v10 adds the color: whatever the old tone was, "auto". The tone column stays for older builds.
+  it.each([
+    "subdued",
+    "default",
+    "prominent",
+    "pinned",
+  ])("v10 reads the old %s tone as an automatic color and keeps the tone column", (tone) => {
+    const db = makeDb();
+    applyMigrations(db);
+    db.exec("ALTER TABLE workspaces DROP COLUMN color;");
+    db.prepare("UPDATE _meta SET value = '9' WHERE key = 'schemaVersion'").run();
+    db.prepare(
+      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?)`,
+    ).run(
+      "00000000-0000-0000-0000-000000000099",
+      "old",
+      "/old",
+      JSON.stringify({ kind: "local", rootPath: "/old" }),
+      tone,
+      1_700_000_000_000,
+    );
+
+    applyMigrations(db);
+    applyMigrations(db);
+
+    const cols = (db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[]).map(
+      (c) => c.name,
+    );
+    expect(cols).toContain("color");
+    expect(cols).toContain("color_tone");
+    expect(new GlobalStorage(db).listWorkspaces()[0]?.color).toBe("auto");
+    db.close();
+  });
+
+  it("v10 leaves room for an older build's insert, which names no color", () => {
+    const db = makeDb();
+    applyMigrations(db);
+    db.prepare(
+      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at)
+       VALUES ('00000000-0000-0000-0000-000000000098', 'older', '/o',
+               '{"kind":"local","rootPath":"/o"}', 'default', 0, 1700000000000)`,
+    ).run();
+    expect(new GlobalStorage(db).listWorkspaces()[0]?.color).toBe("auto");
+    db.close();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -157,7 +204,7 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
   it("loads legacy ssh locations without authMode as interactive", () => {
     db.prepare(
       `INSERT INTO workspaces
-         (id, name, root_path, location, color_tone, pinned, last_opened_at)
+         (id, name, root_path, location, color, pinned, last_opened_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       "00000000-0000-0000-0000-000000000099",
@@ -191,6 +238,20 @@ describe("GlobalStorage.updateWorkspace", () => {
 
   afterEach(() => {
     db.close();
+  });
+
+  it.each([
+    ["blue", "blue"],
+    ["auto", "auto"],
+  ] as const)("keeps the color %s it is given", (color, expected) => {
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { color: "pink" });
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { color });
+    expect(storage.listWorkspaces()[0]?.color).toBe(expected);
+  });
+
+  it("reads a stored color it does not know as auto", () => {
+    db.prepare("UPDATE workspaces SET color = 'prominent'").run();
+    expect(storage.listWorkspaces()[0]?.color).toBe("auto");
   });
 
   it("updates location and keeps rootPath compatibility in sync", () => {
@@ -410,11 +471,11 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
   it("pinned workspaces appear before unpinned workspaces", () => {
     // Insert via DB directly so we can set sort positions precisely.
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', ?, ?, ?, ?)`,
     ).run(uuid(10), 0, 1000, 1024, 0); // unpinned
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', ?, ?, ?, ?)`,
     ).run(uuid(20), 1, 2000, 0, 1024); // pinned
 
@@ -425,15 +486,15 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
 
   it("within the same group, workspaces are ordered by sort position ascending", () => {
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, ?, ?, 0)`,
     ).run(uuid(1), 1000, 3072);
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, ?, ?, 0)`,
     ).run(uuid(2), 2000, 1024);
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, ?, ?, 0)`,
     ).run(uuid(3), 3000, 2048);
 
@@ -446,11 +507,11 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
 
   it("pinned group uses pinned_sort_order for its internal ordering", () => {
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 1, ?, 0, ?)`,
     ).run(uuid(1), 1000, 3072);
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 1, ?, 0, ?)`,
     ).run(uuid(2), 2000, 1024);
 
@@ -485,7 +546,7 @@ describe("GlobalStorage.computeInsertPosition", () => {
    */
   function insertWs(id: string, pinned: 0 | 1, sortOrder: number, pinnedSortOrder: number): void {
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', ?, 1000, ?, ?)`,
     ).run(id, pinned, sortOrder, pinnedSortOrder);
   }
@@ -581,15 +642,15 @@ describe("GlobalStorage.rebalanceGroup", () => {
   it("reassigns step-1024 positions and returns new values for all rows in the group", () => {
     // Insert rows with collapsed positions to simulate a rebalance scenario.
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, 1000, ?, 0)`,
     ).run(uuid(1), 100);
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, 2000, ?, 0)`,
     ).run(uuid(2), 101);
     db.prepare(
-      `INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at, sort_order, pinned_sort_order)
+      `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, 3000, ?, 0)`,
     ).run(uuid(3), 102);
 

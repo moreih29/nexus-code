@@ -19,6 +19,7 @@ import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
@@ -115,7 +116,10 @@ export interface CliServices {
   addWorkspace(
     location: WorkspaceLocation,
     name: string | undefined,
+    color?: WorkspaceColor,
   ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
+  /** Renames a workspace and sets its color, as the sidebar's menu does; the workspace as it is now. */
+  editWorkspace(id: string, edit: { name?: string; color?: WorkspaceColor }): WorkspaceMeta;
   /**
    * Pins or unpins a workspace as the sidebar's pin does (to the end of its
    * new group); the workspace as it is now.

@@ -176,7 +176,21 @@
     "task_count_other": "작업 {{count}}개",
     "agent_profiles": "에이전트 프로필",
     "follow_rules": "규칙 따름",
-    "profile_rules_settings": "워크스페이스별 프로필 설정…"
+    "profile_rules_settings": "워크스페이스별 프로필 설정…",
+    "rename": "이름 바꾸기…",
+    "rename_aria": "워크스페이스 이름",
+    "color": "색",
+    "color_auto": "자동",
+    "colors": {
+      "red": "빨강",
+      "amber": "주황",
+      "lime": "연두",
+      "green": "초록",
+      "cyan": "청록",
+      "blue": "파랑",
+      "violet": "보라",
+      "pink": "분홍"
+    }
   },
   "forward": {
     "not_connected": "{{host}}에 연결되어 있지 않아 포트 {{port}}를 열 수 없습니다.",

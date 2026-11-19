@@ -55,6 +55,7 @@ import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import type { WorkspaceColor } from "../../../../src/shared/types/workspace-color";
 import { compareWorkspaceOrder } from "../../../../src/shared/workspace-order";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -82,7 +83,7 @@ function workspace(
     name,
     location: { kind: "local", rootPath },
     rootPath,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     tabs: [],
     sortOrder: 0,
@@ -166,7 +167,9 @@ export interface FakeApp {
   /** The app's workspaces; a test may add or change them. */
   workspaces: WorkspaceMeta[];
   /** What addWorkspace was asked for. */
-  added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
+  added: Array<{ location: WorkspaceLocation; name: string | undefined; color?: WorkspaceColor }>;
+  /** The edits workspace edit made, in order. */
+  edited: Array<{ id: string; edit: { name?: string; color?: WorkspaceColor } }>;
   /** The sidebar's changes asked for: a pin, or a move. */
   sidebar: Array<{ id: string; patch?: { pinned: boolean }; to?: WorkspaceMove }>;
   /** This app's tabs, by workspace; a test may add or change them. */
@@ -409,6 +412,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = structuredClone(WORKSPACES);
   const added: FakeApp["added"] = [];
+  const edited: FakeApp["edited"] = [];
   const sidebar: FakeApp["sidebar"] = [];
   /**
    * Puts `meta` into its group at `at` (the end when absent), numbering the
@@ -739,17 +743,27 @@ export function fakeApp(now = Date.now()): FakeApp {
   const services: CliServices = {
     appVersion: "1.2.3",
     listWorkspaces: () => workspaces,
-    addWorkspace: async (location, name) => {
-      added.push({ location, name });
+    addWorkspace: async (location, name, color) => {
+      added.push({ location, name, ...(color ? { color } : {}) });
       const listed = await listedAt(workspaces, location, async (path) => path);
       if (listed) return { workspace: listed, added: false };
       const rootPath = location.kind === "local" ? location.rootPath : location.remotePath;
       const made = {
         ...workspace(ADDED, name ?? rootPath.split("/").pop() ?? rootPath, rootPath),
         location,
+        ...(color ? { color } : {}),
       };
       workspaces.push(made);
       return { workspace: made, added: true };
+    },
+    editWorkspace: (id, edit) => {
+      const i = workspaces.findIndex((w) => w.id === id);
+      const found = workspaces[i];
+      if (!found) throw new Error(`workspace not found: ${id}`);
+      const meta = { ...found, ...edit };
+      workspaces[i] = meta;
+      edited.push({ id, edit });
+      return meta;
     },
     pinWorkspace: (id, pinned) => {
       const patch = { pinned };
@@ -893,6 +907,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     services,
     workspaces,
     added,
+    edited,
     sidebar,
     tabs,
     uiCalls,

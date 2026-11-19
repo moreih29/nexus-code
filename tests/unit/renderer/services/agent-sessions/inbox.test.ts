@@ -25,7 +25,7 @@ function workspace(id: string, task?: WorkspaceMeta["task"]): WorkspaceMeta {
     name: id === APP ? "app" : "fix-login",
     location: { kind: "local", rootPath: `/w/${id}` },
     rootPath: `/w/${id}`,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date(0).toISOString(),
     tabs: [],

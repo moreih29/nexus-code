@@ -1,11 +1,12 @@
 import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
-import React, { memo, useMemo } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import { appErrorFailed } from "../../../shared/error/app-error";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { type WorkspaceColor, workspaceColorToken } from "../../../shared/types/workspace-color";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
 import type { EstimatedGlyph } from "../../services/agent-sessions/model";
@@ -27,6 +28,7 @@ import {
   useWorkspacesStore,
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
+import { isImeComposing } from "../../utils/ime";
 import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import {
@@ -37,11 +39,13 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
+import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
 import { RowDropSlot } from "./dnd/row-drop-slot";
 import { buildSlotsForGroup, type SlotInfo, useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
+import { WorkspaceColorMenu } from "./workspace-color-menu";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -227,6 +231,56 @@ function WorkspaceRow({
     });
   }
 
+  // Rename and color go through workspace.update; the store follows its broadcast.
+  const { run: runUpdate } = useIpcAction<WorkspaceMeta>({});
+  function updateWorkspace(patch: { name?: string; color?: WorkspaceColor }) {
+    runUpdate(async (signal) => {
+      const result = await ipcCallResult(
+        "workspace",
+        "update",
+        { id: ws.id, ...patch },
+        { signal },
+      );
+      if (!result.ok) {
+        const err = appErrorFailed(result.message);
+        surfaceError(err, { surface: "auto" });
+        throw err;
+      }
+      return result.value;
+    });
+  }
+
+  // Inline rename: the name line becomes a field. Enter or leaving it commits (an empty name
+  // or the same one changes nothing), Escape cancels. The menu hands focus over to the field.
+  const handoff = useContextMenuHandoff();
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameSettled = useRef(true);
+  function startRename() {
+    renameSettled.current = false;
+    setNameDraft(ws.name);
+    setRenaming(true);
+  }
+  function endRename(commit: boolean) {
+    if (renameSettled.current) return;
+    renameSettled.current = true;
+    setRenaming(false);
+    const name = nameDraft.trim();
+    if (commit && name !== "" && name !== ws.name) updateWorkspace({ name });
+  }
+  useEffect(() => {
+    if (!renaming) return;
+    const id = requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [renaming]);
+
+  // The workspace's own color tints its icon; "auto" keeps the row as it was.
+  const colorToken = workspaceColorToken(ws.color);
+
   // "Clear" only makes sense when there is a glyph or a preview message.
   const hasStatusToReset = glyphStatus !== null || previewMessage !== null;
 
@@ -247,6 +301,8 @@ function WorkspaceRow({
             isDragSource && "cursor-grabbing opacity-40",
           )}
           {...(rowDragProps as React.HTMLAttributes<HTMLDivElement>)}
+          // Dragging would take the mouse from the name being typed.
+          {...(renaming ? { draggable: false } : {})}
         >
           <button
             type="button"
@@ -280,7 +336,11 @@ function WorkspaceRow({
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
               {/* col 1: ssh/wsl/local icon + (for SSH·WSL) connection status indicator */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
-                <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Icon
+                  className="size-4 shrink-0 text-muted-foreground"
+                  style={colorToken ? { color: colorToken } : undefined}
+                  aria-hidden="true"
+                />
                 {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
@@ -297,7 +357,36 @@ function WorkspaceRow({
                     nameEmphasis && "font-semibold",
                   )}
                 >
-                  {primaryText}
+                  {renaming ? (
+                    // It sits in the row's button: keys stay here so Space and the arrows do not
+                    // reach it.
+                    <input
+                      ref={nameInputRef}
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (isImeComposing(e)) return;
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          endRename(true);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          endRename(false);
+                        }
+                      }}
+                      onKeyUp={(e) => {
+                        if (e.key === " ") e.preventDefault();
+                      }}
+                      onBlur={() => endRename(true)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="m-0 w-full border-0 bg-transparent p-0 text-foreground outline-none"
+                      aria-label={t("sidebar.rename_aria")}
+                      spellCheck={false}
+                    />
+                  ) : (
+                    primaryText
+                  )}
                 </span>
 
                 {/* SSH·WSL only: user@host or the distribution on one line (right below the name).
@@ -411,7 +500,7 @@ function WorkspaceRow({
           </IconButton>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent onCloseAutoFocus={handoff.onCloseAutoFocus}>
         <ContextMenuItems
           items={[
             {
@@ -419,8 +508,14 @@ function WorkspaceRow({
               label: ws.pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top"),
               onSelect: () => onTogglePin(ws),
             },
+            {
+              kind: "item",
+              label: t("sidebar.rename"),
+              onSelect: () => handoff.defer(startRename),
+            },
           ]}
         />
+        <WorkspaceColorMenu color={ws.color} onSelect={(color) => updateWorkspace({ color })} />
         <WorkspaceProfileMenu workspace={ws} />
         <ContextMenuSeparator />
         <ContextMenuItems

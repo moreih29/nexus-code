@@ -421,7 +421,7 @@ function FamilyGroup({
           <span
             aria-hidden
             className="size-2 shrink-0 rounded-full"
-            style={{ background: workspaceColor(root.id) }}
+            style={{ background: workspaceColor(root.id, root.color) }}
           />
           <span className="min-w-0 truncate text-app-ui-sm font-medium text-foreground">
             {root.name}
@@ -693,7 +693,7 @@ function WorkspaceTag({ workspace, root }: { workspace: WorkspaceMeta; root: Wor
       <span
         aria-hidden
         className="size-1.5 shrink-0 rounded-full"
-        style={{ background: workspaceColor(root.id) }}
+        style={{ background: workspaceColor(root.id, root.color) }}
       />
       <span className="min-w-0 truncate">{workspace.name}</span>
     </span>

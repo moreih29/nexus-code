@@ -14,7 +14,7 @@ test("a reopened window restores connected SSH workspaces and keeps status event
     name: id,
     location: { kind: "ssh", host: "example.invalid", remotePath: "/repo" },
     rootPath: "/repo",
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     sortOrder: 0,
     pinnedSortOrder: 0,

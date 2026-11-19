@@ -12,6 +12,7 @@ import {
   type WorkspaceTask,
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
+import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { AgentChannel } from "../../infra/agent/channel";
 import {
   type CreateLocalChannelOptions,
@@ -82,8 +83,8 @@ const log = createLogger("workspace");
 
 export type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 export type WorkspaceCreateOptions =
-  | { location: WorkspaceLocation; name?: string; task?: WorkspaceTask }
-  | { rootPath: string; name?: string; task?: WorkspaceTask };
+  | { location: WorkspaceLocation; name?: string; color?: WorkspaceColor; task?: WorkspaceTask }
+  | { rootPath: string; name?: string; color?: WorkspaceColor; task?: WorkspaceTask };
 export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => SshChannel;
 export type WorkspaceSshBootstrap = (
   options: EnsureRemoteAgentOptions,
@@ -729,7 +730,7 @@ export class WorkspaceManager {
       name,
       location,
       rootPath,
-      colorTone: "default",
+      color: opts.color ?? "auto",
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],

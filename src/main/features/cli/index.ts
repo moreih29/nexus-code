@@ -21,6 +21,7 @@ import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -71,8 +72,15 @@ export interface SetupCliFeatureOptions {
   agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
   workspaceManager: {
     list(): WorkspaceMeta[];
-    create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
-    update(id: string, partial: { pinned?: boolean }): WorkspaceMeta;
+    create(opts: {
+      location: WorkspaceLocation;
+      name?: string;
+      color?: WorkspaceColor;
+    }): WorkspaceMeta;
+    update(
+      id: string,
+      partial: { pinned?: boolean; name?: string; color?: WorkspaceColor },
+    ): WorkspaceMeta;
     reorder(
       id: string,
       opts: { beforeId?: string; afterId?: string; targetGroup: "pinned" | "unpinned" },
@@ -244,7 +252,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const services: CliServices = {
     appVersion: options.appVersion,
     listWorkspaces: () => workspaceManager.list(),
-    addWorkspace: async (location, name) => {
+    addWorkspace: async (location, name, color) => {
       const listed = await listedAt(workspaceManager.list(), location);
       if (listed) return { workspace: listed, added: false };
       if (location.kind === "local") {
@@ -252,10 +260,15 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if (!found?.isDirectory()) throw new CliError(`no folder at ${location.rootPath}`);
       }
       return {
-        workspace: workspaceManager.create({ location, ...(name ? { name } : {}) }),
+        workspace: workspaceManager.create({
+          location,
+          ...(name ? { name } : {}),
+          ...(color ? { color } : {}),
+        }),
         added: true,
       };
     },
+    editWorkspace: (id, edit) => workspaceManager.update(id, edit),
     pinWorkspace: (id, pinned) => workspaceManager.update(id, { pinned }),
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),

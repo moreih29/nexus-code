@@ -267,6 +267,7 @@ export type CliChangeKind =
   | "worktreeRemove"
   | "worktreeRemoveBranch"
   | "workspaceRemove"
+  | "workspaceEdit"
   | "workspacePin"
   | "workspaceMove"
   | "permissionAllow"

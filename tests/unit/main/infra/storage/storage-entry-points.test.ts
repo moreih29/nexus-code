@@ -29,7 +29,7 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
     name: "test-workspace",
     rootPath: path.join(os.tmpdir(), "test"),
     location: { kind: "local", rootPath: path.join(os.tmpdir(), "test") },
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date(1_700_000_000_000).toISOString(),
     tabs: [],

@@ -34,7 +34,7 @@ function makeWorkspace(id = WORKSPACE_ID): WorkspaceMeta {
     name: "local",
     location: { kind: "local", rootPath: "/tmp/project" },
     rootPath: "/tmp/project",
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
