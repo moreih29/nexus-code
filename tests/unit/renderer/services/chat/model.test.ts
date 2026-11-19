@@ -615,6 +615,38 @@ describe("messages written during a turn", () => {
     expect(users(model)).toEqual(["go:taken", "second:taken"]);
   });
 
+  test("log replay matches a waiting input by UUID before taking the oldest remaining one", () => {
+    const lines: ChatLine[] = [
+      sent(1, "go", "u-1"),
+      echo(2, "go", "u-1"),
+      sent(3, "first", "u-2"),
+      sent(4, "second", "u-3"),
+      toolUse(5),
+      echo(6, "second", "u-3"),
+      {
+        seq: 7,
+        dir: "out",
+        message: {
+          type: "user",
+          message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+        },
+      },
+      echo(8, "first", "cli-echo"),
+    ];
+    const model = run(lines.map((line) => ({ ...line, replay: true })));
+    expect(model.items).toMatchObject([
+      { kind: "user", state: "taken", uuid: "u-1" },
+      { kind: "assistant", blocks: [{ type: "tool", toolUseId: "t1" }] },
+      { kind: "user", state: "taken", uuid: "u-3", sentUuid: "u-3" },
+      { kind: "user", state: "taken", uuid: "cli-echo", sentUuid: "u-2" },
+    ]);
+    expect(model.tools.t1).toMatchObject({
+      name: "Bash",
+      status: "done",
+      result: { text: "done" },
+    });
+  });
+
   test("one to read at once does not wait", () => {
     const model = applyLines(emptyModel(), [
       sent(1, "go", "u-1"),

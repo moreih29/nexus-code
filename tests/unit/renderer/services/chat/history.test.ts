@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   cutEntries,
+  type HistoryCut,
   historyModel,
   joinHistory,
   modelBefore,
@@ -9,10 +10,12 @@ import {
   subagentIdOf,
   subagentLines,
   subagentLog,
+  transcriptGoal,
+  transcriptLines,
   uuidBefore,
   withSubagentLog,
 } from "../../../../../src/renderer/services/chat/history";
-import { emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { applyLines, emptyModel } from "../../../../../src/renderer/services/chat/model";
 
 // A transcript's entries as Claude Code writes them: bookkeeping between
 // the messages, which have uuids.
@@ -33,6 +36,80 @@ const ENTRIES = [
     message: { id: "m2", role: "assistant", content: [{ type: "text", text: "second" }] },
   },
 ];
+
+test("transcript reconstruction agrees with replay for a mixed conversation and its cuts", () => {
+  const entries = [
+    ...ENTRIES,
+    { type: "queue-operation", operation: "enqueue", content: "never delivered" },
+    {
+      type: "attachment",
+      uuid: "attachment-id",
+      attachment: {
+        type: "queued_command",
+        commandMode: "prompt",
+        source_uuid: "queued-user",
+        prompt: "read while a turn ran",
+      },
+    },
+    {
+      type: "assistant",
+      uuid: "call",
+      message: {
+        id: "m3",
+        content: [{ type: "tool_use", id: "read1", name: "Read", input: { file_path: "/p/a" } }],
+      },
+    },
+    {
+      type: "assistant",
+      uuid: "sidechain",
+      isSidechain: true,
+      message: { id: "worker", content: [{ type: "text", text: "subagent only" }] },
+    },
+    {
+      type: "user",
+      uuid: "tool-result",
+      message: { content: [{ type: "tool_result", tool_use_id: "read1", content: "file body" }] },
+    },
+    {
+      type: "attachment",
+      timestamp: "2026-11-10T13:52:53.172Z",
+      attachment: { type: "goal_status", met: true, condition: "green tests", reason: "all pass" },
+    },
+    { type: "custom-title", customTitle: "  Mixed history  " },
+    { type: "ai-title", aiTitle: "Generated title" },
+  ];
+
+  // Keep the general log reducer as the reference for the transcript path.
+  const cuts: (HistoryCut | undefined)[] = [
+    undefined,
+    { upTo: "queued-user" },
+    { upTo: "tool-result" },
+    { before: new Set(["queued-user", "call"]) },
+  ];
+  for (const cut of cuts) {
+    const lines = transcriptLines(cut ? cutEntries(entries, cut) : entries);
+    const replay = applyLines(emptyModel(), lines);
+    expect(historyModel(entries, cut)).toStrictEqual({
+      ...replay,
+      running: false,
+      turn: null,
+      streaming: null,
+      permissions: [],
+    });
+  }
+
+  const history = historyModel(entries);
+  expect([...modelUuids(history)]).toEqual(["u1", "a1", "u2", "a2", "queued-user", "call"]);
+  expect(uuidBefore(history, "queued-user")).toBe("a2");
+  expect(history.tools.read1).toMatchObject({
+    name: "Read",
+    status: "done",
+    result: { text: "file body" },
+  });
+  expect(history.goal).toMatchObject({ status: "met", condition: "green tests" });
+  expect(transcriptGoal(entries)).toEqual(history.goal);
+  expect(sessionTitleOf(entries)).toBe("Mixed history");
+});
 
 function texts(model: ReturnType<typeof historyModel>): string[] {
   return model.items.map((item) =>
