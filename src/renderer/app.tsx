@@ -2,7 +2,7 @@ import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useRef } from "react";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
+import { bootstrapClaudeStatus, bootstrapWorkbench } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { AgentSidebar } from "./components/agent-view/agent-sidebar";
 import { AgentView } from "./components/agent-view/agent-view";
@@ -61,9 +61,7 @@ export function App() {
   // Picked one by one: the whole store would render the app, every
   // workspace's tabs below it, for each connection status and progress.
   const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const setAll = useWorkspacesStore((s) => s.setAll);
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
-  const setActiveWorkspaceId = useActiveStore((s) => s.setActiveWorkspaceId);
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
@@ -93,20 +91,10 @@ export function App() {
     initializeEditorServices(monaco);
   }, [monaco]);
 
-  // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
+  // Restore the tabs and workspace selection before opening the CLI gate.
   useEffect(() => {
-    bootstrapAppState();
-  }, []);
-
-  // Boot: Claude 세션 상태 snapshot 로드 및 status broadcast 구독 설정.
-  useEffect(() => {
+    void bootstrapWorkbench();
     void bootstrapClaudeStatus();
-  }, []);
-
-  // Boot: load workspaces from main, activate first.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: boot-once effect; store setters are stable
-  useEffect(() => {
-    bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
 
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).

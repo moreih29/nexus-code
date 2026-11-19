@@ -7,12 +7,11 @@
 
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
-import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startTabActivityPolling } from "./services/agent-sessions/activity-poll";
 import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
-import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
+import { startCliUiListener } from "./services/cli/ui-requests";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
@@ -26,7 +25,9 @@ import { initLspStatusSync } from "./state/operations/lsp-status";
 import { initPortsSync } from "./state/operations/ports";
 import { hydrateReleaseNotesSeen } from "./state/operations/release-notes";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
+import { focusWorkspace } from "./state/operations/workspace-selection";
 import { hydrateLayoutSnapshots, registerStatePersistence } from "./state/persistence";
+import { useActiveStore } from "./state/stores/active";
 import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
@@ -49,7 +50,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { restoredWorkspace } from "./state/stores/workspaces";
+import { restoredWorkspace, useWorkspacesStore } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
@@ -92,7 +93,7 @@ function installGlobalFileDropGuard(): void {
   });
 }
 
-export async function bootstrapAppState(): Promise<void> {
+async function bootstrapAppState(): Promise<void> {
   // Install the central workspace:removed listener before any async I/O —
   // registered cleanup functions sit in memory regardless, but the listener
   // itself must be live before the first user-initiated workspace removal.
@@ -102,11 +103,8 @@ export async function bootstrapAppState(): Promise<void> {
   // installGlobalFileDropGuard for the file:// navigation hazard it prevents.
   installGlobalFileDropGuard();
 
-  // Wire the OS notification click → workspace activate + tab reveal listener.
+  // Reveal the tab a clicked OS notification points to.
   startNotificationClickListener();
-
-  // Answer the nexus CLI's requests; they wait until the tabs are restored.
-  startCliUiListener();
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
@@ -280,7 +278,6 @@ export async function bootstrapAppState(): Promise<void> {
   startAgentViewPruning();
 
   registerStatePersistence();
-  markCliUiReady();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
@@ -298,26 +295,32 @@ export async function bootstrapAppState(): Promise<void> {
 }
 
 /**
- * Load the workspace list from main, push it into the store, and
- * restore the active workspace selection.
- *
- * Does NOT call workspace:activate at startup. Main's init() is the source
- * of truth for the restored active workspace and its conditional auto-connect
- * (key-only SSH and local connect automatically; interactive SSH restores in
- * the disconnected state), so the selection is the workspace main restored.
- * Calling activate here would both trigger a connection and wrongly bump the
- * recency list on every app launch.
+ * Load the workspace list and restore the selection main recorded. Main
+ * owns startup connection policy, including interactive SSH workspaces
+ * that wait for a user to connect.
  */
-export async function bootstrapWorkspaces(
-  setAll: (list: WorkspaceMeta[]) => void,
-  setActiveWorkspaceId: (id: string | null) => void,
-): Promise<void> {
-  // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
+export async function bootstrapWorkspaces(): Promise<void> {
   const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
-  setAll(list);
+  useWorkspacesStore.getState().setAll(list);
   const active = await ipcCallResult("workspace", "active", undefined);
-  const selected = restoredWorkspace(list, active.ok ? active.value : null);
-  if (selected) setActiveWorkspaceId(selected.id);
+
+  // The sidebar can already be used while the active-ID reply is pending.
+  if (useActiveStore.getState().activeWorkspaceId !== null) return;
+  const currentList = useWorkspacesStore.getState().workspaces;
+  const selected = restoredWorkspace(currentList, active.ok ? active.value : null);
+  if (selected) focusWorkspace(selected.id, "preserve");
+}
+
+/**
+ * Restore tabs before the workspace can mount and seed a terminal. CLI
+ * requests can arrive throughout startup and wait for both restorations.
+ */
+export function bootstrapWorkbench(
+  hydrateAppState: () => Promise<void> = bootstrapAppState,
+): Promise<void> {
+  const ready = hydrateAppState().then(bootstrapWorkspaces);
+  startCliUiListener(ready);
+  return ready;
 }
 
 /**

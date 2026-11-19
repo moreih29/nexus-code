@@ -32,7 +32,7 @@ afterAll(() => {
   globals.document = originalDocument;
 });
 
-const { listTabs, markCliUiReady, startCliUiListener } = await import(
+const { listTabs, startCliUiListener } = await import(
   "../../../../../src/renderer/services/cli/ui-requests"
 );
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
@@ -61,12 +61,11 @@ async function answerTo(requestId: string, op: string, args: unknown): Promise<u
 }
 
 test("a request is carried out once, however often the app boots", async () => {
-  startCliUiListener();
-  startCliUiListener();
-  const stop = startCliUiListener();
+  startCliUiListener(Promise.resolve());
+  startCliUiListener(Promise.resolve());
+  const stop = startCliUiListener(Promise.resolve());
   expect(listeners.size).toBe(1);
 
-  markCliUiReady();
   for (const listener of listeners) listener({ requestId: "r1", op: "no.such.op", args: {} });
   await new Promise((resolve) => setTimeout(resolve, 0));
   const answers = calls.filter(([channel, method]) => channel === "cli" && method === "uiRespond");
@@ -76,8 +75,8 @@ test("a request is carried out once, however often the app boots", async () => {
   stop();
   expect(listeners.size).toBe(0);
   // A stop from before leaves the listener installed after it.
-  const older = startCliUiListener();
-  startCliUiListener();
+  const older = startCliUiListener(Promise.resolve());
+  startCliUiListener(Promise.resolve());
   older();
   expect(listeners.size).toBe(1);
 });
@@ -120,8 +119,7 @@ test("a terminal not started yet, its workspace not opened, says so in the tabs'
 test("a terminal not started yet is started behind the view, and read once it has", async () => {
   const ws = "ws-later";
   const tab = useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
-  startCliUiListener();
-  markCliUiReady();
+  startCliUiListener(Promise.resolve());
   let unregister = () => {};
   try {
     const answer = answerTo("r-later", "terminal.read", {
@@ -150,8 +148,7 @@ test("a terminal not started yet is started behind the view, and read once it ha
 test("a terminal its view has registered is typed into only once its shell is ready", async () => {
   const ws = "ws-opening";
   const tab = useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
-  startCliUiListener();
-  markCliUiReady();
+  startCliUiListener(Promise.resolve());
   const typed: string[] = [];
   let open = (_ready: boolean) => {};
   // Its fonts still loading, or its shell not at its prompt: input would be lost.
@@ -189,8 +186,7 @@ test("a tab that is not a terminal is not waited for", async () => {
   const tab = useTabsStore
     .getState()
     .createTab(ws, { type: "editor", props: { workspaceId: ws, filePath: "/a.ts" } });
-  startCliUiListener();
-  markCliUiReady();
+  startCliUiListener(Promise.resolve());
   try {
     expect(
       await answerTo("r-editor", "terminal.read", { workspaceId: ws, tabId: tab.id, lines: 5 }),
