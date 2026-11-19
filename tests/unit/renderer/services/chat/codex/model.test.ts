@@ -19,6 +19,8 @@ import type {
 } from "../../../../../../src/renderer/services/chat/model";
 import { agentsOf, jobsOf } from "../../../../../../src/renderer/services/chat/panel";
 import { activityOf } from "../../../../../../src/renderer/services/chat/running";
+import { emptyTabState } from "../../../../../../src/renderer/services/chat/store";
+import { chatPanelOf } from "../../../../../../src/renderer/services/remote/chat-panel";
 
 // Lines as `codex app-server` 0.166.0 writes them (newline-delimited
 // JSON-RPC without the "jsonrpc" field), after the generated schema.
@@ -115,6 +117,106 @@ test("a known child leaves running on its own terminal signal after the parent t
     expect(rows.ended).toMatchObject([{ key: child, status: expected, endedAt: 1000 }]);
     expect(model.lastResult?.subtype).toBe("completed");
   }
+});
+
+test("Codex commands move from running to ended on the panel with their own lifecycle", () => {
+  const turnId = "turn_1";
+  const command = (id: string, detail: Record<string, unknown> = {}) => ({
+    id,
+    type: "commandExecution",
+    command: id,
+    status: "inProgress",
+    ...detail,
+  });
+  const item = (
+    event: "started" | "completed",
+    commandItem: ReturnType<typeof command>,
+    at: number,
+  ) => ({ ...note(`item/${event}`, { threadId: T, turnId, item: commandItem }), at });
+  const turnEnd = (status: string, items: unknown[] = []) => ({
+    ...note("turn/completed", { threadId: T, turn: { id: turnId, status, items } }),
+    at: 6_000,
+  });
+
+  const base = run([
+    ...started(),
+    ...sendTurn("run both"),
+    item("started", command("foreground"), 1_000),
+    item(
+      "started",
+      command("background", { source: "unifiedExecStartup", processId: "42" }),
+      1_000,
+    ),
+    item("started", command("quick"), 1_000),
+    item("completed", command("quick", { status: "completed" }), 1_100),
+  ]);
+  expect(activity(base).running.map((row) => row.description)).toEqual([
+    "foreground",
+    "background",
+  ]);
+  expect(activity(base).ended).toEqual([]);
+
+  const cases = [
+    {
+      end: [
+        item("completed", command("foreground", { status: "completed" }), 5_000),
+        turnEnd("completed"),
+      ],
+      status: "completed",
+      background: "running",
+    },
+    { end: [turnEnd("completed")], status: "stopped", background: "running" },
+    { end: [turnEnd("interrupted")], status: "stopped", background: "running" },
+    {
+      end: [turnEnd("failed", [command("foreground", { status: "failed", exitCode: 1 })])],
+      status: "failed",
+      background: "running",
+    },
+    {
+      end: [{ ...sys({ event: "exit", code: 1 }), at: 6_000 }],
+      status: "stopped",
+      background: "stopped",
+    },
+  ];
+  for (const { end, status, background } of cases) {
+    const model = run(end, base);
+    const rows = activity(model);
+    expect(rows.ended).toContainEqual(
+      expect.objectContaining({ description: "foreground", status }),
+    );
+    expect([...rows.running, ...rows.ended]).toContainEqual(
+      expect.objectContaining({ description: "background", status: background, waited: false }),
+    );
+    const panel = chatPanelOf({ agent: "codex", title: "", chat: { ...emptyTabState(), model } });
+    expect(panel.tasks.map(({ description, status }) => ({ description, status }))).toEqual(
+      expect.arrayContaining([
+        { description: "foreground", status },
+        { description: "background", status: background },
+      ]),
+    );
+  }
+  const stillRunning = run(
+    [
+      turnEnd("completed"),
+      note("turn/started", { threadId: T, turn: { id: "next" } }),
+      item("completed", command("background", { status: "inProgress", processId: "42" }), 7_000),
+    ],
+    base,
+  );
+  expect(activity(stillRunning).running).toMatchObject([
+    { description: "background", waited: false },
+  ]);
+  const ended = run(
+    [item("completed", command("background", { status: "completed", exitCode: 0 }), 8_000)],
+    stillRunning,
+  );
+  expect(activity(ended).running).toEqual([]);
+  expect(activity(ended).ended[0]).toMatchObject({
+    description: "background",
+    status: "completed",
+    endedAt: 8_000,
+  });
+  expect(ended.running).toBe(true);
 });
 
 test("keeps the latest own-thread plan and ignores a child thread's plan", () => {

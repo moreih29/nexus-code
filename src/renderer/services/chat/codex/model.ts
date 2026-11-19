@@ -38,6 +38,7 @@ import {
   type ToolCall,
   type UserItem,
 } from "../model";
+import { commandLabel, WAITED_CALL_DELAY_MS } from "../running";
 import {
   type CodexCollaborationMode,
   type CodexCollaborationSettings,
@@ -88,6 +89,13 @@ export interface CodexServerRequest {
   params: Rec;
 }
 
+/** A live command and whether its process can outlast the turn that started it. */
+interface LiveCommand {
+  turnId: string;
+  startedAt?: number;
+  canContinue: boolean;
+}
+
 export interface CodexModel extends ChatModel {
   /** Keeps sequence-based item keys unique across the tab's agent logs. */
   logSeqOffset?: number;
@@ -103,6 +111,8 @@ export interface CodexModel extends ChatModel {
   turnId?: string;
   /** Log sequence of the current turn's last tool completion. */
   toolCompletedSeq?: number;
+  /** Commands observed starting in the live log, until their lifecycle settles. */
+  liveCommands?: Record<string, LiveCommand>;
   /** What the program is signed in with (its kind only); null when it is not. */
   account?: { type: string } | null;
   /** The program needs a sign-in before a turn can run. */
@@ -167,6 +177,7 @@ export function loseCodexLog(prev: CodexModel): CodexModel {
     mcpServers: undefined,
     mcpLogin: undefined,
   });
+  settleCommands(draft, undefined);
   stopRunningTools(draft);
   stopRunningTasks(draft, undefined);
   return draft.next;
@@ -255,6 +266,7 @@ export function applyCodexLine(
       draft.next.originals = { ...draft.next.originals, [path]: before };
     }
   } else if (line.dir === "sys") {
+    if (message.event === "exit" || message.event === "start") settleCommands(draft, at);
     applySys(draft, message, keySeq, at);
     if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
     if (message.event === "start" || message.event === "exit") {
@@ -938,16 +950,12 @@ function applyNotification(
       const item = rec(params.item);
       const turnId = str(params.turnId) ?? m.turnId ?? "";
       if (item) {
-        const when = num(item.startedAtMs) ?? at;
         const completed = method === "item/completed";
-        const toolRan = applyItem(
-          draft,
-          turnId,
-          item,
-          completed ? "completed" : "started",
-          tag,
-          when,
-        );
+        const phase = completed ? "completed" : "started";
+        const toolRan =
+          item.type === "commandExecution"
+            ? applyCommandEvent(draft, turnId, item, phase, tag, at)
+            : applyItem(draft, turnId, item, phase, tag, num(item.startedAtMs) ?? at);
         if (m.running && turnId === m.turnId) {
           noteTurnActivity(m, at);
           if (completed && toolRan && m.permissions.length === 0) {
@@ -1132,7 +1140,26 @@ function applyNotification(
 function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: number | undefined) {
   const m = draft.next;
   const status = str(turn.status) ?? "completed";
+  if (status === "inProgress") return;
   const turnId = str(turn.id);
+  if (turnId) {
+    // Some versions include the command's final item here even when its
+    // individual completion notification did not reach the tab.
+    for (const raw of Array.isArray(turn.items) ? turn.items : []) {
+      const item = rec(raw);
+      const id = str(item?.id);
+      if (
+        item?.type === "commandExecution" &&
+        id &&
+        m.liveCommands?.[id]?.turnId === turnId &&
+        (item.status === "completed" || item.status === "failed" || item.status === "declined")
+      ) {
+        applyCommandEvent(draft, turnId, item, "completed", String(seq), at);
+      }
+    }
+    settleCommands(draft, at, turnId);
+  }
+  if (turnId && m.turnId && turnId !== m.turnId) return;
   const sawTurnStart = turnId && turnId === m.turnId;
   m.running = false;
   m.turn = null;
@@ -1156,12 +1183,128 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   };
   const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
   finishSubmittedTurn(draft, turnId, failure);
+  if (status === "interrupted" || status === "failed") {
+    stopRunningTools(draft, (tool) => !tool.parentToolUseId && !m.liveCommands?.[tool.id]);
+  }
   if (status === "interrupted") {
-    stopRunningTools(draft);
     draft.push({ kind: "notice", key: `n${seq}`, code: "interrupted", at });
   } else if (status === "failed") {
-    stopRunningTools(draft);
     pushError(draft, failure ?? "failed", `n${seq}`, at);
+  }
+}
+
+/** Projects a live command into the same job list the local and remote panels consume. */
+function setCommandJob(
+  m: CodexModel,
+  id: string,
+  status: string,
+  startedAt: number | undefined,
+  endedAt?: number,
+  durationMs?: number,
+): void {
+  const tool = m.tools[id];
+  if (!tool) return;
+  const taskId = `codex-command:${id}`;
+  const elapsed =
+    startedAt !== undefined && endedAt !== undefined ? endedAt - startedAt : durationMs;
+  // A brief foreground command never reached the running panel.
+  if (
+    !m.tasks[taskId] &&
+    status !== "running" &&
+    elapsed !== undefined &&
+    elapsed < WAITED_CALL_DELAY_MS
+  )
+    return;
+  m.tasks = {
+    ...m.tasks,
+    [taskId]: {
+      taskId,
+      type: "local_bash",
+      toolUseId: id,
+      description: commandLabel(tool),
+      status,
+      startedAt,
+      endedAt,
+    },
+  };
+}
+
+/** Drops the live tracking entry after its terminal row has been recorded. */
+function forgetCommand(m: CodexModel, id: string): void {
+  const { [id]: _command, ...rest } = m.liveCommands ?? {};
+  m.liveCommands = Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+/** Applies a live command item without closing a still-running terminal on a partial update. */
+function applyCommandEvent(
+  draft: CodexDraft,
+  turnId: string,
+  item: Rec,
+  phase: "started" | "completed",
+  tag: string,
+  at: number | undefined,
+): boolean | undefined {
+  const m = draft.next;
+  const id = str(item.id);
+  if (!id) return;
+  const live = m.liveCommands?.[id];
+  const job = m.tasks[`codex-command:${id}`];
+  if (live && phase === "completed" && live.turnId !== turnId) return;
+  const when = num(item.startedAtMs) ?? at;
+  const canContinue =
+    live?.canContinue === true ||
+    str(item.processId) !== undefined ||
+    item.source === "unifiedExecStartup" ||
+    item.source === "unifiedExecInteraction";
+  const stillRunning =
+    canContinue && item.status === "inProgress" && num(item.exitCode) === undefined;
+  const toolRan = applyItem(draft, turnId, item, stillRunning ? "started" : phase, tag, when);
+  const tool = m.tools[id];
+  if (!tool) return toolRan;
+  if (tool.status === "running") {
+    const command = { turnId, startedAt: live?.startedAt ?? when, canContinue };
+    m.liveCommands = { ...m.liveCommands, [id]: command };
+    if (job?.status === "running") markCommandBackground(draft, tool);
+    return false;
+  }
+  if (live || job) {
+    const status =
+      tool.status === "done" ? "completed" : tool.status === "error" ? "failed" : "stopped";
+    setCommandJob(
+      m,
+      id,
+      status,
+      live?.startedAt ?? job?.startedAt,
+      num(item.completedAtMs) ?? at,
+      num(item.durationMs),
+    );
+    if (live) forgetCommand(m, id);
+  }
+  return toolRan;
+}
+
+/** A terminal kept past its original turn does not block a later turn. */
+function markCommandBackground(draft: CodexDraft, tool: ToolCall): void {
+  draft.setTool(tool.id, () => ({
+    ...tool,
+    input: { ...rec(tool.input), run_in_background: true },
+  }));
+}
+
+/** Settles one turn's foreground commands, or all commands on program exit. */
+function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: string): void {
+  const m = draft.next;
+  for (const [id, command] of Object.entries(m.liveCommands ?? {})) {
+    if (turnId !== undefined && command.turnId !== turnId) continue;
+    const tool = m.tools[id];
+    if (turnId !== undefined && command.canContinue && tool?.status === "running") {
+      markCommandBackground(draft, tool);
+      setCommandJob(m, id, "running", command.startedAt);
+      continue;
+    }
+    if (tool?.status === "running") draft.setTool(id, () => ({ ...tool, status: "stopped" }));
+    setCommandJob(m, id, "stopped", command.startedAt, at);
+    forgetCommand(m, id);
   }
 }
 
