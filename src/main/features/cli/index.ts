@@ -167,7 +167,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);
-    return entry && { contents: entry.view.webContents, view: entry.view, active: entry.active };
+    return (
+      entry && {
+        contents: entry.view.webContents,
+        view: entry.view,
+        active: entry.active,
+        loadFailure: entry.loadFailure,
+      }
+    );
   });
   const stopWatchingBrowsers = onBrowserTabCreated((tabId, contents) =>
     browser.watch(tabId, contents),

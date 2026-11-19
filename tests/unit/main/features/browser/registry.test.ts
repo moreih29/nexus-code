@@ -20,6 +20,7 @@ class FakeWebContents extends EventEmitter {
   });
   readonly capturePage = mock(async () => image);
   readonly loadURL = mock(async (_url: string) => {});
+  readonly navigationHistory = { canGoBack: () => false, canGoForward: () => false };
   private destroyed = false;
 
   setWindowOpenHandler(): void {}
@@ -57,6 +58,7 @@ mock.module("electron", () => ({
 
 const { BrowserTabRegistry } = await import("../../../../../src/main/features/browser/registry");
 const { registerBrowserChannel } = await import("../../../../../src/main/features/browser/ipc");
+const { CdpBrowserDriver } = await import("../../../../../src/main/features/cli/browser/driver");
 
 const tabId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const createArgs = {
@@ -184,5 +186,84 @@ describe("browser visibility IPC", () => {
     await call("resumeAll", {});
 
     expect(snapshots()).not.toContainEqual(expect.objectContaining({ kind: "set" }));
+  });
+
+  test("shows only main-frame failures and keeps the native view hidden until a successful retry", async () => {
+    const url = "https://example.com/failed";
+    page.webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, false);
+    page.webContents.emit("did-fail-load", {}, -3, "ERR_ABORTED", url, true);
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+
+    page.webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, true);
+    const failure = { url, description: "ERR_NAME_NOT_RESOLVED" };
+    expect(registry.get(tabId)?.loadFailure).toEqual(failure);
+    expect(pair.sender.sent).toContainEqual({
+      channel: "ipc:event",
+      args: ["browser", "loadFailureChanged", { tabId, failure }],
+    });
+    expect(page.visible).toBe(false);
+
+    await call("suspendAll", { captureSnapshot: false });
+    await setActive(false);
+    await call("resumeAll", {});
+    await setActive(true);
+    expect(page.visible).toBe(false);
+
+    const driver = new CdpBrowserDriver(() => {
+      const entry = registry.get(tabId)!;
+      return {
+        contents: entry.view.webContents,
+        view: entry.view,
+        active: true,
+        loadFailure: entry.loadFailure,
+      };
+    });
+    await expect(driver.snapshot(tabId, { maxLines: 10 })).rejects.toThrow(
+      `Could not load ${url}: ERR_NAME_NOT_RESOLVED`,
+    );
+    const settled = driver.settle(tabId);
+    page.webContents.emit("did-stop-loading");
+    await expect(settled).rejects.toThrow(`Could not load ${url}: ERR_NAME_NOT_RESOLVED`);
+    await call("reload", { tabId });
+    expect(page.webContents.loadURL).toHaveBeenLastCalledWith(url);
+    expect(page.visible).toBe(false);
+    page.webContents.emit("did-navigate", {}, url, 200, "OK");
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
+  });
+
+  test("retries the original SSH address after a forward or forwarded load fails", async () => {
+    const url = "http://localhost:3000/";
+    const target = "http://localhost:3001/";
+    const resolve = mock(async () => target);
+    resolve.mockRejectedValueOnce(Object.assign(new Error("offline"), { kind: "not-connected" }));
+    registry.setAddressResolver({ rewrites: () => true, resolve });
+    await call("navigate", { tabId, url });
+    expect(registry.get(tabId)?.loadFailure).toEqual({ url, description: "ERR_SSH_NOT_CONNECTED" });
+
+    await call("reload", { tabId });
+    expect(page.webContents.loadURL).toHaveBeenLastCalledWith(target);
+    page.webContents.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", target, true);
+    expect(registry.get(tabId)?.loadFailure).toEqual({
+      url,
+      description: "ERR_CONNECTION_REFUSED",
+    });
+    await call("reload", { tabId });
+    expect(resolve).toHaveBeenLastCalledWith(createArgs.workspaceId, url);
+  });
+
+  test("ignores a forward failure superseded by a newer navigation", async () => {
+    const forward = Promise.withResolvers<string>();
+    registry.setAddressResolver({
+      rewrites: (_workspaceId, url) => url.startsWith("http://localhost"),
+      resolve: () => forward.promise,
+    });
+    await call("navigate", { tabId, url: "http://localhost:3000/" });
+    await call("navigate", { tabId, url: "https://example.com/new" });
+    forward.reject(new Error("offline"));
+    await Promise.resolve();
+    expect(registry.get(tabId)?.loadFailure).toBeNull();
+    expect(page.visible).toBe(true);
   });
 });

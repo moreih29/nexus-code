@@ -364,6 +364,7 @@
     "stage_lines_text_only": "UTF-8 텍스트 파일만 일부를 스테이징할 수 있습니다."
   },
   "browser": {
+    "load_failed": "페이지를 열 수 없음 ({{error}})",
     "go_back": "뒤로 이동",
     "go_forward": "앞으로 이동",
     "reload_page": "페이지 새로 고침",

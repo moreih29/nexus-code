@@ -364,6 +364,7 @@
     "stage_lines_text_only": "Only UTF-8 text files can be staged in part."
   },
   "browser": {
+    "load_failed": "Page failed to load ({{error}})",
     "go_back": "Go back",
     "go_forward": "Go forward",
     "reload_page": "Reload page",

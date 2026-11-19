@@ -56,6 +56,7 @@ import { BrowserEmptyState } from "@/components/editor/browser/empty-state";
 import { NavControls } from "@/components/editor/browser/nav-controls";
 import { PickButton } from "@/components/editor/browser/pick-button";
 import { UrlBar } from "@/components/editor/browser/url-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
 import { resolveInitialBrowserUrl } from "@/state/operations/browser";
@@ -141,6 +142,7 @@ export function BrowserTabView({
   const canGoBack = runtime?.canGoBack ?? false;
   const canGoForward = runtime?.canGoForward ?? false;
   const isLoading = runtime?.isLoading ?? false;
+  const loadFailure = runtime?.loadFailure ?? null;
   // Page snapshot painted as an absolute overlay while the native view is
   // hidden by a suspendAll cycle.  When set, it shows the last frame of the
   // page captured by main right before `setVisible(false)` — letting a
@@ -159,7 +161,8 @@ export function BrowserTabView({
   // `about:blank` is used as the synthetic initial load and is treated as
   // "no real content" for display purposes. Once the user navigates to an
   // http/https URL the empty state disappears.
-  const showEmptyState = (currentUrl === "" || currentUrl === BLANK_TAB_URL) && lastUrl === "";
+  const showEmptyState =
+    !loadFailure && (currentUrl === "" || currentUrl === BLANK_TAB_URL) && lastUrl === "";
 
   // -------------------------------------------------------------------------
   // Mount: browser.create
@@ -363,7 +366,7 @@ export function BrowserTabView({
       <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
         <NavControls tabId={tabId} canGoBack={canGoBack} canGoForward={canGoForward} />
         <UrlBar
-          currentUrl={currentUrl}
+          currentUrl={loadFailure?.url ?? currentUrl}
           isLoading={isLoading}
           onNavigate={handleNavigate}
           autoFocus={showEmptyState}
@@ -405,13 +408,26 @@ export function BrowserTabView({
               <BrowserEmptyState />
             </div>
           )}
+          {loadFailure && (
+            <div className="absolute inset-0 flex overflow-auto">
+              <EmptyState
+                title={i18next.t("browser.load_failed", { error: loadFailure.description })}
+                description={loadFailure.url}
+                actionLabel={i18next.t("action.retry")}
+                onAction={() => void ipcCallResult("browser", "reload", { tabId })}
+                disabled={isLoading}
+                tone="status"
+                className="[overflow-wrap:anywhere]"
+              />
+            </div>
+          )}
           {/* Placeholder: ResizeObserver target. The WebContentsView is overlaid
               by the main process using the CSS-pixel bounds of this element. */}
           <div
             ref={placeholderRef}
-            className="absolute inset-0"
+            className="absolute inset-0 pointer-events-none"
             aria-hidden="true"
-            data-browser-placeholder={tabId}
+            data-browser-placeholder={loadFailure ? undefined : tabId}
           />
           {/* Suspend-time snapshot overlay.  Painted as an absolute-fill <img>
               so DOM modals/menus rendered above still see a still image of the
@@ -419,7 +435,7 @@ export function BrowserTabView({
               available — the native WebContentsView paints above this <img>
               whenever it's visible, so there's no double-rendering during the
               normal "view shown" state. */}
-          {snapshot && (
+          {snapshot && !loadFailure && (
             <img
               src={snapshot}
               alt=""

@@ -75,6 +75,9 @@ interface TabEntry {
   view: WebContentsView;
   workspaceId: string;
   partition: string;
+  loadFailure: BrowserLoadFailure | null;
+  navigationRequest: number;
+  forwardedAddress: { requested: string; target: string } | null;
   /**
    * Whether this tab is the active tab in its group.
    *
@@ -137,6 +140,11 @@ export interface BrowserAddressResolver {
   resolve(workspaceId: string, url: string): Promise<string>;
 }
 
+export interface BrowserLoadFailure {
+  url: string;
+  description: string;
+}
+
 /** A usable page snapshot captured by `suspendAll`. */
 interface SuspendSnapshot {
   tabId: string;
@@ -175,6 +183,9 @@ export class BrowserTabRegistry {
   private addressResolver: BrowserAddressResolver | null = null;
   /** Told of a URL the resolver would not open, and why. */
   private readonly refusedListeners = new Set<(tabId: string, url: string, error: Error) => void>();
+  private readonly loadFailureListeners = new Set<
+    (tabId: string, failure: BrowserLoadFailure | null) => void
+  >();
 
   constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
     this.win = win;
@@ -235,6 +246,9 @@ export class BrowserTabRegistry {
       view,
       workspaceId,
       partition,
+      loadFailure: null,
+      navigationRequest: 0,
+      forwardedAddress: null,
       active: false,
       lastBounds: null,
       devtoolsView: null,
@@ -242,13 +256,26 @@ export class BrowserTabRegistry {
       devtoolsOpen: false,
     };
     this.tabs.set(tabId, entry);
+    view.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return; // ERR_ABORTED
+      const forward = entry.forwardedAddress;
+      this.setLoadFailure(tabId, entry, {
+        url: forward?.target === url ? forward.requested : url,
+        description,
+      });
+    });
+    view.webContents.on("did-navigate", () => this.setLoadFailure(tabId, entry, null));
     for (const listener of this.createListeners) listener(tabId, view.webContents);
 
     // A page's own move to a local address of an SSH workspace goes to the
     // address's forward instead. Guards that blocked it already win.
     view.webContents.on("will-navigate", (event, target) => {
       if (event.defaultPrevented) return;
-      if (!this.addressResolver?.rewrites(workspaceId, target)) return;
+      if (!this.addressResolver?.rewrites(workspaceId, target)) {
+        entry.navigationRequest++;
+        entry.forwardedAddress = null;
+        return;
+      }
       event.preventDefault();
       this.load(tabId, entry, target, "will-navigate");
     });
@@ -279,12 +306,24 @@ export class BrowserTabRegistry {
     return () => this.refusedListeners.delete(listener);
   }
 
+  onLoadFailure(listener: (tabId: string, failure: BrowserLoadFailure | null) => void): void {
+    this.loadFailureListeners.add(listener);
+  }
+
+  private setLoadFailure(tabId: string, entry: TabEntry, failure: BrowserLoadFailure | null): void {
+    if (this.tabs.get(tabId) !== entry || (failure === null && entry.loadFailure === null)) return;
+    entry.loadFailure = failure;
+    if (entry.active) entry.view.setVisible(!this.suspended && failure === null);
+    for (const listener of this.loadFailureListeners) listener(tabId, failure);
+  }
+
   /** Loads `url` in the tab, through the address resolver when it has a say. */
   private load(tabId: string, entry: TabEntry, url: string, label: string): void {
+    const request = ++entry.navigationRequest;
+    entry.forwardedAddress = null;
     if (!isTabLoadAllowed(url)) {
-      const error = new Error("a browser tab opens only http, https and file addresses");
-      logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
-      for (const listener of this.refusedListeners) listener(tabId, url, error);
+      logger.warn(`[${label}] disallowed address in ${tabId}: ${url}`);
+      this.setLoadFailure(tabId, entry, { url, description: "ERR_DISALLOWED_URL_SCHEME" });
       return;
     }
     const loadNow = (target: string) => {
@@ -297,15 +336,23 @@ export class BrowserTabRegistry {
       loadNow(url);
       return;
     }
+    const isCurrent = () =>
+      this.tabs.get(tabId) === entry &&
+      entry.navigationRequest === request &&
+      !entry.view.webContents.isDestroyed();
     resolver.resolve(entry.workspaceId, url).then(
       (resolved) => {
-        // The tab may have closed while the forward was set up.
-        if (this.tabs.get(tabId) !== entry || entry.view.webContents.isDestroyed()) return;
+        if (!isCurrent()) return;
+        entry.forwardedAddress = { requested: url, target: resolved };
         loadNow(resolved);
       },
       (error: Error) => {
-        if (this.tabs.get(tabId) !== entry) return;
+        if (!isCurrent()) return;
         logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
+        const { kind } = error as { kind?: unknown };
+        const description =
+          kind === "not-connected" ? "ERR_SSH_NOT_CONNECTED" : "ERR_PORT_FORWARD_FAILED";
+        this.setLoadFailure(tabId, entry, { url, description });
         for (const listener of this.refusedListeners) listener(tabId, url, error);
       },
     );
@@ -509,7 +556,7 @@ export class BrowserTabRegistry {
    */
   private attachAndRestoreBounds(entry: TabEntry): void {
     // An overlay may have ended while the view was detached.
-    entry.view.setVisible(!this.suspended);
+    entry.view.setVisible(!this.suspended && entry.loadFailure === null);
     this.win.contentView.addChildView(entry.view);
     const b = entry.lastBounds;
     if (b) {
@@ -641,7 +688,7 @@ export class BrowserTabRegistry {
 
     for (const entry of this.tabs.values()) {
       if (entry.active && !entry.view.webContents.isDestroyed()) {
-        entry.view.setVisible(true);
+        entry.view.setVisible(entry.loadFailure === null);
         if (
           entry.devtoolsOpen &&
           entry.devtoolsView !== null &&
@@ -673,6 +720,7 @@ export class BrowserTabRegistry {
     const captures = [...activeEntries].map(
       async ([tabId, entry]): Promise<SuspendSnapshot | null> => {
         try {
+          if (entry.loadFailure) return null;
           const img = await entry.view.webContents.capturePage();
           if (img.isEmpty()) return null;
           const buf = img.toJPEG(75);
@@ -716,6 +764,7 @@ export class BrowserTabRegistry {
       return;
     }
     if (entry.view.webContents.navigationHistory.canGoBack()) {
+      entry.navigationRequest++;
       entry.view.webContents.navigationHistory.goBack();
     }
   }
@@ -727,6 +776,7 @@ export class BrowserTabRegistry {
       return;
     }
     if (entry.view.webContents.navigationHistory.canGoForward()) {
+      entry.navigationRequest++;
       entry.view.webContents.navigationHistory.goForward();
     }
   }
@@ -738,6 +788,11 @@ export class BrowserTabRegistry {
       logger.warn(`[reload] unknown tabId: ${tabId}`);
       return;
     }
+    if (entry.loadFailure) {
+      this.load(tabId, entry, entry.loadFailure.url, "retry");
+      return;
+    }
+    entry.navigationRequest++;
     if (ignoreCache) {
       entry.view.webContents.reloadIgnoringCache();
     } else {

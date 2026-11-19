@@ -1909,17 +1909,11 @@ export const ipcContract = {
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
       loadingChanged: listen(z.object({ tabId: z.string().uuid(), isLoading: z.boolean() })),
-      /**
-       * Emitted when a navigation fails (network error, blocked scheme, etc.).
-       * `code` is the Chromium net error code; `description` is a human-readable
-       * message; `url` is the URL that failed to load.
-       */
-      error: listen(
+      /** The main frame's last load failure, cleared on successful navigation. */
+      loadFailureChanged: listen(
         z.object({
           tabId: z.string().uuid(),
-          code: z.number().int(),
-          description: z.string(),
-          url: z.string(),
+          failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
       /**
