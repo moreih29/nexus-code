@@ -17,6 +17,8 @@ import type {
   ChatLine,
   UserItem,
 } from "../../../../../../src/renderer/services/chat/model";
+import { agentsOf, jobsOf } from "../../../../../../src/renderer/services/chat/panel";
+import { activityOf } from "../../../../../../src/renderer/services/chat/running";
 
 // Lines as `codex app-server` 0.166.0 writes them (newline-delimited
 // JSON-RPC without the "jsonrpc" field), after the generated schema.
@@ -32,6 +34,16 @@ function run(lines: ChatLine[], from: CodexModel = emptyCodexModel()): CodexMode
 }
 
 const T = "thr_1";
+
+/** The activity inputs shared by the local and remote panels. */
+const activity = (model: CodexModel) =>
+  activityOf({
+    agents: agentsOf(model),
+    jobs: jobsOf(model),
+    tools: model.tools,
+    items: model.items,
+    turnRunning: model.running,
+  });
 
 function started(): ChatLine[] {
   return [
@@ -52,6 +64,58 @@ function started(): ChatLine[] {
     }),
   ];
 }
+
+test("a known child leaves running on its own terminal signal after the parent turn ends", () => {
+  const child = "child";
+  const sibling = "sibling";
+  const status = (threadId: string, type: string) =>
+    note("thread/statusChanged", {
+      threadId,
+      status: { type, ...(type === "active" ? { activeFlags: ["waitingOnApproval"] } : {}) },
+    });
+  const launch = run([
+    ...started(),
+    note("turn/started", { threadId: T, turn: { id: "parent" } }),
+    note("item/completed", {
+      threadId: T,
+      turnId: "parent",
+      item: {
+        type: "collabAgentToolCall",
+        id: "spawn",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: T,
+        receiverThreadIds: [child, sibling],
+        agentsStates: { child: { status: "running" }, sibling: { status: "running" } },
+      },
+    }),
+    note("turn/completed", { threadId: T, turn: { id: "parent", status: "completed", items: [] } }),
+    status("unrelated", "idle"),
+    status(child, "active"),
+  ]);
+  expect(activity(launch).running.map((row) => row.key)).toEqual([child, sibling]);
+  const cases = [
+    { end: [status(child, "idle")], expected: "completed" },
+    { end: [status(child, "systemError")], expected: "failed" },
+    {
+      end: [
+        note("turn/completed", {
+          threadId: child,
+          turn: { id: "child-turn", status: "interrupted", items: [] },
+        }),
+        status(child, "idle"),
+      ],
+      expected: "stopped",
+    },
+  ];
+  for (const { end, expected } of cases) {
+    const model = run(end, launch);
+    const rows = activity(model);
+    expect(rows.running.map((row) => row.key)).toEqual([sibling]);
+    expect(rows.ended).toMatchObject([{ key: child, status: expected, endedAt: 1000 }]);
+    expect(model.lastResult?.subtype).toBe("completed");
+  }
+});
 
 test("keeps the latest own-thread plan and ignores a child thread's plan", () => {
   const plan = (threadId: string, steps: unknown[]) =>

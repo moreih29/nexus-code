@@ -440,7 +440,7 @@ function applyResponse(
           const child = rec(raw);
           const id = str(child?.id);
           if (child && id && id !== m.threadId && parentThreadOf(child) === m.threadId) {
-            applyNativeAgent(m, id, child);
+            applyNativeAgent(m, id, child, undefined, undefined, at);
           }
         }
       }
@@ -455,7 +455,7 @@ function applyResponse(
         sent.request.includeTurns === true &&
         m.tasks[id]?.type === "codex_subagent"
       ) {
-        applyNativeAgent(m, id, thread);
+        applyNativeAgent(m, id, thread, undefined, undefined, at);
         applyAgentTranscript(draft, id, thread, seq);
       } else if (
         sent.request.includeTurns === false &&
@@ -603,17 +603,70 @@ function parentThreadOf(thread: Rec): string | undefined {
   return str(thread.parentThreadId) ?? str(spawn?.parent_thread_id);
 }
 
+/** Translates a child turn's outcome without treating a still-active turn as ended. */
+function nativeTurnEnd(status: unknown): string | undefined {
+  switch (status) {
+    case "completed":
+    case "failed":
+      return status;
+    case "interrupted":
+      return "stopped";
+  }
+}
+
+/** Updates a known child from its own thread and turn events. */
+function applyNativeAgentNotification(
+  m: CodexModel,
+  id: string,
+  method: string,
+  params: Rec,
+  at: number | undefined,
+): void {
+  const task = m.tasks[id];
+  if (task?.type !== "codex_subagent") return;
+  let status: string | undefined;
+  switch (method) {
+    case "thread/statusChanged":
+      if (!["active", "idle", "systemError"].includes(String(rec(params.status)?.type))) return;
+      applyNativeAgent(m, id, { status: params.status }, undefined, undefined, at);
+      return;
+    case "thread/closed":
+      if (task.status === "running") status = "stopped";
+      break;
+    case "turn/started":
+      status = "running";
+      break;
+    case "turn/completed":
+      status = nativeTurnEnd(rec(params.turn)?.status);
+      break;
+  }
+  if (status) applyNativeAgent(m, id, {}, status, undefined, at);
+}
+
+/** Merges discovery metadata or an explicit child lifecycle update into its row. */
 function applyNativeAgent(
   m: CodexModel,
   id: string,
   metadata: Rec = {},
   status?: string,
   prompt?: string,
+  at?: number,
 ): void {
   const before = m.tasks[id];
   const kind = str(rec(metadata.status)?.type);
   const lastTurn = Array.isArray(metadata.turns) ? rec(metadata.turns.at(-1)) : undefined;
-  const terminal = str(lastTurn?.status);
+  const previous = before?.status;
+  // An idle status says the turn ended. Its specific outcome can arrive
+  // separately and takes precedence over an idle snapshot.
+  const nextStatus =
+    status ??
+    (kind === "active"
+      ? "running"
+      : kind === "systemError"
+        ? "failed"
+        : (nativeTurnEnd(lastTurn?.status) ??
+          (kind === "idle" && (!previous || previous === "running") ? "completed" : previous) ??
+          "stopped"));
   const next: TaskInfo = {
     ...before,
     taskId: id,
@@ -622,20 +675,13 @@ function applyNativeAgent(
     description:
       str(metadata.agentNickname) || str(metadata.name) || before?.description || prompt || id,
     subagentType: str(metadata.agentRole) ?? before?.subagentType,
-    status:
-      status ??
-      (kind === "active"
-        ? "running"
-        : terminal === "failed" || kind === "systemError"
-          ? "failed"
-          : terminal === "interrupted"
-            ? "stopped"
-            : terminal === "completed" || kind === "idle"
-              ? "completed"
-              : (before?.status ?? "stopped")),
+    status: nextStatus,
     prompt: before?.prompt ?? (prompt || str(metadata.preview) || undefined),
     startedAt:
-      num(metadata.createdAt) === undefined ? before?.startedAt : Number(metadata.createdAt) * 1000,
+      num(metadata.createdAt) === undefined
+        ? (before?.startedAt ?? (nextStatus === "running" ? at : undefined))
+        : Number(metadata.createdAt) * 1000,
+    endedAt: nextStatus === "running" ? undefined : (before?.endedAt ?? at),
   };
   m.tasks = { ...m.tasks, [id]: next };
 }
@@ -863,7 +909,10 @@ function applyNotification(
   // its context's size and compactions.
   const threadId = str(params.threadId);
   const another = threadId && m.threadId && threadId !== m.threadId;
-  if (another && (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method))) return;
+  if (another) {
+    applyNativeAgentNotification(m, threadId, method, params, at);
+    if (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method)) return;
+  }
   if (
     threadId &&
     !m.threadId &&
@@ -1208,7 +1257,7 @@ function applyItem(
       }
       return;
   }
-  if (discoverAgents) applyNativeAgentItem(m, item);
+  if (discoverAgents) applyNativeAgentItem(m, item, at);
   const tools = toolsOf(item, id, phase);
   if (!tools) return;
   const ran =
@@ -1221,12 +1270,12 @@ function applyItem(
   return ran;
 }
 
-function applyNativeAgentItem(m: CodexModel, item: Rec): void {
+function applyNativeAgentItem(m: CodexModel, item: Rec, at: number | undefined): void {
   if (item.type === "subAgentActivity") {
     const id = str(item.agentThreadId);
     const status =
       item.kind === "completed" ? "completed" : item.kind === "interrupted" ? "stopped" : "running";
-    if (id && id !== m.threadId) applyNativeAgent(m, id, {}, status);
+    if (id && id !== m.threadId) applyNativeAgent(m, id, {}, status, undefined, at);
   }
   if (item.type !== "collabAgentToolCall" || !Array.isArray(item.receiverThreadIds)) return;
   if (item.senderThreadId && item.senderThreadId !== m.threadId) return;
@@ -1243,7 +1292,14 @@ function applyNativeAgentItem(m: CodexModel, item: Rec): void {
             : state === "pendingInit" || state === "running" || item.tool === "spawnAgent"
               ? "running"
               : undefined;
-    applyNativeAgent(m, id, {}, status, item.tool === "spawnAgent" ? str(item.prompt) : undefined);
+    applyNativeAgent(
+      m,
+      id,
+      {},
+      status,
+      item.tool === "spawnAgent" ? str(item.prompt) : undefined,
+      at,
+    );
   }
 }
 
