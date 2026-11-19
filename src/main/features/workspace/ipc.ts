@@ -80,7 +80,8 @@ export function registerWorkspaceChannel(
         // When a browse session id is supplied the user already authenticated
         // via the SSH directory picker; use the legacy create+claimMaster path
         // which reuses that session's ControlMaster without a second prompt.
-        if (createArgs && "location" in createArgs && createArgs.location.kind !== "ssh") {
+        // The legacy `{ rootPath }` shape is always a local folder.
+        if (!("location" in createArgs) || createArgs.location.kind !== "ssh") {
           // Local: commit immediately — no connection step needed.
           const meta = manager.create(createArgs);
           return ipcOk(meta);
