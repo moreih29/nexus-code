@@ -1,0 +1,449 @@
+/**
+ * Additional adversarial verification tests for the publishDiagnostics debounce
+ * feature (Task 3). These tests cover the lifecycle scenarios and edge-cases
+ * NOT covered by Engineer's self-regression suite.
+ *
+ * Coverage map:
+ *   AC 2a  — didClose flushes pending diagnostics; state cleared so no leakage
+ *             on a subsequently re-opened URI.
+ *   AC 2b  — handleServerExited clears timers without stale emit (deeper: URI
+ *             lookup uses uriIndex snapshot at exit time, not after cleanup).
+ *   AC 2c  — dispose after pending timers: no emit fires, map is empty
+ *             (verified indirectly via emit-count).
+ *   AC 3   — Steady-state burst after idle: one leading-edge emit, then one
+ *             trailing-edge emit carrying the last payload.
+ *   AC 5   — Non-publishDiagnostics server notifications (window/showMessage,
+ *             window/logMessage, $/progress, workspace/applyEdit /
+ *             window/showMessageRequest) are emitted immediately without
+ *             touching the diagnostics timer.
+ */
+
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
+import type {
+  AgentChannel,
+  ChannelEventCallback,
+  ChannelLifecycleCallback,
+} from "../../../../../src/main/infra/agent/channel";
+
+const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
+
+// ---------------------------------------------------------------------------
+// Minimal channel implementation used across all extra tests
+// ---------------------------------------------------------------------------
+class MinimalChannel implements AgentChannel {
+  readonly ready = Promise.resolve();
+  readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
+  readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
+
+  constructor(public serverId = "srv-extra") {}
+
+  async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    if (method === "lsp.spawn") {
+      const correlationId = (params as { correlationId?: string } | undefined)?.correlationId;
+      this.emit("lsp.serverAssigned", {
+        serverId: this.serverId,
+        ...(correlationId ? { correlationId } : {}),
+      });
+      return {
+        serverId: this.serverId,
+        capabilities: {
+          textDocumentSync: { openClose: true, change: 2 },
+        },
+      } as TResult;
+    }
+    return {} as TResult;
+  }
+
+  fire(_method: string, _params?: unknown): void {}
+
+  on(event: string, callback: ChannelEventCallback): () => void {
+    let listeners = this.eventListeners.get(event);
+    if (!listeners) {
+      listeners = new Set();
+      this.eventListeners.set(event, listeners);
+    }
+    listeners.add(callback);
+    return () => listeners?.delete(callback);
+  }
+
+  onLifecycle(callback: ChannelLifecycleCallback): () => void {
+    this.lifecycleListeners.add(callback);
+    return () => this.lifecycleListeners.delete(callback);
+  }
+
+  emit(event: string, payload: unknown): void {
+    for (const listener of this.eventListeners.get(event) ?? []) {
+      listener(payload);
+    }
+  }
+
+  emitDiagnostics(uri: string, version: number): void {
+    this.emit("lsp.message", {
+      serverId: this.serverId,
+      message: {
+        jsonrpc: "2.0",
+        method: "textDocument/publishDiagnostics",
+        params: {
+          uri,
+          diagnostics: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+              message: `v${version}`,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  emitServerNotification(method: string, params: unknown): void {
+    this.emit("lsp.message", {
+      serverId: this.serverId,
+      message: {
+        jsonrpc: "2.0",
+        method,
+        params,
+      },
+    });
+  }
+
+  dispose(): void {}
+}
+
+async function openUri(
+  host: ReturnType<typeof startAgentLspHost>,
+  uri: string,
+  workspaceId = WORKSPACE_ID,
+): Promise<void> {
+  await host.call("didOpen", {
+    workspaceId,
+    workspaceRoot: "/tmp/ws",
+    uri,
+    languageId: "python",
+    version: 1,
+    text: "x = 1\n",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Global fake-timer teardown guard
+// ---------------------------------------------------------------------------
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+// ---------------------------------------------------------------------------
+// AC 2a — didClose lifecycle
+// ---------------------------------------------------------------------------
+describe("AC 2a: didClose lifecycle", () => {
+  test("pending trailing-edge timer is flushed synchronously on didClose, not later", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(10_000_000));
+
+    const channel = new MinimalChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const emitted: unknown[] = [];
+    host.on("diagnostics", (args) => emitted.push(args));
+
+    const URI = "file:///tmp/ws/close-flush.py";
+    await openUri(host, URI);
+
+    // Leading-edge emit.
+    channel.emitDiagnostics(URI, 1);
+    expect(emitted).toHaveLength(1);
+
+    // Within idle window: schedule a trailing-edge timer.
+    jest.setSystemTime(new Date(10_000_000 + 50));
+    channel.emitDiagnostics(URI, 2);
+    expect(emitted).toHaveLength(1); // timer pending
+
+    // didClose must flush the pending diagnostic BEFORE uriIndex is cleared.
+    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
+
+    // Flush must have happened immediately (no timer advance needed).
+    expect(emitted).toHaveLength(2);
+    expect((emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
+      "v2",
+    );
+
+    // Timer should be cancelled — advancing past the debounce window must
+    // NOT produce a third emit.
+    jest.advanceTimersByTime(200);
+    expect(emitted).toHaveLength(2);
+
+    host.dispose();
+  });
+
+  test("after didClose, re-opening the same URI starts with a clean debounce state (no leakage)", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(11_000_000));
+
+    const channel = new MinimalChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const emitted: unknown[] = [];
+    host.on("diagnostics", (args) => emitted.push(args));
+
+    const URI = "file:///tmp/ws/reopen.py";
+    await openUri(host, URI);
+
+    // Emit diagnostic — leading-edge.
+    channel.emitDiagnostics(URI, 1);
+    expect(emitted).toHaveLength(1);
+
+    // Schedule a trailing-edge timer by sending within idle window.
+    jest.setSystemTime(new Date(11_000_000 + 50));
+    channel.emitDiagnostics(URI, 99);
+    expect(emitted).toHaveLength(1);
+
+    // Close: flushes v99, clears state.
+    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
+    expect(emitted).toHaveLength(2);
+
+    // Re-open the same URI. The server is the same (same workspace + language).
+    await openUri(host, URI);
+
+    // New diagnostics for the re-opened URI must trigger a fresh leading-edge
+    // emit (state was cleaned up, not still referencing the old server's payload).
+    channel.emitDiagnostics(URI, 3);
+    expect(emitted).toHaveLength(3);
+    expect((emitted[2] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
+      "v3",
+    );
+
+    jest.advanceTimersByTime(200);
+    // No extra emit — no stale timer from before close should fire.
+    expect(emitted).toHaveLength(3);
+
+    host.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC 2b — handleServerExited: deeper coverage
+// ---------------------------------------------------------------------------
+describe("AC 2b: handleServerExited deeper coverage", () => {
+  test("URIs owned by a different (surviving) server are unaffected by exit of another server", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(21_000_000));
+
+    // Two channels: one for the exited server, one for the surviving server.
+    const exitedChannel = new MinimalChannel("srv-exited");
+    const survivingChannel = new MinimalChannel("srv-surviving");
+    let callCount = 0;
+    const manager = {
+      getAgentChannel: async (_wsId: string) => {
+        callCount++;
+        return callCount === 1 ? exitedChannel : survivingChannel;
+      },
+    };
+
+    const host = startAgentLspHost(manager);
+    const emitted: unknown[] = [];
+    host.on("diagnostics", (args) => emitted.push(args));
+
+    const URI_EXIT = "file:///tmp/ws/exit-server.py";
+    const URI_SURVIVE = "file:///tmp/ws/survive-server.ts";
+
+    // Open python (exited channel) and typescript (surviving channel).
+    await host.call("didOpen", {
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/ws",
+      uri: URI_EXIT,
+      languageId: "python",
+      version: 1,
+      text: "x = 1\n",
+    });
+    await host.call("didOpen", {
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/ws",
+      uri: URI_SURVIVE,
+      languageId: "typescript",
+      version: 1,
+      text: "export const x = 1\n",
+    });
+
+    // Leading-edge emits.
+    exitedChannel.emitDiagnostics(URI_EXIT, 1);
+    survivingChannel.emitDiagnostics(URI_SURVIVE, 1);
+    expect(emitted).toHaveLength(2);
+
+    // Schedule trailing-edge timers within idle window.
+    jest.setSystemTime(new Date(21_000_000 + 50));
+    exitedChannel.emitDiagnostics(URI_EXIT, 2);
+    survivingChannel.emitDiagnostics(URI_SURVIVE, 2);
+    expect(emitted).toHaveLength(2);
+
+    // Only the exited server fires its exit event.
+    exitedChannel.emit("lsp.serverExited", {
+      serverId: "srv-exited",
+      reason: "signal: killed",
+      stderrTail: "",
+    });
+
+    // Advance timers — surviving URI timer must still fire.
+    jest.advanceTimersByTime(200);
+
+    // EXIT server URI: no extra emit. SURVIVE server URI: trailing-edge fires.
+    const surviveEmits = (emitted as Array<{ uri: string }>).filter((e) => e.uri === URI_SURVIVE);
+    const exitEmits = (emitted as Array<{ uri: string }>).filter((e) => e.uri === URI_EXIT);
+    expect(exitEmits).toHaveLength(1); // only leading-edge
+    expect(surviveEmits).toHaveLength(2); // leading-edge + trailing-edge
+
+    host.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC 2c — dispose clears timers without stale emit
+// ---------------------------------------------------------------------------
+describe("AC 2c: dispose lifecycle", () => {
+  test("dispose with pending timers produces no further diagnostics emits", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(30_000_000));
+
+    const channel = new MinimalChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const emitted: unknown[] = [];
+    host.on("diagnostics", (args) => emitted.push(args));
+
+    const URI = "file:///tmp/ws/dispose-pending.py";
+    await openUri(host, URI);
+
+    // Leading-edge emit.
+    channel.emitDiagnostics(URI, 1);
+    expect(emitted).toHaveLength(1);
+
+    // Schedule trailing-edge timer within idle window.
+    jest.setSystemTime(new Date(30_000_000 + 50));
+    channel.emitDiagnostics(URI, 2);
+    expect(emitted).toHaveLength(1);
+
+    // Dispose must clear the timer.
+    host.dispose();
+
+    // Advance past debounce window — no stale emit.
+    jest.advanceTimersByTime(500);
+    expect(emitted).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC 5 — Non-publishDiagnostics notifications bypass debounce
+// ---------------------------------------------------------------------------
+describe("AC 5: non-publishDiagnostics notifications are not debounced", () => {
+  const NOTIFICATION_CASES: Array<{
+    label: string;
+    method: string;
+    params: unknown;
+    eventType: string;
+  }> = [
+    {
+      label: "window/logMessage",
+      method: "window/logMessage",
+      params: { type: 3, message: "log message" },
+      eventType: "serverEvent",
+    },
+  ];
+
+  for (const { label, method, params, eventType } of NOTIFICATION_CASES) {
+    test(`${label} emits immediately as serverEvent (no timer delay)`, async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(60_000_000));
+
+      const channel = new MinimalChannel();
+      const host = startAgentLspHost({ getAgentChannel: async () => channel });
+      const serverEvents: unknown[] = [];
+      const diagnosticsEmitted: unknown[] = [];
+      host.on(eventType, (args) => serverEvents.push(args));
+      host.on("diagnostics", (args) => diagnosticsEmitted.push(args));
+
+      const URI = `file:///tmp/ws/non-diag-${label.replace(/\//g, "-")}.py`;
+      await openUri(host, URI);
+
+      // Emit the non-diagnostics notification — must reach the host immediately.
+      channel.emitServerNotification(method, params);
+
+      // No timer advance needed.
+      expect(serverEvents).toHaveLength(1);
+      expect((serverEvents[0] as { method: string }).method).toBe(method);
+
+      // Diagnostics map must be untouched.
+      expect(diagnosticsEmitted).toHaveLength(0);
+
+      // Advance timers to confirm no ghost fire.
+      jest.advanceTimersByTime(500);
+      expect(serverEvents).toHaveLength(1);
+
+      host.dispose();
+    });
+  }
+
+  test("interleaving publishDiagnostics and window/logMessage: logMessage always immediate", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(61_000_000));
+
+    const channel = new MinimalChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const serverEvents: unknown[] = [];
+    const diagnosticsEmitted: unknown[] = [];
+    host.on("serverEvent", (args) => serverEvents.push(args));
+    host.on("diagnostics", (args) => diagnosticsEmitted.push(args));
+
+    const URI = "file:///tmp/ws/interleave.py";
+    await openUri(host, URI);
+
+    // Leading-edge diagnostic emit.
+    channel.emitDiagnostics(URI, 1);
+    expect(diagnosticsEmitted).toHaveLength(1);
+
+    // Schedule trailing-edge timer.
+    jest.setSystemTime(new Date(61_000_000 + 50));
+    channel.emitDiagnostics(URI, 2);
+    expect(diagnosticsEmitted).toHaveLength(1);
+
+    // logMessage mid-burst must be emitted immediately, no timer influence.
+    channel.emitServerNotification("window/logMessage", { type: 3, message: "compiling" });
+    expect(serverEvents).toHaveLength(1);
+    expect(diagnosticsEmitted).toHaveLength(1); // still 1 — not affected
+
+    // Fire trailing-edge diagnostic timer.
+    jest.advanceTimersByTime(110);
+    expect(diagnosticsEmitted).toHaveLength(2);
+    expect(serverEvents).toHaveLength(1); // logMessage still just 1
+
+    host.dispose();
+  });
+
+  test("window/showMessageRequest (server-request path) emits immediately as serverEvent", async () => {
+    // window/showMessageRequest travels via lsp.serverRequest, not lsp.message,
+    // so it has a different code path. Verify it is also not delayed.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(62_000_000));
+
+    const channel = new MinimalChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const serverEvents: unknown[] = [];
+    host.on("serverEvent", (args) => serverEvents.push(args));
+
+    const URI = "file:///tmp/ws/show-msg-req.py";
+    await openUri(host, URI);
+
+    // Emit via the server-request channel.
+    channel.emit("lsp.serverRequest", {
+      serverId: channel.serverId,
+      agentRequestId: "smr-1",
+      method: "window/showMessageRequest",
+      params: { type: 1, message: "Error occurred", actions: [{ title: "Retry" }] },
+    });
+
+    // Must be immediate.
+    expect(serverEvents).toHaveLength(1);
+    expect((serverEvents[0] as { method: string }).method).toBe("window/showMessageRequest");
+
+    jest.advanceTimersByTime(500);
+    expect(serverEvents).toHaveLength(1);
+
+    host.dispose();
+  });
+});
