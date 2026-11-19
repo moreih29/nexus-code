@@ -16,7 +16,6 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
-import { addLineReceiver } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
 import {
   forgetPlanWait,
@@ -40,6 +39,7 @@ import {
 } from "../store";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
+import { addLineReceiver } from "../transport/receivers";
 import { compareVersions } from "../versions";
 import { type CodexCollaborationMode, collaborationPresetsOf } from "./collaboration";
 import { type CodexMcpServer, mcpServersOf } from "./commands";
@@ -271,7 +271,7 @@ export class CodexController {
     // What the user picked before and no turn has sent yet: the next turn
     // takes it, as one picked now would.
     this.next = picksFrom(target.chosen);
-    this.removeReceiver = addLineReceiver(this.key, this);
+    this.removeReceiver = addLineReceiver(this);
     this.leavePlanUsage = registerPlanSource({
       agent: "codex",
       usageKey: () => this.usageKey(),

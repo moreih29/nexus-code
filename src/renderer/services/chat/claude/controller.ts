@@ -10,7 +10,7 @@ import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-p
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
-import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import { backgroundIdOf } from "../app-commands";
 import {
@@ -38,6 +38,7 @@ import {
 } from "../store";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
+import { addLineReceiver } from "../transport/receivers";
 import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "../versions";
 import {
   configUsageOf,
@@ -268,6 +269,7 @@ export class ChatController {
   private subagentsMissing = new Set<string>();
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
   private readonly leavePlanUsage: () => void;
+  private readonly removeReceiver?: () => void;
   /** Whether the program's initialize is still on its way: until then it is asked nothing else. */
   private initPending = false;
   /** The name the program last said its session has. */
@@ -310,10 +312,15 @@ export class ChatController {
     };
   }
 
-  constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
+  constructor(
+    target: ChatTabTarget,
+    hooks: ChatTabHooks = {},
+    { receiveAgentEvents = false }: { receiveAgentEvents?: boolean } = {},
+  ) {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
+    if (receiveAgentEvents) this.removeReceiver = addLineReceiver(this, true);
     this.sessionId = target.sessionId;
     this.chosenModel = target.chosen?.model;
     if (target.chosen?.effort) this.flags = { effortLevel: target.chosen.effort };
@@ -2100,6 +2107,7 @@ export class ChatController {
     this.rejectPending("the tab closed");
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
+    this.removeReceiver?.();
     this.leavePlanUsage();
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
@@ -2150,48 +2158,6 @@ registerWorkspaceCleanup((workspaceId) => {
     if (key.startsWith(prefix)) controller.dispose();
   }
 });
-let listening = false;
-
-/** What else the agent's chat lines go to: another program's tab (Codex). */
-export interface LineReceiver {
-  readonly key: string;
-  receive(line: ChatLine): void;
-  held(): void;
-  resync(): Promise<void>;
-}
-
-const receivers = new Map<string, LineReceiver>();
-
-/** Sends a tab's lines and its agent's comings and goings to a receiver; undone by the result. */
-export function addLineReceiver(key: string, receiver: LineReceiver): () => void {
-  ensureListeners();
-  receivers.set(key, receiver);
-  return () => {
-    if (receivers.get(key) === receiver) receivers.delete(key);
-  };
-}
-
-function receiversOf(workspaceId: string): LineReceiver[] {
-  return [...controllers.values(), ...receivers.values()].filter((r) =>
-    r.key.startsWith(`${workspaceId}:`),
-  );
-}
-
-function ensureListeners(): void {
-  if (listening) return;
-  listening = true;
-  ipcListen("chat", "line", (line) => {
-    const key = chatKey(line.workspaceId, line.tabId);
-    (controllers.get(key) ?? receivers.get(key))?.receive(line as ChatLine);
-  });
-  ipcListen("chat", "held", ({ workspaceId }) => {
-    for (const receiver of receiversOf(workspaceId)) receiver.held();
-  });
-  ipcListen("chat", "resync", ({ workspaceId }) => {
-    for (const receiver of receiversOf(workspaceId)) void receiver.resync();
-  });
-}
-
 /** The tab's controller, made on first use. */
 const pruned = new Set<string>();
 registerWorkspaceCleanup((workspaceId) => pruned.delete(workspaceId));
@@ -2243,11 +2209,10 @@ export function existingChatController(
 }
 
 export function chatController(target: ChatTabTarget, hooks?: ChatTabHooks): ChatController {
-  ensureListeners();
   const key = chatKey(target.workspaceId, target.tabId);
   let controller = controllers.get(key);
   if (!controller) {
-    controller = new ChatController(target, hooks);
+    controller = new ChatController(target, hooks, { receiveAgentEvents: true });
     controllers.set(key, controller);
   } else if (hooks) {
     controller.setHooks(hooks);

@@ -4,9 +4,14 @@
  * the program it started.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { ChatController } from "../../../../../../src/renderer/services/chat/claude/controller";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  ChatController,
+  chatController,
+} from "../../../../../../src/renderer/services/chat/claude/controller";
+import { codexController } from "../../../../../../src/renderer/services/chat/codex/controller";
 import type { ChatLine } from "../../../../../../src/renderer/services/chat/model";
+import { useChatStore } from "../../../../../../src/renderer/services/chat/store";
 import { LiveLines } from "../../../../../../src/renderer/services/chat/transport/live-lines";
 
 const line = (seq: number, replay = false): ChatLine => ({
@@ -76,4 +81,88 @@ describe("a Claude tab's replay", () => {
     expect(c.state.model.lastSeq).toBe(15);
     c.dispose();
   });
+});
+
+const routingCase = "routes both providers with one IPC subscription and unregisters closed tabs";
+
+test(routingCase, async () => {
+  if (process.env.NEXUS_CHAT_ROUTING_FIXTURE !== "1") {
+    // The app installs its listeners once. Run this case with a fresh module
+    // registry so earlier tests cannot leave the subscription initialized.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path, "-t", routingCase], {
+      env: { ...process.env, NEXUS_CHAT_ROUTING_FIXTURE: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    if (exit !== 0) throw new Error(stdout + stderr);
+    return;
+  }
+
+  const subscriptions: string[] = [];
+  const callbacks = new Map<string, (payload: unknown) => void>();
+  const replays: unknown[] = [];
+  W.window = {
+    ipc: {
+      listen: (channel: string, event: string, callback: (payload: unknown) => void) => {
+        subscriptions.push(`${channel}.${event}`);
+        callbacks.set(event, callback);
+        return () => callbacks.delete(event);
+      },
+      call: async (channel: string, method: string, args: unknown) => {
+        if (channel !== "chat" || method !== "replay")
+          throw new Error(`unexpected ${channel}.${method}`);
+        replays.push(args);
+        return { found: true, running: true, truncated: false, lastSeq: 1 };
+      },
+    },
+  };
+  const first = { workspaceId: "claude-workspace", tabId: "same-tab" };
+  const second = { workspaceId: "codex-workspace", tabId: "same-tab" };
+  const claude = chatController({ ...first, cwd: "/claude" });
+  const codex = codexController({ ...second, cwd: "/codex" });
+  const receiveClaude = spyOn(claude, "receive");
+  const receiveCodex = spyOn(codex, "receive");
+  const emit = (event: string, payload: unknown) => {
+    const callback = callbacks.get(event);
+    if (!callback) throw new Error(`missing subscription for ${event}`);
+    callback(payload);
+  };
+  try {
+    expect(subscriptions).toEqual(["chat.line", "chat.held", "chat.resync"]);
+    const start = { seq: 1, dir: "sys", message: { event: "start" } };
+    emit("line", { ...first, ...start });
+    emit("line", { ...second, ...start });
+    expect(receiveClaude).toHaveBeenCalledTimes(1);
+    expect(receiveCodex).toHaveBeenCalledTimes(1);
+    expect(receiveClaude.mock.calls[0]?.[0]).toMatchObject(first);
+    expect(receiveCodex.mock.calls[0]?.[0]).toMatchObject(second);
+    claude.flushNow();
+    codex.flushNow();
+    for (const controller of [claude, codex]) {
+      useChatStore.getState().update(controller.key, (state) => ({ ...state, phase: "ready" }));
+    }
+
+    emit("held", { workspaceId: first.workspaceId });
+    expect(claude.state.phase).toBe("held");
+    expect(codex.state.phase).toBe("ready");
+    emit("resync", { workspaceId: first.workspaceId });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(replays).toEqual([{ ...first, afterSeq: 1 }]);
+    expect(claude.state.phase).toBe("ready");
+
+    claude.dispose();
+    codex.dispose();
+    emit("line", { ...first, ...line(2) });
+    emit("line", { ...second, ...line(2) });
+    expect(receiveClaude).toHaveBeenCalledTimes(1);
+    expect(receiveCodex).toHaveBeenCalledTimes(1);
+  } finally {
+    claude.dispose();
+    codex.dispose();
+  }
 });
