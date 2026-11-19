@@ -1,9 +1,18 @@
 import type { CodexFork } from "../../../shared/types/layout";
+import type { CodexModel } from "./codex-model";
 import type { ChatTabState } from "./store";
 import { compareVersions } from "./versions";
 
 /** The oldest app-server whose turn-boundary fork we have verified. */
 export const CODEX_HISTORY_VERSION = "0.170.0";
+
+/** The running server's version, falling back to the detected executable. */
+export function codexServerVersion(
+  model: Pick<CodexModel, "appServerVersion">,
+  installedVersion: string | null | undefined,
+): string | null | undefined {
+  return model.appServerVersion ?? installedVersion;
+}
 
 export function codexHistoryAvailable(version: string | null | undefined): boolean {
   return Boolean(version && compareVersions(version, CODEX_HISTORY_VERSION) >= 0);

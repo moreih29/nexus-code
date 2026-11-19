@@ -19,7 +19,11 @@ import {
   codexController,
   MIN_CODEX_VERSION,
 } from "../../services/chat/codex-controller";
-import { codexHistoryAvailable, codexHistoryBusy } from "../../services/chat/codex-history";
+import {
+  codexHistoryAvailable,
+  codexHistoryBusy,
+  codexServerVersion,
+} from "../../services/chat/codex-history";
 import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import { filesThere } from "../../services/chat/file-presence";
@@ -552,7 +556,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   );
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
-  const historyAvailable = codexHistoryAvailable(model.appServerVersion ?? state.version);
+  const historyAvailable = codexHistoryAvailable(codexServerVersion(model, state.version));
   const forkFrom = (item: UserItem | AssistantItem) => {
     try {
       const fork = controller.forkPoint(item);

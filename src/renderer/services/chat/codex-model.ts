@@ -25,6 +25,7 @@ import {
   codexForkPrefix,
   codexForkSourceStatus,
   codexHistoryAvailable,
+  codexServerVersion,
   codexTurnIds,
   emptyCodexForkPages,
   validCodexFork,
@@ -238,9 +239,10 @@ export function applyCodexLine(
   prev: CodexModel,
   line: ChatLine,
   now: number = Date.now(),
+  installedVersion?: string | null,
 ): CodexModel {
   if (line.seq <= prev.lastSeq) return prev;
-  const draft = new Draft(prev);
+  const draft = Object.assign(new Draft(prev), { installedVersion });
   draft.next.lastSeq = line.seq;
   const message = rec(line.message);
   if (!message) return draft.next;
@@ -274,13 +276,14 @@ export function applyCodexLines(
   prev: CodexModel,
   lines: readonly ChatLine[],
   now?: number,
+  installedVersion?: string | null,
 ): CodexModel {
   let model = prev;
-  for (const line of lines) model = applyCodexLine(model, line, now);
+  for (const line of lines) model = applyCodexLine(model, line, now, installedVersion);
   return model;
 }
 
-type CodexDraft = Draft<CodexModel>;
+type CodexDraft = Draft<CodexModel> & { readonly installedVersion?: string | null };
 
 // ---------------------------------------------------------------------------
 // What the app wrote: its requests, and its answers to the server's.
@@ -752,7 +755,7 @@ function markHistoryBoundary(
   completed: boolean,
   first = 0,
 ): void {
-  if (!codexHistoryAvailable(draft.next.appServerVersion)) return;
+  if (!codexHistoryAvailable(codexServerVersion(draft.next, draft.installedVersion))) return;
   const items = draft.next.items;
   const prompt = items.findIndex(
     (item, i) => i >= first && item.kind === "user" && item.turnId === turnId,

@@ -29,6 +29,7 @@ import {
   codexForkSourceStatus,
   codexHistoryAvailable,
   codexHistoryBusy,
+  codexServerVersion,
   emptyCodexForkPages,
   validCodexFork,
 } from "./codex-history";
@@ -552,7 +553,7 @@ export class CodexController {
     const { threadId, beforeTurnId, lastTurnId } = fork;
     if (
       (beforeTurnId || lastTurnId) &&
-      !codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)
+      !codexHistoryAvailable(codexServerVersion(this.model, this.state.version))
     ) {
       throw new Error("This Codex version cannot fork at a turn boundary");
     }
@@ -634,7 +635,7 @@ export class CodexController {
     const threadId = this.currentThread();
     if (!threadId || this.model.items.length === 0) throw new Error("Codex has no history to fork");
     if (!item) return { threadId };
-    if (!codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)) {
+    if (!codexHistoryAvailable(codexServerVersion(this.model, this.state.version))) {
       throw new Error("This Codex version cannot fork at a turn boundary");
     }
     const current = this.model.items.find((each) => each.key === item.key);
@@ -1770,7 +1771,7 @@ export class CodexController {
       catalog,
       remote,
       this.model.model,
-      this.model.appServerVersion ?? this.state.version,
+      codexServerVersion(this.model, this.state.version),
     );
   }
 
@@ -2019,7 +2020,7 @@ export class CodexController {
 
   private async discoverSubagents(threadId: string): Promise<void> {
     const changed = new Set<string>();
-    if (codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)) {
+    if (codexHistoryAvailable(codexServerVersion(this.model, this.state.version))) {
       const before = this.model.tasks;
       const result = await this.request("thread/list", {
         parentThreadId: threadId,
@@ -2139,7 +2140,7 @@ export class CodexController {
     const lines = this.buffered;
     this.buffered = [];
     const before = this.model;
-    const model = applyCodexLines(before, lines);
+    const model = applyCodexLines(before, lines, undefined, this.state.version);
     if (model === before) return;
     if (model.running || model.lastResult) this.emptyThread = undefined;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));

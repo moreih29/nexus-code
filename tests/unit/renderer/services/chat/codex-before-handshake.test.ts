@@ -44,7 +44,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (method === "codexStart") {
       starts.push(args);
       onStart?.();
-      const value = { ok: true, pid: 1, attached: false, version: null, ...hostFolder };
+      const value = { ok: true, pid: 1, attached: false, version: installedVersion, ...hostFolder };
       return Promise.resolve({
         ok: true,
         value: catalog ? contract.codexStart.result.parse(value) : value,
@@ -72,6 +72,7 @@ const live: Controller[] = [];
 const sent: Message[] = [];
 const starts: Message[] = [];
 let hostFolder: { canonicalCwd?: string } = {};
+let installedVersion: string | null = null;
 let replayResponse: (() => unknown) | undefined;
 let onStart: (() => void) | undefined;
 let onStop: (() => void) | undefined;
@@ -85,6 +86,7 @@ afterEach(() => {
   catalogCalls.length = 0;
   invalidateCodexHistory(catalogWorkspace);
   hostFolder = {};
+  installedVersion = null;
   replayResponse = undefined;
   onStart = undefined;
   onStop = undefined;
@@ -405,6 +407,59 @@ test("resume starts the selected Codex profile and waits for its thread", async 
   expect(starts.at(-1)).toMatchObject({ profileId: "another-profile", resetLog: true });
   expect(c.model.threadId).toBe("other");
   expect(c.profileId).toBe("another-profile");
+});
+
+test("history boundaries use the installed version when initialize omits its user agent", async () => {
+  installedVersion = "0.170.0";
+  const c = tab();
+  const prompt = { id: "prompt", type: "userMessage", content: [{ type: "text", text: "hello" }] };
+  const answer = { id: "answer", type: "agentMessage", text: "hi" };
+  scriptProgram(c, (message) => ({
+    result:
+      message.method === "thread/resume"
+        ? {
+            thread: {
+              id: "t1",
+              cliVersion: "0.166.0",
+              turns: [{ id: "history", status: "completed", items: [prompt, answer] }],
+            },
+          }
+        : {},
+  }));
+  await c.prepareSend();
+  expect(c.model.appServerVersion).toBeUndefined();
+
+  c.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: { method: "turn/started", params: { threadId: "t1", turn: { id: "live" } } },
+  });
+  for (const item of [
+    { ...prompt, id: "live-prompt" },
+    { ...answer, id: "live-answer" },
+  ]) {
+    c.receive({
+      seq: ++lineSeq,
+      dir: "out",
+      message: { method: "item/completed", params: { threadId: "t1", turnId: "live", item } },
+    });
+  }
+  c.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: {
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "live", status: "completed" } },
+    },
+  });
+  c.flushNow();
+
+  expect(c.model.items).toMatchObject([
+    { kind: "user", forkable: true, rewindable: true },
+    { kind: "assistant", forkable: true },
+    { kind: "user", forkable: true, rewindable: true },
+    { kind: "assistant", forkable: true },
+  ]);
 });
 
 test("rewind excludes a concurrent send and keeps the parent when the prefix is wrong", async () => {

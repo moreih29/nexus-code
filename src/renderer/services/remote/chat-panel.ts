@@ -12,6 +12,7 @@ import {
   type ViewGoal,
   type ViewUsageMeter,
 } from "../../../../packages/remote-protocol/src";
+import { codexServerVersion } from "../chat/codex-history";
 import type { CodexModel } from "../chat/codex-model";
 import { type GoalView, shownGoalOf } from "../chat/goal";
 import type { ChatItem, ToolCall } from "../chat/model";
@@ -172,7 +173,7 @@ function codexMcpStatus(status: string, needsLogin?: boolean): string {
 }
 
 function codexExtrasOf(source: ChatSource, model: CodexModel): Partial<ChatPanel> {
-  const version = model.appServerVersion ?? source.chat.version ?? model.version;
+  const version = codexServerVersion(model, source.chat.version) ?? model.version;
   const session = {
     ...(model.threadId ? { id: model.threadId } : {}),
     ...(version ? { version } : {}),
