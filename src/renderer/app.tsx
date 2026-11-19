@@ -2,7 +2,7 @@ import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useRef } from "react";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
+import { bootstrapClaudeStatus, bootstrapWorkbench } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { AgentSidebar } from "./components/agent-view/agent-sidebar";
 import { AgentView } from "./components/agent-view/agent-view";
@@ -40,6 +40,7 @@ import { LOOK_AREA_ATTR } from "./services/chat/look-area";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
+import { activateWorkspace, focusWorkspace } from "./state/operations/workspace-selection";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useAgentViewStore } from "./state/stores/agent-view";
@@ -60,9 +61,7 @@ export function App() {
   // Picked one by one: the whole store would render the app, every
   // workspace's tabs below it, for each connection status and progress.
   const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const setAll = useWorkspacesStore((s) => s.setAll);
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
-  const setActiveWorkspaceId = useActiveStore((s) => s.setActiveWorkspaceId);
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
@@ -92,20 +91,10 @@ export function App() {
     initializeEditorServices(monaco);
   }, [monaco]);
 
-  // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
+  // Restore the tabs and workspace selection before opening the CLI gate.
   useEffect(() => {
-    bootstrapAppState();
-  }, []);
-
-  // Boot: Claude 세션 상태 snapshot 로드 및 status broadcast 구독 설정.
-  useEffect(() => {
+    void bootstrapWorkbench();
     void bootstrapClaudeStatus();
-  }, []);
-
-  // Boot: load workspaces from main, activate first.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: boot-once effect; store setters are stable
-  useEffect(() => {
-    bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
 
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).
@@ -146,62 +135,43 @@ export function App() {
   // When the active workspace disappears (deleted, etc.), fall back to its
   // parent for a task, else to the first workspace, or null.
   useEffect(() => {
+    if (useActiveStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
     if (activeWorkspaceId && !workspaces.some((w) => w.id === activeWorkspaceId)) {
       const parentId = activeParentIdRef.current;
       const next =
         (parentId !== null && workspaces.some((w) => w.id === parentId)
           ? parentId
           : visibleWorkspaces(workspaces)[0]?.id) ?? null;
-      setActiveWorkspaceId(next);
-      if (next) {
-        // Fire-and-forget: UI is already updated; notify main of workspace switch.
-        void ipcCallResult("workspace", "activate", { id: next }).then((result) => {
-          if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
-        });
-      }
+      if (next) activateWorkspace(next, "preserve");
+      else focusWorkspace(null, "preserve");
     }
-  }, [workspaces, activeWorkspaceId, setActiveWorkspaceId]);
+  }, [workspaces, activeWorkspaceId]);
 
   // Read from the stores when called, so it stays the same function across
   // switches and the sidebar's rows are not handed a new one each time.
-  const handleSelectWorkspace = useCallback(
-    (id: string) => {
-      // The sidebar row stands for the workspace and its tasks; clicking the
-      // row the active task belongs to keeps that task.
-      const activeWorkspaceId = useActiveStore.getState().activeWorkspaceId;
-      const workspaces = useWorkspacesStore.getState().workspaces;
-      if (
-        activeWorkspaceId !== null &&
-        activeWorkspaceId !== id &&
-        rootWorkspaceId(workspaces, activeWorkspaceId) === id
-      ) {
-        return;
-      }
-      setActiveWorkspaceId(id);
-      // Fire-and-forget: UI is already updated; notify main of workspace switch.
-      void ipcCallResult("workspace", "activate", { id }).then((result) => {
-        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
-      });
-    },
-    [setActiveWorkspaceId],
-  );
+  const handleSelectWorkspace = useCallback((id: string) => {
+    // The sidebar row stands for the workspace and its tasks; clicking the
+    // row the active task belongs to keeps that task.
+    const activeWorkspaceId = useActiveStore.getState().activeWorkspaceId;
+    const workspaces = useWorkspacesStore.getState().workspaces;
+    if (
+      activeWorkspaceId !== null &&
+      activeWorkspaceId !== id &&
+      rootWorkspaceId(workspaces, activeWorkspaceId) === id
+    ) {
+      return;
+    }
+    activateWorkspace(id, "preserve");
+  }, []);
 
   const handleAddWorkspace = useCallback(() => {
     openAddWorkspace();
   }, [openAddWorkspace]);
 
-  const handleWorkspaceCreated = useCallback(
-    async (meta: WorkspaceMeta) => {
-      useAgentViewStore.getState().setMode("workspace");
-      setActiveWorkspaceId(meta.id);
-      // Fire-and-forget: UI is already updated; notify main of new workspace activation.
-      void ipcCallResult("workspace", "activate", { id: meta.id }).then((result) => {
-        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
-      });
-      // Tab seeding is handled by <WorkspacePanel> on first mount.
-    },
-    [setActiveWorkspaceId],
-  );
+  const handleWorkspaceCreated = useCallback(async (meta: WorkspaceMeta) => {
+    activateWorkspace(meta.id);
+    // Tab seeding is handled by <WorkspacePanel> on first mount.
+  }, []);
 
   const handleCloseAddWorkspace = useCallback(() => {
     closeAddWorkspace();

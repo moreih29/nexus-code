@@ -28,7 +28,7 @@ export interface SetupClaudeFeatureOptions {
     tryGetAgentChannel(
       id: string,
     ): Promise<import("../../infra/agent/channel").AgentChannel | null>;
-    activate(id: string): Promise<void>;
+    connect(id: string): Promise<void>;
   };
   /** BrowserWindow.getFocusedWindow — for test injection. */
   getFocusedWindow?: () => import("electron").BrowserWindow | null;
@@ -131,7 +131,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     electronNotificationCtor: options.electronNotificationCtor,
     broadcastFn,
     notificationsEnabled: options.notificationsEnabled,
-    activateWorkspace: (id) => workspaceManager.activate(id),
+    connectWorkspace: (id) => workspaceManager.connect(id),
     focusMainWindow: () => {
       const win = getActiveAppWindow();
       if (!win) return;

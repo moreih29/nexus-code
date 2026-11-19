@@ -138,21 +138,103 @@ function makeManager(overrides?: {
     overrides?.ptyReleaseHeld ?? ((_id) => {}),
   );
 
-  return { manager, globalDb, broadcasts };
+  return { manager, globalDb, broadcasts, stateService };
 }
 
-function makeSshMeta(manager: ReturnType<typeof makeManager>["manager"]) {
+function makeSshMeta(
+  manager: ReturnType<typeof makeManager>["manager"],
+  remotePath = "/home/user/project",
+) {
   return manager.create({
     location: {
       kind: "ssh" as const,
       host: "test.example.com",
       user: "user",
-      remotePath: "/home/user/project",
+      remotePath,
       authMode: "interactive" as const,
     },
     name: "test-ssh",
   });
 }
+
+test("a slow SSH connection cannot replace the most recently selected workspace", async () => {
+  const slow = new StubChannel();
+  const fast = new StubChannel();
+  fast.resolveChannel();
+  const slowSpawned = Promise.withResolvers<void>();
+  const { manager, stateService } = makeManager({
+    sshBootstrap: async ({ remotePath }) => ({
+      remoteCommand: remotePath,
+      remoteHome: "/home/user",
+      remoteBinDir: "/home/user/.nexus-code/bin",
+      platform: { os: "linux", arch: "amd64" },
+      uploaded: false,
+    }),
+    sshChannelFactory: ({ remoteCommand }) => {
+      if (remoteCommand.endsWith("/slow")) {
+        slowSpawned.resolve();
+        return slow;
+      }
+      return fast;
+    },
+  });
+  const a = makeSshMeta(manager, "/home/user/slow");
+  const b = makeSshMeta(manager, "/home/user/fast");
+  const lastOpenedAt = "2000-01-01T00:00:00.000Z";
+  manager.update(a.id, { lastOpenedAt });
+  let earlier: Promise<void> | undefined;
+  try {
+    await manager.getAgentChannel(b.id);
+    earlier = manager.activate(a.id);
+    await slowSpawned.promise;
+    expect(stateService.getState().lastActiveWorkspaceId).toBe(a.id);
+    await manager.activate(b.id);
+    slow.resolveChannel();
+    await earlier;
+
+    expect(manager.getActiveId()).toBe(b.id);
+    expect(stateService.getState().lastActiveWorkspaceId).toBe(b.id);
+    expect(manager.list().find((workspace) => workspace.id === a.id)?.lastOpenedAt).toBe(
+      lastOpenedAt,
+    );
+  } finally {
+    slow.resolveChannel();
+    await earlier;
+    manager.close();
+  }
+});
+
+test("connecting a background SSH workspace leaves the recorded selection and its recency alone", async () => {
+  const { manager, stateService } = makeManager({
+    sshBootstrap: async () => ({
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      remoteBinDir: "/home/user/.nexus-code/bin",
+      platform: { os: "linux", arch: "amd64" },
+      uploaded: false,
+    }),
+    sshChannelFactory: () => {
+      const channel = new StubChannel();
+      channel.resolveChannel();
+      return channel;
+    },
+  });
+  const selected = makeSshMeta(manager, "/home/user/selected");
+  const background = makeSshMeta(manager, "/home/user/background");
+  const lastOpenedAt = "2000-01-01T00:00:00.000Z";
+  manager.update(background.id, { lastOpenedAt });
+  try {
+    await manager.activate(selected.id);
+    await manager.connect(background.id);
+
+    expect(await manager.peekAgentChannel(background.id)).not.toBeNull();
+    expect(manager.getActiveId()).toBe(selected.id);
+    expect(stateService.getState().lastActiveWorkspaceId).toBe(selected.id);
+    expect(manager.list().find(({ id }) => id === background.id)?.lastOpenedAt).toBe(lastOpenedAt);
+  } finally {
+    manager.close();
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Acceptance 3: degraded → "unstable" broadcast

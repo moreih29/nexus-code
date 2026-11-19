@@ -108,7 +108,7 @@ function setup(opts: {
   });
   const wm: PtyChannelOptions["workspaceManager"] = {
     getName: () => "ws",
-    activate: async () => {},
+    connect: async () => {},
     getAgentChannel: async () => agent,
     getWrapperBinDir: () => opts.wrapper?.binDir ?? null,
     getWrapperAgentBin: () => null,

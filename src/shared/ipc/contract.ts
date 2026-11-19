@@ -614,8 +614,11 @@ export const ipcContract = {
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
       reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
+      /** Select and connect the workspace the user chose. */
       activate: call(WorkspaceIdSchema, z.void()),
-      /** The active workspace: the one restored at launch or last activated; null with none. */
+      /** Connect a workspace already shown in a view. */
+      connect: call(WorkspaceIdSchema, z.void()),
+      /** The restored or most recently selected workspace; null with none. */
       active: call(z.void(), WorkspaceIdPrimitive.nullable()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },

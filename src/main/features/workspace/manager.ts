@@ -397,6 +397,7 @@ export class WorkspaceManager {
    */
   private readonly degradedRecoveryTimers = new Map<string, NodeJS.Timeout>();
   private activeId: string | null = null;
+  private selectionVersion = 0;
 
   constructor(
     globalStorage: GlobalStorage,
@@ -1273,19 +1274,25 @@ export class WorkspaceManager {
     return undefined;
   }
 
+  /**
+   * Record a user's selection before connecting. Readiness can finish in
+   * any order, so only the latest selection can update recency afterward.
+   */
   async activate(id: string): Promise<void> {
-    const ctx = this.contexts.get(id);
-    if (!ctx) {
-      throw new Error(`workspace not found: ${id}`);
-    }
+    const ctx = this.requireContext(id);
+    this.stateService.setState({ lastActiveWorkspaceId: id });
+    this.activeId = id;
+    const version = ++this.selectionVersion;
 
     await this.ensureProviderReady(ctx);
-    this.activeId = id;
-    this.stateService.setState({ lastActiveWorkspaceId: id });
-    // Explicit activation counts as "opening" the workspace — bump recency so
-    // it sorts to the top of the list on the next load. Startup restoration
-    // does not route through activate(), so it never reorders the list.
-    this.touchLastOpened(id);
+    if (version === this.selectionVersion && this.contexts.get(id) === ctx) {
+      this.touchLastOpened(id);
+    }
+  }
+
+  /** Bring a workspace online for its existing views without changing selection. */
+  async connect(id: string): Promise<void> {
+    await this.ensureProviderReady(this.requireContext(id));
   }
 
   async ensureRemoteLspServer(

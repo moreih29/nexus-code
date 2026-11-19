@@ -103,9 +103,9 @@ export interface HookHandlerDeps {
    */
   broadcastFn?: (channel: string, event: string, args: unknown) => void;
   /**
-   * Workspace activation callback — called when a notification is clicked.
+   * Connects the workspace so the clicked notification can reveal its tab.
    */
-  activateWorkspace?: (workspaceId: string) => Promise<void>;
+  connectWorkspace?: (workspaceId: string) => Promise<void>;
   /** App window focus callback — called when a notification is clicked. */
   focusMainWindow?: () => void;
   /**
@@ -362,8 +362,8 @@ function fireOsNotification(
     const n = new NotificationCtor({ title, body });
     n.on("click", () => {
       deps.focusMainWindow?.();
-      deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
-        log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+      deps.connectWorkspace?.(workspaceId)?.catch((err: unknown) => {
+        log.warn(`connectWorkspace failed: ${(err as Error).message}`);
       });
       broadcastFn("pty", "notificationClick", { workspaceId, tabId });
     });

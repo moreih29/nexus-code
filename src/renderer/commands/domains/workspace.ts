@@ -1,6 +1,7 @@
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { goToNextWaiting } from "../../services/agent-sessions/use-inbox";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
 import { useTaskUIStore } from "../../state/stores/task-ui";
@@ -16,22 +17,13 @@ import {
  * existing `compareSortKey` order). Wraps at both ends so ⌘⌃↑ from
  * the first workspace lands on the last, and vice-versa.
  *
- * No-op when there is at most one workspace, or when the active id is
- * absent from the list (e.g. mid-removal); we fall back to the first
- * row in that case so the shortcut still feels responsive. A task counts
- * as its parent's row, so the step starts there.
+ * If the selection is missing from the list, start at the natural end
+ * for the direction. A task counts as its parent's row.
  */
 export function cycleActiveWorkspace(delta: 1 | -1): void {
   const all = useWorkspacesStore.getState().workspaces;
   const workspaces = visibleWorkspaces(all);
   if (workspaces.length === 0) return;
-  if (workspaces.length === 1) {
-    // Still set it explicitly so a fresh boot with no active id picks
-    // up the only available workspace on the very first keystroke.
-    useActiveStore.getState().setActiveWorkspaceId(workspaces[0].id);
-    return;
-  }
-
   const activeId = useActiveStore.getState().activeWorkspaceId;
   const rowId = activeId !== null ? rootWorkspaceId(all, activeId) : null;
   const currentIndex = rowId !== null ? workspaces.findIndex((w) => w.id === rowId) : -1;
@@ -44,7 +36,8 @@ export function cycleActiveWorkspace(delta: 1 | -1): void {
     nextIndex = (currentIndex + delta + workspaces.length) % workspaces.length;
   }
 
-  useActiveStore.getState().setActiveWorkspaceId(workspaces[nextIndex].id);
+  const next = workspaces[nextIndex].id;
+  if (next !== activeId) activateWorkspace(next, "preserve");
 }
 
 export function registerWorkspaceCommands(): Array<() => void> {

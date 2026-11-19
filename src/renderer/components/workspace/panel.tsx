@@ -2,9 +2,8 @@ import { memo, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
-import { createLogger } from "../../../shared/log/renderer";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { ipcCallResult } from "../../ipc/client";
+import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
@@ -26,8 +25,6 @@ import {
   shouldShowWorkspaceTerminalStatusBanner,
   WorkspaceTerminalStatusBanner,
 } from "./terminal-status-banner";
-
-const log = createLogger("workspace-panel");
 
 // ---------------------------------------------------------------------------
 // Props
@@ -107,10 +104,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     [workspace.id],
   );
 
-  function handleConnect() {
-    void ipcCallResult("workspace", "activate", { id: workspace.id }).then((result) => {
-      if (!result.ok) log.warn(`activate failed: ${result.message}`);
-    });
+  /** Retry the connection for this workspace's existing panel. */
+  function handleConnect(): void {
+    retryWorkspaceConnection(workspace.id);
   }
 
   if (showOfflinePlaceholder) {

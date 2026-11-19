@@ -15,6 +15,7 @@ import { useGitStore } from "../stores/git";
 import { gitErrorPlacement, summarizeGitError } from "../stores/git/error-placement";
 import type { GitStoreError } from "../stores/git/types";
 import { FILES_PANEL_MODE_DEFAULT, useUIStore } from "../stores/ui";
+import { focusWorkspace } from "./workspace-selection";
 
 type Unsubscribe = () => void;
 
@@ -80,7 +81,7 @@ function isSourceControlVisible(workspaceId: string): boolean {
 }
 
 function revealSourceControl(workspaceId: string): void {
-  useActiveStore.getState().setActiveWorkspaceId(workspaceId);
+  focusWorkspace(workspaceId, "preserve");
   const ui = useUIStore.getState();
   if (ui.filesPanelHidden) ui.toggleFilesPanel();
   ui.setFilesPanelMode(workspaceId, "git");

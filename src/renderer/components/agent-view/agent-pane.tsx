@@ -38,8 +38,7 @@ import {
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { createLogger } from "../../../shared/log/renderer";
-import { ipcCallResult } from "../../ipc/client";
+import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
 import { Button } from "../ui/button";
@@ -62,8 +61,6 @@ import {
 import { EndedBar } from "./ended-bar";
 import { RemoteSessionPane } from "./remote-pane";
 import { DeviceChip, RemoteTabLabel } from "./remote-sessions";
-
-const log = createLogger("agent-view");
 
 function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
@@ -642,11 +639,7 @@ function OfflinePane({ workspaceId }: { workspaceId: string }) {
     workspace.location.kind === "ssh"
       ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
       : workspace.location.distro;
-  const connect = () => {
-    void ipcCallResult("workspace", "activate", { id: workspaceId }).then((result) => {
-      if (!result.ok) log.warn(`activate failed: ${result.message}`);
-    });
-  };
+  const connect = () => retryWorkspaceConnection(workspaceId);
   return (
     <div className="absolute inset-0 flex island-surface">
       <EmptyState

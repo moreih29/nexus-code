@@ -105,16 +105,6 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...viewHandlers,
 };
 
-let markReady: () => void = () => {};
-const ready = new Promise<void>((resolve) => {
-  markReady = resolve;
-});
-
-/** Lets requests through once the tabs and layouts have been restored. */
-export function markCliUiReady(): void {
-  markReady();
-}
-
 /** Removes the cli:uiRequest listener installed last, if it is still there. */
 let stopListening: (() => void) | null = null;
 
@@ -123,24 +113,24 @@ import.meta.hot?.dispose(() => stopListening?.());
 
 /**
  * Installs the cli:uiRequest listener, in place of one installed before.
- * Requests wait until markCliUiReady, since before it the stores are empty.
+ * Requests wait until startup restores layouts and the workspace list and selection.
  * Returns the unlisten function.
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
  * focus (see ../keep-focus).
  */
-export function startCliUiListener(): () => void {
+export function startCliUiListener(ready: Promise<void>): () => void {
   // One listener, however often the app boots: a second would carry out
   // each request again, typing or sending twice. The dev build's hot reload
   // boots the app again with each edit.
   stopListening?.();
   const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
-      await ready;
-      const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
-      const held = focusHolder();
       try {
+        await ready;
+        const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
+        const held = focusHolder();
         if (!handler) throw new UiRequestError(`unknown request ${op}`);
         const value = await handler(args as never).finally(() => restoreFocus(held));
         await ipcCallResult("cli", "uiRespond", { requestId, ok: true, value });
