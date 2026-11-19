@@ -40,6 +40,7 @@ class FakeChannel implements AgentChannel {
   };
   versionOutput = "2.1.318 (Claude Code)\n";
   versionWait?: Promise<void>;
+  transcriptPageError?: string;
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
@@ -51,6 +52,10 @@ class FakeChannel implements AgentChannel {
       return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
     }
     if (method === "chat.start") return { pid: 42 } as T;
+    if (method === "chat.transcriptPage" && this.transcriptPageError) {
+      throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
+    }
+    if (method === "chat.transcript") return { found: true, lines: [] } as T;
     return {} as T;
   }
   fire(): void {}
@@ -111,6 +116,27 @@ function setup(
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
 }
+
+test.each([
+  ["unsupported-method", undefined, true],
+  ["unsupported-method", "snapshot-cursor", false],
+  ["server.request-failed", undefined, false],
+  ["transport.timeout", undefined, false],
+] as const)("transcript page fallback with %s and cursor %s", async (code, cursor, fallback) => {
+  const { host, channel } = setup();
+  channel.transcriptPageError = code;
+  const page = host.transcriptPage(WS, "session-id", undefined, { cursor });
+  if (fallback) {
+    expect(await page).toEqual({ found: true, lines: [], truncated: false });
+    expect(channel.calls.map((call) => call.method)).toEqual([
+      "chat.transcriptPage",
+      "chat.transcript",
+    ]);
+  } else {
+    await expect(page).rejects.toMatchObject({ code });
+    expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
+  }
+});
 
 describe("chat launch", () => {
   test("resume and fork add their flags after the stream-json ones", () => {
@@ -326,14 +352,22 @@ describe("ChatHost", () => {
     });
     expect((start as { env: Record<string, string> }).env).not.toHaveProperty("NEXUS_OTHER");
     await host.transcript(WS, "session");
+    await host.transcriptPage(WS, "session", undefined, {});
     await host.deleteSession(WS, "/repo", "session");
     expect(
       channel.calls.filter(
-        ({ method }) => method === "chat.transcript" || method === "chat.deleteSession",
+        ({ method }) =>
+          method === "chat.transcript" ||
+          method === "chat.transcriptPage" ||
+          method === "chat.deleteSession",
       ),
     ).toEqual([
       {
         method: "chat.transcript",
+        params: { sessionId: "session", configDir: "/profiles/default" },
+      },
+      {
+        method: "chat.transcriptPage",
         params: { sessionId: "session", configDir: "/profiles/default" },
       },
       {
@@ -351,6 +385,7 @@ describe("ChatHost", () => {
         reason: "failed",
       });
       await expect(host.transcript(WS, "session", id)).rejects.toThrow(/profile/i);
+      await expect(host.transcriptPage(WS, "session", id, {})).rejects.toThrow(/profile/i);
       await expect(host.deleteSession(WS, "/repo", "session", id)).rejects.toThrow(/profile/i);
     }
     await expect(host.stageThread(WS, "thread", { fromProfileId: "missing" })).rejects.toThrow(

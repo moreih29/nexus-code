@@ -590,6 +590,25 @@ const SshConfigHostSchema = z.object({
 // IPC contract map
 // ---------------------------------------------------------------------------
 
+const transcriptPageResult = z.object({
+  found: z.boolean(),
+  lines: z.array(z.unknown()),
+  truncated: z.boolean(),
+  positions: z.array(z.number().int().nonnegative()).optional(),
+  snapshot: z.string().optional(),
+  cursor: z.string().optional(),
+  fragment: z
+    .object({
+      position: z.number().int().nonnegative(),
+      data: z.string(),
+      first: z.boolean(),
+      last: z.boolean(),
+    })
+    .optional(),
+});
+
+export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
+
 export const ipcContract = {
   workspace: {
     call: {
@@ -1015,6 +1034,18 @@ export const ipcContract = {
           lines: z.array(z.unknown()),
           truncated: z.boolean(),
         }),
+      ),
+      /** An internal page of a Claude transcript, from newest to oldest. */
+      transcriptPage: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+          cursor: z.string().max(128).optional(),
+          upTo: z.string().max(128).optional(),
+          before: z.array(z.string().max(128)).optional(),
+        }),
+        transcriptPageResult,
       ),
       /**
        * One subagent's messages, which Claude Code keeps apart from its

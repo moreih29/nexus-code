@@ -15,6 +15,7 @@ import {
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
+import type { TranscriptPageResult } from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
@@ -408,6 +409,32 @@ export class ChatHost {
       sessionId,
       ...config,
     });
+  }
+
+  async transcriptPage(
+    workspaceId: string,
+    sessionId: string,
+    profileId: string | undefined,
+    page: { cursor?: string; upTo?: string; before?: string[] },
+  ): Promise<TranscriptPageResult> {
+    const args = { sessionId, ...this.configDir(workspaceId, profileId) };
+    const channel = await this.channelFor(workspaceId);
+    try {
+      return await channel.call<TranscriptPageResult>("chat.transcriptPage", { ...args, ...page });
+    } catch (error) {
+      if (page.cursor || (error as { code?: unknown } | null)?.code !== "unsupported-method") {
+        throw error;
+      }
+      const result = await channel.call<
+        Pick<TranscriptPageResult, "found" | "lines" | "truncated">
+      >("chat.transcript", args);
+      // The renderer applies its cut to the old agent's unpaged result.
+      return {
+        found: result.found === true,
+        lines: result.lines ?? [],
+        truncated: result.truncated === true,
+      };
+    }
   }
 
   async subagentTranscript(

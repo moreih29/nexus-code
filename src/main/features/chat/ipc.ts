@@ -3,6 +3,7 @@
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { agentCallError } from "../../infra/ipc-router/agent-errors";
 import { AgentProfileSelectionError, ChatHost, type ChatHostOptions } from "./host";
 import { OAuthCallbacksClosedError } from "./oauth-callback";
 
@@ -106,6 +107,29 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lines: result.lines ?? [],
           truncated: result.truncated === true,
         });
+      }),
+      transcriptPage: withProfileError(async (args: unknown) => {
+        const { workspaceId, sessionId, profileId, ...page } = validateArgs(
+          c.transcriptPage.args,
+          args,
+        );
+        try {
+          return ipcOk(await host.transcriptPage(workspaceId, sessionId, profileId, page));
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === "chat.transcript-cursor-stale") {
+            return ipcErr(
+              code,
+              "The chat history changed. Reopen the conversation to read it again.",
+              {
+                category: "failed",
+              },
+            );
+          }
+          const failure = agentCallError(error);
+          if (failure) return failure;
+          throw error;
+        }
       }),
       subagentTranscript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
