@@ -337,6 +337,7 @@ export class CodexController {
     catalogOnly = false,
     forkSettings?: ReturnType<typeof profileForkSettings>,
   ): Promise<boolean> {
+    if (this.disposed) return false;
     const { workspaceId, tabId, cwd, profileId } = this.target;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
@@ -352,6 +353,7 @@ export class CodexController {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return false;
     }
+    if (this.disposed) return false;
     if (!result.ok) {
       this.update((prev) => ({
         ...prev,
@@ -1734,6 +1736,7 @@ export class CodexController {
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {
+    if (this.disposed) throw new Error("the tab closed");
     const { workspaceId, tabId } = this.target;
     unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
   }

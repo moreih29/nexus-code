@@ -541,6 +541,7 @@ export class ChatController {
   }
 
   private async start(resume: StartArgs): Promise<boolean> {
+    if (this.disposed) return false;
     const { workspaceId, tabId, cwd } = this.target;
     // Before the new program's initialize tells the mode it starts in.
     const mode = this.lastMode;
@@ -548,17 +549,20 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
+      const prepared = await this.fromAnotherProfile(resume);
+      if (this.disposed) return false;
       result = await startChat({
         workspaceId,
         tabId,
         cwd,
-        ...(await this.fromAnotherProfile(resume)),
+        ...prepared,
         ...profileArg(this.target.profileId),
       });
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return false;
     }
+    if (this.disposed) return false;
     if (!result.ok) {
       this.update((prev) => ({
         ...prev,
@@ -1832,6 +1836,7 @@ export class ChatController {
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {
+    if (this.disposed) throw new Error("the tab closed");
     const { workspaceId, tabId } = this.target;
     unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
   }
