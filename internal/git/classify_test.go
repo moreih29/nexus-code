@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,19 @@ func normalizeMap(value map[string]interface{}) {
 		if value[key] == nil {
 			delete(value, key)
 		}
+	}
+}
+
+// TestGitFailureMasksCredentials checks both stderr and the argv fallback.
+func TestGitFailureMasksCredentials(t *testing.T) {
+	result := buildRunResult("", "fatal: https://user:fake-password@example.test/a?token=fake-query&ok=1 Authorization: Bearer fake-auth API_KEY=\"fake with space\" APP_TOKEN=fake-token APP_SECRET=fake-secret", 1, nil)
+	for _, got := range []string{result.Stderr, result.ErrorMessage} {
+		if strings.Contains(got, "fake") || !strings.Contains(got, "example.test/a?token=") || !strings.Contains(got, "&ok=1") {
+			t.Errorf("unexpected Git diagnostic %q", got)
+		}
+	}
+	got := buildRunResult("", "", 128, []string{"fetch", "https://user:fake-argv@example.test/a"}).ErrorMessage
+	if strings.Contains(got, "fake") || !strings.Contains(got, "git fetch") || !strings.Contains(got, "exited with code 128") {
+		t.Errorf("unexpected Git command diagnostic %q", got)
 	}
 }

@@ -58,3 +58,23 @@ describe("gitErrorFromAgent", () => {
     expect(error.code).toBe(0);
   });
 });
+
+test("masks credentials in diagnostics reconstructed by the desktop", () => {
+  const error = gitErrorFromAgent(
+    {
+      stdout: "",
+      stderr: "fatal: Authentication failed for https://name:fake-url@example.invalid/repo",
+      code: 128,
+    },
+    ["-c", "http.extraHeader=Authorization: Bearer fake-auth", "APP_KEY=fake with space"],
+  );
+  expect(error.message).toContain(
+    "fatal: Authentication failed for https://[REDACTED]@example.invalid/repo",
+  );
+  expect(error.stderr).toBe(error.message);
+  expect(error.argv).toEqual([
+    "-c",
+    "http.extraHeader=Authorization: Bearer [REDACTED]",
+    "APP_KEY=[REDACTED]",
+  ]);
+});

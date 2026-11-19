@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
 // MessageContext supplies process details used when stderr is empty.
@@ -190,7 +192,7 @@ func HintForKind(kind Kind) *ActionHint {
 func MessageForKind(kind Kind, ctx MessageContext) string {
 	trimmed := strings.TrimSpace(ctx.Stderr)
 	if trimmed != "" {
-		return trimmed
+		return redact.Credentials(trimmed)
 	}
 	if kind == KindOutputTooLarge && ctx.LimitBytes > 0 {
 		return fmt.Sprintf("Git output exceeded %s limit", formatBytes(ctx.LimitBytes))
@@ -317,7 +319,11 @@ func MessageForKind(kind Kind, ctx MessageContext) string {
 
 // renderGitCommand formats a compact command label without environment values.
 func renderGitCommand(args []string) string {
-	return strings.Join(append([]string{"git"}, args...), " ")
+	safe := []string{"git"}
+	for _, arg := range args {
+		safe = append(safe, redact.Argument(arg))
+	}
+	return redact.Credentials(strings.Join(safe, " "))
 }
 
 // formatBytes converts a byte count to the same small MB label used by TS.

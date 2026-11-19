@@ -1,6 +1,9 @@
 package git
 
-import "github.com/nexus-code/nexus-code/internal/proto"
+import (
+	"github.com/nexus-code/nexus-code/internal/proto"
+	"github.com/nexus-code/nexus-code/internal/redact"
+)
 
 // Kind is the Go mirror of src/shared/types/git.ts GitErrorKindSchema.
 type Kind string
@@ -99,7 +102,7 @@ type failureData struct {
 // classifiedFailure builds the Failure for a git exit already classified as
 // kind, with kind's recovery hint.
 func classifiedFailure(kind Kind, msg string) error {
-	return Failure{Kind: kind, Msg: msg, Hint: HintForKind(kind)}
+	return Failure{Kind: kind, Msg: redact.Credentials(msg), Hint: HintForKind(kind)}
 }
 
 // ClassifiedError is the external Go surface for git stderr classification.

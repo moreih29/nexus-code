@@ -1,9 +1,9 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -161,6 +161,9 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 
 	stdout, stderr, tooLarge, err := runGitShow(ctx, s.root, objectSpec, maxGitFileContentBytes)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if isMissing(stderr) {
 			return map[string]any{"kind": "missing", "reason": missingReasonForRef(ref)}, nil
 		}
@@ -183,10 +186,11 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 // limit+1 bytes of it: when the blob is larger than limit, git is killed and
 // tooLarge is reported instead of buffering the whole blob only to reject it.
 func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
-	ctx, cancel := context.WithCancel(ctx)
+	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gitBinary(), "show", "--no-ext-diff", objectSpec)
+	cmd := exec.CommandContext(cmdCtx, gitBinary(), "show", "--no-ext-diff", objectSpec)
 	cmd.Dir = root
+	cmd.WaitDelay = time.Second
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=echo",
@@ -195,13 +199,10 @@ func runGitShow(ctx context.Context, root string, objectSpec string, limit int) 
 		"GIT_FLUSH=1",
 	)
 	cmd.Env = withSafeGitConfig(cmd.Env)
-	var stderrBuf bytes.Buffer
+	var stderrBuf gitStderr
 	cmd.Stderr = &stderrBuf
-	pipe, err := cmd.StdoutPipe()
+	pipe, finish, err := startGitOutput(cmdCtx, cmd)
 	if err != nil {
-		return nil, "", false, err
-	}
-	if err := cmd.Start(); err != nil {
 		return nil, "", false, err
 	}
 	stdout, readErr := io.ReadAll(io.LimitReader(pipe, int64(limit)+1))
@@ -209,9 +210,15 @@ func runGitShow(ctx context.Context, root string, objectSpec string, limit int) 
 		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
+	if err := ctx.Err(); err != nil {
+		return nil, stderrBuf.String(), false, err
+	}
 	if len(stdout) > limit {
 		return nil, stderrBuf.String(), true, nil
+	}
+	if errors.Is(waitErr, exec.ErrWaitDelay) {
+		waitErr = nil
 	}
 	if waitErr == nil {
 		waitErr = readErr

@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -91,22 +90,14 @@ func (s *Service) commitDetailGitOutput(ctx context.Context, params CommitDetail
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(cmd.ProcessState, err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		return nil, commitDetailGitError(stderr.String())
+		return nil, commitDetailGitError(stderr)
 	}
-	return stdout.Bytes(), nil
+	return []byte(stdout), nil
 }
 
 func commitDetailGitError(stderr string) error {

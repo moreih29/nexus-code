@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -50,7 +49,7 @@ func (s *Service) RemoteAdd(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
@@ -90,7 +89,7 @@ func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, e
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()

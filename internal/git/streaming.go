@@ -11,17 +11,19 @@ import (
 	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
+	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
 const streamChunkBytes = 64 * 1024
 
 type StreamParams struct {
-	StreamID     string            `json:"streamId"`
-	Args         []string          `json:"args"`
-	Cwd          string            `json:"cwd,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	Interactive  bool              `json:"interactive,omitempty"`
-	StreamStderr bool              `json:"streamStderr,omitempty"`
+	StreamID       string            `json:"streamId"`
+	Args           []string          `json:"args"`
+	Cwd            string            `json:"cwd,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Interactive    bool              `json:"interactive,omitempty"`
+	StreamStderr   bool              `json:"streamStderr,omitempty"`
+	StdoutCapBytes int64             `json:"stdoutCapBytes,omitempty"`
 }
 
 type StreamChunkPayload struct {
@@ -65,27 +67,26 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 	if params.StreamStderr {
 		return s.streamCommandStderr(streamCtx, cancel, cmd, params)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stdout, finish, err := startGitOutput(streamCtx, cmd)
+	if err != nil {
 		cancel()
 		return nil, mapGitStartError(err, params.Args)
 	}
 
-	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout)
+	limit := stdoutBudget(params.StdoutCapBytes)
+	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout, limit)
 	if readErr != nil {
 		// Nobody reads stdout any more (the event sink failed or the stream
 		// was cancelled): kill git first, or it blocks on a full pipe and
 		// Wait never returns.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
+	if errors.Is(readErr, errGitOutputLimit) {
+		return outputLimitResult(stderr.String(), limit), nil
+	}
 	if readErr != nil && !errors.Is(readErr, context.Canceled) {
 		return nil, readErr
 	}
@@ -100,13 +101,14 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 }
 
 func (s *Service) streamCommandStderr(streamCtx context.Context, cancel context.CancelFunc, cmd *exec.Cmd, params StreamParams) (any, error) {
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.MultiWriter(&stderr, streamChunkWriter{
+	diagnostics := &stderrStream{output: streamChunkWriter{
 		ctx:      streamCtx,
 		service:  s,
 		streamID: params.StreamID,
-	})
+	}}
+	cmd.Stderr = io.MultiWriter(&stderr, diagnostics)
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, mapGitStartError(err, params.Args)
@@ -118,6 +120,9 @@ func (s *Service) streamCommandStderr(streamCtx context.Context, cancel context.
 	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
+	}
+	if err := diagnostics.flush(); err != nil {
+		return nil, err
 	}
 	return buildRunResult("", stderr.String(), code, params.Args), nil
 }
@@ -156,22 +161,17 @@ func (s *Service) unregisterStream(streamID string) {
 	delete(s.streams, streamID)
 }
 
-func (s *Service) emitStreamChunks(ctx context.Context, streamID string, stdout io.Reader) error {
+func (s *Service) emitStreamChunks(ctx context.Context, streamID string, stdout io.Reader, remaining int64) error {
 	buf := make([]byte, streamChunkBytes)
 	for {
 		n, err := stdout.Read(buf)
+		if int64(n) > remaining {
+			return errGitOutputLimit
+		}
 		if n > 0 {
-			payload := StreamChunkPayload{
-				StreamID: streamID,
-				Chunk:    base64.StdEncoding.EncodeToString(buf[:n]),
-			}
-			s.mu.Lock()
-			sink := s.sink
-			s.mu.Unlock()
-			if sink != nil {
-				if emitErr := sink("git.streamChunk", payload); emitErr != nil {
-					return emitErr
-				}
+			remaining -= int64(n)
+			if err := s.emitStreamChunk(streamID, buf[:n]); err != nil {
+				return err
 			}
 		}
 		if err == io.EOF {
@@ -187,6 +187,53 @@ func (s *Service) emitStreamChunks(ctx context.Context, streamID string, stdout 
 			return ctxErr
 		}
 	}
+}
+
+// stderrStream masks complete diagnostic lines so a secret split across
+// reads never reaches a stream event. Git progress also delimits with CR.
+type stderrStream struct {
+	output    streamChunkWriter
+	pending   []byte
+	oversized bool
+}
+
+func (s *stderrStream) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		end := bytes.IndexAny(p, "\r\n")
+		line := p
+		if end >= 0 {
+			line = p[:end+1]
+		}
+		if !s.oversized {
+			if len(s.pending)+len(line) > captureTailBytes {
+				s.pending = s.pending[:0]
+				s.oversized = true
+			} else {
+				s.pending = append(s.pending, line...)
+			}
+		}
+		if end >= 0 {
+			if err := s.flush(); err != nil {
+				return written, err
+			}
+		}
+		written += len(line)
+		p = p[len(line):]
+	}
+	return written, nil
+}
+
+// flush emits one masked line or an explicit diagnostic for an oversized line.
+func (s *stderrStream) flush() error {
+	line := redact.Credentials(string(s.pending))
+	if s.oversized {
+		line = "[Git stderr line exceeded the 1 MiB limit]\n"
+	}
+	s.pending = s.pending[:0]
+	s.oversized = false
+	_, err := s.output.Write([]byte(line))
+	return err
 }
 
 type streamChunkWriter struct {

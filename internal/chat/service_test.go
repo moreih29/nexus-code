@@ -866,3 +866,13 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 		t.Fatalf("the new log starts at %d: %s", first.Seq, describe(rec.lines))
 	}
 }
+
+// TestChatStderrTailMasksCredentials checks what exit events and logs will see.
+func TestChatStderrTailMasksCredentials(t *testing.T) {
+	p := &process{}
+	p.readStderr(strings.NewReader("connection to https://example:fake-pass@host.test failed\nAuthorization: Bearer fake-auth\nAPP_SECRET=fake-env\n"))
+	got := p.stderr()
+	if strings.Contains(got, "fake-") || !strings.Contains(got, "@host.test failed") {
+		t.Fatalf("unexpected child diagnostic %q", got)
+	}
+}
