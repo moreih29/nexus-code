@@ -11,8 +11,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+// The sherpa-onnx maintainer's Hugging Face copy, pinned to a commit: the
+// GitHub release asset of the same name was replaced on 2026-11-19 by a
+// re-export (AveragePool count_include_pad 1 -> 0), which changes the model's
+// output. This commit holds the export the app has always shipped.
 const URL =
-  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx";
+  "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx";
 const SHA256 = "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2";
 const DIR = join(import.meta.dir, "..", "dist", "voice-print");
 const FILE = join(DIR, "campp-zh-en.onnx");
