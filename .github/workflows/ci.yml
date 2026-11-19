@@ -131,6 +131,10 @@ jobs:
         # and the costly one was cpu-features (ssh2's optional CPU probe): a
         # node-gyp build of one to two minutes on Windows. The native module
         # steps below are the rest of our postinstall.
+        env:
+          # Windows checks out on D: while the default cache is in the home
+          # directory on C:. Bun can hardlink packages on the same volume.
+          BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.cache/bun-install
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Cache native modules
