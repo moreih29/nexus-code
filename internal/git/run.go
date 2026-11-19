@@ -120,22 +120,7 @@ func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env
 	if err != nil {
 		return "", "", 0, err
 	}
-	var outBuf tailBuffer
-	var errBuf gitStderr
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", "", 0, ctxErr
-	}
-	code, fatal := gitExitCode(cmd.ProcessState, runErr)
-	if fatal != nil {
-		return "", "", 0, fatal
-	}
-	if outBuf.overflow {
-		return "", errBuf.String(), code, outputLimitFailure(captureTailBytes)
-	}
-	return outBuf.String(), errBuf.String(), code, nil
+	return runCapturedCommand(ctx, cmd)
 }
 
 // gitError converts a non-zero git exit into a typed CodedError using the

@@ -221,7 +221,7 @@ func TestGitOutputBudgets(t *testing.T) {
 			}
 		})
 	}
-	stdout, _, _, err := svc.capture(context.Background(), "", []string{"bulk", strconv.Itoa((1 << 20) + 1)}, false)
+	stdout, _, _, err := svc.capture(context.Background(), "", []string{"bulk", strconv.Itoa((16 << 20) + 1)}, false)
 	var failure Failure
 	if !errors.As(err, &failure) || failure.Kind != KindOutputTooLarge || stdout != "" {
 		t.Fatalf("capture returned %d bytes, error %v", len(stdout), err)
