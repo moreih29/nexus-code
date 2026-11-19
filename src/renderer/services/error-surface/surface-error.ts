@@ -166,6 +166,8 @@ function buildInvalidInputMessage(error: AppError): string {
 /** Friendly message for failed errors with domain-specific recovery copy. */
 function buildFailedMessage(error: AppError): string {
   if (error.code === "terminal-input-failed") return i18next.t("errors:terminal.inputFailed");
+  if (error.code === "terminal-input-queue-full")
+    return i18next.t("errors:terminal.inputQueueFull");
   if (error.code === "clipboard-write-failed") return i18next.t("errors:clipboard.writeFailed");
   if (error.domain === "fs" && error.code) {
     return knownFsErrorMessage(error.code) ?? i18next.t("errors:generic.failed");
