@@ -672,6 +672,7 @@
       "shareHint": "링크로 공유 · 로그인과 대화 기록은 따로",
       "env": "환경 변수 (선택)",
       "envPlaceholder": "KEY=value, 한 줄에 하나",
+      "envReserved": "NEXUS_로 시작하는 변수는 NexusCode에서 사용합니다.",
       "create": "만들고 로그인",
       "save": "저장"
     },

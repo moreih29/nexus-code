@@ -101,6 +101,30 @@ func TestMergeEnvPutsTheLoginShellBetweenTheAgentAndTheTab(t *testing.T) {
 	}
 }
 
+func TestLaunchAndHistoryUseTheSameDefaultClaudeDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "agent-default"))
+	was := loginEnv
+	loginEnv = func() map[string]string {
+		return map[string]string{"CLAUDE_CONFIG_DIR": "~/login-default"}
+	}
+	t.Cleanup(func() { loginEnv = was })
+
+	dir := configDir("")
+	want := filepath.Join(home, "login-default")
+	if dir != want {
+		t.Fatalf("history directory = %q, want %q", dir, want)
+	}
+	for _, entry := range mergeEnv(nil) {
+		if entry == "CLAUDE_CONFIG_DIR="+dir {
+			return
+		}
+	}
+	t.Fatalf("launch did not use history directory %q", dir)
+}
+
 func TestEnvPutsWrapperFirstAndDropsParentSession(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PATH separator")

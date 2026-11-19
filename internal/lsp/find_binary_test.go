@@ -214,6 +214,35 @@ func TestFindBinaryGivesTheServerTheInstallDirectories(t *testing.T) {
 	}
 }
 
+func TestFindBinaryUsesProfilePathAndSkipsClaudeWrappers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
+	name := "claude"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	wrapper := writeExecutable(t, filepath.Join(home, "wrapper"), name)
+	if err := os.WriteFile(wrapper, []byte("#!/bin/bash\n# nexus-code claude wrapper\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fallback := writeExecutable(t, filepath.Join(home, "fallback"), name)
+	t.Setenv("PATH", filepath.Dir(fallback))
+	want := writeExecutable(t, filepath.Join(home, "profile"), name)
+	got, err := New().FindBinary(context.Background(), mustJSON(t, map[string]string{
+		"name":       "claude",
+		"dir":        home,
+		"searchPath": strings.Join([]string{filepath.Dir(wrapper), filepath.Dir(want)}, string(os.PathListSeparator)),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := got.(FindBinaryResult).Path; result != want {
+		t.Fatalf("FindBinary() = %q, want %q", result, want)
+	}
+}
+
 func TestLoginShellPathIsAskedEachTime(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no login shell")

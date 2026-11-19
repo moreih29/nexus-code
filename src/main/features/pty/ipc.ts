@@ -1,6 +1,7 @@
 // PTY IPC channel — bridges renderer ↔ main ↔ Go agent host.
 // All PTY sessions are routed to the agent host unconditionally.
 
+import { mergeAgentEnv, profileVariables } from "../../../shared/agent-profiles/env";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { WorkspacePorts } from "../../../shared/pty/ports";
@@ -63,7 +64,7 @@ export interface PtyChannelOptions {
    * variable, made on the workspace's host, and its own variables); null
    * for a profile there is not.
    */
-  profileEnv?: (workspaceId: string, profileId: string) => Promise<Record<string, string> | null>;
+  profileEnv?: (workspaceId: string, profileId?: string) => Promise<Record<string, string> | null>;
   /** The default shell from Settings › Terminal, read at every spawn. */
   getDefaultShell?: () => ShellChoice | undefined;
   /** The shells the user added in Settings › Terminal, read at every spawn. */
@@ -192,13 +193,18 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     } = request;
     // A terminal opened for a profile (a sign-in for it) runs as its chat
     // does; without it, it would sign in or out of the default folder.
+    const windows = options.windowsAgentFiles !== undefined && wm?.isLocal?.(workspaceId) !== false;
     let env = givenEnv;
-    if (profile !== undefined) {
+    if (profile !== undefined || options.profileEnv) {
       const fromProfile = await options.profileEnv?.(workspaceId, profile);
-      if (!fromProfile) {
+      if (profile !== undefined && !fromProfile) {
         return ipcErr("not-found", `no profile ${profile}`, { category: "failed" });
       }
-      env = { ...givenEnv, ...fromProfile };
+      env = mergeAgentEnv(
+        windows,
+        givenEnv ?? {},
+        profileVariables(fromProfile ?? undefined, windows),
+      );
     }
     recorder.start(workspaceId, tabId, cols, rows);
     if (wm) await wm.getAgentChannel(workspaceId);
@@ -265,7 +271,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       const files = await options.windowsAgentFiles();
       const shimResult = applyWindowsShellShim({
         shell: shellPath,
-        env: enrichedEnv,
+        env: mergeAgentEnv(windows, enrichedEnv),
         args: shimmedArgs,
         settingsPath: files?.settingsPath,
         wrapperDir: files?.binDir,

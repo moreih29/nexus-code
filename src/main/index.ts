@@ -10,6 +10,7 @@ import {
   lspSettingsFromState,
 } from "../shared/lsp/settings";
 import { ListeningPortsResultSchema } from "../shared/pty/ports";
+import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
@@ -764,7 +765,11 @@ app.whenReady().then(async () => {
     ports: portWatcher,
     forwards,
     profileEnv: async (workspaceId, profileId) =>
-      (await chatHost?.terminalProfileEnv(workspaceId, profileId)) ?? null,
+      (await chatHost?.terminalProfileEnv(
+        workspaceId,
+        profileId,
+        chatAgentOf(asTaskAgent(stateService.getState().taskAgent) ?? DEFAULT_TASK_AGENT),
+      )) ?? null,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),

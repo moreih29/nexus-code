@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 // A tab's program gets the environment the user's login shell sets up, as a
@@ -133,10 +135,10 @@ func mergeEnv(overrides map[string]string) []string {
 		if !ok || inheritedOnly(key) {
 			continue
 		}
-		merged[key] = value
+		merged[key] = agentpaths.ProfileEnvDir(key, value)
 	}
 	for key, value := range loginEnv() {
-		merged[key] = value
+		merged[key] = agentpaths.ProfileEnvDir(key, value)
 	}
 	for key, value := range overrides {
 		for existing := range merged {
@@ -144,7 +146,7 @@ func mergeEnv(overrides map[string]string) []string {
 				delete(merged, existing)
 			}
 		}
-		merged[key] = value
+		merged[key] = agentpaths.ProfileEnvDir(key, value)
 	}
 	if dir := overrides[wrapperDirEnv]; dir != "" {
 		prependPath(merged, dir)

@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,8 @@ type FindBinaryParams struct {
 	// Path is where the user said it is, "~" standing for their home. It is
 	// tried first; when nothing is there the search goes on.
 	Path string `json:"path,omitempty"`
+	// SearchPath is an optional PATH from an agent profile, tried before the host paths.
+	SearchPath string `json:"searchPath,omitempty"`
 	// Dir is where the server will run, the workspace root. A rustup proxy
 	// picks its toolchain there.
 	Dir string `json:"dir,omitempty"`
@@ -59,7 +62,15 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 
 	home, _ := os.UserHomeDir()
 	shellPath := loginShellPath()
-	dirs := searchDirs(home, shellPath)
+	var preferred []string
+	for _, dir := range filepath.SplitList(p.SearchPath) {
+		dir = expandHome(dir, home)
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(p.Dir, dir)
+		}
+		preferred = append(preferred, dir)
+	}
+	dirs := append(preferred, searchDirs(home, shellPath)...)
 	path := findBinary(p.Name, expandHome(strings.TrimSpace(p.Path), home), p.Dir, dirs)
 	if path == "" {
 		return FindBinaryResult{}, nil
@@ -74,7 +85,7 @@ func findBinary(name, userPath, workDir string, dirs []string) string {
 	if userPath != "" {
 		// On Windows "gopls" stands for "gopls.exe", as in a shell.
 		for _, candidate := range executableNames(userPath) {
-			if canRunServer(candidate, workDir) {
+			if canRunServer(candidate, workDir) && !isAgentWrapper(name, candidate) {
 				return candidate
 			}
 		}
@@ -84,12 +95,29 @@ func findBinary(name, userPath, workDir string, dirs []string) string {
 			continue
 		}
 		for _, candidate := range executableNames(filepath.Join(dir, name)) {
-			if canRunServer(candidate, workDir) {
+			if canRunServer(candidate, workDir) && !isAgentWrapper(name, candidate) {
 				return candidate
 			}
 		}
 	}
 	return ""
+}
+
+// isAgentWrapper keeps CLI selection on the real executable even when wrappers
+// appear on the login shell's or profile's PATH.
+func isAgentWrapper(name, path string) bool {
+	if name != "claude" && name != "codex" {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	var header [512]byte
+	n, _ := file.Read(header[:])
+	return bytes.Contains(header[:n], []byte("nexus-code "+name+" wrapper")) ||
+		bytes.Contains(header[:n], []byte("cmux claude wrapper"))
 }
 
 func canRunServer(path, workDir string) bool {

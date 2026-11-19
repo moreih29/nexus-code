@@ -69,7 +69,14 @@ is_print() {
   return 1
 }
 
-REAL_CLAUDE="$(find_real_claude)" || { echo "claude not found in PATH" >&2; exit 127; }
+# The chat host already selected and probed this executable. Consume the
+# path here so nested commands still find their own Claude on PATH.
+if [[ -n "${NEXUS_CLAUDE_PROGRAM:-}" ]]; then
+  REAL_CLAUDE="$NEXUS_CLAUDE_PROGRAM"
+  unset NEXUS_CLAUDE_PROGRAM
+else
+  REAL_CLAUDE="$(find_real_claude)" || { echo "claude not found in PATH" >&2; exit 127; }
+fi
 
 # 3) A `claude -p` run inside the tab's Claude session runs under the agent,
 #    which tells the app of it as one of the session's agents: its start and

@@ -41,6 +41,35 @@ const HOOK_EVENT_NAMES = [
   "permission-request",
 ] as const;
 
+describeOnPosix("Claude binary selection", () => {
+  test("the wrapper executes the probed binary even when PATH starts with a different one", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nx-probed-claude-"));
+    try {
+      const onPath = path.join(dir, "claude");
+      const probed = path.join(dir, "probed claude");
+      fs.writeFileSync(onPath, "#!/bin/sh\necho wrong\n", { mode: 0o755 });
+      fs.writeFileSync(
+        probed,
+        `#!/bin/sh\nprintf "selected:%s\\n" "\${NEXUS_CLAUDE_PROGRAM-unset}"\n`,
+        { mode: 0o755 },
+      );
+      const result = spawnSync("bash", [WRAPPER_PATH], {
+        encoding: "utf8",
+        env: {
+          HOME: dir,
+          PATH: `${dir}:${process.env.PATH ?? ""}`,
+          NEXUS_IN_APP: "0",
+          NEXUS_CLAUDE_PROGRAM: probed,
+        },
+        timeout: 5000,
+      });
+      expect(result.stdout).toBe("selected:unset\n");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 let tmpDir: string;
 let socketServer: net.Server;
 let socketPath: string;
