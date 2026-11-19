@@ -133,7 +133,6 @@ import {
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { SystemStatsSchema } from "../system/stats";
 import { AppStateSchema, RemoteAgentsPolicySchema } from "../types/app-state";
-import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
   ConnectionProfileIdArgsSchema,
@@ -168,6 +167,7 @@ import {
   WorkspaceMetaSchema,
   WorkspaceTaskSchema,
 } from "../types/workspace";
+import { WorkspaceColorSchema } from "../types/workspace-color";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 import { ReleaseNotesResultSchema } from "../updates/release-notes";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
@@ -279,7 +279,7 @@ const WorkspaceCreateArgsSchema = z.union([
 const WorkspaceUpdateArgsSchema = z.object({
   id: z.string().uuid(),
   name: z.string().optional(),
-  colorTone: ColorToneSchema.optional(),
+  color: WorkspaceColorSchema.optional(),
   pinned: z.boolean().optional(),
 });
 

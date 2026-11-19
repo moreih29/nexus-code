@@ -376,6 +376,7 @@ export const AgentPane = memo(function AgentPane({
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
   const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
   const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
+  const color = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === rootId)?.color);
   return (
     <span
       className={cn(
@@ -386,7 +387,7 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
       <span
         aria-hidden
         className="size-1.5 shrink-0 rounded-full"
-        style={{ background: workspaceColor(rootId) }}
+        style={{ background: workspaceColor(rootId, color) }}
       />
       <span className="truncate">{name}</span>
     </span>

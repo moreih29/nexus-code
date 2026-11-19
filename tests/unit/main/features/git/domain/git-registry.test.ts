@@ -22,7 +22,7 @@ function makeSshWorkspace(remotePath = "/srv/repo"): WorkspaceMeta {
     name: "ssh-workspace",
     rootPath: remotePath,
     location: { kind: "ssh", host: "dev.example.com", remotePath },
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],

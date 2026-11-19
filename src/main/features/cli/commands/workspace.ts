@@ -1,6 +1,12 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { CliTaskStart, CliView } from "../../../../shared/cli/ui";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
+import {
+  WORKSPACE_COLOR_AUTO,
+  WORKSPACE_COLORS,
+  type WorkspaceColor,
+  WorkspaceColorSchema,
+} from "../../../../shared/types/workspace-color";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -31,6 +37,7 @@ export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
     name: workspace.name,
     location: workspace.location,
     pinned: workspace.pinned,
+    color: workspace.color,
     current: workspace.id === ctx.caller.workspaceId,
     shown: shown?.workspaceId === workspace.id,
     ...(workspace.task
@@ -526,6 +533,24 @@ function locationBeside(beside: WorkspaceLocation, folder: string): WorkspaceLoc
     : { ...beside, remotePath: folder };
 }
 
+const COLOR_FLAG = {
+  type: "string",
+  value: "COLOR",
+  description: `One of ${WORKSPACE_COLORS.join(", ")}, or ${WORKSPACE_COLOR_AUTO} for the app's own pick`,
+} as const;
+
+/** The color a --color flag names; undefined when it is not given. */
+export function colorFlag(value: unknown): WorkspaceColor | undefined {
+  if (value === undefined) return undefined;
+  const parsed = WorkspaceColorSchema.safeParse(String(value).trim().toLowerCase());
+  if (!parsed.success) {
+    throw new CliUsageError(
+      `--color is one of ${WORKSPACE_COLORS.join(", ")}, or ${WORKSPACE_COLOR_AUTO}`,
+    );
+  }
+  return parsed.data;
+}
+
 const workspaceAdd: CliCommand = {
   path: ["workspace", "add"],
   summary: "Add a folder to the app as a workspace, on this terminal's host",
@@ -534,9 +559,11 @@ const workspaceAdd: CliCommand = {
     "As Add Workspace in the app: the folder, from this terminal's directory, goes at the end\n" +
     "of the sidebar, named after it unless --name. An SSH or WSL terminal adds a folder on its\n" +
     "own host, reached as its workspace is. It connects once it is first shown, so --show it\n" +
-    "or click it. A folder already in the list gives that workspace.",
+    "or click it. --color gives it a color, as the sidebar's menu does. A folder already in\n" +
+    "the list gives that workspace as it is.",
   flags: {
     name: { type: "string", value: "NAME", description: "The name the sidebar shows" },
+    color: COLOR_FLAG,
     show: { type: "boolean", description: "Show it to the user" },
   },
   async run(ctx, { positionals, flags }) {
@@ -544,7 +571,8 @@ const workspaceAdd: CliCommand = {
     const caller = resolveWorkspace(ctx, undefined);
     const location = locationBeside(caller.location, absolutePath(ctx, caller, input));
     const name = (flags.name as string | undefined)?.trim() || undefined;
-    const { workspace, added } = await ctx.services.addWorkspace(location, name);
+    const color = colorFlag(flags.color);
+    const { workspace, added } = await ctx.services.addWorkspace(location, name, color);
     if (flags.show === true) await ctx.services.ui("workspace.show", { workspaceId: workspace.id });
     const what = added ? "Added" : "Already listed";
     return output(
@@ -632,6 +660,47 @@ function workspacePinCommand(pinned: boolean): CliCommand {
   };
 }
 
+const workspaceEdit: CliCommand = {
+  path: ["workspace", "edit"],
+  summary: "Rename a workspace or change its color, as the sidebar's menu does",
+  args: "<workspace>",
+  details:
+    "Give --name, --color or both. The color marks the workspace in the sidebar and the agent\n" +
+    `view; ${WORKSPACE_COLOR_AUTO} leaves it to the app. A worktree is shown under its workspace and\n` +
+    "takes its color, so it is not edited here. Another workspace's is changed with the user's leave.",
+  flags: {
+    name: { type: "string", value: "NAME", description: "The name the sidebar shows" },
+    color: COLOR_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "workspace") as [string];
+    const name = (flags.name as string | undefined)?.trim();
+    const color = colorFlag(flags.color);
+    if (flags.name !== undefined && !name) throw new CliUsageError("--name is empty");
+    if (name === undefined && color === undefined) {
+      throw new CliUsageError("give --name, --color or both");
+    }
+    const target = sidebarWorkspace(ctx, selector);
+    const edit = {
+      ...(name !== undefined && name !== target.name ? { name } : {}),
+      ...(color !== undefined && color !== target.color ? { color } : {}),
+    };
+    if (Object.keys(edit).length === 0) {
+      return output(`${target.name} is as asked.`, workspaceJson(ctx, target));
+    }
+    await mayChange(ctx, target, { kind: "workspaceEdit" });
+    const changed = ctx.services.editWorkspace(target.id, edit);
+    const parts = [
+      ...(edit.name !== undefined ? [`renamed from ${target.name}`] : []),
+      ...(edit.color !== undefined ? [`color ${changed.color}`] : []),
+    ];
+    return output(
+      `${changed.name} (${shortId(changed.id)}): ${parts.join(", ")}.`,
+      workspaceJson(ctx, changed),
+    );
+  },
+};
+
 /** What a group of the sidebar is called. */
 const GROUP_NAMES = { pinned: "pinned workspaces", unpinned: "workspaces not pinned" } as const;
 
@@ -696,6 +765,7 @@ export const workspaceCommands: CliCommand[] = [
   workspaceSwitch,
   workspaceAdd,
   workspaceRemove,
+  workspaceEdit,
   workspacePinCommand(true),
   workspacePinCommand(false),
   workspaceMove,

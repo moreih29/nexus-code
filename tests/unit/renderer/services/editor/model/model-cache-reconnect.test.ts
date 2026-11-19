@@ -97,7 +97,7 @@ function addWorkspace(): void {
     rootPath,
     name: "Remote",
     location: { kind: "ssh", host: "example.invalid", remotePath: rootPath },
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     sortOrder: 1,
     pinnedSortOrder: 0,

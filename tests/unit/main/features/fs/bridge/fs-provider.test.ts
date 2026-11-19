@@ -12,7 +12,7 @@ function makeMeta(location: WorkspaceMeta["location"]): WorkspaceMeta {
     name: "workspace",
     location,
     rootPath: location.kind === "local" ? location.rootPath : location.remotePath,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],

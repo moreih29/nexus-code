@@ -60,7 +60,7 @@ test("workspace removal clears its file encoding overrides only", async () => {
     rootPath: "/project",
     location: { kind: "local", rootPath: "/project" },
     pinned: false,
-    colorTone: "default",
+    color: "auto",
     tabs: [],
   }));
   const [removed, retained] = workspaces.map(({ id }) => ({

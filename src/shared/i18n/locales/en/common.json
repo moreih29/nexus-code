@@ -176,7 +176,21 @@
     "task_count_other": "{{count}} tasks",
     "agent_profiles": "Agent profiles",
     "follow_rules": "Follow rules",
-    "profile_rules_settings": "Profiles by workspace…"
+    "profile_rules_settings": "Profiles by workspace…",
+    "rename": "Rename…",
+    "rename_aria": "Workspace name",
+    "color": "Color",
+    "color_auto": "Auto",
+    "colors": {
+      "red": "Red",
+      "amber": "Amber",
+      "lime": "Lime",
+      "green": "Green",
+      "cyan": "Cyan",
+      "blue": "Blue",
+      "violet": "Violet",
+      "pink": "Pink"
+    }
   },
   "forward": {
     "not_connected": "Port {{port}} cannot be opened: {{host}} is not connected.",

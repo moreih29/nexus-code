@@ -320,6 +320,7 @@
         "worktreeRemove": "delete the task and its worktree folder",
         "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
         "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders",
+        "workspaceEdit": "rename the workspace or change its color",
         "workspacePin": "pin or unpin the workspace",
         "workspaceMove": "move the workspace in the sidebar",
         "permissionAllow": "allow {{detail}}",

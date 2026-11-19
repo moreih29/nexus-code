@@ -66,7 +66,7 @@ function setup(parentRoot = repoDir) {
     name: "repo",
     location: { kind: "local", rootPath: parentRoot },
     rootPath: parentRoot,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     tabs: [],
     sortOrder: 1024,

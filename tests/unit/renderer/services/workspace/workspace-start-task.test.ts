@@ -8,7 +8,7 @@ const task = {
   name: "pay",
   location: { kind: "local", rootPath: "/w/pay" },
   rootPath: "/w/pay",
-  colorTone: "default",
+  color: "auto",
   pinned: false,
   lastOpenedAt: "2026-11-15T00:00:00.000Z",
   tabs: [],

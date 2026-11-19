@@ -15,7 +15,7 @@ function restoreWorkspace(id: string): void {
     rootPath,
     location: { kind: "local", rootPath },
     pinned: false,
-    colorTone: "default",
+    color: "auto",
     tabs: [],
   };
   useWorkspacesStore.getState().upsert(workspace);

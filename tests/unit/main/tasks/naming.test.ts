@@ -13,7 +13,7 @@ function workspace(location: WorkspaceMeta["location"]): WorkspaceMeta {
     name: "w",
     location,
     rootPath: location.kind === "local" ? location.rootPath : location.remotePath,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     tabs: [],
     sortOrder: 0,

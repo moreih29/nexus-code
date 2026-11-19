@@ -47,7 +47,7 @@ describe("WSL workspace location", () => {
       id: "8f0c1b2e-3d4a-4b5c-9d6e-7f8091a2b3c4",
       name: "project",
       location: { kind: "wsl", distro: "Ubuntu", remotePath: "/home/me/project" },
-      colorTone: "default",
+      color: "auto",
       pinned: false,
       lastOpenedAt: "2026-10-31T00:00:00.000Z",
       tabs: [],

@@ -52,7 +52,7 @@ function makeWorkspace(id = VALID_UUID): WorkspaceMeta {
     name: "test-workspace",
     rootPath: "/workspace",
     location: { kind: "local", rootPath: "/workspace" },
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
