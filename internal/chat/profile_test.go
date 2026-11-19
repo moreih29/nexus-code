@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 func profileDirCall(t *testing.T, params ProfileDirParams) (ProfileDirResult, error) {
@@ -118,7 +120,7 @@ func TestProfileFoldersPickedOnWindowsReadOnEveryHost(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	want := filepath.Join(home, ".claude-work", "main")
 	for _, dir := range []string{`~\.claude-work\main`, "~/.claude-work/main"} {
-		if got := expandProfileDir(dir, home); got != want {
+		if got := agentpaths.ExpandProfileDir(dir, home); got != want {
 			t.Errorf("expandProfileDir(%q) = %q, want %q", dir, got, want)
 		}
 		// The readers of sessions, transcripts and settings take it alike.

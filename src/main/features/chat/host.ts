@@ -3,12 +3,20 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  agentEnvValue,
+  mergeAgentEnv,
+  profileDirectory,
+  profileVariables,
+} from "../../../shared/agent-profiles/env";
+import {
   type AgentProfile,
+  defaultProfileId,
   PROFILE_DIR_ENV,
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import { createLogger } from "../../../shared/log/main";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
@@ -72,6 +80,9 @@ export type StartResult =
   | { ok: true; pid: number; attached: boolean; version: string | null; canonicalCwd?: string }
   | { ok: false; reason: "not-found" | "failed"; message: string };
 
+/** A profile choice that is no longer valid for this agent. */
+export class AgentProfileSelectionError extends Error {}
+
 interface Subscription {
   channel: AgentChannel;
   revision: number;
@@ -129,42 +140,45 @@ export class ChatHost {
     resume: ResumeOptions,
     profileId?: string,
   ): Promise<StartResult> {
+    let profile: AgentProfile;
+    try {
+      profile = this.profile("claude", profileId);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
     const key = `${workspaceId}:${tabId}`;
     const intent = this.openTab(key);
     const channel = await this.channelForStart(workspaceId, key, intent);
     const { workspaceManager } = this.options;
-    const windows =
-      this.options.windowsAgentFiles !== undefined &&
-      workspaceManager.isLocal?.(workspaceId) === true;
+    const windows = this.windowsHost(workspaceId);
+    const withoutWrapper = windows && this.options.windowsAgentFiles !== undefined;
 
-    const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
-      name: "claude",
-      dir: cwd,
-    });
+    let profileEnv: Record<string, string>;
+    try {
+      profileEnv = await this.profileEnv(channel, profile, windows);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    const found = await this.findBinary(channel, "claude", cwd, profileEnv, windows);
     if (!found.path) {
       return { ok: false, reason: "not-found", message: "claude was not found on the PATH" };
     }
 
-    let version: string | null = null;
-    try {
-      const run = await channel.call<{ code: number; stdout: string }>("chat.exec", {
-        cwd,
-        program: found.path,
-        args: ["--version"],
-        env: found.envPath ? { PATH: found.envPath } : {},
-        timeoutMs: VERSION_TIMEOUT_MS,
-      });
-      if (run.code === 0) version = parseClaudeVersion(run.stdout);
-    } catch (err) {
-      log.warn(`claude --version failed: ${(err as Error).message}`);
-    }
+    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+    const version = await this.probeVersion(
+      channel,
+      "claude",
+      cwd,
+      found.path,
+      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+    );
 
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = found.path;
     let hooksSettings: string | undefined;
     let gitBash: { wrapperDir: string; bashEnv: string } | undefined;
-    if (windows) {
+    if (withoutWrapper) {
       // cmd and PowerShell pass claude the hooks file the same way.
       const files = await this.options.windowsAgentFiles?.();
       hooksSettings = files?.settingsPath;
@@ -174,32 +188,31 @@ export class ChatHost {
       }
     } else if (wrapperBinDir !== null) {
       // The wrapper adds the hooks and the tab's mark, then runs the claude
-      // the PATH has after it.
+      // version probe selected.
       program = hostJoin(wrapperBinDir, "claude", false);
     }
     try {
-      const profile = await this.profileEnv(channel, "claude", profileId);
       await this.closingTabs.get(key);
       const hookInfo = await workspaceManager.getSpawnHookInfo(workspaceId, channel);
       const env = claudeTabEnv({
         workspaceId,
         tabId,
-        path: found.envPath,
+        path,
         wrapperBinDir,
         agentBin,
         agentSocket: hookInfo?.socketPath,
         hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
-        withoutWrapper: windows,
+        withoutWrapper,
         ...(gitBash ? { gitBash } : {}),
       });
-      Object.assign(env, profile);
+      if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
       const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
         program,
         args: claudeTabArgs(resume, hooksSettings, version),
-        env,
+        env: mergeAgentEnv(windows, profileEnv, env),
         ...(resume.resetLog ? { resetLog: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),
       });
@@ -222,56 +235,56 @@ export class ChatHost {
     cwd: string,
     options: { resetLog?: boolean; profileId?: string },
   ): Promise<StartResult> {
+    let profile: AgentProfile;
+    try {
+      profile = this.profile("codex", options.profileId);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
     const key = `${workspaceId}:${tabId}`;
     const intent = this.openTab(key);
     const channel = await this.channelForStart(workspaceId, key, intent);
-    const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
-      name: "codex",
-      dir: cwd,
-    });
+    const windows = this.windowsHost(workspaceId);
+    let profileEnv: Record<string, string>;
+    try {
+      profileEnv = await this.profileEnv(channel, profile, windows);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
     if (!found.path) {
       return { ok: false, reason: "not-found", message: "codex was not found on the PATH" };
     }
-    let version: string | null = null;
-    try {
-      const run = await channel.call<{ code: number; stdout: string }>("chat.exec", {
-        cwd,
-        program: found.path,
-        args: ["--version"],
-        env: found.envPath ? { PATH: found.envPath } : {},
-        timeoutMs: VERSION_TIMEOUT_MS,
-      });
-      if (run.code === 0) version = parseClaudeVersion(run.stdout);
-    } catch (err) {
-      log.warn(`codex --version failed: ${(err as Error).message}`);
-    }
+    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+    const version = await this.probeVersion(
+      channel,
+      "codex",
+      cwd,
+      found.path,
+      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+    );
+
     const { workspaceManager } = this.options;
-    // Windows commands run in PowerShell or cmd, which read no shim files.
-    const windows =
-      this.options.windowsAgentFiles !== undefined &&
-      workspaceManager.isLocal?.(workspaceId) === true;
     try {
-      const profile = await this.profileEnv(channel, "codex", options.profileId);
       await this.closingTabs.get(key);
       const hookInfo = await workspaceManager.getSpawnHookInfo(workspaceId, channel);
       const env = codexTabEnv({
         workspaceId,
         tabId,
-        path: found.envPath,
+        path,
         wrapperBinDir: workspaceManager.getWrapperBinDir(workspaceId),
         agentBin: workspaceManager.getWrapperAgentBin(workspaceId),
         agentSocket: hookInfo?.socketPath,
         hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
         shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
       });
-      Object.assign(env, profile);
       const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
         program: found.path,
         args: ["app-server"],
-        env,
+        env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
       });
       return {
@@ -389,8 +402,12 @@ export class ChatHost {
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.transcript", { sessionId, ...this.configDir(profileId) });
+    return channel.call("chat.transcript", {
+      sessionId,
+      ...config,
+    });
   }
 
   async subagentTranscript(
@@ -399,17 +416,22 @@ export class ChatHost {
     agent: { agentId?: string; toolUseId?: string },
     profileId?: string,
   ): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
     return channel.call("chat.subagentTranscript", {
       sessionId,
       ...agent,
-      ...this.configDir(profileId),
+      ...config,
     });
   }
 
   async sessionFile(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.sessionFile", { sessionId, ...this.configDir(profileId) });
+    return channel.call("chat.sessionFile", {
+      sessionId,
+      ...config,
+    });
   }
 
   async stageThread(
@@ -417,9 +439,9 @@ export class ChatHost {
     threadId: string,
     options: { fromProfileId?: string; toProfileId?: string },
   ): Promise<unknown> {
+    const from = this.profileDir(workspaceId, "codex", options.fromProfileId);
+    const to = this.profileDir(workspaceId, "codex", options.toProfileId);
     const channel = await this.channelFor(workspaceId);
-    const from = this.codexDir(options.fromProfileId);
-    const to = this.codexDir(options.toProfileId);
     return channel.call("chat.stageThread", {
       threadId,
       ...(from ? { from } : {}),
@@ -428,8 +450,9 @@ export class ChatHost {
   }
 
   async claudeConfig(workspaceId: string, profileId?: string): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.claudeConfig", this.configDir(profileId));
+    return channel.call("chat.claudeConfig", config);
   }
 
   /** Runs one of the `claude` commands a tab may (`claude agents`, `claude plugin`…) in the folder. */
@@ -439,11 +462,11 @@ export class ChatHost {
     command: ClaudeCommand,
     profileId?: string,
   ): Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }> {
+    const profile = this.profile("claude", profileId);
     const channel = await this.channelFor(workspaceId);
-    const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
-      name: "claude",
-      dir: cwd,
-    });
+    const windows = this.windowsHost(workspaceId);
+    const env = await this.profileEnv(channel, profile, windows);
+    const found = await this.findBinary(channel, "claude", cwd, env, windows);
     if (!found.path) throw new Error("claude was not found on the PATH");
     return channel.call(
       "chat.exec",
@@ -451,10 +474,7 @@ export class ChatHost {
         cwd,
         program: found.path,
         args: claudeCommandArgs(command, cwd),
-        env: {
-          ...(found.envPath ? { PATH: found.envPath } : {}),
-          ...(await this.profileEnv(channel, "claude", profileId)),
-        },
+        env: mergeAgentEnv(windows, found.envPath ? { PATH: found.envPath } : {}, env),
         timeoutMs: COMMAND_TIMEOUT_MS,
       },
       { timeoutMs: COMMAND_REPLY_TIMEOUT_MS },
@@ -462,8 +482,9 @@ export class ChatHost {
   }
 
   async sessions(workspaceId: string, cwd: string, profileId?: string): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.sessions", { cwd, ...this.configDir(profileId) });
+    return channel.call("chat.sessions", { cwd, ...config });
   }
 
   async deleteSession(
@@ -472,8 +493,13 @@ export class ChatHost {
     sessionId: string,
     profileId?: string,
   ): Promise<unknown> {
+    const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.deleteSession", { cwd, sessionId, ...this.configDir(profileId) });
+    return channel.call("chat.deleteSession", {
+      cwd,
+      sessionId,
+      ...config,
+    });
   }
 
   async fileSizes(workspaceId: string, paths: readonly string[]): Promise<unknown> {
@@ -481,61 +507,128 @@ export class ChatHost {
     return channel.call("chat.fileSizes", { paths });
   }
 
-  /** The Claude profile's folder, as the agent's readers take it; none for the default. */
-  private configDir(profileId: string | undefined): { configDir?: string } {
-    const profile = profileId ? this.options.profile?.(profileId) : null;
-    if (!profile || profile.agent !== "claude" || profile.dir.trim() === "") return {};
-    return { configDir: profile.dir.trim() };
+  /** Only workspaces on this Windows machine use case-insensitive environment names. */
+  private windowsHost(workspaceId: string): boolean {
+    return (
+      (process.platform === "win32" || this.options.windowsAgentFiles !== undefined) &&
+      this.options.workspaceManager.isLocal?.(workspaceId) === true
+    );
   }
 
-  /** A Codex profile's folder; "" for the default profile, or one gone. */
-  private codexDir(profileId: string | undefined): string {
-    const profile = profileId ? this.options.profile?.(profileId) : null;
-    return profile?.agent === "codex" ? profile.dir.trim() : "";
+  /** Selects the same executable for the probe and for launching the provider. */
+  private findBinary(
+    channel: AgentChannel,
+    agent: ChatAgent,
+    cwd: string,
+    env: Record<string, string>,
+    windows: boolean,
+  ): Promise<{ path: string; envPath?: string }> {
+    const searchPath = agentEnvValue(env, "PATH", windows);
+    return channel.call("lsp.findBinary", {
+      name: agent,
+      dir: cwd,
+      ...(searchPath ? { searchPath } : {}),
+    });
   }
 
-  /**
-   * What a terminal opened for a profile runs with in the workspace, as a
-   * chat of it does: its folder's variable and its own variables. Null for
-   * a profile there is not.
-   */
+  /** Probes the selected executable in its profile's environment before adding launch flags. */
+  private async probeVersion(
+    channel: AgentChannel,
+    agent: ChatAgent,
+    cwd: string,
+    program: string,
+    env: Record<string, string>,
+  ): Promise<string | null> {
+    try {
+      const run = await channel.call<{ code: number; stdout: string }>("chat.exec", {
+        cwd,
+        program,
+        args: ["--version"],
+        env,
+        timeoutMs: VERSION_TIMEOUT_MS,
+      });
+      return run.code === 0 ? parseClaudeVersion(run.stdout) : null;
+    } catch (error) {
+      log.warn(`${agent} --version failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Rejects explicit stale choices and resolves omitted IDs to the stored default. */
+  private profile(agent: ChatAgent, profileId: string | undefined): AgentProfile {
+    const id = profileId ?? defaultProfileId(agent);
+    const profile = this.options.profile?.(id);
+    if (profile?.agent === agent) return profile;
+    if (!profile && id === defaultProfileId(agent)) {
+      return { id, agent, dir: "", name: "", color: "" };
+    }
+    const error = new AgentProfileSelectionError(
+      profile || id === defaultProfileId(agent === "claude" ? "codex" : "claude")
+        ? `Profile ${id} does not belong to ${agent}`
+        : `Profile ${id} was not found`,
+    );
+    log.warn(error.message);
+    throw error;
+  }
+
+  /** Selects the same folder when reading history as when starting a profile. */
+  private profileDir(workspaceId: string, agent: ChatAgent, profileId: string | undefined): string {
+    return profileDirectory(this.profile(agent, profileId), this.windowsHost(workspaceId));
+  }
+
+  /** The Claude profile's folder, as the agent's readers take it. */
+  private configDir(workspaceId: string, profileId: string | undefined): { configDir?: string } {
+    const configDir = this.profileDir(workspaceId, "claude", profileId);
+    return configDir ? { configDir } : {};
+  }
+
+  /** A terminal in an agent profile uses the same variables and folder as its chat. */
   async terminalProfileEnv(
     workspaceId: string,
-    profileId: string,
+    profileId: string | undefined,
+    defaultAgent: ChatAgent = "claude",
   ): Promise<Record<string, string> | null> {
-    const profile = this.options.profile?.(profileId);
-    if (!profile) return null;
+    const profile =
+      profileId === undefined
+        ? this.profile(defaultAgent, undefined)
+        : this.options.profile?.(profileId);
+    if (!profile) {
+      log.warn(`Profile ${profileId} was not found for terminal spawn`);
+      return null;
+    }
     const channel = await this.options.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
-    return this.profileEnv(channel, profile.agent, profile.id);
+    return this.profileEnv(channel, profile, this.windowsHost(workspaceId));
   }
 
-  /**
-   * What the agent's program runs with for the profile: its folder, made on
-   * the workspace's host and named by its variable, and its own variables.
-   * None for the default profile, or one gone.
-   */
+  /** Prepares named profile folders on the workspace host and overlays their directory variable. */
   private async profileEnv(
     channel: AgentChannel,
-    agent: AgentProfile["agent"],
-    profileId: string | undefined,
+    profile: AgentProfile,
+    windows: boolean,
   ): Promise<Record<string, string>> {
-    const profile = profileId ? this.options.profile?.(profileId) : null;
-    if (!profile || profile.agent !== agent) return {};
-    const env: Record<string, string> = { ...(profile.env ?? {}) };
+    const { agent } = profile;
+    const key = PROFILE_DIR_ENV[agent];
+    const env = profileVariables(profile.env, windows);
+    let dir = profileDirectory(profile, windows);
     if (profile.dir.trim() !== "") {
       const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
         agent,
-        dir: profile.dir.trim(),
+        dir,
         shared: profile.shared ?? [],
         shareable: SHAREABLE[agent],
       });
       if (result.failed && result.failed.length > 0) {
         log.warn(`profile ${profile.id}: could not link ${result.failed.join(", ")}`);
       }
-      env[PROFILE_DIR_ENV[agent]] = result.dir;
+      dir = result.dir;
     }
-    return env;
+    if (!dir) {
+      return Object.fromEntries(
+        Object.entries(env).filter(([name]) => (windows ? name.toUpperCase() : name) !== key),
+      );
+    }
+    return mergeAgentEnv(windows, env, { [key]: dir });
   }
 
   /** Closes tracked and restored chats before the workspace's agent is torn down. */

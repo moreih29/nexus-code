@@ -672,6 +672,7 @@
       "shareHint": "Shared by links · sign-in and history stay apart",
       "env": "Environment variables (optional)",
       "envPlaceholder": "KEY=value, one per line",
+      "envReserved": "NEXUS_ variables are reserved by NexusCode.",
       "create": "Create and sign in",
       "save": "Save"
     },

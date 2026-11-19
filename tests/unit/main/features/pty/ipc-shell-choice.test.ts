@@ -341,4 +341,21 @@ describe("pty.spawn — a terminal opened for an agent profile", () => {
     });
     expect(agent.spawnCalls).toEqual([]);
   });
+
+  test("loads the default profile and merges Windows variable names before the shell runs", async () => {
+    const { call, agent } = setup({
+      windowsAgentFiles: async () => null,
+      profileEnv: async (_ws, id) =>
+        id === undefined
+          ? { PATH: "profile", Mode: "first", MODE: "last", nexus_hook_token: "stale" }
+          : null,
+    });
+    await call("spawn", spawnArgs({ env: { Path: "caller", mode: "caller" } }));
+    const env = agent.spawnCalls[0]?.env;
+    expect(env).toMatchObject({ PATH: "profile", MODE: "last" });
+    expect(env).not.toHaveProperty("Path");
+    expect(env).not.toHaveProperty("mode");
+    expect(env).not.toHaveProperty("Mode");
+    expect(env).not.toHaveProperty("nexus_hook_token");
+  });
 });

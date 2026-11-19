@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 // stagedDir is where a thread another Codex profile keeps is put for this
@@ -169,7 +171,7 @@ func rolloutPath(home, threadID string) string {
 // else CODEX_HOME as the login shell or the agent has it, else ~/.codex.
 func codexHome(given string) string {
 	home, _ := os.UserHomeDir()
-	if dir := expandProfileDir(given, home); dir != "" {
+	if dir := agentpaths.ProfileEnvDir("CODEX_HOME", given); dir != "" {
 		return dir
 	}
 	return defaultProfileDir("codex", home)

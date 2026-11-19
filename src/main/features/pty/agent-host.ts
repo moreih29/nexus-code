@@ -289,9 +289,9 @@ class AgentPtyHostHandle implements PtyHostHandle {
             ? {
                 ...spawn,
                 env: {
+                  ...env,
                   NEXUS_AGENT_SOCKET: hooks.socketPath,
                   NEXUS_HOOK_TOKEN: tabHookToken(hooks, workspaceId, tabId),
-                  ...env,
                 },
               }
             : args,

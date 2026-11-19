@@ -9,6 +9,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  mergeAgentEnv,
+  profileDirectory,
+  profileVariables,
+} from "../../../shared/agent-profiles/env";
+import {
   type AgentProfile,
   PROFILE_DIR_ENV,
   SHAREABLE,
@@ -45,9 +50,8 @@ export function localDefaultDir(agent: AgentProfile["agent"]): string {
 
 /** The profile's folder here, absolute; the default folder for the default profile. */
 export function localProfileDir(profile: AgentProfile): string {
-  return profile.dir.trim() === ""
-    ? localDefaultDir(profile.agent)
-    : path.resolve(expandHome(profile.dir));
+  const dir = profileDirectory(profile, windows);
+  return dir ? path.resolve(expandHome(dir)) : localDefaultDir(profile.agent);
 }
 
 /** The environment the agent's program runs with here, for the profile. */
@@ -56,27 +60,19 @@ export function localProfileEnv(
   base: NodeJS.ProcessEnv = process.env,
   onWindows = windows,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
-  for (const key of INHERITED_ONLY) delete env[key];
-  for (const [key, value] of Object.entries(profile.env ?? {})) setVar(env, key, value, onWindows);
-  if (profile.dir.trim() !== "")
-    setVar(env, PROFILE_DIR_ENV[profile.agent], localProfileDir(profile), onWindows);
-  return env;
-}
-
-/**
- * Sets a variable. A Windows variable is one whatever the case of its name,
- * so there it takes the place of one named in another case ("Path" of
- * "PATH"): left beside it, the program would get either.
- */
-function setVar(env: NodeJS.ProcessEnv, key: string, value: string, onWindows: boolean): void {
-  if (onWindows) {
-    const lower = key.toLowerCase();
-    for (const other of Object.keys(env)) {
-      if (other !== key && other.toLowerCase() === lower) delete env[other];
-    }
-  }
-  env[key] = value;
+  const inherited = Object.fromEntries(
+    Object.entries(base).filter(
+      ([key]) => !INHERITED_ONLY.includes(onWindows ? key.toUpperCase() : key),
+    ),
+  );
+  const dir = profileDirectory(profile, onWindows);
+  const variables = profileVariables(profile.env, onWindows);
+  return mergeAgentEnv(
+    onWindows,
+    inherited,
+    variables,
+    dir ? { [PROFILE_DIR_ENV[profile.agent]]: path.resolve(expandHome(dir)) } : {},
+  );
 }
 
 /**

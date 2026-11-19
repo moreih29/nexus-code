@@ -35,15 +35,91 @@ export const CODEX_SERVER_ARGS = [
 ] as const;
 
 const CMD_LAUNCHER_MARK = "@rem nexus-code codex cmd launcher";
-export const CODEX_CMD_HELP_FILE = "codex-help.cmd";
+export const CODEX_CMD_HELP_FILE = "codex-help.ps1";
+export const CODEX_CMD_BATCH_HELP_FILE = "codex-help.cmd";
 
-/** A subprocess runs the help probe even if the chosen Codex is a batch file. */
-export const CODEX_CMD_HELP = [
+/** The cmd probe preserves literal percent signs and turns delayed expansion off for Codex. */
+export const CODEX_CMD_BATCH_HELP = [
   "@echo off",
   "setlocal EnableExtensions DisableDelayedExpansion",
   '"%nexus_codex_real%" --help',
   "",
 ].join("\r\n");
+
+/**
+ * Runs help in a separate process so a stalled npm shim or executable can't
+ * hold the terminal. The same deadline covers the child and its output pipes.
+ */
+export const CODEX_POWERSHELL_PROBE = `function Test-NexusCodexNoDaemon {
+  param([string]$Program, [string]$BatchHelper)
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  if ($BatchHelper) {
+    $start.FileName = $env:ComSpec
+    $start.Arguments = '/d /v:on /s /c ""!NEXUS_CODEX_PROBE_HELPER!" & exit"'
+    $start.EnvironmentVariables['NEXUS_CODEX_PROBE_HELPER'] = $BatchHelper
+  } elseif ([IO.Path]::GetExtension($Program) -in @('.cmd', '.bat')) {
+    # An implicit cmd /c can lose an early exit /b inside a batch block.
+    # Expand the program path once with delayed expansion off, then exit
+    # the cmd process with the batch file's errorlevel.
+    $start.FileName = $env:ComSpec
+    $start.Arguments = '/d /v:off /s /c ""%NEXUS_CODEX_PROBE_PROGRAM%" --help & exit"'
+  } else {
+    $worker = @'
+$ErrorActionPreference = 'Stop'
+$global:LASTEXITCODE = 0
+& $env:NEXUS_CODEX_PROBE_PROGRAM --help
+exit $LASTEXITCODE
+'@
+    $shell = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' }
+    $start.FileName = Join-Path $PSHOME $shell
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($worker))
+    $start.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
+  }
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $start.RedirectStandardInput = $true
+  $start.RedirectStandardOutput = $true
+  $start.RedirectStandardError = $true
+  $start.EnvironmentVariables['NEXUS_CODEX_PROBE_PROGRAM'] = $Program
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $process = $null
+  try {
+    $process = [Diagnostics.Process]::Start($start)
+    $process.StandardInput.Close()
+    $output = $process.StandardOutput.ReadToEndAsync()
+    $errors = $process.StandardError.ReadToEndAsync()
+    $left = [Math]::Max(0, 3000 - $clock.ElapsedMilliseconds)
+    if (-not $process.WaitForExit([int]$left)) { return $false }
+    $left = [Math]::Max(0, 3000 - $clock.ElapsedMilliseconds)
+    $pipes = [Threading.Tasks.Task[]]@($output, $errors)
+    if (-not [Threading.Tasks.Task]::WaitAll($pipes, [int]$left)) { return $false }
+    return ($process.ExitCode -eq 0 -and $output.Result.Contains('--no-daemon'))
+  } catch {
+    return $false
+  } finally {
+    if ($process) {
+      if (-not $process.HasExited) {
+        try {
+          $kill = New-Object System.Diagnostics.ProcessStartInfo
+          $kill.FileName = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
+          $kill.Arguments = "/PID $($process.Id) /T /F"
+          $kill.UseShellExecute = $false
+          $kill.CreateNoWindow = $true
+          $kill.RedirectStandardOutput = $true
+          $kill.RedirectStandardError = $true
+          [Diagnostics.Process]::Start($kill).Dispose()
+        } catch {}
+      }
+      $process.Dispose()
+    }
+  }
+}`;
+
+/** The cmd launcher takes the PowerShell probe's result from its exit status. */
+export const CODEX_CMD_HELP = `${CODEX_POWERSHELL_PROBE}
+if (Test-NexusCodexNoDaemon $env:nexus_codex_real (Join-Path $PSScriptRoot '${CODEX_CMD_BATCH_HELP_FILE}')) { exit 0 }
+exit 1
+`;
 
 /** A cmd launcher that dispatches to the first real Codex on PATH. */
 export const CODEX_CMD_LAUNCHER = [
@@ -84,10 +160,7 @@ export const CODEX_CMD_LAUNCHER = [
   "endlocal",
   "goto :plain",
   ":probe",
-  // Resolve the helper path inside the child cmd so its percent signs are
-  // data. The helper turns delayed expansion off before entering Codex.
-  `set "nexus_codex_help=%~dp0${CODEX_CMD_HELP_FILE}"`,
-  '"%ComSpec%" /d /v:on /s /c ""!nexus_codex_help!"" 2>nul | "%SystemRoot%\\System32\\findstr.exe" /l /c:"--no-daemon" >nul',
+  `"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0${CODEX_CMD_HELP_FILE}" >nul 2>&1`,
   "if errorlevel 1 goto :plain",
   // SHIFT preserves %*. Direct invocation preserves the raw argument list
   // and lets an npm .cmd launcher take over with its own exit status.

@@ -26,6 +26,7 @@ import type {
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
+import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -79,6 +80,7 @@ function setup(
   overrides: Partial<ChatWorkspaceManager> = {},
   agentContext?: ChatHostOptions["agentContext"],
   onTaskEvent?: ChatHostOptions["onTaskEvent"],
+  profile?: ChatHostOptions["profile"],
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -102,6 +104,7 @@ function setup(
     workspaceManager: manager,
     agentContext,
     onTaskEvent,
+    profile,
     broadcast: (event, args) => events.push({ event, args }),
     onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
@@ -249,6 +252,8 @@ describe("chat launch", () => {
 
   test("parses claude --version", () => {
     expect(parseClaudeVersion("2.1.318 (Claude Code)\n")).toBe("2.1.318");
+    expect(parseClaudeVersion("Node 22.14.0 was found\r\n  codex-cli 0.166.0\r\n")).toBe("0.166.0");
+    expect(parseClaudeVersion("diagnostic: settings schema 2.1.318")).toBeNull();
     expect(parseClaudeVersion("nope")).toBeNull();
   });
 
@@ -293,6 +298,71 @@ describe("chat launch", () => {
 });
 
 describe("ChatHost", () => {
+  test("an omitted default profile has the same environment in chat and the terminal", async () => {
+    const profile: AgentProfile = {
+      id: "claude-default",
+      agent: "claude",
+      name: "",
+      color: "blue",
+      dir: "",
+      env: {
+        CLAUDE_CONFIG_DIR: "/profiles/default",
+        CUSTOM: "configured",
+        nexus_hook_token: "stale",
+        NEXUS_AGENT_SOCKET: "/stale.sock",
+        NEXUS_OTHER: "stale",
+      },
+    };
+    const { host, channel } = setup({}, undefined, undefined, (id) =>
+      id === profile.id ? profile : null,
+    );
+    await host.start(WS, TAB, "/repo", {});
+    const terminal = await host.terminalProfileEnv(WS, undefined);
+    expect(terminal).toEqual(await host.terminalProfileEnv(WS, profile.id));
+    expect(terminal).toEqual({ CLAUDE_CONFIG_DIR: "/profiles/default", CUSTOM: "configured" });
+    const start = channel.calls.find(({ method }) => method === "chat.start")?.params;
+    expect(start).toMatchObject({
+      env: { ...terminal, NEXUS_AGENT_SOCKET: "/tmp/h.sock", NEXUS_HOOK_TOKEN: "tok" },
+    });
+    expect((start as { env: Record<string, string> }).env).not.toHaveProperty("NEXUS_OTHER");
+    await host.transcript(WS, "session");
+    await host.deleteSession(WS, "/repo", "session");
+    expect(
+      channel.calls.filter(
+        ({ method }) => method === "chat.transcript" || method === "chat.deleteSession",
+      ),
+    ).toEqual([
+      {
+        method: "chat.transcript",
+        params: { sessionId: "session", configDir: "/profiles/default" },
+      },
+      {
+        method: "chat.deleteSession",
+        params: { sessionId: "session", cwd: "/repo", configDir: "/profiles/default" },
+      },
+    ]);
+  });
+
+  test("a missing or wrong-agent profile cannot spawn or read, delete, or stage default history", async () => {
+    const { host, channel } = setup({}, undefined, undefined);
+    for (const id of ["missing", "codex-default"]) {
+      expect(await host.start(WS, TAB, "/repo", {}, id)).toMatchObject({
+        ok: false,
+        reason: "failed",
+      });
+      await expect(host.transcript(WS, "session", id)).rejects.toThrow(/profile/i);
+      await expect(host.deleteSession(WS, "/repo", "session", id)).rejects.toThrow(/profile/i);
+    }
+    await expect(host.stageThread(WS, "thread", { fromProfileId: "missing" })).rejects.toThrow(
+      /profile/i,
+    );
+    expect(
+      channel.calls.some(({ method }) =>
+        /chat\.(start|transcript|deleteSession|stageThread)/.test(method),
+      ),
+    ).toBe(false);
+  });
+
   test("a killed chat task ends its background agent in the phone and desktop session lists", async () => {
     const activity = new SessionActivityLog(() => 1234);
     const { host, channel } = setup({}, undefined, (workspaceId, tabId, message) =>
@@ -360,6 +430,10 @@ describe("ChatHost", () => {
     expect(start.cwd).toBe("/repo");
     expect(start.args).toContain("--resume");
     expect(start.env.PATH).toBe("/home/u/.local/bin:/usr/bin");
+    const probe = channel.calls.find(({ method }) => method === "chat.exec")?.params as {
+      program: string;
+    };
+    expect(start.env.NEXUS_CLAUDE_PROGRAM).toBe(probe.program);
     expect(start.env.NEXUS_HOOK_TOKEN).toBe("tok");
     expect(start).toMatchObject({ resumed: true });
     expect(start).not.toHaveProperty("resetLog");

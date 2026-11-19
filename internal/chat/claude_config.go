@@ -91,7 +91,7 @@ func (s *Service) ClaudeConfig(_ context.Context, raw json.RawMessage) (any, err
 func claudeConfigPath(given string) string {
 	given = strings.TrimSpace(given)
 	if given == "" {
-		given = os.Getenv("CLAUDE_CONFIG_DIR")
+		given = defaultProfileEnv("CLAUDE_CONFIG_DIR")
 	}
 	var path string
 	if given != "" {

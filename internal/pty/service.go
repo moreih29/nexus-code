@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/ports"
 )
@@ -802,7 +803,7 @@ func mergeEnv(overrides map[string]string) []string {
 				delete(merged, existing)
 			}
 		}
-		merged[key] = value
+		merged[key] = agentpaths.ProfileEnvDir(key, value)
 	}
 	// The app's wrapper directory goes first on this host's own PATH. The app
 	// cannot build that PATH: for an SSH workspace it is the remote's.
@@ -810,9 +811,9 @@ func mergeEnv(overrides map[string]string) []string {
 		if dir := overrides[wrapperDirEnv]; dir != "" {
 			prependPath(merged, dir)
 		}
-		if dir := overrides["NEXUS_CMD_CODEX_DIR"]; runtime.GOOS == "windows" && dir != "" {
-			prependPath(merged, dir)
-		}
+	}
+	if dir := overrides["NEXUS_CMD_CODEX_DIR"]; runtime.GOOS == "windows" && dir != "" {
+		prependPath(merged, dir)
 	}
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"

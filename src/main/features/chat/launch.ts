@@ -254,8 +254,14 @@ export function claudeCommandArgs(command: ClaudeCommand, cwd: string): string[]
  * of `codex --version`'s ("codex-cli 0.166.0"); null without one.
  */
 export function parseClaudeVersion(output: string): string | null {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);
-  return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
+  for (const line of output.split("\n")) {
+    const match =
+      /^(?:(?:codex(?:-cli)?|claude(?:-code)?)\s+)?(\d+\.\d+\.\d+)(?:[-+][\w.+-]+)?(?:\s+\(Claude Code\))?$/i.exec(
+        line.trim(),
+      );
+    if (match) return match[1] ?? null;
+  }
+  return null;
 }
 
 /** Joins a directory and a file name on the workspace's host. */
