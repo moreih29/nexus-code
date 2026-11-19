@@ -1,5 +1,6 @@
 import { mock } from "bun:test";
 import { EventEmitter } from "node:events";
+import type { IpcStreamStartResult } from "../../src/shared/ipc/result";
 
 export type InMemoryStreamEvent =
   | { streamId: string; kind: "progress"; data: unknown }
@@ -137,7 +138,7 @@ export interface InMemoryIpcPair {
         channelName: string,
         method: string,
         args: unknown,
-      ) => Promise<{ streamId: string }>;
+      ) => Promise<IpcStreamStartResult>;
       onStreamEvent: (streamId: string, callback: StreamEventCallback) => () => void;
       listen: (channelName: string, eventName: string, callback: ListenCallback) => void;
       off: (channelName: string, eventName: string, callback: ListenCallback) => void;
@@ -194,8 +195,8 @@ export function createIpcPair(): InMemoryIpcPair {
             channelName,
             method,
             args,
-          )) as { streamId: string };
-          streamStartCalls.push({ channelName, method, args, result });
+          )) as IpcStreamStartResult;
+          if (result.ok) streamStartCalls.push({ channelName, method, args, result: result.value });
           return result;
         },
         onStreamEvent(streamId, callback) {

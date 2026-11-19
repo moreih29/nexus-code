@@ -12,7 +12,13 @@ import {
   type StreamProcedure,
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
-import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
+import {
+  type IpcErrResult,
+  type IpcStreamStartResult,
+  ipcErr,
+  ipcOk,
+  isIpcErrResult,
+} from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { GitError } from "../../features/git/domain/error";
 import { agentCallError } from "./agent-errors";
@@ -190,13 +196,15 @@ export function setupRouter(): void {
       channelName: string,
       method: string,
       args: unknown,
-    ) => {
-      const channel = channels.get(channelName);
-      if (!channel) throw new Error(`ipc:streamStart — unknown channel: ${channelName}`);
-      const handler = channel.stream?.[method];
+    ): Promise<IpcStreamStartResult> => {
+      const methods = channels.get(channelName)?.stream;
+      const handler = methods && Object.hasOwn(methods, method) ? methods[method] : undefined;
       const descriptor = getStreamDescriptor(channelName, method);
-      if (typeof handler !== "function" || !descriptor)
-        throw new Error(`ipc:streamStart — unknown method: ${channelName}.${method}`);
+      if (typeof handler !== "function" || !descriptor) {
+        return ipcErr("invalid-args", `Unknown IPC stream: ${channelName}.${method}`, {
+          category: "invalid-input",
+        });
+      }
       const streamId = crypto.randomUUID();
       const key = requestKey(event, streamId);
       const pendingStream: PendingStream = {
@@ -217,7 +225,7 @@ export function setupRouter(): void {
       setImmediate(() => {
         void runStream(key, pendingStream, descriptor, handler, args);
       });
-      return { streamId };
+      return ipcOk({ streamId });
     },
   );
 }

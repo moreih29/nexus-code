@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { type IpcStreamHandle, ipcStream } from "../../../../src/renderer/ipc/client";
+import { ipcErr, ipcOk } from "../../../../src/shared/ipc/result";
 
 type ProgressPayload = { step: number };
 type CompletePayload = { done: boolean };
@@ -29,7 +30,7 @@ let cancel: ReturnType<typeof mock>;
 function installWindowIpcStub(streamId = "stream-1"): void {
   streamCallbacks = new Map();
   streamStart = mock((_channel: string, _method: string, _args: unknown) =>
-    Promise.resolve({ streamId }),
+    Promise.resolve(ipcOk({ streamId })),
   );
   onStreamEvent = mock(
     (registeredStreamId: string, callback: (event: ClientStreamEvent) => void) => {
@@ -131,6 +132,19 @@ describe("renderer ipcStream primitive", () => {
 
     dispatchFromBridge({ streamId: "stream-1", kind: "complete", data: { done: true } });
     await stream.promise;
+  });
+
+  test("a failed start rejects with the envelope's error and does not listen for events", async () => {
+    streamStart.mockResolvedValue(
+      ipcErr("invalid-args", "Unknown stream", { category: "invalid-input" }),
+    );
+    const stream = startTestStream();
+    await expect(stream.promise).rejects.toMatchObject({
+      kind: "invalid-args",
+      category: "invalid-input",
+      message: "Unknown stream",
+    });
+    expect(onStreamEvent).not.toHaveBeenCalled();
   });
 
   test("error rejects promise with Error name and message", async () => {

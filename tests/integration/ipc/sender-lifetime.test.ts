@@ -71,3 +71,20 @@ test("a stream opened after its renderer dies is closed without starting it", as
   expect(iterator.return).toHaveBeenCalledTimes(1);
   expect(pair.sender.streamEvents).toEqual([]);
 });
+
+test("unknown stream channels and methods return an invalid-input result", async () => {
+  const { register } = await setupInMemoryRouter();
+  register("fs", { call: {}, listen: {} });
+  const pair = createIpcPair();
+  for (const [channel, method] of [
+    ["missing", "searchText"],
+    ["fs", "constructor"],
+  ] as const) {
+    await expect(pair.window.ipc.streamStart(channel, method, undefined)).resolves.toMatchObject({
+      ok: false,
+      kind: "invalid-args",
+      category: "invalid-input",
+    });
+  }
+  expect(pair.sender.streamEvents).toEqual([]);
+});

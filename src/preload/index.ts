@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import type { IpcStreamStartResult } from "../shared/ipc/result";
 import { OPAQUE_WINDOW_ARG, TRANSPARENT_WINDOW_ARG } from "../shared/window/transparent-window";
 
 type ListenCallback = (args: unknown) => void;
@@ -56,7 +57,7 @@ const ipcApi = {
     ipcRenderer.send("ipc:cancel", requestId);
   },
 
-  streamStart(channelName: string, method: string, args: unknown): Promise<{ streamId: string }> {
+  streamStart(channelName: string, method: string, args: unknown): Promise<IpcStreamStartResult> {
     return ipcRenderer.invoke("ipc:streamStart", channelName, method, args);
   },
 
