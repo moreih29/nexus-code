@@ -230,6 +230,34 @@ describe("real filesystem scope boundaries", () => {
     );
   });
 
+  test("excludes any ancestor of the POSIX home folder", () => {
+    expect(
+      isScopedFilePath("/Users", "/Users/person/.ssh/config", "/Users/person", path.posix),
+    ).toBe(false);
+    expect(
+      isScopedFilePath(
+        "/srv",
+        "/srv/profiles/person/.ssh/config",
+        "/srv/profiles/person",
+        path.posix,
+      ),
+    ).toBe(false);
+    expect(
+      isScopedFilePath("/Users", "/Users/site/data.json", "/Users-other/person", path.posix),
+    ).toBe(true);
+  });
+
+  test("excludes Windows home ancestors even when drive and directory case differ", () => {
+    expect(
+      isScopedFilePath(
+        "c:\\uSeRs",
+        "c:\\users\\person\\.ssh\\config",
+        "C:\\Users\\Person",
+        path.win32,
+      ),
+    ).toBe(false);
+  });
+
   test("uses Windows case folding and excludes other drives, home and drive roots", () => {
     const home = "C:\\Users\\Person";
     const folder = `${home}\\Project`;

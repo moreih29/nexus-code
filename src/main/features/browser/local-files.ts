@@ -31,6 +31,7 @@ export function isScopedFilePath(
   return (
     paths.relative(folder, paths.parse(folder).root) !== "" &&
     paths.relative(folder, home) !== "" &&
+    !isDescendant(folder, home, paths) &&
     isDescendant(folder, file, paths)
   );
 }
