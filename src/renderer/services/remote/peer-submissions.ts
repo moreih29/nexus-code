@@ -112,6 +112,10 @@ export function settlePeerSubmission(
     if (!entries.some((pending) => pending.nonce === entry.nonce)) return entries;
     return entries.flatMap((pending) => {
       if (pending.nonce !== entry.nonce) return [pending];
+      // A host that attributes no rows may have shown the message before its answer
+      // came: that row is the delivery, so an answer lost after it leaves nothing to
+      // recover, or the same message would be sent twice. A refusal is told as it is.
+      if (result.status === "unconfirmed" && pending.provisionalEcho) return [];
       if (result.status === "accepted") {
         if (!result.heldId && pending.provisionalEcho) return [];
         if (result.heldId && seen?.heldIds.has(result.heldId)) return [];

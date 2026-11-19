@@ -136,6 +136,15 @@ describe("optimistic remote submissions", () => {
       { index: 11, item: { ...echo("ambiguous").item, text: "repeat\n\n@notes.txt" } },
     ]);
     expect(peerSubmissionsOf(ref)[0]?.provisionalEcho).toBe("ambiguous");
+    expect(peerSubmissionsOf(ref)).toHaveLength(1);
+    // The row it matched is the delivery, so a lost answer leaves no copy to send again.
+    settlePeerSubmission(ref, pending, { status: "unconfirmed", error: "timed out" });
+    expect(peerSubmissionsOf(ref)).toHaveLength(0);
+  });
+
+  test("a lost answer with no row seen keeps the draft to recover", () => {
+    observePeerEchoes(ref, [echo("older", undefined, undefined, 9)]);
+    const pending = beginPeerSubmission(ref, { ...input, files });
     settlePeerSubmission(ref, pending, { status: "unconfirmed", error: "timed out" });
     expect(peerSubmissionsOf(ref)[0]?.status).toBe("unconfirmed");
     const recovered = recoverPeerSubmission(ref, pending.nonce);
@@ -143,5 +152,14 @@ describe("optimistic remote submissions", () => {
     restorePeerComposition(ref, recovered!);
     expect(peerContentsOf(ref)).toMatchObject({ text: "repeat", files });
     expect(peerSubmissionsOf(ref)).toHaveLength(0);
+  });
+
+  test("a refusal keeps its draft even where a same-text row was seen", () => {
+    observePeerEchoes(ref, [echo("older", undefined, undefined, 9)]);
+    const pending = beginPeerSubmission(ref, input);
+    observePeerEchoes(ref, [echo("other", undefined, undefined, 11)]);
+    expect(peerSubmissionsOf(ref)[0]?.provisionalEcho).toBe("other");
+    settlePeerSubmission(ref, pending, { status: "failed", error: "refused" });
+    expect(peerSubmissionsOf(ref)[0]).toMatchObject({ status: "failed", error: "refused" });
   });
 });
