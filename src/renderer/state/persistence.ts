@@ -180,11 +180,16 @@ export function unregisterStatePersistence(): void {
   persistence = undefined;
 }
 
+/** Wait for the current layout write and queued changes to finish. */
+export function flushStatePersistence(): Promise<boolean> {
+  return persistence?.flush() ?? Promise.resolve(true);
+}
+
 /** Acknowledge a close attempt only after the latest dirty layouts were written. */
 export function installLayoutClosePersistence(): () => void {
   return ipcListen("window", "prepareClose", ({ attempt }) => {
     void (async () => {
-      const saved = (await persistence?.flush()) ?? true;
+      const saved = await flushStatePersistence();
       const result = await ipcCallResult("window", "closePrepared", { attempt, saved });
       if (!result.ok) log.warn(`Could not acknowledge layout flush: ${result.message}`);
     })().catch((error: unknown) => {
