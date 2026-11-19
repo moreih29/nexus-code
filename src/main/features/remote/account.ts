@@ -19,6 +19,7 @@ import {
   type SignInFailure,
   type SignInProvider,
 } from "../../../shared/remote/account";
+import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
@@ -336,10 +337,16 @@ export class RemoteAccount {
     // A stale relay ticket can no longer change the account or its route.
     signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
+      void res.body?.cancel().catch(() => {});
       this.forget();
       throw new SignedOutError();
     }
-    const text = await res.text();
+    const text = await readResponseText(res).catch((error: unknown) => {
+      if (error instanceof ResponseTooLargeError) {
+        throw new ServerError(res.status, error.code, `${method} ${path}`);
+      }
+      throw error;
+    });
     signal?.throwIfAborted();
     const answer = parseJson(text);
     if (!res.ok) {

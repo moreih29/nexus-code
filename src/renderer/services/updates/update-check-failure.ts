@@ -6,7 +6,7 @@
 import i18next from "i18next";
 
 export interface UpdateCheckFailure {
-  reason: "rate-limited" | "http" | "network" | "unexpected";
+  reason: "rate-limited" | "http" | "network" | "unexpected" | "response-too-large";
   status?: number;
 }
 
@@ -21,6 +21,7 @@ export function updateCheckFailedMessage(failure: UpdateCheckFailure): string {
     case "network":
       return i18next.t("common:updates.failedNetwork");
     case "unexpected":
+    case "response-too-large":
       return i18next.t("common:updates.failed");
   }
 }

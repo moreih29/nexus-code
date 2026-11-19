@@ -15,6 +15,7 @@ import { challengeOf } from "../../../../../src/main/features/remote/pkce";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 
 import { askTicket } from "../../../../../src/main/features/remote/ticket";
+import { oversizedResponse } from "../../../../helpers/http-fixtures";
 
 const SERVER = "http://localhost:8787";
 
@@ -503,4 +504,17 @@ describe("the account", () => {
     await account.restore();
     expect(account.state().status).toBe("signed-out");
   });
+});
+
+test("an oversized account response fails with a response size code", async () => {
+  const response = oversizedResponse(8);
+  const account = new RemoteAccount({
+    server: SERVER,
+    store: memoryStore({ server: SERVER, token: "test", user, device }),
+    openExternal: async () => {},
+    fetch: response.fetch,
+  });
+  await account.restore();
+  await expect(account.devices()).rejects.toMatchObject({ code: "response-too-large" });
+  expect(response.cancelled()).toBe(true);
 });

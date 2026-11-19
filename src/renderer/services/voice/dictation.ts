@@ -112,6 +112,9 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
       return;
     case "in-use":
       return;
+    case "response-too-large":
+      showToast({ kind: "error", message: t("failure.failed") });
+      return;
     default:
       showToast({ kind: "error", message: t(`failure.${reason}`) });
   }
