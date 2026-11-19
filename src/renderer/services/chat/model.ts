@@ -454,6 +454,8 @@ export interface ChatModel {
   agentItems: Record<string, AssistantItem[]>;
   /** The app asked the turn to stop: its tools' errors are the stop. */
   interrupting?: boolean;
+  /** The currently pending interrupt by its protocol request ID. */
+  interruptRequestId?: string;
   /** The app's control requests waiting for an answer: request id → subtype and request. */
   outgoing: Record<string, { subtype: string; request: Record<string, unknown> }>;
   /**
@@ -594,6 +596,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       m.running = false;
       m.turn = null;
       m.streaming = null;
+      clearInterrupt(m);
       return;
     case "exit": {
       const code = num(message.code) ?? null;
@@ -606,6 +609,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       m.running = false;
       m.turn = null;
       m.streaming = null;
+      clearInterrupt(m);
       m.permissions = [];
       m.outgoing = {};
       stopRunningTools(draft);
@@ -649,7 +653,10 @@ function applyIn(draft: Draft, message: Rec, seq: number, at: number | undefined
       const request = rec(message.request);
       const subtype = str(request?.subtype);
       if (id && request && subtype) m.outgoing = { ...m.outgoing, [id]: { subtype, request } };
-      if (subtype === "interrupt" && m.running) m.interrupting = true;
+      if (subtype === "interrupt" && id && m.running) {
+        m.interrupting = true;
+        m.interruptRequestId = id;
+      }
       return;
     }
     case "control_response": {
@@ -1255,7 +1262,7 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
   m.running = false;
   m.turn = null;
   m.streaming = null;
-  m.interrupting = false;
+  clearInterrupt(m);
   const cost = num(message.total_cost_usd);
   if (cost !== undefined) {
     m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
@@ -1592,6 +1599,7 @@ function applyControlResponse(
   const { [id]: _done, ...rest } = m.outgoing;
   m.outgoing = rest;
   if (response?.subtype === "error") {
+    if (subtype === "interrupt") clearInterrupt(m, id);
     // The side panel's reads fail quietly: it shows what it has.
     if (QUIET_REQUESTS.has(subtype)) return;
     const error = str(response.error) ?? subtype;
@@ -1674,6 +1682,13 @@ function applyControlResponse(
           : { enabled: false };
       return;
   }
+}
+
+/** Clears a pending interrupt when its request or turn ends. */
+export function clearInterrupt(model: ChatModel, requestId?: string): void {
+  if (requestId !== undefined && model.interruptRequestId !== requestId) return;
+  model.interrupting = false;
+  model.interruptRequestId = undefined;
 }
 
 function accountOf(account: Rec | null): AccountInfo | undefined {

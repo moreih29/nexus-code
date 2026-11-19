@@ -39,6 +39,7 @@ import {
   type ChatItem,
   type ChatLine,
   type ChatModel,
+  clearInterrupt,
   Draft,
   emptyModel,
   type ImageBlock,
@@ -153,6 +154,7 @@ export function loseCodexLog(prev: CodexModel): CodexModel {
     turnId: undefined,
     toolCompletedSeq: undefined,
     interrupting: false,
+    interruptRequestId: undefined,
     streaming: null,
     permissions: [],
     requests: {},
@@ -313,7 +315,10 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
         return;
       }
       case "turn/interrupt":
-        if (m.running) m.interrupting = true;
+        if (m.running && key && params.turnId === m.turnId) {
+          m.interrupting = true;
+          m.interruptRequestId = key;
+        }
         return;
     }
     return;
@@ -366,6 +371,7 @@ function applyResponse(
   m.outgoing = rest;
   const error = rec(message.error);
   if (error) {
+    if (sent.subtype === "turn/interrupt") clearInterrupt(m, key);
     if (
       sent.request.threadId === m.forkSource?.threadId &&
       (sent.subtype === "thread/turns/list" ||
@@ -398,7 +404,7 @@ function applyResponse(
     if (sent.subtype === "turn/start") {
       m.running = false;
       m.turn = null;
-      m.interrupting = false;
+      clearInterrupt(m);
     }
     const detail = str(error.message) ?? sent.subtype;
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
@@ -529,6 +535,7 @@ function applyResponse(
           nativeTranscripts: undefined,
           plan: undefined,
           interrupting: false,
+          interruptRequestId: undefined,
         });
       }
       applyThread(draft, result, seq);
@@ -1077,7 +1084,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   m.running = false;
   m.turn = null;
   m.streaming = null;
-  m.interrupting = false;
+  clearInterrupt(m);
   m.toolCompletedSeq = undefined;
   if (!turnId || turnId === m.turnId) m.turnId = undefined;
   // The turn's questions end with it.
@@ -1248,6 +1255,7 @@ function mergeTool(prev: ToolCall | undefined, next: ToolCall): ToolCall {
 /** Makes a turn the running one; its item ids are only known to be unique within it. */
 function enterTurn(m: CodexModel, turnId: string): void {
   if (turnId !== m.turnId) {
+    clearInterrupt(m);
     m.blocks = {};
     m.toolCompletedSeq = undefined;
   }

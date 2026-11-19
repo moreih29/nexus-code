@@ -58,6 +58,28 @@ function echoed(seq: number, text: string, uuid: string): ChatLine {
 const CLEAR_ECHO =
   "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>";
 
+test("a Claude interrupt rejection clears only the matching pending request", () => {
+  const interrupt = (seq: number, id: string): ChatLine => ({
+    seq,
+    dir: "in",
+    message: { type: "control_request", request_id: id, request: { subtype: "interrupt" } },
+  });
+  const rejected = (seq: number, id: string): ChatLine => ({
+    seq,
+    dir: "out",
+    message: {
+      type: "control_response",
+      response: { subtype: "error", request_id: id, error: "refused" },
+    },
+  });
+  const pending = run([typed(1, "start", "user"), interrupt(2, "old"), interrupt(3, "new")]);
+  const afterOld = applyLine(pending, rejected(4, "old"));
+  expect(afterOld.interrupting).toBe(true);
+  const afterNew = applyLine(afterOld, rejected(5, "new"));
+  expect(afterNew.interrupting).toBe(false);
+  expect(afterNew.running).toBe(true);
+});
+
 describe("chat model from a recorded conversation", () => {
   test("the whole conversation", () => {
     const model = run(FIXTURE);

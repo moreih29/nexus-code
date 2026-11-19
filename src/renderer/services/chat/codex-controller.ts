@@ -1672,14 +1672,30 @@ export class CodexController {
     );
   }
 
+  /** Waits for the requested turn's identity and interrupts that turn. */
   async interrupt(): Promise<unknown> {
-    const { threadId, turnId } = this.model;
-    if (!threadId || !turnId) return undefined;
+    this.flushNow();
+    const threadId = this.model.threadId;
+    if (!this.model.turnId && this.startingTurn) {
+      await this.startingTurn;
+      this.flushNow();
+    }
+    const { turnId, running } = this.model;
+    if (!threadId || threadId !== this.model.threadId || !turnId || !running) {
+      throw new Error("Codex has no running turn to interrupt");
+    }
     this.stoppingTurn = turnId;
+    const { reply, key } = this.requestWithWrite("turn/interrupt", { threadId, turnId });
     try {
-      return await this.request("turn/interrupt", { threadId, turnId });
+      return await reply;
+    } catch (error) {
+      this.flushNow();
+      if (this.model.interruptRequestId === key) {
+        this.patchModel({ interrupting: false, interruptRequestId: undefined });
+      }
+      throw error;
     } finally {
-      this.stoppingTurn = undefined;
+      if (this.stoppingTurn === turnId) this.stoppingTurn = undefined;
       this.flushNow();
       this.sendNextQueued();
     }
@@ -1862,7 +1878,7 @@ export class CodexController {
     method: string,
     params: Record<string, unknown>,
     timeoutMs = REQUEST_TIMEOUT_MS,
-  ): { written: Promise<void>; reply: Promise<Record<string, unknown>> } {
+  ): { written: Promise<void>; reply: Promise<Record<string, unknown>>; key: string } {
     const id = nextId();
     const key = idKey(id) as string;
     const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -1885,9 +1901,9 @@ export class CodexController {
         invalidateCodexHistory(this.target.workspaceId);
         return result;
       });
-      return { reply, written };
+      return { reply, written, key };
     }
-    return { reply: promise, written };
+    return { reply: promise, written, key };
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {

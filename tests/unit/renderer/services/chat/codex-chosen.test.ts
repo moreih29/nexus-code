@@ -5,7 +5,7 @@
  * The real ipc client is spread under a spy, so later files keep its
  * other exports.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../src/renderer/services/chat/codex-config";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 
@@ -70,6 +70,7 @@ afterEach(() => {
   loseSteer = false;
   codex = undefined;
   sent.length = 0;
+  jest.useRealTimers();
 });
 
 /**
@@ -258,6 +259,48 @@ describe("delivering a Codex queue entry", () => {
     await c.sendWithTiming("begin", [], "next", undefined, undefined, "first-id");
     sent.length = 0;
   }
+
+  test("a quick Codex interrupt waits for the in-flight start to identify its turn", async () => {
+    const requested = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<{ result: unknown }>();
+    const c = tab(undefined, undefined, (message) => {
+      if (message.method !== "turn/start") return undefined;
+      requested.resolve();
+      return reply.promise;
+    });
+    const starting = c.sendWithTiming("work", [], "next", undefined, undefined, "work");
+    await requested.promise;
+    const stopped = c.interrupt();
+    expect(sent.some((message) => message.method === "turn/interrupt")).toBe(false);
+    reply.resolve({ result: { turn: { id: "late-turn" } } });
+    await Promise.all([starting, stopped]);
+    expect(sent.find((message) => message.method === "turn/interrupt")?.params).toMatchObject({
+      threadId: "t1",
+      turnId: "late-turn",
+    });
+  });
+
+  test("a Codex interrupt timeout restores the running turn's controls", async () => {
+    const requested = Promise.withResolvers<void>();
+    const c = tab(undefined, undefined, (message) => {
+      if (message.method !== "turn/interrupt") return undefined;
+      requested.resolve();
+      return new Promise(() => {});
+    });
+    await running(c);
+    jest.useFakeTimers();
+    const attempted = c.interrupt().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await requested.promise;
+    c.flushNow();
+    expect(c.model.interrupting).toBe(true);
+    jest.advanceTimersByTime(30_000);
+    expect(await attempted).toBeInstanceOf(Error);
+    expect(c.model.interrupting).toBe(false);
+    expect(c.model.running).toBe(true);
+  });
 
   test("a local steer with an unknown outcome is never requeued", async () => {
     const c = tab();
