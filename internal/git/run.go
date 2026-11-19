@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/msix"
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -191,6 +192,9 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 		askpass.runID = runIDFrom(ctx)
 	}
 	cmd := exec.CommandContext(ctx, gitBinary(), args...)
+	// A launcher or credential helper can inherit the pipes. Bound Wait's
+	// drain after Git exits or is cancelled even if that helper outlives it.
+	cmd.WaitDelay = time.Second
 	cmd.Dir = resolvedCwd
 	cmd.Env = gitEnv(env, interactive, askpass)
 	return cmd, nil
