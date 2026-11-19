@@ -97,6 +97,18 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
+const surfacedErrors: unknown[] = [];
+const realSurface = await import(
+  "../../../../../src/renderer/services/error-surface/surface-error"
+);
+mock.module("../../../../../src/renderer/services/error-surface/surface-error", () => ({
+  ...realSurface,
+  surfaceError: (error: unknown) => {
+    surfacedErrors.push(error);
+    return { surface: "inline", userMessage: "localized SSH failure" };
+  },
+}));
+
 const { SshNewConnectionView } = await import(
   "../../../../../src/renderer/components/workspace/add-workspace/ssh-new-connection-view"
 );
@@ -226,6 +238,7 @@ function callsTo(method: string): Array<{ method: string; args: unknown }> {
 beforeEach(() => {
   ipcCalls.length = 0;
   toastCalls.length = 0;
+  surfacedErrors.length = 0;
   openBrowseSession = async () => ipcOk(SESSION);
   saveProfile = async () => ipcOk(undefined);
 });
@@ -343,4 +356,20 @@ it("leaving during profile save releases the session and suppresses the obsolete
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(view.onConnected).not.toHaveBeenCalled();
   expect(toastCalls).toHaveLength(0);
+});
+
+it("a failed SSH connection keeps its domain code and presents the surface message once", async () => {
+  openBrowseSession = async () =>
+    ipcErr("auth-failed", "private SSH details", {
+      category: "failed",
+      domain: "ssh",
+      code: "ssh.auth-failed",
+    });
+  const view = mountView();
+  view.submit();
+  await settle(view);
+  expect(surfacedErrors).toEqual([
+    { category: "failed", domain: "ssh", code: "ssh.auth-failed", message: "private SSH details" },
+  ]);
+  expect(view.inlineError()).toBe("localized SSH failure");
 });

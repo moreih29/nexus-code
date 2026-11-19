@@ -7,12 +7,15 @@ import { FolderOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { ipcErrorToAppError } from "../../../../shared/ipc/result";
 import type { NoteStorageEntry } from "../../../../shared/notes/types";
-import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { useIpcAction } from "../../../hooks/use-ipc-action";
+import { ipcCallResult } from "../../../ipc/client";
+import { surfaceError } from "../../../services/error-surface/surface-error";
 import { notesApi } from "../../../services/notes/api";
 import { formatBytes } from "../../notes/editor/asset-nodes";
+import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
-import { showToast } from "../../ui/toast";
 import { SettingsGroup, SettingsPage } from "../section";
 
 type Entry = NoteStorageEntry & { workspaceIds: string[] };
@@ -30,17 +33,46 @@ export function NotesPanel() {
   const { t } = useTranslation("notes");
   const [entries, setEntries] = useState<Entry[] | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setEntries(unwrapIpcResult(await ipcCallResult("notes", "storage", undefined)) as Entry[]);
-    } catch (e) {
-      showToast({ kind: "error", message: e instanceof Error ? e.message : String(e) });
-    }
-  }, []);
+  const {
+    run: runLoad,
+    state: loadState,
+    cancel: cancelLoad,
+  } = useIpcAction<Entry[]>({
+    onSuccess: setEntries,
+  });
+  const load = useCallback(() => {
+    runLoad(async (signal) => {
+      const result = await ipcCallResult("notes", "storage", undefined, { signal });
+      if (!result.ok) throw ipcErrorToAppError(result);
+      return result.value as Entry[];
+    });
+  }, [runLoad]);
   useEffect(() => {
-    void load();
-    return notesApi.onChanged(() => void load());
-  }, [load]);
+    load();
+    return notesApi.onChanged(() => {
+      cancelLoad();
+      load();
+    });
+  }, [cancelLoad, load]);
+
+  const loadError = loadState.status === "error" ? loadState.error : null;
+  const [loadMessage, setLoadMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loadError) {
+      setLoadMessage(null);
+      return;
+    }
+    const present = surfaceError(loadError, { surface: "banner", onRetry: load });
+    setLoadMessage(
+      present.surface === "banner" || present.surface === "inline" ? present.userMessage : null,
+    );
+  }, [loadError, load]);
+
+  const { run: runRemove, state: removeState } = useIpcAction<void>({ onSuccess: load });
+  const removeError = removeState.status === "error" ? removeState.error : null;
+  useEffect(() => {
+    if (removeError) surfaceError(removeError, { surface: "toast" });
+  }, [removeError]);
 
   const remove = async (entry: Entry) => {
     const ok = await showConfirmDialog({
@@ -53,12 +85,15 @@ export function NotesPanel() {
       variant: "destructive",
     });
     if (!ok) return;
-    try {
-      unwrapIpcResult(await ipcCallResult("notes", "removeLocation", { key: entry.location.key }));
-    } catch (e) {
-      showToast({ kind: "error", message: e instanceof Error ? e.message : String(e) });
-    }
-    void load();
+    runRemove(async (signal) => {
+      const result = await ipcCallResult(
+        "notes",
+        "removeLocation",
+        { key: entry.location.key },
+        { signal },
+      );
+      if (!result.ok) throw ipcErrorToAppError(result);
+    });
   };
 
   const sum = (entries ?? []).reduce((a, e) => a + total(e), 0);
@@ -67,6 +102,18 @@ export function NotesPanel() {
   return (
     <SettingsPage>
       <SettingsGroup title={t("storage.heading")} description={t("storage.description")}>
+        {loadError && (
+          <div className="flex items-center justify-between gap-2">
+            {loadMessage && (
+              <p role="alert" className="text-app-ui-sm text-muted-foreground">
+                {loadMessage}
+              </p>
+            )}
+            <Button size="sm" variant="outline" onClick={load}>
+              {t("common:action.retry")}
+            </Button>
+          </div>
+        )}
         {entries === null ? null : entries.length === 0 ? (
           <p className="text-app-ui-sm text-muted-foreground">{t("storage.empty")}</p>
         ) : (
@@ -129,6 +176,7 @@ export function NotesPanel() {
                     aria-label={t("storage.remove")}
                     title={t("storage.remove")}
                     onClick={() => void remove(entry)}
+                    disabled={removeState.status === "loading"}
                   >
                     <Trash2 className="size-3.5" aria-hidden="true" />
                   </button>
