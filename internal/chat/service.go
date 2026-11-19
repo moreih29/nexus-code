@@ -253,22 +253,20 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 		_ = stdout.Close()
 		return nil, requestFailed("chat.start: %s", err)
 	}
-	cmd.SysProcAttr = newSysProcAttr()
-	if err := cmd.Start(); err != nil {
+	proc := &process{
+		generation: generationID,
+		cmd:        cmd,
+		stdin:      stdin,
+		outputs:    []io.Closer{stdout, stderr},
+		done:       make(chan struct{}),
+	}
+	if err := proc.startOwned(); err != nil {
 		return nil, requestFailed("chat.start: %s", err)
 	}
 	_ = childStdin.Close()
 	started = true
 	canonicalCwd, _ := filepath.EvalSymlinks(p.Cwd)
-	proc := &process{
-		generation:   generationID,
-		canonicalCwd: canonicalCwd,
-		cmd:          cmd,
-		stdin:        stdin,
-		outputs:      []io.Closer{stdout, stderr},
-		done:         make(chan struct{}),
-	}
-	proc.holdTree()
+	proc.canonicalCwd = canonicalCwd
 	sess.proc = proc
 	if p.ResetLog {
 		sess.log.reset()
@@ -814,6 +812,25 @@ func (p *process) writeLocked(ctx context.Context, data []byte, guidance *codexC
 		err = io.ErrShortWrite
 	}
 	return n, err
+}
+
+// startOwned starts a process with the platform's tree ownership policy.
+func (p *process) startOwned() error {
+	p.cmd.SysProcAttr = newSysProcAttr()
+	if err := p.cmd.Start(); err != nil {
+		return err
+	}
+	if err := p.holdTree(); err != nil {
+		_ = p.cmd.Process.Kill()
+		_ = p.cmd.Wait()
+		return err
+	}
+	return nil
+}
+
+// kill immediately terminates the owned process tree.
+func (p *process) kill() {
+	_ = p.signalKill()
 }
 
 // stop asks the program to exit, and kills it if it has not after stopGrace.

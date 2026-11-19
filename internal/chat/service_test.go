@@ -68,6 +68,9 @@ func TestFakeProgramHelper(t *testing.T) {
 			// Start a child that runs until it is ended, and tell its pid.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
+			if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+				child.Stdout = os.Stdout
+			}
 			// As Claude and Codex start each command, out of the program's group.
 			if os.Getenv("NEXUS_CHAT_OWN_SESSION") == "1" {
 				ownSession(child)
@@ -104,6 +107,10 @@ func TestFakeChildHelper(t *testing.T) {
 func TestFakeSleeperHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_SLEEPER") != "1" {
 		return
+	}
+	if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+		fmt.Println(`{"type":"resistant-child-ready"}`)
 	}
 	time.Sleep(time.Minute)
 	os.Exit(0)

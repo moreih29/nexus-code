@@ -87,3 +87,29 @@ func TestDescendantsOfAProcessWithNone(t *testing.T) {
 		t.Fatalf("descendants of a pid no process has = %v", got)
 	}
 }
+
+// TestStopReapsDetachedToolAfterItsParentExits checks the escalation after
+// the shell exits on TERM but its app-owned tool ignores the signal.
+func TestStopReapsDetachedToolAfterItsParentExits(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+	startFake(t, service, "tab", map[string]string{"NEXUS_CHAT_OWN_SESSION": "1", "NEXUS_CHAT_RESIST_TERM": "1"})
+	pid := childPid(t, service, rec)
+	defer func() { _ = syscall.Kill(pid, syscall.SIGKILL) }()
+	rec.waitFor(t, "the child's TERM handler", func(lines []LinePayload, _ []ExitPayload) bool {
+		for _, line := range lines {
+			if strings.Contains(string(line.Message), "resistant-child-ready") {
+				return true
+			}
+		}
+		return false
+	})
+	if _, err := service.Stop(context.Background(), tabParams("tab")); err != nil {
+		t.Fatal(err)
+	}
+	if !ended(t, pid) {
+		t.Fatal("app-owned child survived Stop after its parent exited")
+	}
+}
