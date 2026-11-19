@@ -2,7 +2,6 @@ package git
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -76,13 +75,10 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	cmd.Stdin = strings.NewReader(objectSpec + "\n")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	stdout, finish, err := startGitOutput(cmdCtx, cmd)
+	if err != nil {
 		return nil, mapGitStartError(err, []string{"cat-file", "--batch"})
 	}
 
@@ -99,7 +95,7 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	if readErr != nil || result.Truncated {
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
 	if readErr != nil {
 		return nil, readErr
 	}

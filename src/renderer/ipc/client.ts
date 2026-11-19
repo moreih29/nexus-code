@@ -285,8 +285,13 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
 
   try {
     window.ipc.streamStart(channel, method, args).then(
-      ({ streamId: startedStreamId }) => {
-        streamId = startedStreamId;
+      (result) => {
+        try {
+          streamId = unwrapIpcResult(result).streamId;
+        } catch (error) {
+          settleReject(error);
+          return;
+        }
         if (settled) {
           if (abortRequested) cancelKnownStream();
           return;

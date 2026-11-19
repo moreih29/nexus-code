@@ -1,4 +1,4 @@
-import { expect, jest, mock, test } from "bun:test";
+import { expect, jest, mock, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,5 +50,45 @@ test("notes shutdown stops its voice worker and settles an outstanding request",
     resetInMemoryIpc();
     jest.useRealTimers();
     await rm(appPath, { recursive: true, force: true });
+  }
+});
+
+test("notes shutdown waits for a save started by a renderer that has closed", async () => {
+  await setupInMemoryRouter();
+  const id = "123e4567-e89b-12d3-a456-426614174000";
+  const notes = registerNotesChannel({
+    userData: "/unused",
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  const finishedWrite = Promise.withResolvers<void>();
+  const startedWrite = Promise.withResolvers<void>();
+  const save = spyOn(notes.store, "save").mockImplementation(async () => {
+    startedWrite.resolve();
+    await finishedWrite.promise;
+    return { title: "Kept" } as never;
+  });
+  const pair = createIpcPair();
+  const saving = pair.window.ipc.call("notes", "save", {
+    workspaceId: id,
+    noteId: "n000000note",
+    title: "Kept",
+  });
+  await startedWrite.promise;
+  pair.sender.destroy();
+  let done = false;
+  const drained = notes.waitForWrites().then(() => {
+    done = true;
+  });
+  try {
+    await Promise.resolve();
+    expect(done).toBe(false);
+  } finally {
+    finishedWrite.resolve();
+    await drained;
+    expect(await saving).toMatchObject({ ok: true });
+    save.mockRestore();
+    notes.dispose();
+    resetInMemoryIpc();
   }
 });

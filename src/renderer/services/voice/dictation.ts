@@ -81,6 +81,7 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
         actions: [
           {
             label: t("signIn"),
+            dedupeKey: "remote-settings",
             onAction: () => useSettingsUIStore.getState().openSettingsAt("remote"),
           },
         ],
@@ -93,6 +94,7 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
         actions: [
           {
             label: t("openSettings"),
+            dedupeKey: "microphone-settings",
             onAction: () => void ipcCallResult("remote", "openMicrophoneSettings", undefined),
           },
         ],
@@ -105,12 +107,16 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
         actions: [
           {
             label: t("update"),
+            dedupeKey: "remote-settings",
             onAction: () => useSettingsUIStore.getState().openSettingsAt("remote"),
           },
         ],
       });
       return;
     case "in-use":
+      return;
+    case "response-too-large":
+      showToast({ kind: "error", message: t("failure.failed") });
       return;
     default:
       showToast({ kind: "error", message: t(`failure.${reason}`) });

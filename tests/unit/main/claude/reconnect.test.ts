@@ -141,6 +141,20 @@ describe("ClaudeReconnectCheck", () => {
     expect(broker.get(WS, TAB)?.status).toBe("completed");
   });
 
+  test("an old replay cannot clear a newer prompt that is already running", async () => {
+    const broker = new ClaudeStatusBroker(() => {});
+    const foreground = Promise.withResolvers<string>();
+    const check = new ClaudeReconnectCheck(broker, () => foreground.promise);
+    broker.set(WS, TAB, "running", undefined, "previous prompt");
+    check.noteRestored(WS, TAB, true);
+    const replayed = check.noteReplayed(WS, TAB);
+
+    broker.set(WS, TAB, "running", undefined, "replacement prompt");
+    foreground.resolve("bash");
+    await replayed;
+    expect(broker.get(WS, TAB)?.prompt).toBe("replacement prompt");
+  });
+
   test("a terminal with no Claude state, no replay, or that ended is left alone", async () => {
     const { broker, check, foreground } = setup("zsh");
 

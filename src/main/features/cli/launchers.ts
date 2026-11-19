@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { cliExecutableName, windowsGitBashLauncher } from "../../../shared/cli/launcher";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { getAgentBinaryPath } from "../../infra/agent/getAgentBinDir";
 import { binDir, root } from "../../infra/agent/runtimeDirs";
 
@@ -91,7 +92,9 @@ export function windowsCliLauncherDir(): string | null {
     writeWindowsCli(agent, dir, binDir());
     written = dir;
   } catch (error) {
-    log.warn(`writing the nexus command failed: ${(error as Error).message}`);
+    log.warn(
+      `writing the nexus command failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+    );
     written = null;
   }
   return written;

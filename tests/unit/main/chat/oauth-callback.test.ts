@@ -70,4 +70,11 @@ describe("OAuthCallbacks", () => {
     callbacks.cancel(a.id);
     expect(await callbacks.wait(a.id)).toBeNull();
   });
+
+  test("disposing during bind cancels the sign-in before it can return a redirect", async () => {
+    callbacks = new OAuthCallbacks();
+    const binding = callbacks.listen();
+    callbacks.dispose();
+    await expect(binding).rejects.toThrow("OAuth callbacks are closed");
+  });
 });

@@ -3,10 +3,12 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -134,5 +136,26 @@ func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("repo-configured fsmonitor command ran during status")
+	}
+}
+
+// TestStatusPreservesLargePorcelainOutput checks that the status RPC parses
+// every entry even when its porcelain output exceeds two MiB.
+func TestStatusPreservesLargePorcelainOutput(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
+	const files = 17_000
+	prefix := strings.Repeat("f", 125)
+	for i := range files {
+		name := fmt.Sprintf("%s-%05d.txt", prefix, i)
+		writeFile(t, filepath.Join(root, name), "")
+	}
+
+	result, err := New(root).Status(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(result.(GitStatus).Untracked); got != files {
+		t.Fatalf("status returned %d untracked files, want %d", got, files)
 	}
 }

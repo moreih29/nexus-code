@@ -321,15 +321,17 @@ const pendingNotifications = new Set<import("electron").Notification>();
 function trackNotification(n: import("electron").Notification): void {
   pendingNotifications.add(n);
   const cleanup = () => {
+    clearTimeout(timer);
     pendingNotifications.delete(n);
   };
+  // Release the reference even if the OS tells us neither event.
+  const timer = setTimeout(cleanup, 5 * 60 * 1000);
+  timer.unref?.();
   // close — when the OS dismisses the notification or the user closes it.
   // ts: Notification is an EventEmitter, so the `on` call signature is loose.
   (n as unknown as { on(event: string, cb: () => void): void }).on("close", cleanup);
   // When click fires, clean up together just before close (event order does not matter).
   (n as unknown as { on(event: string, cb: () => void): void }).on("click", cleanup);
-  // Safety timeout — release the reference after 5 minutes even if neither event arrives.
-  setTimeout(cleanup, 5 * 60 * 1000).unref?.();
 }
 
 /**
@@ -686,7 +688,8 @@ async function handleHookEvent(
     }
 
     default:
-      // Unknown subcommand — ignore (a Claude Code update may add new events).
+      // Future hooks use Claude's native fallback without waiting for the socket deadline.
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
   }
 

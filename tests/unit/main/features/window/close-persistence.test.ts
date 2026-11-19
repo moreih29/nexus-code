@@ -40,7 +40,8 @@ function fakeWindow(id: number, onClose: () => void = () => {}) {
 test("quit waits per window, bounds an absent reply, and flushes anew after unload is cancelled", async () => {
   const timer = fakeTimer();
   const warn = mock((_message: string) => {});
-  const persistence = new ClosePersistence(warn, timer);
+  let now = 100;
+  const persistence = new ClosePersistence(warn, timer, () => now);
   const first = fakeWindow(1);
   const second = fakeWindow(2);
   const windows = [first, second];
@@ -61,12 +62,15 @@ test("quit waits per window, bounds an absent reply, and flushes anew after unlo
   // The first window cannot acknowledge the second one's attempt.
   persistence.acknowledge(1, second.attempts[0], true);
   expect(replay).not.toHaveBeenCalled();
+  now += 1_000;
   timer.expire();
   await replayed.promise;
+  expect(persistence.remainingQuitMs()).toBe(2_000);
   expect(warn).toHaveBeenCalledTimes(1);
 
   // The main window's unsaved-buffers dialog returns Cancel.
   persistence.cancelQuit();
+  now += 50;
   const retry = Promise.withResolvers<void>();
   persistence.interceptQuit(event, windows, retry.resolve);
   expect(first.attempts).toHaveLength(2);
@@ -74,6 +78,7 @@ test("quit waits per window, bounds an absent reply, and flushes anew after unlo
   persistence.acknowledge(1, first.attempts[1], true);
   persistence.acknowledge(2, second.attempts[1], true);
   await retry.promise;
+  expect(persistence.remainingQuitMs()).toBe(3_000);
   expect(warn).toHaveBeenCalledTimes(1);
 });
 

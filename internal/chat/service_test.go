@@ -990,3 +990,13 @@ func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
 		t.Fatalf("replay emitted %d frames, returned %v", frames, err)
 	}
 }
+
+// TestChatStderrTailMasksCredentials checks what exit events and logs will see.
+func TestChatStderrTailMasksCredentials(t *testing.T) {
+	p := &process{}
+	p.readStderr(strings.NewReader("connection to https://example:fake-pass@host.test failed\nAuthorization: Bearer fake-auth\nAPP_SECRET=fake-env\n"))
+	got := p.stderr()
+	if strings.Contains(got, "fake-") || !strings.Contains(got, "@host.test failed") {
+		t.Fatalf("unexpected child diagnostic %q", got)
+	}
+}

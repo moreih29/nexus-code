@@ -10,15 +10,77 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
-import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { createLogger } from "../../../shared/log/renderer";
+import type { RoomState } from "../../../shared/remote/room";
+import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { ALIVE_MS, REWATCH_MS } from "./peer-chat";
 import { PEER_READ_MS, type PeerRead, useRemoteRoom } from "./room";
+import { TerminalTyping } from "./terminal-typing";
 import { applyTextChange } from "./terminal-watch";
+
+const log = createLogger("peer-terminal");
 
 export interface TerminalRef {
   deviceId: string;
   workspaceId: string;
   tabId: string;
+}
+
+/** Gives each live connection its own input queue and closes it at the room event. */
+export function watchPeerTerminalTyping(
+  target: TerminalRef,
+  onTyping: (typing: TerminalTyping | null) => void,
+  onFailure: (error: unknown) => void,
+): () => void {
+  let live = true;
+  let heardRoom = false;
+  let connection: number | undefined;
+  let typing: TerminalTyping | null = null;
+
+  const applyRoom = (room: RoomState) => {
+    const peer = room.peers.find(({ id }) => id === target.deviceId);
+    const next =
+      room.status === "online" && peer?.online && peer.serves?.includes("terminal.control")
+        ? (peer.rejoins ?? 0)
+        : undefined;
+    if (next === connection) return;
+
+    const discarded = typing?.dispose();
+    connection = next;
+    typing =
+      next === undefined
+        ? null
+        : new TerminalTyping(async (input) => {
+            unwrapIpcResult(
+              await ipcCallResult("remote", "peerTerminalInput", { ...target, ...input }),
+            );
+          }, onFailure);
+    onTyping(typing);
+    if (discarded) onFailure(new Error("Remote terminal connection changed with input waiting"));
+  };
+
+  // Invalidate queued sends synchronously with the event. React may still show
+  // the previous input box while the connection change is being rendered.
+  const off = ipcListen("remote", "roomChanged", (room) => {
+    if (!live) return;
+    heardRoom = true;
+    applyRoom(room);
+  });
+  void ipcCallResult("remote", "room", undefined)
+    .then((result) => {
+      if (!live || heardRoom) return;
+      if (result.ok) applyRoom(result.value);
+      else log.warn(`Remote terminal room snapshot failed: ${result.message}`);
+    })
+    .catch((error: unknown) => {
+      if (live && !heardRoom) log.warn(`Remote terminal room snapshot failed: ${String(error)}`);
+    });
+
+  return () => {
+    live = false;
+    off();
+    typing?.dispose();
+  };
 }
 
 /** A terminal's text, and its cursor where its device tells it and it shows. */

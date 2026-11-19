@@ -22,6 +22,7 @@ import (
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/nodeshim"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
 // Service owns the tabs' programs and their logs.
@@ -101,8 +102,9 @@ type process struct {
 	codexExperimental bool
 	done              chan struct{}
 
-	stderrMu   sync.Mutex
-	stderrTail []byte
+	stderrMu        sync.Mutex
+	stderrTail      []byte
+	stderrTruncated bool
 
 	stopOnce sync.Once
 
@@ -857,6 +859,7 @@ func (p *process) readStderr(stderr io.Reader) {
 			p.stderrMu.Lock()
 			p.stderrTail = append(p.stderrTail, buf[:n]...)
 			if over := len(p.stderrTail) - stderrTailBytes; over > 0 {
+				p.stderrTruncated = true
 				p.stderrTail = append([]byte(nil), p.stderrTail[over:]...)
 			}
 			p.stderrMu.Unlock()
@@ -870,7 +873,12 @@ func (p *process) readStderr(stderr io.Reader) {
 func (p *process) stderr() string {
 	p.stderrMu.Lock()
 	defer p.stderrMu.Unlock()
-	return strings.ToValidUTF8(string(p.stderrTail), "")
+	tail := strings.ToValidUTF8(string(p.stderrTail), "")
+	if p.stderrTruncated {
+		_, tail, _ = strings.Cut(tail, "\n")
+		return "[Chat stderr truncated]\n" + redact.Credentials(tail)
+	}
+	return redact.Credentials(tail)
 }
 
 func decodeParams(raw json.RawMessage, target any, message string) error {

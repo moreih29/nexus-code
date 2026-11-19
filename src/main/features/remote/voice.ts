@@ -38,6 +38,11 @@ import {
   type VoiceStartResult,
   VoiceTermsSchema,
 } from "../../../shared/remote/voice";
+import {
+  API_RESPONSE_MAX_BYTES,
+  RESPONSE_TOO_LARGE,
+  ResponseTooLargeError,
+} from "../../infra/http/body";
 import type { RemoteAccount } from "./account";
 import { OutdatedError, ServerError, SignedOutError, UnreachableError } from "./errors";
 import { askTicket } from "./ticket";
@@ -67,8 +72,10 @@ export interface VoiceSocket {
 /** The refused upgrade's response, as much of it as is read. */
 export interface UpgradeRefusal {
   statusCode?: number;
+  destroy(): void;
   on(event: "data", listener: (chunk: Buffer) => void): unknown;
   on(event: "end", listener: () => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
 }
 
 export interface VoiceSessionsDeps {
@@ -165,7 +172,12 @@ export class VoiceSessions {
       if (error instanceof SignedOutError) return failed("signed-out", error.message);
       if (error instanceof OutdatedError) return failed("outdated", error.message);
       if (error instanceof UnreachableError) return failed("network", error.message);
-      if (error instanceof ServerError) return failed("failed", error.message);
+      if (error instanceof ServerError) {
+        return failed(
+          error.code === RESPONSE_TOO_LARGE ? RESPONSE_TOO_LARGE : "failed",
+          error.message,
+        );
+      }
       throw error;
     }
     const url = account.route.url("/voice", { socket: true });
@@ -195,18 +207,37 @@ export class VoiceSessions {
       };
 
       socket.on("unexpected-response", (_request, response) => {
-        let body = "";
+        const decoder = new TextDecoder();
+        const body: string[] = [];
+        let bytes = 0;
         response.on("data", (chunk) => {
-          body += chunk.toString("utf8");
+          if (settled) return;
+          bytes += chunk.byteLength;
+          if (bytes > API_RESPONSE_MAX_BYTES) {
+            const error = new ResponseTooLargeError(API_RESPONSE_MAX_BYTES);
+            body.length = 0;
+            settle(failed(error.code, error.message));
+            response.destroy();
+            socket.terminate();
+            return;
+          }
+          body.push(decoder.decode(chunk, { stream: true }));
         });
         response.on("end", () => {
-          const code = errorOf(body);
+          if (settled) return;
+          body.push(decoder.decode());
+          const code = errorOf(body.join(""));
           settle(
             failed(
               refusalOf(response.statusCode, code),
               `the server refused voice input (${response.statusCode ?? "?"}${code ? ` ${code}` : ""})`,
             ),
           );
+          socket.terminate();
+        });
+        response.on("error", (error) => {
+          if (settled) return;
+          settle(failed("network", error.message));
           socket.terminate();
         });
       });

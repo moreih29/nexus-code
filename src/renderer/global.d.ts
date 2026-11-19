@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-svgr/client" />
+import type { IpcStreamStartResult } from "../shared/ipc/result";
 import type {
   CallArgs,
   CallChannels,
@@ -33,7 +34,7 @@ interface IpcBridge {
     channel: C,
     method: M,
     args: StreamArgs<C, M>,
-  ): Promise<{ streamId: IpcRequestId }>;
+  ): Promise<IpcStreamStartResult>;
 
   onStreamEvent(streamId: IpcRequestId, callback: (event: IpcStreamEvent) => void): () => void;
 

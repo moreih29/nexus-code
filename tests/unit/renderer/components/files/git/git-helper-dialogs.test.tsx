@@ -54,6 +54,7 @@ describe("Global Git helper prompt mounting contract", () => {
     expect(Array.from(callbacks.keys()).sort()).toEqual([
       "askpass.closed",
       "askpass.prompt",
+      "editor.closed",
       "editor.prompt",
     ]);
 
@@ -74,9 +75,16 @@ describe("Global Git helper prompt mounting contract", () => {
     callbacks.get("askpass.closed")?.({ promptId: "global-credential" });
     expect(getGitHelperPromptSnapshot().credentialPrompt).toBeNull();
     expect(getGitHelperPromptSnapshot().editorPrompt?.promptId).toBe("global-editor");
+    callbacks.get("editor.closed")?.({ promptId: "global-editor" });
+    expect(getGitHelperPromptSnapshot().editorPrompt).toBeNull();
 
     unlisten();
-    expect(unlistened.sort()).toEqual(["askpass.closed", "askpass.prompt", "editor.prompt"]);
+    expect(unlistened.sort()).toEqual([
+      "askpass.closed",
+      "askpass.prompt",
+      "editor.closed",
+      "editor.prompt",
+    ]);
   });
 });
 

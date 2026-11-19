@@ -398,3 +398,24 @@ describe("the terms voice input listens for", () => {
     await expect(voice.terms()).rejects.toThrow();
   });
 });
+
+test("an oversized voice upgrade refusal fails and aborts the response", async () => {
+  const { voice, socket } = setup({});
+  const started = voice.start("ko");
+  const s = await socket();
+  let aborted = false;
+  const response = Object.assign(new EventEmitter(), {
+    statusCode: 403,
+    destroy: () => {
+      aborted = true;
+    },
+  });
+  s.emit("unexpected-response", {}, response);
+  const chunk = Buffer.alloc(1024 * 1024, 0x20);
+  for (let i = 0; i < 8; i += 1) response.emit("data", chunk);
+  response.emit("data", Buffer.from(" "));
+  response.emit("end");
+  expect(await started).toMatchObject({ status: "failed", reason: "response-too-large" });
+  expect(aborted).toBe(true);
+  expect(s.readyState).toBe(3);
+});

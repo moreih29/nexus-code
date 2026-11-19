@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 import {
   ChatHost,
   type ChatHostOptions,
@@ -19,6 +19,7 @@ import {
 import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
 import { sessionAgents } from "../../../../src/main/features/remote/serving/sessions";
 import type {
+  AgentCallOptions,
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
@@ -439,6 +440,41 @@ describe("ChatHost", () => {
     });
     channel.found = { path: "" };
     await expect(host.cli(WS, "/repo", { kind: "agents" })).rejects.toThrow("not found");
+  });
+
+  test("cli receives the agent's timeout result after the child and its pipes are closed", async () => {
+    jest.useFakeTimers();
+    const { channel, host } = setup();
+    const original = channel.call.bind(channel);
+    const dispatched = Promise.withResolvers<void>();
+    const result = { code: -1, stdout: "partial output", stderr: "", timedOut: true };
+    channel.call = async <T>(method: string, params?: unknown, options?: AgentCallOptions) => {
+      if (method !== "chat.exec") return original<T>(method, params);
+      const { timeoutMs } = params as { timeoutMs: number };
+      const command = Promise.withResolvers<T>();
+      const reply = setTimeout(() => command.resolve(result as T), timeoutMs + 1_000);
+      const cutoff = setTimeout(
+        () => command.reject(new Error("agent request timed out")),
+        options?.timeoutMs ?? 30_000,
+      );
+      dispatched.resolve();
+      return command.promise.finally(() => {
+        clearTimeout(reply);
+        clearTimeout(cutoff);
+      });
+    };
+    try {
+      const pending = host.cli(WS, "/repo", { kind: "plugins" }).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      await dispatched.promise;
+      jest.advanceTimersByTime(31_000);
+      expect(await pending).toEqual({ value: result });
+    } finally {
+      host.dispose();
+      jest.useRealTimers();
+    }
   });
 
   test("a Codex tab runs the app server of the codex the PATH has", async () => {

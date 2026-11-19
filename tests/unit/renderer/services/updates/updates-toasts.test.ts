@@ -11,6 +11,8 @@ import type { ToastInput } from "../../../../../src/renderer/components/ui/toast
 type Status = Record<string, unknown> & { kind: string };
 
 const toasts: ToastInput[] = [];
+const visible = new Map<number, ToastInput>();
+let nextToastId = 1;
 const calls: { method: string; args: unknown }[] = [];
 let emit: (status: Status) => void = () => {};
 /** What `updates.getStatus` answers: the status before the window listened. */
@@ -21,8 +23,13 @@ let installFails = false;
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   ...realToast,
-  showToast: (input: ToastInput) => toasts.push(input),
-  dismissToast: () => {},
+  showToast: (input: ToastInput) => {
+    const id = nextToastId++;
+    toasts.push(input);
+    visible.set(id, input);
+    return id;
+  },
+  dismissToast: (id: number) => visible.delete(id),
 }));
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -63,6 +70,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   toasts.length = 0;
+  visible.clear();
   calls.length = 0;
   installFails = false;
   useUpdatesStore.setState({
@@ -144,6 +152,24 @@ describe("initUpdatesSubscriptions", () => {
     emit(newer("1.4.0", true, "manual"));
 
     expect(toasts).toHaveLength(1);
+  });
+
+  it("replaces older offers and uses the same slot for manual check feedback", () => {
+    emit(newer("2.1.0", false));
+    emit(newer("2.2.0", false));
+
+    const offers = [...visible.values()];
+    expect(offers.map((toast) => toast.message)).toEqual([toasts.at(-1)?.message ?? ""]);
+    offers[0]?.actions?.[0]?.onAction();
+    expect(actionCalls()).toEqual([
+      { method: "openReleasePage", args: { url: "https://example.invalid/releases/tag/v2.2.0" } },
+    ]);
+
+    emit({ kind: "checking", trigger: "manual" });
+    expect([...visible.values()]).toEqual([toasts.at(-1)]);
+    expect(toasts.at(-1)?.actions).toBeUndefined();
+    emit({ kind: "current", trigger: "manual", current: "2.2.0" });
+    expect([...visible.values()]).toEqual([toasts.at(-1)]);
   });
 
   it("skips a version from its toast, for the title bar too", () => {

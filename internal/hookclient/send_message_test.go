@@ -64,3 +64,22 @@ func TestRunSendMessage_WritesTheDecisionAndExitsZero(t *testing.T) {
 		t.Fatalf("got exit %d and %q, want 0 and nothing", code, out.String())
 	}
 }
+
+// TestRunSendMessageDeniesOversizedInput checks the tool hook's fail-closed response.
+func TestRunSendMessageDeniesOversizedInput(t *testing.T) {
+	input := strings.NewReader(string(payloadOf("SendMessage", "teammate")) + strings.Repeat(" ", 16<<20))
+	var out bytes.Buffer
+	if code := runSendMessage(input, &out); code != 0 {
+		t.Fatalf("hook exited %d", code)
+	}
+	var decision preToolUseOutput
+	if err := json.Unmarshal(out.Bytes(), &decision); err != nil {
+		t.Fatalf("expected a denial, got %q", out.String())
+	}
+	if got := decision.HookSpecificOutput; got.PermissionDecision != "deny" || !strings.Contains(got.PermissionDecisionReason, "16 MiB") {
+		t.Fatalf("unexpected permission decision %+v", got)
+	}
+	if input.Len() != 0 {
+		t.Fatal("hook left input unread")
+	}
+}
