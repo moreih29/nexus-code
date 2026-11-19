@@ -91,6 +91,19 @@ export async function listSessions(
   git?: WorkspaceGit,
 ): Promise<RpcResult<"sessions.list">> {
   const workspaces = ordered(services.listWorkspaces());
+  // Read Git facts with the workspace snapshot. Waiting for tabs first would
+  // let an old list recreate the cache entry for a workspace removed meanwhile.
+  const listed: RemoteWorkspace[] = workspaces.map((w) => {
+    const facts = w.task ? git?.(w) : undefined;
+    return {
+      id: w.id,
+      name: w.name,
+      path: w.rootPath,
+      ...(w.task ? { parentId: w.task.parentId } : {}),
+      ...(!w.task && w.pinned ? { pinned: true } : {}),
+      ...(facts ? { git: facts } : {}),
+    };
+  });
   const sessions: RemoteSession[] = [];
   const now = Date.now();
   for (const workspace of workspaces) {
@@ -161,17 +174,6 @@ export async function listSessions(
       }
     }
   }
-  const listed: RemoteWorkspace[] = workspaces.map((w) => {
-    const facts = w.task ? git?.(w) : undefined;
-    return {
-      id: w.id,
-      name: w.name,
-      path: w.rootPath,
-      ...(w.task ? { parentId: w.task.parentId } : {}),
-      ...(!w.task && w.pinned ? { pinned: true } : {}),
-      ...(facts ? { git: facts } : {}),
-    };
-  });
   return { workspaces: listed, sessions };
 }
 

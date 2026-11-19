@@ -200,6 +200,7 @@ let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
 let remote: {
   themeChanged(): void;
+  forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
   peerFiles: PeerFileReader;
   dispose(): void;
@@ -252,6 +253,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     gitRegistry?.dispose(removedWorkspaceId);
     lspHost?.forgetWorkspace(removedWorkspaceId);
     notesFeature?.forgetWorkspace(removedWorkspaceId);
+    remote?.forgetWorkspace(removedWorkspaceId);
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
