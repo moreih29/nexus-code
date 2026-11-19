@@ -14,6 +14,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import type { ChatChosen, CodexFork, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 import { type CodexCollaborationMode, collaborationPresetsOf } from "./codex-collaboration";
 import { type CodexMcpServer, mcpServersOf } from "./codex-commands";
 import {
@@ -2380,6 +2381,13 @@ export function isSupportedCodex(version: string | null | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 const controllers = new Map<string, CodexController>();
+
+registerWorkspaceCleanup((workspaceId) => {
+  const prefix = `${workspaceId}:`;
+  for (const [key, controller] of controllers) {
+    if (key.startsWith(prefix)) controller.dispose();
+  }
+});
 
 export function codexController(target: CodexTabTarget, hooks?: CodexTabHooks): CodexController {
   const key = chatKey(target.workspaceId, target.tabId);

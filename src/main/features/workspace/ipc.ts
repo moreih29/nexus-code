@@ -117,11 +117,11 @@ export function registerWorkspaceChannel(
         const { id, beforeId, afterId, targetGroup } = validateArgs(c.reorder.args, args);
         return manager.reorder(id, { beforeId, afterId, targetGroup });
       },
-      remove: (args: unknown) => {
+      remove: async (args: unknown) => {
         const { id } = validateArgs(c.remove.args, args);
         // remove() is idempotent — a missing workspace is silently ignored.
         // Return ipcOk so the router passes this through without logging.
-        manager.remove(id);
+        await manager.remove(id);
         return ipcOk(undefined);
       },
       activate: workspaceConnectionHandler(manager, "activate"),

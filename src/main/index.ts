@@ -585,7 +585,6 @@ app.whenReady().then(async () => {
   // is created first, PTY host second, then they are linked here.
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
-    chatHost?.closeWorkspace(workspaceId);
   });
   // Wire held-session restore / release callbacks so manager can drive PTY
   // session lifecycle across reauth boundaries (plan issue 4 + 6).
@@ -772,12 +771,19 @@ app.whenReady().then(async () => {
   // Claude tabs: their programs run through the same agents as terminals.
   chatHost = registerChatChannel({
     workspaceManager,
+    knownChatTabs: (workspaceId) =>
+      (stateService.getState().layoutByWorkspace?.[workspaceId]?.tabs ?? [])
+        .filter((tab) => tab.type === "claude" || tab.type === "codex")
+        .map((tab) => tab.id),
     agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
     profile: (id) => findProfile(stateService, id),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnResult: claudeSetup.noteTurnResult,
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
+  workspaceManager.setChatSessionCloser(
+    (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
+  );
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop
   // the servers a settings change turns off.
