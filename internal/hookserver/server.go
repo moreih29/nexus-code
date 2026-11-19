@@ -662,12 +662,18 @@ func newHookID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-// writeNDJSON 은 v를 JSON으로 직렬화해 개행 문자와 함께 conn에 쓴다.
-func writeNDJSON(w interface{ Write([]byte) (int, error) }, v any) error {
+const replyWriteTimeout = 10 * time.Second
+
+// writeNDJSON gives each terminal reply its own deadline after the read
+// deadline has been cleared. The caller closes the connection afterwards.
+func writeNDJSON(conn net.Conn, v any) error {
 	data, err := proto.MarshalFrame(v)
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(data)
+	if err := conn.SetWriteDeadline(time.Now().Add(replyWriteTimeout)); err != nil {
+		return err
+	}
+	_, err = conn.Write(data)
 	return err
 }

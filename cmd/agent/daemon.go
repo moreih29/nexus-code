@@ -415,7 +415,7 @@ func runDaemon(root string) {
 		lsp.SetEventSink(host.EmitEvent)
 		// Installing this sink also hands renderer credit over after Ready.
 		pty.SetEventSink(host.Context(), host.EmitEvent)
-		chat.SetEventSink(host.EmitEvent)
+		chat.SetConnectionSink(host.Context(), host.EmitEvent)
 		search.SetEventSink(host.EmitEvent)
 		if hooksrv != nil {
 			hooksrv.SetEventSink(host.EmitEvent)

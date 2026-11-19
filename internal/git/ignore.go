@@ -69,16 +69,34 @@ func readExistingGitignore(ignorePath string) (string, error) {
 	return string(buf), nil
 }
 
+// atomicWriteText retains an existing file's mode while replacing its contents.
 func atomicWriteText(targetPath string, content string) error {
+	mode := os.FileMode(0o644)
+	info, err := os.Stat(targetPath)
+	if err == nil {
+		mode = info.Mode()
+	} else if !errors.Is(err, iofs.ErrNotExist) {
+		return err
+	}
+
 	tmpPath := targetPath + "." + time.Now().UTC().Format("20060102150405.000000000") + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(content), 0o644); err != nil {
+	file, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, targetPath); err != nil {
-		_ = os.Remove(tmpPath)
+	defer os.Remove(tmpPath)
+	_, writeErr := file.WriteString(content)
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err
 	}
-	return nil
+	if info != nil {
+		// OpenFile applied the umask. A replacement keeps the previous mode.
+		if err := os.Chmod(tmpPath, mode); err != nil {
+			return err
+		}
+	}
+	return os.Rename(tmpPath, targetPath)
 }
 
 func containsIgnorePattern(content string, pattern string) bool {

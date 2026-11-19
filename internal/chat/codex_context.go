@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -67,11 +68,12 @@ func (p *process) noteCodexInitialize(data []byte) {
 	p.codexExperimental = request.Params.Capabilities != nil && request.Params.Capabilities.ExperimentalAPI
 }
 
-func (p *process) withCodexContext(data []byte, context codexContext) []byte {
+// prepareCodexContext stages guidance changes until stdin accepts the frame.
+func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte, func()) {
 	// Without experimentalApi Codex rejects every turn/start that carries
 	// additionalContext, so a turn goes without the guidance instead.
 	if !p.codexExperimental {
-		return data
+		return data, nil
 	}
 	var request map[string]json.RawMessage
 	var method string
@@ -81,10 +83,7 @@ func (p *process) withCodexContext(data []byte, context codexContext) []byte {
 		json.Unmarshal(request["method"], &method) != nil || method != "turn/start" ||
 		json.Unmarshal(request["params"], &params) != nil ||
 		json.Unmarshal(params["threadId"], &threadID) != nil || !sessionIDPattern.MatchString(threadID) {
-		return data
-	}
-	if p.codexGuidance == nil {
-		p.codexGuidance = make(map[string]*codexGuidance)
+		return data, nil
 	}
 	state := p.codexGuidance[threadID]
 	compactions := p.codexCompactions.Load()
@@ -99,12 +98,15 @@ func (p *process) withCodexContext(data []byte, context codexContext) []byte {
 			hadCLI:      inherited[codexCLI] != "" || (state != nil && state.hadCLI),
 			compactions: compactions,
 		}
-		p.codexGuidance[threadID] = state
+	} else {
+		copy := *state
+		copy.inherited = maps.Clone(state.inherited)
+		state = &copy
 	}
 
 	var fragments map[string]json.RawMessage
 	if raw := params["additionalContext"]; raw != nil && json.Unmarshal(raw, &fragments) != nil {
-		return data
+		return data, nil
 	}
 	if fragments == nil {
 		fragments = make(map[string]json.RawMessage)
@@ -133,8 +135,14 @@ func (p *process) withCodexContext(data []byte, context codexContext) []byte {
 		fragments[key], _ = json.Marshal(map[string]string{"kind": "application", "value": value})
 		added = true
 	}
+	commit := func() {
+		if p.codexGuidance == nil {
+			p.codexGuidance = make(map[string]*codexGuidance)
+		}
+		p.codexGuidance[threadID] = state
+	}
 	if !added {
-		return data
+		return data, commit
 	}
 	params["additionalContext"], _ = json.Marshal(fragments)
 	// Encode the edited request once. In particular, params may contain
@@ -145,7 +153,7 @@ func (p *process) withCodexContext(data []byte, context codexContext) []byte {
 	}
 	out["params"] = params
 	result, _ := json.Marshal(out)
-	return result
+	return result, commit
 }
 
 // Use the environment of the running app server, after profile resolution on

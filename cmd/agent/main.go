@@ -169,7 +169,7 @@ func main() {
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
 	pty.SetEventSink(host.Context(), host.EmitEvent)
-	chat.SetEventSink(host.EmitEvent)
+	chat.SetConnectionSink(host.Context(), host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	if hooksrv != nil {
 		// hookserver의 EventSink를 host가 생성된 뒤 연결한다.

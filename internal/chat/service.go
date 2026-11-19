@@ -28,7 +28,7 @@ import (
 // Service owns the tabs' programs and their logs.
 type Service struct {
 	mu         sync.Mutex
-	sink       EventSink
+	sink       *connectionSink
 	sessions   map[tabKey]*session
 	closedTabs map[closedTabGeneration]struct{}
 	// closedOrder lets expiry and capacity discard the oldest closes first.
@@ -67,7 +67,7 @@ type session struct {
 
 	// mu orders the log and its events: a line is added and sent under it,
 	// and chat.replay holds it while it sends the log, so live lines follow.
-	mu   sync.Mutex
+	mu   chatGate
 	log  *lineLog
 	proc *process
 	// pending reserves the next line while stdin is writing. Output readers
@@ -86,12 +86,12 @@ type process struct {
 	generation   string
 	canonicalCwd string
 	cmd          *exec.Cmd
-	stdin        io.WriteCloser
+	stdin        stdinWriter
 	// outputs are the stdout and stderr pipes, closed once the exit is
 	// reported, in case a process the program left behind holds them open.
 	outputs []io.Closer
 	// writeMu orders writes to stdin.
-	writeMu sync.Mutex
+	writeMu chatGate
 	// codexGuidance is used under writeMu, alongside the requests it accompanies.
 	codexGuidance    map[string]*codexGuidance
 	codexCompactions atomic.Uint64
@@ -140,11 +140,22 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.profileDir", service.ProfileDir)
 }
 
-// SetEventSink wires the service to the stdio host.
+// connectionSink binds a sink to the host that installed it.
+type connectionSink struct {
+	ctx  context.Context
+	emit EventSink
+}
+
+// SetEventSink wires an in-process sink without a connection context.
 func (s *Service) SetEventSink(sink EventSink) {
+	s.SetConnectionSink(nil, sink)
+}
+
+// SetConnectionSink advances the generation used by chat replay.
+func (s *Service) SetConnectionSink(ctx context.Context, sink EventSink) {
 	s.mu.Lock()
-	s.sink = sink
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	s.sink = &connectionSink{ctx: ctx, emit: sink}
 }
 
 // Close kills every program, as the agent shuts down.
@@ -222,32 +233,42 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	cmd := nodeshim.Command(p.Program, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = env
-	cmd.SysProcAttr = newSysProcAttr()
-	stdin, err := cmd.StdinPipe()
+	generationID := hex.EncodeToString(generation[:])
+	stdin, childStdin, err := newChatStdin(generationID)
 	if err != nil {
 		return nil, requestFailed("chat.start: %s", err)
 	}
+	defer childStdin.Close()
+	cmd.Stdin = childStdin
+	started := false
+	defer func() {
+		if !started {
+			_ = stdin.Close()
+		}
+	}()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, requestFailed("chat.start: %s", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdout.Close()
 		return nil, requestFailed("chat.start: %s", err)
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, requestFailed("chat.start: %s", err)
-	}
-	canonicalCwd, _ := filepath.EvalSymlinks(p.Cwd)
 	proc := &process{
-		generation:   hex.EncodeToString(generation[:]),
-		canonicalCwd: canonicalCwd,
-		cmd:          cmd,
-		stdin:        stdin,
-		outputs:      []io.Closer{stdout, stderr},
-		done:         make(chan struct{}),
+		generation: generationID,
+		cmd:        cmd,
+		stdin:      stdin,
+		outputs:    []io.Closer{stdout, stderr},
+		done:       make(chan struct{}),
 	}
-	proc.holdTree()
+	if err := proc.startOwned(); err != nil {
+		return nil, requestFailed("chat.start: %s", err)
+	}
+	_ = childStdin.Close()
+	started = true
+	canonicalCwd, _ := filepath.EvalSymlinks(p.Cwd)
+	proc.canonicalCwd = canonicalCwd
 	sess.proc = proc
 	if p.ResetLog {
 		sess.log.reset()
@@ -280,13 +301,16 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 }
 
 // Send writes one message to the tab's program and logs it.
-func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
 	if err := decodeParams(raw, &p, "chat.send params must include workspaceId, tabId and message"); err != nil {
 		return nil, err
 	}
 	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.send")
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var line bytes.Buffer
@@ -297,13 +321,21 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 	if sess == nil {
 		return nil, notRunning(key)
 	}
-	proc := sess.running()
+	if err := sess.mu.lockContext(ctx); err != nil {
+		return nil, err
+	}
+	proc := sess.proc
+	sess.mu.Unlock()
 	if proc == nil {
 		return nil, notRunning(key)
 	}
-	proc.writeMu.Lock()
+	if err := proc.writeMu.lockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer proc.writeMu.Unlock()
-	sess.mu.Lock()
+	if err := sess.mu.lockContext(ctx); err != nil {
+		return nil, err
+	}
 	if sess.closed || sess.proc != proc {
 		sess.mu.Unlock()
 		return nil, notRunning(key)
@@ -313,7 +345,7 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 	sess.mu.Unlock()
 
 	message := json.RawMessage(bytes.Clone(line.Bytes()))
-	written, err := proc.writeLocked(line.Bytes(), p.CodexContext)
+	written, err := proc.writeLocked(ctx, line.Bytes(), p.CodexContext)
 	if err != nil {
 		code := "chat.stdin-write-failed"
 		if written > 0 {
@@ -407,7 +439,7 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 }
 
 // Replay sends the tab's log again as chat.line events, then answers.
-func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
 	if err := decodeParams(raw, &p, "chat.replay params must include workspaceId and tabId"); err != nil {
 		return nil, err
@@ -416,11 +448,18 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	sess := s.lookup(key)
+	s.mu.Lock()
+	sink, sess := s.sink, s.sessions[key]
+	s.mu.Unlock()
+	if err := s.checkReplayConnection(ctx, sink); err != nil {
+		return nil, err
+	}
 	if sess == nil {
 		return ReplayResult{Found: false}, nil
 	}
-	sess.mu.Lock()
+	if err := sess.mu.lockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer sess.mu.Unlock()
 	last := p.AfterSeq
 	for _, e := range sess.log.since(p.AfterSeq) {
@@ -429,10 +468,21 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 		}
 		payload := sess.payload(e)
 		payload.Replay = true
-		if err := s.emit(EventLine, payload); err != nil {
-			return nil, requestFailed("chat.replay: %s", err)
+		if err := s.checkReplayConnection(ctx, sink); err != nil {
+			return nil, err
+		}
+		if sink != nil && sink.emit != nil {
+			if err := sink.emit(EventLine, payload); err != nil {
+				if ctxErr := s.checkReplayConnection(ctx, sink); ctxErr != nil {
+					return nil, ctxErr
+				}
+				return nil, requestFailed("chat.replay: %s", err)
+			}
 		}
 		last = e.seq
+	}
+	if err := s.checkReplayConnection(ctx, sink); err != nil {
+		return nil, err
 	}
 	return ReplayResult{
 		Found:     true,
@@ -440,6 +490,21 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 		Truncated: sess.log.truncated,
 		LastSeq:   last,
 	}, nil
+}
+
+// checkReplayConnection rejects work from a superseded host even when its
+// previous write just completed. Dispatch passes the host's context through.
+func (s *Service) checkReplayConnection(ctx context.Context, sink *connectionSink) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	current := s.sink == sink
+	s.mu.Unlock()
+	if !current || sink != nil && sink.ctx != nil && sink.ctx.Done() != ctx.Done() {
+		return context.Canceled
+	}
+	return nil
 }
 
 // List reports the tabs the agent has logs for.
@@ -554,10 +619,10 @@ func (s *Service) emit(event string, payload any) error {
 	s.mu.Lock()
 	sink := s.sink
 	s.mu.Unlock()
-	if sink == nil {
+	if sink == nil || sink.emit == nil {
 		return nil
 	}
-	return sink(event, payload)
+	return sink.emit(event, payload)
 }
 
 // running returns the session's program, nil when none runs.
@@ -726,17 +791,48 @@ drain:
 }
 
 // writeLocked writes one full line as part of the process's ordered send.
-func (p *process) writeLocked(data []byte, context *codexContext) (int, error) {
-	p.noteCodexInitialize(data)
-	if context != nil {
-		data = p.withCodexContext(data, *context)
+func (p *process) writeLocked(ctx context.Context, data []byte, guidance *codexContext) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	original := data
+	var commit func()
+	if guidance != nil {
+		data, commit = p.prepareCodexContext(data, *guidance)
 	}
 	line := append(data, '\n')
-	n, err := p.stdin.Write(line)
-	if err == nil && n != len(line) {
+	n, err := p.stdin.WriteContext(ctx, line)
+	if n == len(line) {
+		// The child owns this frame even if cancellation raced with Write.
+		p.noteCodexInitialize(original)
+		if commit != nil {
+			commit()
+		}
+		return n, nil
+	}
+	if err == nil {
 		err = io.ErrShortWrite
 	}
 	return n, err
+}
+
+// startOwned starts a process with the platform's tree ownership policy.
+func (p *process) startOwned() error {
+	p.cmd.SysProcAttr = newSysProcAttr()
+	if err := p.cmd.Start(); err != nil {
+		return err
+	}
+	if err := p.holdTree(); err != nil {
+		_ = p.cmd.Process.Kill()
+		_ = p.cmd.Wait()
+		return err
+	}
+	return nil
+}
+
+// kill immediately terminates the owned process tree.
+func (p *process) kill() {
+	_ = p.signalKill()
 }
 
 // stop asks the program to exit, and kills it if it has not after stopGrace.

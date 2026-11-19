@@ -47,3 +47,19 @@ func parentInStat(data []byte) (int, bool) {
 	ppid, err := strconv.Atoi(string(fields[1]))
 	return ppid, err == nil
 }
+
+// processStart identifies a process by the kernel's start ticks.
+func processStart(pid int) uint64 {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0
+	}
+	_, suffix := hostproc.SplitPIDStat(data)
+	fields := bytes.Fields(suffix)
+	const startTimeField = 22 - 3 // suffix begins with field 3, state.
+	if len(fields) <= startTimeField {
+		return 0
+	}
+	start, _ := strconv.ParseUint(string(fields[startTimeField]), 10, 64)
+	return start
+}

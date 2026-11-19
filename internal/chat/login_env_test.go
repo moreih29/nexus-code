@@ -11,6 +11,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if address := os.Getenv(execTreeFixtureEnv); address != "" {
+		os.Exit(runExecTreeFixture(address))
+	}
 	// The tests' programs get the test's environment, not the login shell
 	// of whoever runs them.
 	loginEnv = func() map[string]string { return nil }

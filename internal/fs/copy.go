@@ -42,14 +42,14 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, mapWriteError(err, srcAbs)
 	}
 
-	// Destination existence check. By default the destination must NOT exist
-	// (O_EXCL semantics). With Overwrite=true the caller has confirmed a
-	// replace, so an existing destination is moved aside and only deleted
-	// once the copy has succeeded; a failed copy puts it back.
+	// Keep the old destination until the replacement has fully succeeded.
 	backup := ""
 	if _, err := os.Lstat(dstAbs); err == nil {
 		if !p.Overwrite {
 			return nil, FSError{Code: CodeAlreadyExists, Path: dstAbs}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		if backup, err = moveAside(dstAbs); err != nil {
 			return nil, mapWriteError(err, dstAbs)
@@ -58,18 +58,14 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, mapWriteError(err, dstAbs)
 	}
 
-	if srcInfo.IsDir() {
-		err = copyDir(srcAbs, dstAbs)
-	} else if srcInfo.Mode()&os.ModeSymlink != 0 {
-		err = copySymlink(srcAbs, dstAbs)
-	} else {
-		err = copyRegularFile(srcAbs, dstAbs, srcInfo)
+	created, err := copyPath(ctx, srcAbs, dstAbs, srcInfo)
+	if err == nil {
+		err = ctx.Err()
 	}
 	if err != nil {
-		// Take away the part copied, then put back what was there, if
-		// anything was.
-		_ = os.RemoveAll(dstAbs)
-		restoreAside(backup, dstAbs)
+		if rollbackErr := rollbackCopy(dstAbs, backup, created); rollbackErr != nil {
+			return nil, errors.Join(mapWriteError(err, srcAbs), rollbackErr)
+		}
 		return nil, mapWriteError(err, srcAbs)
 	}
 	if err := discardAside(backup); err != nil {
@@ -79,80 +75,116 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 	return struct{}{}, nil
 }
 
-// copyRegularFile copies the bytes and permission bits of a regular file.
-func copyRegularFile(src, dst string, srcInfo os.FileInfo) error {
-	return copyFileContents(src, dst, srcInfo)
+// rollbackCopy removes only the path created by this copy. A destination
+// that appeared before creation succeeded belongs to another operation.
+func rollbackCopy(dst, backup string, created bool) error {
+	if created {
+		if err := os.RemoveAll(dst); err != nil {
+			return err
+		}
+	}
+	if backup == "" {
+		return nil
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return FSError{Code: CodeAlreadyExists, Path: dst}
+	} else if !errors.Is(err, iofs.ErrNotExist) {
+		return err
+	}
+	return os.Rename(backup, dst)
 }
 
-// copyDir creates the destination directory and recursively copies every entry.
-func copyDir(src, dst string) error {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return err
+// copyPath reports whether this operation owns the destination, including
+// on error, so a failed attempt can remove its partial copy safely.
+func copyPath(ctx context.Context, src, dst string, info os.FileInfo) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
-	if err := os.Mkdir(dst, srcInfo.Mode()); err != nil {
-		return err
+	switch {
+	case info.IsDir():
+		if err := os.Mkdir(dst, info.Mode()); err != nil {
+			return false, err
+		}
+		return true, copyDirEntries(ctx, src, dst)
+	case info.Mode()&os.ModeSymlink != 0:
+		return copySymlink(ctx, src, dst)
+	case info.Mode().IsRegular():
+		return copyFileContents(ctx, src, dst, info)
+	default:
+		return false, proto.ProtocolError("fs.copyFile source must be a regular file, directory, or symlink")
 	}
+}
 
+// copyDirEntries copies each child into the directory owned by this copy.
+func copyDirEntries(ctx context.Context, src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		srcEntry := filepath.Join(src, entry.Name())
-		dstEntry := filepath.Join(dst, entry.Name())
-
 		info, err := os.Lstat(srcEntry)
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			if err := copyDir(srcEntry, dstEntry); err != nil {
-				return err
-			}
-		} else if info.Mode()&os.ModeSymlink != 0 {
-			if err := copySymlink(srcEntry, dstEntry); err != nil {
-				return err
-			}
-		} else {
-			if err := copyRegularFile(srcEntry, dstEntry, info); err != nil {
-				return err
-			}
+		if _, err := copyPath(ctx, srcEntry, filepath.Join(dst, entry.Name()), info); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// copySymlink preserves the symlink by reading the link target and creating
-// a new symlink at the destination with the same target, or what stands in
-// for one where it cannot be created (see symlinkFallback).
-func copySymlink(src, dst string) error {
+// copySymlink preserves the original link target or uses the platform fallback.
+func copySymlink(ctx context.Context, src, dst string) (bool, error) {
 	target, err := os.Readlink(src)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := os.Symlink(target, dst); err != nil {
-		return symlinkFallback(src, dst, target, err)
+		return symlinkFallback(ctx, src, dst, target, err)
 	}
-	return nil
+	return true, nil
 }
 
-// copyFileContents is the single io.Copy path used by copyRegularFile.
-func copyFileContents(src, dst string, srcInfo os.FileInfo) error {
+// copyFileContents keeps the permission bits and checks cancellation
+// between chunks. Wrapping the reader avoids an uncancellable file fast path.
+func copyFileContents(ctx context.Context, src, dst string, srcInfo os.FileInfo) (bool, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, srcInfo.Mode())
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer out.Close()
 
-	if _, err := io.Copy(out, in); err != nil {
-		return err
+	if _, err := io.Copy(out, copyReader{ctx, in}); err != nil {
+		return true, err
 	}
-	return out.Sync()
+	if err := ctx.Err(); err != nil {
+		return true, err
+	}
+	if err := out.Sync(); err != nil {
+		return true, err
+	}
+	return true, out.Close()
+}
+
+type copyReader struct {
+	ctx context.Context
+	src io.Reader
+}
+
+// Read checks cancellation before io.Copy reads the next block.
+func (r copyReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.src.Read(p)
 }

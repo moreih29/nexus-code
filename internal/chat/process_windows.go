@@ -3,11 +3,12 @@
 package chat
 
 import (
-	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	hostproc "github.com/nexus-code/nexus-code/internal/process"
 
@@ -15,7 +16,7 @@ import (
 )
 
 func newSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{}
+	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 }
 
 // tree is the job object the program runs in. It holds the processes the
@@ -28,17 +29,46 @@ type tree struct {
 	job windows.Handle
 }
 
-// holdTree puts the program in a job of its own. A process it starts
-// before it is in the job is left out; one that waits on the program's
-// input still ends when the input is closed.
-func (p *process) holdTree() {
-	job, err := hostproc.AssignJob(p.cmd.Process.Pid, true)
-	if err != nil {
-		return
-	}
+// holdTree assigns the suspended launcher before it can start any children.
+func (p *process) holdTree() error {
 	p.tree.mu.Lock()
+	defer p.tree.mu.Unlock()
+	pid := p.cmd.Process.Pid
+	job, err := hostproc.AssignJob(pid, true)
+	if err != nil {
+		return fmt.Errorf("assign chat process to job: %w", err)
+	}
+	if err := resumeJobLauncher(uint32(pid)); err != nil {
+		_ = windows.CloseHandle(job)
+		return fmt.Errorf("resume chat process: %w", err)
+	}
 	p.tree.job = job
-	p.tree.mu.Unlock()
+	return nil
+}
+
+// resumeJobLauncher opens the primary thread, whose handle os/exec closes.
+// A newly created suspended process has not had a chance to create another.
+func resumeJobLauncher(pid uint32) error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(snapshot)
+	var entry windows.ThreadEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	for err := windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
+		if entry.OwnerProcessID != pid {
+			continue
+		}
+		thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		if err != nil {
+			return err
+		}
+		defer windows.CloseHandle(thread)
+		_, err = windows.ResumeThread(thread)
+		return err
+	}
+	return os.ErrProcessDone
 }
 
 // releaseTree lets go of the job once the program has exited, which ends
@@ -60,23 +90,18 @@ func (p *process) endTree() bool {
 	return p.tree.job != 0 && windows.TerminateJobObject(p.tree.job, 1) == nil
 }
 
-// signalTerm ends the program and what it runs. Windows has no signal to
-// ask it with.
+// signalTerm uses the job on Windows, where there is no portable TERM.
 func (p *process) signalTerm() error {
+	return p.signalKill()
+}
+
+// signalKill terminates the job, or the launcher if it was cancelled during
+// creation before it was able to join the job.
+func (p *process) signalKill() error {
 	if p.endTree() {
 		return nil
 	}
-	err := p.cmd.Process.Kill()
-	if errors.Is(err, os.ErrProcessDone) {
-		return nil
-	}
-	return err
-}
-
-func (p *process) kill() {
-	if !p.endTree() {
-		_ = p.cmd.Process.Kill()
-	}
+	return p.cmd.Process.Kill()
 }
 
 // exitPayload translates the program's exit into the chat.exit wire shape.

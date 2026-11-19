@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -67,6 +68,9 @@ func TestFakeProgramHelper(t *testing.T) {
 			// Start a child that runs until it is ended, and tell its pid.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
+			if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+				child.Stdout = os.Stdout
+			}
 			// As Claude and Codex start each command, out of the program's group.
 			if os.Getenv("NEXUS_CHAT_OWN_SESSION") == "1" {
 				ownSession(child)
@@ -103,6 +107,10 @@ func TestFakeChildHelper(t *testing.T) {
 func TestFakeSleeperHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_SLEEPER") != "1" {
 		return
+	}
+	if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+		fmt.Println(`{"type":"resistant-child-ready"}`)
 	}
 	time.Sleep(time.Minute)
 	os.Exit(0)
@@ -248,14 +256,14 @@ func tabParams(tabID string) json.RawMessage {
 
 type testStdin func([]byte) (int, error)
 
-func (w testStdin) Write(data []byte) (int, error) { return w(data) }
-func (w testStdin) Close() error                   { return nil }
+func (w testStdin) WriteContext(_ context.Context, data []byte) (int, error) { return w(data) }
+func (w testStdin) Close() error                                             { return nil }
 
 type partialStdin struct {
 	closed bool
 }
 
-func (p *partialStdin) Write(data []byte) (int, error) {
+func (p *partialStdin) WriteContext(_ context.Context, data []byte) (int, error) {
 	if p.closed {
 		return 0, io.ErrClosedPipe
 	}
@@ -864,6 +872,122 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	}
 	if first := rec.lines[0]; first.Seq != 1 {
 		t.Fatalf("the new log starts at %d: %s", first.Seq, describe(rec.lines))
+	}
+}
+
+// TestCanceledSendDoesNotWaitForEarlierWrites verifies a queued send can
+// leave without writing or consuming an input sequence number.
+func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := make(chan struct{}, 1)
+	p := &process{stdin: testStdin(func(data []byte) (int, error) {
+		writes <- struct{}{}
+		return len(data), nil
+	})}
+	sess.proc = p
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.Send(ctx, json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"text":"canceled"}}`))
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) || sess.log.lastSeq() != 0 {
+			t.Fatalf("canceled send returned %v with log sequence %d", err, sess.log.lastSeq())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled send waited behind a blocked write")
+	}
+	select {
+	case <-writes:
+		t.Fatal("canceled request wrote to the child")
+	default:
+	}
+}
+
+// TestReplayCannotFollowAReplacedConnection changes sinks while the first
+// old frame is still being delivered.
+func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.log.add(DirOut, nil, "one")
+	sess.log.add(DirOut, nil, "two")
+	oldFrame := make(chan struct{}, 2)
+	release := make(chan struct{})
+	oldCtx, cancelOld := context.WithCancel(context.Background())
+	defer cancelOld()
+	s.SetConnectionSink(oldCtx, func(string, any) error {
+		oldFrame <- struct{}{}
+		<-release
+		return nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.Replay(oldCtx, tabParams("tab"))
+		result <- err
+	}()
+	select {
+	case <-oldFrame:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("old replay did not reach its first frame")
+	}
+	var fresh []LinePayload
+	newCtx, cancelNew := context.WithCancel(context.Background())
+	defer cancelNew()
+	s.SetConnectionSink(newCtx, func(_ string, payload any) error {
+		fresh = append(fresh, payload.(LinePayload))
+		return nil
+	})
+	close(release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("old replay returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("old replay did not finish after cancellation")
+	}
+	if len(fresh) != 0 {
+		t.Fatalf("new connection got %d old replay frames", len(fresh))
+	}
+	reply, err := s.Replay(newCtx, tabParams("tab"))
+	if err != nil || reply.(ReplayResult).LastSeq != 2 || len(fresh) != 2 || fresh[0].Text != "one" || fresh[1].Text != "two" {
+		t.Fatalf("new replay got %+v, %v and %+v", reply, err, fresh)
+	}
+}
+
+// TestReplayStopsWhenItsConnectionCancels keeps the sink installed while
+// canceling the host after its first frame.
+func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.log.add(DirOut, nil, "one")
+	sess.log.add(DirOut, nil, "two")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames := 0
+	s.SetConnectionSink(ctx, func(string, any) error {
+		frames++
+		cancel()
+		return nil
+	})
+	if _, err := s.Replay(ctx, tabParams("tab")); !errors.Is(err, context.Canceled) || frames != 1 {
+		t.Fatalf("replay emitted %d frames, returned %v", frames, err)
 	}
 }
 
