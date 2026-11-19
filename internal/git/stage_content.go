@@ -149,7 +149,7 @@ func (s *Service) writeBlob(ctx context.Context, topLevel string, relPath string
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", ctxErr
 	}
-	code, fatal := gitExitCode(runErr)
+	code, fatal := gitExitCode(cmd.ProcessState, runErr)
 	if fatal != nil {
 		return "", fatal
 	}

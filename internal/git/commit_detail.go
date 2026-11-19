@@ -99,7 +99,7 @@ func (s *Service) commitDetailGitOutput(ctx context.Context, params CommitDetail
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}

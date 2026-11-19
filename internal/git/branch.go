@@ -147,7 +147,7 @@ func (s *Service) BranchDelete(ctx context.Context, raw json.RawMessage) (any, e
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(runErr)
+	code, fatal := gitExitCode(cmd.ProcessState, runErr)
 	if fatal != nil {
 		return nil, fatal
 	}

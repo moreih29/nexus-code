@@ -104,7 +104,7 @@ func (s *Service) StashList(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -148,7 +148,7 @@ func (s *Service) StashApply(ctx context.Context, raw json.RawMessage) (any, err
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -184,7 +184,7 @@ func (s *Service) StashDrop(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -224,7 +224,7 @@ func (s *Service) StashPop(ctx context.Context, raw json.RawMessage) (any, error
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -295,7 +295,7 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := streamCtx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -353,7 +353,7 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}

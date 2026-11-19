@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/msix"
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -83,7 +84,7 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -128,7 +129,7 @@ func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", "", 0, ctxErr
 	}
-	code, fatal := gitExitCode(runErr)
+	code, fatal := gitExitCode(cmd.ProcessState, runErr)
 	if fatal != nil {
 		return "", "", 0, fatal
 	}
@@ -191,6 +192,9 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 		askpass.runID = runIDFrom(ctx)
 	}
 	cmd := exec.CommandContext(ctx, gitBinary(), args...)
+	// A launcher or credential helper can inherit the pipes. Bound Wait's
+	// drain after Git exits or is cancelled even if that helper outlives it.
+	cmd.WaitDelay = time.Second
 	cmd.Dir = resolvedCwd
 	cmd.Env = gitEnv(env, interactive, askpass)
 	return cmd, nil
@@ -357,9 +361,14 @@ func appendOrReplaceEnv(env []string, key string, value string) []string {
 	return append(env, prefix+value)
 }
 
-func gitExitCode(err error) (int, error) {
+// gitExitCode separates Git's exit status from command startup and I/O errors.
+func gitExitCode(state *os.ProcessState, err error) (int, error) {
 	if err == nil {
 		return 0, nil
+	}
+	// WaitDelay can close pipes inherited by a helper after Git succeeded.
+	if errors.Is(err, exec.ErrWaitDelay) && state != nil {
+		return state.ExitCode(), nil
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

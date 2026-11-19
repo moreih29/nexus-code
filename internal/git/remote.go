@@ -57,7 +57,7 @@ func (s *Service) RemoteAdd(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -97,7 +97,7 @@ func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, e
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}

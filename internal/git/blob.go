@@ -109,7 +109,7 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	if result.Truncated && cmdCtx.Err() != nil {
 		return result, nil
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}

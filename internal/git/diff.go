@@ -80,7 +80,7 @@ func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 	if ctxErr := streamCtx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}
