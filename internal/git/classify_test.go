@@ -3,12 +3,16 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 type expectedClassifiedError struct {
@@ -65,10 +69,15 @@ func TestClassifyStderrFixtures(t *testing.T) {
 
 // TestRunStdoutOverflowIsClassifiedData guards the run.go transport envelope.
 func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
-	t.Parallel()
 	service := New(t.TempDir())
-	raw := json.RawMessage(`{"args":["--no-pager","help","-a"],"stdoutCapBytes":1024}`)
-	result, err := service.Run(context.Background(), raw)
+	var result any
+	var err error
+	if runtime.GOOS == "windows" {
+		result, err = runOverflowingGitLauncher(t, service)
+	} else {
+		setFakeGitExecutable(t, "output-budget")
+		result, err = service.Run(context.Background(), json.RawMessage(`{"args":["bulk","1025"],"stdoutCapBytes":1024}`))
+	}
 	if err != nil {
 		t.Fatalf("Run returned transport error: %v", err)
 	}
@@ -84,6 +93,55 @@ func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
 	}
 	if runResult.ErrorMessage == "" {
 		t.Fatal("ErrorMessage is empty")
+	}
+}
+
+// runOverflowingGitLauncher keeps the child alive even after its output
+// pipe closes. Run must stop the child before the checkout can be removed.
+func runOverflowingGitLauncher(t *testing.T, service *Service) (any, error) {
+	t.Helper()
+	setupInheritedPipeFixture(t)
+	listener := listenForPipeHolder(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	type response struct {
+		value any
+		err   error
+	}
+	done := make(chan response, 1)
+	go func() {
+		value, err := service.Run(ctx, json.RawMessage(`{"args":["overflow"],"stdoutCapBytes":1024}`))
+		done <- response{value, err}
+	}()
+	conn, err := listener.AcceptTCP()
+	if err != nil {
+		t.Fatal("Git child never connected:", err)
+	}
+	defer conn.Close()
+	// Let the child exceed the output limit once it holds the working directory.
+	if _, err := conn.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case reply := <-done:
+		if reply.err != nil {
+			return nil, reply.err
+		}
+		if err := os.Remove(service.root); err != nil {
+			t.Fatalf("Git's working directory is still in use after Run: %v", err)
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, err := conn.Read(make([]byte, 1))
+		var networkErr net.Error
+		if n != 0 || err == nil || (errors.As(err, &networkErr) && networkErr.Timeout()) {
+			t.Fatalf("overflow left Git's child running: read %d bytes, error %v", n, err)
+		}
+		return reply.value, nil
+	case <-ctx.Done():
+		t.Fatal("git.run did not return after overflow")
+		return nil, nil
 	}
 }
 

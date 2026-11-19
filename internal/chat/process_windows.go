@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"unsafe"
 
 	hostproc "github.com/nexus-code/nexus-code/internal/process"
 
@@ -38,37 +37,12 @@ func (p *process) holdTree() error {
 	if err != nil {
 		return fmt.Errorf("assign chat process to job: %w", err)
 	}
-	if err := resumeJobLauncher(uint32(pid)); err != nil {
+	if err := hostproc.ResumeSuspended(uint32(pid)); err != nil {
 		_ = windows.CloseHandle(job)
 		return fmt.Errorf("resume chat process: %w", err)
 	}
 	p.tree.job = job
 	return nil
-}
-
-// resumeJobLauncher opens the primary thread, whose handle os/exec closes.
-// A newly created suspended process has not had a chance to create another.
-func resumeJobLauncher(pid uint32) error {
-	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
-	if err != nil {
-		return err
-	}
-	defer windows.CloseHandle(snapshot)
-	var entry windows.ThreadEntry32
-	entry.Size = uint32(unsafe.Sizeof(entry))
-	for err := windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
-		if entry.OwnerProcessID != pid {
-			continue
-		}
-		thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
-		if err != nil {
-			return err
-		}
-		defer windows.CloseHandle(thread)
-		_, err = windows.ResumeThread(thread)
-		return err
-	}
-	return os.ErrProcessDone
 }
 
 // releaseTree lets go of the job once the program has exited, which ends
