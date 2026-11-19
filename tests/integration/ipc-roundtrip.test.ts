@@ -13,6 +13,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { mainErrorMock } from "../log-test-spies";
 
 // ---------------------------------------------------------------------------
 // Fake Electron harness
@@ -196,18 +197,136 @@ describe("ipc round-trip — broadcast reaches listener", () => {
 // ---------------------------------------------------------------------------
 
 describe("ipc round-trip — routing errors", () => {
-  it("rejects calls to an unknown channel", async () => {
+  it("returns invalid input for an unknown channel or method", async () => {
     const handler = getHandler();
-    await expect(handler({}, "no-such-channel", "someMethod", {})).rejects.toThrow(
-      "unknown channel: no-such-channel",
-    );
+    for (const [channel, method] of [
+      ["no-such-channel", "someMethod"],
+      ["integration-echo", "noSuchMethod"],
+      ["integration-echo", "constructor"],
+    ]) {
+      expect(await handler({}, channel, method, {})).toMatchObject({
+        ok: false,
+        kind: "invalid-args",
+        category: "invalid-input",
+      });
+    }
   });
 
-  it("rejects calls to an unknown method on a registered channel", async () => {
-    const handler = getHandler();
-    await expect(handler({}, "integration-echo", "noSuchMethod", {})).rejects.toThrow(
-      "unknown method: integration-echo.noSuchMethod",
+  it("returns a sanitized bug envelope and logs the original exception with its correlation ID", async () => {
+    const detail = "unexpected internal failure /private/source";
+    register("integration-bug", {
+      call: { work: () => Promise.reject(new Error(detail)) },
+      listen: {},
+    });
+    const start = mainErrorMock.mock.calls.length;
+    const result = await getHandler()({}, "integration-bug", "work", {});
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "bug",
+      category: "bug",
+      correlationId: expect.any(String),
+    });
+    expect(JSON.stringify(result)).not.toContain(detail);
+    expect(mainErrorMock.mock.calls.slice(start)).toEqual([
+      [
+        expect.stringContaining(detail),
+        { correlationId: (result as { correlationId: string }).correlationId },
+      ],
+    ]);
+  });
+
+  it("maps workspace activation and connection failures through the call envelope", async () => {
+    const { registerWorkspaceChannel } = await import("../../src/main/features/workspace/ipc");
+    const id = "123e4567-e89b-12d3-a456-426614174000";
+    let name: string | null = "Workspace";
+    let failure: unknown;
+    const run = async () => {
+      throw failure;
+    };
+    registerWorkspaceChannel({ getName: () => name, activate: run, connect: run } as never);
+    const invoke = (method: string) => getHandler()({}, "workspace", method, { id });
+
+    name = null;
+    expect(await invoke("activate")).toMatchObject({
+      ok: false,
+      kind: "not-found",
+      category: "failed",
+    });
+    name = "Workspace";
+    failure = Object.assign(new Error("raw SSH detail"), { code: "ssh.auth-failed" });
+    expect(await invoke("connect")).toMatchObject({
+      ok: false,
+      kind: "connection-failed",
+      category: "failed",
+      domain: "ssh",
+      code: "ssh.auth-failed",
+      message: "SSH authentication failed",
+    });
+    failure = Object.assign(new Error("interrupted"), { name: "AbortError" });
+    expect(await invoke("activate")).toMatchObject({
+      ok: false,
+      kind: "cancelled",
+      category: "cancelled",
+    });
+    failure = new Error("unexpected connection internals");
+    expect(await invoke("connect")).toMatchObject({
+      ok: false,
+      kind: "bug",
+      correlationId: expect.any(String),
+      message: "An unexpected error occurred",
+    });
+  });
+
+  it("returns a recoverable SSH browse error after the session closes", async () => {
+    const { browseSessionHandler } = await import("../../src/main/features/ssh/ipc");
+    const { SshBrowseSessionRegistry } = await import(
+      "../../src/main/features/ssh/browse-session-registry"
     );
+    const registry = new SshBrowseSessionRegistry();
+    const sessionId = registry.register({ dispose: () => {} } as never, null);
+    registry.close(sessionId);
+    register("integration-browse", { call: { list: browseSessionHandler(registry) }, listen: {} });
+    try {
+      expect(
+        await getHandler()({}, "integration-browse", "list", { sessionId, path: "/" }),
+      ).toMatchObject({
+        ok: false,
+        kind: "session-expired",
+        category: "failed",
+        domain: "ssh",
+        code: "ssh.session-expired",
+      });
+    } finally {
+      registry.dispose();
+    }
+  });
+
+  it("returns typed transport failures from FS watch and write provider startup", async () => {
+    const { watchHandler } = await import("../../src/main/features/fs/ipc/watch-handlers");
+    const { writeFileHandler } = await import("../../src/main/features/fs/ipc/write-handlers");
+    const offline = async () => {
+      throw Object.assign(new Error("timed out"), { code: "transport.timeout" });
+    };
+    register("integration-fs-transport", {
+      call: {
+        watch: watchHandler({ watch: offline } as never),
+        write: writeFileHandler({ getFs: offline } as never),
+      },
+      listen: {},
+    });
+    const args = {
+      workspaceId: "123e4567-e89b-12d3-a456-426614174000",
+      relPath: "a",
+      content: "new",
+      expected: { exists: false },
+    };
+    for (const method of ["watch", "write"]) {
+      expect(await getHandler()({}, "integration-fs-transport", method, args)).toMatchObject({
+        ok: false,
+        category: "failed",
+        code: "transport.timeout",
+      });
+    }
   });
 });
 

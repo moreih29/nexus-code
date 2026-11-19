@@ -824,7 +824,7 @@ export function createDisposedError(): Error {
 /**
  * Maps stable SSH error codes to non-sensitive caller-facing messages.
  */
-function messageForSshErrorCode(code: SshErrorCode): string {
+export function messageForSshErrorCode(code: SshErrorCode): string {
   switch (code) {
     case "ssh.connect-failed":
       return "SSH connection failed";

@@ -12,6 +12,7 @@ import { MAX_TRANSCRIBE_BYTES } from "../../../../packages/remote-protocol/src/v
 import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
@@ -45,6 +46,8 @@ import { TerminalWatches } from "./terminal-watches";
 import { askTicket } from "./ticket";
 import { VoiceSessions } from "./voice";
 import { listedComputers, VoiceNames } from "./voice-names";
+
+const log = createLogger("remote-index");
 
 const c = ipcContract.remote.call;
 
@@ -267,7 +270,7 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
-  const server = remoteServer(process.env, app.isPackaged, (m) => console.warn(`[remote] ${m}`));
+  const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
     proxy: remoteProxy(process.env, app.isPackaged, server),

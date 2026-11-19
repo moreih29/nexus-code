@@ -129,10 +129,9 @@ function setup(opts: {
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
   if (!handler) throw new Error("ipc:call was not registered");
   return {
-    // Handlers return either a plain value (spawn) or an IpcResult.
+    // Unwrap success values while keeping error envelopes available to assertions.
     call: async (method, args) => {
       const result = (await handler({}, "pty", method, args)) as { ok?: boolean; value?: unknown };
-      if (result.ok === false) throw new Error(JSON.stringify(result));
       return result.ok === true ? result.value : result;
     },
     agent,
@@ -330,9 +329,12 @@ describe("pty.spawn — a terminal opened for an agent profile", () => {
 
   test("one that is not there fails: never the default folder in its place", async () => {
     const { call, agent } = setup({ profileEnv });
-    await expect(call("spawn", spawnArgs({ profile: "codex-gone" }))).rejects.toThrow(
-      /no profile codex-gone/,
-    );
+    expect(await call("spawn", spawnArgs({ profile: "codex-gone" }))).toMatchObject({
+      ok: false,
+      kind: "not-found",
+      category: "failed",
+      message: "no profile codex-gone",
+    });
     expect(agent.spawnCalls).toEqual([]);
   });
 });

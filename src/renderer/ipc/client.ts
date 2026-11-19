@@ -6,6 +6,7 @@ import {
   type IpcOkResult,
   type IpcResult,
   type IpcResultKind,
+  ipcErrorToAppError,
   isIpcErrResult,
   isIpcOkResult,
   isIpcResult,
@@ -140,8 +141,7 @@ export function unwrapIpcResult<T>(result: IpcResult<T>): T {
   if (result.ok) return result.value;
   const err = new Error(result.message);
   err.name = `IpcError[${result.kind}]`;
-  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
-  throw err;
+  throw Object.assign(err, ipcErrorToAppError(result), { kind: result.kind });
 }
 
 /**
@@ -194,11 +194,7 @@ export function unwrapGitResult<T>(result: IpcResult<T>): T {
     });
     throw error;
   }
-  // Other expected failures: throw a generic IpcError.
-  const err = new Error(result.message);
-  err.name = `IpcError[${result.kind}]`;
-  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
-  throw err;
+  return unwrapIpcResult(result);
 }
 
 // Re-export result type utilities so renderer code only needs to import from

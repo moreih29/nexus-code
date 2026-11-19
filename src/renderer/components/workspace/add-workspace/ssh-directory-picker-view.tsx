@@ -2,7 +2,10 @@ import { ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { AppError } from "../../../../shared/error/app-error";
 import type { DirEntry } from "../../../../shared/fs/types";
+import { normaliseError } from "../../../hooks/use-ipc-action";
+import { surfaceError } from "../../../services/error-surface/surface-error";
 import {
   browseSshSession,
   closeSshBrowseSession,
@@ -14,7 +17,6 @@ import {
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { ErrorNotice } from "./error-notice";
-import { humanizeSshError } from "./ssh-helpers";
 import type { SshDirectoryPickerViewProps } from "./types";
 import { type BrowseCacheEntry, usePathAutocomplete } from "./use-path-autocomplete";
 
@@ -58,14 +60,10 @@ function parentPath(path: string): string {
   return clean.slice(0, idx);
 }
 
-/** Extract SSH error kind from an IPC error. */
-function extractSshErrorKind(error: unknown): BrowseErrorKind {
-  if (!(error instanceof Error)) return "retryable";
-  const msg = error.message;
-  if (msg.includes("ssh.path-not-found")) return "path-not-found";
-  for (const code of SESSION_FATAL_CODES) {
-    if (msg.includes(code)) return "session-expired";
-  }
+/** Selects a recovery action from the browse error's typed code. */
+function browseErrorKindFor(error: AppError): BrowseErrorKind {
+  if (error.code === "ssh.path-not-found") return "path-not-found";
+  if (error.code && SESSION_FATAL_CODES.has(error.code)) return "session-expired";
   return "retryable";
 }
 
@@ -143,29 +141,36 @@ export function SshDirectoryPickerView({
       setBrowseErrorHuman(null);
       setBrowseErrorKind(null);
 
+      const presentError = (error: unknown) => {
+        const appError = normaliseError(error);
+        const surface = surfaceError(appError, { surface: "inline" });
+        if (surface.surface !== "inline") return;
+        const kind = browseErrorKindFor(appError);
+        if (kind === "path-not-found") {
+          setPathErrorHuman(surface.userMessage);
+        } else {
+          setBrowseErrorHuman(surface.userMessage);
+          setBrowseErrorKind(kind);
+        }
+      };
+
       try {
         const result = await browseSshSession(sessionId, path);
         if (abortSignal?.aborted) return;
+        if (!result.ok) {
+          presentError(result);
+          return;
+        }
 
-        browseCache.current.set(path, { entries: result.entries, truncated: result.truncated });
+        browseCache.current.set(path, result.value);
         setCurrentPath(path);
-        setEntries(result.entries);
-        setTruncated(result.truncated);
+        setEntries(result.value.entries);
+        setTruncated(result.value.truncated);
         setBrowseErrorHuman(null);
         setBrowseErrorKind(null);
         setPathErrorHuman(null);
       } catch (error) {
-        if (abortSignal?.aborted) return;
-        const kind = extractSshErrorKind(error);
-        if (kind === "path-not-found") {
-          // Non-destructive: the typed path is missing, but the previous listing
-          // (currentPath/entries) is untouched. Surface the error inline by the
-          // path bar and leave the tree on screen.
-          setPathErrorHuman(humanizeSshError(error));
-        } else {
-          setBrowseErrorHuman(humanizeSshError(error));
-          setBrowseErrorKind(kind);
-        }
+        if (!abortSignal?.aborted) presentError(error);
       } finally {
         if (!abortSignal?.aborted) setListLoading(false);
       }
@@ -299,10 +304,7 @@ export function SshDirectoryPickerView({
 
       if (!result.ok) {
         setAddPhase("idle");
-        // User cancelled the auth prompt — silent stop, no error banner.
-        if (result.kind === "cancelled") return;
-        // Auth failure after the browse session — surface error.
-        setAddErrorHuman(humanizeSshError(result));
+        presentAddError(result);
         return;
       }
 
@@ -319,9 +321,15 @@ export function SshDirectoryPickerView({
       await onWorkspaceCreated(result.value);
       onClose();
     } catch (error) {
-      setAddErrorHuman(humanizeSshError(error));
+      presentAddError(error);
       setAddPhase("idle");
     }
+  }
+
+  /** Presents an add failure once, beside the picker when it can be retried there. */
+  function presentAddError(error: unknown): void {
+    const surface = surfaceError(normaliseError(error), { surface: "inline" });
+    setAddErrorHuman(surface.surface === "inline" ? surface.userMessage : null);
   }
 
   // A WSL workspace needs no connection handoff: the distribution is reached
@@ -331,13 +339,13 @@ export function SshDirectoryPickerView({
       const result = await createWslWorkspace({ distro, remotePath: currentPath });
       if (!result.ok) {
         setAddPhase("idle");
-        setAddErrorHuman(result.message);
+        presentAddError(result);
         return;
       }
       await onWorkspaceCreated(result.value);
       onClose();
     } catch (error) {
-      setAddErrorHuman(error instanceof Error ? error.message : String(error));
+      presentAddError(error);
       setAddPhase("idle");
     }
   }

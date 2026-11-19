@@ -43,7 +43,9 @@ describe("wsl.openBrowseSession", () => {
       createChannel: createChannel as never,
     });
 
-    const { sessionId, initialPath } = await open({ distro: "Ubuntu", progressId: "p1" });
+    const result = await open({ distro: "Ubuntu", progressId: "p1" });
+    if (!result.ok) throw new Error("browse failed");
+    const { sessionId, initialPath } = result.value;
 
     expect(bootstrap.mock.calls[0][0]).toEqual({ distro: "Ubuntu", remotePath: "/" });
     expect(createChannel).toHaveBeenCalledWith({
@@ -72,21 +74,48 @@ describe("wsl.openBrowseSession", () => {
       }) as never,
     });
 
-    await expect(open({ distro: "Nope" })).rejects.toThrow(
-      "There is no distribution with the supplied name.",
-    );
+    expect(await open({ distro: "Nope" })).toMatchObject({
+      ok: false,
+      category: "failed",
+      code: "transport.unknown",
+      message: expect.stringContaining("There is no distribution with the supplied name."),
+    });
+  });
+
+  test("does not open a channel when the browse action is cancelled during bootstrap", async () => {
+    const registry = makeRegistry();
+    const bootstrap = Promise.withResolvers<typeof bootstrapResult>();
+    const createChannel = mock(() => makeChannel());
+    const open = openWslBrowseSessionHandler(registry, undefined, {
+      bootstrap: () => bootstrap.promise,
+      createChannel: createChannel as never,
+    });
+    const controller = new AbortController();
+    const opened = open({ distro: "Ubuntu" }, { signal: controller.signal });
+    controller.abort();
+    bootstrap.resolve(bootstrapResult);
+
+    expect(await opened).toMatchObject({ ok: false, kind: "cancelled" });
+    expect(createChannel).not.toHaveBeenCalled();
+    expect(registry.size()).toBe(0);
   });
 
   test("closes the channel when the agent never answers", async () => {
     const registry = makeRegistry();
-    const channel = makeChannel(Promise.reject(new Error("agent exited")));
+    const channel = makeChannel(
+      Promise.reject(createSshError("transport.timeout", new Error("agent exited"))),
+    );
     channel.ready.catch(() => {});
     const open = openWslBrowseSessionHandler(registry, undefined, {
       bootstrap: (async () => bootstrapResult) as never,
       createChannel: (() => channel) as never,
     });
 
-    await expect(open({ distro: "Ubuntu" })).rejects.toThrow("agent exited");
+    expect(await open({ distro: "Ubuntu" })).toMatchObject({
+      ok: false,
+      category: "failed",
+      code: "transport.timeout",
+    });
     expect(channel.dispose).toHaveBeenCalledTimes(1);
   });
 });

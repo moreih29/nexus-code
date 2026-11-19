@@ -5,6 +5,7 @@
  * It takes only what was sealed for it, now, and each message once: the
  * epochs and seqs of packages/remote-protocol's ./sealed.ts.
  */
+
 import { randomBytes } from "node:crypto";
 import { posix, win32 } from "node:path";
 import {
@@ -32,10 +33,13 @@ import {
   type SealedMessage,
   type ServerFrame,
 } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
 import { isFileTransferMethod } from "./file-io";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
+
+const log = createLogger("remote-room");
 
 /** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
@@ -454,7 +458,7 @@ export class RemoteRoom {
     if (frame.t === "message") {
       this.inbox = this.inbox
         .then(() => this.take(frame))
-        .catch((error) => console.warn("[remote] taking a message failed:", error));
+        .catch((error) => log.warn(`Could not process a relay message: ${String(error)}`));
       return;
     }
     if (frame.t === "account") {
@@ -469,7 +473,7 @@ export class RemoteRoom {
         p.reject(new RpcFailure(RpcErrorCode.Unavailable, "that device is not in the room"));
       }
     } else if (frame.code !== "unauthorized") {
-      console.warn(`[remote] relay: ${frame.code} ${frame.message}`);
+      log.warn(`relay: ${frame.code} ${frame.message}`);
     }
   }
 
@@ -762,7 +766,9 @@ export class RemoteRoom {
           },
         };
       }
-      console.warn(`[remote] serving ${method} failed:`, error);
+      log.warn(
+        `Serving ${method} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
       return {
         error: { code: RpcErrorCode.InternalError, message: "the device could not answer" },
       };

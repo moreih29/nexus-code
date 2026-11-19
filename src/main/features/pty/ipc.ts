@@ -195,7 +195,9 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     let env = givenEnv;
     if (profile !== undefined) {
       const fromProfile = await options.profileEnv?.(workspaceId, profile);
-      if (!fromProfile) throw new Error(`no profile ${profile}`);
+      if (!fromProfile) {
+        return ipcErr("not-found", `no profile ${profile}`, { category: "failed" });
+      }
       env = { ...givenEnv, ...fromProfile };
     }
     recorder.start(workspaceId, tabId, cols, rows);
