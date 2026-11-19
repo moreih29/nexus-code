@@ -72,7 +72,7 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
       <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted px-4">
         <div className="min-w-0">
           <h2 className="truncate text-app-body-emphasis text-foreground">
-            {detail?.subject ?? `commit ${sha.slice(0, 7)}`}
+            {detail?.subject ?? t("editor.commit_title", { sha: sha.slice(0, 7) })}
           </h2>
           <p className="truncate font-mono text-app-ui-sm text-muted-foreground">
             {detail?.sha ?? sha}

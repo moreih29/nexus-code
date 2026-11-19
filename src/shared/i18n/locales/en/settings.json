@@ -162,7 +162,19 @@
       "dark": "Dark",
       "light": "Light"
     },
-    "window": "Window"
+    "window": "Window",
+    "themeSwatches": {
+      "background": "Background",
+      "panel": "Panel",
+      "floating": "Floating panel",
+      "muted": "Muted text",
+      "accent": "Accent",
+      "keyword": "Keyword",
+      "string": "String",
+      "number": "Number",
+      "function": "Function",
+      "type": "Type"
+    }
   },
   "editor": {
     "fontSize": "Font size",
@@ -249,7 +261,7 @@
   "notifications": {
     "osEnabled": {
       "label": "Desktop notifications",
-      "description": "When an agent in a tab you aren't viewing finishes or waits"
+      "description": "When an agent finishes or needs you in a tab you aren’t viewing"
     },
     "rateLimitWarnings": {
       "label": "Usage limit warnings",
@@ -375,7 +387,7 @@
     "section": {
       "app": "Application",
       "editor": "Editor",
-      "editorDescription": "Monaco editor commands — active only while the editor is focused. Changing one twice in a session may need an app restart to fully settle."
+      "editorDescription": "Active only in the editor. Changing a binding twice in one session may require a restart."
     },
     "editorCommand": {
       "commentLine": "Toggle Line Comment",
@@ -490,7 +502,7 @@
       "tab": {
         "close": "Close Tab",
         "closeOthers": "Close Other Tabs",
-        "closeSaved": "Close Saved Tabs",
+        "closeSaved": "Close Saved Editor Tabs",
         "closeAll": "Close All Tabs",
         "pinToggle": "Pin / Unpin Tab",
         "focusPrev": "Previous Tab",
@@ -729,7 +741,7 @@
       "signOut": "Sign out",
       "server": "Server: {{server}}",
       "failure": {
-        "cancelled": "Sign-in cancelled.",
+        "cancelled": "Sign-in cancelled",
         "timed-out": "Sign-in timed out. Try again.",
         "access_denied": "Sign-in was declined.",
         "unverified_email": "That account's email isn't verified.",
@@ -757,7 +769,7 @@
         "description": "It will be signed out. If it was lost, also reset the account password.",
         "descriptionSelf": "This computer will be signed out.",
         "confirm": "Remove",
-        "descriptionRotate": "That device is signed out and the account key is made anew. Your other devices take the new key on their own; the removed one does not. Type the account password."
+        "descriptionRotate": "Password required to sign out this device and rotate the account key. The new key goes automatically to remaining devices only."
       },
       "online": "Online",
       "offline": "Offline",
@@ -830,7 +842,7 @@
         "reset-pending": "A reset is already waiting.",
         "needs-password": "That device may hold the account key. Type the password to remove it and change the key."
       },
-      "resetDelayed": "The new password takes effect in 72 hours, and a device that knows the current one can call it off meanwhile. Your other devices then ask for the new one.",
+      "resetDelayed": "The new password takes effect in 72 hours and is required on other devices. Until then, a device with the current password can cancel.",
       "pendingReset": {
         "self": "This device asked to reset the account password. It takes effect {{when}}. Then connect again with the new password.",
         "other": "{{name}} asked to reset the account password. It takes effect {{when}}. If it was not you, call it off or remove that device.",
@@ -839,9 +851,9 @@
         "cancelDescription": "Type the account password now to call off the waiting reset.",
         "remove": "Remove the device that asked",
         "removeTitle": "Remove {{name}}?",
-        "removeDescription": "Removing the device that asked for a reset calls the reset off. If that device has had the account key, the next step asks for the password to change the key, or removes it and keeps the key.",
+        "removeDescription": "Removing the requesting device cancels the reset. If it received the account key, the next step lets you rotate the key with your password or keep the current key.",
         "removeHolderTitle": "Remove {{name}} and change the key?",
-        "removeHolderDescription": "This device has had the account key, and may still hold it. Removing it with the password changes the key, so a key it holds no longer connects. Without the password it can still be removed, which calls the reset off, but it keeps any key it holds.",
+        "removeHolderDescription": "Removing the device cancels the reset. Use your password to invalidate the old key, or remove without it to leave any key the device holds unchanged.",
         "removeKeepKey": "Remove, keep the key"
       }
     },
@@ -852,9 +864,9 @@
       "failed": "Couldn't delete the account. Try again.",
       "confirm": {
         "title": "Delete your NexusCode account?",
-        "description": "The account and all its devices are deleted from the server. This can't be undone.",
+        "description": "Permanently delete the account and device registrations from the server.",
         "confirm": "Delete account",
-        "descriptionPassword": "The account and all its devices are deleted from the server. This can't be undone. Type the account password."
+        "descriptionPassword": "Account password required. Delete the account and device registrations permanently."
       }
     },
     "voice": {

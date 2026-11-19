@@ -215,7 +215,7 @@ function HostKeyPromptBody({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-app-ui-sm text-foreground">
-        {prompt.message ?? t("ssh.host_key_default")}
+        {prompt.message ?? t("ssh.host_key_default", { host: prompt.host })}
       </p>
       {prompt.keyType ? (
         <p className="text-app-ui-sm text-muted-foreground">

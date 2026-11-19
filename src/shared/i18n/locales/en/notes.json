@@ -75,8 +75,8 @@
   "agent": {
     "title": "Send to an agent",
     "destination": "Send to",
-    "claude": "New Claude chat",
-    "codex": "New Codex chat",
+    "claude": "New Claude conversation",
+    "codex": "New Codex conversation",
     "message": "Message",
     "defaultMessage": "Read this note and start the work.",
     "hint": "The agent reads the note with nexus note read. No files are copied.",
@@ -94,7 +94,7 @@
     "files": "Files",
     "images": "Images",
     "orphan": "Not linked",
-    "orphanHint": "No workspace in the app is at this location. Add the same folder again and its notes come back.",
+    "orphanHint": "Add the same folder as a workspace to see these notes again.",
     "reveal": "Show folder",
     "remove": "Delete",
     "removeConfirm": {
@@ -117,12 +117,12 @@
     "elsewhere": "Another note is being recorded",
     "unavailable": "This server has no voice features",
     "limit": {
-      "quota": "This month's note recording time is used up, so the recording stopped."
+      "quota": "Recording stopped at the monthly limit."
     },
     "failure": {
       "recognition": "Something went wrong with the transcription.",
       "dropped": "The connection to the server dropped, so the recording paused. You can resume it.",
-      "write": "The recording's file could not be written. The transcript goes on."
+      "write": "Couldn’t save the recording file. Transcription continues."
     }
   },
   "transcript": {
@@ -161,7 +161,7 @@
       "expired": "It can no longer be transcribed again (that is open for a day after recording).",
       "too-big": "The recording's file is too big to transcribe again.",
       "quota": "This month's voice minutes would be exceeded, so it wasn't transcribed again. The recording is kept.",
-      "busy": "Other transcriptions are under way. Try again from the recording's menu once they finish.",
+      "busy": "Retry from the recording menu after the current transcription jobs.",
       "missing": "The recording's file is missing, so it could not be transcribed again.",
       "network": "The server could not be reached. Try again in a moment.",
       "failed": "It could not be transcribed again."
