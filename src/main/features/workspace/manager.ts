@@ -187,6 +187,11 @@ export interface HookInfo {
   readonly tabTokens?: boolean;
 }
 
+interface LocalHookRefresh {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
 /**
  * Type guard for the hook.getInfo response.
  * A response is valid only when both socketPath and token are strings.
@@ -373,6 +378,8 @@ export class WorkspaceManager {
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   // Cache of pull-based hookserver connection info — filled by the hook.getInfo RPC right after channel.ready.
   private readonly hookInfoByWorkspace = new Map<string, HookInfo>();
+  /** One wait per local reconnect, until the replacement's hooks are known. */
+  private readonly localHookRefreshes = new WeakMap<AgentChannel, LocalHookRefresh>();
   /**
    * Tracks workspaces with an in-flight automatic re-authentication attempt so
    * the manager never opens a second prompt for the same workspace concurrently.
@@ -583,6 +590,40 @@ export class WorkspaceManager {
    */
   getHookInfo(workspaceId: string): HookInfo | null {
     return this.hookInfoByWorkspace.get(workspaceId) ?? null;
+  }
+
+  /** Returns the hooks for the channel a chat is about to use. */
+  async getChatHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null> {
+    let refresh = this.localHookRefreshes.get(channel);
+    while (refresh) {
+      await refresh.promise;
+      refresh = this.localHookRefreshes.get(channel);
+    }
+    if ((this.localChannels.get(workspaceId) ?? this.sshChannels.get(workspaceId)) !== channel) {
+      throw new Error(`agent channel changed for workspace: ${workspaceId}`);
+    }
+    return this.getHookInfo(workspaceId);
+  }
+
+  /** Reads the hook endpoint, allowing workspaces whose agent cannot host hooks. */
+  private async readHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null> {
+    try {
+      const raw = await channel.call("hook.getInfo", {});
+      if (!isHookInfo(raw)) throw new Error("hook.getInfo returned no socketPath or token");
+      return raw;
+    } catch (error) {
+      if (!isHookUnavailable(error)) throw error;
+      log.warn(
+        `hookserver unavailable for ${workspaceId}; hook integration disabled for this session.`,
+      );
+      return null;
+    }
+  }
+
+  /** Installs the current agent's endpoint or clears it when hooks are unavailable. */
+  private cacheHookInfo(workspaceId: string, info: HookInfo | null): void {
+    if (info) this.hookInfoByWorkspace.set(workspaceId, info);
+    else this.hookInfoByWorkspace.delete(workspaceId);
   }
 
   /**
@@ -1366,34 +1407,21 @@ export class WorkspaceManager {
       throw error;
     }
 
-    // Right after channel.ready, pull hook.getInfo and cache the hookserver connection info.
-    // The agent waits at most 5s internally, so a response always arrives within the 30s default timeout.
-    //
-    // The server.unavailable code is a graceful-degrade signal that the agent failed to create the
-    // hookserver — boot continues with hookInfo left empty instead of killing the whole workspace.
-    // (Same as the push-era behavior: without a hookserver only the Claude hook feature is off and the workspace is fine.)
     try {
-      const raw = await channel.call("hook.getInfo", {});
-      if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo returned no socketPath or token");
+      const info = await this.readHookInfo(meta.id, channel);
+      if (this.localChannels.get(meta.id) === channel && !this.localHookRefreshes.has(channel)) {
+        this.cacheHookInfo(meta.id, info);
       }
-      this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
-      if (isHookUnavailable(err)) {
-        log.warn(
-          `hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
-        );
-        this.hookInfoByWorkspace.delete(meta.id);
-      } else {
-        disposeLifecycleListener();
-        if (this.localChannels.get(meta.id) === channel) {
-          this.localChannels.delete(meta.id);
-        }
-        channel.dispose();
-        ctx.setFsProvider(createInitialFsProvider(meta));
-        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
-        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
+      disposeLifecycleListener();
+      if (this.localChannels.get(meta.id) === channel) {
+        this.localChannels.delete(meta.id);
       }
+      this.finishLocalHookRefresh(channel);
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(meta));
+      log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+      throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
     }
 
     // Write the PTY shim files into the workspace-specific directory.
@@ -1418,6 +1446,7 @@ export class WorkspaceManager {
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
+      this.finishLocalHookRefresh(channel);
       provider.dispose();
       if (this.localChannels.get(meta.id) === channel) {
         this.localChannels.delete(meta.id);
@@ -1582,37 +1611,21 @@ export class WorkspaceManager {
       throw error;
     }
 
-    // Right after channel.ready, pull hook.getInfo and cache the hookserver connection info.
-    // Latency may be higher over SSH, but the 30s default timeout is enough.
-    //
-    // The server.unavailable code is a graceful-degrade signal that the agent failed to create the
-    // hookserver. On an SSH remote the socket path is more likely than locally to hit the length
-    // limit (104 chars on macOS), so graceful handling matters especially.
     try {
-      const raw = await channel.call("hook.getInfo", {});
-      if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo returned no socketPath or token");
-      }
-      this.hookInfoByWorkspace.set(meta.id, raw);
+      const info = await this.readHookInfo(meta.id, channel);
+      if (this.sshChannels.get(meta.id) === channel) this.cacheHookInfo(meta.id, info);
     } catch (err) {
-      if (isHookUnavailable(err)) {
-        log.warn(
-          `hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
-        );
-        this.hookInfoByWorkspace.delete(meta.id);
-      } else {
-        disposeLifecycleListener();
-        this.broadcastConnectionStatus(meta.id, "error");
-        if (this.sshChannels.get(meta.id) === channel) {
-          this.sshChannels.delete(meta.id);
-        }
-        this.sshBootstraps.delete(meta.id);
-        bootstrap.dispose?.();
-        channel.dispose();
-        ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
-        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
+      disposeLifecycleListener();
+      this.broadcastConnectionStatus(meta.id, "error");
+      if (this.sshChannels.get(meta.id) === channel) {
+        this.sshChannels.delete(meta.id);
       }
+      this.sshBootstraps.delete(meta.id);
+      bootstrap.dispose?.();
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+      log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+      throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
     }
 
     // Write the PTY shim files into the workspace-specific directory.
@@ -1952,30 +1965,40 @@ export class WorkspaceManager {
     if (!ctx) {
       this.localChannels.delete(workspaceId);
       this.localProviderReady.delete(workspaceId);
+      this.finishLocalHookRefresh(channel);
+      return;
+    }
+
+    if (event.type === "reconnecting") {
+      const previous = this.localHookRefreshes.get(channel);
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      this.localHookRefreshes.set(channel, { promise, resolve });
+      this.hookInfoByWorkspace.delete(workspaceId);
+      previous?.resolve();
+      return;
+    }
+    if (event.type === "ready") {
+      const refresh = this.localHookRefreshes.get(channel);
+      if (refresh) void this.refreshLocalHooks(workspaceId, channel, refresh);
+      return;
+    }
+    if (event.type === "disposed") {
+      this.finishLocalHookRefresh(channel);
       return;
     }
 
     // Teardown is reserved for genuine terminal events (`exit`, `failure`).
-    // Everything else must keep the provider wired:
-    //   - `reconnecting` is transient — the internal reconnect path recovers
-    //     transparently.
-    //   - `degraded` / `degraded-recovered` are heartbeat-quality signals
-    //     (one late heartbeat fires `degraded`) and `ready` is a successful
-    //     recovery — the channel is alive in all three cases. Before v0.6.1
-    //     these fell into the teardown branch below, which abandoned a live
-    //     agent WITHOUT disposing it (orphan process keeping every fs/git
-    //     watch) and lazily booted a fresh watch-less agent: push events
-    //     (fs.changed / git.changed) went silent while RPC kept working, and
-    //     existing PTY sessions were stranded on the abandoned channel.
-    //   - `held-then-expired` cannot occur on local channels (no epoch).
-    //   - `disposed` is an intentional teardown whose cleanup already ran via
-    //     the setFsProvider dispose callback.
+    // Heartbeat quality signals leave the provider and its watches wired.
     if (event.type !== "exit" && event.type !== "failure") {
       return;
     }
 
     this.localChannels.delete(workspaceId);
     this.localProviderReady.delete(workspaceId);
+    this.finishLocalHookRefresh(channel);
     // Stale hookInfo is invalid once the channel dies — the next boot fills it again.
     // Keeping it could let a spawn right after reconnect put a dead socket path in the env.
     this.hookInfoByWorkspace.delete(workspaceId);
@@ -1984,6 +2007,34 @@ export class WorkspaceManager {
     this.removeShimDir(workspaceId).catch((err: unknown) => {
       log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });
+  }
+
+  /** Refreshes the endpoint for the process that just completed its handshake. */
+  private async refreshLocalHooks(
+    workspaceId: string,
+    channel: AgentChannel,
+    refresh: LocalHookRefresh,
+  ): Promise<void> {
+    try {
+      const info = await this.readHookInfo(workspaceId, channel);
+      if (this.localHookRefreshes.get(channel) !== refresh) return;
+      this.cacheHookInfo(workspaceId, info);
+      this.finishLocalHookRefresh(channel);
+    } catch (error) {
+      if (this.localHookRefreshes.get(channel) !== refresh) return;
+      log.warn(`agent hook setup failed for ${workspaceId}: ${(error as Error).message}`);
+      this.handleLocalChannelLifecycle(workspaceId, channel, {
+        type: "failure",
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  }
+
+  /** Releases chat callers so they can check whether their channel is still current. */
+  private finishLocalHookRefresh(channel: AgentChannel): void {
+    const refresh = this.localHookRefreshes.get(channel);
+    this.localHookRefreshes.delete(channel);
+    refresh?.resolve();
   }
 }
 
