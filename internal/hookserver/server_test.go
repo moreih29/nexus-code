@@ -56,6 +56,62 @@ func newTestServer(t *testing.T, sink EventSink) *Server {
 	return srv
 }
 
+// TestAnsweredRequestsStopDeadlineTimers uses a timer that cannot expire.
+// Taking the response must release the timer while the server stays open.
+func TestAnsweredRequestsStopDeadlineTimers(t *testing.T) {
+	for _, kind := range []string{"hook", "cli"} {
+		t.Run(kind, func(t *testing.T) {
+			ids := make(chan string, 1)
+			armed, stopped := make(chan struct{}), make(chan struct{})
+			srv, err := newServer(fmt.Sprintf("timer-%d", os.Getpid()), func(_ string, payload any) error {
+				switch event := payload.(type) {
+				case HookEventPayload:
+					ids <- event.HookID
+				case CLIEventPayload:
+					ids <- event.RequestID
+				}
+				return nil
+			}, func(time.Duration) (<-chan time.Time, func()) {
+				close(armed)
+				return nil, func() { close(stopped) }
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer srv.Close()
+			req := cliRequest(srv.Token())
+			req.Type = kind
+			req.Subcommand = "permission-request"
+			conn := dialAndSendRequest(t, srv.SocketPath(), req)
+			defer conn.Close()
+			var id string
+			select {
+			case id = <-ids:
+			case <-time.After(2 * time.Second):
+				t.Fatal("request event did not arrive")
+			}
+			select {
+			case <-armed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("request deadline was never armed")
+			}
+			if kind == "cli" {
+				err = srv.RespondCLI(id, json.RawMessage("null"))
+			} else {
+				err = srv.Respond(id, HookResponse{})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("answered request left its deadline running")
+			}
+		})
+	}
+}
+
 // dialAndSendRequest 는 테스트에서 hookclient를 흉내내 요청을 전송한다.
 func dialAndSendRequest(t *testing.T, socketPath string, req hookWireRequest) net.Conn {
 	t.Helper()
