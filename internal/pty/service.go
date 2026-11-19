@@ -22,11 +22,19 @@ import (
 // Service owns the registry of active PTY-backed terminal sessions.
 type Service struct {
 	mu       sync.Mutex
-	sink     EventSink
+	output   *outputSink
 	sessions map[tabKey]*session
 	// closedTabs are the tabs a kill came for while they had no session,
 	// and when: see Kill.
 	closedTabs map[tabKey]time.Time
+}
+
+// outputSink identifies a connection and captures its event destination.
+// The pointer distinguishes successive sink installations, and the host's
+// Done channel identifies the connection that dispatched a replay or ACK.
+type outputSink struct {
+	ctx  context.Context
+	emit EventSink
 }
 
 // closedTabMemory is how long a kill that found no session is kept for the
@@ -69,7 +77,8 @@ type session struct {
 
 	writeMu sync.Mutex
 
-	flowMu      sync.Mutex
+	// The credit window is guarded by service.mu so it changes atomically
+	// with the active output sink.
 	flowCond    *sync.Cond
 	outstanding int
 	paused      bool
@@ -140,7 +149,11 @@ const wiggleRestoreDelay = 200 * time.Millisecond
 
 // New constructs an empty PTY service registry.
 func New() *Service {
-	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[tabKey]time.Time)}
+	return &Service{
+		output:     &outputSink{ctx: context.Background()},
+		sessions:   make(map[tabKey]*session),
+		closedTabs: make(map[tabKey]time.Time),
+	}
 }
 
 // Register binds every pty.* and session.* method onto the dispatcher.
@@ -156,40 +169,17 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("session.list", service.SessionList)
 }
 
-// SetEventSink wires the service to the stdio host after both are constructed.
-func (s *Service) SetEventSink(sink EventSink) {
+// SetEventSink binds output to the context the host passes to its handlers.
+// Outstanding renderer debt belongs to the previous connection, so replacing
+// the sink also clears that debt and wakes any paused replay or reader.
+func (s *Service) SetEventSink(ctx context.Context, sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sink = sink
-}
-
-// ResetFlowControl zeroes outstanding renderer debt and unblocks every paused
-// readLoop across all live sessions.
-//
-// Call this immediately after wiring a new dialer's event sink.  During the
-// zombie window between a silent disconnect and the new dialer's takeover, the
-// old dialer's OS socket buffer may have absorbed writes that the renderer
-// never received — so noteEmitted debt accumulates without matching acks.  If
-// that debt crossed HighWatermarkBytes the readLoop is already blocked in
-// waitForOutputWindow.  The new renderer has no knowledge of the old debt and
-// will never send acks for it, causing permanent deadlock ("reconnected but
-// terminal frozen").
-//
-// Resetting here is correct because the stale debt belongs to the old
-// renderer generation.  In-flight bytes that landed only in the OS buffer (not
-// in the renderer) are already lost — the plan explicitly accepts this as
-// in-flight loss.  Carrying forward a fictitious debt would only harm the new
-// renderer.
-func (s *Service) ResetFlowControl() {
-	s.mu.Lock()
-	sessions := make([]*session, 0, len(s.sessions))
+	s.output = &outputSink{ctx: ctx, emit: sink}
 	for _, sess := range s.sessions {
-		sessions = append(sessions, sess)
-	}
-	s.mu.Unlock()
-
-	for _, sess := range sessions {
-		sess.resetFlow()
+		sess.outstanding = 0
+		sess.paused = false
+		sess.flowCond.Broadcast()
 	}
 }
 
@@ -320,7 +310,7 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 }
 
 // Ack reduces one session's renderer debt and resumes output once the low watermark is reached.
-func (s *Service) Ack(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Ack(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p AckParams
 	if err := decodeParams(raw, &p, "pty.ack params must include workspaceId, tabId, and bytesConsumed"); err != nil {
 		return nil, err
@@ -333,11 +323,11 @@ func (s *Service) Ack(_ context.Context, raw json.RawMessage) (any, error) {
 	if bytesConsumed < 0 {
 		return nil, protocolError("pty.ack bytesConsumed must be non-negative")
 	}
-	session := s.lookup(key)
-	if session == nil {
-		return struct{}{}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess := s.sessions[key]; sess != nil && ctx.Done() == s.output.ctx.Done() && ctx.Err() == nil {
+		sess.ackLocked(bytesConsumed)
 	}
-	session.ack(bytesConsumed)
 	return struct{}{}, nil
 }
 
@@ -468,7 +458,7 @@ func newSession(service *Service, key tabKey, child *child, master *terminal) *s
 		ring:      make([]byte, RingCapBytes),
 		createdAt: time.Now(),
 	}
-	s.flowCond = sync.NewCond(&s.flowMu)
+	s.flowCond = sync.NewCond(&service.mu)
 	return s
 }
 
@@ -478,7 +468,7 @@ func (s *session) readLoop() {
 	defer close(s.readDone)
 	buf := make([]byte, MaxChunkSize)
 	for {
-		if !s.waitForOutputWindow() {
+		if err := s.waitForOutputWindow(context.Background(), nil); err != nil {
 			return
 		}
 		n, err := s.master.Read(buf)
@@ -499,13 +489,7 @@ func (s *session) deliver(chunk []byte) {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
 	s.ringAppend(chunk)
-	s.noteEmitted(len(chunk))
-	if err := s.service.emit(EventData, DataPayload{WorkspaceID: s.key.workspaceID, TabID: s.key.tabID, Chunk: base64.StdEncoding.EncodeToString(chunk)}); err != nil {
-		// Undo the renderer debt — there is no renderer to send acks, so leaving
-		// the debt would permanently pause readLoop on the next
-		// waitForOutputWindow check once a dialer reconnects.
-		s.ack(len(chunk))
-	}
+	_ = s.emitData(chunk, nil)
 }
 
 // resize applies a PTY geometry and records it for wiggleSIGWINCH.
@@ -536,49 +520,37 @@ func (s *session) waitLoop() {
 	})
 }
 
-// waitForOutputWindow blocks while a prior emission has crossed the high watermark.
-func (s *session) waitForOutputWindow() bool {
-	s.flowMu.Lock()
-	defer s.flowMu.Unlock()
-	for s.paused && !s.stopped {
+// waitForOutputWindow waits for credit or the end of the session or replay.
+// A nil replay lets the live reader use the current connection's window.
+func (s *session) waitForOutputWindow(ctx context.Context, replay *outputSink) error {
+	s.service.mu.Lock()
+	defer s.service.mu.Unlock()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if replay != nil && replay != s.service.output {
+			return context.Canceled
+		}
+		if s.stopped {
+			return errors.New("session stopped")
+		}
+		if !s.paused {
+			return nil
+		}
 		s.flowCond.Wait()
 	}
-	return !s.stopped
 }
 
-// noteEmitted adds raw bytes to renderer debt and toggles the paused state at HIGH.
-func (s *session) noteEmitted(rawBytes int) {
-	s.flowMu.Lock()
-	defer s.flowMu.Unlock()
-	s.outstanding += rawBytes
-	if s.outstanding >= HighWatermarkBytes {
-		s.paused = true
-	}
-}
-
-// ack applies renderer credit and wakes the reader only after LOW is reached.
-func (s *session) ack(rawBytes int) {
-	s.flowMu.Lock()
-	defer s.flowMu.Unlock()
+// ackLocked applies renderer credit and wakes waiters when LOW is reached.
+// The caller holds service.mu and has checked the sink generation.
+func (s *session) ackLocked(rawBytes int) {
 	if rawBytes >= s.outstanding {
 		s.outstanding = 0
 	} else {
 		s.outstanding -= rawBytes
 	}
 	if s.paused && s.outstanding <= LowWatermarkBytes {
-		s.paused = false
-		s.flowCond.Broadcast()
-	}
-}
-
-// resetFlow clears outstanding renderer debt and wakes any paused readLoop.
-// Called by Service.ResetFlowControl on dialer generation change — the old
-// renderer's debt must not carry over to the new one.
-func (s *session) resetFlow() {
-	s.flowMu.Lock()
-	defer s.flowMu.Unlock()
-	s.outstanding = 0
-	if s.paused {
 		s.paused = false
 		s.flowCond.Broadcast()
 	}
@@ -691,11 +663,11 @@ func (s *session) discard() {
 
 // stopReading wakes any paused reader and closes the PTY master.
 func (s *session) stopReading() {
-	s.flowMu.Lock()
+	s.service.mu.Lock()
 	s.stopped = true
 	s.paused = false
 	s.flowCond.Broadcast()
-	s.flowMu.Unlock()
+	s.service.mu.Unlock()
 	_ = s.master.Close()
 }
 
@@ -972,7 +944,7 @@ func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, erro
 // Ordering guarantee: Replay holds outputMu for the whole send, so live PTY
 // output read meanwhile waits in readLoop and follows the replayed output on
 // the wire with no interleaving.
-func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
 	if err := decodeParams(raw, &p, "pty.replay params must include workspaceId and tabId"); err != nil {
 		return nil, err
@@ -981,16 +953,21 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	sess := s.lookup(key)
+	s.mu.Lock()
+	sess, output := s.sessions[key], s.output
+	s.mu.Unlock()
 	if sess == nil {
 		return struct{}{}, nil
+	}
+	if ctx.Done() != output.ctx.Done() {
+		return nil, context.Canceled
 	}
 
 	sess.outputMu.Lock()
 	sess.ringMu.Lock()
 	replay := append([]byte(terminalReset), sess.ringContentsLocked()...)
 	sess.ringMu.Unlock()
-	err = s.emitReplay(sess, replay)
+	err = sess.emitReplay(ctx, output, replay)
 	sess.outputMu.Unlock()
 	if err != nil {
 		// Dialer disappeared again mid-replay; the ring still holds everything
@@ -1011,38 +988,72 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// emitReplay sends replayed bytes in MaxChunkSize chunks through the
-// ack-credit gate, exactly as readLoop does for live output.  Stops and
-// returns the first emit error.
-func (s *Service) emitReplay(sess *session, data []byte) error {
+// emitReplay sends chunks through the credit window until it has flushed the
+// retained output, is canceled, or encounters a sink error.
+func (s *session) emitReplay(ctx context.Context, output *outputSink, data []byte) error {
+	stopWake := context.AfterFunc(ctx, func() {
+		// Take the waiter's lock so cancellation cannot signal before Wait.
+		s.service.mu.Lock()
+		defer s.service.mu.Unlock()
+		s.flowCond.Broadcast()
+	})
+	defer stopWake()
+
 	for len(data) > 0 {
-		if !sess.waitForOutputWindow() {
-			return errors.New("session stopped")
-		}
-		n := len(data)
-		if n > MaxChunkSize {
-			n = MaxChunkSize
-		}
-		chunk := data[:n]
-		data = data[n:]
-		sess.noteEmitted(len(chunk))
-		if err := s.emit(EventData, DataPayload{
-			WorkspaceID: sess.key.workspaceID,
-			TabID:       sess.key.tabID,
-			Chunk:       base64.StdEncoding.EncodeToString(chunk),
-			Replay:      true,
-		}); err != nil {
-			sess.ack(len(chunk)) // undo debt on failure
+		if err := s.waitForOutputWindow(ctx, output); err != nil {
 			return err
 		}
+		n := min(len(data), MaxChunkSize)
+		if err := s.emitData(data[:n], output); err != nil {
+			return err
+		}
+		data = data[n:]
 	}
 	return nil
+}
+
+// emitData charges the selected connection before writing to its captured
+// sink. A nil replay uses the active sink for live output. The write can
+// block, so it runs outside service.mu and rolls back debt only for its own
+// generation.
+func (s *session) emitData(chunk []byte, replay *outputSink) error {
+	svc := s.service
+	svc.mu.Lock()
+	output := svc.output
+	if replay != nil && replay != output {
+		svc.mu.Unlock()
+		return context.Canceled
+	}
+	if err := output.ctx.Err(); err != nil || output.emit == nil {
+		svc.mu.Unlock()
+		return err
+	}
+	s.outstanding += len(chunk)
+	if s.outstanding >= HighWatermarkBytes {
+		s.paused = true
+	}
+	svc.mu.Unlock()
+
+	err := output.emit(EventData, DataPayload{
+		WorkspaceID: s.key.workspaceID,
+		TabID:       s.key.tabID,
+		Chunk:       base64.StdEncoding.EncodeToString(chunk),
+		Replay:      replay != nil,
+	})
+	if err != nil {
+		svc.mu.Lock()
+		if svc.output == output {
+			s.ackLocked(len(chunk))
+		}
+		svc.mu.Unlock()
+	}
+	return err
 }
 
 // emit writes one event through the configured sink, if any.
 func (s *Service) emit(event string, payload any) error {
 	s.mu.Lock()
-	sink := s.sink
+	sink := s.output.emit
 	s.mu.Unlock()
 	if sink == nil {
 		return nil

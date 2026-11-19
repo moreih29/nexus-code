@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	"github.com/nexus-code/nexus-code/internal/pty"
 )
 
 // shortHome returns a temp dir with a SHORT absolute path for use as the
@@ -218,7 +220,7 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 // (a renderer that vanished while the socket still absorbed writes), so the
 // session pauses at the high watermark with ~100 KB of debt. After dialer B
 // takes over, that stale debt must be dropped and the rest of the output must
-// reach B; before ResetFlowControl was wired in, the session stayed paused
+// reach B; before takeover reset renderer credit, the session stayed paused
 // forever.
 func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 	t.Parallel()
@@ -282,6 +284,109 @@ func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 		}
 	}
 	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
+}
+
+// TestDaemonTakeoverCancelsCreditBlockedReplay withholds A's replay ACKs
+// while B takes over the daemon's Unix socket. B receives its own full replay.
+func TestDaemonTakeoverCancelsCreditBlockedReplay(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd, runDir := startDaemon(t, agentBinary(t), root, shortHome(t))
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	sockPath := waitForSocket(t, runDir)
+
+	type frame struct {
+		proto.Response
+		Type    string          `json:"type"`
+		Event   string          `json:"event"`
+		Payload pty.DataPayload `json:"payload"`
+	}
+	connect := func() (net.Conn, func() frame) {
+		conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		decoder := json.NewDecoder(conn)
+		next := func() frame {
+			var f frame
+			if err := decoder.Decode(&f); err != nil {
+				t.Fatalf("read dialer frame: %v", err)
+			}
+			if f.Error != nil {
+				t.Fatalf("request %s failed: %+v", f.ID, f.Error)
+			}
+			return f
+		}
+		if f := next(); f.Type != "ready" {
+			t.Fatalf("first frame type = %q, want ready", f.Type)
+		}
+		return conn, next
+	}
+	send := func(conn net.Conn, id, method, params string) {
+		if err := json.NewEncoder(conn).Encode(proto.Request{ID: id, Method: method, Params: json.RawMessage(params)}); err != nil {
+			t.Fatalf("send %s: %v", method, err)
+		}
+	}
+	ack := func(conn net.Conn, id string, count int) {
+		send(conn, id, "pty.ack", fmt.Sprintf(`{"workspaceId":"ws","tabId":"tab","bytesConsumed":%d}`, count))
+	}
+	chunk := func(f frame) []byte {
+		data, err := base64.StdEncoding.DecodeString(f.Payload.Chunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	a, nextA := connect()
+	spawnOn(t, a, "tab", root, `stty -echo; head -c 120000 /dev/zero | tr '\0' a; printf '\nHISTORY-END\n'; read -r stop`)
+	var history strings.Builder
+	credited := 0
+	for replies := 0; replies < 2; {
+		f := nextA()
+		if f.ID == "first-ack" || f.ID == "last-ack" {
+			replies++
+		}
+		if f.Event != pty.EventData {
+			continue
+		}
+		history.Write(chunk(f))
+		if credited == 0 && history.Len() >= pty.HighWatermarkBytes {
+			credited = history.Len()
+			ack(a, "first-ack", credited)
+		}
+		if strings.HasSuffix(history.String(), "HISTORY-END\r\n") {
+			ack(a, "last-ack", history.Len()-credited)
+		}
+	}
+
+	const tab = `{"workspaceId":"ws","tabId":"tab"}`
+	send(a, "old-replay", "pty.replay", tab)
+	for received := 0; received < pty.HighWatermarkBytes; {
+		f := nextA()
+		if f.ID == "old-replay" {
+			t.Fatal("old replay finished without credit")
+		}
+		if f.Event == pty.EventData && f.Payload.Replay {
+			received += len(chunk(f))
+		}
+	}
+
+	b, nextB := connect()
+	send(b, "new-replay", "pty.replay", tab)
+	var replay strings.Builder
+	for f := nextB(); f.ID != "new-replay"; f = nextB() {
+		if f.Event == pty.EventData && f.Payload.Replay {
+			data := chunk(f)
+			replay.Write(data)
+			ack(b, "ack", len(data))
+		}
+	}
+	if want := "\x1bc" + history.String(); replay.String() != want {
+		t.Fatalf("replacement replay received %d bytes, want exactly %d bytes starting with terminal reset", replay.Len(), len(want))
+	}
 }
 
 // A daemon of another workspace sweeping stale run files takes this
