@@ -61,8 +61,10 @@ const { registerBrowserChannel } = await import("../../../../../src/main/feature
 const { CdpBrowserDriver } = await import("../../../../../src/main/features/cli/browser/driver");
 
 const tabId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const viewId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const createArgs = {
   tabId,
+  viewId,
   workspaceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   partition: "persist:test",
   url: "https://example.com",
@@ -79,7 +81,7 @@ describe("browser visibility IPC", () => {
   }
 
   function setActive(active: boolean) {
-    return call("setActive", { tabId, active });
+    return call("setActive", { tabId, viewId, active });
   }
 
   function snapshots() {
@@ -112,13 +114,37 @@ describe("browser visibility IPC", () => {
     resetInMemoryIpc();
   });
 
+  test("a browser view only sends events to its owner and survives an older generation's destroy", async () => {
+    const other = createIpcPair();
+    Object.defineProperty(other.sender, "id", { value: nextContentsId++ });
+    page.webContents.emit("focus");
+    expect(pair.sender.sent).toContainEqual({
+      channel: "ipc:event",
+      args: ["browser", "focused", { tabId, viewId }],
+    });
+    expect(other.sender.sent).toEqual([]);
+
+    const replacement = crypto.randomUUID();
+    await call("create", { ...createArgs, viewId: replacement });
+    await call("destroy", { tabId, viewId });
+    await other.window.ipc.call("browser", "destroy", { tabId, viewId: replacement });
+    const current = registry.get(tabId)?.view as unknown as FakeWebContentsView;
+    expect(current).toBeDefined();
+    expect(current).not.toBe(page);
+    current.webContents.emit("focus");
+    expect(pair.sender.sent.at(-1)).toEqual({
+      channel: "ipc:event",
+      args: ["browser", "focused", { tabId, viewId: replacement }],
+    });
+  });
+
   test("restores a detached page and DevTools when they attach after resume", async () => {
     await call("openDevTools", { tabId });
     const devTools = registry.get(tabId)!.devtoolsView as unknown as FakeWebContentsView;
     await call("suspendAll", { captureSnapshot: true });
     expect(page.visible).toBe(false);
     expect(devTools.visible).toBe(false);
-    expect(snapshots()).toEqual([{ kind: "set", tabId, dataUrl: expect.any(String) }]);
+    expect(snapshots()).toEqual([{ kind: "set", tabId, viewId, dataUrl: expect.any(String) }]);
 
     await setActive(false);
     await call("resumeAll", {});
@@ -128,7 +154,7 @@ describe("browser visibility IPC", () => {
     expect(attached).toEqual(new Set([page, devTools]));
     expect(page.visible).toBe(true);
     expect(devTools.visible).toBe(true);
-    expect(snapshots().at(-1)).toEqual({ kind: "cleared", tabId });
+    expect(snapshots().at(-1)).toEqual({ kind: "cleared", tabId, viewId });
   });
 
   test("restores DevTools reopened after it was closed while suspended", async () => {
@@ -178,7 +204,7 @@ describe("browser visibility IPC", () => {
     const capture = Promise.withResolvers<typeof image>();
     page.webContents.capturePage.mockReturnValueOnce(capture.promise);
     const suspended = call("suspendAll", { captureSnapshot: true });
-    await call("destroy", { tabId });
+    await call("destroy", { tabId, viewId });
     await call("create", createArgs);
     await setActive(true);
     capture.resolve(image);
@@ -200,7 +226,7 @@ describe("browser visibility IPC", () => {
     expect(registry.get(tabId)?.loadFailure).toEqual(failure);
     expect(pair.sender.sent).toContainEqual({
       channel: "ipc:event",
-      args: ["browser", "loadFailureChanged", { tabId, failure }],
+      args: ["browser", "loadFailureChanged", { tabId, viewId, failure }],
     });
     expect(page.visible).toBe(false);
 

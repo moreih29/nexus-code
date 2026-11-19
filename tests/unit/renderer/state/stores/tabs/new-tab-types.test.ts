@@ -30,7 +30,7 @@ mock.module("electron", () => ({
 const originalWindow = globalThis.window;
 let listeners = new Map<string, (args: unknown) => void>();
 const { registerWindowChannel } = await import("../../../../../../src/main/features/window/ipc");
-const { initBrowserRuntimeSubscriptions } = await import(
+const { initBrowserRuntimeSubscriptions, beginBrowserView, endBrowserView } = await import(
   "../../../../../../src/renderer/state/operations/browser"
 );
 const { closeTab } = await import("../../../../../../src/renderer/state/operations/tabs");
@@ -321,8 +321,10 @@ test("closing flushes queued tab, split and browser URL changes after an older s
       }).id,
     );
     const url = "https://example.com/latest";
+    const viewId = beginBrowserView(workspaceId, browser);
     listeners.get("browser.navigated")?.({
       tabId: browser,
+      viewId,
       url,
       canGoBack: true,
       canGoForward: false,
@@ -352,6 +354,7 @@ test("closing flushes queued tab, split and browser URL changes after an older s
     await closed.promise;
     expect(saves).toBe(2);
     expect(warnings).toEqual([]);
+    endBrowserView(browser, viewId);
 
     unregisterStatePersistence();
     registerAppStateChannel(new StateService(stateFile), {

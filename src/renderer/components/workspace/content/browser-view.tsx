@@ -59,7 +59,11 @@ import { UrlBar } from "@/components/editor/browser/url-bar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
-import { resolveInitialBrowserUrl } from "@/state/operations/browser";
+import {
+  beginBrowserView,
+  endBrowserView,
+  resolveInitialBrowserUrl,
+} from "@/state/operations/browser";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { cn } from "@/utils/cn";
 
@@ -125,8 +129,8 @@ export function BrowserTabView({
   // updates both regions so a splitter drag still emits a single IPC pair
   // per paint cycle.
   const rafIdRef = useRef<number | null>(null);
-  // Whether browser.create has been sent for this tabId.
-  const createdRef = useRef(false);
+  // The generation of the native view owned by this mount.
+  const viewIdRef = useRef<string | null>(null);
   // User-controlled height of the inline DevTools region.  Per-tab-mount;
   // does not survive a tab close.
   const [devtoolsHeight, setDevtoolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
@@ -169,12 +173,13 @@ export function BrowserTabView({
   // -------------------------------------------------------------------------
   // biome-ignore lint/correctness/useExhaustiveDependencies: tabId/workspaceId/partition are stable for lifetime
   useEffect(() => {
-    if (createdRef.current) return;
-    createdRef.current = true;
+    const viewId = beginBrowserView(workspaceId, tabId);
+    viewIdRef.current = viewId;
 
     const url = resolveInitialBrowserUrl({ initialUrl, lastUrl, partition }) ?? BLANK_TAB_URL;
     void ipcCallResult("browser", "create", {
       tabId,
+      viewId,
       workspaceId,
       url,
       partition,
@@ -186,8 +191,9 @@ export function BrowserTabView({
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
-      void ipcCallResult("browser", "destroy", { tabId });
-      useBrowserRuntimeStore.getState().removeRuntime(tabId);
+      endBrowserView(tabId, viewId);
+      viewIdRef.current = null;
+      void ipcCallResult("browser", "destroy", { tabId, viewId });
     };
   }, []);
 
@@ -196,6 +202,8 @@ export function BrowserTabView({
   // -------------------------------------------------------------------------
   const sendBounds = useCallback(() => {
     rafIdRef.current = null;
+    const viewId = viewIdRef.current;
+    if (viewId === null) return;
 
     const pageEl = placeholderRef.current;
     if (pageEl !== null) {
@@ -206,6 +214,7 @@ export function BrowserTabView({
       // — Chromium handles HiDPI scaling internally.
       void ipcCallResult("browser", "setBounds", {
         tabId,
+        viewId,
         x: rect.left,
         y: rect.top,
         width: rect.width,
@@ -218,6 +227,7 @@ export function BrowserTabView({
       const rect = dtEl.getBoundingClientRect();
       void ipcCallResult("browser", "setDevToolsBounds", {
         tabId,
+        viewId,
         x: rect.left,
         y: rect.top,
         width: rect.width,
@@ -242,7 +252,9 @@ export function BrowserTabView({
   // Active state: browser.setActive
   // -------------------------------------------------------------------------
   useEffect(() => {
-    void ipcCallResult("browser", "setActive", { tabId, active: isActive });
+    const viewId = viewIdRef.current;
+    if (viewId === null) return;
+    void ipcCallResult("browser", "setActive", { tabId, viewId, active: isActive });
     // On (re)activation the main process re-attaches the view and re-applies its
     // cached bounds. If the surrounding layout shifted while this tab was hidden
     // (e.g. the sidebar was toggled) those cached bounds are stale — re-measure.

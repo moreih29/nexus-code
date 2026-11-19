@@ -1,12 +1,6 @@
 /**
  * Browser tab IPC channel — bridges renderer commands to BrowserTabRegistry
- * and broadcasts WebContents lifecycle events back to all renderer windows.
- *
- * BROADCASTS
- * ----------
- * Every browser.* event (navigated, loadingChanged, loadFailureChanged, titleUpdated) is
- * sent via the shared `broadcast` helper so all open renderer windows receive
- * it.  The renderer is responsible for filtering by tabId.
+ * and routes WebContents lifecycle events to the renderer that created the view.
  *
  * SECURITY
  * --------
@@ -24,9 +18,9 @@
  */
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { getActiveAppWindow } from "../window/app-windows";
@@ -67,7 +61,12 @@ export interface BrowserChannelDeps {
  * directly; URL focus needs the renderer, so it is bounced over IPC. App
  * commands (tabs, groups, workspaces…) run in the app window.
  */
-function runBrowserCommand(registry: BrowserTabRegistry, command: string, tabId: string): void {
+function runBrowserCommand(
+  registry: BrowserTabRegistry,
+  command: string,
+  tabId: string,
+  focusUrl: () => void,
+): void {
   switch (command) {
     case COMMANDS.browserReload:
       registry.reload({ tabId });
@@ -82,7 +81,7 @@ function runBrowserCommand(registry: BrowserTabRegistry, command: string, tabId:
       registry.goForward({ tabId });
       break;
     case COMMANDS.browserFocusUrl:
-      broadcast("browser", "focusUrl", { tabId });
+      focusUrl();
       break;
     default: {
       // As if the key had been pressed in the app window: that window takes
@@ -99,13 +98,36 @@ export function registerBrowserChannel(
   registry: BrowserTabRegistry,
   channelDeps?: BrowserChannelDeps,
 ): void {
+  type Owner = { viewId: string; sender: NonNullable<CallContext["sender"]> };
+  const owners = new Map<string, Owner>();
+
+  /** Publish current-generation events directly to the view's renderer. */
+  function sendViewEvent(
+    tabId: string,
+    event: string,
+    payload: Record<string, unknown>,
+    owner = owners.get(tabId),
+  ): void {
+    if (!owner || owners.get(tabId) !== owner || owner.sender.isDestroyed()) return;
+    owner.sender.send("ipc:event", "browser", event, { ...payload, tabId, viewId: owner.viewId });
+  }
+
+  /** Resolve a request from the owning renderer, optionally for a particular generation. */
+  function ownsView(tabId: string, ctx: CallContext | undefined, viewId?: string): boolean {
+    const owner = owners.get(tabId);
+    return (
+      owner !== undefined &&
+      owner.sender.id === ctx?.sender?.id &&
+      (viewId === undefined || viewId === owner.viewId)
+    );
+  }
+
   registry.onLoadFailure((tabId, failure) => {
-    broadcast("browser", "loadFailureChanged", { tabId, failure });
+    sendViewEvent(tabId, "loadFailureChanged", { failure });
   });
   registry.onRefused((tabId, url, error) => {
     const { kind, reason } = error as { kind?: unknown; reason?: unknown };
-    broadcast("browser", "refused", {
-      tabId,
+    sendViewEvent(tabId, "refused", {
       url,
       kind: typeof kind === "string" ? kind : "failed",
       message: typeof reason === "string" ? reason : error.message,
@@ -113,21 +135,45 @@ export function registerBrowserChannel(
   });
   register("browser", {
     call: {
-      create: (args: unknown) => {
-        const { tabId, workspaceId, url, partition } = validateArgs(c.create.args, args);
-        registry.create({ tabId, workspaceId, url, partition });
+      create: (args: unknown, ctx) => {
+        const { tabId, viewId, workspaceId, url, partition } = validateArgs(c.create.args, args);
+        if (!ctx?.sender) return ipcErr("not-found", "Browser renderer is unavailable");
+        const previous = owners.get(tabId);
+        if (previous && previous.sender.id !== ctx.sender.id && !previous.sender.isDestroyed()) {
+          return ipcErr("conflict", "Browser tab is open in another window");
+        }
+        // Dispose the old generation before allowing the new one to emit.
+        owners.delete(tabId);
+        if (registry.get(tabId)) registry.destroy({ tabId });
+        const owner = { viewId, sender: ctx.sender };
+        owners.set(tabId, owner);
+        try {
+          registry.create({ tabId, workspaceId, url, partition });
+        } catch (error) {
+          owners.delete(tabId);
+          return ipcErr("browser-create-failed", String(error), { category: "bug" });
+        }
 
         // Wire WebContents lifecycle events for broadcasts.
         // The entry was just created so it MUST be present.
         const entry = registry.get(tabId);
-        if (!entry) return ipcOk(undefined); // Should never happen; guard for safety.
+        if (!entry) {
+          owners.delete(tabId);
+          return ipcErr("browser-create-failed", "Browser view was not created", {
+            category: "bug",
+          });
+        }
 
         const wc = entry.view.webContents;
+        wc.once("destroyed", () => {
+          if (owners.get(tabId) === owner) owners.delete(tabId);
+        });
+        const emit = (event: string, value: Record<string, unknown>) =>
+          sendViewEvent(tabId, event, value, owner);
         noticeDownloads(wc.session, (_from, file) => broadcast("browser", "downloaded", { file }));
 
         wc.on("did-navigate", (_event, navUrl, _httpResponseCode, _httpStatusText) => {
-          broadcast("browser", "navigated", {
-            tabId,
+          emit("navigated", {
             url: navUrl,
             canGoBack: wc.navigationHistory.canGoBack(),
             canGoForward: wc.navigationHistory.canGoForward(),
@@ -136,8 +182,7 @@ export function registerBrowserChannel(
 
         wc.on("did-navigate-in-page", (_event, navUrl, isMainFrame) => {
           if (!isMainFrame) return;
-          broadcast("browser", "navigated", {
-            tabId,
+          emit("navigated", {
             url: navUrl,
             canGoBack: wc.navigationHistory.canGoBack(),
             canGoForward: wc.navigationHistory.canGoForward(),
@@ -145,23 +190,22 @@ export function registerBrowserChannel(
         });
 
         wc.on("did-start-loading", () => {
-          broadcast("browser", "loadingChanged", { tabId, isLoading: true });
+          emit("loadingChanged", { isLoading: true });
         });
 
         wc.on("did-stop-loading", () => {
-          broadcast("browser", "loadingChanged", { tabId, isLoading: false });
+          emit("loadingChanged", { isLoading: false });
         });
 
         wc.on("page-title-updated", (_event, title) => {
-          broadcast("browser", "titleUpdated", { tabId, title });
+          emit("titleUpdated", { title });
         });
 
         // page-favicon-updated: fires when Chromium finds favicon URL candidates.
         // If the page does not declare link rel="icon", the fallback `/favicon.ico` is tried.
         // The renderer shows the first candidate as the tab icon (the default Globe if none).
         wc.on("page-favicon-updated", (_event, favicons: string[]) => {
-          broadcast("browser", "faviconUpdated", {
-            tabId,
+          emit("faviconUpdated", {
             favicons: favicons.filter(isLoadableFaviconUrl),
           });
         });
@@ -173,7 +217,7 @@ export function registerBrowserChannel(
         // behaviour of every other panel type). Fires only on focus *gain*, so
         // it does not spam on repeated clicks inside an already-focused view.
         wc.on("focus", () => {
-          broadcast("browser", "focused", { tabId });
+          emit("focused", {});
         });
 
         // Intercept keystrokes that land while the PAGE has focus — they
@@ -182,65 +226,75 @@ export function registerBrowserChannel(
         // browser command. (The docked DevTools view is covered by the
         // registry's DevTools key interceptor wired above.)
         installBrowserKeyInterceptor(wc, tabId, (command, t) =>
-          runBrowserCommand(registry, command, t),
+          runBrowserCommand(registry, command, t, () => emit("focusUrl", {})),
         );
 
         return ipcOk(undefined);
       },
 
-      destroy: (args: unknown) => {
-        const { tabId } = validateArgs(c.destroy.args, args);
+      destroy: (args: unknown, ctx) => {
+        const { tabId, viewId } = validateArgs(c.destroy.args, args);
+        if (!ownsView(tabId, ctx, viewId)) return ipcOk(undefined);
+        owners.delete(tabId);
         registry.destroy({ tabId });
         return ipcOk(undefined);
       },
 
-      setBounds: (args: unknown) => {
-        const { tabId, x, y, width, height } = validateArgs(c.setBounds.args, args);
+      setBounds: (args: unknown, ctx) => {
+        const { tabId, viewId, x, y, width, height } = validateArgs(c.setBounds.args, args);
+        if (!ownsView(tabId, ctx, viewId)) return ipcOk(undefined);
         registry.setBounds({ tabId, x, y, width, height });
         return ipcOk(undefined);
       },
 
-      setActive: (args: unknown) => {
-        const { tabId, active } = validateArgs(c.setActive.args, args);
+      setActive: (args: unknown, ctx) => {
+        const { tabId, viewId, active } = validateArgs(c.setActive.args, args);
+        if (!ownsView(tabId, ctx, viewId)) return ipcOk(undefined);
         registry.setActive({ tabId, active });
         return ipcOk(undefined);
       },
 
-      navigate: (args: unknown) => {
+      navigate: (args: unknown, ctx) => {
         const { tabId, url } = validateArgs(c.navigate.args, args);
+        if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         registry.navigate({ tabId, url });
         return ipcOk(undefined);
       },
 
-      goBack: (args: unknown) => {
+      goBack: (args: unknown, ctx) => {
         const { tabId } = validateArgs(c.goBack.args, args);
+        if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         registry.goBack({ tabId });
         return ipcOk(undefined);
       },
 
-      goForward: (args: unknown) => {
+      goForward: (args: unknown, ctx) => {
         const { tabId } = validateArgs(c.goForward.args, args);
+        if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         registry.goForward({ tabId });
         return ipcOk(undefined);
       },
 
-      reload: (args: unknown) => {
+      reload: (args: unknown, ctx) => {
         const { tabId, ignoreCache } = validateArgs(c.reload.args, args);
+        if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         registry.reload({ tabId, ignoreCache });
         return ipcOk(undefined);
       },
 
-      openDevTools: (args: unknown) => {
+      openDevTools: (args: unknown, ctx) => {
         const { tabId } = validateArgs(c.openDevTools.args, args);
+        if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         const { open } = registry.openDevTools({ tabId });
         // Tell the renderer to show/hide the splitter and start/stop
         // reporting setDevToolsBounds for this tab.
-        broadcast("browser", "devtoolsToggled", { tabId, open });
+        sendViewEvent(tabId, "devtoolsToggled", { open });
         return ipcOk(undefined);
       },
 
-      setDevToolsBounds: (args: unknown) => {
-        const { tabId, x, y, width, height } = validateArgs(c.setDevToolsBounds.args, args);
+      setDevToolsBounds: (args: unknown, ctx) => {
+        const { tabId, viewId, x, y, width, height } = validateArgs(c.setDevToolsBounds.args, args);
+        if (!ownsView(tabId, ctx, viewId)) return ipcOk(undefined);
         registry.setDevToolsBounds({ tabId, x, y, width, height });
         return ipcOk(undefined);
       },
@@ -248,9 +302,11 @@ export function registerBrowserChannel(
       suspendAll: async (args: unknown) => {
         const { captureSnapshot } = validateArgs(c.suspendAll.args, args);
         // Capture before hiding so the renderer can show the last frame under the overlay.
+        const capturing = new Map(owners);
         const snapshots = await registry.suspendAll({ captureSnapshot });
         for (const { tabId, dataUrl } of snapshots) {
-          broadcast("browser", "snapshot", { kind: "set", tabId, dataUrl });
+          const owner = capturing.get(tabId);
+          if (owner) sendViewEvent(tabId, "snapshot", { kind: "set", dataUrl }, owner);
         }
         return ipcOk(undefined);
       },
@@ -258,7 +314,7 @@ export function registerBrowserChannel(
       resumeAll: (args: unknown) => {
         validateArgs(c.resumeAll.args, args);
         for (const tabId of registry.resumeAll()) {
-          broadcast("browser", "snapshot", { kind: "cleared", tabId });
+          sendViewEvent(tabId, "snapshot", { kind: "cleared" });
         }
         return ipcOk(undefined);
       },
