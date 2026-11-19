@@ -704,7 +704,8 @@ describe("the host's file reads", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(served).toBe(0);
       buffered = 0;
-      await expect(pending).resolves.toMatchObject({ kind: "bytes" });
+      // `.resolves` here hung Bun 1.4.4 on Windows past the test timeout; a plain await does not.
+      expect(await pending).toMatchObject({ kind: "bytes" });
       expect(served).toBe(1);
     } finally {
       client.room.stop();
