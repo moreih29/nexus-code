@@ -71,8 +71,11 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.diff", service.Diff)
 	d.Register("git.commitDetail", service.CommitDetail)
 	d.Register("git.changeStats", service.ChangeStats)
-	d.Register("git.watch", service.Watch)
-	d.Register("git.unwatch", service.Unwatch)
+	// Git directory resolution can run Git itself. Keep that work out of
+	// the dispatch scanner and order watch changes on their own lane.
+	watchQueue := func(json.RawMessage) string { return "git.watch" }
+	d.RegisterOrderedBy("git.watch", service.Watch, watchQueue)
+	d.RegisterOrderedBy("git.unwatch", service.Unwatch, watchQueue)
 	d.Register("git.addToGitignore", service.AddToGitignore)
 	d.Register("git.getFileContent", service.GetFileContent)
 	d.Register("git.blob", service.Blob)

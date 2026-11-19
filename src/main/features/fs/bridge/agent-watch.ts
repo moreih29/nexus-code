@@ -5,177 +5,220 @@ import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { type AgentBackedProvider, isAgentBackedProvider } from "./provider";
 
 const log = createLogger("fs");
-
-const AgentFsChangedPayloadSchema = z.object({
-  changes: z.array(FsChangeSchema),
-});
+const AgentFsChangedPayloadSchema = z.object({ changes: z.array(FsChangeSchema) });
 
 interface WatchSubscription {
   readonly provider: AgentBackedProvider;
   readonly unsubscribe: () => void;
-  readonly watchedRelPaths: Set<string>;
 }
 
-/**
- * Bridges agent-emitted fs.changed events into renderer IPC events.
- *
- * The OS watcher itself lives inside the Go agent. This class only owns
- * per-workspace event subscription and workspaceId fan-out.
- */
+interface WorkspaceWatches {
+  readonly paths: Set<string>;
+  readonly pending: Map<string, Promise<void>>;
+  subscription?: WatchSubscription;
+}
+
+/** Owns each workspace's desired paths and forwards changes from its current agent. */
 export class AgentFsWatcher {
-  private readonly subscriptions = new Map<string, WatchSubscription>();
+  private readonly workspaces = new Map<string, WorkspaceWatches>();
   private readonly disposeProviderReady: () => void;
+  private disposed = false;
 
   constructor(
     private readonly manager: WorkspaceManager,
     private readonly broadcast: BroadcastFn,
   ) {
-    // After the channel dies, the next boot brings up a new agent with no
-    // watches, and the listeners on the old provider never fire again. Move
-    // existing subscriptions over as soon as the replacement is up rather
-    // than waiting for the renderer to watch again, which it does not do for
-    // directories that were already expanded.
     this.disposeProviderReady = manager.onProviderReady((workspaceId, provider) => {
-      if (this.subscriptions.has(workspaceId) && isAgentBackedProvider(provider)) {
-        this.ensureSubscription(workspaceId, provider);
+      const state = this.workspaces.get(workspaceId);
+      if (state && isAgentBackedProvider(provider)) this.bind(workspaceId, state, provider);
+    });
+  }
+
+  /** Tracks a requested path before its RPC completes so teardown and rebind can see it. */
+  async watch(workspaceId: string, relPath: string): Promise<void> {
+    const state = this.state(workspaceId);
+    await this.enqueue(workspaceId, state, relPath, async () => {
+      if (this.workspaces.get(workspaceId) !== state) return;
+      const provider = await this.requireReadyAgentProvider(workspaceId);
+      if (this.workspaces.get(workspaceId) !== state) return;
+      const subscription = this.bind(workspaceId, state, provider);
+      const wasWatched = state.paths.has(relPath);
+      state.paths.add(relPath);
+      try {
+        await provider.callAgentMethod("fs.watch", { relPath });
+      } catch (error) {
+        if (!wasWatched && state.subscription === subscription) {
+          state.paths.delete(relPath);
+          if ((error as { code?: string }).code === "transport.timeout") {
+            await this.cleanup(workspaceId, provider, relPath);
+          }
+        }
+        throw error;
+      }
+      if (state.subscription !== subscription) {
+        await this.cleanup(workspaceId, provider, relPath);
       }
     });
   }
 
-  async watch(workspaceId: string, relPath: string): Promise<void> {
-    const provider = await this.requireReadyAgentProvider(workspaceId);
-    const subscription = this.ensureSubscription(workspaceId, provider);
-    await provider.callAgentMethod("fs.watch", { relPath });
-    subscription.watchedRelPaths.add(relPath);
-  }
-
+  /** Stops a path after any earlier watch or replay of that same path. */
   async unwatch(workspaceId: string, relPath: string): Promise<void> {
-    const provider = await this.requireReadyAgentProvider(workspaceId);
-    await provider.callAgentMethod("fs.unwatch", { relPath });
-
-    const subscription = this.subscriptions.get(workspaceId);
-    subscription?.watchedRelPaths.delete(relPath);
-    if (subscription && subscription.watchedRelPaths.size === 0) {
-      subscription.unsubscribe();
-      this.subscriptions.delete(workspaceId);
-    }
+    const state = this.state(workspaceId);
+    await this.enqueue(workspaceId, state, relPath, async () => {
+      if (this.workspaces.get(workspaceId) !== state) return;
+      state.paths.delete(relPath);
+      const provider = await this.requireReadyAgentProvider(workspaceId);
+      if (this.workspaces.get(workspaceId) !== state) return;
+      if (state.paths.size > 0) this.bind(workspaceId, state, provider);
+      await provider.callAgentMethod("fs.unwatch", { relPath });
+    });
   }
 
+  /** Detaches the listener immediately and clears watches after pending registrations settle. */
   disposeWorkspace(workspaceId: string): void {
-    const subscription = this.subscriptions.get(workspaceId);
+    const state = this.workspaces.get(workspaceId);
+    if (!state) return;
+    this.workspaces.delete(workspaceId);
+    const subscription = state.subscription;
     if (!subscription) return;
     subscription.unsubscribe();
-    this.subscriptions.delete(workspaceId);
-  }
-
-  dispose(): void {
-    this.disposeProviderReady();
-    for (const subscription of this.subscriptions.values()) {
-      subscription.unsubscribe();
+    for (const relPath of state.paths) {
+      void this.enqueue(workspaceId, state, relPath, () =>
+        this.cleanup(workspaceId, subscription.provider, relPath),
+      );
     }
-    this.subscriptions.clear();
   }
 
-  /**
-   * Returns the workspace's subscription on `provider`. One made on an
-   * earlier provider is moved over: its listeners are dropped and its paths
-   * are registered with the new agent.
-   */
-  private ensureSubscription(
+  /** Stops new subscriptions and drops every workspace. */
+  dispose(): void {
+    this.disposed = true;
+    this.disposeProviderReady();
+    for (const workspaceId of this.workspaces.keys()) this.disposeWorkspace(workspaceId);
+  }
+
+  /** Finds or creates the state before awaiting a provider. */
+  private state(workspaceId: string): WorkspaceWatches {
+    if (this.disposed) throw new Error("file watcher is disposed");
+    const existing = this.workspaces.get(workspaceId);
+    if (existing) return existing;
+    const state = { paths: new Set<string>(), pending: new Map<string, Promise<void>>() };
+    this.workspaces.set(workspaceId, state);
+    return state;
+  }
+
+  /** Orders RPCs for one path while allowing other directories to progress independently. */
+  private enqueue(
     workspaceId: string,
+    state: WorkspaceWatches,
+    relPath: string,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const previous = state.pending.get(relPath);
+    const pending = (previous ? previous.then(run, run) : run()).finally(() => {
+      if (state.pending.get(relPath) === pending) state.pending.delete(relPath);
+      if (
+        this.workspaces.get(workspaceId) === state &&
+        state.paths.size === 0 &&
+        state.pending.size === 0
+      ) {
+        state.subscription?.unsubscribe();
+        this.workspaces.delete(workspaceId);
+      }
+    });
+    state.pending.set(relPath, pending);
+    return pending;
+  }
+
+  /** Moves the listener and desired paths to the new provider. */
+  private bind(
+    workspaceId: string,
+    state: WorkspaceWatches,
     provider: AgentBackedProvider,
   ): WatchSubscription {
-    const existing = this.subscriptions.get(workspaceId);
-    if (existing?.provider === provider) return existing;
+    const previous = state.subscription;
+    if (previous?.provider === provider) return previous;
+    previous?.unsubscribe();
 
-    existing?.unsubscribe();
-    const subscription = this.subscribe(workspaceId, provider);
-    if (existing) {
-      for (const relPath of existing.watchedRelPaths) {
-        subscription.watchedRelPaths.add(relPath);
-      }
-      this.replayWatches(workspaceId, provider, subscription);
-    }
-    return subscription;
-  }
-
-  private subscribe(workspaceId: string, provider: AgentBackedProvider): WatchSubscription {
-    const unsubscribeChanged = provider.onAgentEvent("fs.changed", (payload) => {
+    const offChanged = provider.onAgentEvent("fs.changed", (payload) => {
+      if (this.workspaces.get(workspaceId) !== state || state.subscription !== subscription) return;
       const parsed = AgentFsChangedPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.changes.length === 0) return;
-      this.broadcast("fs", "changed", {
-        workspaceId,
-        changes: parsed.data.changes,
-      });
+      this.broadcast("fs", "changed", { workspaceId, changes: parsed.data.changes });
     });
-
-    // Watch registrations live in the agent process, so a respawned agent
-    // starts with zero watches even though the channel recovered
-    // transparently. Replay the full set on the `ready` lifecycle event
-    // (successful reconnect handshake) — re-registering an existing watch is
-    // a no-op on the agent side, so the replay is safe even when the agent
-    // actually survived.
-    const unsubscribeLifecycle = provider.onAgentLifecycle((event) => {
-      if (event.type !== "ready") return;
-      const subscription = this.subscriptions.get(workspaceId);
-      if (!subscription) return;
-      this.replayWatches(workspaceId, provider, subscription);
+    const offLifecycle = provider.onAgentLifecycle((event) => {
+      if (
+        event.type === "ready" &&
+        this.workspaces.get(workspaceId) === state &&
+        state.subscription === subscription
+      ) {
+        this.replay(workspaceId, state, subscription);
+      }
     });
-
     const subscription = {
       provider,
       unsubscribe: () => {
-        unsubscribeChanged();
-        unsubscribeLifecycle();
+        offChanged();
+        offLifecycle();
       },
-      watchedRelPaths: new Set<string>(),
     };
-    this.subscriptions.set(workspaceId, subscription);
+    state.subscription = subscription;
+    if (previous) this.replay(workspaceId, state, subscription);
     return subscription;
   }
 
-  /**
-   * Registers every watched path with an agent that does not have them.
-   */
-  private replayWatches(
+  /** Restores still-wanted paths and refreshes directories changed during the outage. */
+  private replay(
     workspaceId: string,
-    provider: AgentBackedProvider,
+    state: WorkspaceWatches,
     subscription: WatchSubscription,
   ): void {
-    for (const relPath of subscription.watchedRelPaths) {
-      provider.callAgentMethod("fs.watch", { relPath }).catch((error: unknown) => {
+    for (const relPath of state.paths) {
+      void this.enqueue(workspaceId, state, relPath, async () => {
+        if (
+          this.workspaces.get(workspaceId) !== state ||
+          state.subscription !== subscription ||
+          !state.paths.has(relPath)
+        ) {
+          return;
+        }
+        await subscription.provider.callAgentMethod("fs.watch", { relPath });
+        if (state.subscription !== subscription) {
+          await this.cleanup(workspaceId, subscription.provider, relPath);
+        }
+      }).catch((error: unknown) => {
         log.warn(
           `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
         );
       });
     }
-    // Changes made while the agent was down were never reported. Replay
-    // every watched directory as "added" so the renderer re-reads each one
-    // (the file tree treats an added directory as recreated) and its
-    // fs.changed hint refreshes git status.
-    if (subscription.watchedRelPaths.size > 0) {
+    if (state.paths.size > 0) {
       this.broadcast("fs", "changed", {
         workspaceId,
-        changes: [...subscription.watchedRelPaths].map((relPath) => ({
-          relPath,
-          kind: "added" as const,
-        })),
+        changes: [...state.paths].map((relPath) => ({ relPath, kind: "added" as const })),
       });
     }
   }
 
-  /**
-   * Resolves the workspace's agent-backed fs provider only after the
-   * underlying channel is ready. Without this gate, fs.watch IPC that
-   * arrives before SSH bootstrap or local channel boot completes would
-   * subscribe against the inert provider returned by createInitialFsProvider
-   * and throw `channel not yet wired` from the channel accessor.
-   */
+  /** Releases a retired path on the provider that received its watch. */
+  private async cleanup(
+    workspaceId: string,
+    provider: AgentBackedProvider,
+    relPath: string,
+  ): Promise<void> {
+    try {
+      await provider.callAgentMethod("fs.unwatch", { relPath });
+    } catch (error) {
+      log.warn(
+        `fs.unwatch cleanup failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** Waits for the live agent instead of using the inert provider during bootstrap. */
   private async requireReadyAgentProvider(workspaceId: string): Promise<AgentBackedProvider> {
     const provider = await this.manager.getFs(workspaceId);
-    if (!isAgentBackedProvider(provider)) {
+    if (!isAgentBackedProvider(provider))
       throw new Error("workspace agent provider is not available");
-    }
     return provider;
   }
 }
