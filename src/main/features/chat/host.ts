@@ -53,6 +53,8 @@ export interface ChatHostOptions {
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
   /** The result a Claude chat reported on its stream. */
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
+  /** The lifecycle messages for a Claude chat's background tasks. */
+  onTaskEvent?: (workspaceId: string, tabId: string, message: Record<string, unknown>) => void;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** Saved chat tabs that may still have a program even before their view opens. */
@@ -629,9 +631,16 @@ export class ChatHost {
       this.options.onProgramExit?.(workspaceId, tabId);
       return;
     }
-    if (payload.replay === true || payload.dir !== "out") return;
+    if (payload.dir !== "out") return;
     const message = payload.message as Record<string, unknown> | null | undefined;
-    if (message?.type !== "result") return;
+    if (
+      message?.type === "system" &&
+      (message.subtype === "task_started" || message.subtype === "task_notification")
+    ) {
+      this.options.onTaskEvent?.(workspaceId, tabId, message);
+      return;
+    }
+    if (payload.replay === true || message?.type !== "result") return;
     this.options.onTurnResult?.(workspaceId, tabId, claudeTurnResult(message));
   }
 

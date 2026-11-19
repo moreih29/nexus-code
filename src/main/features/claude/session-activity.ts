@@ -33,8 +33,11 @@ import {
 
 /** The tools that start a subagent: "Agent", "Task" before Claude Code 2.1. */
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
+const STOP_TASK_TOOLS = new Set(["TaskStop", "KillShell", "KillBash"]);
 /** How many Agent tool calls wait for their agent at most; a call whose agent never starts is dropped. */
 const AGENT_CALLS_KEPT = 16;
+/** Bounds the task links kept while stream lines and async hooks arrive. */
+const TASK_LINKS_KEPT = 128;
 /** The tools that run a command, which may start a `claude -p` run. */
 const COMMAND_TOOLS = new Set(["Bash", "PowerShell"]);
 /** The tools that write files, and the field naming the file. */
@@ -52,6 +55,17 @@ interface AgentCall {
   readonly prompt?: string;
   readonly background?: boolean;
   readonly model?: string;
+  readonly launchToolUseId?: string;
+  readonly outputFile?: string;
+}
+
+type TaskEnd = "completed" | "failed" | "stopped";
+
+interface TaskLink {
+  toolUseId?: string;
+  outputFile?: string;
+  runId?: string;
+  state?: TaskEnd;
 }
 
 interface AgentEntry extends Omit<AgentRun, "tools"> {
@@ -64,6 +78,8 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
   watch?: string;
   /** The ids of the messages a subagent wrote that it has: each is kept once. */
   said?: Set<string>;
+  launchToolUseId?: string;
+  outputFile?: string;
 }
 
 /** A message a subagent wrote, as hookclient read it from its transcript. */
@@ -88,6 +104,7 @@ interface SessionEntry {
   calls: AgentCall[];
   /** Agent tool calls whose agent's id the tool's answer told. */
   callsByAgent: Map<string, AgentCall>;
+  taskLinks: Map<string, TaskLink>;
   /** The `claude -p` runs that went on an earlier run, by run id: that run's agent id. */
   runs: Map<string, string>;
 }
@@ -170,13 +187,56 @@ export class SessionActivityLog {
           const agent = this.agentOf(session, agentId, p);
           const answer = text(p.last_assistant_message);
           if (answer !== undefined) agent.answer = answer;
-          agent.end = this.now();
-          agent.asking = undefined;
-          this.endOpenTools(agent.tools);
-          this.setAgentState(session, agent, "completed", true);
+          this.finishAgent(session, agent, "completed");
           this.pruneAgents(session);
         }
         break;
+    }
+  }
+
+  /** Correlates a stream task with its subagent through the Agent call or output file. */
+  noteTask(workspaceId: string, tabId: string, message: Payload): void {
+    const taskId = text(message.task_id);
+    const type = text(message.task_type);
+    const state = taskEndOf(message.status);
+    if (
+      !taskId ||
+      (type && type !== "local_agent") ||
+      (message.subtype !== "task_started" && !state)
+    )
+      return;
+    const existing = this.sessions.get(`${workspaceId}:${tabId}`);
+    if (!existing && type !== "local_agent") return;
+    const session = existing ?? this.sessionOf(workspaceId, tabId);
+    const sessionId = text(message.session_id);
+    if (sessionId && session.sessionId && sessionId !== session.sessionId) return;
+    session.sessionId ??= sessionId;
+    const runId = text(message.run_id);
+    const previous = session.taskLinks.get(taskId);
+    const differentRun = runId && previous?.runId && runId !== previous.runId;
+    if (differentRun && message.subtype !== "task_started") return;
+    const link = differentRun ? undefined : previous;
+    this.rememberTask(session, taskId, {
+      toolUseId: text(message.tool_use_id) ?? link?.toolUseId,
+      outputFile: text(message.output_file) ?? link?.outputFile,
+      runId: runId ?? link?.runId,
+      state: state ?? link?.state,
+    });
+  }
+
+  /** Keeps a recent task update and applies it when its Agent result is known. */
+  private rememberTask(session: SessionEntry, taskId: string, link: TaskLink): void {
+    session.taskLinks.delete(taskId);
+    session.taskLinks.set(taskId, link);
+    if (session.taskLinks.size > TASK_LINKS_KEPT) {
+      const oldest = session.taskLinks.keys().next().value;
+      if (oldest !== undefined) session.taskLinks.delete(oldest);
+    }
+    if (!link.state) return;
+    const agent = [...session.agents.values()].find((agent) => matchesTask(agent, taskId, link));
+    if (agent) {
+      this.finishAgent(session, agent, link.state);
+      this.pruneAgents(session);
     }
   }
 
@@ -395,6 +455,7 @@ export class SessionActivityLog {
         agents: new Map(),
         calls: [],
         callsByAgent: new Map(),
+        taskLinks: new Map(),
         runs: new Map(),
       };
       this.sessions.set(key, session);
@@ -426,7 +487,8 @@ export class SessionActivityLog {
     const known = session.agents.get(agentId);
     if (known) return known;
     const type = text(p.agent_type) ?? "general-purpose";
-    const call = session.callsByAgent.get(agentId) ?? takeCall(session.calls, type);
+    const linkedCall = session.callsByAgent.get(agentId);
+    const call = linkedCall ?? takeCall(session.calls, type);
     session.callsByAgent.delete(agentId);
     const agent: AgentEntry = {
       id: agentId,
@@ -441,9 +503,12 @@ export class SessionActivityLog {
       tools: [],
       toolCount: 0,
       failedCount: 0,
+      launchToolUseId: linkedCall?.launchToolUseId,
+      outputFile: linkedCall?.outputFile,
     };
     session.agents.set(agentId, agent);
     this.emit(session, agent);
+    this.finishKnownTask(session, agent);
     return agent;
   }
 
@@ -606,7 +671,14 @@ export class SessionActivityLog {
       const shown = relative(file, session.cwd);
       if (!session.files.includes(shown)) session.files.push(shown);
     }
-    if (AGENT_TOOLS.has(name)) this.agentToolAnswered(session, input, response);
+    if (AGENT_TOOLS.has(name)) this.agentToolAnswered(session, input, response, id);
+    if (STOP_TASK_TOOLS.has(name)) {
+      const taskId = text(response.task_id) ?? text(input.task_id) ?? text(input.shell_id);
+      const type = text(response.task_type);
+      if (taskId && (!type || type === "local_agent")) {
+        this.rememberTask(session, taskId, { ...session.taskLinks.get(taskId), state: "stopped" });
+      }
+    }
     if (name === "TaskCreate") {
       const task = record(response.task);
       const subject = text(input.subject) ?? text(task.subject);
@@ -628,20 +700,53 @@ export class SessionActivityLog {
    * The Agent tool answered: a background agent's answer names it, before
    * it starts. Its call is kept for it by that id.
    */
-  private agentToolAnswered(session: SessionEntry, input: Payload, response: Payload): void {
+  private agentToolAnswered(
+    session: SessionEntry,
+    input: Payload,
+    response: Payload,
+    toolUseId: string | undefined,
+  ): void {
     const agentId = text(response.agentId);
     if (agentId === undefined) return;
     const model = text(response.resolvedModel);
+    const background = response.status === "async_launched";
+    const outputFile = text(response.outputFile);
     const started = session.agents.get(agentId);
     if (started) {
       // A foreground agent the user sent to the background.
-      if (response.status === "async_launched") started.background = true;
+      if (background) started.background = true;
       if (model !== undefined) started.model = model;
+      if (toolUseId) started.launchToolUseId = toolUseId;
+      if (outputFile) started.outputFile = outputFile;
+      this.finishKnownTask(session, started);
       return;
     }
     const type = text(input.subagent_type) ?? "general-purpose";
     const call = takeCall(session.calls, type, text(input.description));
-    if (call) session.callsByAgent.set(agentId, model ? { ...call, model } : call);
+    if (call || background) {
+      session.callsByAgent.set(agentId, {
+        ...call,
+        type,
+        model: model ?? call?.model,
+        background: background || call?.background,
+        launchToolUseId: toolUseId,
+        outputFile,
+      });
+      if (session.callsByAgent.size > AGENT_CALLS_KEPT) {
+        const oldest = session.callsByAgent.keys().next().value;
+        if (oldest !== undefined) session.callsByAgent.delete(oldest);
+      }
+    }
+  }
+
+  /** Applies an end received before the Agent tool result or SubagentStart. */
+  private finishKnownTask(session: SessionEntry, agent: AgentEntry): void {
+    for (const [id, link] of session.taskLinks) {
+      if (!link.state || !matchesTask(agent, id, link)) continue;
+      this.finishAgent(session, agent, link.state);
+      this.pruneAgents(session);
+      return;
+    }
   }
 
   private setAgentState(
@@ -690,11 +795,17 @@ export class SessionActivityLog {
   }
 
   private stopAgent(session: SessionEntry, agent: AgentEntry): void {
+    this.finishAgent(session, agent, "stopped");
+  }
+
+  /** Ends a run once, so a late completion hook cannot undo a stop. */
+  private finishAgent(session: SessionEntry, agent: AgentEntry, state: TaskEnd): void {
+    if (agent.end !== undefined) return;
     agent.end = this.now();
     agent.asking = undefined;
     agent.watch = undefined;
     this.endOpenTools(agent.tools);
-    this.setAgentState(session, agent, "stopped", true);
+    this.setAgentState(session, agent, state, true);
   }
 
   /** Keeps the running agents and the latest ended ones. */
@@ -707,6 +818,20 @@ export class SessionActivityLog {
       if (!session.agents.has(agentId)) session.runs.delete(runId);
     }
   }
+}
+
+/** Matches explicit IDs first, with an equal ID fallback for older background agents. */
+function matchesTask(agent: AgentEntry, taskId: string, link: TaskLink): boolean {
+  if (agent.kind !== "subagent") return false;
+  if (agent.launchToolUseId && link.toolUseId) return agent.launchToolUseId === link.toolUseId;
+  if (agent.outputFile && link.outputFile) return agent.outputFile === link.outputFile;
+  return agent.background === true && agent.id === taskId;
+}
+
+/** Normalizes the terminal statuses reported by current and older Claude builds. */
+function taskEndOf(status: unknown): TaskEnd | undefined {
+  if (status === "completed" || status === "failed" || status === "stopped") return status;
+  return status === "killed" ? "stopped" : undefined;
 }
 
 function snapshotOf(session: SessionEntry): SessionActivity {
@@ -730,7 +855,17 @@ function snapshotOf(session: SessionEntry): SessionActivity {
 }
 
 function agentRunOf(agent: AgentEntry): AgentRun {
-  const { asking: _asking, cwd: _cwd, watch: _watch, said: _said, tools, messages, ...run } = agent;
+  const {
+    asking: _asking,
+    cwd: _cwd,
+    watch: _watch,
+    said: _said,
+    launchToolUseId: _launch,
+    outputFile: _file,
+    tools,
+    messages,
+    ...run
+  } = agent;
   return {
     ...run,
     tools: tools.map((tool) => ({ ...tool })),

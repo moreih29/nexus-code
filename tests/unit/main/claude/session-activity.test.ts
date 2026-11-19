@@ -292,6 +292,25 @@ describe("agents", () => {
     expect(byId.get("a1")).toMatchObject({ description: "One", background: true });
   });
 
+  test.each([
+    "TaskStop",
+    "KillShell",
+    "KillBash",
+  ])("a successful %s hook stops a known background agent", (toolName) => {
+    const input = { ...explore, run_in_background: true };
+    hook("pre-tool-use", { tool_name: "Agent", tool_use_id: "t1", tool_input: input });
+    hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
+    hook("post-tool-use", {
+      tool_name: toolName,
+      tool_use_id: "stop",
+      tool_input: toolName === "TaskStop" ? { task_id: "a1" } : { shell_id: "a1" },
+    });
+    expect(activity().agents[0]).toMatchObject({ state: "stopped", end: clock });
+    clock = 2_000;
+    hook("subagent-stop", { agent_id: "a1" });
+    expect(activity().agents[0]).toMatchObject({ state: "stopped", end: 1_000 });
+  });
+
   test("an agent waits on its permission until it goes on", () => {
     hook("subagent-start", { agent_id: "a1", agent_type: "general-purpose" });
     const call = { tool_name: "Bash", tool_input: { command: "rm x" } };

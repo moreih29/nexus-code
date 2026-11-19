@@ -779,6 +779,8 @@ app.whenReady().then(async () => {
     profile: (id) => findProfile(stateService, id),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnResult: claudeSetup.noteTurnResult,
+    onTaskEvent: (workspaceId, tabId, message) =>
+      claudeSetup.activity.noteTask(workspaceId, tabId, message),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
   workspaceManager.setChatSessionCloser(
