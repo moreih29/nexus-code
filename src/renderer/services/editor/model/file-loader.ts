@@ -27,7 +27,7 @@ function overrideKey(input: EditorInput): string {
   return workspaceUriFor(input.workspaceId, input.filePath);
 }
 
-/** Reads `input` in `encoding` from now on, as Reopen with Encoding asks. */
+/** Remembers the encoding from an applied reopen or a successful save. */
 export function setEncodingOverride(input: EditorInput, encoding: TextEncoding): void {
   encodingOverrides.set(overrideKey(input), encoding);
 }
@@ -76,7 +76,11 @@ export function relPathForInput(input: EditorInput): string {
   return relPath(input.filePath, workspaceRootForInput(input));
 }
 
-export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {
+/** Reads using the requested encoding or the override current when the read starts. */
+export async function readFileForModel(
+  input: EditorInput,
+  encoding = encodingOverrides.get(overrideKey(input)),
+): Promise<FileLoadResult> {
   const rp = relPathForInput(input);
   const result = unwrapIpcResult(
     await ipcCallResult("fs", "readFile", { workspaceId: input.workspaceId, relPath: rp }),
@@ -85,7 +89,7 @@ export async function readFileForModel(input: EditorInput): Promise<FileLoadResu
     throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, input.filePath));
   }
   const { kind: _kind, ...content } = result;
-  return decodeFileContent(content, encodingOverrides.get(overrideKey(input)));
+  return decodeFileContent(content, encoding);
 }
 
 /** mtime/size only — cheap probe for "did this file change since we loaded it". */

@@ -102,8 +102,8 @@ export function reportSaveFailure(result: SaveResult): void {
  *   cleared to `""` which causes `saveModel` to build `{exists:false}` as the
  *   expected value — matching the writeFile IPC guard.
  * - **reload**: replaces the buffer with the on-disk content via
- *   `reloadModelFromDisk`, discarding unsaved edits. Returns `{kind:"not-dirty"}`
- *   (the buffer is now clean).
+ *   `reloadModelFromDisk`, discarding edits present at approval. Returns
+ *   `{kind:"not-dirty"}` only when the disk version was applied.
  * - **cancel**: returns the original conflict result unchanged so callers can
  *   decide whether to keep the tab open.
  *
@@ -128,8 +128,8 @@ export async function saveModelInteractive(
   }
 
   if (choice === "reload") {
-    await reloadModelFromDisk(input);
-    return { kind: "not-dirty" };
+    const applied = await reloadModelFromDisk(input);
+    return { kind: applied ? "not-dirty" : "superseded" };
   }
 
   // choice === "overwrite": sync dirty-tracker metadata to the actual disk

@@ -4,6 +4,7 @@
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-settings";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
+import type { TextEncoding } from "../encoding/text-encoding";
 import { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
 import { isLspLanguage } from "../lsp/language";
 import { monacoContentChangesToLsp } from "../lsp/monaco-converters";
@@ -22,7 +23,9 @@ import {
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
+  type FileLoadResult,
   readFileForModel,
+  setEncodingOverride,
   statFileForModel,
   subscribeFsChanged,
   subscribeGitStatusChanged,
@@ -361,24 +364,7 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     const model = entry.model;
     if (!model || model.isDisposed()) return;
 
-    entry.encoding = result.encoding;
-    entry.phase = "ready";
-    entry.errorCode = undefined;
-    entry.diskDiverged = undefined;
-    if (model.getValue() !== result.content) {
-      model.setValue(result.content);
-    }
-    entry.lastLoadedValue = model.getValue();
-
-    deps.markDirtyTrackerSaved({
-      cacheUri: entry.cacheUri,
-      model,
-      savedAlternativeVersionId: model.getAlternativeVersionId(),
-      loadedMtime: result.mtime,
-      loadedSize: result.sizeBytes,
-    });
-
-    notifySubscribers(entry);
+    applyDiskText(entry, model, result);
   } catch (error) {
     if (entry.disposed || entry.diskReadSeq !== seq) return;
     // The edits exist only in this buffer; keep it editable so the user can
@@ -416,59 +402,79 @@ export async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
 }
 
 /**
- * Force-reload the entry's buffer from disk, discarding any unsaved edits.
- * Used by the conflict-resolution "reload" path where the user has explicitly
- * chosen to accept the on-disk version. Unlike `reconcileExternalChange`, this
- * runs without a dirty guard and always replaces the buffer.
- *
- * On success: model content = disk content, dirty tracker re-baselined,
- * `diskDiverged` cleared, subscribers notified.
+ * Apply a manual read only while it still owns the generation and the
+ * buffer is unchanged since the request. An explicit revert authorizes
+ * discarding existing edits. Reopening with an encoding requires a clean
+ * buffer when the encoding is chosen.
  */
-export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
-  if (entry.disposed) return;
+export async function reloadEntryFromDisk(
+  entry: ModelEntry,
+  encoding?: TextEncoding,
+): Promise<boolean> {
+  if (entry.disposed) return false;
   const deps = depsFor(entry);
-  // The user asked for this read; reconcile reads already in flight predate
-  // it and must not land after it.
-  entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
+  if (encoding !== undefined && deps.getDirtyEntry(entry.cacheUri)?.isDirty) return false;
+
+  const seq = (entry.diskReadSeq ?? 0) + 1;
+  entry.diskReadSeq = seq;
+  const model = entry.model;
+  const version = model?.getVersionId();
+  // getVersionId also changes on undo/redo, even when the text matches again.
+  const isCurrent = () =>
+    !entry.disposed &&
+    entry.diskReadSeq === seq &&
+    entry.model === model &&
+    (!model || (!model.isDisposed() && model.getVersionId() === version));
 
   try {
-    const result = await deps.readFileForModel(entry.input);
-    if (entry.disposed) return;
+    const result = await deps.readFileForModel(entry.input, encoding);
+    if (!isCurrent()) return false;
 
     if (result.isBinary) {
       entry.phase = "binary";
       entry.diskDiverged = undefined;
       notifySubscribers(entry);
-      return;
+      return true;
     }
 
-    const model = entry.model;
-    if (!model || model.isDisposed()) return;
+    if (!model) return false;
 
-    entry.encoding = result.encoding;
-    entry.phase = "ready";
-    entry.errorCode = undefined;
-    entry.diskDiverged = undefined;
-    if (model.getValue() !== result.content) {
-      model.setValue(result.content);
-    }
-    entry.lastLoadedValue = model.getValue();
-
-    deps.markDirtyTrackerSaved({
-      cacheUri: entry.cacheUri,
-      model,
-      savedAlternativeVersionId: model.getAlternativeVersionId(),
-      loadedMtime: result.mtime,
-      loadedSize: result.sizeBytes,
-    });
-
-    notifySubscribers(entry);
+    applyDiskText(entry, model, result, encoding);
+    return true;
   } catch (error) {
-    if (entry.disposed) return;
+    if (!isCurrent()) return false;
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);
     notifySubscribers(entry);
+    return false;
   }
+}
+
+/** Install accepted disk text and update the model's save baseline. */
+function applyDiskText(
+  entry: ModelEntry,
+  model: NonNullable<ModelEntry["model"]>,
+  result: FileLoadResult,
+  encodingOverride?: TextEncoding,
+): void {
+  entry.encoding = result.encoding;
+  entry.phase = "ready";
+  entry.errorCode = undefined;
+  entry.diskDiverged = undefined;
+  if (model.getValue() !== result.content) {
+    model.setValue(result.content);
+  }
+  entry.lastLoadedValue = model.getValue();
+  if (encodingOverride !== undefined) setEncodingOverride(entry.input, encodingOverride);
+
+  depsFor(entry).markDirtyTrackerSaved({
+    cacheUri: entry.cacheUri,
+    model,
+    savedAlternativeVersionId: model.getAlternativeVersionId(),
+    loadedMtime: result.mtime,
+    loadedSize: result.sizeBytes,
+  });
+  notifySubscribers(entry);
 }
 
 async function notifyDidCloseAfterDidOpen(entry: ModelEntry): Promise<void> {

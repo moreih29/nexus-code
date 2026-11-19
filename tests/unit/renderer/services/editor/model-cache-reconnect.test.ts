@@ -14,11 +14,12 @@ const disk = {
   mtime: "T1",
   sizeBytes: 4,
 };
+const readDisk = mock(async () => disk);
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: async (channel: string, method: string) => {
     if (channel === "fs" && method === "readFile") {
-      return { ok: true, value: { kind: "text", ...disk } };
+      return { ok: true, value: { kind: "text", ...(await readDisk()) } };
     }
     if (channel === "fs" && method === "stat") {
       return { ok: true, value: { mtime: disk.mtime, size: disk.sizeBytes } };
@@ -33,10 +34,17 @@ function makeModel(content: string) {
   const history = [content];
   const listeners = new Set<(event: { changes: [] }) => void>();
   let disposed = false;
+  let version = 1;
   return {
     getValue: () => history.at(-1),
     getLanguageId: () => "plaintext",
     getAlternativeVersionId: () => history.length,
+    getVersionId: () => version,
+    setValue(text: string) {
+      history.splice(0, history.length, text);
+      version += 1;
+      for (const listener of listeners) listener({ changes: [] });
+    },
     onDidChangeContent(listener: (event: { changes: [] }) => void) {
       listeners.add(listener);
       return { dispose: () => listeners.delete(listener) };
@@ -48,10 +56,12 @@ function makeModel(content: string) {
     },
     edit(text: string) {
       history.push(text);
+      version += 1;
       for (const listener of listeners) listener({ changes: [] });
     },
     undo() {
       history.pop();
+      version += 1;
       for (const listener of listeners) listener({ changes: [] });
     },
   };
@@ -64,15 +74,23 @@ mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleto
   }),
 }));
 
-const { acquireModel, cacheUriFor, getModelSnapshot, releaseModel } = await import(
-  "../../../../../src/renderer/services/editor/model/cache"
-);
+const {
+  acquireModel,
+  cacheUriFor,
+  getModelSnapshot,
+  getResolvedModel,
+  releaseModel,
+  reloadModelFromDisk,
+  syncLoadedValueAfterSave,
+} = await import("../../../../../src/renderer/services/editor/model/cache");
 const { isDirty } = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
+const { readFileForModel } = await import(
+  "../../../../../src/renderer/services/editor/model/file-loader"
+);
 
-test("open SSH file and Untitled models keep dirty edits and Undo across session expiry", async () => {
-  const workspaces = useWorkspacesStore.getState();
-  const tabs = useTabsStore.getState();
-  workspaces.upsert({
+/** Registers a remote workspace without connecting to a host. */
+function addWorkspace(): void {
+  useWorkspacesStore.getState().upsert({
     id: workspaceId,
     rootPath,
     name: "Remote",
@@ -83,6 +101,12 @@ test("open SSH file and Untitled models keep dirty edits and Undo across session
     pinnedSortOrder: 0,
     tabs: [],
   });
+}
+
+test("open SSH file and Untitled models keep dirty edits and Undo across session expiry", async () => {
+  addWorkspace();
+  const workspaces = useWorkspacesStore.getState();
+  const tabs = useTabsStore.getState();
   tabs.createTab(workspaceId, { type: "editor", props: file });
   tabs.createTab(workspaceId, { type: "untitled", props: { untitledIndex: 1 } });
 
@@ -125,5 +149,30 @@ test("open SSH file and Untitled models keep dirty edits and Undo across session
     releaseModel(file);
     releaseModel(untitled);
     workspaces.remove(workspaceId);
+  }
+});
+
+test("a save invalidates an older encoding reopen and keeps the last applied encoding", async () => {
+  addWorkspace();
+  try {
+    await acquireModel(file);
+    // Applying a different encoding can leave the text and model version unchanged.
+    expect(await reloadModelFromDisk(file, "windows-1252")).toBe(true);
+    expect((await readFileForModel(file)).encoding).toBe("windows-1252");
+
+    const pending = Promise.withResolvers<typeof disk>();
+    readDisk.mockImplementationOnce(() => pending.promise);
+    const reopen = reloadModelFromDisk(file, "utf8");
+    syncLoadedValueAfterSave(file, disk.content);
+    pending.resolve({ ...disk, content: "older disk" });
+
+    expect(await reopen).toBe(false);
+    const resolved = getResolvedModel(file);
+    expect(resolved?.model.getValue()).toBe(disk.content);
+    expect(resolved?.encoding).toBe("windows-1252");
+    expect((await readFileForModel(file)).encoding).toBe("windows-1252");
+  } finally {
+    releaseModel(file);
+    useWorkspacesStore.getState().remove(workspaceId);
   }
 });

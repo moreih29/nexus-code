@@ -336,8 +336,8 @@ export const actionHandlers: {
     const tab = tabRecord(workspaceId, tabId);
     const input = fileOfTab(workspaceId, tab);
     if (!hasUnsavedChanges(workspaceId, tab)) return { filePath: input.filePath, reverted: false };
-    await reloadModelFromDisk(input);
-    return { filePath: input.filePath, reverted: !hasUnsavedChanges(workspaceId, tab) };
+    const applied = await reloadModelFromDisk(input);
+    return { filePath: input.filePath, reverted: applied && !hasUnsavedChanges(workspaceId, tab) };
   },
 
   "browser.open": async ({ workspaceId, url, placement }) => {

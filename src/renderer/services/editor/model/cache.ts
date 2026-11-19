@@ -365,15 +365,15 @@ export function getEntryLspVersion(cacheUri: string): number | null {
 }
 
 /**
- * Reload the model entry for `input` from disk, replacing the buffer with
- * the on-disk content. Used by the conflict-resolution "reload" path.
- * Returns false when no tracked entry exists for the input.
+ * Ask to revert a buffer to disk, or reopen a clean buffer in `encoding`.
+ * Returns true only when the requested disk result was applied.
  */
-export async function reloadModelFromDisk(input: EditorInput): Promise<boolean> {
+export async function reloadModelFromDisk(
+  input: EditorInput,
+  encoding?: TextEncoding,
+): Promise<boolean> {
   const entry = entries.get(cacheUriForInput(input));
-  if (!entry) return false;
-  await reloadEntryFromDisk(entry);
-  return true;
+  return entry ? reloadEntryFromDisk(entry, encoding) : false;
 }
 
 /**

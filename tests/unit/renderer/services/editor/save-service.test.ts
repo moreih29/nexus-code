@@ -447,6 +447,23 @@ describe("saveModelInteractive — conflict, user chooses reload", () => {
     // Only the initial conflicting write — no retry
     expect(ipcCallMock).toHaveBeenCalledTimes(1);
   });
+
+  test("reports a skipped conflict reload as superseded so close keeps the buffer open", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({
+        ok: true as const,
+        value: {
+          kind: "conflict",
+          actual: { exists: true, mtime: "T2", size: 99 },
+        },
+      }),
+    );
+    showConflictResolutionMock.mockImplementation(() => Promise.resolve("reload"));
+    reloadModelFromDiskMock.mockImplementationOnce(async () => false);
+
+    expect((await saveModelInteractive(INPUT)).kind).toBe("superseded");
+  });
 });
 
 describe("saveModelInteractive — conflict, user chooses overwrite", () => {
