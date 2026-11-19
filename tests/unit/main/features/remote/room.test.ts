@@ -618,6 +618,145 @@ describe("the protocol a device speaks", () => {
   });
 });
 
+describe("the host's file reads", () => {
+  const read = (path: string) => ({ workspaceId: "w", path, as: "bytes" as const, length: 1 });
+  const answered = { kind: "bytes", path: "/w/f", offset: 0, size: 1, data: "QQ==" } as const;
+
+  test("one over the budget is told it is busy each, and the rest are read within the budget", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let active = 0;
+    let peak = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const host = device(relay, "host", key, {
+      serves: ["files"],
+      requestTimeoutMs: 5000,
+      serve: async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await gate;
+        active--;
+        return answered;
+      },
+    });
+    const client = device(relay, "client", key, { requestTimeoutMs: 5000 });
+    host.room.start();
+    client.room.start();
+    try {
+      await tick();
+      // 8 reading, 32 waiting; the five after those are refused.
+      const requests = Array.from({ length: 45 }, (_, i) =>
+        client.room.request("host", "files.read", read(`/w/${i}`)).then(
+          () => "read" as const,
+          (e: RpcFailure) => e,
+        ),
+      );
+      const refused = await Promise.race([
+        Promise.all(requests.slice(40)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]);
+      // Told while the reads still wait, not after the request timeout.
+      expect(refused).not.toBeNull();
+      for (const failure of refused ?? []) {
+        expect(failure).toMatchObject({ code: RpcErrorCode.Unavailable });
+        expect((failure as RpcFailure).message).toContain("busy");
+      }
+      release();
+      const rest = await Promise.all(requests.slice(0, 40));
+      expect(rest.every((outcome) => outcome === "read")).toBe(true);
+      expect(peak).toBe(8);
+    } finally {
+      release();
+      client.room.stop();
+      host.room.stop();
+    }
+  });
+
+  test("a read waits for a backed-up socket to drain before the host answers it", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let buffered = 1 << 30;
+    let served = 0;
+    const host = device(relay, "host", key, {
+      serves: ["files"],
+      requestTimeoutMs: 5000,
+      serve: async () => {
+        served++;
+        return answered;
+      },
+      connect: (handlers) => {
+        const connection = relay.connection(
+          { id: "host", name: "host-pc", platform: "darwin" },
+          handlers,
+        );
+        return Object.defineProperty(connection, "bufferedAmount", { get: () => buffered });
+      },
+    });
+    const client = device(relay, "client", key, { requestTimeoutMs: 5000 });
+    host.room.start();
+    client.room.start();
+    try {
+      await tick();
+      const pending = client.room.request("host", "files.read", read("/w/f"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(served).toBe(0);
+      buffered = 0;
+      await expect(pending).resolves.toMatchObject({ kind: "bytes" });
+      expect(served).toBe(1);
+    } finally {
+      client.room.stop();
+      host.room.stop();
+    }
+  });
+
+  test("a read queued for a device that went away is dropped and does not hold the budget", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let served = 0;
+    const host = device(relay, "host", key, {
+      serves: ["files"],
+      requestTimeoutMs: 5000,
+      serve: async () => {
+        served++;
+        await gate;
+        return answered;
+      },
+    });
+    const leaving = device(relay, "leaving", key, { requestTimeoutMs: 200 });
+    const staying = device(relay, "staying", key, { requestTimeoutMs: 5000 });
+    host.room.start();
+    leaving.room.start();
+    staying.room.start();
+    try {
+      await tick();
+      // Fill the 8 reads, then queue one from a device that leaves.
+      const holding = Array.from({ length: 8 }, (_, i) =>
+        staying.room.request("host", "files.read", read(`/w/${i}`)).catch(() => null),
+      );
+      await tick();
+      const lost = leaving.room.request("host", "files.read", read("/w/gone")).catch(() => null);
+      await tick();
+      leaving.room.stop();
+      await lost;
+      release();
+      await Promise.all(holding);
+      await staying.room.request("host", "files.read", read("/w/after"));
+      expect(served).toBe(9);
+    } finally {
+      release();
+      staying.room.stop();
+      host.room.stop();
+    }
+  });
+});
+
 test("peer cache transfer through sealed room requests on open, reopen and same-size edit", async () => {
   const relay = new MockRelay();
   const key = await roomKey();
