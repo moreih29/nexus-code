@@ -883,7 +883,7 @@
       "exited_codex": "Codex exited",
       "restarted_codex": "Codex started again",
       "not_resumed": "Couldn't go on with the earlier conversation; started a new one",
-      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one",
+      "not_resumed_codex": "Couldn't resume the earlier Codex conversation",
       "review": "Code review",
       "goal_set": "Goal set",
       "goal_cleared": "Goal cleared",

@@ -131,6 +131,19 @@ function tab(respond?: (message: Message) => unknown | Promise<unknown>): Contro
 
 const order = () => sent.map((m) => m.method);
 
+/** Streams a scripted app-server's lines with no real startup delay. */
+function scriptProgram(c: Controller, reply: (message: Message) => Message): void {
+  const line = (dir: "sys" | "in" | "out", message: Message) =>
+    c.receive({ seq: ++lineSeq, dir, message } as never);
+  onStart = () => line("sys", { event: "start" });
+  onStop = () => line("sys", { event: "exit", code: 0 });
+  codex = (message) => {
+    sent.push(message);
+    line("in", message);
+    if (message.id !== undefined) line("out", { id: message.id, ...reply(message) });
+  };
+}
+
 test("closing a Codex tab during replay cannot open a new program once replay ends", async () => {
   const c = tab();
   const replay = Promise.withResolvers<unknown>();
@@ -200,6 +213,51 @@ test("Codex stays unready until resume returns the requested thread", async () =
   expect(await prepared).toBeInstanceOf(Error);
   expect(phase).toBe("starting");
   expect(c.state.error).toBe("Codex did not return the requested thread");
+});
+
+test("a failed restored Codex resume keeps the thread and waits for an explicit retry", async () => {
+  const c = tab();
+  let canResume = false;
+  scriptProgram(c, (message) => {
+    if (message.method === "thread/resume") {
+      return canResume
+        ? { result: { thread: { id: "t1" } } }
+        : { error: { code: -32600, message: "no rollout found for thread id t1" } };
+    }
+    if (message.method === "thread/start") return { result: { thread: { id: "wrong" } } };
+    if (message.method === "turn/start") return { result: { turn: { id: "sent" } } };
+    return { result: {} };
+  });
+  await expect(c.send("preserve this prompt")).rejects.toThrow();
+  expect(c.currentThread()).toBe("t1");
+  expect(c.state.phase).toBe("failed");
+  expect(order()).not.toContain("thread/start");
+  expect(order()).not.toContain("turn/start");
+
+  canResume = true;
+  await c.send("preserve this prompt");
+  expect(sent.find((message) => message.method === "turn/start")?.params).toMatchObject({
+    threadId: "t1",
+    input: [{ type: "text", text: "preserve this prompt" }],
+  });
+});
+
+test("a known empty Codex thread can be replaced when it has no rollout", async () => {
+  const c = new CodexController({ workspaceId: "ws-codex-handshake", tabId: "empty", cwd: "/p" });
+  live.push(c);
+  let count = 0;
+  scriptProgram(c, (message) => {
+    if (message.method === "thread/start")
+      return { result: { thread: { id: `empty-${++count}` } } };
+    if (message.method === "thread/resume")
+      return { error: { code: -32600, message: "no rollout found for thread id empty-1" } };
+    return { result: {} };
+  });
+  await c.prepareSend();
+  expect(c.currentThread()).toBe("empty-1");
+  await c.restart();
+  expect(c.state.phase).toBe("ready");
+  expect(c.currentThread()).toBe("empty-2");
 });
 
 test("resumes a Codex thread after agent replacement and queues against the new log", async () => {

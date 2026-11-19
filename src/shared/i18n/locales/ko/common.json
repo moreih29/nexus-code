@@ -883,7 +883,7 @@
       "exited_codex": "Codex가 종료됨",
       "restarted_codex": "Codex가 다시 시작됨",
       "not_resumed": "이전 대화를 이어갈 수 없어 새 대화로 시작함",
-      "not_resumed_codex": "이전 Codex 대화를 이어갈 수 없어 새 대화로 시작함",
+      "not_resumed_codex": "이전 Codex 대화를 다시 열지 못함",
       "review": "코드 리뷰",
       "goal_set": "목표 설정",
       "goal_cleared": "목표 지움",

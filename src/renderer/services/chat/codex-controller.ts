@@ -240,6 +240,8 @@ export class CodexController {
   private stoppingTurn?: string;
   private deferToolSendsForTurn?: string;
   private resumingSelection = false;
+  /** A thread started here that has yet to see any turn. */
+  private emptyThread?: string;
   private canonicalCwd: string | undefined;
   private agentRefresh: ReturnType<typeof setTimeout> | undefined;
   private readonly readingAgents = new Map<string, Promise<void>>();
@@ -511,18 +513,31 @@ export class CodexController {
           excludeTurns: this.model.items.length > 0,
         });
       } catch (err) {
-        const message = (err as Error).message;
-        log.warn(`thread ${threadId} not resumed: ${message}`);
-        if (this.resumingSelection) throw err;
+        if (!this.canReplaceEmptyThread(threadId, err)) throw err;
+        log.info(`starting again after Codex discarded empty thread ${threadId}`);
       }
       if (resumed) {
         requireThreadId(resumed, threadId);
+        this.emptyThread = undefined;
         this.readGoal(threadId);
         return true;
       }
     }
-    requireThreadId(await this.request("thread/start", threadStartParams(this.target, this.next)));
+    this.emptyThread = requireThreadId(
+      await this.request("thread/start", threadStartParams(this.target, this.next)),
+    );
     return true;
+  }
+
+  /** A missing rollout is safe to replace only when this tab knows the thread was empty. */
+  private canReplaceEmptyThread(threadId: string, error: unknown): boolean {
+    return (
+      !this.resumingSelection &&
+      this.emptyThread === threadId &&
+      !this.model.items.some((item) => item.kind !== "notice") &&
+      error instanceof CodexReplyError &&
+      error.message === `no rollout found for thread id ${threadId}`
+    );
   }
 
   private async forkThread(
@@ -1324,7 +1339,7 @@ export class CodexController {
     const collaboration = this.collaborationChange;
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
-    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    if (!(await this.ensureRunning())) throw new Error(this.state.error ?? "Codex is not running");
     if (!(await this.ready)) throw new Error(this.state.error ?? "Codex has no thread to send to");
     // A message sent while a mode change is pending must use the newly
     // acknowledged mode. A failed switch must leave the draft unsent.
@@ -1358,6 +1373,7 @@ export class CodexController {
     }
     const threadId = this.model.threadId;
     if (!threadId) throw new Error("Codex has no thread to send to");
+    this.emptyThread = undefined;
     const said = from && text ? relayedText(from, text) : text;
     const input = [
       ...(said ? [{ type: "text", text: said, text_elements: [] }] : []),
@@ -2009,6 +2025,7 @@ export class CodexController {
     const before = this.model;
     const model = applyCodexLines(before, lines);
     if (model === before) return;
+    if (model.running || model.lastResult) this.emptyThread = undefined;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
     if (model.threadId && model.threadId !== this.target.threadId) {
       this.target = { ...this.target, threadId: model.threadId, fork: undefined };
