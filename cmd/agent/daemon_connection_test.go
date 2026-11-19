@@ -157,7 +157,7 @@ func TestDaemonSurvivesAResetConnection(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	first, readyA := readReady(t, sockPath)
 	defer first.Close()
@@ -198,7 +198,7 @@ func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	if ready := dialer.nextLine(t); !strings.Contains(ready, `"ready"`) {
@@ -243,7 +243,7 @@ func TestDialerEndsWhenItsDaemonGoes(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -264,7 +264,7 @@ func TestDialerTakenOverIsToldSo(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -295,7 +295,7 @@ func TestDialerEndsCleanlyWhenTheAppCloses(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -319,7 +319,7 @@ func TestDaemonGreetsEachDialerWithReadyFirst(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	conn, _ := readReady(t, sockPath)
 	spawnOn(t, conn, "tab", root, "yes")

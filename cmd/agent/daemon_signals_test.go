@@ -89,7 +89,7 @@ func startDaemonForSignals(t *testing.T) (net.Conn, string) {
 	bin := agentBinary(t)
 	root := t.TempDir()
 	runDir := launchDaemonLikeBootstrap(t, bin, root, shortHome(t))
-	conn, _ := readReady(t, waitForSocket(t, runDir))
+	conn, _ := readReady(t, waitForSocket(t, runDir, root))
 	t.Cleanup(func() {
 		_, _ = conn.Write([]byte(`{"id":"bye","method":"agent.shutdown"}` + "\n"))
 		_ = conn.Close()
@@ -175,7 +175,7 @@ func TestDaemonSurvivesHangupAndInterrupt(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 	first, _ := readReady(t, sockPath)
 	defer first.Close()
 

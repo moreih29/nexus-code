@@ -104,6 +104,9 @@ const reattachGrace = 300 * time.Second
 // only exits this much later.
 const lockRetryWindow = 250 * time.Millisecond
 
+// daemonListeningMessage announces that the daemon can accept its first dialer.
+const daemonListeningMessage = "daemon listening"
+
 // shutdownReplyDelay is how long the daemon waits after answering
 // agent.shutdown before it exits, so the reply reaches the dialer.
 const shutdownReplyDelay = 100 * time.Millisecond
@@ -545,6 +548,7 @@ func runDaemon(root string) {
 	}
 
 	// Main serve loop.
+	agentLogger.Info(daemonListeningMessage)
 	conn := waitForDialer("initial-connect")
 
 	for conn != nil {
