@@ -53,13 +53,23 @@ func newServerIDPrefix() string {
 // document wrong until it is reopened.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.spawn", service.Spawn)
-	d.RegisterOrdered("lsp.send", service.Send)
-	d.RegisterOrdered("lsp.notify", service.Notify)
-	d.RegisterOrdered("lsp.cancel", service.Cancel)
+	d.RegisterOrderedBy("lsp.send", service.Send, serverQueueKey)
+	d.RegisterOrderedBy("lsp.notify", service.Notify, serverQueueKey)
+	d.RegisterOrderedBy("lsp.cancel", service.Cancel, serverQueueKey)
 	d.Register("lsp.shutdown", service.Shutdown)
-	d.RegisterOrdered("lsp.respondServerRequest", service.RespondServerRequest)
+	d.RegisterOrderedBy("lsp.respondServerRequest", service.RespondServerRequest, serverQueueKey)
 	d.Register("lsp.stats", service.Stats)
 	d.Register("lsp.findBinary", service.FindBinary)
+}
+
+// serverQueueKey keeps document updates, requests and cancellations for one
+// server in the same arrival queue.
+func serverQueueKey(raw json.RawMessage) string {
+	var params struct {
+		ServerID string `json:"serverId"`
+	}
+	_ = json.Unmarshal(raw, &params)
+	return "lsp:" + params.ServerID
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.
@@ -133,10 +143,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 
 		InitializationOptions: p.InitializationOptions,
 	}, idleTimeout)
-	s.storeServer(server)
-
-	if err := server.start(ctx); err != nil {
-		s.removeServer(serverID, server)
+	if err := s.startServer(ctx, server); err != nil {
 		return nil, err
 	}
 
@@ -160,6 +167,18 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	server.resetIdleTimer()
 	return SpawnResult{ServerID: serverID, Capabilities: capabilities, ServerInfo: serverInfo}, nil
+}
+
+// startServer publishes the child and its pipes together. A concurrent close
+// or early process exit can only see the fully started process.
+func (s *Service) startServer(ctx context.Context, server *serverProcess) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := server.start(ctx); err != nil {
+		return err
+	}
+	s.servers[server.id] = server
+	return nil
 }
 
 // Stats reports the memory each server takes, with the processes it
@@ -192,7 +211,7 @@ func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
 	return result, nil
 }
 
-func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
 	if err := decodeParams(raw, &p, "lsp.send params must include serverId and message"); err != nil {
 		return nil, err
@@ -202,7 +221,7 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	server.resetIdleTimer()
-	if err := server.sendRaw(p.Message); err != nil {
+	if err := server.sendRaw(ctx, p.Message); err != nil {
 		return nil, err
 	}
 	return struct{}{}, nil
@@ -214,7 +233,7 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 // a semantically-empty round-trip on every keystroke.  The handler forwards
 // the message to the LSP child process and returns a void ack just like Send,
 // but having a dedicated method name keeps the intent unambiguous on both sides.
-func (s *Service) Notify(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Notify(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p NotifyParams
 	if err := decodeParams(raw, &p, "lsp.notify params must include serverId and message"); err != nil {
 		return nil, err
@@ -224,13 +243,13 @@ func (s *Service) Notify(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	server.resetIdleTimer()
-	if err := server.sendRaw(p.Message); err != nil {
+	if err := server.sendRaw(ctx, p.Message); err != nil {
 		return nil, err
 	}
 	return struct{}{}, nil
 }
 
-func (s *Service) Cancel(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) Cancel(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p CancelParams
 	if err := decodeParams(raw, &p, "lsp.cancel params must include serverId and requestId"); err != nil {
 		return nil, err
@@ -243,7 +262,7 @@ func (s *Service) Cancel(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	server.resetIdleTimer()
-	if err := server.cancel(p.RequestID); err != nil {
+	if err := server.cancel(ctx, p.RequestID); err != nil {
 		return nil, err
 	}
 	return struct{}{}, nil
@@ -266,7 +285,7 @@ func (s *Service) Shutdown(ctx context.Context, raw json.RawMessage) (any, error
 	return struct{}{}, nil
 }
 
-func (s *Service) RespondServerRequest(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) RespondServerRequest(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RespondServerRequestParams
 	if err := decodeParams(raw, &p, "lsp.respondServerRequest params must include serverId and agentRequestId"); err != nil {
 		return nil, err
@@ -289,7 +308,7 @@ func (s *Service) RespondServerRequest(_ context.Context, raw json.RawMessage) (
 		return nil, err
 	}
 	server.resetIdleTimer()
-	if err := server.respondServerRequest(p); err != nil {
+	if err := server.respondServerRequest(ctx, p); err != nil {
 		return nil, err
 	}
 	return struct{}{}, nil
@@ -307,12 +326,6 @@ func (s *Service) nextAgentRequestID(serverID string) string {
 	defer s.mu.Unlock()
 	s.nextAgentSeq++
 	return fmt.Sprintf("%s-server-request-%d", serverID, s.nextAgentSeq)
-}
-
-func (s *Service) storeServer(server *serverProcess) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.servers[server.id] = server
 }
 
 func (s *Service) removeServer(id string, expected *serverProcess) {
