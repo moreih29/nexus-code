@@ -18,7 +18,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, spyOn, test } from "bun:test";
+import { describe, expect, jest, mock, spyOn, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
@@ -44,7 +44,7 @@ class StubChannel {
   disposed = false;
   hookInfo = mock(async (): Promise<unknown> => ({ socketPath: "/tmp/hook.sock", token: "tok" }));
   readonly spawns: Array<{ env: Record<string, string> }> = [];
-  onChatClose?: (params: unknown) => Promise<void>;
+  onChatClose?: (params: unknown, options?: { timeoutMs?: number }) => Promise<void>;
 
   constructor() {
     this.ready = new Promise<void>((res) => {
@@ -52,11 +52,11 @@ class StubChannel {
     });
   }
 
-  async call(method: string, params?: unknown): Promise<unknown> {
+  async call(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<unknown> {
     if (method === "hook.getInfo") return this.hookInfo();
     if (method === "lsp.findBinary") return { path: "/stub/model" };
     if (method === "chat.exec") return { code: 0, stdout: "2.1.400" };
-    if (method === "chat.close") return this.onChatClose?.(params);
+    if (method === "chat.close") return this.onChatClose?.(params, options);
     if (method === "chat.start" || method === "pty.spawn") {
       this.spawns.push(params as (typeof this.spawns)[number]);
       return { pid: 1 };
@@ -180,6 +180,59 @@ test("workspace removal keeps its local agent alive until restored chats are clo
     expect(channel.disposed).toBe(true);
     expect(manager.list()).toEqual([]);
   } finally {
+    host.dispose();
+    globalDb.close();
+  }
+});
+
+test("workspace removal finishes within five seconds when chat.close never replies", async () => {
+  const harness = makeHarness();
+  const { manager, channels, globalDb } = harness;
+  const host = new ChatHost({ workspaceManager: manager, broadcast: () => {} });
+  manager.setChatSessionCloser((id, channel) => host.closeWorkspace(id, channel));
+  const response = Promise.withResolvers<void>();
+  let removing: Promise<void> | undefined;
+  try {
+    const { id } = await bootLocalWorkspace(harness);
+    spyOn(manager, "getWrapperBinDir").mockReturnValue("/stub/bin");
+    spyOn(manager, "getWrapperAgentBin").mockReturnValue("/stub/bin/agent");
+    spyOn(manager, "getWrapperShimDir").mockReturnValue("/stub/shim");
+    await host.startCodex(id, "open-chat", "/project", {});
+    const task = manager.create({
+      rootPath: "/stub/task",
+      name: "task",
+      task: { parentId: id, branch: "task", worktreePath: "/stub/task" },
+    });
+    await host.startCodex(task.id, "task-chat", "/stub/task", {});
+    const started = Promise.withResolvers<void>();
+    const timeouts: (number | undefined)[] = [];
+    for (const channel of channels) {
+      channel.onChatClose = (_params, options) => {
+        timeouts.push(options?.timeoutMs);
+        started.resolve();
+        return response.promise;
+      };
+    }
+    jest.useFakeTimers();
+    removing = manager.remove(id);
+    await started.promise;
+    jest.advanceTimersByTime(5000);
+    jest.useRealTimers();
+    const checkpoint = new Promise<string>((resolve) => setImmediate(() => resolve("pending")));
+    expect(await Promise.race([removing.then(() => "removed"), checkpoint])).toBe("removed");
+    expect(timeouts).toEqual([5000, 5000]);
+    expect(channels.every((channel) => channel.disposed)).toBe(true);
+    expect(manager.list()).toEqual([]);
+    const tracking = host as unknown as {
+      tabIntents: ReadonlyMap<string, unknown>;
+      closingTabs: ReadonlyMap<string, unknown>;
+    };
+    expect(tracking.tabIntents.size).toBe(0);
+    expect(tracking.closingTabs.size).toBe(0);
+  } finally {
+    jest.useRealTimers();
+    response.resolve();
+    await removing;
     host.dispose();
     globalDb.close();
   }

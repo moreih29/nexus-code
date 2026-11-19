@@ -921,12 +921,9 @@ export class WorkspaceManager {
   private async removeWorkspace(id: string, ctx: WorkspaceContext): Promise<void> {
     // A workspace's tasks go with it. Their worktrees stay on disk; git
     // forgets one once its folder is deleted (`git worktree prune`).
-    for (const task of this.list()) {
-      if (task.task?.parentId === id) {
-        const removing = this.remove(task.id);
-        if (this.chatSessionCloser) await removing;
-      }
-    }
+    const taskRemovals = this.list()
+      .filter((task) => task.task?.parentId === id)
+      .map((task) => this.remove(task.id));
 
     // Step 1 — terminate all PTY sessions for this workspace *before* the
     // context is deleted. This prevents the renderer's post-removal pty.kill
@@ -943,11 +940,11 @@ export class WorkspaceManager {
         (status === "connected" || status === "unstable"
           ? this.remote.sshChannels.get(id)
           : undefined);
-      try {
-        await this.chatSessionCloser(id, channel ?? null);
-      } catch (error) {
+      const closingChats = this.chatSessionCloser(id, channel ?? null).catch((error: unknown) => {
         log.warn(`chat cleanup failed for removed workspace ${id}: ${String(error)}`);
-      }
+      });
+      // Start the parent's close while child workspaces close their chats.
+      await Promise.all([...taskRemovals, closingChats]);
     }
 
     // Step 1b — destroy all browser views for this workspace and schedule

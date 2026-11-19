@@ -29,6 +29,8 @@ const log = createLogger("chat-host");
 
 /** How long `claude --version` may take: a first run can unpack itself. */
 const VERSION_TIMEOUT_MS = 20_000;
+/** How long workspace removal waits for its chats, including queued requests. */
+const WORKSPACE_CHAT_CLOSE_MS = 5000;
 /** How long a `claude` command may take: an install fetches the plugin. */
 const COMMAND_TIMEOUT_MS = 30_000;
 
@@ -74,6 +76,12 @@ interface Subscription {
 interface TabIntent {
   generation: string;
   starts: Set<Promise<unknown>>;
+}
+
+interface WorkspaceChatClose {
+  readonly channel: AgentChannel | null;
+  readonly deadline: number;
+  readonly expired: Promise<never>;
 }
 
 /** Owns chat programs and events for the desktop's workspace channels. */
@@ -307,26 +315,36 @@ export class ChatHost {
   private async closeTab(
     workspaceId: string,
     tabId: string,
-    capturedChannel?: AgentChannel | null,
+    removal?: WorkspaceChatClose,
   ): Promise<unknown> {
     const key = `${workspaceId}:${tabId}`;
     const intent = this.tabIntents.get(key);
     const previous = this.closingTabs.get(key);
-    if (previous && !intent) return previous;
+    if (previous && !intent && !removal) return previous;
     this.tabIntents.delete(key);
+    const close = async () => {
+      if (removal?.channel === null) return;
+      if (previous) {
+        if (!intent) return previous;
+        await previous.catch(() => undefined);
+      }
+      if (intent) await Promise.allSettled(intent.starts);
+      const params = {
+        workspaceId,
+        tabId,
+        ...(intent ? { tabGeneration: intent.generation } : {}),
+      };
+      if (removal) {
+        const timeoutMs = removal.deadline - Date.now();
+        if (timeoutMs <= 0) return removal.expired;
+        return removal.channel.call("chat.close", params, { timeoutMs });
+      }
+      const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+      return channel?.call("chat.close", params);
+    };
     const run = (async () => {
-      if (previous) await previous.catch(() => undefined);
-      if (intent && capturedChannel !== null) await Promise.allSettled(intent.starts);
       try {
-        const channel =
-          capturedChannel === undefined
-            ? await this.options.workspaceManager.tryGetAgentChannel(workspaceId)
-            : capturedChannel;
-        return await channel?.call("chat.close", {
-          workspaceId,
-          tabId,
-          ...(intent ? { tabGeneration: intent.generation } : {}),
-        });
+        return await (removal ? Promise.race([close(), removal.expired]) : close());
       } finally {
         this.subscriptions.get(workspaceId)?.processes.delete(tabId);
         this.options.onProgramExit?.(workspaceId, tabId);
@@ -523,9 +541,16 @@ export class ChatHost {
     this.workspaces.delete(workspaceId);
     subscription?.dispose();
     this.subscriptions.delete(workspaceId);
+    if (tabIds.size === 0) return;
+    const deadline = Date.now() + WORKSPACE_CHAT_CLOSE_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("chat.close timed out")), WORKSPACE_CHAT_CLOSE_MS);
+    });
+    const removal = { channel, deadline, expired };
     const results = await Promise.allSettled(
-      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, channel)),
-    );
+      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
+    ).finally(() => clearTimeout(timer));
     for (const result of results) {
       if (result.status === "rejected")
         log.warn(
