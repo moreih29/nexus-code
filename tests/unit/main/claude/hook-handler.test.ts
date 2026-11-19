@@ -7,7 +7,7 @@
  *   (which releases the hook process).
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 
 // electron mock — must be declared before the dynamic import.
 mock.module("electron", () => ({
@@ -47,8 +47,15 @@ const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-
 // Helpers
 // ---------------------------------------------------------------------------
 
+interface ShownNotification {
+  title: string;
+  body: string;
+  shown: boolean;
+  close: () => void;
+}
+
 function makeNotificationCtor() {
-  const instances: Array<{ title: string; body: string; shown: boolean }> = [];
+  const instances: ShownNotification[] = [];
   class FakeNotification {
     title: string;
     body: string;
@@ -56,7 +63,12 @@ function makeNotificationCtor() {
     constructor(opts: { title: string; body: string }) {
       this.title = opts.title;
       this.body = opts.body;
-      instances.push({ title: opts.title, body: opts.body, shown: false });
+      instances.push({
+        title: opts.title,
+        body: opts.body,
+        shown: false,
+        close: () => this.handlers.close?.(),
+      });
     }
     on(event: string, cb: () => void) {
       this.handlers[event] = cb;
@@ -138,7 +150,7 @@ interface Harness {
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
-  notifInstances: Array<{ title: string; body: string; shown: boolean }>;
+  notifInstances: ShownNotification[];
   FakeNotification: new (opts: {
     title: string;
     body: string;
@@ -954,6 +966,20 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
       ["claude.respondHook", { hookId: hook.hookId, response: { exitCode: 0 } }],
     ]);
   });
+});
+
+test("dismissing a Claude notification cancels its fallback timer", async () => {
+  jest.useFakeTimers();
+  try {
+    const { notifInstances, emit } = makeHarness();
+    emit(makeHookPayload("notification", { message: "Input needed" }));
+    await Promise.resolve();
+    expect(jest.getTimerCount()).toBe(1);
+    notifInstances[0]?.close();
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("a terminal exit rejects a late hook from the ended Claude turn", async () => {
