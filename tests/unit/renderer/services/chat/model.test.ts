@@ -81,6 +81,48 @@ test("a Claude interrupt rejection clears only the matching pending request", ()
 });
 
 describe("chat model from a recorded conversation", () => {
+  test("a Claude result closes foreground permissions and tools while background work continues", () => {
+    const tool = (id: string, input: Record<string, unknown> = {}) => ({
+      id,
+      name: "Bash",
+      input,
+      status: "running" as const,
+      parentToolUseId: null,
+    });
+    const model: ChatModel = {
+      ...emptyModel(),
+      running: true,
+      permissions: [
+        { requestId: "foreground", toolName: "Bash", input: {}, suggestions: [] },
+        { requestId: "background", toolName: "Bash", input: {}, suggestions: [], agentId: "agent" },
+      ],
+      tools: {
+        foreground: tool("foreground"),
+        background: tool("background", { run_in_background: true }),
+      },
+      tasks: {
+        agent: {
+          taskId: "agent",
+          type: "local_agent",
+          description: "background",
+          status: "running",
+          backgrounded: true,
+        },
+      },
+    };
+    const finished = applyLine(model, {
+      seq: 1,
+      dir: "out",
+      at: 2000,
+      message: { type: "result", subtype: "success", is_error: true, result: "failed" },
+    });
+    expect(finished.running).toBe(false);
+    expect(finished.permissions.map((request) => request.requestId)).toEqual(["background"]);
+    expect(finished.tools.foreground.status).toBe("stopped");
+    expect(finished.tools.background.status).toBe("running");
+    expect(finished.tasks.agent.status).toBe("running");
+  });
+
   test("the whole conversation", () => {
     const model = run(FIXTURE);
     expect(model.sessionId).toBe("f676b90f-cba3-42f4-85ac-18f5f3aaab1b");
@@ -571,6 +613,38 @@ describe("messages written during a turn", () => {
     expect(users(model)).toEqual(["go:taken", "second:sent:waiting"]);
     model = applyLine(model, echo(6, "second", "u-3"));
     expect(users(model)).toEqual(["go:taken", "second:taken"]);
+  });
+
+  test("log replay matches a waiting input by UUID before taking the oldest remaining one", () => {
+    const lines: ChatLine[] = [
+      sent(1, "go", "u-1"),
+      echo(2, "go", "u-1"),
+      sent(3, "first", "u-2"),
+      sent(4, "second", "u-3"),
+      toolUse(5),
+      echo(6, "second", "u-3"),
+      {
+        seq: 7,
+        dir: "out",
+        message: {
+          type: "user",
+          message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+        },
+      },
+      echo(8, "first", "cli-echo"),
+    ];
+    const model = run(lines.map((line) => ({ ...line, replay: true })));
+    expect(model.items).toMatchObject([
+      { kind: "user", state: "taken", uuid: "u-1" },
+      { kind: "assistant", blocks: [{ type: "tool", toolUseId: "t1" }] },
+      { kind: "user", state: "taken", uuid: "u-3", sentUuid: "u-3" },
+      { kind: "user", state: "taken", uuid: "cli-echo", sentUuid: "u-2" },
+    ]);
+    expect(model.tools.t1).toMatchObject({
+      name: "Bash",
+      status: "done",
+      result: { text: "done" },
+    });
   });
 
   test("one to read at once does not wait", () => {

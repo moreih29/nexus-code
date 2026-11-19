@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
 // MaxReadableFileSize caps how many bytes one fs.readFile / fs.writeFile call
@@ -47,7 +48,7 @@ type Service struct {
 
 	mu      sync.Mutex
 	watches map[string]*watchEntry
-	buffers map[string]FsChangeKind
+	buffers map[string]filewatch.FsChangeKind
 	timer   *time.Timer
 	sink    EventSink
 }
@@ -63,7 +64,7 @@ func New(root string) (*Service, error) {
 	return &Service{
 		root:    filepath.Clean(abs),
 		watches: make(map[string]*watchEntry),
-		buffers: make(map[string]FsChangeKind),
+		buffers: make(map[string]filewatch.FsChangeKind),
 	}, nil
 }
 

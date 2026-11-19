@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	agentfs "github.com/nexus-code/nexus-code/internal/fs"
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
 const (
@@ -45,7 +45,7 @@ type watchedFileGlob struct {
 
 // HandleFSChanged routes one already-debounced fs.changed payload to active LSP
 // servers that successfully registered workspace/didChangeWatchedFiles.
-func (s *Service) HandleFSChanged(payload agentfs.FsChangedPayload) error {
+func (s *Service) HandleFSChanged(payload filewatch.FsChangedPayload) error {
 	if len(payload.Changes) == 0 {
 		return nil
 	}
@@ -173,7 +173,7 @@ func (p *serverProcess) addWatchedFileRegistrations(registrations []watchedFileR
 	p.watchedFileRegistrations = append(p.watchedFileRegistrations, registrations...)
 }
 
-func (p *serverProcess) matchingWatchedFileChanges(changes []agentfs.FsChange) []lspFileEvent {
+func (p *serverProcess) matchingWatchedFileChanges(changes []filewatch.FsChange) []lspFileEvent {
 	p.mu.Lock()
 	registrations := append([]watchedFileRegistration(nil), p.watchedFileRegistrations...)
 	p.mu.Unlock()
@@ -228,13 +228,13 @@ func (r watchedFileRegistration) matchesNormalized(relPath string) bool {
 	return false
 }
 
-func lspFileChangeType(kind agentfs.FsChangeKind) (int, bool) {
+func lspFileChangeType(kind filewatch.FsChangeKind) (int, bool) {
 	switch kind {
-	case agentfs.FsChangeAdded:
+	case filewatch.FsChangeAdded:
 		return lspFileChangeCreated, true
-	case agentfs.FsChangeModified:
+	case filewatch.FsChangeModified:
 		return lspFileChangeChanged, true
-	case agentfs.FsChangeDeleted:
+	case filewatch.FsChangeDeleted:
 		return lspFileChangeDeleted, true
 	default:
 		return 0, false

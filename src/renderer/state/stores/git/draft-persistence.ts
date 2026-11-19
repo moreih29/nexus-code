@@ -11,6 +11,7 @@
  */
 
 import { createLogger } from "../../../../shared/log/renderer";
+import { createKeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
 import {
   GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
   GIT_STATUS_HINT_DEBOUNCE_MS,
@@ -23,7 +24,7 @@ const log = createLogger("git");
 
 const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingDraftSaves = new Map<string, string>();
-const statusHintTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const statusHints = createKeyedDebouncer<string>({ delayMs: GIT_STATUS_HINT_DEBOUNCE_MS });
 
 /**
  * Schedule a per-workspace commit-draft write; repeated keystrokes reset
@@ -87,25 +88,16 @@ export function flushAllCommitDraftSaves(): void {
  * as a passive status hint and refresh without claiming the operation spinner.
  */
 export function scheduleStatusHintRefresh(workspaceId: string): void {
-  const existing = statusHintTimers.get(workspaceId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const handle = setTimeout(() => {
-    statusHintTimers.delete(workspaceId);
+  statusHints.schedule(workspaceId, () => {
     void refreshStatusFromHint(workspaceId);
-  }, GIT_STATUS_HINT_DEBOUNCE_MS);
-  statusHintTimers.set(workspaceId, handle);
+  });
 }
 
 /**
  * Cancel a queued passive status hint when the workspace session disappears.
  */
 export function cancelStatusHintRefresh(workspaceId: string): void {
-  const existing = statusHintTimers.get(workspaceId);
-  if (existing) clearTimeout(existing);
-  statusHintTimers.delete(workspaceId);
+  statusHints.cancel(workspaceId);
 }
 
 /**

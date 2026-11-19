@@ -1,6 +1,7 @@
 package git
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -225,4 +226,14 @@ func newRemoteAndClient(t *testing.T, behind bool) (remote, client string) {
 	// The copy still points at the template's remote.
 	runGit(t, client, "remote", "set-url", "origin", remote)
 	return remote, client
+}
+
+// mustJSON marshals a request fixture for the Git service tests.
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

@@ -280,6 +280,11 @@ func ProtocolError(message string) CodedError {
 	return CodedError{Code: CodeProtocolError, Msg: message}
 }
 
+// RequestFailed formats a domain failure using the default RPC error code.
+func RequestFailed(format string, args ...any) CodedError {
+	return CodedError{Code: CodeRequestFailed, Msg: fmt.Sprintf(format, args...)}
+}
+
 // NewError builds a CodedError with an arbitrary stable code.
 // Domain handlers use this to attach a specific wire code (e.g.
 // CodeUnavailable) to an error return without constructing a

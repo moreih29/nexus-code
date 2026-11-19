@@ -7,6 +7,7 @@
 // later versions are ignored, and every field it may leave out is read as
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
+import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
 import { type ClaudeGoal, goalFeedbackReason } from "./goal";
 import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
@@ -23,6 +24,9 @@ export interface ChatLine {
   at?: number;
   replay?: boolean;
 }
+
+/** A transcript entry normalized for playback from an empty model. */
+export type TranscriptLine = ChatLine & { dir: "out"; replay: true };
 
 export interface ImageBlock {
   mediaType: string;
@@ -363,7 +367,9 @@ export interface ResultInfo {
   numTurns?: number;
   costUsd?: number;
   terminalReason?: string;
-  /** When the turn ended, in Unix milliseconds; told for Codex's turns. */
+  outcome?: ClaudeTurnResult["outcome"];
+  error?: string;
+  /** When the turn ended, in Unix milliseconds. */
   at?: number;
 }
 
@@ -517,7 +523,10 @@ export class Draft<M extends ChatModel = ChatModel> {
   private itemsCopied = false;
   private toolsCopied = false;
 
-  constructor(prev: M) {
+  constructor(
+    prev: M,
+    readonly matchSentInputs = true,
+  ) {
     this.next = { ...prev };
   }
 
@@ -576,10 +585,25 @@ function applyLineTo(draft: Draft, line: ChatLine, now: number): void {
  * transcript, or a frame's lines, took that many copies.
  */
 export function applyLines(prev: ChatModel, lines: readonly ChatLine[], now?: number): ChatModel {
+  return reduceLines(prev, lines, now, true);
+}
+
+/** Reconstructs a transcript from recorded output, which cannot contain pending app input. */
+export function applyTranscriptLines(lines: readonly TranscriptLine[]): ChatModel {
+  return reduceLines(emptyModel(), lines, undefined, false);
+}
+
+/** Applies one batch with the input matching policy of its source. */
+function reduceLines(
+  prev: ChatModel,
+  lines: readonly ChatLine[],
+  now: number | undefined,
+  matchSentInputs: boolean,
+): ChatModel {
   let draft: Draft | undefined;
   for (const line of lines) {
     if (line.seq <= (draft?.next ?? prev).lastSeq) continue;
-    draft ??= new Draft(prev);
+    draft ??= new Draft(prev, matchSentInputs);
     applyLineTo(draft, line, now ?? Date.now());
   }
   return draft?.next ?? prev;
@@ -1168,14 +1192,15 @@ function applyUserOut(
     // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
     const sent = (item: ChatItem) => item.kind === "user" && item.state === "sent";
-    let index = uuid
-      ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
-      : -1;
+    let index =
+      draft.matchSentInputs && uuid
+        ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
+        : -1;
     // One the app did not write may be no message of the user's at all: a
     // shell command run in the terminal, which no turn follows.
     if (index < 0 && applyShell(draft, said, seq, when)) return;
     const other = index < 0 ? notTheUsers(message, said) : null;
-    if (!other && index < 0) index = m.items.findIndex(sent);
+    if (draft.matchSentInputs && !other && index < 0) index = m.items.findIndex(sent);
     // Taken live after a turn ended, it begins the next one: one the user
     // sent as the last turn was ending, or one the CLI was given itself
     // (Remote Control, a background task's news). A transcript's messages
@@ -1270,14 +1295,29 @@ function applyUserOut(
 
 function applyResult(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
-  const subtype = str(message.subtype) ?? "success";
-  const isError = message.is_error === true || subtype !== "success";
-  const terminalReason = str(message.terminal_reason);
+  const { subtype, isError, terminalReason, outcome, detail } = claudeTurnResult(message);
   const turnId = m.turn?.id;
   m.running = false;
   m.turn = null;
   m.streaming = null;
   clearInterrupt(m);
+  const backgroundCalls = new Set(
+    Object.values(m.tasks)
+      .filter(
+        (task) => task.status === "running" && (task.backgrounded || task.type === "local_bash"),
+      )
+      .map((task) => task.toolUseId),
+  );
+  const background = (id: string | undefined) => {
+    const tool = id ? m.tools[id] : undefined;
+    return (
+      id !== undefined && (backgroundCalls.has(id) || rec(tool?.input)?.run_in_background === true)
+    );
+  };
+  m.permissions = m.permissions.filter(
+    (request) => request.agentId || background(request.toolUseId),
+  );
+  stopRunningTools(draft, (tool) => tool.parentToolUseId === null && !background(tool.id));
   const cost = num(message.total_cost_usd);
   if (cost !== undefined) {
     m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
@@ -1290,22 +1330,14 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     numTurns: num(message.num_turns),
     costUsd: num(message.total_cost_usd),
     terminalReason,
+    outcome,
+    at,
+    ...(outcome === "error" ? { error: detail } : {}),
   };
-  const interrupted =
-    terminalReason === "aborted_tools" ||
-    terminalReason === "aborted_streaming" ||
-    terminalReason === "interrupted";
-  if (interrupted) stopRunningTools(draft);
-  let error: string | undefined;
-  if (isError && !interrupted) {
-    const errors = Array.isArray(message.errors)
-      ? message.errors.filter((e) => typeof e === "string")
-      : [];
-    const detail = str(message.result) ?? (errors.length > 0 ? errors.join("\n") : subtype);
-    error = detail;
+  if (outcome === "error") {
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
   }
-  finishSubmittedTurn(draft, turnId, error);
+  finishSubmittedTurn(draft, turnId, outcome === "error" ? detail : undefined);
 }
 
 /** Remembers how a turn ended on the accepted messages it read. */
@@ -1737,9 +1769,12 @@ function accountOf(account: Rec | null): AccountInfo | undefined {
   return Object.values(info).some(Boolean) ? info : undefined;
 }
 
-export function stopRunningTools(draft: Draft): void {
+export function stopRunningTools(
+  draft: Draft,
+  isForeground: (tool: ToolCall) => boolean = () => true,
+): void {
   for (const tool of Object.values(draft.next.tools)) {
-    if (tool.status === "running" || tool.status === "streaming") {
+    if ((tool.status === "running" || tool.status === "streaming") && isForeground(tool)) {
       draft.setTool(tool.id, (t) => ({ ...(t as ToolCall), status: "stopped" }));
     }
   }

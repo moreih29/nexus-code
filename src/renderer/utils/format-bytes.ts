@@ -1,11 +1,21 @@
-/** A byte count for people: "512 B", "3.4 KB", "87 MB". */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  // Rounded before the unit is picked: 1,048,575 bytes is "1.0 MB", not "1024 KB".
-  const kb = rounded(bytes / 1024);
-  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
-  const mb = rounded(bytes / 1024 / 1024);
-  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+const KIB = 1024;
+
+/**
+ * Formats a byte count in binary units. Notes storage uses raw unit
+ * thresholds and shows one decimal in MB or GB.
+ */
+export function formatBytes(bytes: number, style: "compact" | "notes" = "compact"): string {
+  if (bytes < KIB) return `${bytes} B`;
+  const compact = style === "compact";
+  // Compact sizes pick the unit after rounding, avoiding displays like "1024 KB".
+  const kb = bytes / KIB;
+  const displayKb = compact ? rounded(kb) : kb;
+  if (displayKb < KIB) return `${displayKb.toFixed(displayKb >= 10 ? 0 : 1)} KB`;
+
+  const mb = kb / KIB;
+  if (!compact && !(mb < KIB)) return `${(mb / KIB).toFixed(1)} GB`;
+  const displayMb = compact ? rounded(mb) : mb;
+  return `${displayMb.toFixed(compact && displayMb >= 10 ? 0 : 1)} MB`;
 }
 
 /** A size as shown: whole from 10 up, else to one decimal. */

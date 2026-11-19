@@ -816,9 +816,11 @@ export async function answerHook(
  * Called once from setupClaudeFeature.
  * The return value is the unsubscribe function.
  */
-export function registerHookHandler(deps: HookHandlerDeps): () => void {
-  const turns = new TurnOrder();
-  const dialogs = new PermissionDialogs();
+export function registerHookHandler(
+  deps: HookHandlerDeps,
+  turns = new TurnOrder(),
+  dialogs = new PermissionDialogs(),
+): () => void {
   const offHook = deps.agentHost.on("claude.hook", (payload) => {
     handleHookEvent(payload, deps, turns, dialogs).catch((err: unknown) => {
       log.warn(`handleHookEvent error: ${(err as Error).message}`);

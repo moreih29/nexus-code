@@ -158,11 +158,12 @@ export class LocalWorkspaceConnections {
       throw createWorkspaceRemovedError(meta.id);
     }
 
-    const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
+    const provider = new AgentFsProvider("local", channel);
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
       this.finishLocalHookRefresh(channel);
       provider.dispose();
+      channel.dispose();
       if (this.localChannels.get(meta.id) === channel) {
         this.localChannels.delete(meta.id);
       }

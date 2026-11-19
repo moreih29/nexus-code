@@ -3,9 +3,10 @@
 package chat
 
 import (
-	"errors"
 	"os"
 	"syscall"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // tree is nothing of its own on Unix: the program's process group and its
@@ -34,7 +35,7 @@ func (p *process) kill() {
 // exits by itself is not found.
 func signalTree(pid int, signal syscall.Signal) error {
 	under := descendants(pid)
-	err := signalGroup(pid, signal)
+	err := hostproc.SignalGroup(pid, signal)
 	for _, child := range under {
 		_ = syscall.Kill(child, signal)
 	}
@@ -64,14 +65,6 @@ func descendants(pid int) []int {
 		stack = append(stack, children[child]...)
 	}
 	return found
-}
-
-func signalGroup(pid int, signal syscall.Signal) error {
-	err := syscall.Kill(-pid, signal)
-	if errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
 }
 
 // exitPayload translates the program's exit into the chat.exit wire shape.

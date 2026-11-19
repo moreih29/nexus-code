@@ -43,6 +43,7 @@ import type { AppError } from "../../../shared/error/app-error";
 import { createLogger } from "../../../shared/log/renderer";
 import { showToast } from "../../components/ui/toast";
 import { copyText } from "../../utils/clipboard";
+import { knownFsErrorMessage } from "../../utils/error-classification";
 
 // ---------------------------------------------------------------------------
 // Module-local logger
@@ -157,7 +158,7 @@ function buildInvalidInputMessage(error: AppError): string {
   if (error.domain === "ssh" && error.code === "invalid-host")
     return i18next.t("common:ssh.invalid_host");
   if (error.domain === "fs" && error.code) {
-    return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.invalid-input");
+    return knownFsErrorMessage(error.code) ?? i18next.t("errors:generic.invalid-input");
   }
   return i18next.t("errors:generic.invalid-input");
 }
@@ -166,7 +167,7 @@ function buildInvalidInputMessage(error: AppError): string {
 function buildFailedMessage(error: AppError): string {
   if (error.code === "terminal-input-failed") return i18next.t("errors:terminal.inputFailed");
   if (error.domain === "fs" && error.code) {
-    return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
+    return knownFsErrorMessage(error.code) ?? i18next.t("errors:generic.failed");
   }
   if (error.domain === "git" && error.code) {
     return gitCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
@@ -199,43 +200,6 @@ function sshCodeToUserMessage(code: string | undefined): string {
       return i18next.t("common:ssh.error.ssh_unknown");
     default:
       return i18next.t("common:ssh.error.connection_failed");
-  }
-}
-
-/**
- * Maps FsErrorCode strings to localised user-facing phrases via the errors
- * namespace (errors:fs.<CODE>).  i18next.t is evaluated at call time so that
- * language switches are reflected immediately without a page reload.
- *
- * Returns the generic fallback key's value for unknown codes so callers can
- * fall back to the generic phrase.
- */
-function fsCodeToUserMessage(code: string): string | undefined {
-  switch (code) {
-    case "NOT_FOUND":
-      return i18next.t("errors:fs.NOT_FOUND");
-    case "PERMISSION_DENIED":
-      return i18next.t("errors:fs.PERMISSION_DENIED");
-    case "ALREADY_EXISTS":
-      return i18next.t("errors:fs.ALREADY_EXISTS");
-    case "IS_DIRECTORY":
-      return i18next.t("errors:fs.IS_DIRECTORY");
-    case "NOT_DIRECTORY":
-      return i18next.t("errors:fs.NOT_DIRECTORY");
-    case "TOO_LARGE":
-      return i18next.t("errors:fs.TOO_LARGE");
-    case "OUT_OF_WORKSPACE":
-      return i18next.t("errors:fs.OUT_OF_WORKSPACE");
-    case "NOT_EMPTY":
-      return i18next.t("errors:fs.NOT_EMPTY");
-    case "CROSS_DEVICE":
-      return i18next.t("errors:fs.CROSS_DEVICE");
-    case "NO_SPACE":
-      return i18next.t("errors:fs.NO_SPACE");
-    case "UNSUPPORTED_REMOTE":
-      return i18next.t("errors:fs.UNSUPPORTED_REMOTE");
-    default:
-      return undefined;
   }
 }
 
