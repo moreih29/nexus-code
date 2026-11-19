@@ -11,6 +11,8 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
+import { normaliseError } from "../../../hooks/use-ipc-action";
+import { surfaceError } from "../../../services/error-surface/surface-error";
 import {
   createLocalWorkspace,
   createSshWorkspace,
@@ -28,12 +30,7 @@ import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { ErrorNotice } from "./error-notice";
-import {
-  folderName,
-  formatSshSecondaryLine,
-  formatSshTooltip,
-  humanizeSshError,
-} from "./ssh-helpers";
+import { folderName, formatSshSecondaryLine, formatSshTooltip } from "./ssh-helpers";
 import type { MainListViewProps } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -158,10 +155,6 @@ export function MainListView({
       });
 
       if (!result.ok) {
-        // User cancelled the auth prompt — silently stop, no error banner.
-        if (result.kind === "cancelled") return;
-        // Typed SSH failure (wrong credentials, host unreachable, …); the
-        // result carries the SshErrorCode the humanizer maps.
         setError(bookmark.id, result, profile.id);
         return;
       }
@@ -233,14 +226,8 @@ export function MainListView({
   // ── Error helpers ─────────────────────────────────────────────────────────
 
   function setError(bookmarkId: string | null, error: unknown, profileId: string | null): void {
-    // SSH reconnect failures (profileId set) are humanised so raw SshErrorCode
-    // strings never reach the UI. Opening a local folder only fails inside
-    // the IPC layer, whose message is internal, so it gets a generic one.
-    showError(
-      bookmarkId,
-      profileId !== null ? humanizeSshError(error) : t("workspace.could_not_open"),
-      profileId,
-    );
+    const surface = surfaceError(normaliseError(error), { surface: "inline" });
+    if (surface.surface === "inline") showError(bookmarkId, surface.userMessage, profileId);
   }
 
   function showError(bookmarkId: string | null, message: string, profileId: string | null): void {

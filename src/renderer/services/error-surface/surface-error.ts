@@ -160,7 +160,7 @@ function buildInvalidInputMessage(error: AppError): string {
   return i18next.t("errors:generic.invalid-input");
 }
 
-/** Friendly message for failed errors with fs / git code awareness. */
+/** Friendly message for failed errors with domain-specific recovery copy. */
 function buildFailedMessage(error: AppError): string {
   if (error.code === "terminal-input-failed") return i18next.t("errors:terminal.inputFailed");
   if (error.domain === "fs" && error.code) {
@@ -169,7 +169,35 @@ function buildFailedMessage(error: AppError): string {
   if (error.domain === "git" && error.code) {
     return gitCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
   }
+  if (error.domain === "ssh") {
+    return sshCodeToUserMessage(error.code);
+  }
   return i18next.t("errors:generic.failed");
+}
+
+/** Maps SSH codes to the existing localized connection and picker copy. */
+function sshCodeToUserMessage(code: string | undefined): string {
+  switch (code) {
+    case "ssh.connect-failed":
+      return i18next.t("common:ssh.error.connect_failed");
+    case "ssh.auth-failed":
+      return i18next.t("common:ssh.error.auth_failed");
+    case "ssh.session-expired":
+      return i18next.t("common:ssh.error.session_expired");
+    case "ssh.path-not-found":
+      return i18next.t("common:ssh.error.path_not_found");
+    case "server.spawn-failed":
+      return i18next.t("common:ssh.error.spawn_failed");
+    case "server.protocol-version-mismatch":
+      return i18next.t("common:ssh.error.protocol_version_mismatch");
+    case "server.protocol-error":
+      return i18next.t("common:ssh.error.protocol_error");
+    case "transport.unknown":
+    case "ssh.unknown":
+      return i18next.t("common:ssh.error.ssh_unknown");
+    default:
+      return i18next.t("common:ssh.error.connection_failed");
+  }
 }
 
 /**

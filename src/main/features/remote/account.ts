@@ -10,6 +10,7 @@
 import os from "node:os";
 import { z } from "zod";
 import { type ServerInfo, ServerInfoSchema } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import {
   type RemoteAccountState,
   type RemoteDeviceInfo,
@@ -23,6 +24,8 @@ import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
+
+const log = createLogger("remote-account");
 
 export { SignedOutError } from "./errors";
 
@@ -182,7 +185,7 @@ export class RemoteAccount {
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
-      console.warn("[remote] sign-in failed:", error instanceof Error ? error.message : error);
+      log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       listener.close();
       this.signingIn = null;

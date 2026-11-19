@@ -11,6 +11,8 @@
 import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
+import { isAppError } from "../../hooks/use-ipc-action";
+import { surfaceError } from "../error-surface/surface-error";
 
 export interface FsToastMessages {
   /** Generic fallback when no code matches. */
@@ -32,6 +34,12 @@ export interface FsToastMessages {
 }
 
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
+  // Structured transport and bug outcomes use the common policy; keep the
+  // existing file-operation copy and warning severity for domain FsErrorCode.
+  if (isAppError(error) && (error.category !== "failed" || error.domain !== "fs")) {
+    surfaceError(error, { surface: "auto" });
+    return;
+  }
   if (hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) {
     showToast({
       kind: "error",

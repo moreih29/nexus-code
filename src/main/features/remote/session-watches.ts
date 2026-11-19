@@ -7,6 +7,7 @@
  * change within a second. The consent prompts waiting on the user go with
  * it, as that watcher may answer them.
  */
+
 import { randomUUID } from "node:crypto";
 import {
   type RemoteConsent,
@@ -15,7 +16,10 @@ import {
   type RpcResult,
   type SessionsUpdate,
 } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import { RpcFailure } from "./room";
+
+const log = createLogger("remote-session-watches");
 
 /** How often the list is made again while watched. */
 export const SESSIONS_POLL_MS = 1000;
@@ -114,7 +118,7 @@ export class SessionWatches {
         await this.deps.notify(watch.from, { ...list, watchId });
       }
     } catch (error) {
-      console.warn("[remote] the sessions' list could not be made:", error);
+      log.warn(`Could not list sessions: ${String(error)}`);
     } finally {
       this.polling = false;
     }

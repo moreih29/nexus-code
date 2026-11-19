@@ -7,11 +7,10 @@
  * A handler that encounters an *expected* failure (one that a caller can react
  * to, e.g. "not found", "auth failed") returns an IpcResult object instead of
  * throwing.  The ipc:call router detects the envelope via `isIpcResult` and
- * passes it through to the renderer without logging anything — the invariant
- * "a log line means a real bug" is therefore preserved.
+ * passes expected failures through to the renderer without logging them.
  *
- * Handlers that encounter *unexpected* failures (bugs) still throw; the router
- * logs those and rejects the renderer-side promise.
+ * The router logs unexpected failures and returns a sanitized bug envelope
+ * with the same correlation ID.
  *
  * BRAND KEY
  * ---------
@@ -21,13 +20,9 @@
  * properties.  The UUID suffix prevents accidental collision with normal
  * domain objects that happen to carry an `ok` field.
  *
- * MIGRATION
- * ---------
- * This file is the T1 foundation.  T2–T4 will migrate individual channel
- * handlers onto this contract.  Until a handler is migrated its existing
- * throw/sentinel/GitError path is preserved by the router; the two paths
- * co-exist without conflict.
  */
+
+import type { AppError } from "../error/app-error";
 
 // ---------------------------------------------------------------------------
 // Brand
@@ -45,8 +40,6 @@ export const IPC_RESULT_BRAND = "__nexusIpcResult_a3f8b1d2" as const;
  * renderer.  Handlers MAY extend this union in domain-specific types; the
  * router passes any IpcResult through regardless of the kind value, so new
  * kinds can be introduced in handler code without touching the router.
- *
- * Add new kinds here as additional channels are migrated in T2–T4.
  */
 export type IpcResultKind =
   | "not-found"
@@ -83,6 +76,10 @@ export interface IpcErrResult<K extends IpcResultKind = IpcResultKind> {
   readonly ok: false;
   readonly kind: K;
   readonly message: string;
+  readonly category?: AppError["category"];
+  readonly domain?: AppError["domain"];
+  readonly code?: string;
+  readonly correlationId?: string;
 }
 
 /**
@@ -180,4 +177,16 @@ export function ipcResultKindToCategory(
   if (kind === "cancelled") return "cancelled";
   if (kind === "invalid-args") return "invalid-input";
   return "failed";
+}
+
+/** Restores structured call errors for the renderer's shared presentation policy. */
+export function ipcErrorToAppError(error: IpcErrResult): AppError {
+  const { category, domain, code, correlationId, message } = error;
+  return {
+    category: category ?? ipcResultKindToCategory(error.kind),
+    domain,
+    code,
+    correlationId,
+    message,
+  };
 }

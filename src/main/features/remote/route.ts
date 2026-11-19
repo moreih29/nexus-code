@@ -6,6 +6,10 @@
  * PROXY_DOWN_MS, then try it again.
  */
 
+import { createLogger } from "../../../shared/log/main";
+
+const log = createLogger("remote-route");
+
 /** How long requests go straight to the server once the proxy could not be reached. */
 export const PROXY_DOWN_MS = 5 * 60_000;
 
@@ -46,7 +50,7 @@ export class ServerRoute {
   unreachable(address: string): boolean {
     if (this.proxy === null || !sameHost(address, this.proxy)) return false;
     if (this.now() >= this.downUntil) {
-      console.warn("[remote] the proxy could not be reached; going to the server straight");
+      log.warn("The proxy could not be reached, using the direct server route.");
     }
     this.downUntil = this.now() + PROXY_DOWN_MS;
     return true;

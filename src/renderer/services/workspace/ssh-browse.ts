@@ -6,9 +6,10 @@
  */
 
 import type { DirEntry } from "../../../shared/fs/types";
+import { ipcOk } from "../../../shared/ipc/result";
 import type { SshBrowseProgressEvent } from "../../../shared/types/workspace";
 import type { IpcResult } from "../../ipc/client";
-import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { ipcCallResult, ipcListen } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Open browse session
@@ -80,17 +81,18 @@ export interface BrowseSessionResult {
 /**
  * List the directory at `path` within an existing browse session.
  * Returns only directory and symlink entries, sorted alphabetically.
- * Throws on IPC error (caller handles retries / error state).
+ * Returns the error envelope for callers that offer reconnect or retry.
  */
 export async function browseSshSession(
   sessionId: string,
   path: string,
-): Promise<BrowseSessionResult> {
-  const result = unwrapIpcResult(await ipcCallResult("ssh", "browseSession", { sessionId, path }));
-  const dirs = result.entries
+): Promise<IpcResult<BrowseSessionResult>> {
+  const result = await ipcCallResult("ssh", "browseSession", { sessionId, path });
+  if (!result.ok) return result;
+  const dirs = result.value.entries
     .filter((e) => e.type === "dir" || e.type === "symlink")
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { entries: dirs, truncated: result.truncated };
+  return ipcOk({ entries: dirs, truncated: result.value.truncated });
 }
 
 /**
@@ -102,7 +104,8 @@ export async function prefetchSshDirectory(
   path: string,
 ): Promise<BrowseSessionResult | null> {
   try {
-    return await browseSshSession(sessionId, path);
+    const result = await browseSshSession(sessionId, path);
+    return result.ok ? result.value : null;
   } catch {
     return null;
   }

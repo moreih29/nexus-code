@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import type { SshBrowseProgressEvent } from "../../../../shared/types/workspace";
+import { normaliseError } from "../../../hooks/use-ipc-action";
+import { surfaceError } from "../../../services/error-surface/surface-error";
 import {
   listConnectionProfiles,
   openSshBrowseSession,
@@ -14,7 +16,7 @@ import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { BootstrapProgressBar } from "../bootstrap-progress-bar";
 import { ErrorNotice } from "./error-notice";
-import { formatProfileSubtitle, humanizeSshError } from "./ssh-helpers";
+import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
 import { useBrowseProgress } from "./use-browse-progress";
 
@@ -76,10 +78,14 @@ export function SshConnectionListView({
     setConnectingId(profile.id);
     setErrorId(null);
     setErrorHuman(null);
+    const presentError = (error: unknown) => {
+      const surface = surfaceError(normaliseError(error), { surface: "inline" });
+      if (surface.surface === "inline") {
+        setErrorId(profile.id);
+        setErrorHuman(surface.userMessage);
+      }
+    };
     try {
-      // openBrowseSession is migrated to the IpcResult contract — auth
-      // cancellation arrives as ipcErr("cancelled") so the router stays silent
-      // and the renderer branches without showing an error banner.
       const result = await openSshBrowseSession({
         host: profile.host,
         user: profile.user,
@@ -89,10 +95,7 @@ export function SshConnectionListView({
         progressId: beginProgress(),
       });
       if (!result.ok) {
-        // User cancelled the SSH auth prompt — silent stop, no error banner.
-        if (result.kind === "cancelled") return;
-        setErrorId(profile.id);
-        setErrorHuman(humanizeSshError(result));
+        presentError(result);
         return;
       }
       // Update usage record
@@ -116,6 +119,8 @@ export function SshConnectionListView({
         connectionProfileId: profile.id,
       };
       onConnected(session);
+    } catch (error) {
+      presentError(error);
     } finally {
       setConnectingId(null);
       clearProgress();

@@ -18,14 +18,14 @@ export async function listWslDistros(): Promise<string[]> {
 
 /**
  * Start the agent in `distro` for the folder picker. `progressId` keys its
- * install progress on `ssh.browseProgress`. Throws with what wsl.exe said
- * when the distribution cannot start.
+ * install progress on `ssh.browseProgress`. Returns failures in the IPC envelope.
  */
 export async function openWslBrowseSession(
   distro: string,
   progressId?: string,
-): Promise<{ sessionId: string; initialPath: string }> {
-  return unwrapIpcResult(await ipcCallResult("wsl", "openBrowseSession", { distro, progressId }));
+  signal?: AbortSignal,
+): Promise<IpcResult<{ sessionId: string; initialPath: string }>> {
+  return ipcCallResult("wsl", "openBrowseSession", { distro, progressId }, { signal });
 }
 
 /** Create a workspace on `remotePath` inside `distro` and connect it. */

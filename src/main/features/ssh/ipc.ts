@@ -1,14 +1,12 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { FS_ERROR } from "../../../shared/fs/errors";
 import type { DirEntry } from "../../../shared/fs/types";
 import { DirEntrySchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcErr, ipcOk } from "../../../shared/ipc/result";
-import { createLogger } from "../../../shared/log/main";
-import type { SshErrorCode } from "../../../shared/ssh/errors";
-import { SshErrorCodeSchema } from "../../../shared/ssh/errors";
-import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
+import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { messageForSshErrorCode } from "../../infra/agent/pipe";
 import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { createSshChannel } from "../../infra/agent/ssh/channel";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
@@ -23,11 +21,11 @@ import {
   type SshTarget,
 } from "../../infra/agent/ssh/ssh2/config";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { agentCallError } from "../../infra/ipc-router/agent-errors";
 import { BROWSE_MAX_ENTRIES, type SshBrowseSessionRegistry } from "./browse-session-registry";
 import { parseSshConfig, type SshConfigHost } from "./config";
 
 const c = ipcContract.ssh.call;
-const log = createLogger("ssh");
 
 /** The host fields a browse session connects with. */
 type SshUserTarget = Pick<SshTarget, "host" | "user" | "port" | "identityFile">;
@@ -279,7 +277,7 @@ export function openBrowseSessionHandler(
       channel?.dispose();
       // If bootstrap succeeded but channel setup failed, dispose bootstrap.
       bootstrapResult?.dispose?.();
-      throw mapToBrowseError(error);
+      throw error;
     }
   };
 }
@@ -302,21 +300,15 @@ export function openBrowseSessionResultHandler(
     options: EnsureRemoteAgentOptions,
     onProgress?: (event: LspBootstrapProgressEvent) => void,
   ) => ReturnType<typeof ensureRemoteAgent>,
-): (args: unknown) => Promise<ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>> {
+): (args: unknown) => Promise<IpcResult<{ sessionId: string; initialPath: string; user: string }>> {
   const inner = openBrowseSessionHandler(registry, promptHandler, broadcast, bootstrap);
   return async (args: unknown) => {
     try {
       const result = await inner(args);
       return ipcOk(result);
     } catch (error) {
-      if (isAuthCancellation(error)) {
-        return ipcErr("cancelled", "SSH authentication cancelled");
-      }
-      const code = sshErrorCodeFromError(error);
-      if (code) {
-        return ipcErr("auth-failed", messageForSshErrorCode(code), { code });
-      }
-      // Unexpected bug — rethrow so the router logs it.
+      const expected = agentCallError(error, "auth-failed");
+      if (expected) return expected;
       throw error;
     }
   };
@@ -353,30 +345,44 @@ function buildMasterHandle(
  */
 export function browseSessionHandler(
   registry: SshBrowseSessionRegistry,
-): (args: unknown) => Promise<{ entries: DirEntry[]; truncated: boolean }> {
-  return async (args: unknown): Promise<{ entries: DirEntry[]; truncated: boolean }> => {
+): (args: unknown) => Promise<IpcResult<{ entries: DirEntry[]; truncated: boolean }>> {
+  return async (args: unknown) => {
     const { sessionId, path: dirPath } = validateArgs(c.browseSession.args, args);
 
     const session = registry.get(sessionId);
     if (!session) {
-      throw createSshErrorObject("ssh.session-expired");
+      const code = "ssh.session-expired";
+      return ipcErr("session-expired", messageForSshErrorCode(code), {
+        category: "failed",
+        domain: "ssh",
+        code,
+      });
     }
 
     let rawEntries: unknown;
     try {
       rawEntries = await session.channel.call("fs.readdir", { relPath: dirPath });
     } catch (error) {
-      throw mapToBrowseError(error);
+      if (error instanceof Error && "code" in error && error.code === FS_ERROR.NOT_FOUND) {
+        const code = "ssh.path-not-found";
+        return ipcErr("not-found", messageForSshErrorCode(code), {
+          category: "failed",
+          domain: "ssh",
+          code,
+        });
+      }
+      const expected = agentCallError(error);
+      if (expected) return expected;
+      throw error;
     }
 
     // Parse the raw response — the agent returns an array of DirEntry objects.
-    const parseResult = DirEntrySchema.array().safeParse(rawEntries);
-    const allEntries: DirEntry[] = parseResult.success ? parseResult.data : [];
+    const allEntries = DirEntrySchema.array().parse(rawEntries);
 
     const truncated = allEntries.length > BROWSE_MAX_ENTRIES;
     const entries = truncated ? allEntries.slice(0, BROWSE_MAX_ENTRIES) : allEntries;
 
-    return { entries, truncated };
+    return ipcOk({ entries, truncated });
   };
 }
 
@@ -388,12 +394,11 @@ export function browseSessionHandler(
  * Builds the closeBrowseSession IPC handler. Idempotent — safe to call on
  * an already-closed or unknown session.
  */
-export function closeBrowseSessionHandler(
-  registry: SshBrowseSessionRegistry,
-): (args: unknown) => void {
-  return (args: unknown): void => {
+export function closeBrowseSessionHandler(registry: SshBrowseSessionRegistry) {
+  return (args: unknown) => {
     const { sessionId } = validateArgs(c.closeBrowseSession.args, args);
     registry.close(sessionId);
+    return ipcOk(undefined);
   };
 }
 
@@ -417,95 +422,4 @@ function closeBrowseSessionStub(): (args: unknown) => void {
   return (_args: unknown): void => {
     throw new Error("SSH browse session handler not registered");
   };
-}
-
-// ---------------------------------------------------------------------------
-// Error helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Walks the error cause chain to detect AuthCancelledError at any depth.
- * User cancellation is a normal control-flow outcome, not a failure, so the
- * caller must treat it differently from genuine authentication failures.
- */
-function isAuthCancellation(error: unknown): boolean {
-  if (error instanceof AuthCancelledError) return true;
-  if (error instanceof Error && error.cause !== undefined) {
-    return isAuthCancellation(error.cause);
-  }
-  return false;
-}
-
-/**
- * Maps arbitrary errors from the agent channel or bootstrap to a typed SSH
- * error with a sanitized message. Raw stderr is never forwarded.
- *
- * User-initiated cancellation (AuthCancelledError anywhere in the cause chain)
- * is returned as ssh.auth-cancelled — no console.error, since it is expected.
- * Truly unmapped errors are still logged for diagnosability.
- */
-function mapToBrowseError(error: unknown): Error {
-  if (isAuthCancellation(error)) {
-    // Cancellation is a normal outcome — no noise in the console.
-    return createSshErrorObject("ssh.auth-cancelled");
-  }
-  const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
-  if (code === "ssh.unknown") {
-    // The renderer only ever sees the sanitized code. Log the raw cause to
-    // the main-process console so an unmapped failure is still diagnosable.
-    log.error(`unmapped browse-session error: ${(error as Error).message}`);
-  }
-  return createSshErrorObject(code);
-}
-
-function createSshErrorObject(code: SshErrorCode): Error & { code: SshErrorCode } {
-  // The `.code` property does not survive Electron's IPC error serialization
-  // (only name/message/stack cross the boundary), so we also embed the code in
-  // the message text. The renderer classifies the failure by matching the code
-  // substring in error.message (see humanizeSshError / extractSshErrorKind).
-  const err = new Error(`${messageForSshErrorCode(code)} [${code}]`) as Error & {
-    code: SshErrorCode;
-  };
-  err.code = code;
-  return err;
-}
-
-function sshErrorCodeFromError(error: unknown): SshErrorCode | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-  const rawCode = (error as { code?: unknown }).code;
-  // Agent filesystem failures surface domain codes (NOT_FOUND, …) that are not
-  // SSH codes. Map the ones with dedicated UX so a missing path is reported as
-  // "path not found" instead of the generic ssh.unknown.
-  if (rawCode === "NOT_FOUND") return "ssh.path-not-found";
-  const parsed = SshErrorCodeSchema.safeParse(rawCode);
-  return parsed.success ? parsed.data : undefined;
-}
-
-function messageForSshErrorCode(code: SshErrorCode): string {
-  switch (code) {
-    case "ssh.connect-failed":
-      return "SSH connection failed";
-    case "ssh.auth-failed":
-      return "SSH authentication failed";
-    case "ssh.auth-cancelled":
-      return "SSH authentication cancelled";
-    case "ssh.session-expired":
-      return "SSH browse session expired";
-    case "ssh.path-not-found":
-      return "Remote path not found";
-    case "server.spawn-failed":
-      return "Remote agent failed to start";
-    case "server.protocol-error":
-      return "Remote agent protocol error";
-    case "server.protocol-version-mismatch":
-      return "Remote agent protocol version mismatch";
-    case "ssh.unknown":
-      return "SSH workspace validation failed";
-    case "transport.unknown":
-      return "Agent transport failed";
-    case "transport.timeout":
-      return "Agent request timed out";
-  }
 }

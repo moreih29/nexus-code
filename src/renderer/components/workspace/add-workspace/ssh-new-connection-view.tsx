@@ -4,8 +4,10 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isImeComposing } from "@/utils/ime";
-import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
+import { appErrorFailed } from "../../../../shared/error/app-error";
+import { ipcErrorToAppError } from "../../../../shared/ipc/result";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
+import { surfaceError } from "../../../services/error-surface/surface-error";
 import {
   closeSshBrowseSession,
   openSshBrowseSession,
@@ -20,7 +22,6 @@ import {
   filterSshConfigHosts,
   findSshConfigHost,
   formatSshHostSummary,
-  humanizeSshError,
   parseSshDestination,
   parseSshPort,
   sshHostOptionId,
@@ -306,9 +307,6 @@ export function SshNewConnectionView({
 
     runConnect(async (signal) => {
       // --- Stage 1: primary effect — establish SSH browse session ---
-      // openBrowseSession is migrated to the IpcResult contract.
-      // auth cancellation arrives as ipcErr("cancelled") so we throw an
-      // AppError category:"cancelled" and the hook silently returns to idle.
       // Keep receiving the result after cancellation so a session created
       // by main can be closed even when the view has already gone away.
       const result = await openSshBrowseSession({
@@ -320,16 +318,7 @@ export function SshNewConnectionView({
         progressId: beginProgress(),
       });
 
-      if (!result.ok) {
-        if (result.kind === "cancelled") {
-          // Auth prompt dismissed by the user — throw category:'cancelled' so the
-          // hook routes this to idle without surfacing any error UI.
-          throw appErrorCancelled("SSH authentication was cancelled.", { domain: "ssh" });
-        }
-        // Connection failure → throw so the hook transitions to state:'error'.
-        // The inline banner below renders state.error.message.
-        throw appErrorFailed(humanizeSshError(result), { domain: "ssh", code: result.kind });
-      }
+      if (!result.ok) throw ipcErrorToAppError(result);
 
       // `result.value.user` is the user actually connected as — when the form
       // had only a host, the main process resolved it to the local account name,
@@ -428,9 +417,15 @@ export function SshNewConnectionView({
 
   const connecting = connectState.status === "loading";
 
-  // Inline error message for connection failures.
-  // Cancelled (state:'idle') and save failures (surfaced as toast) do not reach here.
-  const inlineError = connectState.status === "error" ? connectState.error.message : null;
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  useEffect(() => {
+    if (connectState.status !== "error") {
+      setInlineError(null);
+      return;
+    }
+    const surface = surfaceError(connectState.error, { surface: "inline" });
+    setInlineError(surface.surface === "inline" ? surface.userMessage : null);
+  }, [connectState]);
 
   return (
     <form

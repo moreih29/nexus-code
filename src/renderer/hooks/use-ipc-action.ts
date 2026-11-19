@@ -52,6 +52,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAbortError } from "../../shared/abort";
 import { type AppError, appErrorBug, appErrorCancelled } from "../../shared/error/app-error";
+import { ipcErrorToAppError, isIpcErrResult } from "../../shared/ipc/result";
 
 // ---------------------------------------------------------------------------
 // State type — discriminated union covering all four lifecycle phases
@@ -296,6 +297,8 @@ export function isAppError(value: unknown): value is AppError {
  * Exported so tests can verify normalisation rules without mounting a hook.
  */
 export function normaliseError(err: unknown): AppError {
+  if (isIpcErrResult(err)) return ipcErrorToAppError(err);
+  if (isAbortError(err)) return appErrorCancelled(err.message);
   if (isAppError(err)) return err;
 
   if (err instanceof Error) {

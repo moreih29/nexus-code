@@ -16,7 +16,9 @@
  */
 
 import { FS_ERROR } from "../../../../shared/fs/errors";
-import { type IpcErrResult, ipcErr } from "../../../../shared/ipc/result";
+import { type IpcErrResult, type IpcResult, ipcErr, ipcOk } from "../../../../shared/ipc/result";
+
+import { agentCallError } from "../../../infra/ipc-router/agent-errors";
 
 export const FS_IPC_ERROR_KIND = "fs-error" as const;
 export type FsIpcErrorResult = IpcErrResult<typeof FS_IPC_ERROR_KIND>;
@@ -41,5 +43,18 @@ export function isFsError(error: unknown): boolean {
  */
 export function fsErrorToIpcResult(error: unknown): FsIpcErrorResult {
   const message = error instanceof Error ? error.message : String(error);
-  return ipcErr(FS_IPC_ERROR_KIND, message);
+  const code = Object.values(FS_ERROR).find((value) => message.startsWith(`${value}:`));
+  return ipcErr(FS_IPC_ERROR_KIND, message, { category: "failed", domain: "fs", code });
+}
+
+/** Envelopes a file operation, including failures while resolving its provider. */
+export async function runFsCall<T>(run: () => Promise<T>): Promise<IpcResult<T>> {
+  try {
+    return ipcOk(await run());
+  } catch (error) {
+    if (isFsError(error)) return fsErrorToIpcResult(error);
+    const expected = agentCallError(error);
+    if (expected) return expected;
+    throw error;
+  }
 }

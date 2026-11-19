@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { WebContents } from "electron";
 import type { z } from "zod";
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError } from "../../../shared/abort";
 import type { AppError } from "../../../shared/error/app-error";
 import { IPC_GIT_ERROR_MARK, type IpcGitErrorPayload } from "../../../shared/git/error-ipc";
 import {
@@ -13,7 +13,12 @@ import {
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
+import { fsErrorToIpcResult, isFsError } from "../../features/fs/ipc/fs-result";
 import { GitError } from "../../features/git/domain/error";
+import { agentCallError } from "./agent-errors";
+
+const log = createLogger("main");
 
 export interface CallContext {
   requestId?: string;
@@ -96,18 +101,7 @@ type RegisterChannelDef<C extends string> = C extends ContractChannelName
   ? RegisteredChannelDef<C>
   : ChannelDef;
 
-/**
- * Thrown by `validateArgs` when the caller-supplied arguments fail Zod
- * schema validation.  The `ipc:call` router catches this error at the IPC
- * boundary and converts it into an `IpcErrResult<"invalid-args">` with
- * `category:"invalid-input"` so the renderer can branch on the result
- * without catching exceptions.
- *
- * Handlers do not need to catch this error themselves — throwing it is the
- * correct signal that propagates to the router-level conversion.  Handlers
- * that opt into the result-based API should use `isIpcErrResult` on the
- * return value of `validateArgs` after T7 migration.
- */
+/** Signals argument validation failure to the IPC boundary. */
 export class IpcValidationError extends Error {
   readonly kind = "invalid-args" as const;
   readonly category = "invalid-input" as const;
@@ -155,60 +149,35 @@ export function setupRouter(): void {
       args: unknown,
       requestId?: unknown,
     ) => {
-      const channel = channels.get(channelName);
-      if (!channel) throw new Error(`ipc:call — unknown channel: ${channelName}`);
-      const handler = channel.call[method];
-      if (typeof handler !== "function")
-        throw new Error(`ipc:call — unknown method: ${channelName}.${method}`);
+      const methods = channels.get(channelName)?.call;
+      const handler = methods && Object.hasOwn(methods, method) ? methods[method] : undefined;
+      if (typeof handler !== "function") {
+        return ipcErr("invalid-args", `Unknown IPC call: ${channelName}.${method}`, {
+          category: "invalid-input",
+        });
+      }
       const correlationId = crypto.randomUUID();
       const callContext = createCallContext(event, requestId, correlationId);
+      const procedure = `${channelName}.${method}`;
       try {
-        const handlerResult = await handler(args, callContext.ctx);
-        if (
-          isIpcErrResult(handlerResult) &&
-          // `category` is an extension field set by `ipcErr(..., { category })` and
-          // is not declared on the base IpcErrResult interface; cast to access it.
-          (handlerResult as unknown as { category?: string }).category === "bug"
-        ) {
-          // Lazy-require avoids pulling electron into module scope at load time
-          // (shared/log/main imports electron.app which is unavailable in test env).
-          // The try-catch guards against module-cache mismatches in test workers
-          // where another file already loaded the real electron without app mocked.
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { createLogger } =
-              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
-            createLogger("main").error(
-              `ipc:call — bug result from ${channelName}.${method}: ${handlerResult.message}`,
-              { correlationId },
-            );
-          } catch {
-            /* logger unavailable — suppress to allow the IpcErrResult to be returned */
-          }
+        const result = await handler(args, callContext.ctx);
+        if (isIpcErrResult(result) && result.category === "bug") {
+          return {
+            ...result,
+            ...reportCallBug(procedure, correlationId, result.message),
+            kind: result.kind,
+          };
         }
-        return handlerResult;
+        return result;
       } catch (error) {
         if (error instanceof IpcValidationError) {
-          // Handler called validateArgs with invalid args — convert to IpcErrResult.
-          // This is the router-boundary enforcement: the renderer always receives
-          // a typed result rather than a raw rejection.
-          return ipcErr("invalid-args", error.message, { category: "invalid-input" as const });
+          return ipcErr("invalid-args", error.message, { category: "invalid-input" });
         }
-        if (isAbortError(error)) {
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { createLogger } =
-              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
-            createLogger("main").debug(
-              `ipc:call — cancelled  ${channelName}.${method}  req=${requestId ?? "(none)"}`,
-              { correlationId },
-            );
-          } catch {
-            /* logger unavailable — suppress */
-          }
-          return ipcErr("cancelled", "operation cancelled");
-        }
-        throw error;
+        if (isFsError(error)) return fsErrorToIpcResult(error);
+        const expected = agentCallError(error);
+        if (expected) return expected;
+        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+        return reportCallBug(procedure, correlationId, detail);
       } finally {
         if (callContext.key) pendingCallControllers.delete(callContext.key);
       }
@@ -246,6 +215,12 @@ export function setupRouter(): void {
       return { streamId };
     },
   );
+}
+
+/** Records the original detail while exposing only a correlation ID and safe message. */
+function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {
+  log.error(`ipc:call — ${procedure}: ${detail}`, { correlationId });
+  return ipcErr("bug", "An unexpected error occurred", { category: "bug", correlationId });
 }
 
 function senderId(event: { sender?: { id?: number } }): string {
@@ -488,28 +463,7 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
   }
 }
 
-/**
- * Validate handler arguments against a Zod schema.
- *
- * On success returns the parsed (typed) value.  On failure throws
- * `IpcValidationError` — the `ipc:call` router catches this at the IPC
- * boundary and converts it into an `IpcErrResult<"invalid-args">` with
- * `category:"invalid-input"` so the renderer always receives a typed result.
- *
- * Handlers do not need to catch `IpcValidationError` themselves.  Handlers
- * that adopt the result-based API (T7 migration) should instead call this
- * function and check `isIpcErrResult` on the return — until then the throw
- * path is fully supported and backward-compatible with all existing handlers.
- *
- * @example
- *   // Legacy throw style (pre-T7):
- *   const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
- *
- *   // Result style (post-T7):
- *   const parsed = validateArgs(c.readdir.args, args);
- *   if (isIpcErrResult(parsed)) return parsed;
- *   const { workspaceId, relPath } = parsed;
- */
+/** Parses handler arguments and lets the router envelope validation failures. */
 export function validateArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
   const parsed = schema.safeParse(args);
   if (!parsed.success) {

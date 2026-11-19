@@ -344,6 +344,12 @@ mock.module("electron", () => ({
     quit: (): void => {},
   },
 
+  // Remote feature registration imports these Electron services.
+  nativeImage: {},
+  shell: {},
+  systemPreferences: {},
+  safeStorage: {},
+
   // ipcMain — used by: setupRouter() in pty-channel, ipc-shim-integration,
   //                    ipc-wrapper-env, show-save-dialog
   ipcMain: {

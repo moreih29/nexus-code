@@ -1,7 +1,14 @@
 import { ChevronRight, LoaderCircle, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listWslDistros, openWslBrowseSession } from "../../../services/workspace";
+import { ipcErrorToAppError } from "../../../../shared/ipc/result";
+import { useIpcAction } from "../../../hooks/use-ipc-action";
+import { surfaceError } from "../../../services/error-surface/surface-error";
+import {
+  closeSshBrowseSession,
+  listWslDistros,
+  openWslBrowseSession,
+} from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { BootstrapProgressBar } from "../bootstrap-progress-bar";
@@ -20,8 +27,10 @@ import { useBrowseProgress } from "./use-browse-progress";
 export function WslDistroListView({ onConnected }: WslDistroListViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const [distros, setDistros] = useState<string[] | null>(null);
-  const [connecting, setConnecting] = useState<string | null>(null);
-  const [error, setError] = useState<{ distro: string; message: string } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { state, run, isPending } = useIpcAction<void>();
+  const connecting = isPending ? selected : null;
   const { progress, begin: beginProgress, clear: clearProgress } = useBrowseProgress();
 
   useEffect(() => {
@@ -36,19 +45,30 @@ export function WslDistroListView({ onConnected }: WslDistroListViewProps): Reac
     };
   }, []);
 
-  async function connect(distro: string): Promise<void> {
-    if (connecting) return;
-    setConnecting(distro);
-    setError(null);
-    try {
-      const session = await openWslBrowseSession(distro, beginProgress());
-      onConnected({ ...session, distro });
-    } catch (err) {
-      setError({ distro, message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      clearProgress();
-      setConnecting(null);
-    }
+  useEffect(() => {
+    if (state.status !== "error") return;
+    const surface = surfaceError(state.error, { surface: "inline" });
+    if (surface.surface === "inline") setErrorMessage(surface.userMessage);
+  }, [state]);
+
+  /** Starts one distribution and surfaces any failed attempt beside its row. */
+  function connect(distro: string): void {
+    if (isPending) return;
+    setSelected(distro);
+    setErrorMessage(null);
+    run(async (signal) => {
+      try {
+        const result = await openWslBrowseSession(distro, beginProgress(), signal);
+        if (!result.ok) throw ipcErrorToAppError(result);
+        if (signal.aborted) {
+          void closeSshBrowseSession(result.value.sessionId);
+          return;
+        }
+        onConnected({ ...result.value, distro });
+      } finally {
+        clearProgress();
+      }
+    });
   }
 
   if (distros === null) {
@@ -77,7 +97,7 @@ export function WslDistroListView({ onConnected }: WslDistroListViewProps): Reac
     <ul className="flex flex-col gap-0.5" aria-label={t("wsl.distributions")}>
       {distros.map((distro) => {
         const isConnecting = connecting === distro;
-        const errorMessage = error?.distro === distro ? error.message : null;
+        const rowError = selected === distro ? errorMessage : null;
         return (
           <li key={distro}>
             <button
@@ -123,9 +143,9 @@ export function WslDistroListView({ onConnected }: WslDistroListViewProps): Reac
               </span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </button>
-            {errorMessage ? (
+            {rowError ? (
               <ErrorNotice
-                message={errorMessage}
+                message={rowError}
                 className="mx-2 mb-1 px-2 py-1.5"
                 textClass="text-app-micro"
               />
