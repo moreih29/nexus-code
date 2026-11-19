@@ -44,6 +44,7 @@ class StubChannel {
   disposed = false;
   hookInfo = mock(async (): Promise<unknown> => ({ socketPath: "/tmp/hook.sock", token: "tok" }));
   readonly spawns: Array<{ env: Record<string, string> }> = [];
+  onChatClose?: (params: unknown) => Promise<void>;
 
   constructor() {
     this.ready = new Promise<void>((res) => {
@@ -55,6 +56,7 @@ class StubChannel {
     if (method === "hook.getInfo") return this.hookInfo();
     if (method === "lsp.findBinary") return { path: "/stub/model" };
     if (method === "chat.exec") return { code: 0, stdout: "2.1.400" };
+    if (method === "chat.close") return this.onChatClose?.(params);
     if (method === "chat.start" || method === "pty.spawn") {
       this.spawns.push(params as (typeof this.spawns)[number]);
       return { pid: 1 };
@@ -151,6 +153,37 @@ async function bootLocalWorkspace(harness: ReturnType<typeof makeHarness>) {
 }
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+test("workspace removal keeps its local agent alive until restored chats are closed", async () => {
+  const harness = makeHarness();
+  const { manager, channels, globalDb } = harness;
+  const host = new ChatHost({
+    workspaceManager: manager,
+    broadcast: () => {},
+    knownChatTabs: () => ["restored"],
+  });
+  manager.setChatSessionCloser((id, channel) => host.closeWorkspace(id, channel));
+  try {
+    const { id } = await bootLocalWorkspace(harness);
+    const closing = Promise.withResolvers<unknown>();
+    const closed = Promise.withResolvers<void>();
+    const [channel] = channels;
+    channel.onChatClose = (params) => {
+      closing.resolve(params);
+      return closed.promise;
+    };
+    const removing = manager.remove(id);
+    expect(await closing.promise).toEqual({ workspaceId: id, tabId: "restored" });
+    expect(channel.disposed).toBe(false);
+    closed.resolve();
+    await removing;
+    expect(channel.disposed).toBe(true);
+    expect(manager.list()).toEqual([]);
+  } finally {
+    host.dispose();
+    globalDb.close();
+  }
+});
 
 for (const available of [true, false]) {
   test(`local reconnect waits for refreshed hooks before resync and spawn (${available ? "available" : "unavailable"})`, async () => {

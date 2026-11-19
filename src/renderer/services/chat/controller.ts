@@ -11,6 +11,7 @@ import { type RelayedMessage, type RelaySender, relayedText } from "../../../sha
 import { createLogger } from "../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 import { backgroundIdOf } from "./app-commands";
 import {
   configUsageOf,
@@ -2127,6 +2128,13 @@ function rewindOf(response: Record<string, unknown>): RewindPreview {
 // ---------------------------------------------------------------------------
 
 const controllers = new Map<string, ChatController>();
+
+registerWorkspaceCleanup((workspaceId) => {
+  const prefix = `${workspaceId}:`;
+  for (const [key, controller] of controllers) {
+    if (key.startsWith(prefix)) controller.dispose();
+  }
+});
 let listening = false;
 
 /** What else the agent's chat lines go to: another program's tab (Codex). */
@@ -2171,6 +2179,7 @@ function ensureListeners(): void {
 
 /** The tab's controller, made on first use. */
 const pruned = new Set<string>();
+registerWorkspaceCleanup((workspaceId) => pruned.delete(workspaceId));
 
 /**
  * Removes, once per workspace while the app runs, the attached files the

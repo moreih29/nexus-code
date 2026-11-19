@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
   ChatHost,
   type ChatHostOptions,
@@ -542,6 +542,39 @@ describe("ChatHost", () => {
     expect(events.map((event) => event.event)).toEqual(["line"]);
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "new" });
     expect(status).toEqual([`exit ${WS} ${TAB}`]);
+  });
+
+  test("removing a workspace sends chat.close and forgets its open tab intents", async () => {
+    const { host, channel, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const generation = (
+      channel.calls.find((call) => call.method === "chat.start")?.params as {
+        tabGeneration: string;
+      }
+    ).tabGeneration;
+    await host.closeWorkspace(WS, channel);
+    expect(channel.calls.filter((call) => call.method === "chat.close")).toEqual([
+      { method: "chat.close", params: { workspaceId: WS, tabId: TAB, tabGeneration: generation } },
+    ]);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
+  });
+
+  test("removing a disconnected workspace forgets chats without connecting again", async () => {
+    const lookup = mock(async () => {
+      throw new Error("workspace offline");
+    });
+    const { host, channel, status } = setup({ tryGetAgentChannel: lookup });
+    await host.startCodex(WS, TAB, "/repo", {});
+    await host.closeWorkspace(WS, null);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(channel.calls.some((call) => call.method === "chat.close")).toBe(false);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
   });
 
   test("reattach recognizes a missed start without reverting to an older replayed process", async () => {

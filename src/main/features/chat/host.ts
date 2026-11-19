@@ -52,6 +52,8 @@ export interface ChatHostOptions {
   onTurnStopped?: (workspaceId: string, tabId: string) => void;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
+  /** Saved chat tabs that may still have a program even before their view opens. */
+  knownChatTabs?: (workspaceId: string) => readonly string[];
   /** The agent profile of that id, as the app state has it; null when gone. */
   profile?: (id: string) => AgentProfile | null;
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
@@ -95,7 +97,7 @@ export class ChatHost {
           if (!channel) return;
           await channel.ready;
           await this.options.workspaceManager.getSpawnHookInfo(workspaceId, channel);
-          if (this.disposed) return;
+          if (this.disposed || !this.workspaces.has(workspaceId)) return;
           this.subscribe(workspaceId, channel);
           this.options.broadcast("resync", { workspaceId });
         })
@@ -114,7 +116,7 @@ export class ChatHost {
   ): Promise<StartResult> {
     const key = `${workspaceId}:${tabId}`;
     const intent = this.openTab(key);
-    const channel = await this.channelFor(workspaceId);
+    const channel = await this.channelForStart(workspaceId, key, intent);
     const { workspaceManager } = this.options;
     const windows =
       this.options.windowsAgentFiles !== undefined &&
@@ -207,7 +209,7 @@ export class ChatHost {
   ): Promise<StartResult> {
     const key = `${workspaceId}:${tabId}`;
     const intent = this.openTab(key);
-    const channel = await this.channelFor(workspaceId);
+    const channel = await this.channelForStart(workspaceId, key, intent);
     const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
       name: "codex",
       dir: cwd,
@@ -302,7 +304,11 @@ export class ChatHost {
   }
 
   /** Invalidates preparation at once and closes any start already sent to the agent. */
-  private async closeTab(workspaceId: string, tabId: string): Promise<unknown> {
+  private async closeTab(
+    workspaceId: string,
+    tabId: string,
+    capturedChannel?: AgentChannel | null,
+  ): Promise<unknown> {
     const key = `${workspaceId}:${tabId}`;
     const intent = this.tabIntents.get(key);
     const previous = this.closingTabs.get(key);
@@ -310,9 +316,12 @@ export class ChatHost {
     this.tabIntents.delete(key);
     const run = (async () => {
       if (previous) await previous.catch(() => undefined);
-      if (intent) await Promise.allSettled(intent.starts);
+      if (intent && capturedChannel !== null) await Promise.allSettled(intent.starts);
       try {
-        const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+        const channel =
+          capturedChannel === undefined
+            ? await this.options.workspaceManager.tryGetAgentChannel(workspaceId)
+            : capturedChannel;
         return await channel?.call("chat.close", {
           workspaceId,
           tabId,
@@ -500,11 +509,29 @@ export class ChatHost {
     return env;
   }
 
-  /** Forgets a removed workspace. Its agent ends its programs as it shuts down. */
-  closeWorkspace(workspaceId: string): void {
+  /** Closes tracked and restored chats before the workspace's agent is torn down. */
+  async closeWorkspace(workspaceId: string, channel: AgentChannel | null): Promise<void> {
+    const subscription = this.subscriptions.get(workspaceId);
+    const tabIds = new Set(this.options.knownChatTabs?.(workspaceId));
+    for (const tabId of subscription?.processes.keys() ?? []) tabIds.add(tabId);
+    const prefix = `${workspaceId}:`;
+    for (const keys of [this.tabIntents.keys(), this.closingTabs.keys()]) {
+      for (const key of keys) {
+        if (key.startsWith(prefix)) tabIds.add(key.slice(prefix.length));
+      }
+    }
     this.workspaces.delete(workspaceId);
-    this.subscriptions.get(workspaceId)?.dispose();
+    subscription?.dispose();
     this.subscriptions.delete(workspaceId);
+    const results = await Promise.allSettled(
+      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, channel)),
+    );
+    for (const result of results) {
+      if (result.status === "rejected")
+        log.warn(
+          `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+        );
+    }
   }
 
   dispose(): void {
@@ -550,6 +577,21 @@ export class ChatHost {
     this.workspaces.add(workspaceId);
     this.subscribe(workspaceId, channel);
     return channel;
+  }
+
+  /** Releases an intent whose start could not reach a workspace agent. */
+  private async channelForStart(
+    workspaceId: string,
+    key: string,
+    intent: TabIntent,
+  ): Promise<AgentChannel> {
+    try {
+      return await this.channelFor(workspaceId);
+    } catch (error) {
+      if (this.tabIntents.get(key) === intent && intent.starts.size === 0)
+        this.tabIntents.delete(key);
+      throw error;
+    }
   }
 
   /** What the hooks leave untold of a tab's Claude: a turn stopped, the program gone. */
