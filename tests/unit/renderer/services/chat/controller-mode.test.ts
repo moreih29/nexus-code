@@ -5,7 +5,7 @@
  * in. The tab's first program starts as the settings say.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { UserItem } from "../../../../../src/renderer/services/chat/model";
+import type { ChatLine, UserItem } from "../../../../../src/renderer/services/chat/model";
 
 type Message = Record<string, unknown> & {
   request_id?: string;
@@ -18,14 +18,33 @@ let tab: { receive: (line: never) => void } | undefined;
 const SETTINGS_MODE = "bypassPermissions";
 /** While set, the program answers nothing until it settles. */
 let hold: Promise<void> | undefined;
+let rejectInitialize = false;
+let stops = 0;
+let onInitialize: (() => void) | undefined;
+const recorded: ChatLine[] = [];
 let lineSeq = 0;
+
+/** Records the same line the fake agent can send live and replay. */
+function receive(dir: ChatLine["dir"], message: Message): void {
+  const line = { seq: ++lineSeq, dir, message } as ChatLine;
+  recorded.push(line);
+  tab?.receive(line as never);
+}
 
 /**
  * The program's answer to a request, after the tab's log has the request:
  * the mode it starts in, the mode it switched to.
  */
 async function answer(message: Message): Promise<void> {
-  tab?.receive({ seq: ++lineSeq, dir: "in", message } as never);
+  receive("in", message);
+  if (message.request?.subtype === "initialize") onInitialize?.();
+  if (rejectInitialize && message.request?.subtype === "initialize") {
+    receive("out", {
+      type: "control_response",
+      response: { subtype: "error", request_id: message.request_id, error: "initialize refused" },
+    });
+    return;
+  }
   await Bun.sleep(0);
   if (hold) await hold;
   const request = message.request ?? {};
@@ -35,14 +54,10 @@ async function answer(message: Message): Promise<void> {
       : request.subtype === "set_permission_mode"
         ? { mode: request.mode }
         : {};
-  tab?.receive({
-    seq: ++lineSeq,
-    dir: "out",
-    message: {
-      type: "control_response",
-      response: { subtype: "success", request_id: message.request_id, response },
-    },
-  } as never);
+  receive("out", {
+    type: "control_response",
+    response: { subtype: "success", request_id: message.request_id, response },
+  });
 }
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
@@ -55,15 +70,22 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       if (message.type === "control_request") void answer(message);
     }
     if (method === "start") {
+      if (args.resetLog) recorded.length = 0;
+      receive("sys", { event: "start" });
       return Promise.resolve({
         ok: true,
         value: { ok: true, version: "2.1.321", attached: false },
       });
     }
+    if (method === "stop") {
+      stops += 1;
+      receive("sys", { event: "exit", code: 0 });
+    }
     if (method === "replay") {
+      for (const line of recorded) tab?.receive({ ...line, replay: true } as never);
       return Promise.resolve({
         ok: true,
-        value: { found: false, running: false, truncated: false, lastSeq: 0 },
+        value: { found: true, running: true, truncated: false, lastSeq: lineSeq },
       });
     }
     if (method === "sessionFile") {
@@ -87,6 +109,27 @@ afterEach(() => {
   sent.length = 0;
   tab = undefined;
   hold = undefined;
+  rejectInitialize = false;
+  stops = 0;
+  onInitialize = undefined;
+  recorded.length = 0;
+});
+
+test("a rejected Claude initialize cannot write the first prompt, and retry starts fresh", async () => {
+  const c = new ChatController({ workspaceId: "ws-mode", tabId: "init-failure", cwd: "/p" });
+  live.push(c);
+  tab = c;
+  rejectInitialize = true;
+  await expect(c.send("keep this draft", [], undefined, "submission")).rejects.toThrow();
+  expect(c.state).toMatchObject({ phase: "failed", error: "initialize refused" });
+  expect(stops).toBe(1);
+  expect(sent.some((message) => message.type === "user")).toBe(false);
+
+  rejectInitialize = false;
+  await c.send("keep this draft", [], undefined, "submission");
+  expect(c.state.phase).toBe("ready");
+  expect(sent.filter((message) => message.request?.subtype === "initialize")).toHaveLength(2);
+  expect(sent.filter((message) => message.type === "user")).toHaveLength(1);
 });
 
 /** A tab going on with a session, its first program started and in the settings' mode. */
@@ -176,11 +219,15 @@ describe("the permission mode of a Claude tab's program started again", () => {
     hold = new Promise((resolve) => {
       settled = resolve;
     });
-    await c.restart();
+    const initialized = Promise.withResolvers<void>();
+    onInitialize = initialized.resolve;
+    const restarting = c.restart();
+    await initialized.promise;
     const picked = c.setPermissionMode("acceptEdits");
     hold = undefined;
     settled();
     await picked;
+    await restarting;
     await settle();
     expect(modesAsked()).toEqual(["acceptEdits"]);
     expect(c.state.model.permissionMode).toBe("acceptEdits");

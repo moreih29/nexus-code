@@ -46,6 +46,7 @@ import {
 } from "./model";
 import { planUsageKeyFor, registerPlanSource, wantPlanUsage } from "./plan-usage";
 import { lastMessageId, sameProfile, withMove } from "./profile-moves";
+import { ProgramStartup, stopChatProgram } from "./program-startup";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import {
   type ChatTabState,
@@ -245,6 +246,9 @@ export class ChatController {
   private modePicks = 0;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
+  private readonly startup = new ProgramStartup(() =>
+    stopChatProgram(this.target.workspaceId, this.target.tabId),
+  );
   /** How many times this run of the program said it had no MCP servers, and was asked again. */
   private mcpEmptyAsks = 0;
   private buffered: ChatLine[] = [];
@@ -364,6 +368,11 @@ export class ChatController {
   }
 
   private async doOpen(shown: () => void): Promise<void> {
+    if (this.startup.failed) {
+      shown();
+      await this.start(this.startArgs());
+      return;
+    }
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
@@ -540,7 +549,13 @@ export class ChatController {
     return false;
   }
 
-  private async start(resume: StartArgs): Promise<boolean> {
+  /** Starts and initializes a program before allowing tab input. */
+  private start(resume: StartArgs): Promise<boolean> {
+    return this.startup.run(() => this.startProgram(resume));
+  }
+
+  /** Spawns Claude and applies the tab's settings after its required initialize. */
+  private async startProgram(resume: StartArgs): Promise<boolean> {
     if (this.disposed) return false;
     const { workspaceId, tabId, cwd } = this.target;
     // Before the new program's initialize tells the mode it starts in.
@@ -549,13 +564,14 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
-      const prepared = await this.fromAnotherProfile(resume);
+      await this.startup.prepare();
+      const args = await this.fromAnotherProfile(resume);
       if (this.disposed) return false;
       result = await startChat({
         workspaceId,
         tabId,
         cwd,
-        ...prepared,
+        ...args,
         ...profileArg(this.target.profileId),
       });
     } catch (err) {
@@ -572,21 +588,16 @@ export class ChatController {
       return false;
     }
     if (!isSupportedClaude(result.version)) {
-      this.update((prev) => ({
-        ...prev,
-        phase: "failed",
-        version: result.version,
-        error: "old-version",
-      }));
-      return false;
+      this.update((prev) => ({ ...prev, version: result.version }));
+      return this.rejectStartup("old-version");
     }
-    this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
+    this.update((prev) => ({ ...prev, version: result.version }));
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
       let started: unknown;
       this.initPending = true;
-      this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
+      const initialized = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
           started = init.current_permission_mode;
@@ -631,16 +642,36 @@ export class ChatController {
           }
         })
         .then(
-          () => {},
-          (err: Error) => {
-            log.warn(`initialize failed: ${err.message}`);
-          },
+          () => true,
+          (err: Error) => this.rejectStartup(err.message),
         )
         .finally(() => {
           this.initPending = false;
         });
+      this.initializing = initialized.then(() => undefined);
+      if (!(await initialized)) return false;
     }
+    if (this.disposed) return false;
+    this.flushNow();
+    if (this.state.model.process === "exited")
+      return this.rejectStartup("Claude exited during startup");
+    this.startup.failed = false;
+    this.update((prev) => ({ ...prev, phase: "ready" }));
     return true;
+  }
+
+  /** Records the failure and keeps the tab available for a fresh startup. */
+  private async rejectStartup(message: string): Promise<false> {
+    if (this.disposed) return false;
+    log.warn(`Claude startup failed: ${message}`);
+    try {
+      await this.startup.reject();
+    } catch (error) {
+      log.warn(`Claude startup cleanup failed: ${(error as Error).message}`);
+    }
+    this.flushNow();
+    this.update((prev) => ({ ...prev, phase: "failed", error: message }));
+    return false;
   }
 
   /**
@@ -1843,7 +1874,12 @@ export class ChatController {
 
   /** Starts the program again when it is not running, for a message to go to. */
   private async ensureRunning(): Promise<boolean> {
-    if (this.opening) await this.opening;
+    if (this.disposed) return false;
+    if (this.opening) {
+      await this.opening;
+      if (this.state.phase === "failed") return false;
+    }
+    if (this.startup.pending) return this.startup.pending;
     const { phase, model } = this.state;
     if (phase === "ready" && model.process === "running") return true;
     if (phase === "held" || phase === "not-found") return false;

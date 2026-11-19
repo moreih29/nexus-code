@@ -61,6 +61,7 @@ import {
   wantPlanUsage,
 } from "./plan-usage";
 import { lastMessageId, sameProfile, withMove } from "./profile-moves";
+import { ProgramStartup, stopChatProgram } from "./program-startup";
 import type { ListedSession } from "./sessions";
 import {
   type ChatTabState,
@@ -187,6 +188,15 @@ function turnIdOf(result: Record<string, unknown>): string | undefined {
   return typeof id === "string" ? id : undefined;
 }
 
+/** Requires the thread a start, resume or fork claimed to establish. */
+function requireThreadId(result: Record<string, unknown>, expected?: string): string {
+  const id = (result.thread as { id?: unknown } | null)?.id;
+  if (typeof id !== "string" || !id || (expected !== undefined && id !== expected)) {
+    throw new Error("Codex did not return the requested thread");
+  }
+  return id;
+}
+
 let counter = 0;
 
 /** Ids no earlier run of the app has used, so a replayed log does not match them. */
@@ -209,6 +219,9 @@ export class CodexController {
   private readonly live = new LiveLines();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private opening: Promise<void> | null = null;
+  private readonly startup = new ProgramStartup(() =>
+    stopChatProgram(this.target.workspaceId, this.target.tabId),
+  );
   /** A started program's handshake and thread, which a message waits for. */
   private ready: Promise<boolean> = Promise.resolve(false);
   /** The handshake of the program this controller started, until it settles. */
@@ -298,6 +311,10 @@ export class CodexController {
   }
 
   private async doOpen(): Promise<void> {
+    if (this.startup.failed) {
+      await this.start({});
+      return;
+    }
     this.flushNow();
     this.update((prev) => ({
       ...prev,
@@ -332,7 +349,17 @@ export class CodexController {
     await this.start({});
   }
 
-  private async start(
+  /** Shares the startup through initialization and thread acquisition. */
+  private start(
+    options: { resetLog?: boolean },
+    catalogOnly = false,
+    forkSettings?: ReturnType<typeof profileForkSettings>,
+  ): Promise<boolean> {
+    return this.startup.run(() => this.startProgram(options, catalogOnly, forkSettings));
+  }
+
+  /** Spawns Codex, getting the required protocol acknowledgements before marking it ready. */
+  private async startProgram(
     options: { resetLog?: boolean },
     catalogOnly = false,
     forkSettings?: ReturnType<typeof profileForkSettings>,
@@ -342,6 +369,8 @@ export class CodexController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
     try {
+      await this.startup.prepare();
+      if (this.disposed) return false;
       result = await startCodex({
         workspaceId,
         tabId,
@@ -363,21 +392,17 @@ export class CodexController {
       return false;
     }
     if (!isSupportedCodex(result.version)) {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId }).catch(() => {});
-      this.update((prev) => ({
-        ...prev,
-        phase: "failed",
-        version: result.version,
-        error: "old-version",
-      }));
-      return false;
+      this.update((prev) => ({ ...prev, version: result.version }));
+      return this.rejectStartup("old-version");
     }
     this.canonicalCwd = result.canonicalCwd;
-    this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
+    this.update((prev) => ({ ...prev, version: result.version }));
     if (result.attached) {
       // A program this controller started a moment ago, whose start line has
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
+      this.startup.failed = false;
+      this.update((prev) => ({ ...prev, phase: "ready" }));
       this.readRateLimits();
       void this.availableCollaborationModes();
       this.showPicks();
@@ -385,42 +410,62 @@ export class CodexController {
     }
     this.collaborationProbe = undefined;
     const introduced = this.introduce();
-    this.introduced = introduced;
-    if (catalogOnly) return introduced;
-    const handshake = this.handshake(introduced, forkSettings)
-      .then((ok) => {
-        if (ok) this.showPicks();
-        return ok;
-      })
+    this.introduced = introduced.then(
+      () => true,
+      () => false,
+    );
+    const handshake = (catalogOnly ? introduced : this.handshake(introduced, forkSettings))
+      .then(
+        async () => {
+          if (this.disposed) return false;
+          this.flushNow();
+          if (this.model.process === "exited")
+            return this.rejectStartup("Codex exited during startup");
+          this.startup.failed = false;
+          this.update((prev) => ({ ...prev, phase: "ready" }));
+          if (!catalogOnly) this.showPicks();
+          return true;
+        },
+        (error: Error) => this.rejectStartup(error.message),
+      )
       .finally(() => {
         if (this.handshaking === handshake) this.handshaking = null;
       });
     this.handshaking = handshake;
     this.ready = handshake;
-    return true;
+    return handshake;
+  }
+
+  /** Records required startup failure and detaches from the failed program. */
+  private async rejectStartup(message: string): Promise<false> {
+    if (this.disposed) return false;
+    log.warn(`Codex startup failed: ${message}`);
+    this.limitsReadable = false;
+    try {
+      await this.startup.reject();
+    } catch (error) {
+      log.warn(`Codex startup cleanup failed: ${(error as Error).message}`);
+    }
+    this.flushNow();
+    this.update((prev) => ({ ...prev, phase: "failed", error: message }));
+    return false;
   }
 
   /** Introduces the app to the program, which takes no other request before. */
-  private async introduce(): Promise<boolean> {
-    try {
-      await this.request("initialize", {
-        clientInfo: { name: "nexus-code", title: "NexusCode", version: __APP_VERSION__ },
-        capabilities: { experimentalApi: true }, // thread/settings/update for /fast
-      });
-      await this.write({ method: "initialized" });
-      return true;
-    } catch (err) {
-      log.warn(`initialize failed: ${(err as Error).message}`);
-      return false;
-    }
+  private async introduce(): Promise<void> {
+    await this.request("initialize", {
+      clientInfo: { name: "nexus-code", title: "NexusCode", version: __APP_VERSION__ },
+      capabilities: { experimentalApi: true }, // thread/settings/update for /fast
+    });
+    await this.write({ method: "initialized" });
   }
 
   /** Once the program knows the app, starts the tab's thread or goes on with the one it had. */
   private async handshake(
-    introduced: Promise<boolean>,
+    introduced: Promise<void>,
     forkSettings?: ReturnType<typeof profileForkSettings>,
   ): Promise<boolean> {
-    if (!(await introduced)) return false;
+    await introduced;
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
     void this.probeCollaborationModes();
@@ -436,8 +481,7 @@ export class CodexController {
           : undefined;
         const staged = await this.stage(fork);
         const forked = await this.forkThread(fork, settings);
-        const id = (forked.thread as { id?: unknown } | undefined)?.id;
-        const copy = typeof id === "string" ? id : undefined;
+        const copy = requireThreadId(forked);
         this.readGoal(copy);
         // The copy is called as the tab it came from was; one from another
         // profile keeps the name it had there, which Codex does not copy.
@@ -454,36 +498,31 @@ export class CodexController {
       } catch (err) {
         const message = (err as Error).message;
         log.warn(`thread ${fork.threadId} not forked: ${message}`);
-        this.update((prev) => ({ ...prev, phase: "failed", error: message }));
-        return false;
+        throw err;
       }
     }
     if (threadId) {
+      let resumed: Record<string, unknown> | undefined;
       try {
         // The log shows what came before already; a new log asks for it.
-        await this.request("thread/resume", {
+        resumed = await this.request("thread/resume", {
           threadId,
           cwd,
           excludeTurns: this.model.items.length > 0,
         });
-        this.readGoal(threadId);
-        return true;
       } catch (err) {
         const message = (err as Error).message;
         log.warn(`thread ${threadId} not resumed: ${message}`);
-        if (this.resumingSelection) {
-          this.update((prev) => ({ ...prev, phase: "failed", error: message }));
-          return false;
-        }
+        if (this.resumingSelection) throw err;
+      }
+      if (resumed) {
+        requireThreadId(resumed, threadId);
+        this.readGoal(threadId);
+        return true;
       }
     }
-    try {
-      await this.request("thread/start", threadStartParams(this.target, this.next));
-      return true;
-    } catch (err) {
-      log.warn(`thread/start failed: ${(err as Error).message}`);
-      return false;
-    }
+    requireThreadId(await this.request("thread/start", threadStartParams(this.target, this.next)));
+    return true;
   }
 
   private async forkThread(
@@ -1747,7 +1786,12 @@ export class CodexController {
    * opens (its list of threads, its defaults) would come before that.
    */
   private async ensureRunning(): Promise<boolean> {
-    if (this.opening) await this.opening;
+    if (this.disposed) return false;
+    if (this.opening) {
+      await this.opening;
+      if (this.state.phase === "failed") return false;
+    }
+    if (this.startup.pending) return this.startup.pending;
     // The program's start line may wait for the next frame: a message sent as
     // the tab opens (a new task's, the CLI's) would start it again.
     this.flushNow();
