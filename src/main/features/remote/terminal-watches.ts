@@ -15,7 +15,8 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { CliServices } from "../cli/context";
 import { fitsInFrame, RpcFailure } from "./room";
-import { DEFAULT_TERMINAL_LINES, fitsAsResult, tabOf, unavailable } from "./serve";
+import { fitsAsResult, tabOf, unavailable } from "./serving/common";
+import { DEFAULT_TERMINAL_LINES } from "./serving/terminal";
 
 /** Most terminals one device may watch here at once; a new one beyond ends its oldest. */
 export const MAX_TERMINAL_WATCHES_PER_DEVICE = 4;
