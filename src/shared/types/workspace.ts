@@ -97,6 +97,7 @@ export const WorkspaceConnectionChangedEventSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   status: WorkspaceConnectionEventStatusSchema,
 });
+export type WorkspaceConnectionChangedEvent = z.infer<typeof WorkspaceConnectionChangedEventSchema>;
 
 export type WorkspaceConnectionEventStatus = z.infer<typeof WorkspaceConnectionEventStatusSchema>;
 

@@ -300,8 +300,17 @@ async function bootstrapAppState(): Promise<void> {
  * that wait for a user to connect.
  */
 export async function bootstrapWorkspaces(): Promise<void> {
-  const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
-  useWorkspacesStore.getState().setAll(list);
+  // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
+  const [workspaces, connections] = await Promise.all([
+    ipcCallResult("workspace", "list", undefined),
+    ipcCallResult("workspace", "connectionSnapshot", undefined).catch((error: unknown) => {
+      log.warn(`Workspace connection snapshot failed: ${String(error)}`);
+    }),
+  ]);
+  if (connections && !connections.ok)
+    log.warn(`Workspace connection snapshot failed: ${connections.message}`);
+  const list = mustSucceed(workspaces);
+  useWorkspacesStore.getState().setAll(list, connections?.ok ? connections.value : undefined);
   const active = await ipcCallResult("workspace", "active", undefined);
 
   // The sidebar can already be used while the active-ID reply is pending.

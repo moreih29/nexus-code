@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { isDrivePath, toSlashPath } from "../../../shared/fs/drive-path";
 import type {
+  WorkspaceConnectionChangedEvent,
   WorkspaceConnectionEventStatus,
   WorkspaceConnectionProgressEvent,
   WorkspaceMeta,
@@ -36,7 +37,7 @@ export interface WorkspacesState {
   connectionStatusByWorkspaceId: Record<string, WorkspaceConnectionStatus>;
   /** Last bootstrap progress event per workspace ID. Cleared to undefined on connection complete/error. */
   connectionProgressByWorkspaceId: Record<string, WorkspaceConnectionProgressEvent | undefined>;
-  setAll: (workspaces: WorkspaceMeta[]) => void;
+  setAll: (workspaces: WorkspaceMeta[], snapshot?: WorkspaceConnectionChangedEvent[]) => void;
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
@@ -360,15 +361,24 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       connectionStatusByWorkspaceId: {},
       connectionProgressByWorkspaceId: {},
 
-      setAll(incoming) {
+      setAll(incoming, snapshot = []) {
         const workspaces = incoming.map(withSlashRoot);
-        set((state) => ({
-          workspaces,
-          connectionStatusByWorkspaceId: pruneConnectionStatuses(
-            state.connectionStatusByWorkspaceId,
+        set((state) => {
+          const statuses = Object.fromEntries(
+            snapshot.map(({ workspaceId, status }) => [
+              workspaceId,
+              statusFromConnectionEvent(status),
+            ]),
+          );
+          return {
             workspaces,
-          ),
-        }));
+            // Live events can arrive while bootstrap waits for its snapshot.
+            connectionStatusByWorkspaceId: pruneConnectionStatuses(
+              { ...statuses, ...state.connectionStatusByWorkspaceId },
+              workspaces,
+            ),
+          };
+        });
       },
 
       upsert(incoming) {

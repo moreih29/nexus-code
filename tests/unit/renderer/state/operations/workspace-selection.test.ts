@@ -75,13 +75,15 @@ test("startup restores the remembered workspace away from the first row without 
   const calls: string[] = [];
   setWorkspaceIpc(async (method) => {
     calls.push(method);
-    return method === "list" ? [local, ssh] : ssh.id;
+    if (method === "list") return [local, ssh];
+    if (method === "connectionSnapshot") return [];
+    return ssh.id;
   });
 
   await bootstrapWorkspaces();
 
   expect(useActiveStore.getState().activeWorkspaceId).toBe(ssh.id);
-  expect(calls).toEqual(["list", "active"]);
+  expect(calls).toEqual(["list", "connectionSnapshot", "active"]);
 });
 
 test("a workspace selected while startup waits for the last active ID stays selected", async () => {

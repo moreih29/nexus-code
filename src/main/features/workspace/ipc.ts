@@ -50,6 +50,7 @@ export function registerWorkspaceChannel(
       list: (_args: unknown) => {
         return manager.list();
       },
+      connectionSnapshot: () => ipcOk(manager.connectionSnapshot()),
       active: (_args: unknown) => {
         return manager.getActiveId();
       },
