@@ -485,6 +485,11 @@ func TestDaemonExitsOnShutdown(t *testing.T) {
 		}
 	}
 
+	// The client can re-add the workspace as soon as it receives the reply.
+	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
+		t.Errorf("old daemon socket is still present after shutdown reply: %v", err)
+	}
+
 	select {
 	case err := <-exited:
 		if err != nil {

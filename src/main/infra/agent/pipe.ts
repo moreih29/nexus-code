@@ -172,6 +172,7 @@ export interface NdjsonPipeDependencies {
   readonly classifyStderr: StderrClassifier;
   readonly onTerminalError: (error: SshError) => void;
   readonly requestTimeoutMs?: number;
+  readonly readyTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
   /**
    * Called when the first heartbeat miss is detected (advertisedInterval × 1).
@@ -233,7 +234,7 @@ export interface NdjsonPipe {
   /** Marks the pipe terminally failed from the orchestrator's side. */
   fail(error: Error): void;
   /**
-   * Flushes buffered lines and reports whether ready had settled before close.
+   * Flushes buffered lines and reports whether the handshake had succeeded before close.
    * `stderrTail` carries the last few raw stderr lines (loader errors, panics,
    * unclassified warnings) so the orchestrator can attach them to the terminal
    * error's cause — the file log is then self-sufficient for diagnosis.
@@ -286,6 +287,8 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
   let readySettled = false;
+  let readyReceived = false;
+  let readyTimer: NodeJS.Timeout | undefined;
 
   // Capabilities from the ready frame — populated once ready arrives.
   let capabilityMethods: readonly string[] | undefined;
@@ -317,11 +320,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     resolveReady = () => {
       if (readySettled) return;
       readySettled = true;
+      readyReceived = true;
+      clearTimeout(readyTimer);
       resolve();
     };
     rejectReady = (error) => {
       if (readySettled) return;
       readySettled = true;
+      clearTimeout(readyTimer);
       reject(error);
     };
   });
@@ -755,13 +761,25 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     notifyClose(): { wasReady: boolean; stderrTail: string } {
       stdoutLines.flush();
       stderrLines.flush();
-      const wasReady = readySettled;
-      if (!wasReady && deferredSpawnFailure !== null) {
+      const wasReady = readyReceived;
+      if (!readySettled && deferredSpawnFailure !== null) {
         selfFail(createSshError("server.spawn-failed", deferredSpawnFailure));
       }
       return { wasReady, stderrTail: recentStderr.join(" | ") };
     },
   };
+  const readyTimeoutMs = deps.readyTimeoutMs;
+  if (readyTimeoutMs !== undefined && !readySettled) {
+    readyTimer = setTimeout(() => {
+      selfFail(
+        createSshError(
+          "transport.timeout",
+          new Error(`Agent handshake exceeded ${readyTimeoutMs}ms`),
+        ),
+      );
+    }, readyTimeoutMs);
+    readyTimer.unref?.();
+  }
   return pipe;
 }
 

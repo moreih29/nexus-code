@@ -38,6 +38,7 @@ import type {
 import type { SshAuthPrompt } from "../../../../../shared/ssh/auth-prompt";
 import type { SshErrorCode } from "../../../../../shared/ssh/errors";
 import { createSshError } from "../../pipe";
+import { AuthCancelledError } from "../auth";
 import type { SshAuthPromptHandler } from "../auth-pty";
 import { resolveSshHostConfig, type SshHostConfig, type SshTarget } from "./config";
 import {
@@ -59,6 +60,7 @@ const PASSPHRASE_ATTEMPTS = 3;
 export interface ConnectSsh2Dependencies {
   readonly resolveConfig?: (target: SshTarget) => Promise<SshHostConfig>;
   readonly connectTimeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 /** An open connection and the jump hosts and proxy process it runs through. */
@@ -77,13 +79,17 @@ export async function connectSsh2(
   dependencies: ConnectSsh2Dependencies = {},
 ): Promise<Ssh2Connection> {
   const resolveConfig = dependencies.resolveConfig ?? ((t: SshTarget) => resolveSshHostConfig(t));
+  const { signal } = dependencies;
+  signal?.throwIfAborted();
   const config = await resolveConfig(target);
+  signal?.throwIfAborted();
   const hops: Ssh2Connection[] = [];
   let proxy: ChildProcess | null = null;
   const endAll = (): void => {
     proxy?.kill();
     for (const hop of [...hops].reverse()) hop.end();
   };
+  signal?.addEventListener("abort", endAll, { once: true });
   try {
     let sock: Duplex | undefined;
     if (config.proxyJump.length > 0) {
@@ -92,9 +98,10 @@ export async function connectSsh2(
       for (const jump of config.proxyJump) {
         const hop = await connectThrough(parseJumpHost(jump), via, promptHandler, dependencies);
         hops.push(hop);
+        signal?.throwIfAborted();
         via = hop;
       }
-      sock = await forwardTo(via as Ssh2Connection, config.hostname, config.port);
+      sock = await forwardTo(via as Ssh2Connection, config.hostname, config.port, signal);
     } else if (config.proxyCommand !== null) {
       proxy = spawnProxyCommand(config);
       sock = proxySocket(proxy);
@@ -112,6 +119,8 @@ export async function connectSsh2(
   } catch (error) {
     endAll();
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", endAll);
   }
 }
 
@@ -125,7 +134,7 @@ async function connectThrough(
   const resolveConfig = dependencies.resolveConfig ?? ((t: SshTarget) => resolveSshHostConfig(t));
   // A jump host's own ProxyJump is not followed; it is reached through the one before it.
   const config = { ...(await resolveConfig(target)), proxyJump: [], proxyCommand: null };
-  const sock = await forwardTo(via, config.hostname, config.port);
+  const sock = await forwardTo(via, config.hostname, config.port, dependencies.signal);
   const client = await authenticate(config, sock, promptHandler, dependencies);
   return { client, config, end: () => client.end() };
 }
@@ -148,14 +157,25 @@ export function parseJumpHost(spec: string): SshTarget {
   return { host, user: user || undefined, port };
 }
 
-function forwardTo(via: Ssh2Connection, hostname: string, port: number): Promise<Duplex> {
+/** Opens a forwarding stream without keeping a cancelled jump attempt alive. */
+function forwardTo(
+  via: Ssh2Connection,
+  hostname: string,
+  port: number,
+  signal?: AbortSignal,
+): Promise<Duplex> {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
+    const abort = () => reject(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
     via.client.forwardOut("127.0.0.1", 0, hostname, port, (error, stream) => {
+      signal?.removeEventListener("abort", abort);
       if (error) {
         reject(createSshError("ssh.connect-failed", error));
         return;
       }
-      resolve(stream);
+      if (signal?.aborted) stream.destroy();
+      else resolve(stream);
     });
   });
 }
@@ -213,6 +233,8 @@ function authenticate(
   // ssh2 is loaded on first use: only the Windows SSH path needs it.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Client: ClientClass } = require("ssh2") as typeof import("ssh2");
+  const { signal } = dependencies;
+  signal?.throwIfAborted();
   const client = new ClientClass();
   const timeoutMs = dependencies.connectTimeoutMs ?? config.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
 
@@ -221,6 +243,7 @@ function authenticate(
     let hostKeyRefused: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let promptsOpen = 0;
+    const prompts = new AbortController();
 
     const armTimer = (): void => {
       disarmTimer();
@@ -237,7 +260,10 @@ function authenticate(
       promptsOpen += 1;
       disarmTimer();
       try {
-        return await promptHandler(prompt);
+        return await promptHandler(prompt, prompts.signal);
+      } catch (error) {
+        if (error instanceof AuthCancelledError) fail("ssh.auth-cancelled", error);
+        throw error;
       } finally {
         promptsOpen -= 1;
         if (promptsOpen === 0 && !settled) armTimer();
@@ -246,17 +272,25 @@ function authenticate(
     // The error is made only for a connection still opening: making an
     // SshError logs it.
     const fail = (code: SshErrorCode, cause: unknown): void => {
+      if (!settled) stop(createSshError(code, cause));
+    };
+    const stop = (error: unknown): void => {
       if (settled) return;
+      settle();
+      client.end();
+      reject(error);
+    };
+    const abort = () => stop(signal?.reason);
+    const settle = (): void => {
       settled = true;
       disarmTimer();
-      client.end();
-      reject(createSshError(code, cause));
+      prompts.abort();
+      signal?.removeEventListener("abort", abort);
     };
 
     client.once("ready", () => {
       if (settled) return;
-      settled = true;
-      disarmTimer();
+      settle();
       resolve(client);
     });
     // Kept for the connection's life: an error with no listener would throw.
@@ -295,7 +329,12 @@ function authenticate(
       ...(config.forwardAgent !== null ? { agent: config.forwardAgent, agentForward: true } : {}),
     };
     armTimer();
-    client.connect(connectConfig);
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      client.connect(connectConfig);
+    } catch (error) {
+      stop(error);
+    }
   });
 }
 

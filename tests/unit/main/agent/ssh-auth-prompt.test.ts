@@ -68,6 +68,27 @@ describe("SshAuthPromptHub", () => {
     await expect(promise).rejects.toBeInstanceOf(AuthCancelledError);
   });
 
+  it("dismisses only the prompt owned by an aborted connection", async () => {
+    const events: BroadcastEvent[] = [];
+    const hub = new SshAuthPromptHub((channelName, event, args) => {
+      events.push({ channelName, event, args });
+    });
+    const controller = new AbortController();
+    const aborted = hub.request(passwordPrompt("removed"), controller.signal);
+    const next = hub.request(hostKeyPrompt("next"));
+
+    controller.abort();
+    await expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+    expect(hub.listPending().map((prompt) => prompt.promptId)).toEqual(["next"]);
+    expect(events.at(-1)).toEqual({
+      channelName: "sshAuth",
+      event: "dismissed",
+      args: { promptId: "removed" },
+    });
+    hub.respond({ kind: "host-key", promptId: "next", trust: "yes" });
+    await next;
+  });
+
   it("treats duplicate respond and cancel calls as no-ops", async () => {
     const hub = new SshAuthPromptHub(() => {});
     const promise = hub.request(passwordPrompt("prompt-1"));

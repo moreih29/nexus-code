@@ -1,6 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { AuthCancelledError } from "../../../../src/main/infra/agent/ssh/auth";
 import { authenticateSshControlMaster } from "../../../../src/main/infra/agent/ssh/auth-pty";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
@@ -181,14 +182,14 @@ describe("authenticateSshControlMaster", () => {
     await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
   });
 
-  it("kills the PTY, reports ssh.auth-failed, and unlinks the socket when cancelled", async () => {
+  it("kills the PTY, reports ssh.auth-cancelled, and unlinks the socket when cancelled", async () => {
     const pty = new FakePty();
     const unlinkCalls: string[] = [];
     const disposeSpawnCalls: string[][] = [];
     const promise = authenticateSshControlMaster(
       { host: "127.0.0.1", user: "alice", port: 2223, controlPath: "/tmp/nexus-test.sock" },
       async () => {
-        throw new Error("cancelled");
+        throw new AuthCancelledError("test-prompt");
       },
       {
         promptIdPrefix: "prompt-1",
@@ -206,11 +207,42 @@ describe("authenticateSshControlMaster", () => {
     );
 
     pty.emitData("alice@127.0.0.1's password:");
-    await expect(promise).rejects.toMatchObject({ code: "ssh.auth-failed" });
+    await expect(promise).rejects.toMatchObject({ code: "ssh.auth-cancelled" });
 
     expect(pty.killed).toEqual([undefined]);
     expect(disposeSpawnCalls[0]).toContain("-O");
     expect(unlinkCalls).toEqual(["/tmp/nexus-test.sock"]);
+  });
+
+  it("aborts the PTY and outstanding prompt when its bootstrap is discarded", async () => {
+    const pty = new FakePty();
+    const controller = new AbortController();
+    const promptAborted = mock(() => {});
+    const unlink = mock((_path: string) => {});
+    const promise = authenticateSshControlMaster(
+      { host: "example.test", controlPath: "/tmp/nexus-test.sock" },
+      async (_prompt, signal) => {
+        signal?.addEventListener("abort", promptAborted);
+        return new Promise(() => {});
+      },
+      {
+        signal: controller.signal,
+        spawnPty: () => pty as never,
+        spawn: () => {
+          const child = new FakeDisposeChild();
+          queueMicrotask(() => child.emitClose());
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
+        unlink,
+      },
+    );
+
+    pty.emitData("Password:");
+    controller.abort();
+    expect(pty.killed).toEqual([undefined]);
+    expect(promptAborted).toHaveBeenCalledTimes(1);
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(unlink).toHaveBeenCalledWith("/tmp/nexus-test.sock");
   });
 
   it("fails fast when the PTY never emits prompt data or exit", async () => {

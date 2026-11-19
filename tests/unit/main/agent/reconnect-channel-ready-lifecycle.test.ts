@@ -98,3 +98,48 @@ describe("no-epoch reconnect emits the ready lifecycle event", () => {
     }
   });
 });
+
+describe("agent ready deadline", () => {
+  it("rejects initial ready and terminates a silent process", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeHarness();
+      const ready = channel.ready.catch((error: unknown) => error);
+      jest.advanceTimersByTime(30_000);
+      expect(children[0]?.killed).toBe(true);
+      expect(await ready).toMatchObject({ code: "transport.timeout" });
+      expect(children).toHaveLength(1);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("terminates a silent reconnect attempt and resumes on the next ready", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeHarness();
+      const recovered = Promise.withResolvers<void>();
+      channel.onLifecycle((event) => {
+        if (event.type === "ready") recovered.resolve();
+      });
+      children[0]?.stdout.emitData('{"type":"ready"}\n');
+      await channel.ready;
+      children[0]?.emit("close", 137, "SIGKILL");
+      jest.advanceTimersByTime(1);
+
+      const silent = children[1];
+      expect(silent).toBeDefined();
+      jest.advanceTimersByTime(30_000);
+      expect(silent?.killed).toBe(true);
+      silent?.emit("close", 137, "SIGKILL");
+      jest.advanceTimersByTime(1);
+      expect(children).toHaveLength(3);
+      children[2]?.stdout.emitData('{"type":"ready"}\n');
+      await recovered.promise;
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

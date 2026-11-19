@@ -49,14 +49,8 @@ type LifecycleCb = (event: { type: string; [k: string]: unknown }) => void;
 class StubChannel {
   readonly calls: Array<{ method: string; params: unknown }> = [];
   private readonly lifecycleListeners = new Set<LifecycleCb>();
-  private resolveReady!: () => void;
-  readonly ready: Promise<void>;
-
-  constructor() {
-    this.ready = new Promise<void>((r) => {
-      this.resolveReady = r;
-    });
-  }
+  private readonly handshake = Promise.withResolvers<void>();
+  readonly ready = this.handshake.promise;
 
   async call(method: string, params?: unknown): Promise<unknown> {
     this.calls.push({ method, params: params ?? null });
@@ -79,7 +73,11 @@ class StubChannel {
   }
 
   resolveChannel(): void {
-    this.resolveReady();
+    this.handshake.resolve();
+  }
+  failHandshake(error: Error): void {
+    this.emitLifecycle({ type: "failure", error });
+    this.handshake.reject(error);
   }
   dispose(): void {}
 }
@@ -93,6 +91,7 @@ function makeManager(overrides?: {
   sshChannelFactory?: Parameters<typeof WorkspaceManager>[4];
   writeShimFiles?: Parameters<typeof WorkspaceManager>[9];
   removeShimDir?: Parameters<typeof WorkspaceManager>[10];
+  wsl?: Parameters<typeof WorkspaceManager>[11];
   ptyRestoreAfterReauth?: (workspaceId: string) => Promise<void>;
   ptyReleaseHeld?: (workspaceId: string) => void;
 }) {
@@ -130,6 +129,7 @@ function makeManager(overrides?: {
     undefined as never, // sshLspBootstrap
     overrides?.writeShimFiles ?? defaultWriteShimFiles,
     overrides?.removeShimDir ?? defaultRemoveShimDir,
+    overrides?.wsl,
   );
 
   // Wire held-session callbacks — default no-ops when not provided.
@@ -228,7 +228,12 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
       jest.advanceTimersByTime(999);
       expect(connectedAfterUnstable()).toBe(false);
 
+      channel.emitLifecycle({ type: "degraded" });
       jest.advanceTimersByTime(1);
+      expect(connectedAfterUnstable()).toBe(false);
+
+      channel.emitLifecycle({ type: "degraded-recovered" });
+      jest.advanceTimersByTime(1000);
       expect(connectedAfterUnstable()).toBe(true);
     } finally {
       jest.useRealTimers();
@@ -420,104 +425,97 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
 // Acceptance 4d: 3 consecutive failures → error (give up)
 // ---------------------------------------------------------------------------
 
-describe("acceptance 4d: reauth backoff — 3 attempts then error", () => {
-  test("after retries exhausted (reauthAttempts≥3) broadcasts error immediately", async () => {
-    const channel = new StubChannel();
-    const sshBootstrap = mock(async () => ({
+describe("SSH reauthentication across bootstrap and ready failures", () => {
+  test.each([
+    "exhausted",
+    "recovered",
+    "removed",
+  ] as const)("keeps PTYs held across failed attempts until %s", async (outcome) => {
+    const initial = new StubChannel();
+    const next = new StubChannel();
+    const last = new StubChannel();
+    const ptyReleaseHeld = mock((_id: string) => {});
+    const ptyRestoreAfterReauth = mock(async (_id: string) => {});
+    const bootstrap = {
       remoteCommand: "exec agent",
       remoteHome: "/home/user",
       platform: { os: "linux" as const, arch: "amd64" as const },
       uploaded: false,
       remoteBinDir: "/home/user/.nexus-code/bin",
-      controlPath: undefined,
-      dispose: undefined,
-    }));
-
-    const sshChannelFactory = mock(() => channel);
-    const { manager, globalDb, broadcasts } = makeManager({ sshBootstrap, sshChannelFactory });
+    };
+    const sshBootstrap = mock(async () => bootstrap);
+    sshBootstrap.mockImplementationOnce(async () => bootstrap);
+    sshBootstrap.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("Temporary SSH connection failure"), {
+        code: "ssh.connect-failed",
+      });
+    });
+    const factory = mock(() => next);
+    factory.mockImplementationOnce(() => initial);
+    factory.mockImplementationOnce(() => next);
+    factory.mockImplementationOnce(() => last);
+    const { manager, globalDb, broadcasts } = makeManager({
+      sshBootstrap,
+      sshChannelFactory: factory,
+      ptyReleaseHeld,
+      ptyRestoreAfterReauth,
+    });
     const meta = makeSshMeta(manager);
-    const bootPromise = manager.getAgentChannel(meta.id);
-    channel.resolveChannel();
-    await bootPromise;
+    const boot = manager.getAgentChannel(meta.id);
+    initial.resolveChannel();
+    await boot;
 
-    // Pre-seed reauthAttempts to 3 (exhausted). The next scheduleReauth call
-    // will immediately broadcast "error" and return (no timer, no new prompt).
-    const m = manager as unknown as { reauthAttempts: Map<string, number> };
-    m.reauthAttempts.set(meta.id, 3);
+    const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const authFailed = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    jest.useFakeTimers();
+    try {
+      initial.emitLifecycle({ type: "failure", error: authFailed });
+      await flush();
+      expect(sshBootstrap).toHaveBeenCalledTimes(2);
+      expect(ptyReleaseHeld).not.toHaveBeenCalled();
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), {
-      code: "ssh.auth-failed",
-    });
-    channel.emitLifecycle({ type: "failure", error: authFailedError });
+      if (outcome === "removed") {
+        manager.remove(meta.id);
+        jest.advanceTimersByTime(35_000);
+        await flush();
+        expect(sshBootstrap).toHaveBeenCalledTimes(2);
+        expect(ptyReleaseHeld).toHaveBeenCalledTimes(1);
+        expect(ptyRestoreAfterReauth).not.toHaveBeenCalled();
+        return;
+      }
 
-    // scheduleReauth is async (void) — allow the microtask to complete.
-    await new Promise<void>((r) => setTimeout(r, 0));
+      jest.advanceTimersByTime(4_999);
+      await flush();
+      expect(sshBootstrap).toHaveBeenCalledTimes(2);
+      jest.advanceTimersByTime(1);
+      await flush();
+      expect(factory).toHaveBeenCalledTimes(2);
+      next.failHandshake(authFailed);
+      await flush();
+      expect(ptyReleaseHeld).not.toHaveBeenCalled();
 
-    const statusBroadcasts = broadcasts
-      .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
-      .map((b) => b.args as { status: string; workspaceId: string });
-    const errorForWs = statusBroadcasts.filter(
-      (b) => b.workspaceId === meta.id && b.status === "error",
-    );
-    expect(errorForWs.length).toBeGreaterThan(0);
-
-    globalDb.close();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Acceptance 5: ctx absent at reauth time → no action
-// ---------------------------------------------------------------------------
-
-describe("acceptance 5: ctx absent guard in reauth", () => {
-  test("workspace removed before reauth timer fires → no boot attempt", async () => {
-    let bootCallCount = 0;
-    const channel = new StubChannel();
-    const sshBootstrap = mock(async () => {
-      bootCallCount++;
-      return {
-        remoteCommand: "exec agent",
-        remoteHome: "/home/user",
-        platform: { os: "linux" as const, arch: "amd64" as const },
-        uploaded: false,
-        remoteBinDir: "/home/user/.nexus-code/bin",
-        controlPath: undefined,
-        dispose: undefined,
-      };
-    });
-
-    const sshChannelFactory = mock(() => channel);
-    const { manager, globalDb } = makeManager({ sshBootstrap, sshChannelFactory });
-    const meta = makeSshMeta(manager);
-    const bootPromise = manager.getAgentChannel(meta.id);
-    channel.resolveChannel();
-    await bootPromise;
-    expect(bootCallCount).toBe(1);
-
-    // Seed reauthAttempts=1 so the backoff delay is 5 s (won't fire before remove).
-    const m = manager as unknown as { reauthAttempts: Map<string, number> };
-    m.reauthAttempts.set(meta.id, 1);
-
-    const authFailedError = Object.assign(new Error("SSH auth failed"), {
-      code: "ssh.auth-failed",
-    });
-    channel.emitLifecycle({ type: "failure", error: authFailedError });
-
-    // Remove the workspace immediately before the timer fires.
-    manager.remove(meta.id);
-
-    // Wait longer than 5 s would be awkward in a unit test, but we can verify
-    // that the reauthInFlight was registered (timer was scheduled).
-    // We confirm the workspace context is gone, which is the CRITICAL guard.
-    const ctx = (manager as unknown as { contexts: Map<string, unknown> }).contexts.get(meta.id);
-    expect(ctx).toBeUndefined();
-
-    // Boot count should still be 1 — the 5 s delayed reauth won't fire in this
-    // test's timeframe (0 ms poll window). The guard check inside attemptReauth
-    // would bail out anyway since ctx is gone.
-    expect(bootCallCount).toBe(1);
-
-    globalDb.close();
+      jest.advanceTimersByTime(30_000);
+      await flush();
+      expect(factory).toHaveBeenCalledTimes(3);
+      if (outcome === "recovered") {
+        last.resolveChannel();
+        await flush();
+        expect(ptyRestoreAfterReauth).toHaveBeenCalledWith(meta.id);
+        expect(ptyReleaseHeld).not.toHaveBeenCalled();
+      } else {
+        last.failHandshake(authFailed);
+        await flush();
+        expect(ptyReleaseHeld).toHaveBeenCalledTimes(1);
+        expect(ptyRestoreAfterReauth).not.toHaveBeenCalled();
+        expect(broadcasts.at(-1)?.args).toEqual({ workspaceId: meta.id, status: "error" });
+        jest.advanceTimersByTime(60_000);
+        await flush();
+        expect(sshBootstrap).toHaveBeenCalledTimes(4);
+      }
+    } finally {
+      jest.useRealTimers();
+      globalDb.close();
+    }
   });
 });
 
@@ -569,45 +567,6 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     await new Promise<void>((r) => setTimeout(r, 20));
 
     // releaseHeld should have been called after auth-cancelled.
-    expect(releaseHeldCalls).toContain(meta.id);
-
-    globalDb.close();
-  });
-
-  test("backoff exhausted (reauthAttempts≥3) → manager calls releaseHeld", async () => {
-    const channel = new StubChannel();
-    const releaseHeldCalls: string[] = [];
-    const sshBootstrap = mock(async () => ({
-      remoteCommand: "exec agent",
-      remoteHome: "/home/user",
-      platform: { os: "linux" as const, arch: "amd64" as const },
-      uploaded: false,
-      remoteBinDir: "/home/user/.nexus-code/bin",
-      controlPath: undefined,
-      dispose: undefined,
-    }));
-
-    const sshChannelFactory = mock(() => channel);
-    const { manager, globalDb } = makeManager({
-      sshBootstrap,
-      sshChannelFactory,
-      ptyReleaseHeld: (id) => releaseHeldCalls.push(id),
-    });
-    const meta = makeSshMeta(manager);
-    const bootPromise = manager.getAgentChannel(meta.id);
-    channel.resolveChannel();
-    await bootPromise;
-
-    // Pre-seed exhausted attempts.
-    const m = manager as unknown as { reauthAttempts: Map<string, number> };
-    m.reauthAttempts.set(meta.id, 3);
-
-    const authFailedError = Object.assign(new Error("SSH auth failed"), {
-      code: "ssh.auth-failed",
-    });
-    channel.emitLifecycle({ type: "failure", error: authFailedError });
-    await new Promise<void>((r) => setTimeout(r, 0));
-
     expect(releaseHeldCalls).toContain(meta.id);
 
     globalDb.close();
@@ -698,6 +657,51 @@ describe("held-then-expired lifecycle", () => {
 });
 
 describe("workspace removed while its SSH agent is starting", () => {
+  test("cancels in-flight reauthentication when the workspace is removed", async () => {
+    const channel = new StubChannel();
+    const reauthStarted = Promise.withResolvers<void>();
+    const cancelBoot = mock(() => {});
+    const ptyReleaseHeld = mock((_id: string) => {});
+    const bootstrap = {
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+    };
+    const { manager, globalDb, broadcasts } = makeManager({
+      sshBootstrap: mock(async (options) => {
+        if (!options.cachedRemoteArch) return bootstrap;
+        return new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            cancelBoot();
+            reject(options.signal?.reason);
+          });
+          reauthStarted.resolve();
+        });
+      }),
+      sshChannelFactory: mock(() => channel),
+      ptyReleaseHeld,
+    });
+    const meta = makeSshMeta(manager);
+    const boot = manager.getAgentChannel(meta.id);
+    channel.resolveChannel();
+    await boot;
+    channel.emitLifecycle({
+      type: "failure",
+      error: Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" }),
+    });
+    await reauthStarted.promise;
+    const joined = manager.getAgentChannel(meta.id).catch((error: unknown) => error);
+    manager.remove(meta.id);
+
+    expect(cancelBoot).toHaveBeenCalledTimes(1);
+    expect(await joined).toMatchObject({ name: "AbortError" });
+    expect(ptyReleaseHeld).toHaveBeenCalledTimes(1);
+    expect(broadcasts.at(-1)?.event).toBe("removed");
+    globalDb.close();
+  });
+
   test("disposes the finished bootstrap and opens no channel", async () => {
     let resolveBootstrap!: (value: unknown) => void;
     const bootstrapDispose = mock(() => {});
@@ -799,6 +803,64 @@ describe("removing an SSH workspace", () => {
     await bootPromise;
     return { channel, manager, globalDb, meta };
   }
+
+  test.each([
+    "ssh",
+    "wsl",
+  ] as const)("%s removal during provider setup owns shutdown and defers re-add", async (kind) => {
+    const hookStarted = Promise.withResolvers<void>();
+    const hookReply = Promise.withResolvers<unknown>();
+    class BootingChannel extends ShutdownChannel {
+      override async call(method: string, params?: unknown): Promise<unknown> {
+        if (method !== "hook.getInfo") return super.call(method, params);
+        hookStarted.resolve();
+        return hookReply.promise;
+      }
+    }
+
+    const original = new BootingChannel();
+    const replacement = new StubChannel();
+    const createChannel = mock((): StubChannel => original);
+    createChannel.mockImplementationOnce(() => original);
+    createChannel.mockImplementationOnce(() => replacement);
+    const bootstrap = mock(async () => ({
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+    }));
+    const { manager, globalDb } = makeManager({
+      sshBootstrap: bootstrap,
+      sshChannelFactory: createChannel,
+      wsl: { bootstrap, createChannel, lspBootstrap: mock() },
+    });
+    const meta =
+      kind === "ssh"
+        ? makeSshMeta(manager)
+        : manager.create({
+            location: { kind: "wsl", distro: "Ubuntu", remotePath: "/home/user/project" },
+          });
+    const boot = manager.getAgentChannel(meta.id);
+    const removed = boot.catch((error: unknown) => error);
+    original.resolveChannel();
+    await hookStarted.promise;
+
+    manager.remove(meta.id);
+    const next = manager.create({ location: meta.location });
+    const nextBoot = manager.getAgentChannel(next.id);
+    replacement.resolveChannel();
+    hookReply.resolve({ socketPath: "/tmp/test.sock", token: "removed" });
+    expect(await removed).toMatchObject({ name: "AbortError" });
+
+    expect(manager.getHookInfo(meta.id)).toBeNull();
+    expect(createChannel).toHaveBeenCalledTimes(1);
+    expect(original.events).toEqual(["agent.shutdown"]);
+    original.answerShutdown();
+    expect(await nextBoot).toBe(replacement as never);
+    expect(original.events).toEqual(["agent.shutdown", "dispose"]);
+    globalDb.close();
+  });
 
   test("asks the remote agent to exit before closing its channel", async () => {
     const { channel, manager, globalDb, meta } = await bootSsh();

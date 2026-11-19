@@ -16,6 +16,8 @@ import type { SshMasterOptions } from "../master";
 // bricking every local workspace — see the envelope.ts comment.)
 export const REMOTE_AGENT_PROTOCOL_MAJOR = AGENT_PROTOCOL_VERSION;
 export const REMOTE_AGENT_VERSION = "0.1.0";
+/** Maximum duration of agent installation after authentication. */
+export const REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS = 120_000;
 
 /**
  * Root path on the remote host where the agent is installed.
@@ -59,6 +61,7 @@ export interface LspBootstrapProgressEvent {
 
 export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remoteCommand"> {
   readonly remotePath: string;
+  readonly signal?: AbortSignal;
   readonly cachedRemoteArch?: RemoteAgentPlatform;
   readonly authMode?: "interactive" | "key-only";
   /**
@@ -126,6 +129,7 @@ export type SshBootstrapRunner = (
   command: string,
   args: string[],
   input?: Buffer | string,
+  signal?: AbortSignal,
 ) => Promise<SshBootstrapRunnerResult>;
 
 export interface SshBootstrapDependencies {

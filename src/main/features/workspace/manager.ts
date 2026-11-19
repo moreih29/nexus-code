@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -67,6 +67,9 @@ import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { WorkspaceContext } from "./context";
 
 const log = createLogger("workspace");
+
+/** Delays before the three automatic SSH reauthentication attempts. */
+const SSH_REAUTH_BACKOFF_MS = [0, 5_000, 30_000];
 
 /**
  * How long a removed SSH workspace's agent has to answer agent.shutdown,
@@ -371,6 +374,8 @@ export class WorkspaceManager {
    */
   private readonly daemonStopsByLocation = new Map<string, Promise<void>>();
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
+  /** Bootstrap still owns its SSH/WSL processes until it hands off the channel. */
+  private readonly remoteBootstrapControllers = new Map<string, AbortController>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   // ControlMasters handed off from an SSH browse session, keyed by workspace
   // id, awaiting their first provider boot. Consumed by startRemoteProvider.
@@ -380,18 +385,11 @@ export class WorkspaceManager {
   private readonly hookInfoByWorkspace = new Map<string, HookInfo>();
   /** One wait per local reconnect, until the replacement's hooks are known. */
   private readonly localHookRefreshes = new WeakMap<AgentChannel, LocalHookRefresh>();
-  /**
-   * Tracks workspaces with an in-flight automatic re-authentication attempt so
-   * the manager never opens a second prompt for the same workspace concurrently.
-   * Also prevents racing with a manual "Connect" action.
-   */
-  private readonly reauthInFlight = new Set<string>();
-  /**
-   * Counts consecutive manager-level re-authentication attempts per workspace.
-   * Reset to 0 on a successful connection. Used for exponential backoff:
-   * 0 → 0 ms, 1 → 5 000 ms, 2 → 30 000 ms, then give up.
-   */
-  private readonly reauthAttempts = new Map<string, number>();
+  /** One retry loop per workspace, including the gaps between attempts. */
+  private readonly sshReauth = new Map<
+    string,
+    { controller: AbortController; ready: Promise<void> }
+  >();
   /**
    * Pending timers for `degraded-recovered` debounce.
    * Clears the "unstable" badge ~1 s after the last heartbeat recovery signal
@@ -483,6 +481,9 @@ export class WorkspaceManager {
    */
   close(): void {
     for (const [id, ctx] of this.contexts) {
+      this.remoteBootstrapControllers.get(id)?.abort(createWorkspaceRemovedError(id));
+      this.cancelSshReauth(id);
+      this.clearDegradedRecovery(id);
       ctx.close();
       this.contexts.delete(id);
       this.connectionStatuses.delete(id);
@@ -496,6 +497,9 @@ export class WorkspaceManager {
       channel.dispose();
     }
     this.sshChannels.clear();
+    for (const bootstrap of this.sshBootstraps.values()) {
+      bootstrap.dispose?.();
+    }
     this.sshBootstraps.clear();
     this.sshProviderReady.clear();
     for (const master of this.adoptedSshMasters.values()) {
@@ -1133,6 +1137,9 @@ export class WorkspaceManager {
     // The PTY host emits pty.exit events for each live session so the
     // renderer's dead-terminal banner fires without waiting for IPC.
     this.ptySessionCloser?.(id);
+    this.remoteBootstrapControllers.get(id)?.abort(createWorkspaceRemovedError(id));
+    this.cancelSshReauth(id);
+    this.clearDegradedRecovery(id);
 
     // Step 1b — destroy all browser views for this workspace and schedule
     // clearStorageData. View destroys happen synchronously inside the async
@@ -1151,11 +1158,7 @@ export class WorkspaceManager {
     // One not connected, or whose agent cannot be reached, is stopped by
     // another agent on its host, if one is connected.
     const sshChannel = this.sshChannels.get(id);
-    const status = this.connectionStatuses.get(id);
-    if (
-      sshChannel &&
-      (status === "connected" || status === "unstable" || status === "reconnecting")
-    ) {
+    if (sshChannel) {
       this.stoppingSshChannels.add(sshChannel);
       const bootstrap = this.sshBootstraps.get(id);
       const meta = ctx.getMeta();
@@ -1177,7 +1180,6 @@ export class WorkspaceManager {
     this.localChannels.get(id)?.dispose();
     this.localChannels.delete(id);
     this.localProviderReady.delete(id);
-    this.sshChannels.get(id)?.dispose();
     this.sshChannels.delete(id);
     this.sshBootstraps.delete(id);
     this.sshProviderReady.delete(id);
@@ -1460,9 +1462,15 @@ export class WorkspaceManager {
    * Lazily connects one SSH or WSL channel per workspace and injects it into
    * the context.
    */
-  private async ensureRemoteProviderReady(ctx: WorkspaceContext): Promise<void> {
+  private async ensureRemoteProviderReady(ctx: WorkspaceContext, reauth = false): Promise<void> {
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
+      return;
+    }
+
+    const recovery = this.sshReauth.get(meta.id);
+    if (recovery && !reauth) {
+      await recovery.ready;
       return;
     }
 
@@ -1499,14 +1507,19 @@ export class WorkspaceManager {
     // A workspace removed and added again connects once its old daemon has
     // been stopped, not to it as that stop ends.
     await this.daemonStopped(location);
+    if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
     // A workspace created from a browse session inherits that session's
     // already-authenticated ControlMaster; reusing its socket lets bootstrap
     // skip the interactive auth round entirely (no second password prompt).
     const adoptedMaster = this.adoptedSshMasters.get(meta.id);
     this.adoptedSshMasters.delete(meta.id);
+    const controller = new AbortController();
+    this.remoteBootstrapControllers.set(meta.id, controller);
+    const signal = controller.signal;
     let bootstrap: EnsureRemoteAgentResult;
-    const onProgress = (event: LspBootstrapProgressEvent) =>
-      this.broadcastConnectionProgress(meta.id, event);
+    const onProgress = (event: LspBootstrapProgressEvent) => {
+      if (!signal.aborted) this.broadcastConnectionProgress(meta.id, event);
+    };
     try {
       bootstrap =
         location.kind === "wsl"
@@ -1516,6 +1529,7 @@ export class WorkspaceManager {
                 remotePath: location.remotePath,
                 cachedRemoteArch: location.remoteArch,
                 workspaceId: meta.id,
+                signal,
               },
               { onProgress },
             )
@@ -1534,6 +1548,7 @@ export class WorkspaceManager {
                 // `~/.nexus-code/shim/shared/`, making them available to the
                 // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
                 workspaceId: meta.id,
+                signal,
               },
               { onProgress },
             );
@@ -1541,9 +1556,12 @@ export class WorkspaceManager {
       // Bootstrap failed before any channel existed. Release the adopted
       // master (we own it now) and surface the error state instead of
       // leaving the renderer stuck on "connecting".
-      this.broadcastConnectionStatus(meta.id, "error");
       adoptedMaster?.dispose();
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
+      if (!this.sshReauth.has(meta.id)) this.broadcastConnectionStatus(meta.id, "error");
       throw error;
+    } finally {
+      this.remoteBootstrapControllers.delete(meta.id);
     }
     // ensureRemoteAgent only returns a dispose handle for a master it
     // authenticated itself. When we supplied an adopted master, wire its
@@ -1558,7 +1576,6 @@ export class WorkspaceManager {
       bootstrap.dispose?.();
       throw createWorkspaceRemovedError(meta.id);
     }
-    this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
     if (!location.remoteArch) {
       providerMeta = {
@@ -1572,82 +1589,87 @@ export class WorkspaceManager {
       ctx.setMeta(providerMeta);
       this.broadcastFn("workspace", "changed", providerMeta);
     }
-    const channel =
-      location.kind === "wsl"
-        ? this.wsl.createChannel({
-            distro: location.distro,
-            remoteCommand: bootstrap.remoteCommand,
-          })
-        : this.sshChannelFactory(
-            sshChannelOptionsFromLocation(
-              { ...location, remoteArch: bootstrap.platform },
-              bootstrap.remoteCommand,
-              bootstrap.controlPath,
-            ),
-          );
+    if (!this.isLiveContext(meta.id, ctx)) {
+      bootstrap.dispose?.();
+      throw createWorkspaceRemovedError(meta.id);
+    }
+    let channel: SshChannel;
+    try {
+      channel =
+        location.kind === "wsl"
+          ? this.wsl.createChannel({
+              distro: location.distro,
+              remoteCommand: bootstrap.remoteCommand,
+            })
+          : this.sshChannelFactory(
+              sshChannelOptionsFromLocation(
+                { ...location, remoteArch: bootstrap.platform },
+                bootstrap.remoteCommand,
+                bootstrap.controlPath,
+              ),
+            );
+    } catch (error) {
+      bootstrap.dispose?.();
+      if (!this.sshReauth.has(meta.id)) this.broadcastConnectionStatus(meta.id, "error");
+      throw error;
+    }
+    this.sshBootstraps.set(meta.id, bootstrap);
     this.sshChannels.set(meta.id, channel);
+    let installed = false;
+    let bootFailure: Error | undefined;
     const disposeLifecycleListener = channel.onLifecycle((event) => {
-      this.handleSshChannelLifecycle(meta.id, channel, event);
+      if (installed) this.handleSshChannelLifecycle(meta.id, channel, event);
+      else if (event.type === "failure") bootFailure = event.error;
+      else if (event.type === "exit" || event.type === "held-then-expired") {
+        bootFailure = new Error("Agent connection ended during provider setup");
+      }
     });
 
+    /** Checks ownership after each asynchronous stage of provider setup. */
+    const checkBoot = () => {
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
+      if (bootFailure) throw bootFailure;
+    };
+    let shimStarted = false;
     try {
       await channel.ready;
+      checkBoot();
+
+      let info: HookInfo | null;
+      try {
+        info = await this.readHookInfo(meta.id, channel);
+      } catch (error) {
+        checkBoot();
+        log.warn(`agent hook setup failed for ${meta.id}: ${(error as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(error as Error).message}`, { cause: error });
+      }
+      checkBoot();
+      if (this.sshChannels.get(meta.id) === channel) this.cacheHookInfo(meta.id, info);
+
+      // The remote workspace's local shim supplies env/args for local PTYs.
+      shimStarted = true;
+      try {
+        await this.writeShimFiles(meta.id);
+      } catch (error) {
+        log.warn(
+          `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(error as Error).message}`,
+        );
+      }
+      checkBoot();
     } catch (error) {
-      // channel.ready failed: bootstrap already succeeded and transferred
-      // ownership of the ControlMaster to us, so we must dispose both
-      // bootstrap (ControlMaster) and channel here before re-throwing.
       disposeLifecycleListener();
-      this.broadcastConnectionStatus(meta.id, "error");
-      if (this.sshChannels.get(meta.id) === channel) {
-        this.sshChannels.delete(meta.id);
-      }
+      if (shimStarted) this.removeShimDirQuietly(meta.id);
+      if (!this.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
+      this.sshChannels.delete(meta.id);
       this.sshBootstraps.delete(meta.id);
-      bootstrap.dispose?.();
+      this.hookInfoByWorkspace.delete(meta.id);
       channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-      if (isAbortError(error) && this.sshChannels.get(meta.id) !== channel) {
-        throw error;
-      }
+      bootstrap.dispose?.();
+      if (!this.sshReauth.has(meta.id)) this.broadcastConnectionStatus(meta.id, "error");
       throw error;
     }
 
-    try {
-      const info = await this.readHookInfo(meta.id, channel);
-      if (this.sshChannels.get(meta.id) === channel) this.cacheHookInfo(meta.id, info);
-    } catch (err) {
-      disposeLifecycleListener();
-      this.broadcastConnectionStatus(meta.id, "error");
-      if (this.sshChannels.get(meta.id) === channel) {
-        this.sshChannels.delete(meta.id);
-      }
-      this.sshBootstraps.delete(meta.id);
-      bootstrap.dispose?.();
-      channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-      log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
-      throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
-    }
-
-    // Write the PTY shim files into the workspace-specific directory.
-    // An SSH workspace's shim serves local processes — its purpose is not remote PATH control but
-    // injecting env/args when a local PTY spawns. On failure, warn gracefully.
-    try {
-      await this.writeShimFiles(meta.id);
-    } catch (shimErr) {
-      log.warn(
-        `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
-      );
-    }
-
-    if (!this.isLiveContext(meta.id, ctx)) {
-      disposeLifecycleListener();
-      channel.dispose();
-      bootstrap.dispose?.();
-      // remove() already deleted the shim dir; this boot rewrote it.
-      this.removeShimDirQuietly(meta.id);
-      throw createWorkspaceRemovedError(meta.id);
-    }
-
+    installed = true;
     const provider = createFsProvider(providerMeta, channel);
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -1759,6 +1781,8 @@ export class WorkspaceManager {
       return;
     }
 
+    this.clearDegradedRecovery(workspaceId);
+
     // ── Transient quality events ──────────────────────────────────────────
     if (event.type === "degraded") {
       this.broadcastConnectionStatus(workspaceId, "unstable");
@@ -1766,9 +1790,6 @@ export class WorkspaceManager {
     }
 
     if (event.type === "degraded-recovered") {
-      // Cancel any pending debounce timer so rapid transitions don't stack.
-      const pending = this.degradedRecoveryTimers.get(workspaceId);
-      if (pending) clearTimeout(pending);
       // ~1 s debounce recommended by designer (plan issue 5) to prevent flapping.
       const timer = setTimeout(() => {
         this.degradedRecoveryTimers.delete(workspaceId);
@@ -1783,12 +1804,6 @@ export class WorkspaceManager {
 
     // ── Reconnecting: keep references, update UI ──────────────────────────
     if (event.type === "reconnecting") {
-      // Cancel any pending degraded-recovery timer: we're reconnecting now.
-      const pendingTimer = this.degradedRecoveryTimers.get(workspaceId);
-      if (pendingTimer) {
-        clearTimeout(pendingTimer);
-        this.degradedRecoveryTimers.delete(workspaceId);
-      }
       this.broadcastConnectionStatus(workspaceId, "reconnecting");
       return;
     }
@@ -1820,14 +1835,8 @@ export class WorkspaceManager {
 
     this.tearDownSshProvider(workspaceId, ctx);
 
-    // ── Auto re-authentication (plan issue 6) ─────────────────────────────
-    // Conditions: auth-failed terminal failure + interactive auth + context
-    // and meta still present (CRITICAL: re-confirm after tearDown) + no
-    // concurrent reauth in flight.
-    if (isAuthFailure && isInteractive && !this.reauthInFlight.has(workspaceId)) {
-      void this.scheduleReauth(workspaceId);
-      // PTY hold state is preserved — scheduleReauth owns the resolution
-      // (restoreAfterReauth on success, releaseHeld on all non-reauth exits).
+    if (isAuthFailure && isInteractive && this.isLiveContext(workspaceId, ctx)) {
+      this.startSshReauth(ctx);
       return;
     }
 
@@ -1843,12 +1852,6 @@ export class WorkspaceManager {
     this.sshChannels.delete(workspaceId);
     this.sshBootstraps.delete(workspaceId);
     this.sshProviderReady.delete(workspaceId);
-    // Cancel any pending degraded-recovery timer.
-    const pendingTimer = this.degradedRecoveryTimers.get(workspaceId);
-    if (pendingTimer) {
-      clearTimeout(pendingTimer);
-      this.degradedRecoveryTimers.delete(workspaceId);
-    }
     // Stale hookInfo is invalid once the channel dies — the next boot fills it again.
     this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
@@ -1858,95 +1861,78 @@ export class WorkspaceManager {
     });
   }
 
-  /**
-   * Schedules (or immediately starts) an automatic SSH re-authentication
-   * attempt after an auth-failed terminal failure on an interactive workspace.
-   *
-   * Backoff schedule (plan issue 6):
-   *   attempt 0 → immediate (0 ms)
-   *   attempt 1 → 5 000 ms
-   *   attempt 2 → 30 000 ms
-   *   attempt 3 → give up, surface error
-   *
-   * Guards:
-   *   - `reauthInFlight` prevents concurrent prompts (including manual Connect).
-   *   - ctx/meta re-confirmed inside the scheduled callback (CRITICAL: prevents
-   *     re-booting a workspace that was removed while the timer was pending).
-   *   - ssh.auth-cancelled → disconnected (no retry loop).
-   */
-  private async scheduleReauth(workspaceId: string): Promise<void> {
-    const attempts = this.reauthAttempts.get(workspaceId) ?? 0;
-    const BACKOFF_MS = [0, 5_000, 30_000];
+  /** Cancels a delayed transition back to connected. */
+  private clearDegradedRecovery(workspaceId: string): void {
+    clearTimeout(this.degradedRecoveryTimers.get(workspaceId));
+    this.degradedRecoveryTimers.delete(workspaceId);
+  }
 
-    if (attempts >= BACKOFF_MS.length) {
-      // Exhausted retries — surface permanent error, release held sessions.
-      log.warn(`reauth exhausted for ${workspaceId} after ${attempts} attempts`);
-      this.broadcastConnectionStatus(workspaceId, "error");
-      this.reauthAttempts.delete(workspaceId);
-      this.ptyReleaseHeld?.(workspaceId);
-      return;
-    }
+  /** Owns the held PTYs until automatic SSH reauthentication is resolved. */
+  private startSshReauth(ctx: WorkspaceContext): void {
+    const { id } = ctx.getMeta();
+    if (this.sshReauth.has(id)) return;
+    const controller = new AbortController();
+    const ready = Promise.resolve()
+      .then(() => this.retrySshReauth(ctx, controller.signal))
+      .then(
+        () => {
+          if (controller.signal.aborted) throw createWorkspaceRemovedError(id);
+          this.sshReauth.delete(id);
+          this.ptyRestoreAfterReauth?.(id).catch((error: unknown) => {
+            log.warn(`restoreAfterReauth failed for ${id}: ${(error as Error).message}`);
+          });
+        },
+        (error: unknown) => {
+          if (controller.signal.aborted) throw createWorkspaceRemovedError(id);
+          this.sshReauth.delete(id);
+          const cancelled = (error as { code?: string }).code === "ssh.auth-cancelled";
+          this.broadcastConnectionStatus(id, cancelled ? "disconnected" : "error");
+          this.ptyReleaseHeld?.(id);
+          throw error;
+        },
+      );
+    this.sshReauth.set(id, { controller, ready });
+    // Automatic recovery can run without any caller awaiting it.
+    void ready.catch(() => {});
+  }
 
-    const delayMs = BACKOFF_MS[attempts];
-    this.reauthInFlight.add(workspaceId);
-
-    const attemptReauth = async (): Promise<void> => {
-      // CRITICAL: re-confirm ctx/meta existence before attempting re-boot.
-      const ctx = this.contexts.get(workspaceId);
-      if (!ctx) {
-        this.reauthInFlight.delete(workspaceId);
-        this.reauthAttempts.delete(workspaceId);
-        // Workspace gone — release any still-held sessions.
-        this.ptyReleaseHeld?.(workspaceId);
-        return;
-      }
-      const meta = ctx.getMeta();
-      if (meta.location.kind !== "ssh" || meta.location.authMode !== "interactive") {
-        this.reauthInFlight.delete(workspaceId);
-        this.reauthAttempts.delete(workspaceId);
-        this.ptyReleaseHeld?.(workspaceId);
-        return;
-      }
-
-      this.reauthAttempts.set(workspaceId, attempts + 1);
-      try {
-        await this.ensureRemoteProviderReady(ctx);
-        // Success — reset attempt counter and trigger PTY session restore.
-        this.reauthAttempts.delete(workspaceId);
-        // restoreAfterReauth acquires the new channel, subscribes lifecycle,
-        // and runs session.list reconcile → replay/exit. Fire-and-forget:
-        // internal failures are logged inside restoreAfterReauth itself.
-        this.ptyRestoreAfterReauth?.(workspaceId).catch((err: unknown) => {
-          log.warn(`restoreAfterReauth failed for ${workspaceId}: ${(err as Error).message}`);
+  /** Runs all attempts in order, keeping manual Connect on the same promise. */
+  private async retrySshReauth(ctx: WorkspaceContext, signal: AbortSignal): Promise<void> {
+    const { id } = ctx.getMeta();
+    for (const [attempt, delay] of SSH_REAUTH_BACKOFF_MS.entries()) {
+      if (delay > 0 && !signal.aborted) {
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, delay);
+          timer.unref?.();
+          signal.addEventListener("abort", finish, { once: true });
         });
-      } catch (err) {
-        // ssh.auth-cancelled: user explicitly cancelled — stop the retry loop
-        // and release held sessions.
-        const code = (err as { code?: string }).code;
-        if (code === "ssh.auth-cancelled") {
-          log.info(`reauth cancelled by user for ${workspaceId}`);
-          this.broadcastConnectionStatus(workspaceId, "disconnected");
-          this.reauthAttempts.delete(workspaceId);
-          this.ptyReleaseHeld?.(workspaceId);
-        } else {
-          // Other failures (connect error, etc.) handled by the new lifecycle
-          // event from the fresh channel — don't double-broadcast here. Hold
-          // state is preserved so the next channel's lifecycle can restore it.
-          log.warn(
-            `reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`,
-          );
-        }
-      } finally {
-        this.reauthInFlight.delete(workspaceId);
       }
-    };
-
-    if (delayMs === 0) {
-      void attemptReauth();
-    } else {
-      const timer = setTimeout(() => void attemptReauth(), delayMs);
-      timer.unref?.();
+      if (signal.aborted) throw createWorkspaceRemovedError(id);
+      try {
+        await this.ensureRemoteProviderReady(ctx, true);
+        return;
+      } catch (error) {
+        if (signal.aborted || (error as { code?: string }).code === "ssh.auth-cancelled") {
+          throw error;
+        }
+        log.warn(`reauth attempt ${attempt + 1} failed for ${id}: ${(error as Error).message}`);
+        if (attempt === SSH_REAUTH_BACKOFF_MS.length - 1) throw error;
+      }
     }
+  }
+
+  /** Stops pending retries and releases held PTYs when the workspace closes. */
+  private cancelSshReauth(workspaceId: string): void {
+    const recovery = this.sshReauth.get(workspaceId);
+    if (!recovery) return;
+    this.sshReauth.delete(workspaceId);
+    recovery.controller.abort();
+    this.ptyReleaseHeld?.(workspaceId);
   }
 
   /**

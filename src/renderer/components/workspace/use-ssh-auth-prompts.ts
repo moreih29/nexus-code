@@ -76,6 +76,8 @@ export function installSshAuthPromptListeners(listen: typeof ipcListen = ipcList
     enqueuePrompt(prompt);
   });
 
+  const unlistenDismissed = listen("sshAuth", "dismissed", ({ promptId }) => clearPrompt(promptId));
+
   // Track held/restored/expired so we know which prompts are reattach-context.
   const unlistenHeld = listen("pty", "held", (args) => {
     heldWorkspaceIds.add(args.workspaceId);
@@ -91,6 +93,7 @@ export function installSshAuthPromptListeners(listen: typeof ipcListen = ipcList
 
   return () => {
     unlistenPrompt();
+    unlistenDismissed();
     unlistenHeld();
     unlistenRestored();
     unlistenExpired();

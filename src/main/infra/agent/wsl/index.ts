@@ -12,6 +12,7 @@ import {
   type AgentReconnectOptions,
   createReconnectingProcessChannel,
 } from "../channel/reconnecting-process-channel";
+import { collectProcess } from "../collect-process";
 import { createSshError } from "../pipe";
 import { formatCloseDiagnostic } from "../ssh/channel";
 import {
@@ -23,10 +24,11 @@ import {
   REMOTE_AGENT_PROTOCOL_MAJOR,
   type RemoteAgentPlatform,
   type SshBootstrapRunner,
-  type SshBootstrapRunnerResult,
 } from "../ssh/ssh-bootstrap";
 
 const WSL_EXE = "wsl.exe";
+const WSL_COMMAND_TIMEOUT_MS = 120_000;
+const WSL_LIST_TIMEOUT_MS = 10_000;
 
 /** Starts `argv` in `distro`, in the distribution user's home. */
 export type SpawnWslProcess = (
@@ -38,6 +40,7 @@ export interface WslAgentOptions {
   readonly distro: string;
   /** Absolute path inside the distribution; the agent's root. */
   readonly remotePath: string;
+  readonly signal?: AbortSignal;
   /** Installs the workspace's shell shim files too, as for SSH. */
   readonly workspaceId?: string;
   readonly cachedRemoteArch?: RemoteAgentPlatform;
@@ -89,26 +92,6 @@ export function decodeWslOutput(buffer: Buffer): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-function collect(
-  child: ChildProcessWithoutNullStreams,
-  input?: Buffer | string,
-): Promise<SshBootstrapRunnerResult> {
-  return new Promise((resolve, reject) => {
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("error", (error) => reject(createSshError("transport.unknown", error)));
-    child.on("close", (code) => {
-      const out = Buffer.concat(stdout).toString("utf8");
-      const err = decodeWslOutput(Buffer.concat(stderr)).trim();
-      if (code === 0) resolve({ stdout: out, stderr: err });
-      else reject(createSshError("transport.unknown", new Error(err || `wsl.exe exited ${code}`)));
-    });
-    child.stdin.end(input);
-  });
-}
-
 /**
  * Runs the SSH bootstrap's remote steps in `distro`. The bootstrap hands
  * each step over as `ssh <options> -- <destination> <command>`; the command
@@ -120,12 +103,27 @@ export function createWslBootstrapRunner(
   distro: string,
   spawnImpl: SpawnWslProcess = defaultSpawnWsl,
 ): SshBootstrapRunner {
-  return (command, args, input) => {
+  return async (command, args, input, signal) => {
     if (command !== "ssh") {
-      return Promise.reject(new Error(`${command} is not used in WSL`));
+      throw new Error(`${command} is not used in WSL`);
     }
     const remoteCommand = args[args.length - 1] ?? "";
-    return collect(spawnImpl(distro, ["sh", "-c", remoteCommand]), input);
+    signal?.throwIfAborted();
+    const child = spawnImpl(distro, ["sh", "-c", remoteCommand]);
+    const { stdout, stderr, code } = await collectProcess(child, {
+      name: WSL_EXE,
+      input,
+      signal,
+      timeoutMs: WSL_COMMAND_TIMEOUT_MS,
+    }).catch((error: unknown) => {
+      if (signal?.aborted || (error as { code?: string }).code === "transport.timeout") throw error;
+      throw createSshError("transport.unknown", error);
+    });
+    const err = decodeWslOutput(stderr).trim();
+    if (code !== 0) {
+      throw createSshError("transport.unknown", new Error(err || `wsl.exe exited ${code}`));
+    }
+    return { stdout: stdout.toString("utf8"), stderr: err };
   };
 }
 
@@ -135,6 +133,7 @@ function bootstrapOptions(options: WslAgentOptions) {
     host: `wsl:${options.distro}`,
     authMode: "key-only" as const,
     remotePath: options.remotePath,
+    signal: options.signal,
     cachedRemoteArch: options.cachedRemoteArch,
     workspaceId: options.workspaceId,
   };
@@ -229,15 +228,13 @@ export function listWslDistros(
   );
 }
 
-function runWslExe(args: readonly string[]): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(WSL_EXE, [...args], { windowsHide: true, env: wslEnv() });
-    const stdout: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(Buffer.concat(stdout));
-      else reject(new Error(`wsl.exe exited ${code}`));
-    });
+/** Runs WSL discovery with the same child ownership as bootstrap commands. */
+export async function runWslExe(args: readonly string[], spawnImpl = spawn): Promise<Buffer> {
+  const child = spawnImpl(WSL_EXE, [...args], { windowsHide: true, env: wslEnv() });
+  const { stdout, code } = await collectProcess(child, {
+    name: WSL_EXE,
+    timeoutMs: WSL_LIST_TIMEOUT_MS,
   });
+  if (code !== 0) throw new Error(`wsl.exe exited ${code}`);
+  return stdout;
 }

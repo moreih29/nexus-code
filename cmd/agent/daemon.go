@@ -303,11 +303,10 @@ func runDaemon(root string) {
 	// reconnect state must be discarded.
 	epoch := agentrun.NewEpoch()
 
-	// cleanupAndExit tears down all shared resources and terminates.
-	// Called only on genuine daemon shutdown — not on dialer disconnect.
-	// Only the first caller tears down; any other blocks until it exits.
+	// Release the workspace before acknowledging shutdown. A new launcher
+	// may try this socket and lock as soon as the reply reaches the app.
 	var shutdown sync.Once
-	cleanupAndExit := func(code int) {
+	releaseWorkspace := func() {
 		shutdown.Do(func() {
 			pty.Close()  // hang up every terminal, as closing its tab does
 			chat.Close() // and end every Claude tab's program
@@ -318,9 +317,12 @@ func runDaemon(root string) {
 			_ = ln.Close()
 			_ = os.Remove(paths.Sock)
 			lock.Unlock()
-			_ = logFile.Close()
-			os.Exit(code)
 		})
+	}
+	cleanupAndExit := func(code int) {
+		releaseWorkspace()
+		_ = logFile.Close()
+		os.Exit(code)
 	}
 
 	// agent.shutdown comes from the app removing the workspace: no dialer
@@ -328,6 +330,7 @@ func runDaemon(root string) {
 	// terminals and language servers through reattachGrace.
 	d.Register("agent.shutdown", func(_ context.Context, _ json.RawMessage) (any, error) {
 		agentLogger.Info("daemon shutdown requested")
+		releaseWorkspace()
 		time.AfterFunc(shutdownReplyDelay, func() { cleanupAndExit(0) })
 		return struct{}{}, nil
 	})

@@ -7,6 +7,10 @@ import {
 } from "../../../../shared/ssh/auth-prompt";
 import { register, validateArgs } from "../../ipc-router";
 
+import { AuthCancelledError } from "./auth";
+
+export { AuthCancelledError } from "./auth";
+
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 
 interface PendingSshAuthPrompt {
@@ -14,14 +18,6 @@ interface PendingSshAuthPrompt {
   readonly prompt: SshAuthPrompt;
   readonly resolve: (response: SshAuthResponse) => void;
   readonly reject: (error: AuthCancelledError) => void;
-}
-
-/** Error raised when the renderer cancels an active SSH authentication prompt. */
-export class AuthCancelledError extends Error {
-  constructor(promptId: string) {
-    super(`SSH authentication prompt cancelled: ${promptId}`);
-    this.name = "AuthCancelledError";
-  }
 }
 
 /**
@@ -38,18 +34,31 @@ export class SshAuthPromptHub {
   }
 
   /** Broadcasts a validated prompt and waits for the renderer response. */
-  request(prompt: SshAuthPrompt): Promise<SshAuthResponse> {
+  request(prompt: SshAuthPrompt, signal?: AbortSignal): Promise<SshAuthResponse> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const parsed = SshAuthPromptSchema.parse(prompt);
     if (this.pending.has(parsed.promptId)) {
       throw new Error(`Duplicate SSH authentication prompt id: ${parsed.promptId}`);
     }
 
     return new Promise((resolve, reject) => {
+      const abort = () => {
+        this.pending.delete(parsed.promptId);
+        reject(signal?.reason);
+        this.broadcast("sshAuth", "dismissed", { promptId: parsed.promptId });
+      };
+      signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(parsed.promptId, {
         promptId: parsed.promptId,
         prompt: parsed,
-        resolve,
-        reject,
+        resolve: (response) => {
+          signal?.removeEventListener("abort", abort);
+          resolve(response);
+        },
+        reject: (error) => {
+          signal?.removeEventListener("abort", abort);
+          reject(error);
+        },
       });
       this.broadcast("sshAuth", "prompt", parsed);
     });
@@ -94,6 +103,6 @@ export function registerSshAuthPromptIpcChannels(hub: SshAuthPromptHub): void {
       cancel: (args) => hub.cancel(args),
       pending: () => hub.listPending(),
     },
-    listen: { prompt: {} },
+    listen: { prompt: {}, dismissed: {} },
   });
 }

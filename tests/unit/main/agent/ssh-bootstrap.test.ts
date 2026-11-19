@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -219,6 +219,7 @@ describe("ssh-bootstrap", () => {
         "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/nexus && chmod 755 /home/deploy/.nexus-code/bin/nexus",
       ]),
       POSIX_CLI_LAUNCHER,
+      expect.any(AbortSignal),
     );
     expect(runner).toHaveBeenCalledWith(
       "ssh",
@@ -226,6 +227,7 @@ describe("ssh-bootstrap", () => {
         "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/codex && chmod 755 /home/deploy/.nexus-code/bin/codex",
       ]),
       CODEX_WRAPPER,
+      expect.any(AbortSignal),
     );
     expect(result.remoteShell).toBeUndefined();
   });
@@ -555,6 +557,58 @@ describe("ssh-bootstrap", () => {
     result.dispose?.();
     await unlinkSeen;
     expect(unlinkCalls).toEqual([result.controlPath]);
+  });
+
+  it("starts the SSH bootstrap deadline after interactive auth and disposes the master on expiry", async () => {
+    jest.useFakeTimers();
+    try {
+      const { distDir } = writeDist();
+      const pty = new FakePty();
+      const prompt = Promise.withResolvers<{ kind: "password"; promptId: string; value: string }>();
+      const runnerStarted = Promise.withResolvers<void>();
+      const unlink = mock((_path: string) => {});
+      const runner = mock(() => {
+        runnerStarted.resolve();
+        return new Promise<{ stdout: string }>(() => {});
+      });
+      let failure: unknown;
+      const boot = ensureRemoteAgent(
+        { host: "example.test", remotePath: "/project", authMode: "interactive" },
+        {
+          distDir,
+          runner,
+          promptHandler: () => prompt.promise,
+          auth: {
+            spawnPty: () => pty as never,
+            spawn: () => {
+              const child = Object.assign(new EventEmitter(), { stdin: { end() {} } });
+              queueMicrotask(() => child.emit("close", 0));
+              return child as never;
+            },
+            unlink,
+          },
+        },
+      ).catch((error: unknown) => {
+        failure = error;
+      });
+      pty.emitData("alice@example.test's password:");
+      jest.advanceTimersByTime(120_000);
+      expect(runner).not.toHaveBeenCalled();
+      expect(failure).toBeUndefined();
+      prompt.resolve({ kind: "password", promptId: "prompt", value: "secret" });
+      await flushMicrotasks();
+      expect(pty.writes).toEqual(["secret\r"]);
+      pty.emitExit(0);
+      await runnerStarted.promise;
+
+      jest.advanceTimersByTime(120_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(failure).toMatchObject({ code: "transport.timeout" });
+      expect(unlink).toHaveBeenCalledTimes(1);
+      await boot;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   // ── Acceptance tests for Task 4: wrapper SFTP upload + remoteBinDir ──
