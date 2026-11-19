@@ -943,12 +943,15 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
     expect(broker.snapshot()).toHaveLength(0);
   });
 
-  test("알 수 없는 subcommand 무시", async () => {
-    const { broker, emit } = makeHarness();
-    emit(makeHookPayload("unknown-future-subcommand"));
-    await new Promise((r) => setTimeout(r, 0));
-    // No state change expected.
+  test("acknowledges a new hook without changing Claude's state", async () => {
+    const { broker, channel, emit } = makeHarness();
+    const hook = makeHookPayload("unknown-future-subcommand");
+    emit(hook);
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(broker.snapshot()).toHaveLength(0);
+    expect(channel.callArgs).toEqual([
+      ["claude.respondHook", { hookId: hook.hookId, response: { exitCode: 0 } }],
+    ]);
   });
 });
 

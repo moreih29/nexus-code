@@ -686,7 +686,8 @@ async function handleHookEvent(
     }
 
     default:
-      // Unknown subcommand — ignore (a Claude Code update may add new events).
+      // Future hooks use Claude's native fallback without waiting for the socket deadline.
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
   }
 
