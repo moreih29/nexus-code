@@ -97,7 +97,7 @@ function setup(
     workspaceManager: manager,
     agentContext,
     broadcast: (event, args) => events.push({ event, args }),
-    onTurnStopped: (ws, tab) => status.push(`stopped ${ws} ${tab}`),
+    onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
@@ -497,7 +497,34 @@ describe("ChatHost", () => {
     result({ subtype: "success", terminal_reason: "aborted_tools" });
     result({ subtype: "error_during_execution" }, { replay: true });
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
-    expect(status).toEqual([`stopped ${WS} ${TAB}`, `stopped ${WS} ${TAB}`, `exit ${WS} ${TAB}`]);
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+      `exit ${WS} ${TAB}`,
+    ]);
+  });
+
+  test("reports success, error and interruption when Claude sends only a result", async () => {
+    const { channel, host, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    for (const result of [
+      { subtype: "success" },
+      { subtype: "success", is_error: true },
+      { subtype: "success", terminal_reason: "interrupted" },
+    ]) {
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        dir: "out",
+        message: { type: "result", ...result },
+      });
+    }
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+    ]);
   });
 
   test("closing a chat during version discovery cancels its late spawn", async () => {

@@ -7,6 +7,7 @@ import {
   PROFILE_DIR_ENV,
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
+import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
@@ -48,8 +49,8 @@ export interface ChatHostOptions {
   broadcast: (event: string, args: unknown) => void;
   /** On Windows, where local claude runs without the bash wrapper. */
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
-  /** A tab's turn ended short (interrupted, failed), which no hook tells. */
-  onTurnStopped?: (workspaceId: string, tabId: string) => void;
+  /** The result a Claude chat reported on its stream. */
+  onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** The agent profile of that id, as the app state has it; null when gone. */
@@ -564,10 +565,7 @@ export class ChatHost {
     if (payload.replay === true || payload.dir !== "out") return;
     const message = payload.message as Record<string, unknown> | null | undefined;
     if (message?.type !== "result") return;
-    const reason = typeof message.terminal_reason === "string" ? message.terminal_reason : "";
-    if (message.subtype !== "success" || reason.startsWith("aborted")) {
-      this.options.onTurnStopped?.(workspaceId, tabId);
-    }
+    this.options.onTurnResult?.(workspaceId, tabId, claudeTurnResult(message));
   }
 
   /** Relays one channel's chat events, once per channel. */
