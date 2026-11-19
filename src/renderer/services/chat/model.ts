@@ -76,8 +76,10 @@ export interface UserItem {
    * then it waits above the box, where it can still be taken back.
    */
   queued?: boolean;
-  /** Codex: the turn it went into, which a resumed thread keeps (not `uuid`). */
+  /** The turn that read this message. */
   turnId?: string;
+  /** The outcome of that turn, kept so a wait can finish after newer turns. */
+  turnResult?: { error?: string };
   forkable?: boolean;
   rewindable?: boolean;
   at?: number;
@@ -97,6 +99,8 @@ export interface AssistantItem {
   kind: "assistant";
   key: string;
   messageId: string;
+  /** Claude's turn, which can contain several assistant messages. */
+  turnId?: string;
   uuid?: string;
   blocks: AssistantBlock[];
   forkable?: boolean;
@@ -258,6 +262,7 @@ export interface StreamingMessage {
 }
 
 export interface TurnState {
+  id?: string;
   startedAt?: number;
   /** Last progress from the main conversation, in milliseconds. */
   lastActivityAt?: number;
@@ -605,6 +610,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       const stderr = str(message.stderrTail);
       const stderrTail = stderr === undefined ? undefined : terminalText(stderr);
       m.process = "exited";
+      finishSubmittedTurn(draft, m.turn?.id, "the program exited");
       m.exit = { code, ...(signal ? { signal } : {}), ...(stderrTail ? { stderrTail } : {}) };
       m.running = false;
       m.turn = null;
@@ -643,7 +649,7 @@ function applyIn(draft: Draft, message: Rec, seq: number, at: number | undefined
       });
       if (!m.running) {
         m.running = true;
-        m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+        m.turn = { id: `claude-${seq}`, startedAt: at, outputTokens: 0, thinkingTokens: 0 };
         noteTurnActivity(m, at);
       }
       return;
@@ -1026,6 +1032,7 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     kind: "assistant",
     key: `a${seq}`,
     messageId,
+    ...(m.turn?.id ? { turnId: m.turn.id } : {}),
     uuid: str(message.uuid),
     blocks,
     at: when,
@@ -1173,9 +1180,9 @@ function applyUserOut(
     // sent as the last turn was ending, or one the CLI was given itself
     // (Remote Control, a background task's news). A transcript's messages
     // come the same way, with no turn's end after them.
-    if (live && !m.running && m.process === "running") {
+    if ((live || index >= 0) && !m.running && m.process === "running") {
       m.running = true;
-      m.turn = { startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+      m.turn = { id: `claude-${seq}`, startedAt: when, outputTokens: 0, thinkingTokens: 0 };
     }
     if (other) {
       // A task's end is told live by the CLI's own notice of it (applyTaskEnd).
@@ -1197,7 +1204,13 @@ function applyUserOut(
     }
     if (index >= 0) {
       const { queued, ...item } = m.items[index] as UserItem;
-      const taken: UserItem = { ...item, state: "taken", uuid, at: item.at ?? when };
+      const taken: UserItem = {
+        ...item,
+        state: "taken",
+        uuid,
+        at: item.at ?? when,
+        ...(m.turn?.id ? { turnId: m.turn.id } : {}),
+      };
       if (queued) {
         // One that waited is read here, after what the turn did meanwhile.
         draft.removeItem(index);
@@ -1216,6 +1229,7 @@ function applyUserOut(
         state: "taken",
         uuid,
         at: when,
+        ...(m.turn?.id ? { turnId: m.turn.id } : {}),
       });
     }
     return;
@@ -1259,6 +1273,7 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
   const subtype = str(message.subtype) ?? "success";
   const isError = message.is_error === true || subtype !== "success";
   const terminalReason = str(message.terminal_reason);
+  const turnId = m.turn?.id;
   m.running = false;
   m.turn = null;
   m.streaming = null;
@@ -1281,12 +1296,32 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     terminalReason === "aborted_streaming" ||
     terminalReason === "interrupted";
   if (interrupted) stopRunningTools(draft);
+  let error: string | undefined;
   if (isError && !interrupted) {
     const errors = Array.isArray(message.errors)
       ? message.errors.filter((e) => typeof e === "string")
       : [];
     const detail = str(message.result) ?? (errors.length > 0 ? errors.join("\n") : subtype);
+    error = detail;
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
+  }
+  finishSubmittedTurn(draft, turnId, error);
+}
+
+/** Remembers how a turn ended on the accepted messages it read. */
+export function finishSubmittedTurn(
+  draft: Draft,
+  turnId: string | undefined,
+  error?: string,
+): void {
+  if (!turnId) return;
+  const items = draft.next.items;
+  const turnResult = error ? { error } : {};
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item.kind !== "user" || item.state !== "taken") continue;
+    if (item.turnId === turnId) draft.replaceItem(index, { ...item, turnResult });
+    else if (item.turnResult) break;
   }
 }
 

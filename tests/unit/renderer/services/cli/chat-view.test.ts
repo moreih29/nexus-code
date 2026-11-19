@@ -2,14 +2,24 @@
  * A Claude or Codex tab as the nexus CLI tells it: where its conversation
  * stands, and its last messages.
  */
-import { describe, expect, it } from "bun:test";
-import type { ChatModel, PermissionRequest } from "../../../../../src/renderer/services/chat/model";
-import { emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { describe, expect, it, test } from "bun:test";
+import {
+  applyCodexLine,
+  type CodexModel,
+  emptyCodexModel,
+} from "../../../../../src/renderer/services/chat/codex-model";
+import type {
+  ChatLine,
+  ChatModel,
+  PermissionRequest,
+} from "../../../../../src/renderer/services/chat/model";
+import { applyLine, emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   chatEntriesOf,
   chatInfoOf,
   chatItemIndexOf,
+  chatSubmissionInfo,
   chatToolOf,
   pageEntriesOf,
 } from "../../../../../src/renderer/services/cli/chat-view";
@@ -59,6 +69,59 @@ const permission = (toolName: string, input: Record<string, unknown>): Permissio
   toolName,
   input,
   suggestions: [],
+});
+
+test.each([
+  "claude",
+  "codex",
+] as const)("a %s wait follows the submitted turn past older and newer questions", (agent) => {
+  let seq = 0;
+  let model = agent === "claude" ? emptyModel() : emptyCodexModel();
+  const wire = (dir: ChatLine["dir"], message: Record<string, unknown>) => {
+    const line = { dir, seq: ++seq, message } as ChatLine;
+    model = agent === "claude" ? applyLine(model, line) : applyCodexLine(model as CodexModel, line);
+  };
+  const ask = permission("AskUserQuestion", { questions: [{ question: "Which port?" }] });
+  const waiting = () =>
+    chatSubmissionInfo(agent, chat({ ...model, permissions: [ask] }), "receipt");
+  wire("sys", { event: "start" });
+  if (agent === "claude") {
+    wire("in", { type: "user", uuid: "older", message: { content: "older" } });
+    wire("in", { type: "user", uuid: "receipt", message: { content: "wanted" } });
+    const echo = (uuid: string) =>
+      wire("out", { type: "user", isReplay: true, uuid, message: { content: "echo" } });
+    echo("unrelated");
+    expect(waiting().state).toBe("working");
+    wire("out", { type: "result", subtype: "success" });
+    echo("receipt");
+    expect(waiting().state).toBe("asking");
+    wire("out", {
+      type: "assistant",
+      message: { id: "a1", content: [{ type: "text", text: "wanted answer" }] },
+    });
+    wire("out", { type: "result", subtype: "success" });
+    echo("newer");
+  } else {
+    wire("out", { method: "turn/started", params: { turn: { id: "older" } } });
+    expect(waiting().state).toBe("working");
+    wire("out", {
+      method: "turn/completed",
+      params: { turn: { id: "older", status: "completed" } },
+    });
+    wire("in", { id: 10, method: "turn/start", params: { clientUserMessageId: "peer-receipt" } });
+    wire("out", { id: 10, result: { turn: { id: "wanted" } } });
+    expect(waiting().state).toBe("asking");
+    wire("out", {
+      method: "item/completed",
+      params: { turnId: "wanted", item: { id: "a1", type: "agentMessage", text: "wanted answer" } },
+    });
+    wire("out", {
+      method: "turn/completed",
+      params: { turn: { id: "wanted", status: "completed" } },
+    });
+    wire("out", { method: "turn/started", params: { turn: { id: "newer" } } });
+  }
+  expect(waiting()).toEqual({ agent, state: "idle", message: "wanted answer" });
 });
 
 describe("chatInfoOf", () => {

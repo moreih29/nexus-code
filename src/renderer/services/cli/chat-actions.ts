@@ -24,6 +24,7 @@ import {
   sendToAgentTab,
   sendUnseen,
   startAgentTab,
+  submissionAt,
 } from "../chat/agent-tab";
 import { CodexConfigRefusal } from "../chat/codex-config";
 import { CodexReplyError } from "../chat/codex-controller";
@@ -65,6 +66,7 @@ import {
   chatEntriesOf,
   chatInfoOf,
   chatItemIndexOf,
+  chatSubmissionInfo,
   chatToolOf,
   pageEntriesOf,
 } from "./chat-view";
@@ -414,7 +416,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId };
   },
 
-  "chat.state": async ({ workspaceId, tabId, peek }) => {
+  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
+    const tracked =
+      submissionId ?? (after === undefined ? undefined : submissionAt(workspaceId, tabId, after));
+    if (tracked) {
+      const target = agentTabController(workspaceId, tabId);
+      if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+      const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+      return {
+        ...withProfile(workspaceId, tabId, chatSubmissionInfo(target.agent, chat, tracked)),
+        trackedSubmission: true,
+      };
+    }
     if (peek && !opened(workspaceId, tabId)) {
       const target = agentTabController(workspaceId, tabId);
       if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
@@ -511,6 +524,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     when,
     device,
     submission,
+    wait,
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
@@ -537,6 +551,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         when,
         device,
         trustedSubmission,
+        wait,
       );
     } catch (error) {
       if (trustedSubmission && error instanceof CodexReplyError) return { rejected: error.message };

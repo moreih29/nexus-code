@@ -42,6 +42,7 @@ import {
   clearInterrupt,
   Draft,
   emptyModel,
+  finishSubmittedTurn,
   type ImageBlock,
   type ModelInfo,
   noteTurnActivity,
@@ -872,7 +873,7 @@ function applyNotification(
       if (turnId) enterTurn(m, turnId);
       if (!m.running) {
         m.running = true;
-        m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+        m.turn = { id: turnId, startedAt: at, outputTokens: 0, thinkingTokens: 0 };
       }
       noteTurnActivity(m, at);
       return;
@@ -1101,12 +1102,14 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     durationMs: num(turn.durationMs),
     at,
   };
+  const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
+  finishSubmittedTurn(draft, turnId, failure);
   if (status === "interrupted") {
     stopRunningTools(draft);
     draft.push({ kind: "notice", key: `n${seq}`, code: "interrupted", at });
   } else if (status === "failed") {
     stopRunningTools(draft);
-    pushError(draft, str(rec(turn.error)?.message) ?? "failed", `n${seq}`, at);
+    pushError(draft, failure ?? "failed", `n${seq}`, at);
   }
 }
 
@@ -1260,6 +1263,7 @@ function enterTurn(m: CodexModel, turnId: string): void {
     m.toolCompletedSeq = undefined;
   }
   m.turnId = turnId;
+  if (m.turn && m.turn.id !== turnId) m.turn = { ...m.turn, id: turnId };
 }
 
 /** Marks a message the app sent as taken by the server, in its turn; false when there is none. */

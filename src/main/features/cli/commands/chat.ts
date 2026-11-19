@@ -174,6 +174,7 @@ export async function waitOnChats(
   workspace: WorkspaceMeta,
   tabs: readonly CliTabInfo[],
   timeoutMs: number,
+  submissionId?: string,
 ): Promise<WaitResult & { tab?: CliTabInfo }> {
   const { clock } = ctx.services;
   const startedAt = clock.now();
@@ -190,6 +191,7 @@ export async function waitOnChats(
         const info = await ctx.services.ui("chat.state", {
           workspaceId: workspace.id,
           tabId: tab.id,
+          ...(submissionId ? { submissionId } : {}),
         });
         if (info.state !== "working") {
           return {
@@ -223,8 +225,9 @@ export function waitOnChat(
   workspace: WorkspaceMeta,
   tab: CliTabInfo,
   timeoutMs: number,
+  submissionId?: string,
 ): Promise<WaitResult> {
-  return waitOnChats(ctx, workspace, [tab], timeoutMs);
+  return waitOnChats(ctx, workspace, [tab], timeoutMs, submissionId);
 }
 
 /** A wait's result as the command prints it; exit 124 when the wait ran out. */
@@ -810,7 +813,7 @@ const chatSend: CliCommand = {
     const sender = await senderOf(ctx);
     const from = sender ? { ...sender, waits: timeoutMs !== null } : undefined;
     // Starting a program that is gone comes before the message.
-    const { heldId } = await ctx.services.ui(
+    const { heldId, submissionId } = await ctx.services.ui(
       "chat.send",
       {
         ...target,
@@ -818,6 +821,7 @@ const chatSend: CliCommand = {
         ...(from ? { from } : {}),
         ...(attached.length > 0 ? { files: attached } : {}),
         ...(when ? { when } : {}),
+        ...(timeoutMs === null ? {} : { wait: {} }),
       },
       SEND_TIMEOUT_MS,
     );
@@ -832,7 +836,7 @@ const chatSend: CliCommand = {
       ...(heldId ? { heldId } : {}),
     };
     if (timeoutMs === null) return output(sent, json);
-    const result = await waitOnChat(ctx, workspace, tab, timeoutMs);
+    const result = await waitOnChat(ctx, workspace, tab, timeoutMs, submissionId);
     return waitOutput(`${sent}\n${result.text}`, json, result);
   },
 };
