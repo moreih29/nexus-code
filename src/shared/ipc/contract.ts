@@ -1702,6 +1702,10 @@ export const ipcContract = {
       minimize: call(z.void(), z.void()),
       toggleMaximize: call(z.void(), z.void()),
       close: call(z.void(), z.void()),
+      closePrepared: call(
+        z.object({ attempt: z.number().int().positive(), saved: z.boolean() }),
+        z.void(),
+      ),
       isMaximized: call(z.void(), z.boolean()),
       /**
        * Opens the app menu at a point of the page, in its CSS pixels. Windows
@@ -1713,6 +1717,8 @@ export const ipcContract = {
     listen: {
       /** Sent to one window only, when it is maximized or restored. */
       maximizedChanged: listen(z.object({ maximized: z.boolean() })),
+      /** Sent to the window whose latest layout must be written before closing. */
+      prepareClose: listen(z.object({ attempt: z.number().int().positive() })),
     },
   },
 

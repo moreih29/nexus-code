@@ -820,7 +820,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
     setBrowserLastUrl(workspaceId, tabId, lastUrl) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) =>
-          tab.type === "browser" ? { ...tab, props: { ...tab.props, lastUrl } } : tab,
+          tab.type === "browser" && tab.props.lastUrl !== lastUrl
+            ? { ...tab, props: { ...tab.props, lastUrl } }
+            : tab,
         ),
       );
     },

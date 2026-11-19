@@ -20,6 +20,7 @@ import {
 } from "./activation";
 import type { AppPage } from "./app-csp";
 import { getAppWindows, trackAppWindow } from "./app-windows";
+import { ClosePersistence } from "./close-persistence";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
 import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from "./page-health";
@@ -29,6 +30,8 @@ import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from 
 const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
+
+export const closePersistence = new ClosePersistence((message) => logger.warn(message));
 
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
@@ -230,6 +233,7 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // The renderer cancels unload (quit, window close, reload) while buffers
   // are unsaved. Electron cancels silently, so ask here; preventDefault lets
   // the unload go ahead when the user chooses to discard.
+  win.on("close", (event) => closePersistence.interceptClose(event, win));
   win.webContents.on("will-prevent-unload", (event) => {
     const t = getMainT();
     const choice = dialog.showMessageBoxSync(win, {
@@ -241,6 +245,7 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       cancelId: 1,
     });
     if (choice === 0) event.preventDefault();
+    else closePersistence.cancelQuit();
   });
 
   // Popups need fresh user input, like Chrome's popup blocker: a previewed

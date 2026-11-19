@@ -4,7 +4,9 @@
 
 import { BrowserWindow, Menu, type WebContents } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcOk } from "../../../shared/ipc/result";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import type { ClosePersistence } from "./close-persistence";
 
 /**
  * Builds the handler used by the "Open in new window" action. The callback is
@@ -69,20 +71,27 @@ export function windowControlHandlers<W extends ControlledWindow>(
  * Registers the window channel: controls for a window whose frame draws none,
  * and the app menu for a window that shows no menu bar.
  */
-export function registerWindowChannel(): void {
+export function registerWindowChannel(closePersistence: ClosePersistence): void {
   register("window", {
-    call: windowControlHandlers(
-      (sender) => BrowserWindow.fromWebContents(sender),
-      (win, at) => {
-        // The page's CSS pixels grow with its zoom; the menu takes the window's.
-        const zoom = win.webContents.getZoomFactor();
-        Menu.getApplicationMenu()?.popup({
-          window: win,
-          x: Math.round(at.x * zoom),
-          y: Math.round(at.y * zoom),
-        });
+    call: {
+      ...windowControlHandlers(
+        (sender) => BrowserWindow.fromWebContents(sender),
+        (win, at) => {
+          // The page's CSS pixels grow with its zoom; the menu takes the window's.
+          const zoom = win.webContents.getZoomFactor();
+          Menu.getApplicationMenu()?.popup({
+            window: win,
+            x: Math.round(at.x * zoom),
+            y: Math.round(at.y * zoom),
+          });
+        },
+      ),
+      closePrepared: (args, ctx) => {
+        const { attempt, saved } = validateArgs(ipcContract.window.call.closePrepared.args, args);
+        if (ctx?.sender) closePersistence.acknowledge(ctx.sender.id, attempt, saved);
+        return ipcOk(undefined);
       },
-    ),
+    },
     listen: {},
   });
 }

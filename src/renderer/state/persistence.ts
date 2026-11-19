@@ -12,8 +12,9 @@
 
 import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
+import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
-import { ipcCallResult } from "../ipc/client";
+import { ipcCallResult, ipcListen } from "../ipc/client";
 import { normalizeWorkspaceTabOrder } from "./operations/tab-order";
 import { useLayoutStore } from "./stores/layout";
 import { restoredTitles, useTabsStore } from "./stores/tabs";
@@ -87,75 +88,107 @@ export function hydrateLayoutSnapshots(snapshots: AppState["layoutByWorkspace"])
   }
 }
 
-// ---------------------------------------------------------------------------
-// Debounce helper
-// ---------------------------------------------------------------------------
+let persistence: { flush(): Promise<boolean>; stop(): void } | undefined;
 
-function debounce(fn: () => void, ms: number): () => void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return () => {
-    if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      fn();
-    }, ms);
+/** Watch changed workspace slices and coalesce their durable writes. */
+export function registerStatePersistence(scheduler: TimerScheduler = defaultTimerScheduler): void {
+  if (persistence) return;
+  const pending = new Set<string>();
+  let timer: unknown;
+  let stopped = false;
+  let inFlight: Promise<boolean> | undefined;
+
+  /** Cancel the scheduled write so an explicit flush can take its place. */
+  function cancelTimer(): void {
+    if (timer === undefined) return;
+    scheduler.clearTimeout(timer);
+    timer = undefined;
+  }
+
+  /** Send one batch of current snapshots and retain failed changes for the next flush. */
+  async function write(): Promise<boolean> {
+    const workspaceIds = [...pending];
+    pending.clear();
+    const layoutByWorkspace: NonNullable<AppState["layoutByWorkspace"]> = {};
+    for (const id of workspaceIds) {
+      const snapshot = toSnapshot(id);
+      if (snapshot) layoutByWorkspace[id] = snapshot;
+    }
+    if (Object.keys(layoutByWorkspace).length === 0) return true;
+
+    try {
+      const result = await ipcCallResult("appState", "set", { layoutByWorkspace });
+      if (result.ok) return true;
+      log.warn(`Layout save failed: ${result.message}`);
+    } catch (error) {
+      log.warn(`Layout save failed: ${String(error)}`);
+    }
+    if (!stopped) for (const id of workspaceIds) pending.add(id);
+    return false;
+  }
+
+  /** Wait for the current write and any changes queued behind it. */
+  async function flush(): Promise<boolean> {
+    cancelTimer();
+    while (!stopped && (inFlight || pending.size > 0)) {
+      inFlight ??= write().finally(() => {
+        inFlight = undefined;
+      });
+      if (!(await inFlight)) return false;
+      cancelTimer();
+    }
+    return true;
+  }
+
+  /** Record only the slices changed by this window since hydration. */
+  function recordChanges(next: Record<string, unknown>, previous: Record<string, unknown>): void {
+    if (next === previous) return;
+    const ids = new Set([...Object.keys(next), ...Object.keys(previous)]);
+    for (const id of ids) {
+      if (next[id] !== previous[id]) pending.add(id);
+    }
+    if (pending.size === 0) return;
+
+    cancelTimer();
+    timer = scheduler.setTimeout(() => {
+      timer = undefined;
+      void flush();
+    }, STATE_PERSIST_DEBOUNCE_MS);
+  }
+
+  const unsubLayout = useLayoutStore.subscribe((state, previous) =>
+    recordChanges(state.byWorkspace, previous.byWorkspace),
+  );
+  const unsubTabs = useTabsStore.subscribe((state, previous) =>
+    recordChanges(state.byWorkspace, previous.byWorkspace),
+  );
+  persistence = {
+    flush,
+    stop() {
+      stopped = true;
+      cancelTimer();
+      unsubLayout();
+      unsubTabs();
+      pending.clear();
+    },
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
-
-let unsubLayout: (() => void) | null = null;
-let unsubTabs: (() => void) | null = null;
-
-export function registerStatePersistence(): void {
-  // Only register once
-  if (unsubLayout !== null) return;
-
-  const flush = debounce(() => {
-    const workspaceIds = Object.keys(useLayoutStore.getState().byWorkspace);
-    const layoutByWorkspace: NonNullable<AppState["layoutByWorkspace"]> = {};
-
-    for (const wsId of workspaceIds) {
-      const snap = toSnapshot(wsId);
-      if (snap) {
-        layoutByWorkspace[wsId] = snap;
-      }
-    }
-
-    // Fire-and-forget: layout persistence is best-effort; local state is source of truth.
-    void ipcCallResult("appState", "set", { layoutByWorkspace }).then((result) => {
-      if (!result.ok) log.warn(`appState set failed: ${result.message}`);
-    });
-  }, STATE_PERSIST_DEBOUNCE_MS);
-
-  // Slice-scoped subscriptions: only re-flush when `byWorkspace` (the
-  // serialised slice) actually changes reference. The bare `subscribe(fn)`
-  // form fires for every store mutation — including non-persisted slots
-  // a future store might add — and the resulting unconditional flush
-  // would be wasted work even with the 250ms debounce. Implemented as
-  // manual diffing so we don't have to drag in `subscribeWithSelector`
-  // middleware for two callers.
-  let prevLayout = useLayoutStore.getState().byWorkspace;
-  let prevTabs = useTabsStore.getState().byWorkspace;
-  unsubLayout = useLayoutStore.subscribe((state) => {
-    if (state.byWorkspace !== prevLayout) {
-      prevLayout = state.byWorkspace;
-      flush();
-    }
-  });
-  unsubTabs = useTabsStore.subscribe((state) => {
-    if (state.byWorkspace !== prevTabs) {
-      prevTabs = state.byWorkspace;
-      flush();
-    }
-  });
+/** Unsubscribe and discard a scheduled write during teardown. */
+export function unregisterStatePersistence(): void {
+  persistence?.stop();
+  persistence = undefined;
 }
 
-export function unregisterStatePersistence(): void {
-  unsubLayout?.();
-  unsubTabs?.();
-  unsubLayout = null;
-  unsubTabs = null;
+/** Acknowledge a close attempt only after the latest dirty layouts were written. */
+export function installLayoutClosePersistence(): () => void {
+  return ipcListen("window", "prepareClose", ({ attempt }) => {
+    void (async () => {
+      const saved = (await persistence?.flush()) ?? true;
+      const result = await ipcCallResult("window", "closePrepared", { attempt, saved });
+      if (!result.ok) log.warn(`Could not acknowledge layout flush: ${result.message}`);
+    })().catch((error: unknown) => {
+      log.warn(`Could not complete layout flush: ${String(error)}`);
+    });
+  });
 }

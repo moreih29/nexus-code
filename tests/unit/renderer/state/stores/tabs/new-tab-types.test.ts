@@ -1,12 +1,14 @@
-import { afterEach, beforeAll, expect, mock, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerAppStateChannel } from "../../../../../../src/main/features/app-state";
+import { ClosePersistence } from "../../../../../../src/main/features/window/close-persistence";
 import { setupRouter } from "../../../../../../src/main/infra/ipc-router";
 import { StateService } from "../../../../../../src/main/infra/storage/state-service";
 import type { WorkspaceLayoutSnapshot } from "../../../../../../src/shared/types/layout";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
+import type { TimerScheduler } from "../../../../../../src/shared/util/timer-scheduler";
 
 type Invoke = (
   event: { sender?: { id: number } },
@@ -26,11 +28,19 @@ mock.module("electron", () => ({
 }));
 
 const originalWindow = globalThis.window;
-let write: ReturnType<typeof Promise.withResolvers<unknown>>;
-let schedule: (() => void) | undefined;
+let listeners = new Map<string, (args: unknown) => void>();
+const { registerWindowChannel } = await import("../../../../../../src/main/features/window/ipc");
+const { initBrowserRuntimeSubscriptions } = await import(
+  "../../../../../../src/renderer/state/operations/browser"
+);
+const { closeTab } = await import("../../../../../../src/renderer/state/operations/tabs");
 
-const { hydrateLayoutSnapshots, registerStatePersistence, unregisterStatePersistence } =
-  await import("../../../../../../src/renderer/state/persistence");
+const {
+  hydrateLayoutSnapshots,
+  installLayoutClosePersistence,
+  registerStatePersistence,
+  unregisterStatePersistence,
+} = await import("../../../../../../src/renderer/state/persistence");
 const { useLayoutStore } = await import("../../../../../../src/renderer/state/stores/layout");
 const { useTabsStore } = await import("../../../../../../src/renderer/state/stores/tabs");
 const { ipcCallResult, mustSucceed } = await import("../../../../../../src/renderer/ipc/client");
@@ -49,19 +59,34 @@ const workspace: WorkspaceMeta = {
 };
 
 /** Pass renderer calls through the real router, using an in-process transport. */
-function connectRenderer(): void {
+function connectRenderer({
+  beforeSave,
+  onSave,
+}: {
+  beforeSave?: () => Promise<void>;
+  onSave?: (result: unknown) => void;
+} = {}): void {
+  listeners = new Map();
   Object.assign(globalThis, {
     window: {
       ipc: {
         call: async (channel: string, method: string, args: unknown) => {
+          const isSave = channel === "appState" && method === "set";
+          if (isSave) await beforeSave?.();
           const result = await invoke(
             { sender: { id: 1 } },
             channel,
             method,
             structuredClone(args),
           );
-          if (channel === "appState" && method === "set") write.resolve(result);
+          if (isSave) onSave?.(result);
           return structuredClone(result);
+        },
+        listen: (channel: string, event: string, listener: (args: unknown) => void) => {
+          const subscribed = listeners;
+          const key = `${channel}.${event}`;
+          subscribed.set(key, listener);
+          return () => subscribed.delete(key);
         },
       },
     },
@@ -94,7 +119,25 @@ function addTab(args: Parameters<ReturnType<typeof useTabsStore.getState>["creat
   return tab.id;
 }
 
+/** Advances persistence time under test control. */
+function fakeTimer(): TimerScheduler & { run(): void } {
+  let scheduled: (() => void) | undefined;
+  return {
+    setTimeout(callback) {
+      scheduled = callback;
+      return callback;
+    },
+    clearTimeout(handle) {
+      if (scheduled === handle) scheduled = undefined;
+    },
+    run() {
+      scheduled?.();
+    },
+  };
+}
+
 beforeAll(setupRouter);
+beforeEach(resetStores);
 afterEach(() => {
   unregisterStatePersistence();
   resetStores();
@@ -104,23 +147,13 @@ afterEach(() => {
 test("restores external and workspace files beside a browser while excluding Untitled", async () => {
   const dir = mkdtempSync(join(tmpdir(), "nx-layout-roundtrip-"));
   const stateFile = join(dir, "app-state.json");
-  write = Promise.withResolvers();
-  connectRenderer();
+  const write = Promise.withResolvers<unknown>();
+  connectRenderer({ onSave: write.resolve });
   registerAppStateChannel(new StateService(stateFile), { listWorkspaces: () => [workspace] });
 
-  const timer = globalThis.setTimeout;
-  const cancel = globalThis.clearTimeout;
+  const timer = fakeTimer();
   try {
-    // Control the real renderer persistence subscriber's debounce without sleeping.
-    globalThis.setTimeout = ((callback: () => void) => {
-      schedule = callback;
-      return 1;
-    }) as typeof setTimeout;
-    globalThis.clearTimeout = (() => {
-      schedule = undefined;
-    }) as typeof clearTimeout;
-
-    registerStatePersistence();
+    registerStatePersistence(timer);
     const external = addTab({
       type: "editor",
       props: { workspaceId, filePath: "/outside/file.txt", origin: "external", readOnly: true },
@@ -138,11 +171,12 @@ test("restores external and workspace files beside a browser while excluding Unt
       },
     });
     const untitled = addTab({ type: "untitled", props: { untitledIndex: 1 } });
-    schedule?.();
+    timer.run();
     await write.promise;
     unregisterStatePersistence();
     const reloaded = new StateService(stateFile);
-    expect(reloaded.getState().layoutByWorkspace?.[workspaceId]?.tabs[0]).toMatchObject({
+    const savedTabs = reloaded.getState().layoutByWorkspace?.[workspaceId]?.tabs;
+    expect(savedTabs?.find((tab) => tab.id === external)).toMatchObject({
       props: { origin: "external" },
     });
     registerAppStateChannel(reloaded, { listWorkspaces: () => [workspace] });
@@ -160,8 +194,6 @@ test("restores external and workspace files beside a browser while excluding Unt
       tabIds: [external, internal, browser],
     });
   } finally {
-    globalThis.setTimeout = timer;
-    globalThis.clearTimeout = cancel;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -213,4 +245,139 @@ test("recovers only unambiguous legacy local external paths and repairs dropped 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("does not hydrate tabs or layout for a workspace deleted since the last save", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "nx-layout-deleted-"));
+  connectRenderer();
+  const removed = crypto.randomUUID();
+  try {
+    const state = new StateService(join(dir, "app-state.json"));
+    state.setState({
+      layoutByWorkspace: {
+        [workspaceId]: legacySnapshot(workspaceId),
+        [removed]: legacySnapshot(removed),
+      },
+    });
+    registerAppStateChannel(state, { listWorkspaces: () => [workspace] });
+    await restore();
+
+    expect(useTabsStore.getState().byWorkspace[removed]).toBeUndefined();
+    expect(useLayoutStore.getState().byWorkspace[removed]).toBeUndefined();
+    expect(useLayoutStore.getState().byWorkspace[workspaceId]).toBeDefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("closing flushes queued tab, split and browser URL changes after an older save without replacing another window's layout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "nx-layout-close-"));
+  const stateFile = join(dir, "app-state.json");
+  const inFlight = Promise.withResolvers<void>();
+  const finishWrite = Promise.withResolvers<void>();
+  const closed = Promise.withResolvers<void>();
+  const warnings: string[] = [];
+  const timer = fakeTimer();
+  const otherWorkspace = { ...workspace, id: crypto.randomUUID() };
+  const otherSnapshot = legacySnapshot(otherWorkspace.id);
+  let saves = 0;
+  connectRenderer({
+    beforeSave() {
+      if (++saves !== 1) return Promise.resolve();
+      inFlight.resolve();
+      return finishWrite.promise;
+    },
+  });
+  const state = new StateService(stateFile);
+  state.setState({ layoutByWorkspace: { [otherWorkspace.id]: otherSnapshot } });
+  registerAppStateChannel(state, { listWorkspaces: () => [workspace, otherWorkspace] });
+  const close = new ClosePersistence((warning) => warnings.push(warning), fakeTimer());
+  registerWindowChannel(close);
+  const stopListening = installLayoutClosePersistence();
+  initBrowserRuntimeSubscriptions();
+
+  try {
+    await restore();
+    registerStatePersistence(timer);
+    const editor = addTab({ type: "editor", props: { workspaceId, filePath: "/repo/closed.txt" } });
+    const browser = addTab({
+      type: "browser",
+      props: { initialUrl: "https://example.com", lastUrl: "https://example.com", partition: "p" },
+    });
+    timer.run();
+    await inFlight.promise;
+
+    closeTab(workspaceId, editor);
+    const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+    const secondGroup = useLayoutStore
+      .getState()
+      .splitGroup(workspaceId, layout.activeGroupId, "horizontal", "after");
+    useLayoutStore.getState().attachTab(
+      workspaceId,
+      secondGroup,
+      useTabsStore.getState().createTab(workspaceId, {
+        type: "editor",
+        props: { workspaceId, filePath: "/repo/other.txt" },
+      }).id,
+    );
+    const url = "https://example.com/latest";
+    listeners.get("browser.navigated")?.({
+      tabId: browser,
+      url,
+      canGoBack: true,
+      canGoForward: false,
+    });
+
+    const otherWindowSave = {
+      ...otherSnapshot,
+      tabs: otherSnapshot.tabs.slice(0, 1).map((tab) => ({ ...tab, title: "new title" })),
+    };
+    await invoke({ sender: { id: 2 } }, "appState", "set", {
+      layoutByWorkspace: { [otherWorkspace.id]: otherWindowSave },
+    });
+
+    const win = {
+      webContents: {
+        id: 1,
+        send(_wire: string, channel: string, event: string, args: unknown) {
+          listeners.get(`${channel}.${event}`)?.(args);
+        },
+      },
+      isDestroyed: () => false,
+      close: mock(() => closed.resolve()),
+    };
+    close.interceptClose({ preventDefault() {} }, win);
+    expect(win.close).not.toHaveBeenCalled();
+    finishWrite.resolve();
+    await closed.promise;
+    expect(saves).toBe(2);
+    expect(warnings).toEqual([]);
+
+    unregisterStatePersistence();
+    registerAppStateChannel(new StateService(stateFile), {
+      listWorkspaces: () => [workspace, otherWorkspace],
+    });
+    await restore();
+    const tabs = useTabsStore.getState().byWorkspace;
+    expect(tabs[workspaceId][editor]).toBeUndefined();
+    expect(tabs[workspaceId][browser]).toMatchObject({ props: { lastUrl: url } });
+    expect(useLayoutStore.getState().byWorkspace[workspaceId].root.kind).toBe("split");
+    expect(tabs[otherWorkspace.id][otherWindowSave.tabs[0].id].title).toBe("new title");
+  } finally {
+    finishWrite.resolve();
+    stopListening();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("unregistering layout persistence cancels a scheduled write", () => {
+  const timer = fakeTimer();
+  const beforeSave = mock(() => Promise.resolve());
+  connectRenderer({ beforeSave });
+  registerStatePersistence(timer);
+  addTab({ type: "editor", props: { workspaceId, filePath: "/repo/never-saved.txt" } });
+
+  unregisterStatePersistence();
+  timer.run();
+  expect(beforeSave).not.toHaveBeenCalled();
 });

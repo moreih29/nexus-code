@@ -1,4 +1,5 @@
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AppState } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { register, validateArgs } from "../../infra/ipc-router";
@@ -72,7 +73,25 @@ export function registerAppStateChannel(
       },
       set: (args: unknown) => {
         const patch = validateArgs(c.set.args, args);
-        stateService.setState(patch);
+        if (patch.layoutByWorkspace) {
+          // A window sends only changed workspaces. Merge into the latest state
+          // so closing it cannot replace another window's unrelated layouts.
+          const latest = {
+            ...stateService.getState().layoutByWorkspace,
+            ...patch.layoutByWorkspace,
+          };
+          const workspaceIds = opts.listWorkspaces?.().map(({ id }) => id);
+          patch.layoutByWorkspace = workspaceIds
+            ? Object.fromEntries(
+                workspaceIds.flatMap((id) => (latest[id] ? [[id, latest[id]]] : [])),
+              )
+            : latest;
+        }
+        try {
+          stateService.setState(patch);
+        } catch (error) {
+          return ipcErr("state-write-failed", String(error), { category: "failed" });
+        }
 
         // Detect a language change and invoke the injected callback so the
         // caller can update the main-process i18n instance, rebuild the menu,
@@ -106,6 +125,7 @@ export function registerAppStateChannel(
         if (patch.themePreference !== undefined) {
           opts.onThemeChanged?.(patch.themePreference);
         }
+        return ipcOk(undefined);
       },
     },
     listen: {},

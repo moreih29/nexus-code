@@ -16,10 +16,7 @@ import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
-import {
-  initBrowserLastUrlPersistence,
-  initBrowserRuntimeSubscriptions,
-} from "./state/operations/browser";
+import { initBrowserRuntimeSubscriptions } from "./state/operations/browser";
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
@@ -123,11 +120,6 @@ export async function bootstrapAppState(): Promise<void> {
   // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
   // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
   initBrowserRuntimeSubscriptions();
-
-  // Wire last-URL persistence: debounces currentUrl changes from the runtime
-  // store and flushes them to the tabs store so the URL survives app restarts.
-  // Must be called after initBrowserRuntimeSubscriptions.
-  initBrowserLastUrlPersistence();
 
   // Wire the browser permission prompt subscription so browserPermission:prompt
   // broadcasts from main are forwarded to the PermissionPromptRoot queue.

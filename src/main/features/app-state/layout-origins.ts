@@ -32,7 +32,7 @@ function restoreTabOrigin(tab: SerializedTab, workspace: WorkspaceMeta): Seriali
   return { ...tab, props: { ...tab.props, filePath, origin: "external" } };
 }
 
-/** Upgrade origin-less records on read, once workspace metadata is available. */
+/** Restore layouts for surviving workspaces and upgrade origin-less records. */
 export function restoreLayoutOrigins(
   state: Readonly<AppState>,
   workspaces: WorkspaceMeta[],
@@ -42,11 +42,11 @@ export function restoreLayoutOrigins(
   return {
     ...state,
     layoutByWorkspace: Object.fromEntries(
-      Object.entries(state.layoutByWorkspace).map(([id, snapshot]) => {
+      Object.entries(state.layoutByWorkspace).flatMap(([id, snapshot]) => {
         const workspace = byId.get(id);
-        if (!workspace) return [id, snapshot];
+        if (!workspace) return [];
         const tabs = snapshot.tabs.flatMap((tab) => restoreTabOrigin(tab, workspace) ?? []);
-        return [id, { ...snapshot, tabs }];
+        return [[id, { ...snapshot, tabs }]];
       }),
     ),
   };
