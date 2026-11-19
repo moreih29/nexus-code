@@ -322,13 +322,13 @@ export class BrowserTabRegistry {
     const request = ++entry.navigationRequest;
     entry.forwardedAddress = null;
     if (!isTabLoadAllowed(url)) {
-      logger.warn(`[${label}] disallowed address in ${tabId}: ${url}`);
+      logger.warn(`[${label}] disallowed address in ${tabId}`);
       this.setLoadFailure(tabId, entry, { url, description: "ERR_DISALLOWED_URL_SCHEME" });
       return;
     }
     const loadNow = (target: string) => {
-      entry.view.webContents.loadURL(target).catch((err: Error) => {
-        logger.warn(`[${label}] loadURL failed for ${tabId}: ${err.message}`);
+      entry.view.webContents.loadURL(target).catch(() => {
+        logger.warn(`[${label}] loadURL failed for ${tabId}`);
       });
     };
     const resolver = this.addressResolver;
@@ -348,7 +348,7 @@ export class BrowserTabRegistry {
       },
       (error: Error) => {
         if (!isCurrent()) return;
-        logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
+        logger.warn(`[${label}] forwarded address not opened in ${tabId}`);
         const { kind } = error as { kind?: unknown };
         const description =
           kind === "not-connected" ? "ERR_SSH_NOT_CONNECTED" : "ERR_PORT_FORWARD_FAILED";

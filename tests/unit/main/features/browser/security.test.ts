@@ -11,6 +11,7 @@
  */
 
 import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
+import { mainWarnMock } from "../../../../log-test-spies";
 
 // ---------------------------------------------------------------------------
 // Electron mock — must be set up before importing the module under test.
@@ -499,4 +500,17 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
 
     expect(popups).toEqual([child, grandchild]);
   });
+});
+
+test("blocked browser navigations omit URL payloads from diagnostics", () => {
+  const view = makeFakeWebContents();
+  installNavigationGuards(view as never);
+  const event = makeFakeEvent();
+  const logs = mainWarnMock.mock.calls.length;
+  view.emit("will-navigate", event, "data:text/plain,private-navigation-token");
+
+  expect(event.prevented).toBe(true);
+  const warnings = mainWarnMock.mock.calls.slice(logs);
+  expect(warnings).toHaveLength(1);
+  expect(JSON.stringify(warnings)).not.toContain("private-navigation-token");
 });
