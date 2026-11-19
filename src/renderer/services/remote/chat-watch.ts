@@ -373,6 +373,7 @@ export function tabSource(
               codex.items.some((item) => item.kind === "user" && item.rewindable),
             fork: codexIdle && codex.items.length > 0,
             background: false,
+            now: true,
             moveNow: true,
             config: true,
           },

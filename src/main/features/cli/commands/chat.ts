@@ -736,16 +736,16 @@ const chatSend: CliCommand = {
   args: "<tab> [text...]",
   details:
     "As its composer sends it: during a turn, the agent reads it after the tool it runs. --now\n" +
-    "puts it into a Claude tab's turn at once; --now with no text has the tab read the\n" +
-    "messages it has not read yet. --after holds it until the turn ends, its id printed for\n" +
-    'chat unsend and chat edit. "-" reads the text from standard input. --file attaches a\n' +
+    "puts it into the turn at once. With no text, --now has a Claude tab read its unread\n" +
+    "messages. --after holds it until the turn ends. For held messages, use the printed id\n" +
+    'with chat unsend and chat edit. "-" reads the text from standard input. --file attaches a\n' +
     "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
     "path after the text. Refused while the tab waits for the user to answer a request.\n" +
     "--wait then waits as chat wait does and prints how it ended. Another computer's tab\n" +
     "(--device) takes it as its composer sends it, or --now: it holds no agent's message for\n" +
     "after the turn.",
   flags: {
-    now: { type: "boolean", description: "During a turn: into it at once (a Claude tab's)" },
+    now: { type: "boolean", description: "During a turn: into it at once" },
     after: { type: "boolean", description: "During a turn: held until it ends" },
     file: {
       type: "string",
@@ -821,9 +821,10 @@ const chatSend: CliCommand = {
       },
       SEND_TIMEOUT_MS,
     );
+    const named = `${tab.title} (${shortId(tab.id)})`;
     const sent = heldId
-      ? `Held for after the turn of ${tab.title} (${shortId(tab.id)}), as ${heldId}.`
-      : `Sent to ${tab.title} (${shortId(tab.id)}).`;
+      ? `Held ${when === "after" ? "for after the turn of" : "by"} ${named}, as ${heldId}.`
+      : `Sent to ${named}.`;
     const json = {
       ...target,
       text,

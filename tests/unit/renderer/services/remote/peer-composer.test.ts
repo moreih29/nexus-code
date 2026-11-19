@@ -146,16 +146,26 @@ describe("the composer of another computer's chat", () => {
     ]);
   });
 
-  test("a Codex chat's ↩ goes into the turn: no ⌘↩ of its own, nothing to withdraw", () => {
+  test("a Codex peer composer passes the three send timings to the host", async () => {
+    const { calls, call } = recording();
     const made = peerComposerController({
       ref,
       agent: "codex",
       settings: () => settings,
       onSettings: () => {},
       filesRefused: "images only",
-      call: recording().call,
+      can: () => ({ now: true }),
+      call,
     });
-    expect(made.sendNow).toBeUndefined();
+    await made.send("next");
+    await made.sendNow?.("now");
+    made.enqueue("later");
+    await Promise.resolve();
+    expect(calls).toEqual([
+      { method: "peerChatSend", args: { ...ref, text: "next" } },
+      { method: "peerChatSend", args: { ...ref, text: "now", when: "now" } },
+      { method: "peerChatSend", args: { ...ref, text: "later", when: "after" } },
+    ]);
     expect(made.withdraw).toBeUndefined();
     expect(made.readHeldNow).toBeUndefined();
   });

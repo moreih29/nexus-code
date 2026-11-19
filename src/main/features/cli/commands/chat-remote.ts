@@ -158,14 +158,14 @@ export async function sendToPeer(
   );
   // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
-  const { at } = await askDevice(ctx, device, "chat.send", {
+  const { at, heldId } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
     from,
     ...(now ? { when: "now" as const } : {}),
   });
-  const sent = `Sent to ${named(peer)}.`;
-  const json = { ...targetJson(peer), text };
+  const sent = heldId ? `Held by ${named(peer)}, as ${heldId}.` : `Sent to ${named(peer)}.`;
+  const json = { ...targetJson(peer), text, ...(heldId ? { heldId } : {}) };
   if (timeoutMs === null) return output(sent, json);
   const result = await waitOnPeerChats(ctx, [peer], timeoutMs, at);
   return peerWaitOutput(`${sent}\n${result.text}`, json, result);

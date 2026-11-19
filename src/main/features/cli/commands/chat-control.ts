@@ -153,7 +153,7 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
     blocks.push(`Remote Control: ${enabled ? `on${url ? ` (${url})` : ""}` : "off"}`);
   }
   block(
-    "Held for after the turn (chat unsend / chat edit <tab> <id>):",
+    "Held messages (chat unsend / chat edit <tab> <id>):",
     (panel.held ?? []).map((held) => {
       const carries = [
         held.images ? `${held.images} image${held.images === 1 ? "" : "s"}` : "",

@@ -259,11 +259,20 @@ export interface StreamingMessage {
 
 export interface TurnState {
   startedAt?: number;
+  /** Last progress from the main conversation, in milliseconds. */
+  lastActivityAt?: number;
   outputTokens: number;
   thinkingTokens: number;
   /** requesting: waiting on the API; compacting: /compact runs. */
   status?: string;
   retry?: { attempt: number; maxRetries?: number; delayMs?: number };
+}
+
+export function noteTurnActivity(model: ChatModel, at: number | undefined): void {
+  const turn = model.turn;
+  if (turn && at !== undefined && at > (turn.lastActivityAt ?? -Infinity)) {
+    model.turn = { ...turn, lastActivityAt: at };
+  }
 }
 
 export interface ModelInfo {
@@ -631,6 +640,7 @@ function applyIn(draft: Draft, message: Rec, seq: number, at: number | undefined
       if (!m.running) {
         m.running = true;
         m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+        noteTurnActivity(m, at);
       }
       return;
     }
@@ -674,12 +684,15 @@ function applyOut(
       return;
     case "stream_event":
       applyStreamEvent(draft, message);
+      if (!message.parent_tool_use_id) noteTurnActivity(draft.next, at);
       return;
     case "assistant":
       applyAssistant(draft, message, seq, at);
+      if (!message.parent_tool_use_id) noteTurnActivity(draft.next, at);
       return;
     case "user":
       applyUserOut(draft, message, seq, at, live);
+      if (!message.parent_tool_use_id) noteTurnActivity(draft.next, at);
       return;
     case "result":
       applyResult(draft, message, seq, at);

@@ -25,6 +25,8 @@ export interface QueuedMessage {
   id: string;
   text: string;
   images: ImageBlock[];
+  /** Codex may steer after a tool completion later than this log sequence. */
+  afterTool?: number;
   status?: "sending" | "failed" | "unconfirmed";
   error?: string;
   /** The agent that sent it through the nexus command, when one did. */
@@ -40,13 +42,14 @@ export interface QueuedMessage {
 export function dispatchQueuedMessage(
   queue: readonly QueuedMessage[],
   update: (change: (prev: ChatTabState) => ChatTabState) => void,
-  send: (item: QueuedMessage) => Promise<string | undefined>,
+  send: (item: QueuedMessage) => Promise<QueuedMessage | undefined>,
   rejected: (error: unknown) => boolean,
   observed: (id: string) => boolean,
   settled: () => void,
+  eligible: (item: QueuedMessage) => boolean = () => true,
 ): void {
   if (queue.some((item) => item.status === "sending")) return;
-  const next = queue.find((item) => !item.status);
+  const next = queue.find((item) => !item.status && eligible(item));
   if (!next) return;
   const sending: QueuedMessage = { ...next, status: "sending" };
   const replace = (item?: QueuedMessage) => {
@@ -66,7 +69,7 @@ export function dispatchQueuedMessage(
   replace(sending);
   void send(next).then(
     (stillHeld) => {
-      if (replace(stillHeld === next.id ? next : undefined)) settled();
+      if (replace(stillHeld)) settled();
     },
     (error: unknown) => {
       if (observed(next.id)) {
@@ -106,7 +109,7 @@ export interface ChatTabState {
   model: ChatModel;
   /** What the tab showed before its program's log: a transcript, an earlier agent's log. */
   history: ChatModel | null;
-  /** Messages the app holds until the turn ends (⌘⇧↩). */
+  /** Messages the app holds for a tool completion or the end of the turn. */
   queue: QueuedMessage[];
   /** Authenticated remote user submissions, keyed by the host-generated message ID. */
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;

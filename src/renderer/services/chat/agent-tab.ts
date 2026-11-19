@@ -182,19 +182,23 @@ export async function sendToAgentTab(
       if (heldId) unseenSends.delete(key);
       return heldId ? { heldId } : {};
     }
-    if (when === "now" && target.agent === "claude") {
-      await target.controller.sendNow(text, images, from, id);
-    } else {
-      const heldId =
-        target.agent === "codex" && id
-          ? await target.controller.sendPeer(text, images, id)
-          : target.agent === "claude"
-            ? await target.controller.send(text, images, from, id)
-            : await target.controller.send(text, images, from);
+    if (target.agent === "codex") {
+      const heldId = await target.controller.sendWithTiming(
+        text,
+        images,
+        when === "now" ? "now" : "next",
+        from,
+        device,
+        id,
+      );
       if (heldId) {
         unseenSends.delete(key);
         return { heldId };
       }
+    } else if (when === "now") {
+      await target.controller.sendNow(text, images, from, id);
+    } else {
+      await target.controller.send(text, images, from, id);
     }
     return id && target.agent === "codex" ? { itemKey: `u-peer-${id}` } : {};
   } catch (err) {
@@ -205,7 +209,7 @@ export async function sendToAgentTab(
 
 /**
  * When a message sent during a turn goes, as the composer's keys have it:
- * next (↩), now (⌘↩, Claude's alone), after the turn (⌘⇧↩).
+ * next (↩), now (⌘↩), after the turn (⌘⇧↩).
  */
 export type SendTiming = "next" | "now" | "after";
 

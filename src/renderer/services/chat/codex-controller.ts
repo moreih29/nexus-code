@@ -220,7 +220,9 @@ export class CodexController {
   private disposed = false;
   private titled = false;
   private rewinding = false;
-  private startingTurn = false;
+  private startingTurn?: Promise<void>;
+  private stoppingTurn?: string;
+  private deferToolSendsForTurn?: string;
   private resumingSelection = false;
   private canonicalCwd: string | undefined;
   private agentRefresh: ReturnType<typeof setTimeout> | undefined;
@@ -1197,6 +1199,7 @@ export class CodexController {
     }
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
+      if (replay.running) this.sendNextQueued();
       if (replay.running && (this.discoverAgents || this.dirtyAgents.size > 0)) {
         this.armSubagentRefresh();
       }
@@ -1226,26 +1229,44 @@ export class CodexController {
     this.flushNow();
   }
 
-  /**
-   * Sends a message now: during a turn it steers the turn, which reads it
-   * next. One another agent sends through the nexus command (`from`) is led
-   * by a line that tells Codex who sent it.
-   */
+  /** Sends after the next tool completion or starts a turn when idle. */
   async send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
-    await this.sendMessage(text, images, from);
+    await this.sendMessage(text, images, { from });
   }
 
-  sendPeer(text: string, images: ImageBlock[], id: string): Promise<string | undefined> {
-    return this.sendMessage(text, images, undefined, id);
+  async sendNow(text: string, images: ImageBlock[] = []): Promise<void> {
+    await this.sendMessage(text, images, { now: true });
+  }
+
+  async sendWithTiming(
+    text: string,
+    images: ImageBlock[],
+    timing: "next" | "now",
+    from?: RelaySender,
+    device?: string,
+    id?: string,
+  ): Promise<string | undefined> {
+    return (await this.sendMessage(text, images, { now: timing === "now", from, id, device }))
+      ?.heldId;
   }
 
   private async sendMessage(
     text: string,
-    images: ImageBlock[] = [],
-    from?: RelaySender,
-    id?: string,
-    queued = false,
-  ): Promise<string | undefined> {
+    images: ImageBlock[],
+    {
+      from,
+      id,
+      device,
+      now,
+      queued,
+    }: {
+      from?: RelaySender;
+      id?: string;
+      device?: string;
+      now?: boolean;
+      queued?: QueuedMessage;
+    },
+  ): Promise<{ heldId: string; afterTurn?: true } | undefined> {
     const collaboration = this.collaborationChange;
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
@@ -1262,10 +1283,28 @@ export class CodexController {
     // line reaches the model: a message sent at once (a new task's, the
     // CLI's) would find no thread yet.
     this.flushNow();
+    // An immediate follow-up needs the id assigned to the in-flight start.
+    if (now && !this.model.turnId && this.startingTurn) {
+      await this.startingTurn.catch(() => {});
+    }
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
     if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
       throw new Error("The conversation changed while delivering a queued message");
+    const { running, turnId } = this.model;
+    if (queued && !this.canSendQueued(queued)) return { heldId: queued.id };
+    if (!queued && ((this.startingTurn && !turnId) || (running && (!now || !turnId)))) {
+      return {
+        heldId: this.holdMessage(
+          text,
+          images,
+          from,
+          device,
+          id,
+          now ? undefined : this.model.lastSeq,
+        ),
+      };
+    }
     const threadId = this.model.threadId;
     if (!threadId) throw new Error("Codex has no thread to send to");
     const said = from && text ? relayedText(from, text) : text;
@@ -1294,7 +1333,6 @@ export class CodexController {
       const turn = turnIdOf(result) ?? fallback;
       if (record && turn) this.hooks.onRelayed?.({ ...record, turnId: turn });
     };
-    const { running, turnId } = this.model;
     if (running && turnId) {
       try {
         const result = await this.request("turn/steer", {
@@ -1309,17 +1347,13 @@ export class CodexController {
         if (id && !(err instanceof CodexReplyError)) throw err;
         this.flushNow();
         log.info(`steer not taken: ${(err as Error).message}`);
-        // A new turn runs: the message waits for it to end.
+        // The active turn refused the message. Wait for a turn boundary.
         if (this.model.running) {
-          if (id && this.state.queue.some((item) => item.id === id && item.status === "sending"))
-            return id;
-          return this.enqueue(
-            text,
-            images,
-            from,
-            id ? this.state.peerSubmissions?.[id]?.clientDeviceId : undefined,
-            id,
-          );
+          if (queued) {
+            this.deferToolSendsForTurn = this.model.turnId;
+            return { heldId: queued.id, afterTurn: true };
+          }
+          return { heldId: this.holdMessage(text, images, from, device, id) };
         }
         // The turn ended meanwhile: the message starts the next one.
       }
@@ -1330,7 +1364,6 @@ export class CodexController {
     // until it is sent, so a thread changed since is not overridden.
     if (model || effort) this.hooks.onChosen?.({});
     // Its answer, or its error as a notice, comes in the log.
-    this.startingTurn = true;
     const start = this.request("turn/start", {
       threadId,
       clientUserMessageId,
@@ -1342,8 +1375,10 @@ export class CodexController {
       .then((result) => told(result))
       .finally(() => {
         this.flushNow();
-        this.startingTurn = false;
+        this.startingTurn = undefined;
+        this.sendNextQueued();
       });
+    this.startingTurn = start;
     if (id) await start;
     else void start.catch(() => {});
   }
@@ -1364,18 +1399,30 @@ export class CodexController {
     device?: string,
     id?: string,
   ): string | undefined {
+    return this.holdMessage(text, images, from, device, id);
+  }
+
+  private holdMessage(
+    text: string,
+    images: ImageBlock[],
+    from?: RelaySender,
+    device?: string,
+    id?: string,
+    afterTool?: number,
+  ): string {
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
     const item: QueuedMessage = {
       id: id ?? nextId(),
       text,
       images,
+      ...(afterTool !== undefined ? { afterTool } : {}),
       ...(from ? { from } : {}),
       ...(device ? { device } : {}),
     };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.model.running) this.sendNextQueued();
-    return this.state.queue.some((entry) => entry.id === item.id) ? item.id : undefined;
+    this.sendNextQueued();
+    return item.id;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
@@ -1408,12 +1455,34 @@ export class CodexController {
     dispatchQueuedMessage(
       this.state.queue,
       (update) => this.update(update),
-      (next) => this.sendMessage(next.text, next.images, next.from, next.id, true),
+      async (next) => {
+        const held = await this.sendMessage(next.text, next.images, {
+          from: next.from,
+          id: next.id,
+          queued: next,
+        });
+        if (held) return held.afterTurn ? { ...next, afterTool: undefined } : next;
+      },
       (error) => error instanceof CodexReplyError,
       (id) => this.sawQueuedMessage(id),
-      () => {
-        if (!this.model.running) this.sendNextQueued();
-      },
+      () => this.sendNextQueued(),
+      (item) => this.canSendQueued(item),
+    );
+  }
+
+  private canSendQueued(item: QueuedMessage): boolean {
+    if (this.disposed || this.startingTurn || this.state.phase === "held") return false;
+    const { running, turnId, toolCompletedSeq, permissions, interrupting } = this.model;
+    if (!running) return true;
+    return (
+      turnId !== undefined &&
+      turnId !== this.deferToolSendsForTurn &&
+      turnId !== this.stoppingTurn &&
+      !interrupting &&
+      permissions.length === 0 &&
+      item.afterTool !== undefined &&
+      toolCompletedSeq !== undefined &&
+      toolCompletedSeq > item.afterTool
     );
   }
 
@@ -1424,7 +1493,14 @@ export class CodexController {
   async interrupt(): Promise<unknown> {
     const { threadId, turnId } = this.model;
     if (!threadId || !turnId) return undefined;
-    return this.request("turn/interrupt", { threadId, turnId });
+    this.stoppingTurn = turnId;
+    try {
+      return await this.request("turn/interrupt", { threadId, turnId });
+    } finally {
+      this.stoppingTurn = undefined;
+      this.flushNow();
+      this.sendNextQueued();
+    }
   }
 
   /** Picks a preset for the next turn on, shown at once. */
@@ -1587,7 +1663,7 @@ export class CodexController {
     await this.write({ id, result });
     // What the user said with a decline goes to the turn, which goes on.
     const message = answer.kind === "deny" ? answer.message : undefined;
-    if (message) await this.send(message).catch(() => {});
+    if (message) await this.sendNow(message).catch(() => {});
   }
 
   private request(
@@ -1871,8 +1947,10 @@ export class CodexController {
       this.state.queue.some((item) => item.status === "unconfirmed")
     )
       this.update((prev) => clearObservedQueued(prev, (id) => this.sawQueuedMessage(id)));
-    if (before.running && !model.running) {
+    if ((before.running && !model.running) || before.toolCompletedSeq !== model.toolCompletedSeq) {
       this.sendNextQueued();
+    }
+    if (before.running && !model.running) {
       // Some versions only report child activity through the parent. Recheck
       // metadata while children are still running, without rereading quiet ones.
       if (

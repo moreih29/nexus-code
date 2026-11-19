@@ -1,4 +1,4 @@
-// The running turn in one line: what Claude is doing, for how long, and how
+// The running turn in one line: what the agent is doing, for how long, and how
 // much it has written. Shown only while a turn runs.
 
 import { LoaderCircle } from "lucide-react";
@@ -14,12 +14,18 @@ import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 export function StatusLine({ model }: { model: ChatModel }) {
   const { t } = useTranslation();
   const turn = model.turn;
-  const now = useNow(model.running && turn?.startedAt !== undefined);
+  const now = useNow(
+    model.running && (turn?.startedAt !== undefined || turn?.lastActivityAt !== undefined),
+  );
   if (!model.running || !turn) return null;
 
-  const activity = activityOf(model, t);
+  const quiet = generatingElapsed(model, now);
+  const activity =
+    quiet === undefined
+      ? activityOf(model, t)
+      : t("chat.status.generating", { elapsed: elapsedLabel(quiet) });
   const elapsed =
-    turn.startedAt !== undefined ? Math.max(0, Math.floor((now - turn.startedAt) / 1000)) : null;
+    quiet === undefined && turn.startedAt !== undefined ? now - turn.startedAt : undefined;
   const tokens = turn.outputTokens + turn.thinkingTokens;
   const agents = agentsOf(model).filter((a) => a.status === "running").length;
   const waiting = model.permissions.length > 0 && !model.interrupting;
@@ -41,7 +47,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
         )}
       </span>
       <span className="text-foreground">{activity}</span>
-      {elapsed !== null && <span>{elapsedLabel(elapsed * 1_000)}</span>}
+      {elapsed !== undefined && <span>{elapsedLabel(elapsed)}</span>}
       {tokens > 0 && <span>{t("chat.status.tokens", { count: formatTokens(tokens) })}</span>}
       {agents > 0 && <span>{t("chat.status.agents", { count: agents })}</span>}
     </div>
@@ -49,6 +55,26 @@ export function StatusLine({ model }: { model: ChatModel }) {
 }
 
 type Translate = ReturnType<typeof useTranslation>["t"];
+
+/** Time since the latest signal when model generation is the only visible activity. */
+export function generatingElapsed(model: ChatModel, now: number): number | undefined {
+  const turn = model.turn;
+  if (!model.running || turn?.lastActivityAt === undefined) return undefined;
+  const elapsed = now - turn.lastActivityAt;
+  if (
+    elapsed < 3_000 ||
+    model.interrupting ||
+    model.permissions.length > 0 ||
+    turn.retry ||
+    turn.status === "compacting" ||
+    Object.values(model.tools).some(
+      (tool) =>
+        tool.parentToolUseId === null && (tool.status === "running" || tool.status === "streaming"),
+    )
+  )
+    return undefined;
+  return elapsed;
+}
 
 function activityOf(model: ChatModel, t: Translate): string {
   const turn = model.turn;

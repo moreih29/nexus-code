@@ -246,7 +246,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   };
 }
 
-/** A message the tab holds for after its turn, as the panel tells it: its text cut short. */
+/** A held message as the panel tells it, with a bounded text preview. */
 function heldOf(
   item: QueuedMessage,
   submission?: PeerSubmission,
