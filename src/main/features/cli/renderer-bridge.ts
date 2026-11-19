@@ -33,7 +33,11 @@ export class RendererBridge {
       timeoutMs,
       onTimeout: () => new CliError("NexusCode's window did not answer"),
     });
-    win.webContents.send("ipc:event", "cli", "uiRequest", { requestId, op, args });
+    try {
+      win.webContents.send("ipc:event", "cli", "uiRequest", { requestId, op, args });
+    } catch (error) {
+      this.pending.reject(requestId, error instanceof Error ? error : new Error(String(error)));
+    }
     const response = await answer;
     if (!response.ok) throw new CliError(response.error ?? `${op} failed`);
     return response.value as CliUiOps[K]["result"];
