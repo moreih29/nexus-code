@@ -7,6 +7,7 @@
 // later versions are ignored, and every field it may leave out is read as
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
+import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
 import { type ClaudeGoal, goalFeedbackReason } from "./goal";
 import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
@@ -363,7 +364,9 @@ export interface ResultInfo {
   numTurns?: number;
   costUsd?: number;
   terminalReason?: string;
-  /** When the turn ended, in Unix milliseconds; told for Codex's turns. */
+  outcome?: ClaudeTurnResult["outcome"];
+  error?: string;
+  /** When the turn ended, in Unix milliseconds. */
   at?: number;
 }
 
@@ -1270,14 +1273,29 @@ function applyUserOut(
 
 function applyResult(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
-  const subtype = str(message.subtype) ?? "success";
-  const isError = message.is_error === true || subtype !== "success";
-  const terminalReason = str(message.terminal_reason);
+  const { subtype, isError, terminalReason, outcome, detail } = claudeTurnResult(message);
   const turnId = m.turn?.id;
   m.running = false;
   m.turn = null;
   m.streaming = null;
   clearInterrupt(m);
+  const backgroundCalls = new Set(
+    Object.values(m.tasks)
+      .filter(
+        (task) => task.status === "running" && (task.backgrounded || task.type === "local_bash"),
+      )
+      .map((task) => task.toolUseId),
+  );
+  const background = (id: string | undefined) => {
+    const tool = id ? m.tools[id] : undefined;
+    return (
+      id !== undefined && (backgroundCalls.has(id) || rec(tool?.input)?.run_in_background === true)
+    );
+  };
+  m.permissions = m.permissions.filter(
+    (request) => request.agentId || background(request.toolUseId),
+  );
+  stopRunningTools(draft, (tool) => tool.parentToolUseId === null && !background(tool.id));
   const cost = num(message.total_cost_usd);
   if (cost !== undefined) {
     m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
@@ -1290,22 +1308,14 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     numTurns: num(message.num_turns),
     costUsd: num(message.total_cost_usd),
     terminalReason,
+    outcome,
+    at,
+    ...(outcome === "error" ? { error: detail } : {}),
   };
-  const interrupted =
-    terminalReason === "aborted_tools" ||
-    terminalReason === "aborted_streaming" ||
-    terminalReason === "interrupted";
-  if (interrupted) stopRunningTools(draft);
-  let error: string | undefined;
-  if (isError && !interrupted) {
-    const errors = Array.isArray(message.errors)
-      ? message.errors.filter((e) => typeof e === "string")
-      : [];
-    const detail = str(message.result) ?? (errors.length > 0 ? errors.join("\n") : subtype);
-    error = detail;
+  if (outcome === "error") {
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
   }
-  finishSubmittedTurn(draft, turnId, error);
+  finishSubmittedTurn(draft, turnId, outcome === "error" ? detail : undefined);
 }
 
 /** Remembers how a turn ended on the accepted messages it read. */
@@ -1737,9 +1747,12 @@ function accountOf(account: Rec | null): AccountInfo | undefined {
   return Object.values(info).some(Boolean) ? info : undefined;
 }
 
-export function stopRunningTools(draft: Draft): void {
+export function stopRunningTools(
+  draft: Draft,
+  isForeground: (tool: ToolCall) => boolean = () => true,
+): void {
   for (const tool of Object.values(draft.next.tools)) {
-    if (tool.status === "running" || tool.status === "streaming") {
+    if ((tool.status === "running" || tool.status === "streaming") && isForeground(tool)) {
       draft.setTool(tool.id, (t) => ({ ...(t as ToolCall), status: "stopped" }));
     }
   }
