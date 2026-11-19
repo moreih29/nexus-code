@@ -31,6 +31,20 @@ describe("resources", () => {
     }
   });
 
+  // The panels look a server's status up by what Codex reports, which the
+  // /mcp card already has words for: a status without one shows in English.
+  test("the MCP panel words every status the /mcp card does, in en and ko", () => {
+    for (const locale of ["en", "ko"] as const) {
+      const { chat } = resources[locale].common;
+      const panel = Object.keys(chat.panel.mcp.status);
+      const card = Object.keys(chat.codex.commands.mcp_status);
+      expect({ locale, missing: card.filter((status) => !panel.includes(status)) }).toEqual({
+        locale,
+        missing: [],
+      });
+    }
+  });
+
   test("every theme has a description in en and ko", () => {
     const ids = THEME_SOURCES.map((source) => source.id).sort();
     expect(Object.keys(resources.en.settings.appearance.themeDescription).sort()).toEqual(ids);

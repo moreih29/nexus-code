@@ -193,7 +193,6 @@ export class RemoteRoom {
   /** Messages are taken one after another, so their seqs are checked in the order they came. */
   private inbox: Promise<unknown> = Promise.resolve();
   private foreignAt = Number.NEGATIVE_INFINITY;
-  private fileReadBusyReply = false;
 
   constructor(private readonly deps: RemoteRoomDeps) {
     this.connection = deps.connect({
@@ -565,26 +564,21 @@ export class RemoteRoom {
           this.peers.get(from)?.online === true;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
-          if (!current() || this.fileReadBusyReply) return;
-          this.fileReadBusyReply = true;
-          try {
-            await this.waitForFileReadSocket(current);
-            if (!current()) return;
-            await this.reply(
-              from,
-              epoch,
-              message,
-              {
-                error: {
-                  code: RpcErrorCode.Unavailable,
-                  message: "the host is busy reading files",
-                },
+          // Every refused request is told, each with its own small reply: left
+          // unanswered it would wait out the whole request timeout.
+          if (!current()) return;
+          await this.reply(
+            from,
+            epoch,
+            message,
+            {
+              error: {
+                code: RpcErrorCode.Unavailable,
+                message: "the host is busy reading files",
               },
-              current,
-            );
-          } finally {
-            this.fileReadBusyReply = false;
-          }
+            },
+            current,
+          );
           return;
         }
         try {

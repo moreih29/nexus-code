@@ -1273,7 +1273,10 @@
           "needs-auth": "인증 필요",
           "failed": "실패",
           "pending": "연결 중",
-          "disabled": "꺼짐"
+          "disabled": "꺼짐",
+          "starting": "시작 중",
+          "authenticationRequired": "로그인 필요",
+          "notLoggedIn": "로그인 필요"
         }
       }
     },

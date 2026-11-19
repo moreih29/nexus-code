@@ -1273,7 +1273,10 @@
           "needs-auth": "Needs auth",
           "failed": "Failed",
           "pending": "Connecting",
-          "disabled": "Off"
+          "disabled": "Off",
+          "starting": "Starting",
+          "authenticationRequired": "Sign-in needed",
+          "notLoggedIn": "Sign-in needed"
         }
       }
     },

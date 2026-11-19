@@ -111,6 +111,8 @@ jobs:
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A test that hangs fails the job instead of holding it for six hours.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +161,7 @@ jobs:
   go-test:
     name: Agent tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
