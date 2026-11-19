@@ -3,7 +3,7 @@
 import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { DocNode } from "../../../shared/notes/markdown";
 import {
   imageBlock,
@@ -17,9 +17,9 @@ import {
   type WorkspaceMeta,
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import { VoicePrints } from "../voice-print";
-import { NotesStore } from "./store";
+import { NoteError, NotesStore } from "./store";
 
 const c = ipcContract.notes.call;
 
@@ -120,6 +120,31 @@ const IMAGE_EXTS: Readonly<Record<string, string>> = {
   ".webp": "webp",
 };
 
+type NoteCall = (args: unknown, ctx?: CallContext) => unknown;
+
+/** Reports expected note failures before they reach the router's bug handler. */
+function withNoteErrors(handlers: Record<string, NoteCall>): Record<string, NoteCall> {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([method, handler]) => [
+      method,
+      async (args: unknown, ctx?: CallContext) => {
+        try {
+          return await handler(args, ctx);
+        } catch (error) {
+          if (!(error instanceof NoteError)) throw error;
+          if (error.code === "not-found") {
+            return ipcErr("not-found", error.message, { category: "failed", code: error.code });
+          }
+          return ipcErr("invalid-args", error.message, {
+            category: "invalid-input",
+            code: error.code,
+          });
+        }
+      },
+    ]),
+  );
+}
+
 export function registerNotesChannel(opts: {
   userData: string;
   workspaces: () => readonly WorkspaceMeta[];
@@ -128,7 +153,7 @@ export function registerNotesChannel(opts: {
   const locationOf = (workspaceId: string): NoteLocation => {
     const all = opts.workspaces();
     const meta = all.find((w) => w.id === workspaceId);
-    if (!meta) throw new Error(`no workspace ${workspaceId}`);
+    if (!meta) throw new NoteError("not-found", `no workspace ${workspaceId}`);
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
@@ -209,7 +234,7 @@ export function registerNotesChannel(opts: {
   };
 
   register("notes", {
-    call: {
+    call: withNoteErrors({
       list: async (args: unknown) => {
         const { workspaceId } = validateArgs(c.list.args, args);
         return ipcOk(await store.list(locationOf(workspaceId)));
@@ -418,7 +443,7 @@ export function registerNotesChannel(opts: {
         shell.showItemInFolder(path.join(dir, "location.json"));
         return ipcOk(undefined);
       },
-    },
+    }),
     listen: {
       changed: {},
     },
