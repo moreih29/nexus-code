@@ -7,8 +7,6 @@ import type { WorkspacePorts } from "../../../shared/pty/ports";
 import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
-import type { HookInfo } from "../workspace/manager";
-import { tabHookToken } from "../workspace/tab-token";
 import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
@@ -33,13 +31,8 @@ export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
   recorder?: PtyRecorderSink;
   /**
-   * Provides workspace display names, activation for OS notifications, and
-   * Pull-based hookserver connection info lookup (getHookInfo).
-   *
-   * `getAgentChannel` is used to guarantee that hookInfo is fresh —
-   * the spawn handler awaits it before capturing the env, which forces channel.ready / the hook.getInfo
-   * pull to complete before the hookInfo lookup. The returned channel object
-   * itself is not used; the call exists only for ready synchronization.
+   * Provides workspace display names and activation for OS notifications.
+   * The agent must boot before its remote wrapper locations are available.
    *
    * `getWrapperBinDir` / `getWrapperAgentBin` — return, by workspace kind,
    * the absolute paths of the wrapper bin directory and the agent binary. When null is returned,
@@ -57,7 +50,6 @@ export interface PtyChannelOptions {
    */
   workspaceManager?: WorkspaceNameLookup & {
     activate(id: string): Promise<void>;
-    getHookInfo(workspaceId: string): HookInfo | null;
     getAgentChannel(workspaceId: string): Promise<unknown>;
     getWrapperBinDir(workspaceId: string): string | null;
     getWrapperAgentBin(workspaceId: string): string | null;
@@ -207,17 +199,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       env = { ...givenEnv, ...fromProfile };
     }
     recorder.start(workspaceId, tabId, cols, rows);
-    // hookInfo must be read after channel.ready for it to be guaranteed fresh.
-    // Called right after a channel reconnect, a stale cache (the previous boot's socket path)
-    // could be baked into the env, creating a hook client that points at a dead socket.
-    // wm.getAgentChannel triggers ensureProviderReady, and at its end the hook.getInfo
-    // result is set in hookInfoByWorkspace, so a getHookInfo after this await is
-    // structurally guaranteed to be the latest. The returned channel object is not used.
-    if (wm) {
-      await wm.getAgentChannel(workspaceId);
-    }
-    // Look up the socket/token by pull with workspaceManager.getHookInfo and inject them into the env.
-    const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
+    if (wm) await wm.getAgentChannel(workspaceId);
     // Decide the wrapper bin directory and agent binary path by workspace kind.
     // When null, skip the wrapper-related env injection (keeps the graceful pattern).
     const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
@@ -229,8 +211,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             workspaceId,
             tabId,
             agentBin: wrapperAgentBin ?? undefined,
-            agentSocket: hookInfo?.socketPath,
-            hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
           })
         : injectHarnessTerminalEnv(env);
 

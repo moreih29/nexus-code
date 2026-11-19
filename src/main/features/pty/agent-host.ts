@@ -1,6 +1,8 @@
 import { TextDecoder } from "node:util";
 import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
+import type { HookInfo } from "../workspace/manager";
+import { tabHookToken } from "../workspace/tab-token";
 import type { PtyHostHandle } from "./types";
 
 const log = createLogger("agent-host");
@@ -44,6 +46,8 @@ export interface AgentPtyWorkspaceManager {
    * racing condition rather than a bug.
    */
   tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
+  /** The current process's hook endpoint for a wrapped terminal spawn. */
+  getSpawnHookInfo?(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null>;
   /**
    * Tells when a workspace's agent is ready, a new one after a reconnect
    * included: its channel is subscribed then, not at its first PTY call.
@@ -262,7 +266,16 @@ class AgentPtyHostHandle implements PtyHostHandle {
         throw new Error("terminal closed before it started");
       }
       const channel = await this.channelForWorkspace(workspaceId);
-      // Or while its agent was being reached.
+      if (this.isUnwanted(workspaceId, tabId)) {
+        throw new Error("terminal closed before it started");
+      }
+      const spawn = args as { env?: Record<string, string> };
+      const env = spawn.env;
+      const hooks =
+        env?.NEXUS_WRAPPER_SELF_DIR && this.workspaceManager.getSpawnHookInfo
+          ? await this.workspaceManager.getSpawnHookInfo(workspaceId, channel)
+          : null;
+      // The tab can also close while the replacement's hooks are being read.
       if (this.isUnwanted(workspaceId, tabId)) {
         throw new Error("terminal closed before it started");
       }
@@ -270,7 +283,19 @@ class AgentPtyHostHandle implements PtyHostHandle {
       let result: AgentSpawnResult;
       try {
         sent = true;
-        result = await channel.call<AgentSpawnResult>("pty.spawn", args);
+        result = await channel.call<AgentSpawnResult>(
+          "pty.spawn",
+          hooks
+            ? {
+                ...spawn,
+                env: {
+                  NEXUS_AGENT_SOCKET: hooks.socketPath,
+                  NEXUS_HOOK_TOKEN: tabHookToken(hooks, workspaceId, tabId),
+                  ...env,
+                },
+              }
+            : args,
+        );
       } catch (error) {
         this.deleteSession(workspaceId, tabId);
         throw error;

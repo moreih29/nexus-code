@@ -750,7 +750,6 @@ app.whenReady().then(async () => {
     },
   });
 
-  // The hookserver connection info is looked up by pull from workspaceManager.getHookInfo().
   // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,

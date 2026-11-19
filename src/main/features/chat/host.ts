@@ -36,7 +36,7 @@ export interface ChatWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
   tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
   onProviderReady(listener: (workspaceId: string) => void): () => void;
-  getChatHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null>;
+  getSpawnHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null>;
   getWrapperBinDir(workspaceId: string): string | null;
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
@@ -94,7 +94,7 @@ export class ChatHost {
         .then(async (channel) => {
           if (!channel) return;
           await channel.ready;
-          await this.options.workspaceManager.getChatHookInfo(workspaceId, channel);
+          await this.options.workspaceManager.getSpawnHookInfo(workspaceId, channel);
           if (this.disposed) return;
           this.subscribe(workspaceId, channel);
           this.options.broadcast("resync", { workspaceId });
@@ -163,7 +163,7 @@ export class ChatHost {
     try {
       const profile = await this.profileEnv(channel, "claude", profileId);
       await this.closingTabs.get(key);
-      const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
+      const hookInfo = await workspaceManager.getSpawnHookInfo(workspaceId, channel);
       const env = claudeTabEnv({
         workspaceId,
         tabId,
@@ -236,7 +236,7 @@ export class ChatHost {
     try {
       const profile = await this.profileEnv(channel, "codex", options.profileId);
       await this.closingTabs.get(key);
-      const hookInfo = await workspaceManager.getChatHookInfo(workspaceId, channel);
+      const hookInfo = await workspaceManager.getSpawnHookInfo(workspaceId, channel);
       const env = codexTabEnv({
         workspaceId,
         tabId,
@@ -643,7 +643,7 @@ export class ChatHost {
   private async resyncAfterHooks(workspaceId: string, subscription: Subscription): Promise<void> {
     const { revision, channel } = subscription;
     try {
-      await this.options.workspaceManager.getChatHookInfo(workspaceId, channel);
+      await this.options.workspaceManager.getSpawnHookInfo(workspaceId, channel);
       if (
         this.subscriptions.get(workspaceId) === subscription &&
         revision === subscription.revision
