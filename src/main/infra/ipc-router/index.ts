@@ -96,12 +96,15 @@ interface ChannelDef {
   call: CallHandlers;
   listen: ListenHandlers;
   stream?: StreamHandlers;
+  /** Writes that must finish if their initiating renderer goes away. */
+  keepOnRendererClose?: readonly string[];
 }
 
 interface RegisteredChannelDef<C extends ContractChannelName> {
   call: CallHandlers;
   listen: ListenHandlers;
   stream?: RegisteredStreamHandlers<C>;
+  keepOnRendererClose?: readonly string[];
 }
 
 type RegisterChannelDef<C extends string> = C extends ContractChannelName
@@ -124,6 +127,7 @@ const pendingCallControllers = new Map<string, AbortController>();
 const pendingStreamControllers = new Map<string, PendingStream>();
 const preCanceledRequests = new PendingRequestMap<string, void>();
 const PRECANCELED_REQUEST_TTL_MS = 30_000;
+const MAX_PRECANCELED_REQUESTS = 1024;
 
 export function register<C extends string>(channelName: C, def: RegisterChannelDef<C>): void {
   channels.set(channelName, def as ChannelDef);
@@ -156,7 +160,8 @@ export function setupRouter(): void {
       args: unknown,
       requestId?: unknown,
     ) => {
-      const methods = channels.get(channelName)?.call;
+      const channel = channels.get(channelName);
+      const methods = channel?.call;
       const handler = methods && Object.hasOwn(methods, method) ? methods[method] : undefined;
       if (typeof handler !== "function") {
         return ipcErr("invalid-args", `Unknown IPC call: ${channelName}.${method}`, {
@@ -164,7 +169,12 @@ export function setupRouter(): void {
         });
       }
       const correlationId = crypto.randomUUID();
-      const callContext = createCallContext(event, requestId, correlationId);
+      const callContext = createCallContext(
+        event,
+        requestId,
+        correlationId,
+        channel?.keepOnRendererClose?.includes(method) ?? false,
+      );
       const procedure = `${channelName}.${method}`;
       try {
         const result = await handler(args, callContext.ctx);
@@ -283,6 +293,9 @@ function requestKey(event: { sender?: { id?: number } }, requestId: string): str
 
 function rememberPreCanceledRequest(key: string): void {
   if (preCanceledRequests.has(key)) preCanceledRequests.reject(key, new Error("replaced"));
+  else if (preCanceledRequests.size >= MAX_PRECANCELED_REQUESTS) {
+    preCanceledRequests.rejectOldest(new Error("pre-cancellation limit reached"));
+  }
   preCanceledRequests.register({ key, timeoutMs: PRECANCELED_REQUEST_TTL_MS }).catch(() => {});
 }
 
@@ -292,13 +305,13 @@ function consumePreCanceledRequest(key: string): boolean {
 
 function createCallContext(
   event: import("electron").IpcMainInvokeEvent,
-  requestId: unknown,
+  suppliedId: unknown,
   correlationId: string,
+  keepOnRendererClose: boolean,
 ): { release?: () => void; ctx: CallContext } {
   const sender = event.sender;
-  if (typeof requestId !== "string" || requestId.length === 0) {
-    return { ctx: { correlationId, sender } };
-  }
+  const requestId =
+    typeof suppliedId === "string" && suppliedId.length > 0 ? suppliedId : crypto.randomUUID();
   const key = requestKey(event, requestId);
   const controller = new AbortController();
   pendingCallControllers.set(key, controller);
@@ -307,7 +320,7 @@ function createCallContext(
   };
   const releaseSender = trackSender(sender, () => {
     remove();
-    controller.abort();
+    if (!keepOnRendererClose) controller.abort();
   });
   if (consumePreCanceledRequest(key)) controller.abort();
   return {

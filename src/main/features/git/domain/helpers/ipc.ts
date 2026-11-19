@@ -387,6 +387,7 @@ export function registerGitHelperIpcChannels(manager: GitHelpersIpcManager): voi
   });
 
   register("editor", {
+    keepOnRendererClose: ["save"],
     call: {
       save: (args) => manager.saveEditor(args),
       cancel: (args) => manager.cancelEditor(args),

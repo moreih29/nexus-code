@@ -22,6 +22,19 @@ import { VoicePrints } from "../voice-print";
 import { NoteError, NotesStore } from "./store";
 
 const c = ipcContract.notes.call;
+const NOTE_WRITE_CALLS: readonly string[] = [
+  "create",
+  "save",
+  "prune",
+  "remove",
+  "addFiles",
+  "addImage",
+  "saveSketch",
+  "removeLocation",
+  "saveTranscript",
+  "appendAudio",
+  "removeRecording",
+] satisfies readonly (keyof typeof c)[];
 
 const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
@@ -234,6 +247,7 @@ export function registerNotesChannel(opts: {
   };
 
   register("notes", {
+    keepOnRendererClose: NOTE_WRITE_CALLS,
     call: withNoteErrors({
       list: async (args: unknown) => {
         const { workspaceId } = validateArgs(c.list.args, args);

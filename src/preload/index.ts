@@ -50,7 +50,13 @@ const ipcApi = {
     args: unknown,
     requestId?: IpcRequestId,
   ): Promise<unknown> {
-    return ipcRenderer.invoke("ipc:call", channelName, method, args, requestId);
+    return ipcRenderer.invoke(
+      "ipc:call",
+      channelName,
+      method,
+      args,
+      requestId ?? crypto.randomUUID(),
+    );
   },
 
   cancel(requestId: IpcRequestId): void {

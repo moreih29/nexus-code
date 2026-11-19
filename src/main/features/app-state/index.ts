@@ -66,6 +66,7 @@ export function registerAppStateChannel(
   opts: AppStateChannelOptions = {},
 ): void {
   register("appState", {
+    keepOnRendererClose: ["set"],
     call: {
       get: (_args: unknown) => {
         const state = stateService.getState();
