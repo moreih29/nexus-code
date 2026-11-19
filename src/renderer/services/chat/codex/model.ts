@@ -1159,7 +1159,6 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     }
     settleCommands(draft, at, turnId);
   }
-  if (turnId && m.turnId && turnId !== m.turnId) return;
   const sawTurnStart = turnId && turnId === m.turnId;
   m.running = false;
   m.turn = null;

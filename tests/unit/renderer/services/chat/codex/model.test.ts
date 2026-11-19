@@ -138,18 +138,20 @@ test("Codex commands move from running to ended on the panel with their own life
     at: 6_000,
   });
 
-  const base = run([
-    ...started(),
-    ...sendTurn("run both"),
-    item("started", command("foreground"), 1_000),
-    item(
-      "started",
-      command("background", { source: "unifiedExecStartup", processId: "42" }),
-      1_000,
-    ),
-    item("started", command("quick"), 1_000),
-    item("completed", command("quick", { status: "completed" }), 1_100),
-  ]);
+  const startCommands = (observedTurnId = turnId) =>
+    run([
+      ...started(),
+      ...sendTurn("run both", "c1", observedTurnId),
+      item("started", command("foreground"), 1_000),
+      item(
+        "started",
+        command("background", { source: "unifiedExecStartup", processId: "42" }),
+        1_000,
+      ),
+      item("started", command("quick"), 1_000),
+      item("completed", command("quick", { status: "completed" }), 1_100),
+    ]);
+  const base = startCommands();
   expect(activity(base).running.map((row) => row.description)).toEqual([
     "foreground",
     "background",
@@ -166,6 +168,13 @@ test("Codex commands move from running to ended on the panel with their own life
       background: "running",
     },
     { end: [turnEnd("completed")], status: "stopped", background: "running" },
+    {
+      // The actual turn's items reached the log, but its turn/started did not.
+      from: startCommands("previous-turn"),
+      end: [turnEnd("completed")],
+      status: "stopped",
+      background: "running",
+    },
     { end: [turnEnd("interrupted")], status: "stopped", background: "running" },
     {
       end: [turnEnd("failed", [command("foreground", { status: "failed", exitCode: 1 })])],
@@ -178,8 +187,9 @@ test("Codex commands move from running to ended on the panel with their own life
       background: "stopped",
     },
   ];
-  for (const { end, status, background } of cases) {
-    const model = run(end, base);
+  for (const { end, status, background, from = base } of cases) {
+    const model = run(end, from);
+    expect(model.running).toBe(false);
     const rows = activity(model);
     expect(rows.ended).toContainEqual(
       expect.objectContaining({ description: "foreground", status }),
