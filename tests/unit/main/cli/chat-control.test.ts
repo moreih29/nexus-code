@@ -80,6 +80,23 @@ function withChat(info: Partial<CliChatInfo> = {}, type: "claude" | "codex" = "c
 }
 
 describe("chat send", () => {
+  test("--wait follows the returned submission even while the previous turn asks", async () => {
+    const app = withChat({ state: "asking", message: "an earlier question" });
+    app.uiAnswers.set("chat.send", { heldId: "queued", submissionId: "queued" });
+    let looked = 0;
+    app.uiAnswers.set("chat.state", (args) => {
+      if ((args as { submissionId?: string }).submissionId !== "queued") {
+        return { agent: "claude", state: "asking", message: "an earlier question" };
+      }
+      return ++looked < 2
+        ? { agent: "claude", state: "working" }
+        : { agent: "claude", state: "idle", message: "the queued prompt's answer" };
+    });
+    const result = await nexus(app, ["chat", "send", "eeee", "--wait", "--after", "next"]);
+    expect(result.stdout).toContain("the queued prompt's answer");
+    expect(looked).toBe(2);
+  });
+
   test("--after holds it for after the turn and prints its id; --now goes into the turn", async () => {
     const app = withChat();
     app.uiAnswers.set("chat.send", { heldId: "r7" });

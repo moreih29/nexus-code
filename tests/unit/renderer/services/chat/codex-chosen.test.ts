@@ -5,7 +5,7 @@
  * The real ipc client is spread under a spy, so later files keep its
  * other exports.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../src/renderer/services/chat/codex-config";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 
@@ -18,6 +18,7 @@ let codex: ((message: Message) => void) | undefined;
 /** Whether a Codex program fails to come up, as a fork's does when its thread cannot be read. */
 let startFails = false;
 let rejectTurnWrite = false;
+let loseSteer = false;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -28,6 +29,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       const message = args.message as Message;
       if (rejectTurnWrite && message.method === "turn/start") {
         return Promise.resolve(ipcErr("chat.stdin-write-failed", "broken pipe"));
+      }
+      if (loseSteer && message.method === "turn/steer") {
+        return Promise.resolve(ipcErr("agent.reconnect-unavailable", "connection lost"));
       }
       codex?.(message);
     }
@@ -63,8 +67,10 @@ afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   startFails = false;
   rejectTurnWrite = false;
+  loseSteer = false;
   codex = undefined;
   sent.length = 0;
+  jest.useRealTimers();
 });
 
 /**
@@ -155,6 +161,7 @@ describe("the model and effort picked in a Codex tab", () => {
     await Bun.sleep(40);
     await c.send("hi");
     expect(picks).toEqual([{}]);
+    expect(c.inheritedChoice()?.model).toBe("gpt-5.4-mini");
     // A second turn has nothing of its own to send, nor to forget.
     await Bun.sleep(40);
     await c.send("again");
@@ -252,6 +259,96 @@ describe("delivering a Codex queue entry", () => {
     await c.sendWithTiming("begin", [], "next", undefined, undefined, "first-id");
     sent.length = 0;
   }
+
+  test("a quick Codex interrupt waits for the in-flight start to identify its turn", async () => {
+    const requested = Promise.withResolvers<void>();
+    const reply = Promise.withResolvers<{ result: unknown }>();
+    const c = tab(undefined, undefined, (message) => {
+      if (message.method !== "turn/start") return undefined;
+      requested.resolve();
+      return reply.promise;
+    });
+    const starting = c.sendWithTiming("work", [], "next", undefined, undefined, "work");
+    await requested.promise;
+    const stopped = c.interrupt();
+    expect(sent.some((message) => message.method === "turn/interrupt")).toBe(false);
+    reply.resolve({ result: { turn: { id: "late-turn" } } });
+    await Promise.all([starting, stopped]);
+    expect(sent.find((message) => message.method === "turn/interrupt")?.params).toMatchObject({
+      threadId: "t1",
+      turnId: "late-turn",
+    });
+  });
+
+  test("a Codex interrupt timeout restores the running turn's controls", async () => {
+    const requested = Promise.withResolvers<void>();
+    const c = tab(undefined, undefined, (message) => {
+      if (message.method !== "turn/interrupt") return undefined;
+      requested.resolve();
+      return new Promise(() => {});
+    });
+    await running(c);
+    jest.useFakeTimers();
+    const attempted = c.interrupt().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await requested.promise;
+    c.flushNow();
+    expect(c.model.interrupting).toBe(true);
+    jest.advanceTimersByTime(30_000);
+    expect(await attempted).toBeInstanceOf(Error);
+    expect(c.model.interrupting).toBe(false);
+    expect(c.model.running).toBe(true);
+  });
+
+  test("a local steer with an unknown outcome is never requeued", async () => {
+    const c = tab();
+    await running(c);
+    loseSteer = true;
+    await expect(c.sendNow("could already be accepted")).rejects.toMatchObject({
+      kind: "agent.reconnect-unavailable",
+    });
+    expect(c.state.queue).toEqual([]);
+    expect(delivered()).toEqual([]);
+  });
+
+  test("a refused local steer keeps its submission ID when explicitly deferred", async () => {
+    const c = tab(undefined, undefined, (message) =>
+      message.method === "turn/steer"
+        ? { error: { code: -32600, message: "NonSteerableTurn" } }
+        : undefined,
+    );
+    await running(c);
+    await c.sendNow("for the next turn");
+    const refused = sent.find((message) => message.method === "turn/steer");
+    end(c);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const next = sent.find((message) => message.method === "turn/start");
+    expect(typeof refused?.params?.clientUserMessageId).toBe("string");
+    expect(next?.params?.clientUserMessageId).toBe(refused?.params?.clientUserMessageId);
+  });
+
+  test("a rejected turn keeps its selections until another turn accepts them", async () => {
+    let refused = true;
+    const c = tab({ model: "picked", effort: "low" }, undefined, (message) =>
+      message.method === "turn/start" && refused
+        ? { error: { code: -32600, message: "turn refused" } }
+        : undefined,
+    );
+    await c.setPermissionMode("readOnly");
+    await expect(c.sendWithTiming("first", [], "next", undefined, undefined, "a")).rejects.toThrow(
+      "turn refused",
+    );
+    refused = false;
+    await c.sendWithTiming("second", [], "next", undefined, undefined, "b");
+    const starts = sent.filter((message) => message.method === "turn/start");
+    expect(starts[1]?.params).toMatchObject({
+      model: "picked",
+      effort: "low",
+      sandboxPolicy: { type: "readOnly" },
+    });
+  });
 
   test("steers in order on a tool completion in the current turn, using the edited text", async () => {
     const c = tab();

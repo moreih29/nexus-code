@@ -55,11 +55,20 @@ export async function waitOnChat(
     }
     first = false;
     const info = await services
-      .ui("chat.state", { workspaceId, tabId, peek: true })
+      .ui("chat.state", {
+        workspaceId,
+        tabId,
+        peek: true,
+        ...(after === undefined ? {} : { after }),
+      })
       .catch(unavailable);
     const now = clock.now();
     // A turn that has not shown the message yet is still to come.
-    const unseen = after !== undefined && (info.since ?? 0) < after && now - after < SEND_GRACE_MS;
+    const unseen =
+      !info.trackedSubmission &&
+      after !== undefined &&
+      (info.since ?? 0) < after &&
+      now - after < SEND_GRACE_MS;
     if (info.state !== "working" && !unseen) {
       const result = { done: true, state: info.state };
       return info.message ? { ...result, message: fitting(info.message, result) } : result;

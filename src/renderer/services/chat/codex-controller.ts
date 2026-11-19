@@ -67,7 +67,6 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
-  chatSendErrorKind,
   clearObservedQueued,
   dispatchQueuedMessage,
   emptyTabState,
@@ -253,6 +252,7 @@ export class CodexController {
   private mcpRead: object | undefined;
   /** What the user picked for the next turn. */
   private next: CodexPicks = {};
+  private turnPicks?: { threadId: string; clientId: string; picks: CodexPicks };
   private readonly removeReceiver: () => void;
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
   private readonly leavePlanUsage: () => void;
@@ -1449,7 +1449,7 @@ export class CodexController {
         this.hooks.onFirstMessage?.(shownUserText(text).trim());
       }
     }
-    const clientUserMessageId = id ? `peer-${id}` : nextId();
+    const clientUserMessageId = queued?.clientUserMessageId ?? (id ? `peer-${id}` : nextId());
     // Kept before the message is written, so it never shows as the user's;
     // with its turn too, which a resumed thread keeps (not the message's id).
     const record = from ? { id: clientUserMessageId, from, at: Date.now() } : undefined;
@@ -1469,12 +1469,7 @@ export class CodexController {
         told(result, turnId);
         return;
       } catch (err) {
-        if (
-          !(err instanceof CodexReplyError) &&
-          (id || isChatWriteRejected(err) || chatSendErrorKind(err) === "chat.stdin-incomplete")
-        ) {
-          throw err;
-        }
+        if (!(err instanceof CodexReplyError)) throw err;
         this.flushNow();
         log.info(`steer not taken: ${(err as Error).message}`);
         // The active turn refused the message. Wait for a turn boundary.
@@ -1483,16 +1478,23 @@ export class CodexController {
             this.deferToolSendsForTurn = this.model.turnId;
             return { heldId: queued.id, afterTurn: true };
           }
-          return { heldId: this.holdMessage(text, images, from, device, id) };
+          return {
+            heldId: this.holdMessage(
+              text,
+              images,
+              from,
+              device,
+              id ?? clientUserMessageId,
+              undefined,
+              clientUserMessageId,
+            ),
+          };
         }
         // The turn ended meanwhile: the message starts the next one.
       }
     }
     const { model, effort, mode } = this.next;
-    this.next = {};
-    // The thread holds them from this turn on: the tab keeps a pick only
-    // until it is sent, so a thread changed since is not overridden.
-    if (model || effort) this.hooks.onChosen?.({});
+    this.turnPicks = { threadId, clientId: clientUserMessageId, picks: this.next };
     // Its answer comes in the log. The composer waits for the separate write outcome.
     const { reply, written } = this.requestWithWrite("turn/start", {
       threadId,
@@ -1503,7 +1505,21 @@ export class CodexController {
       ...(mode ? MODE_SETTINGS[mode] : {}),
     });
     const start = reply
-      .then((result) => told(result))
+      .then(
+        (result) => {
+          this.confirmTurnPicks(clientUserMessageId);
+          told(result);
+        },
+        (error: unknown) => {
+          if (
+            this.turnPicks?.clientId === clientUserMessageId &&
+            (error instanceof CodexReplyError || isChatWriteRejected(error))
+          ) {
+            this.turnPicks = undefined;
+          }
+          throw error;
+        },
+      )
       .finally(() => {
         this.flushNow();
         this.startingTurn = undefined;
@@ -1515,6 +1531,25 @@ export class CodexController {
       void start.catch(() => {});
       await written;
       this.flushNow();
+    }
+  }
+
+  /** Keeps newer selections when the program takes the choices sent with a turn. */
+  private confirmTurnPicks(clientId: string): void {
+    const sent = this.turnPicks;
+    if (sent?.clientId !== clientId || sent.threadId !== this.currentThread()) return;
+    this.turnPicks = undefined;
+    const latest = this.next;
+    const model = latest.model === sent.picks.model ? undefined : latest.model;
+    const effort = latest.effort === sent.picks.effort ? undefined : latest.effort;
+    const mode = latest.mode === sent.picks.mode ? undefined : latest.mode;
+    this.next = {
+      ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
+      ...(mode !== undefined ? { mode } : {}),
+    };
+    if (model !== latest.model || effort !== latest.effort) {
+      this.hooks.onChosen?.({ model, effort });
     }
   }
 
@@ -1544,6 +1579,7 @@ export class CodexController {
     device?: string,
     id?: string,
     afterTool?: number,
+    clientUserMessageId?: string,
   ): string {
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
@@ -1552,6 +1588,7 @@ export class CodexController {
       text,
       images,
       ...(afterTool !== undefined ? { afterTool } : {}),
+      ...(clientUserMessageId ? { clientUserMessageId } : {}),
       ...(from ? { from } : {}),
       ...(device ? { device } : {}),
     };
@@ -1628,17 +1665,37 @@ export class CodexController {
   }
 
   private sawQueuedMessage(id: string): boolean {
-    return this.model.items.some((item) => item.kind === "user" && item.key === `u-peer-${id}`);
+    const clientId =
+      this.state.queue.find((item) => item.id === id)?.clientUserMessageId ?? `peer-${id}`;
+    return this.model.items.some(
+      (item) => item.kind === "user" && item.key === `u-${clientId}` && item.state === "taken",
+    );
   }
 
+  /** Waits for the requested turn's identity and interrupts that turn. */
   async interrupt(): Promise<unknown> {
-    const { threadId, turnId } = this.model;
-    if (!threadId || !turnId) return undefined;
+    this.flushNow();
+    const threadId = this.model.threadId;
+    if (!this.model.turnId && this.startingTurn) {
+      await this.startingTurn;
+      this.flushNow();
+    }
+    const { turnId, running } = this.model;
+    if (!threadId || threadId !== this.model.threadId || !turnId || !running) {
+      throw new Error("Codex has no running turn to interrupt");
+    }
     this.stoppingTurn = turnId;
+    const { reply, key } = this.requestWithWrite("turn/interrupt", { threadId, turnId });
     try {
-      return await this.request("turn/interrupt", { threadId, turnId });
+      return await reply;
+    } catch (error) {
+      this.flushNow();
+      if (this.model.interruptRequestId === key) {
+        this.patchModel({ interrupting: false, interruptRequestId: undefined });
+      }
+      throw error;
     } finally {
-      this.stoppingTurn = undefined;
+      if (this.stoppingTurn === turnId) this.stoppingTurn = undefined;
       this.flushNow();
       this.sendNextQueued();
     }
@@ -1821,7 +1878,7 @@ export class CodexController {
     method: string,
     params: Record<string, unknown>,
     timeoutMs = REQUEST_TIMEOUT_MS,
-  ): { written: Promise<void>; reply: Promise<Record<string, unknown>> } {
+  ): { written: Promise<void>; reply: Promise<Record<string, unknown>>; key: string } {
     const id = nextId();
     const key = idKey(id) as string;
     const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -1844,9 +1901,9 @@ export class CodexController {
         invalidateCodexHistory(this.target.workspaceId);
         return result;
       });
-      return { reply, written };
+      return { reply, written, key };
     }
-    return { reply: promise, written };
+    return { reply: promise, written, key };
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {
@@ -2086,6 +2143,19 @@ export class CodexController {
     if (model === before) return;
     if (model.running || model.lastResult) this.emptyThread = undefined;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
+    const pendingPick = this.turnPicks;
+    if (
+      pendingPick &&
+      model.items !== before.items &&
+      model.items.some(
+        (item) =>
+          item.kind === "user" &&
+          item.key === `u-${pendingPick.clientId}` &&
+          item.state === "taken",
+      )
+    ) {
+      this.confirmTurnPicks(pendingPick.clientId);
+    }
     if (model.threadId) this.rememberThread(model.threadId);
     if (model.threadId && model.threadId !== before.threadId) {
       this.dirtyAgents.clear();
@@ -2250,15 +2320,26 @@ export function answerOf(
     case "item/tool/requestUserInput": {
       if (answer.kind !== "allow") return { answers: {} };
       const given = (answer.updatedInput?.answers ?? {}) as Record<string, unknown>;
-      const answers: Record<string, { answers: string[] }> = {};
-      for (const raw of Array.isArray(params.questions) ? params.questions : []) {
-        const q = raw as { id?: unknown; question?: unknown };
-        const text = typeof q.question === "string" ? given[q.question] : undefined;
-        if (typeof q.id === "string" && typeof text === "string" && text) {
-          answers[q.id] = { answers: [text] };
+      const questions = (Array.isArray(params.questions) ? params.questions : []) as {
+        id?: unknown;
+        question?: unknown;
+      }[];
+      const answers = questions.flatMap((q) => {
+        if (typeof q?.id !== "string") return [];
+        let text = Object.hasOwn(given, q.id) ? given[q.id] : undefined;
+        if (
+          text === undefined &&
+          typeof q.question === "string" &&
+          Object.hasOwn(given, q.question)
+        ) {
+          if (questions.some((other) => other !== q && other?.question === q.question)) {
+            throw new Error("Questions with the same text need answers keyed by question ID");
+          }
+          text = given[q.question];
         }
-      }
-      return { answers };
+        return typeof text === "string" && text ? [[q.id, { answers: [text] }]] : [];
+      });
+      return { answers: Object.fromEntries(answers) };
     }
   }
   switch (answer.kind) {

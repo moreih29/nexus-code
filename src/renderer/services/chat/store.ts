@@ -27,6 +27,8 @@ export interface QueuedMessage {
   images: ImageBlock[];
   /** Codex may steer after a tool completion later than this log sequence. */
   afterTool?: number;
+  /** The Codex submission ID if a refused steer moved this message to the queue. */
+  clientUserMessageId?: string;
   status?: "sending" | "failed" | "unconfirmed";
   error?: string;
   /** The agent that sent it through the nexus command, when one did. */

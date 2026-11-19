@@ -39,8 +39,10 @@ import {
   type ChatItem,
   type ChatLine,
   type ChatModel,
+  clearInterrupt,
   Draft,
   emptyModel,
+  finishSubmittedTurn,
   type ImageBlock,
   type ModelInfo,
   noteTurnActivity,
@@ -153,6 +155,7 @@ export function loseCodexLog(prev: CodexModel): CodexModel {
     turnId: undefined,
     toolCompletedSeq: undefined,
     interrupting: false,
+    interruptRequestId: undefined,
     streaming: null,
     permissions: [],
     requests: {},
@@ -313,7 +316,10 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
         return;
       }
       case "turn/interrupt":
-        if (m.running) m.interrupting = true;
+        if (m.running && key && params.turnId === m.turnId) {
+          m.interrupting = true;
+          m.interruptRequestId = key;
+        }
         return;
     }
     return;
@@ -366,6 +372,7 @@ function applyResponse(
   m.outgoing = rest;
   const error = rec(message.error);
   if (error) {
+    if (sent.subtype === "turn/interrupt") clearInterrupt(m, key);
     if (
       sent.request.threadId === m.forkSource?.threadId &&
       (sent.subtype === "thread/turns/list" ||
@@ -398,7 +405,7 @@ function applyResponse(
     if (sent.subtype === "turn/start") {
       m.running = false;
       m.turn = null;
-      m.interrupting = false;
+      clearInterrupt(m);
     }
     const detail = str(error.message) ?? sent.subtype;
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
@@ -529,6 +536,7 @@ function applyResponse(
           nativeTranscripts: undefined,
           plan: undefined,
           interrupting: false,
+          interruptRequestId: undefined,
         });
       }
       applyThread(draft, result, seq);
@@ -865,7 +873,7 @@ function applyNotification(
       if (turnId) enterTurn(m, turnId);
       if (!m.running) {
         m.running = true;
-        m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+        m.turn = { id: turnId, startedAt: at, outputTokens: 0, thinkingTokens: 0 };
       }
       noteTurnActivity(m, at);
       return;
@@ -1077,7 +1085,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   m.running = false;
   m.turn = null;
   m.streaming = null;
-  m.interrupting = false;
+  clearInterrupt(m);
   m.toolCompletedSeq = undefined;
   if (!turnId || turnId === m.turnId) m.turnId = undefined;
   // The turn's questions end with it.
@@ -1094,12 +1102,14 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     durationMs: num(turn.durationMs),
     at,
   };
+  const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
+  finishSubmittedTurn(draft, turnId, failure);
   if (status === "interrupted") {
     stopRunningTools(draft);
     draft.push({ kind: "notice", key: `n${seq}`, code: "interrupted", at });
   } else if (status === "failed") {
     stopRunningTools(draft);
-    pushError(draft, str(rec(turn.error)?.message) ?? "failed", `n${seq}`, at);
+    pushError(draft, failure ?? "failed", `n${seq}`, at);
   }
 }
 
@@ -1248,10 +1258,12 @@ function mergeTool(prev: ToolCall | undefined, next: ToolCall): ToolCall {
 /** Makes a turn the running one; its item ids are only known to be unique within it. */
 function enterTurn(m: CodexModel, turnId: string): void {
   if (turnId !== m.turnId) {
+    clearInterrupt(m);
     m.blocks = {};
     m.toolCompletedSeq = undefined;
   }
   m.turnId = turnId;
+  if (m.turn && m.turn.id !== turnId) m.turn = { ...m.turn, id: turnId };
 }
 
 /** Marks a message the app sent as taken by the server, in its turn; false when there is none. */
@@ -1732,6 +1744,7 @@ function permissionOf(
             const options = Array.isArray(q.options) ? q.options : [];
             return [
               {
+                id: str(q.id),
                 question,
                 header: str(q.header),
                 multiSelect: false,

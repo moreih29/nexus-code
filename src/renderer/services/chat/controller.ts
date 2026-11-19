@@ -1268,8 +1268,23 @@ export class ChatController {
     );
   }
 
-  interrupt(): Promise<unknown> {
-    return this.request("interrupt", {});
+  /** Interrupts the current turn and releases its controls if the request fails. */
+  async interrupt(): Promise<unknown> {
+    const requestId = nextRequestId();
+    try {
+      return await this.request("interrupt", {}, CONTROL_TIMEOUT_MS, requestId);
+    } catch (error) {
+      this.flushNow();
+      this.update((prev) =>
+        prev.model.interruptRequestId === requestId
+          ? {
+              ...prev,
+              model: { ...prev.model, interrupting: false, interruptRequestId: undefined },
+            }
+          : prev,
+      );
+      throw error;
+    }
   }
 
   setPermissionMode(mode: string): Promise<unknown> {
@@ -1908,11 +1923,11 @@ export class ChatController {
     subtype: string,
     params: Record<string, unknown>,
     timeoutMs = CONTROL_TIMEOUT_MS,
+    id = nextRequestId(),
   ): Promise<Record<string, unknown>> {
     if (!this.supports(subtype)) {
       return Promise.reject(new Error(`${subtype} needs a newer Claude Code`));
     }
-    const id = nextRequestId();
     const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);

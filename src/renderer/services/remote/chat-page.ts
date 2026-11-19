@@ -124,6 +124,7 @@ export function viewItemOf(item: ChatItem): ViewItem {
         uuid: _u,
         sentUuid: _s,
         turnId: _t,
+        turnResult: _r,
         optimistic: _o,
         peerWritePending: _p,
         images,
@@ -132,7 +133,7 @@ export function viewItemOf(item: ChatItem): ViewItem {
       return { ...rest, images: images.map(imageRef) };
     }
     case "assistant": {
-      const { uuid: _u, ...rest } = item;
+      const { uuid: _u, turnId: _t, ...rest } = item;
       return rest;
     }
     case "received": {

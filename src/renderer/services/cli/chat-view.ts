@@ -148,6 +148,53 @@ export function chatInfoOf(
   return { agent, state: "idle", ...told, ...at };
 }
 
+/** Where one submitted message stands, independent of other pending or newer turns. */
+export function chatSubmissionInfo(
+  agent: ChatAgent,
+  chat: ChatTabState | undefined,
+  submissionId: string,
+): CliChatInfo {
+  if (!chat) return { agent, state: "working" };
+  const { model, history } = chat;
+  const items = history ? [...history.items, ...model.items] : model.items;
+  const accepted = items.findLast(
+    (item) =>
+      item.kind === "user" &&
+      item.state === "taken" &&
+      (agent === "claude" ? item.uuid === submissionId : item.key === `u-peer-${submissionId}`),
+  );
+  if (accepted?.kind === "user" && accepted.turnResult) {
+    if (accepted.turnResult.error) {
+      return { agent, state: "error", message: accepted.turnResult.error };
+    }
+    const turnId = accepted.turnId;
+    const message = lastAnswer({
+      ...model,
+      items: items.filter(
+        (item) =>
+          item.kind === "assistant" &&
+          turnId !== undefined &&
+          (agent === "claude" ? item.turnId : item.messageId) === turnId,
+      ),
+    });
+    return { agent, state: "idle", ...(message ? { message } : {}) };
+  }
+  if (
+    accepted?.kind === "user" &&
+    accepted.turnId !== undefined &&
+    model.running &&
+    accepted.turnId === model.turn?.id
+  ) {
+    return chatInfoOf(agent, chat, false);
+  }
+  const queued = chat.queue.find((item) => item.id === submissionId);
+  if (queued?.status === "failed" || queued?.status === "unconfirmed") {
+    return { agent, state: "error", message: queued.error ?? "could not confirm the submission" };
+  }
+  if (chat.phase === "failed" || chat.phase === "not-found") return chatInfoOf(agent, chat, false);
+  return { agent, state: "working" };
+}
+
 /** An entry before its place in the conversation is counted. */
 type Entry = Omit<CliChatEntry, "i">;
 

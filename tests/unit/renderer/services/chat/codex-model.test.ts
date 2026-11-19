@@ -522,6 +522,12 @@ describe("codex model", () => {
               isSecret: false,
               options: [{ label: "Red", description: "warm" }],
             },
+            {
+              id: "background",
+              header: "Background",
+              question: "Which color?",
+              options: [{ label: "Blue", description: "cool" }],
+            },
           ],
         },
       }),
@@ -531,10 +537,17 @@ describe("codex model", () => {
       input: {
         questions: [
           {
+            id: "color",
             question: "Which color?",
             header: "Color",
             multiSelect: false,
             options: [{ label: "Red", description: "warm" }],
+          },
+          {
+            id: "background",
+            question: "Which color?",
+            header: "Background",
+            options: [{ label: "Blue", description: "cool" }],
           },
         ],
       },

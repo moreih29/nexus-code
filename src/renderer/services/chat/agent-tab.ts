@@ -124,6 +124,28 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
  * shows more, the tab counts as working, though no turn has begun.
  */
 const unseenSends = new Map<string, number>();
+const receiptIds = new Map<string, { id: string; expiresAt: number }>();
+const MAX_RECEIPTS = 4096;
+const RECEIPT_TTL_MS = 30 * 60_000;
+
+/** Resolves the existing remote `at` receipt to the exact submission on this tab. */
+export function submissionAt(workspaceId: string, tabId: string, at: number): string | undefined {
+  const key = `${chatKey(workspaceId, tabId)}:${at}`;
+  const receipt = receiptIds.get(key);
+  if (!receipt) return undefined;
+  if (receipt.expiresAt > Date.now()) return receipt.id;
+  receiptIds.delete(key);
+  return undefined;
+}
+
+/** Keeps remote receipts for the lifetime of a CLI wait, within a fixed cap. */
+function rememberReceipt(key: string, at: number, id: string): void {
+  if (receiptIds.size === MAX_RECEIPTS) {
+    const oldest = receiptIds.keys().next().value;
+    if (oldest !== undefined) receiptIds.delete(oldest);
+  }
+  receiptIds.set(`${key}:${at}`, { id, expiresAt: Date.now() + RECEIPT_TTL_MS });
+}
 
 function userMessages(key: string): number {
   const chat = useChatStore.getState().tabs[key];
@@ -155,7 +177,8 @@ export async function sendToAgentTab(
   when: SendTiming = "next",
   device?: string,
   submission?: PeerSubmission,
-): Promise<{ heldId?: string; itemKey?: string }> {
+  wait?: { receiptAt?: number },
+): Promise<{ heldId?: string; itemKey?: string; submissionId?: string }> {
   const { controller } = target;
   const key = chatKey(workspaceId, tabId);
   // Working from now, though the program may be starting and a conversation
@@ -165,7 +188,9 @@ export async function sendToAgentTab(
   try {
     await controller.prepareSend();
     unseenSends.set(key, userMessages(key));
-    const id = submission ? crypto.randomUUID() : undefined;
+    const id = submission || wait ? crypto.randomUUID() : undefined;
+    const tracked = wait && id ? { submissionId: id } : {};
+    if (id && wait?.receiptAt !== undefined) rememberReceipt(key, wait.receiptAt, id);
     if (id && submission) {
       useTabsStore.getState().addChatPeerSubmission(workspaceId, tabId, id, submission);
       const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
@@ -180,7 +205,7 @@ export async function sendToAgentTab(
       const heldId = controller.enqueue(text, images, from, device, id);
       // Held, it is not sent yet: the chat is not waiting on it.
       if (heldId) unseenSends.delete(key);
-      return heldId ? { heldId } : {};
+      return heldId ? { heldId, ...tracked } : tracked;
     }
     if (target.agent === "codex") {
       const heldId = await target.controller.sendWithTiming(
@@ -193,14 +218,16 @@ export async function sendToAgentTab(
       );
       if (heldId) {
         unseenSends.delete(key);
-        return { heldId };
+        return { heldId, ...tracked };
       }
     } else if (when === "now") {
       await target.controller.sendNow(text, images, from, id);
     } else {
       await target.controller.send(text, images, from, id);
     }
-    return id && target.agent === "codex" ? { itemKey: `u-peer-${id}` } : {};
+    return id && submission && target.agent === "codex"
+      ? { itemKey: `u-peer-${id}`, ...tracked }
+      : tracked;
   } catch (err) {
     unseenSends.delete(key);
     throw err;

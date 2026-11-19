@@ -25,6 +25,8 @@ import { ENVELOPE_BYTES, fitsAsResult, tabOf, unavailable, workspaceOf } from ".
  * what it sends is the user's, not an agent's.
  */
 
+let lastWaitReceiptAt = Number.NEGATIVE_INFINITY;
+
 /**
  * Sends the chat a message, with the images and files the device attached
  * for it (chat.attach, chat.upload), which then go; text or an attachment
@@ -60,7 +62,9 @@ export async function sendChat(
   );
   const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
   // Before it goes: what the chat shows from here on is from this message on.
-  const at = services.clock.now();
+  const now = services.clock.now();
+  const at = relay?.waits ? Math.max(now, lastWaitReceiptAt + 0.001) : now;
+  if (relay?.waits) lastWaitReceiptAt = at;
   const submission =
     !relay && attached && clientNonce
       ? { clientNonce, clientDeviceId: attached.device }
@@ -80,6 +84,7 @@ export async function sendChat(
         ? { device: attached.device }
         : {}),
       ...(submission ? { submission } : {}),
+      ...(relay?.waits ? { wait: { receiptAt: at } } : {}),
     })
     .catch((error: unknown) => {
       throw new RpcFailure(
