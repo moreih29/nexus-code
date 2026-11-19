@@ -227,7 +227,7 @@ func (s *Service) runSyncGit(ctx context.Context, cwd string, args []string, int
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", "", 0, ctxErr
 	}
-	code, fatal := gitExitCode(runErr)
+	code, fatal := gitExitCode(cmd.ProcessState, runErr)
 	if fatal != nil {
 		return "", "", 0, fatal
 	}

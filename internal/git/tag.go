@@ -102,7 +102,7 @@ func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -152,7 +152,7 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -207,7 +207,7 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -246,7 +246,7 @@ func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -295,7 +295,7 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -346,7 +346,7 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -496,7 +496,7 @@ func (s *Service) assertTagTargetExists(ctx context.Context, cwd string, ref str
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return fatal
 	}

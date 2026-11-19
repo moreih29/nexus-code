@@ -18,6 +18,9 @@ import (
 // own pull.rebase, out of every git command the tests run. Setting it here
 // rather than with t.Setenv lets those tests run in parallel.
 func TestMain(m *testing.M) {
+	if addr := os.Getenv(waitDelayFixtureAddr); addr != "" {
+		os.Exit(runWaitDelayFixture(addr))
+	}
 	if socketPath, ok := AskpassSocketFromEnv(); ok {
 		os.Exit(RunAskpassHelper(socketPath, os.Args[1:], os.Stdout, os.Stderr))
 	}

@@ -93,16 +93,24 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		return cmd.Process.Kill()
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
+	// Use an exec-managed stdout pipe so Wait can observe Git's exit while
+	// the parser is still waiting for a helper's inherited pipe to close.
+	stdout, writer := io.Pipe()
+	defer stdout.Close()
+	defer writer.Close()
+	cmd.Stdout = writer
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, mapGitStartError(err, args)
 	}
+	waited := make(chan error, 1)
+	go func() {
+		err := cmd.Wait()
+		_ = writer.Close()
+		waited <- err
+	}()
 
 	killedForLimit := false
 	result, readErr := s.consumeLogOutput(streamCtx, stdout, params, func() error {
@@ -113,7 +121,9 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	// A page limit or sink error can stop the parser before it drains stdout.
+	_ = stdout.Close()
+	waitErr := <-waited
 
 	if readErr != nil && !(killedForLimit && isClosedPipeReadError(readErr)) {
 		return nil, readErr
@@ -121,7 +131,7 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 	if ctxErr := streamCtx.Err(); ctxErr != nil && !killedForLimit {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}
