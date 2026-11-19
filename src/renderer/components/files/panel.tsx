@@ -1,10 +1,12 @@
-import i18next from "i18next";
 import { Bot, Folder, GitBranch, NotebookPen, Search } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { ipcCallResult } from "../../ipc/client";
+import { AppErrorSchema, appErrorFailed } from "../../../shared/error/app-error";
+import { useIpcAction } from "../../hooks/use-ipc-action";
+import { surfaceError } from "../../services/error-surface/surface-error";
 import { openDiffTab } from "../../state/operations";
+import { connectWorkspace } from "../../state/operations/workspace-selection";
 import { useActiveStore } from "../../state/stores/active";
 import { useGitStore } from "../../state/stores/git";
 import {
@@ -23,7 +25,6 @@ import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
-import { showToast } from "../ui/toast";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
 import { SearchPanel } from "./search/panel";
@@ -43,33 +44,6 @@ const MODE_BUTTONS: ModeButton[] = [
   // The workspace's notes, kept by the app: there even when an SSH workspace is not connected.
   { mode: "notes", labelKey: "files:panel.tab.notes", Icon: NotebookPen },
 ];
-
-// ---------------------------------------------------------------------------
-// Reconnect helper — exported so unit tests can verify the async logic
-// without mounting the full component.
-// ---------------------------------------------------------------------------
-
-/**
- * Attempts to reconnect the SSH workspace.
- * - Success: the main process broadcasts a connectionChanged event and the store updates.
- * - Failure: the user is told with a toast.
- *
- * The `workspace.activate` IPC calls `ensureProviderReady` internally, so calling it again
- * after the previous connection failed (the sshProviderReady cache was removed) starts a
- * new SSH bootstrap.
- */
-export async function reconnectWorkspace(
-  workspaceId: string,
-  deps: {
-    callActivate: (id: string) => Promise<{ ok: boolean; message?: string }>;
-    onError: (message: string) => void;
-  },
-): Promise<void> {
-  const result = await deps.callActivate(workspaceId);
-  if (!result.ok) {
-    deps.onError(i18next.t("files:panel.reconnectError"));
-  }
-}
 
 // Memo: kept while hidden, it would render again with each of the app's.
 export const FilesPanel = memo(function FilesPanel() {
@@ -98,19 +72,23 @@ export const FilesPanel = memo(function FilesPanel() {
     activeWorkspace !== null && activeWorkspace.location.kind !== "local" && !workspaceOnline;
 
   // Whether a reconnect is in progress — used to disable the Reconnect button and change its label.
-  const [isReconnecting, setIsReconnecting] = useState(false);
+  const reconnect = useIpcAction<void>();
+  const isReconnecting = reconnect.state.status === "loading";
+  const connectionError = reconnect.state.status === "error" ? reconnect.state.error : null;
+  useEffect(() => {
+    if (connectionError) surfaceError(connectionError, { surface: "toast" });
+  }, [connectionError]);
   // Bumped by each click on the Search button so the panel focuses its input,
   // whether the click mounts it or it is already showing.
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
 
   const handleReconnect = (): void => {
     if (!activeWorkspace || isReconnecting) return;
-    setIsReconnecting(true);
-    void reconnectWorkspace(activeWorkspace.id, {
-      callActivate: (id) => ipcCallResult("workspace", "activate", { id }),
-      onError: (message) => showToast({ kind: "error", message }),
-    }).finally(() => {
-      setIsReconnecting(false);
+    void reconnect.run(async (signal) => {
+      const result = await connectWorkspace(activeWorkspace.id, signal);
+      if (result.ok) return;
+      const error = AppErrorSchema.safeParse(result);
+      throw error.success ? error.data : appErrorFailed(result.message);
     });
   };
 

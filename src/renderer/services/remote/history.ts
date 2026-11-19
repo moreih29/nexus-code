@@ -11,8 +11,8 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
-import { CodexController } from "../chat/codex-controller";
-import { readCodexHistoryCatalog } from "../chat/codex-history-catalog";
+import { CodexController } from "../chat/codex/controller";
+import { readCodexHistoryCatalog } from "../chat/codex/history-catalog";
 import { type ListedSession, sessionMatches } from "../chat/sessions";
 import { UiRequestError } from "../cli/handler";
 

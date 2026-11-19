@@ -97,9 +97,9 @@ export function usePathAutocomplete({
       try {
         const result = await browseSshSession(sessionId, dir);
         if (abortSignal.aborted) return;
-        browseCache.current.set(dir, { entries: result.entries, truncated: result.truncated });
+        if (result.ok) browseCache.current.set(dir, result.value);
         setSuggestionDir(dir);
-        setSuggestionEntries(result.entries);
+        setSuggestionEntries(result.ok ? result.value.entries : []);
       } catch {
         if (abortSignal.aborted) return;
         // Directory missing or not listable — surface no completions.

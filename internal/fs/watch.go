@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -149,6 +150,13 @@ func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error)
 	return struct{}{}, nil
 }
 
+// watchOrderKey makes watch and unwatch of the same resolved directory share
+// a dispatch queue, even when a caller stops waiting before the watch replies.
+func (s *Service) watchOrderKey(raw json.RawMessage) string {
+	path, _ := s.parseWatchPath(raw)
+	return "fs.watch:" + path
+}
+
 func (s *Service) parseWatchPath(raw json.RawMessage) (string, error) {
 	var p WatchParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -246,20 +254,20 @@ func (s *Service) handleWatchEvent(event fsnotify.Event) {
 	s.bufferChange(filepath.ToSlash(rel), kind)
 }
 
-func changeKind(event fsnotify.Event) (FsChangeKind, bool) {
+func changeKind(event fsnotify.Event) (filewatch.FsChangeKind, bool) {
 	switch {
 	case event.Op&(fsnotify.Remove|fsnotify.Rename) != 0:
-		return FsChangeDeleted, true
+		return filewatch.FsChangeDeleted, true
 	case event.Op&fsnotify.Create != 0:
-		return FsChangeAdded, true
+		return filewatch.FsChangeAdded, true
 	case event.Op&fsnotify.Write != 0:
-		return FsChangeModified, true
+		return filewatch.FsChangeModified, true
 	default:
 		return "", false
 	}
 }
 
-func (s *Service) bufferChange(relPath string, kind FsChangeKind) {
+func (s *Service) bufferChange(relPath string, kind filewatch.FsChangeKind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -277,19 +285,15 @@ func (s *Service) flushChanges() {
 		s.mu.Unlock()
 		return
 	}
-	changes := make([]FsChange, 0, len(s.buffers))
+	changes := make([]filewatch.FsChange, 0, len(s.buffers))
 	for relPath, kind := range s.buffers {
-		changes = append(changes, FsChange{RelPath: relPath, Kind: kind})
+		changes = append(changes, filewatch.FsChange{RelPath: relPath, Kind: kind})
 	}
 	clear(s.buffers)
 	sink := s.sink
 	s.mu.Unlock()
 
 	if sink != nil {
-		_ = sink("fs.changed", FsChangedPayload{Changes: changes})
+		_ = sink("fs.changed", filewatch.FsChangedPayload{Changes: changes})
 	}
-}
-
-func hasDotDotPrefix(rel string) bool {
-	return rel == ".." || len(rel) > 3 && rel[:3] == ".."+string(filepath.Separator)
 }

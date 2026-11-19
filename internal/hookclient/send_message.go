@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // sendMessageSubcmd is the PreToolUse hook on Claude's SendMessage tool
@@ -54,10 +56,15 @@ func sendMessageDecision(payload []byte) string {
 	if call.ToolName != "SendMessage" || !strings.HasPrefix(strings.TrimSpace(call.ToolInput.To), bridgePrefix) {
 		return ""
 	}
+	return denySendMessage(sendMessageDenyReason)
+}
+
+// denySendMessage formats a denial using the PreToolUse contract.
+func denySendMessage(reason string) string {
 	var out preToolUseOutput
 	out.HookSpecificOutput.HookEventName = "PreToolUse"
 	out.HookSpecificOutput.PermissionDecision = "deny"
-	out.HookSpecificOutput.PermissionDecisionReason = sendMessageDenyReason
+	out.HookSpecificOutput.PermissionDecisionReason = reason
 	b, err := json.Marshal(out)
 	if err != nil {
 		return ""
@@ -68,7 +75,12 @@ func sendMessageDecision(payload []byte) string {
 // runSendMessage reads the hook's payload from in and writes its decision to
 // out. It always exits 0: a hook that fails leaves the call as it was.
 func runSendMessage(in io.Reader, out io.Writer) int {
-	payload, err := io.ReadAll(in)
+	payload, err := io.ReadAll(io.LimitReader(in, proto.MaxHookRequestBytes+1))
+	if len(payload) > proto.MaxHookRequestBytes {
+		_, _ = io.Copy(io.Discard, in)
+		_, _ = io.WriteString(out, denySendMessage("SendMessage denied: hook input exceeds the 16 MiB limit."))
+		return 0
+	}
 	if err != nil {
 		return 0
 	}

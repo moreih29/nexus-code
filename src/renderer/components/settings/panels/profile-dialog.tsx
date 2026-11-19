@@ -10,6 +10,7 @@ import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isReservedProfileEnvName } from "../../../../shared/agent-profiles/env";
 import {
   type AgentProfile,
   isDefaultDir,
@@ -168,11 +169,13 @@ export function ProfileDialog({
     };
   }, [profile, agent, shownDir, dirError]);
   const parsedEnv = parseEnv(env);
+  const hasReservedEnv = Object.keys(parsedEnv ?? {}).some(isReservedProfileEnvName);
   const valid =
     (isDefault || name.trim() !== "") &&
     (isDefault || shownDir.trim() !== "") &&
     !dirError &&
-    parsedEnv !== null;
+    parsedEnv !== null &&
+    !hasReservedEnv;
 
   const browse = async () => {
     const result = await ipcCallResult("dialog", "showOpenDirectory", {
@@ -328,12 +331,18 @@ export function ProfileDialog({
             onChange={(e) => setEnv(e.target.value)}
             placeholder={t("profiles.dialog.envPlaceholder")}
             aria-label={t("profiles.dialog.env")}
+            aria-invalid={parsedEnv === null || hasReservedEnv}
             className={cn(
               inputClass,
               "mt-1.5 resize-y font-mono",
-              parsedEnv === null && "border-[var(--state-error-fg)]",
+              (parsedEnv === null || hasReservedEnv) && "border-[var(--state-error-fg)]",
             )}
           />
+          {hasReservedEnv && (
+            <p className="mt-1 text-app-ui-sm text-[var(--state-error-fg)]">
+              {t("profiles.dialog.envReserved")}
+            </p>
+          )}
         </details>
 
         <div className="mt-1 flex justify-end gap-2">

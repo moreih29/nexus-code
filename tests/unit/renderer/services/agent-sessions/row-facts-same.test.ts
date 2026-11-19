@@ -9,11 +9,8 @@ import {
   type RowFacts,
 } from "../../../../../src/renderer/services/agent-sessions/rows";
 import { sameRowFacts } from "../../../../../src/renderer/services/agent-sessions/use-row-facts";
-import {
-  applyLines,
-  type ChatLine,
-  emptyModel,
-} from "../../../../../src/renderer/services/chat/model";
+import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
+import { type ChatLine, emptyModel } from "../../../../../src/renderer/services/chat/model";
 
 const facts: RowFacts = {
   wait: { kind: "permission", tool: "Bash", target: "ls" },

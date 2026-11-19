@@ -1,11 +1,17 @@
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AppState } from "../../../shared/types/app-state";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
+
+import { restoreLayoutOrigins } from "./layout-origins";
 
 const c = ipcContract.appState.call;
 
 export interface AppStateChannelOptions {
+  /** Current workspace metadata for restoring legacy layout records. */
+  listWorkspaces?: () => WorkspaceMeta[];
   /**
    * Invoked synchronously after a `set` call that includes a `language`
    * field, with the newly requested language value.
@@ -56,17 +62,37 @@ export interface AppStateChannelOptions {
 }
 
 export function registerAppStateChannel(
-  stateService: StateService,
+  stateService: Pick<StateService, "getState" | "setState">,
   opts: AppStateChannelOptions = {},
 ): void {
   register("appState", {
+    keepOnRendererClose: ["set"],
     call: {
       get: (_args: unknown) => {
-        return stateService.getState();
+        const state = stateService.getState();
+        return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
         const patch = validateArgs(c.set.args, args);
-        stateService.setState(patch);
+        if (patch.layoutByWorkspace) {
+          // A window sends only changed workspaces. Merge into the latest state
+          // so closing it cannot replace another window's unrelated layouts.
+          const latest = {
+            ...stateService.getState().layoutByWorkspace,
+            ...patch.layoutByWorkspace,
+          };
+          const workspaceIds = opts.listWorkspaces?.().map(({ id }) => id);
+          patch.layoutByWorkspace = workspaceIds
+            ? Object.fromEntries(
+                workspaceIds.flatMap((id) => (latest[id] ? [[id, latest[id]]] : [])),
+              )
+            : latest;
+        }
+        try {
+          stateService.setState(patch);
+        } catch (error) {
+          return ipcErr("state-write-failed", String(error), { category: "failed" });
+        }
 
         // Detect a language change and invoke the injected callback so the
         // caller can update the main-process i18n instance, rebuild the menu,
@@ -100,6 +126,7 @@ export function registerAppStateChannel(
         if (patch.themePreference !== undefined) {
           opts.onThemeChanged?.(patch.themePreference);
         }
+        return ipcOk(undefined);
       },
     },
     listen: {},

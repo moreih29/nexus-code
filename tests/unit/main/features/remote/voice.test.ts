@@ -236,9 +236,11 @@ describe("a note's recording", () => {
     expect(voice.has(result.id)).toBe(true);
     expect(voice.has("another")).toBe(false);
     s.say({ t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 });
+    s.say({ t: "error", code: "provider-error", message: "x", transcribeToken: "tok" });
     s.say({ t: "done", seconds: 1, transcribeToken: "tok" });
     expect(events.map((e) => e.event)).toEqual([
       { t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 },
+      { t: "error", code: "provider-error", message: "x", transcribeToken: "tok" },
       { t: "done", seconds: 1, transcribeToken: "tok" },
     ]);
   });
@@ -397,4 +399,25 @@ describe("the terms voice input listens for", () => {
     const { voice } = setup({ request: async () => ({ terms: "no" }) });
     await expect(voice.terms()).rejects.toThrow();
   });
+});
+
+test("an oversized voice upgrade refusal fails and aborts the response", async () => {
+  const { voice, socket } = setup({});
+  const started = voice.start("ko");
+  const s = await socket();
+  let aborted = false;
+  const response = Object.assign(new EventEmitter(), {
+    statusCode: 403,
+    destroy: () => {
+      aborted = true;
+    },
+  });
+  s.emit("unexpected-response", {}, response);
+  const chunk = Buffer.alloc(1024 * 1024, 0x20);
+  for (let i = 0; i < 8; i += 1) response.emit("data", chunk);
+  response.emit("data", Buffer.from(" "));
+  response.emit("end");
+  expect(await started).toMatchObject({ status: "failed", reason: "response-too-large" });
+  expect(aborted).toBe(true);
+  expect(s.readyState).toBe(3);
 });

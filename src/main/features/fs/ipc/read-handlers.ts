@@ -17,10 +17,10 @@ import type {
 } from "../../../../shared/fs/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
+import { type FsIpcErrorResult, fsCallError } from "../../../infra/ipc-router/fs-errors";
 import type { WorkspaceManager } from "../../workspace/manager";
 import type { FsProvider } from "../bridge/provider";
 import { isOutsideGranted, resolveOutsideGrant, setOutsideGrant } from "../outside-grants";
-import { type FsIpcErrorResult, fsErrorToIpcResult, isFsError } from "./fs-result";
 
 const c = ipcContract.fs.call;
 
@@ -33,7 +33,8 @@ export function readdirHandler(
     try {
       return await fs.readdir(relPath, { includeHidden });
     } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
+      const expected = fsCallError(error);
+      if (expected) return expected;
       throw error;
     }
   };
@@ -48,7 +49,8 @@ export function statHandler(
     try {
       return await fs.stat(relPath);
     } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
+      const expected = fsCallError(error);
+      if (expected) return expected;
       throw error;
     }
   };

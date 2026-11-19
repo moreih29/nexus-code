@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { WebContents } from "electron";
 import type { z } from "zod";
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError } from "../../../shared/abort";
 import type { AppError } from "../../../shared/error/app-error";
 import { IPC_GIT_ERROR_MARK, type IpcGitErrorPayload } from "../../../shared/git/error-ipc";
 import {
@@ -12,8 +12,20 @@ import {
   type StreamProcedure,
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
-import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
+import {
+  type IpcErrResult,
+  type IpcStreamStartResult,
+  ipcErr,
+  ipcOk,
+  isIpcErrResult,
+} from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { GitError } from "../../features/git/domain/error";
+import { agentCallError } from "./agent-errors";
+import { fsCallError } from "./fs-errors";
+
+const log = createLogger("main");
 
 export interface CallContext {
   requestId?: string;
@@ -78,36 +90,29 @@ interface PendingStream {
   closed: boolean;
   errorSent: boolean;
   generatorDone: boolean;
+  releaseSender?: () => void;
 }
 
 interface ChannelDef {
   call: CallHandlers;
   listen: ListenHandlers;
   stream?: StreamHandlers;
+  /** Writes that must finish if their initiating renderer goes away. */
+  keepOnRendererClose?: readonly string[];
 }
 
 interface RegisteredChannelDef<C extends ContractChannelName> {
   call: CallHandlers;
   listen: ListenHandlers;
   stream?: RegisteredStreamHandlers<C>;
+  keepOnRendererClose?: readonly string[];
 }
 
 type RegisterChannelDef<C extends string> = C extends ContractChannelName
   ? RegisteredChannelDef<C>
   : ChannelDef;
 
-/**
- * Thrown by `validateArgs` when the caller-supplied arguments fail Zod
- * schema validation.  The `ipc:call` router catches this error at the IPC
- * boundary and converts it into an `IpcErrResult<"invalid-args">` with
- * `category:"invalid-input"` so the renderer can branch on the result
- * without catching exceptions.
- *
- * Handlers do not need to catch this error themselves — throwing it is the
- * correct signal that propagates to the router-level conversion.  Handlers
- * that opt into the result-based API should use `isIpcErrResult` on the
- * return value of `validateArgs` after T7 migration.
- */
+/** Signals argument validation failure to the IPC boundary. */
 export class IpcValidationError extends Error {
   readonly kind = "invalid-args" as const;
   readonly category = "invalid-input" as const;
@@ -123,6 +128,7 @@ const pendingCallControllers = new Map<string, AbortController>();
 const pendingStreamControllers = new Map<string, PendingStream>();
 const preCanceledRequests = new PendingRequestMap<string, void>();
 const PRECANCELED_REQUEST_TTL_MS = 30_000;
+const MAX_PRECANCELED_REQUESTS = 1024;
 
 export function register<C extends string>(channelName: C, def: RegisterChannelDef<C>): void {
   channels.set(channelName, def as ChannelDef);
@@ -156,61 +162,41 @@ export function setupRouter(): void {
       requestId?: unknown,
     ) => {
       const channel = channels.get(channelName);
-      if (!channel) throw new Error(`ipc:call — unknown channel: ${channelName}`);
-      const handler = channel.call[method];
-      if (typeof handler !== "function")
-        throw new Error(`ipc:call — unknown method: ${channelName}.${method}`);
+      const methods = channel?.call;
+      const handler = methods && Object.hasOwn(methods, method) ? methods[method] : undefined;
+      if (typeof handler !== "function") {
+        return ipcErr("invalid-args", `Unknown IPC call: ${channelName}.${method}`, {
+          category: "invalid-input",
+        });
+      }
       const correlationId = crypto.randomUUID();
-      const callContext = createCallContext(event, requestId, correlationId);
+      const callContext = createCallContext(
+        event,
+        requestId,
+        correlationId,
+        channel?.keepOnRendererClose?.includes(method) ?? false,
+      );
+      const procedure = `${channelName}.${method}`;
       try {
-        const handlerResult = await handler(args, callContext.ctx);
-        if (
-          isIpcErrResult(handlerResult) &&
-          // `category` is an extension field set by `ipcErr(..., { category })` and
-          // is not declared on the base IpcErrResult interface; cast to access it.
-          (handlerResult as unknown as { category?: string }).category === "bug"
-        ) {
-          // Lazy-require avoids pulling electron into module scope at load time
-          // (shared/log/main imports electron.app which is unavailable in test env).
-          // The try-catch guards against module-cache mismatches in test workers
-          // where another file already loaded the real electron without app mocked.
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { createLogger } =
-              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
-            createLogger("main").error(
-              `ipc:call — bug result from ${channelName}.${method}: ${handlerResult.message}`,
-              { correlationId },
-            );
-          } catch {
-            /* logger unavailable — suppress to allow the IpcErrResult to be returned */
-          }
+        const result = await handler(args, callContext.ctx);
+        if (isIpcErrResult(result) && result.category === "bug") {
+          return {
+            ...result,
+            ...reportCallBug(procedure, correlationId, result.message),
+            kind: result.kind,
+          };
         }
-        return handlerResult;
+        return result;
       } catch (error) {
         if (error instanceof IpcValidationError) {
-          // Handler called validateArgs with invalid args — convert to IpcErrResult.
-          // This is the router-boundary enforcement: the renderer always receives
-          // a typed result rather than a raw rejection.
-          return ipcErr("invalid-args", error.message, { category: "invalid-input" as const });
+          return ipcErr("invalid-args", error.message, { category: "invalid-input" });
         }
-        if (isAbortError(error)) {
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const { createLogger } =
-              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
-            createLogger("main").debug(
-              `ipc:call — cancelled  ${channelName}.${method}  req=${requestId ?? "(none)"}`,
-              { correlationId },
-            );
-          } catch {
-            /* logger unavailable — suppress */
-          }
-          return ipcErr("cancelled", "operation cancelled");
-        }
-        throw error;
+        const expected = fsCallError(error) ?? agentCallError(error);
+        if (expected) return expected;
+        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+        return reportCallBug(procedure, correlationId, detail);
       } finally {
-        if (callContext.key) pendingCallControllers.delete(callContext.key);
+        callContext.release?.();
       }
     },
   );
@@ -221,13 +207,15 @@ export function setupRouter(): void {
       channelName: string,
       method: string,
       args: unknown,
-    ) => {
-      const channel = channels.get(channelName);
-      if (!channel) throw new Error(`ipc:streamStart — unknown channel: ${channelName}`);
-      const handler = channel.stream?.[method];
+    ): Promise<IpcStreamStartResult> => {
+      const methods = channels.get(channelName)?.stream;
+      const handler = methods && Object.hasOwn(methods, method) ? methods[method] : undefined;
       const descriptor = getStreamDescriptor(channelName, method);
-      if (typeof handler !== "function" || !descriptor)
-        throw new Error(`ipc:streamStart — unknown method: ${channelName}.${method}`);
+      if (typeof handler !== "function" || !descriptor) {
+        return ipcErr("invalid-args", `Unknown IPC stream: ${channelName}.${method}`, {
+          category: "invalid-input",
+        });
+      }
       const streamId = crypto.randomUUID();
       const key = requestKey(event, streamId);
       const pendingStream: PendingStream = {
@@ -240,12 +228,60 @@ export function setupRouter(): void {
         generatorDone: false,
       };
       pendingStreamControllers.set(key, pendingStream);
+      pendingStream.releaseSender = trackSender(event.sender, () => {
+        detachStream(key, pendingStream);
+        pendingStream.controller.abort();
+        void closeStreamGenerator(pendingStream);
+      });
       setImmediate(() => {
         void runStream(key, pendingStream, descriptor, handler, args);
       });
-      return { streamId };
+      return ipcOk({ streamId });
     },
   );
+}
+
+/** Records masked diagnostic detail while exposing only a correlation ID and safe message. */
+function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {
+  log.error(`ipc:call — ${procedure}: ${redactLogSecrets(detail)}`, { correlationId });
+  return ipcErr("bug", "An unexpected error occurred", { category: "bug", correlationId });
+}
+
+interface SenderLifetime {
+  readonly cleanup: Set<() => void>;
+  readonly destroyed: () => void;
+}
+
+const senderLifetimes = new WeakMap<WebContents, SenderLifetime>();
+
+/** Owns pending work with one destroy listener per renderer. */
+function trackSender(sender: WebContents | undefined, abandon: () => void): () => void {
+  if (!sender?.once) return () => {};
+  if (sender.isDestroyed()) {
+    abandon();
+    return () => {};
+  }
+
+  let lifetime = senderLifetimes.get(sender);
+  if (!lifetime) {
+    const cleanup = new Set<() => void>();
+    const destroyed = () => {
+      senderLifetimes.delete(sender);
+      const callbacks = [...cleanup];
+      cleanup.clear();
+      for (const cancel of callbacks) cancel();
+    };
+    lifetime = { cleanup, destroyed };
+    senderLifetimes.set(sender, lifetime);
+    sender.once("destroyed", destroyed);
+  }
+  const { cleanup, destroyed } = lifetime;
+  cleanup.add(abandon);
+  return () => {
+    if (!cleanup.delete(abandon) || cleanup.size > 0) return;
+    sender.removeListener("destroyed", destroyed);
+    senderLifetimes.delete(sender);
+  };
 }
 
 function senderId(event: { sender?: { id?: number } }): string {
@@ -258,6 +294,9 @@ function requestKey(event: { sender?: { id?: number } }, requestId: string): str
 
 function rememberPreCanceledRequest(key: string): void {
   if (preCanceledRequests.has(key)) preCanceledRequests.reject(key, new Error("replaced"));
+  else if (preCanceledRequests.size >= MAX_PRECANCELED_REQUESTS) {
+    preCanceledRequests.rejectOldest(new Error("pre-cancellation limit reached"));
+  }
   preCanceledRequests.register({ key, timeoutMs: PRECANCELED_REQUEST_TTL_MS }).catch(() => {});
 }
 
@@ -267,18 +306,31 @@ function consumePreCanceledRequest(key: string): boolean {
 
 function createCallContext(
   event: import("electron").IpcMainInvokeEvent,
-  requestId: unknown,
+  suppliedId: unknown,
   correlationId: string,
-): { key?: string; ctx?: CallContext } {
+  keepOnRendererClose: boolean,
+): { release?: () => void; ctx: CallContext } {
   const sender = event.sender;
-  if (typeof requestId !== "string" || requestId.length === 0) {
-    return { ctx: { correlationId, sender } };
-  }
+  const requestId =
+    typeof suppliedId === "string" && suppliedId.length > 0 ? suppliedId : crypto.randomUUID();
   const key = requestKey(event, requestId);
   const controller = new AbortController();
   pendingCallControllers.set(key, controller);
+  const remove = () => {
+    if (pendingCallControllers.get(key) === controller) pendingCallControllers.delete(key);
+  };
+  const releaseSender = trackSender(sender, () => {
+    remove();
+    if (!keepOnRendererClose) controller.abort();
+  });
   if (consumePreCanceledRequest(key)) controller.abort();
-  return { key, ctx: { requestId, signal: controller.signal, correlationId, sender } };
+  return {
+    release: () => {
+      remove();
+      releaseSender();
+    },
+    ctx: { requestId, signal: controller.signal, correlationId, sender },
+  };
 }
 
 function getStreamDescriptor(channelName: string, method: string): AnyStreamProcedure | undefined {
@@ -373,15 +425,23 @@ async function runStream(
   }
 }
 
-async function cleanupStream(key: string, pendingStream: PendingStream): Promise<void> {
-  const shouldCloseGenerator =
-    pendingStream.generator &&
-    !pendingStream.generatorDone &&
-    !pendingStream.closed &&
-    !pendingStream.controller.signal.aborted;
+/** Drops routing and renderer ownership before waiting for handler cleanup. */
+function detachStream(key: string, pendingStream: PendingStream): void {
   pendingStream.closed = true;
-  pendingStreamControllers.delete(key);
-  if (shouldCloseGenerator) await pendingStream.generator?.return(undefined).catch(() => {});
+  if (pendingStreamControllers.get(key) === pendingStream) pendingStreamControllers.delete(key);
+  pendingStream.releaseSender?.();
+}
+
+/** Returns an unfinished iterator once, including one supplied after cancellation. */
+async function closeStreamGenerator(pendingStream: PendingStream): Promise<void> {
+  if (!pendingStream.generator || pendingStream.generatorDone) return;
+  pendingStream.generatorDone = true;
+  await pendingStream.generator.return(undefined).catch(() => {});
+}
+
+async function cleanupStream(key: string, pendingStream: PendingStream): Promise<void> {
+  detachStream(key, pendingStream);
+  await closeStreamGenerator(pendingStream);
 }
 
 function shouldStopStream(key: string, pendingStream: PendingStream): boolean {
@@ -396,9 +456,8 @@ function cancelStream(key: string, pendingStream: PendingStream): void {
   pendingStream.controller.abort();
   if (pendingStream.cancelMode === "handler") return;
   sendStreamError(pendingStream, createAbortError());
-  pendingStream.closed = true;
-  pendingStreamControllers.delete(key);
-  void pendingStream.generator?.return(undefined).catch(() => {});
+  detachStream(key, pendingStream);
+  void closeStreamGenerator(pendingStream);
 }
 
 function sendStreamEvent(pendingStream: PendingStream, payload: StreamEventPayload): void {
@@ -488,28 +547,7 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
   }
 }
 
-/**
- * Validate handler arguments against a Zod schema.
- *
- * On success returns the parsed (typed) value.  On failure throws
- * `IpcValidationError` — the `ipc:call` router catches this at the IPC
- * boundary and converts it into an `IpcErrResult<"invalid-args">` with
- * `category:"invalid-input"` so the renderer always receives a typed result.
- *
- * Handlers do not need to catch `IpcValidationError` themselves.  Handlers
- * that adopt the result-based API (T7 migration) should instead call this
- * function and check `isIpcErrResult` on the return — until then the throw
- * path is fully supported and backward-compatible with all existing handlers.
- *
- * @example
- *   // Legacy throw style (pre-T7):
- *   const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
- *
- *   // Result style (post-T7):
- *   const parsed = validateArgs(c.readdir.args, args);
- *   if (isIpcErrResult(parsed)) return parsed;
- *   const { workspaceId, relPath } = parsed;
- */
+/** Parses handler arguments and lets the router envelope validation failures. */
 export function validateArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
   const parsed = schema.safeParse(args);
   if (!parsed.success) {

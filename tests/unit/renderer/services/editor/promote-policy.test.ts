@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { workspaceUriFor } from "../../../../../src/shared/fs/workspace-uri";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -16,6 +17,7 @@ const tabsStoreMod = await import("../../../../../src/renderer/state/stores/tabs
 const workspacesStoreMod = await import("../../../../../src/renderer/state/stores/workspaces");
 
 const WS = "11111111-1111-4111-1111-111111111111";
+const OTHER_WS = "22222222-2222-4222-8222-222222222222";
 
 function makeModel(altId = 1) {
   let id = altId;
@@ -45,15 +47,24 @@ describe("promote-on-dirty policy", () => {
     promotePolicyMod.stopPromoteOnDirtyPolicyForTests();
   });
 
-  it("promotes the preview editor tab pointing at a file when it first becomes dirty", () => {
+  it("promotes dirty model splits while a matching path in another workspace stays a preview", () => {
     const tab = tabsStoreMod.useTabsStore
       .getState()
       .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
-    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][tab.id].isPreview).toBe(true);
+    const split = tabsStoreMod.useTabsStore
+      .getState()
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
+    const other = tabsStoreMod.useTabsStore
+      .getState()
+      .createTab(
+        OTHER_WS,
+        { type: "editor", props: { workspaceId: OTHER_WS, filePath: "/repo/a.ts" } },
+        true,
+      );
 
     const model = makeModel(1);
     dirtyMod.attachDirtyTracker({
-      cacheUri: "file:///repo/a.ts",
+      cacheUri: workspaceUriFor(WS, "/repo/a.ts"),
       model: model as never,
       loadedMtime: "T0",
       loadedSize: 0,
@@ -61,7 +72,10 @@ describe("promote-on-dirty policy", () => {
 
     model.edit(2); // clean → dirty
 
-    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][tab.id].isPreview).toBe(false);
+    const tabs = tabsStoreMod.useTabsStore.getState().byWorkspace;
+    expect(tabs[WS][tab.id].isPreview).toBe(false);
+    expect(tabs[WS][split.id].isPreview).toBe(false);
+    expect(tabs[OTHER_WS][other.id].isPreview).toBe(true);
   });
 });
 
@@ -71,28 +85,35 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
     dirtyMod.__resetDirtyTrackerForTests();
   });
 
-  it("promotes a preview diff tab that edits the working-tree file", () => {
+  it("explicit save promotes only the working-tree diff for its own workspace model", () => {
     workspacesStoreMod.useWorkspacesStore.setState({
-      workspaces: [{ id: WS, rootPath: "/repo" } as never],
+      workspaces: [
+        { id: WS, rootPath: "/repo" },
+        { id: OTHER_WS, rootPath: "/repo" },
+      ] as never,
     });
-    const diff = (rightRef: string) =>
+    const diff = (rightRef: string, workspaceId = WS) =>
       tabsStoreMod.useTabsStore.getState().createTab(
-        WS,
+        workspaceId,
         {
           type: "editor.diff",
-          props: { workspaceId: WS, relPath: "a.ts", leftRef: "INDEX", rightRef },
+          props: { workspaceId, relPath: "a.ts", leftRef: "INDEX", rightRef },
         },
         true,
       );
     const working = diff("WORKING");
     const staged = diff("INDEX");
+    const other = diff("WORKING", OTHER_WS);
 
-    promotePolicyMod.promoteAllPreviewTabsForFile("/repo/a.ts");
+    promotePolicyMod.promoteAllPreviewTabsForFile(WS, "/repo/a.ts");
 
     const tabs = tabsStoreMod.useTabsStore.getState().byWorkspace[WS];
     expect(tabs[working.id].isPreview).toBe(false);
     // A staged diff shows the index, not the file being edited.
     expect(tabs[staged.id].isPreview).toBe(true);
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[OTHER_WS][other.id].isPreview).toBe(
+      true,
+    );
     workspacesStoreMod.useWorkspacesStore.setState({ workspaces: [] });
   });
 });

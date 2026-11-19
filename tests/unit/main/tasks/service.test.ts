@@ -12,7 +12,7 @@ import {
 } from "../../../../src/main/features/tasks/service";
 import type { WorkspaceCreateOptions } from "../../../../src/main/features/workspace/manager";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
-import { newLocalGitRepository } from "../git/helpers/local-semantic-executor";
+import { newLocalGitRepository } from "../features/git/helpers/local-semantic-executor";
 
 // Each test makes real repositories and worktrees, which a slow CI runner
 // (Windows) takes past bun's 5 s default for.
@@ -66,7 +66,7 @@ function setup(parentRoot = repoDir) {
     name: "repo",
     location: { kind: "local", rootPath: parentRoot },
     rootPath: parentRoot,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     tabs: [],
     sortOrder: 1024,

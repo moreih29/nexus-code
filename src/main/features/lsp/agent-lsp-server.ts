@@ -192,7 +192,8 @@ export class AgentLspServer {
     return true;
   }
 
-  dispose(): void {
+  /** Fails pending editor calls and waits for the server's shutdown reply. */
+  async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     this.textDocumentCache.clear();
@@ -201,7 +202,7 @@ export class AgentLspServer {
       pending.reject(new Error("server disposed"));
     }
     this.pending.clear();
-    void this.channel.call("lsp.shutdown", { serverId: this.serverId }).catch(() => {});
+    await this.channel.call("lsp.shutdown", { serverId: this.serverId }).catch(() => {});
   }
 
   // disposePending mirrors dispose() but does not call lsp.shutdown — the

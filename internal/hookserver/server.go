@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // connDeadline 은 hook 클라이언트 연결 1개에 허용하는 최대 응답 대기 시간이다.
@@ -64,7 +65,7 @@ const permissionRequestSubcmd = "permission-request"
 // printWatchSubcmd is the hook a `claude -p` run holds open while it goes on.
 const printWatchSubcmd = "print-watch"
 
-// goneRecheck is how often watchGone reads again for a client that went
+// goneRecheck is how often waitForClientGone reads again for a client that went
 // away. On Windows a read started as the client closes can wait on with
 // the close missed, where a read started again returns at once.
 const goneRecheck = 500 * time.Millisecond
@@ -77,7 +78,7 @@ const maxSocketPathLen = 104
 // Edit의 old/new 문자열, PostToolUse의 원본 파일과 patch까지 — 그래서 bufio.Scanner
 // 기본값 64 KiB로는 큰 파일을 쓰는 permission-request가 이벤트 없이 버려졌다.
 // 실제 payload는 모델 출력 한도에 묶여 수 MiB 이내이므로 16 MiB로 상한을 둔다.
-const maxRequestBytes = 16 * 1024 * 1024
+const maxRequestBytes = proto.MaxHookRequestBytes
 
 // EventSink 는 hook 이벤트를 main으로 push하는 콜백 타입이다.
 type EventSink func(name string, payload any) error
@@ -142,6 +143,39 @@ type hookWireResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// pendingRequest ties the response deadline to ownership of the connection.
+type pendingRequest struct {
+	conn net.Conn
+	done chan struct{}
+}
+
+// storeRequest registers a waiting connection in the hook or CLI map.
+// A closing server may have finished draining that map already.
+func (s *Server) storeRequest(requests *sync.Map, id string, conn net.Conn) *pendingRequest {
+	request := &pendingRequest{conn: conn, done: make(chan struct{})}
+	requests.Store(id, request)
+	select {
+	case <-s.done:
+		if c, ok := takeRequest(requests, id); ok {
+			_ = c.Close()
+		}
+		return nil
+	default:
+		return request
+	}
+}
+
+// takeRequest claims the only right to reply and releases the deadline wait.
+func takeRequest(requests *sync.Map, id string) (net.Conn, bool) {
+	value, ok := requests.LoadAndDelete(id)
+	if !ok {
+		return nil, false
+	}
+	request := value.(*pendingRequest)
+	close(request.done)
+	return request.conn, true
+}
+
 // Server 는 hook 클라이언트 연결을 수락하고 in-flight 연결 맵을 관리한다.
 type Server struct {
 	socketPath string
@@ -151,13 +185,16 @@ type Server struct {
 	sinkMu sync.Mutex
 	sink   EventSink
 
-	// inflight 는 hookId → net.Conn 맵이다. sync.Map으로 lock-free 동시 접근을 허용한다.
+	// inflight holds pending hook requests by hook ID.
 	inflight sync.Map
 	// cliInflight holds the CLI requests waiting on main, by request id.
 	cliInflight sync.Map
+	// handshakes holds accepted connections until their handlers return.
+	handshakes sync.Map
 
 	closeOnce sync.Once
 	done      chan struct{} // Close() 호출 시 닫혀 accept loop를 깨운다
+	newTimer  func(time.Duration) (<-chan time.Time, func())
 
 	// readyCh 는 net.Listener가 성공적으로 생성된 직후 한 번 닫힌다.
 	// WaitReady(ctx)가 이 채널로 대기하므로 pull 기반 hook.getInfo RPC가
@@ -176,6 +213,14 @@ type Server struct {
 // 0600 퍼미션으로 생성한 후 accept loop goroutine을 시작한다.
 // socketPath가 macOS 104자 제한을 초과하면 에러를 반환한다.
 func New(agentKey string, sink EventSink) (*Server, error) {
+	return newServer(agentKey, sink, func(delay time.Duration) (<-chan time.Time, func()) {
+		timer := time.NewTimer(delay)
+		return timer.C, func() { timer.Stop() }
+	})
+}
+
+// newServer constructs a server with the supplied request deadline clock.
+func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-chan time.Time, func())) (*Server, error) {
 	// 1. 소켓 경로 결정
 	socketPath, socketsDir, err := makeSocketPath(agentKey)
 	if err != nil {
@@ -224,6 +269,7 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 		sink:       sink,
 		done:       make(chan struct{}),
 		readyCh:    make(chan struct{}),
+		newTimer:   newTimer,
 	}
 
 	// net.Listener 생성 직후 readyCh를 닫아 WaitReady 대기자를 깨운다.
@@ -262,11 +308,10 @@ func (s *Server) SetEventSink(sink EventSink) {
 // Respond 는 hookId에 해당하는 in-flight 연결에 응답을 write하고 연결을 닫는다.
 // hookId가 없거나 이미 닫힌 경우 에러를 반환한다.
 func (s *Server) Respond(hookID string, response HookResponse) error {
-	val, ok := s.inflight.LoadAndDelete(hookID)
+	conn, ok := takeRequest(&s.inflight, hookID)
 	if !ok {
 		return fmt.Errorf("hookserver: hookId %q not found in inflight map", hookID)
 	}
-	conn := val.(net.Conn)
 	resp := hookWireResponse{
 		OK:       true,
 		Stdout:   response.Stdout,
@@ -290,6 +335,10 @@ func (s *Server) Close() error {
 		// 아직 살아 있는 in-flight 연결에 응답 생략 동등(exit 0) 응답을 보내고 닫는다.
 		s.ReleaseHooks()
 		s.closeCLI()
+		s.handshakes.Range(func(key, _ any) bool {
+			_ = key.(net.Conn).Close()
+			return true
+		})
 
 		_ = os.Remove(s.socketPath)
 	})
@@ -317,6 +366,15 @@ func (s *Server) acceptLoop() {
 // 요청 1줄을 읽고 검증한 뒤 in-flight 맵에 등록하고 EventSink를 호출한다.
 // 120초 deadline 내에 Respond()가 호출되지 않으면 exit 0 응답으로 연결을 닫는다.
 func (s *Server) handleConn(conn net.Conn) {
+	s.handshakes.Store(conn, struct{}{})
+	defer s.handshakes.Delete(conn)
+	select {
+	case <-s.done:
+		_ = conn.Close()
+		return
+	default:
+	}
+
 	// 120초 deadline을 소켓 read에 적용한다.
 	_ = conn.SetDeadline(time.Now().Add(s.connDeadline()))
 
@@ -360,7 +418,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	s.inflight.Store(hookID, conn)
+	request := s.storeRequest(&s.inflight, hookID, conn)
+	if request == nil {
+		return
+	}
 
 	// read deadline을 해제하고 응답 대기 상태로 전환한다.
 	// 이후 Respond()에서 conn.Close()가 호출될 때까지 연결이 살아 있어야 한다.
@@ -406,16 +467,16 @@ func (s *Server) handleConn(conn net.Conn) {
 		go s.watchGone(hookID, conn, req)
 	}
 
-	// deadline goroutine: connDeadline 이내에 Respond()가 없으면 default 응답을 보낸다.
-	// Respond()가 먼저 호출되면 inflight.LoadAndDelete가 entry를 제거하므로
-	// 이 goroutine은 아무것도 하지 않고 종료된다.
+	// Default to the hook's native response if main never answers.
 	deadline := s.deadlineFor(req.Subcommand)
 	go func() {
-		timer := time.NewTimer(deadline)
-		defer timer.Stop()
+		expires, stop := s.newTimer(deadline)
+		defer stop()
 		select {
-		case <-timer.C:
+		case <-expires:
 		case <-s.done:
+		case <-request.done:
+			return
 		}
 		s.respondDefault(hookID)
 	}()
@@ -424,19 +485,10 @@ func (s *Server) handleConn(conn net.Conn) {
 // watchGone tells main when the client of a waiting hook goes away before
 // it is answered: Claude Code ends a PermissionRequest hook as the user
 // interrupts at its dialog, and the app must stop offering an answer; a
-// print watch's client ends with its run. The client writes nothing after
-// its request, so a read returns only once the connection closes, from
-// either side, or as its deadline passes, when it reads again (see
-// goneRecheck).
+// print watch's client ends with its run.
 func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
-	var b [1]byte
-	for {
-		_ = conn.SetReadDeadline(time.Now().Add(goneRecheck))
-		if _, err := conn.Read(b[:]); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
-			break
-		}
-	}
-	if _, waiting := s.inflight.LoadAndDelete(hookID); !waiting {
+	waitForClientGone(conn)
+	if _, waiting := takeRequest(&s.inflight, hookID); !waiting {
 		return
 	}
 	conn.Close()
@@ -460,6 +512,19 @@ func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
 	}
 }
 
+// waitForClientGone observes either side closing a connection after the
+// request frame. Refreshing the read deadline lets Windows report an EOF
+// that the read racing the peer's close missed (see goneRecheck).
+func waitForClientGone(conn net.Conn) {
+	var b [1]byte
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(goneRecheck))
+		if _, err := conn.Read(b[:]); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
+			return
+		}
+	}
+}
+
 // ReleaseHooks answers every hook still waiting with the default response.
 // The daemon calls it when the app that heard them goes away: an app that
 // attaches next never heard them, so would never answer them.
@@ -475,9 +540,7 @@ func (s *Server) ReleaseHooks() {
 // fallback. A hook Respond() already answered is gone from inflight and left
 // alone.
 func (s *Server) respondDefault(hookID string) {
-	val, deleted := s.inflight.LoadAndDelete(hookID)
-	if deleted {
-		c := val.(net.Conn)
+	if c, ok := takeRequest(&s.inflight, hookID); ok {
 		_ = writeNDJSON(c, hookWireResponse{OK: true})
 		c.Close()
 	}
@@ -599,13 +662,18 @@ func newHookID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-// writeNDJSON 은 v를 JSON으로 직렬화해 개행 문자와 함께 conn에 쓴다.
-func writeNDJSON(w interface{ Write([]byte) (int, error) }, v any) error {
-	data, err := json.Marshal(v)
+const replyWriteTimeout = 10 * time.Second
+
+// writeNDJSON gives each terminal reply its own deadline after the read
+// deadline has been cleared. The caller closes the connection afterwards.
+func writeNDJSON(conn net.Conn, v any) error {
+	data, err := proto.MarshalFrame(v)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	_, err = w.Write(data)
+	if err := conn.SetWriteDeadline(time.Now().Add(replyWriteTimeout)); err != nil {
+		return err
+	}
+	_, err = conn.Write(data)
 	return err
 }

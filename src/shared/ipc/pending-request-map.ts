@@ -67,6 +67,12 @@ export class PendingRequestMap<TKey, TResult> {
     return this.pending.size;
   }
 
+  /** Releases the oldest outstanding entry and its timer. */
+  rejectOldest(error: Error): void {
+    const first = this.pending.keys().next();
+    if (!first.done) this.reject(first.value, error);
+  }
+
   has(key: TKey): boolean {
     return this.pending.has(key);
   }

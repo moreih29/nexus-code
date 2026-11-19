@@ -39,7 +39,7 @@ export function usesSsh2Client(env: NodeJS.ProcessEnv = process.env): boolean {
 /** One authenticated connection that commands share, opened again when it drops. */
 class SharedConnection {
   private current: Promise<Ssh2Connection> | null = null;
-  private disposed = false;
+  private readonly lifetime = new AbortController();
 
   constructor(
     private readonly target: SshTarget,
@@ -48,16 +48,22 @@ class SharedConnection {
   ) {}
 
   client(): Promise<Client> {
-    if (this.disposed) return Promise.reject(new Error("the ssh2 connection was closed"));
+    if (this.lifetime.signal.aborted) return Promise.reject(this.lifetime.signal.reason);
     if (this.current === null) {
-      const opening = connectSsh2(this.target, this.promptHandler, this.dependencies);
+      const signal = this.dependencies.signal
+        ? AbortSignal.any([this.dependencies.signal, this.lifetime.signal])
+        : this.lifetime.signal;
+      const opening = connectSsh2(this.target, this.promptHandler, {
+        ...this.dependencies,
+        signal,
+      });
       this.current = opening;
       opening.then(
         (connection) => {
           connection.client.on("close", () => {
             if (this.current === opening) this.current = null;
           });
-          if (this.disposed) connection.end();
+          if (signal.aborted) connection.end();
         },
         () => {
           if (this.current === opening) this.current = null;
@@ -68,8 +74,8 @@ class SharedConnection {
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
+    if (this.lifetime.signal.aborted) return;
+    this.lifetime.abort();
     const current = this.current;
     this.current = null;
     void current?.then(

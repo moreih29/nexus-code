@@ -25,9 +25,10 @@ import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profi
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { sameShellChoice } from "../../../shared/pty/shell";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
-import { existingChatController } from "../chat/controller";
+import { existingChatController } from "../chat/claude/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { isPreviewable } from "../editor/preview/previewable";
@@ -43,7 +44,7 @@ import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController, whenTerminalController } from "../terminal/terminal-registry";
 import type { TerminalController } from "../terminal/types";
-import { activateWorkspace, removeTask, startTask, taskStartOf } from "../workspace/tasks";
+import { removeTask, startTask, taskStartOf } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
@@ -336,8 +337,8 @@ export const actionHandlers: {
     const tab = tabRecord(workspaceId, tabId);
     const input = fileOfTab(workspaceId, tab);
     if (!hasUnsavedChanges(workspaceId, tab)) return { filePath: input.filePath, reverted: false };
-    await reloadModelFromDisk(input);
-    return { filePath: input.filePath, reverted: !hasUnsavedChanges(workspaceId, tab) };
+    const applied = await reloadModelFromDisk(input);
+    return { filePath: input.filePath, reverted: applied && !hasUnsavedChanges(workspaceId, tab) };
   },
 
   "browser.open": async ({ workspaceId, url, placement }) => {

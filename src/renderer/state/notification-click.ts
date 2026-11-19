@@ -1,9 +1,9 @@
 // Renderer-side handler for OS notification clicks emitted by the main process.
-// Activates the target workspace and reveals the specific tab in the layout.
+// Reveals the tab in the current view or its workspace.
 
 import { ipcListen } from "../ipc/client";
 import { showInAgentView } from "../services/agent-view/show";
-import { useActiveStore } from "./stores/active";
+import { focusWorkspace } from "./operations/workspace-selection";
 import { useAgentViewStore } from "./stores/agent-view";
 import { allLeaves } from "./stores/layout/helpers";
 import { useLayoutStore } from "./stores/layout/store";
@@ -24,28 +24,21 @@ export function startNotificationClickListener(): () => void {
         showInAgentView(workspaceId, tabId);
         return;
       }
-      agentView.setMode("workspace");
     }
 
-    // Activate the workspace in the renderer store.
-    useActiveStore.getState().setActiveWorkspaceId(workspaceId);
-
-    // Reveal the tab in whichever leaf group contains it.
+    // Set the destination tab first. Active-context subscribers run
+    // synchronously and would mark any intermediate tab as seen.
     const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-    if (!layout) return;
-
-    for (const leaf of allLeaves(layout.root)) {
-      if (leaf.tabIds.includes(tabId)) {
-        useLayoutStore.getState().setActiveTabInGroup({
-          workspaceId,
-          groupId: leaf.id,
-          tabId,
-          activateGroup: true,
-        });
-        return;
-      }
+    const group = layout && allLeaves(layout.root).find((leaf) => leaf.tabIds.includes(tabId));
+    if (group) {
+      useLayoutStore.getState().setActiveTabInGroup({
+        workspaceId,
+        groupId: group.id,
+        tabId,
+        activateGroup: true,
+      });
     }
-    // Tab not found in layout (may have been closed) — workspace activation
-    // above is sufficient.
+    focusWorkspace(workspaceId, "preserve");
+    if (agentView.mode === "agents") agentView.setMode("workspace");
   });
 }

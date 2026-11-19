@@ -11,7 +11,7 @@ import { noteMarkdown } from "../../notes/store";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, pick, resolveWorkspace } from "../context";
 import { ago, oneLine, table } from "../format";
-import { callerPath } from "../paths";
+import { callerPath, onAppMachine } from "../paths";
 
 import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";
@@ -20,15 +20,6 @@ import { WORKSPACE_FLAG } from "./flags";
 function when(at: number, now: number): string {
   if (now - at < 48 * 3600 * 1000) return ago(at, now);
   return new Date(at).toISOString().slice(0, 10);
-}
-
-/**
- * Whether the command runs in a terminal on the machine the app runs on (a
- * local workspace's), where the notes' folders are.
- */
-function onAppMachine(ctx: CliContext): boolean {
-  const own = ctx.services.listWorkspaces().find((w) => w.id === ctx.caller.workspaceId);
-  return own?.location.kind === "local";
 }
 
 const NOTE_ARG_HELP =

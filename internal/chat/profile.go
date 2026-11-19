@@ -17,7 +17,8 @@ import (
 	"runtime"
 	"strings"
 
-	nexusfs "github.com/nexus-code/nexus-code/internal/fs"
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/filelink"
 )
 
 // ProfileDirParams is the wire shape for chat.profileDir.
@@ -55,7 +56,7 @@ func (s *Service) ProfileDir(_ context.Context, raw json.RawMessage) (any, error
 		return nil, protocolError("chat.profileDir agent must be claude or codex")
 	}
 	home, _ := os.UserHomeDir()
-	dir := expandProfileDir(p.Dir, home)
+	dir := agentpaths.ExpandProfileDir(p.Dir, home)
 	if dir == "" || !filepath.IsAbs(dir) {
 		return nil, protocolError("chat.profileDir dir must be absolute or start with ~/")
 	}
@@ -99,29 +100,6 @@ func (s *Service) ProfileDir(_ context.Context, raw json.RawMessage) (any, error
 	return result, nil
 }
 
-// expandProfileDir resolves "~" and "~/…" against home and cleans the path.
-func expandProfileDir(dir, home string) string {
-	dir = strings.TrimSpace(dir)
-	switch {
-	case dir == "":
-		return ""
-	case dir == "~":
-		dir = home
-	case strings.HasPrefix(dir, "~/") || strings.HasPrefix(dir, `~\`):
-		if home == "" {
-			return ""
-		}
-		rest := dir[2:]
-		if dir[1] == '\\' && runtime.GOOS != "windows" {
-			// A folder picked on Windows ("~\.claude\work"), on a host
-			// whose separator is "/".
-			rest = strings.ReplaceAll(rest, `\`, "/")
-		}
-		dir = filepath.Join(home, rest)
-	}
-	return filepath.Clean(dir)
-}
-
 // defaultProfileDir is the folder the agent uses with its variable unset, or
 // set by the user's login shell.
 func defaultProfileDir(agent, home string) string {
@@ -129,16 +107,21 @@ func defaultProfileDir(agent, home string) string {
 	if agent == "codex" {
 		key, name = "CODEX_HOME", ".codex"
 	}
-	if value := strings.TrimSpace(loginEnv()[key]); value != "" {
-		return expandProfileDir(value, home)
-	}
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return expandProfileDir(value, home)
+	if value := defaultProfileEnv(key); value != "" {
+		return agentpaths.ProfileEnvDir(key, value)
 	}
 	if home == "" {
 		return ""
 	}
 	return filepath.Join(home, name)
+}
+
+// defaultProfileEnv matches the precedence of the login shell in chat launches.
+func defaultProfileEnv(key string) string {
+	if value := strings.TrimSpace(loginEnv()[key]); value != "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 func sameDir(a, b string) bool {
@@ -206,7 +189,7 @@ func makeLink(link, target string, dir bool) error {
 		return os.Symlink(target, link)
 	}
 	if dir {
-		return nexusfs.Junction(link, target)
+		return filelink.Junction(link, target)
 	}
 	if err := os.Symlink(target, link); err == nil {
 		return nil

@@ -9,3 +9,11 @@ import { classifyStderrLine } from "./stderr-patterns";
 export function classifyAuthLine(line: string): SshErrorCode | null {
   return classifyStderrLine(line);
 }
+
+/** Error raised when the renderer cancels an active SSH authentication prompt. */
+export class AuthCancelledError extends Error {
+  constructor(promptId: string) {
+    super(`SSH authentication prompt cancelled: ${promptId}`);
+    this.name = "AuthCancelledError";
+  }
+}

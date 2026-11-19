@@ -9,7 +9,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { applyWindowsShellShim } from "../../../src/main/features/pty/windows-shell-shim";
-import { CODEX_WRAPPER } from "../../../src/shared/codex/wrapper";
+import {
+  CODEX_CMD_BATCH_HELP,
+  CODEX_CMD_BATCH_HELP_FILE,
+  CODEX_CMD_HELP,
+  CODEX_CMD_HELP_FILE,
+  CODEX_CMD_LAUNCHER,
+  CODEX_SERVER_ARGS,
+  CODEX_WRAPPER,
+} from "../../../src/shared/codex/wrapper";
 
 const GIT_BASH = path.join(
   process.env.ProgramFiles ?? "C:\\Program Files",
@@ -229,6 +237,8 @@ describeOnWindows("PowerShell's codex function", () => {
         'if "%~1"=="--help" (',
         "  echo Usage: codex [OPTIONS] [PROMPT]",
         "  if not defined FAKE_OLD echo       --no-daemon",
+        '  if defined FAKE_STALLED "%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul',
+        "  if defined FAKE_BROKEN exit /b 1",
         "  exit /b 0",
         ")",
         "echo ARGS:%*",
@@ -238,7 +248,7 @@ describeOnWindows("PowerShell's codex function", () => {
     const shim = applyWindowsShellShim({
       shell: "powershell.exe",
       env: {},
-      codex: { cmd: false },
+      codex: {},
     });
     const functions = Buffer.from(shim.args?.at(-1) ?? "", "base64").toString("utf16le");
     const script = Buffer.from(`${functions}\n${calls}`, "utf16le").toString("base64");
@@ -268,4 +278,105 @@ describeOnWindows("PowerShell's codex function", () => {
       'ARGS:--no-daemon "a b"\nARGS:agents\nARGS:--remote=ws://x\nARGS:--no-daemon resume\nARGS:hi\n',
     );
   }, 60_000);
+
+  test("a stalled or unsuccessful help probe runs the command without --no-daemon", () => {
+    expect(
+      runPowerShell(
+        "$env:FAKE_STALLED = '1'; codex stalled; Remove-Item Env:FAKE_STALLED; $env:FAKE_BROKEN = '1'; codex broken",
+      ),
+    ).toBe("ARGS:stalled\nARGS:broken\n");
+  }, 30_000);
+});
+
+test("the generated cmd launcher uses the shared Codex server arguments", () => {
+  for (const arg of CODEX_SERVER_ARGS) {
+    expect(CODEX_CMD_LAUNCHER).toContain(`if /i "!nexus_codex_arg!"=="${arg}" goto :unchanged`);
+  }
+  expect(CODEX_CMD_LAUNCHER).toContain('=="--remote=" goto :unchanged');
+});
+
+describeOnWindows("cmd Codex launcher", () => {
+  test("passes server commands through and adds --no-daemon to interactive runs", () => {
+    const comspec = process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe";
+    const shim = path.join(tmp, "shim & (first)!");
+    const copy = path.join(tmp, "copy & (second)!");
+    const real = path.join(tmp, "real & (third) ^ ! %NEXUS_CMD_TEST_PERCENT%");
+    for (const dir of [shim, copy]) {
+      write(path.join(dir, "codex.cmd"), CODEX_CMD_LAUNCHER);
+      write(path.join(dir, CODEX_CMD_HELP_FILE), CODEX_CMD_HELP);
+      write(path.join(dir, CODEX_CMD_BATCH_HELP_FILE), CODEX_CMD_BATCH_HELP);
+    }
+    write(
+      path.join(real, "codex.cmd"),
+      [
+        "@echo off",
+        'if "%~1"=="--help" (',
+        '  if "!NEXUS_CMD_TEST_PERCENT!"=="unexpected expansion" exit /b 8',
+        "  if not defined FAKE_OLD echo --no-daemon",
+        '  if defined FAKE_STALLED "%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul',
+        "  if defined FAKE_BROKEN exit /b 1",
+        "  exit /b 0",
+        ")",
+        "echo ARGS:%*",
+        "exit /b 23",
+        "",
+      ].join("\r\n"),
+    );
+
+    const cases = [
+      "",
+      '"one & two"',
+      "agents",
+      "-c x queue",
+      '"--remote=ws://x"',
+      "resume",
+      "stall",
+      "broken",
+      "hi",
+    ];
+    const batch = cases.flatMap((args, i) => {
+      const command = `case-${i}.cmd`;
+      write(path.join(tmp, command), `@echo off\r\ncodex ${args}\r\n`);
+      return [
+        ...(args === "stall" ? ["set FAKE_STALLED=1"] : []),
+        ...(args === "broken" ? ["set FAKE_STALLED=", "set FAKE_BROKEN=1"] : []),
+        ...(args === "hi" ? ["set FAKE_BROKEN=", "set FAKE_OLD=1"] : []),
+        `"%ComSpec%" /d /v:off /c ${command}`,
+        "echo EXIT:%errorlevel%",
+      ];
+    });
+    write(path.join(tmp, "run.cmd"), ["@echo off", ...batch, ""].join("\r\n"));
+    const result = spawnSync(comspec, ["/d", "/v:off", "/c", "run.cmd"], {
+      cwd: tmp,
+      env: {
+        ...process.env,
+        PATH: [shim, copy, real].join(";"),
+        FAKE_OLD: "",
+        NEXUS_CMD_TEST_PERCENT: "unexpected expansion",
+      },
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(
+      result.stdout
+        .replaceAll("\r", "")
+        .trim()
+        .split("\n")
+        .map((line) => line.trimEnd()),
+    ).toEqual(
+      [
+        "--no-daemon",
+        '--no-daemon "one & two"',
+        "agents",
+        "-c x queue",
+        '"--remote=ws://x"',
+        "--no-daemon resume",
+        "stall",
+        "broken",
+        "hi",
+      ].flatMap((args) => [`ARGS:${args}`, "EXIT:23"]),
+    );
+  }, 20_000);
 });

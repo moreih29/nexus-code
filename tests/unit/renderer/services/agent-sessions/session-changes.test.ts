@@ -21,7 +21,7 @@ const app = {
   name: "app",
   location: { kind: "local", rootPath: "/w/app" },
   rootPath: "/w/app",
-  colorTone: "default",
+  color: "auto",
   pinned: false,
   tabs: [],
   sortOrder: 0,

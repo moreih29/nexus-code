@@ -15,7 +15,7 @@ import { keySequence } from "../cli/keys";
 import type { FsProvider } from "../fs/bridge/provider";
 import { folderIn } from "./files";
 import { RpcFailure } from "./room";
-import { tabOf, unavailable, workspaceOf } from "./serve";
+import { tabOf, unavailable, workspaceOf } from "./serving/common";
 
 /**
  * Types into the terminal: the text pasted (or as keystrokes, `typed`, a line break as the

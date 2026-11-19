@@ -30,6 +30,7 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
+import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
   completionAt,
@@ -46,13 +47,8 @@ import {
   type UserItem,
 } from "../../services/chat/model";
 import { withRelayed } from "../../services/chat/relayed";
-import {
-  type ChatTabState,
-  type QueuedMessage,
-  type RevealPart,
-  takeReveal,
-} from "../../services/chat/store";
-import { firstVersionOf } from "../../services/chat/versions";
+import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
+import type { QueuedMessage } from "../../services/chat/transport/queue";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
@@ -74,6 +70,7 @@ import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent"
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
+import { surfaceChatSendError } from "./send-error";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -485,25 +482,32 @@ export const Composer = memo(function Composer({
       if (controller.submitPeer(as, body, images, files)) clear();
       return;
     }
-    let message: string;
-    let uploads: string[];
     setSending(true);
     try {
-      ({ message, uploads } = await withAttachments(body));
-    } catch (err) {
-      showError(err as Error);
-      return;
+      const { message, uploads } = await withAttachments(body);
+      clear();
+      try {
+        if (uploads.length > 0 && controller.sendUploaded) {
+          await controller.sendUploaded(as, message, images, uploads);
+        } else if (as === "queue") {
+          controller.enqueue(message, images);
+        } else if (as === "now" && controller.sendNow) {
+          await controller.sendNow(message, images);
+        } else {
+          await controller.send(message, images);
+        }
+      } catch (error) {
+        // Restore the original text and attachments for another attempt.
+        if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
+        if (images.length) setImages((prev) => [...images, ...prev]);
+        if (files.length) setFiles((prev) => [...files, ...prev]);
+        throw error;
+      }
+    } catch (error) {
+      surfaceChatSendError(error);
     } finally {
       setSending(false);
     }
-    const sendUploaded = controller.sendUploaded?.bind(controller);
-    if (uploads.length > 0 && sendUploaded) {
-      void sendUploaded(as, message, images, uploads).catch((err: Error) => showError(err));
-    } else if (how === "queue" && running) controller.enqueue(message, images);
-    else if (how === "now" && running && controller.sendNow) {
-      void controller.sendNow(message, images).catch((err: Error) => showError(err));
-    } else void controller.send(message, images).catch((err: Error) => showError(err));
-    clear();
   };
   // The submit of the latest render, for a send that waits on the dictation's end.
   const submitRef = useRef(submit);
@@ -733,7 +737,15 @@ export const Composer = memo(function Composer({
             {state.queue.map((item) => (
               <QueueRow
                 key={item.id}
-                label={item.status ? t(`chat.queue.${item.status}`) : t("chat.queue.after_turn")}
+                label={
+                  item.status
+                    ? t(`chat.queue.${item.status}`)
+                    : item.afterTool !== undefined
+                      ? t("chat.queue.after_tool")
+                      : program === "codex" && controller.submitPeer
+                        ? t("chat.queue.label")
+                        : t("chat.queue.after_turn")
+                }
                 item={item}
                 onEdit={item.status !== "sending" ? () => pullBack(item.id) : undefined}
                 onRemove={
@@ -1113,13 +1125,7 @@ function QueueRow({
 export const SEND_BUTTON_CLASS =
   "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40";
 
-/**
- * The box's main button, with the key that presses it. During a turn a
- * Claude tab's message waits for the call that runs, so its label says it
- * queues; a Codex tab's goes into the turn at once. It is drawn the same
- * either way: the chat shows a queued message as queued. Its tooltip tells
- * the other keys.
- */
+/** The box's main button and the keys for the available send timings. */
 function SendButton({
   running,
   waits,
@@ -1129,7 +1135,7 @@ function SendButton({
   keycap,
 }: {
   running: boolean;
-  /** During a turn, the message waits for the current call (Claude's ↩). */
+  /** During a turn, the message waits for a tool completion (↩). */
   waits: boolean;
   program: ChatAgent;
   onClick: () => void;

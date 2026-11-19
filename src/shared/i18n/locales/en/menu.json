@@ -12,8 +12,8 @@
     "newTask": "New Task…",
     "openFile": "Open File…",
     "save": "Save",
-    "closeEditor": "Close Editor",
-    "closeOthers": "Close Others",
+    "closeEditor": "Close Tab",
+    "closeOthers": "Close Other Tabs",
     "refreshFiles": "Refresh Files",
     "exit": "Exit"
   },

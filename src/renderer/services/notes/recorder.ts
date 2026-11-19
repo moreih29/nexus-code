@@ -151,11 +151,15 @@ function recordingOf(a: Active): TranscriptRecording | undefined {
     .byNote[transcriptKey(a.workspaceId, a.noteId)]?.recordings.find((r) => r.id === a.recordingId);
 }
 
-/** The voice keys a recording has, in its lines (but the one starting at `except`) and its names. */
-function keysOf(a: Active, except?: number): string[] {
+/**
+ * The voice keys a recording has, in its lines and its names; not the keys of
+ * lines whose voice print is still being heard, which are only shown for now.
+ */
+function keysOf(a: Active): string[] {
   const r = recordingOf(a);
   if (!r) return [];
-  const lines = r.lines.filter((l) => l.startMs !== except);
+  const voices = a.voices;
+  const lines = voices ? r.lines.filter((l) => !voices.undecided(l.startMs)) : r.lines;
   return [...lines.map((l) => l.speaker), ...Object.keys(r.speakers)];
 }
 
@@ -208,8 +212,9 @@ function onEvent({ id, event }: VoiceEvent): void {
         void voices
           .lineHeard(
             { at: line.startMs, endAt: line.endMs, startMs, endMs, label },
-            // Not its own key as shown so far, which it may keep as a new voice's.
-            () => keysOf(a, line.startMs),
+            // Not its own key as shown so far (nor those of the lines after it,
+            // still being heard), which it may keep as a new voice's.
+            () => keysOf(a),
             () => recordingOf(a)?.speakers ?? {},
           )
           .then(({ key, regrouped: keys }) => {
@@ -225,6 +230,11 @@ function onEvent({ id, event }: VoiceEvent): void {
       endTake(event.reason === "session" ? "chain" : "stop");
       return;
     case "error":
+      // An error may still hand over the token: the recording can be heard again.
+      if (event.transcribeToken) {
+        const token = event.transcribeToken;
+        setTake((tk) => ({ ...tk, token }));
+      }
       if (event.code === "unauthorized") tellFailure("signed-out");
       else showToast({ kind: "error", message: t("failure.recognition") });
       return;

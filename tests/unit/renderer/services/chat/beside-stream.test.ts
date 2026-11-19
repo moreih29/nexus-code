@@ -5,11 +5,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import { sameBesideStream } from "../../../../../src/renderer/services/chat/beside-stream";
-import {
-  applyLines,
-  type ChatLine,
-  emptyModel,
-} from "../../../../../src/renderer/services/chat/model";
+import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
+import { type ChatLine, emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/services/chat/store";
 
 let seq = 0;

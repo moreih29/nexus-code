@@ -15,10 +15,8 @@
  * and only on such a sign, so it never flickers while the replay comes in.
  */
 import { isLoginShell } from "../../../shared/pty/login-shell";
+import { isClaudeIdleTitle } from "./idle-title";
 import type { ClaudeStatusBroker } from "./status";
-
-/** The mark Claude Code puts at the start of its title between turns. */
-const IDLE_MARK = "✳";
 
 /** A terminal title, set with OSC 0 or 2 and ended by BEL or ST. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC sequences start with ESC
@@ -29,8 +27,8 @@ const MAX_CARRY = 1024;
 
 interface Restoring {
   /** The state when the terminal came back, to see whether a hook changed it since. */
-  readonly status: string;
-  readonly since: number;
+  readonly entry: NonNullable<ReturnType<ClaudeStatusBroker["get"]>>;
+  checking?: boolean;
   /** The last title in the replayed output so far. */
   title: string | undefined;
   /** A sequence the last chunk ended inside. */
@@ -58,8 +56,7 @@ export class ClaudeReconnectCheck {
       return;
     }
     this.restoring.set(key, {
-      status: entry.status,
-      since: entry.since,
+      entry,
       title: undefined,
       carry: "",
     });
@@ -68,7 +65,7 @@ export class ClaudeReconnectCheck {
   /** Output replayed to a terminal. */
   noteReplay(workspaceId: string, tabId: string, chunk: string): void {
     const restoring = this.restoring.get(`${workspaceId}:${tabId}`);
-    if (restoring === undefined) return;
+    if (!restoring || restoring.checking) return;
     const text = restoring.carry + chunk;
     let end = 0;
     for (const match of text.matchAll(TITLE)) {
@@ -84,18 +81,22 @@ export class ClaudeReconnectCheck {
   async noteReplayed(workspaceId: string, tabId: string): Promise<void> {
     const key = `${workspaceId}:${tabId}`;
     const restoring = this.restoring.get(key);
-    if (restoring === undefined) return;
-    this.restoring.delete(key);
-    if (!this.unchanged(workspaceId, tabId, restoring)) return;
-
+    if (!restoring || restoring.checking) return;
+    if (this.broker.get(workspaceId, tabId) !== restoring.entry) {
+      this.restoring.delete(key);
+      return;
+    }
+    restoring.checking = true;
     const program = await this.foregroundProcess(workspaceId, tabId).catch(() => null);
-    // A hook may have come in meanwhile, and it knows better.
-    if (!this.unchanged(workspaceId, tabId, restoring)) return;
+    if (this.restoring.get(key) !== restoring) return;
+    this.restoring.delete(key);
+    // A new prompt can replace the entry while keeping both its status and its `since` time.
+    if (this.broker.get(workspaceId, tabId) !== restoring.entry) return;
     if (program !== null && isLoginShell(program)) {
       this.broker.clear(workspaceId, tabId);
       return;
     }
-    if (restoring.status === "running" && restoring.title?.startsWith(IDLE_MARK)) {
+    if (restoring.entry.status === "running" && isClaudeIdleTitle(restoring.title)) {
       this.broker.set(workspaceId, tabId, "needsInput");
     }
   }
@@ -105,8 +106,8 @@ export class ClaudeReconnectCheck {
     this.restoring.delete(`${workspaceId}:${tabId}`);
   }
 
-  private unchanged(workspaceId: string, tabId: string, restoring: Restoring): boolean {
-    const entry = this.broker.get(workspaceId, tabId);
-    return entry !== null && entry.status === restoring.status && entry.since === restoring.since;
+  /** Invalidates outstanding terminal replay checks as the feature shuts down. */
+  dispose(): void {
+    this.restoring.clear();
   }
 }

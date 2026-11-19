@@ -140,7 +140,7 @@ export async function removeTask(
     throw new TaskError("worktree-dirty", `${task.worktreePath} has changes`);
   }
 
-  deps.manager.remove(id);
+  await deps.manager.remove(id);
   if (!repo) return;
 
   // Read before the worktree goes: the branch may have been renamed there.

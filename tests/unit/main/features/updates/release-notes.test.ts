@@ -5,6 +5,7 @@ import {
   parseReleaseNotes,
   unescapeXml,
 } from "../../../../../src/main/features/updates/release-notes";
+import { oversizedResponse } from "../../../../helpers/http-fixtures";
 
 const BASE = "https://github.com/moreih29/nexus-code/releases/tag";
 
@@ -129,4 +130,18 @@ describe("fetchReleaseNotes", () => {
       reason: "network",
     });
   });
+});
+
+it("the release notes reader cancels an oversized feed without caching it", async () => {
+  const cache = createReleaseNotesCache();
+  const response = oversizedResponse(1);
+  expect(
+    await fetchReleaseNotes({
+      channel: "stable",
+      fetchImpl: response.fetch,
+      cache,
+    }),
+  ).toEqual({ kind: "error", reason: "response-too-large" });
+  expect(response.cancelled()).toBe(true);
+  expect(cache.notes).toBeNull();
 });

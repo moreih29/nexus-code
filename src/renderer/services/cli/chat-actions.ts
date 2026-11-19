@@ -18,24 +18,19 @@ import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import {
-  type AgentTabController,
-  agentTabController,
-  sendToAgentTab,
-  sendUnseen,
-  startAgentTab,
-} from "../chat/agent-tab";
-import { CodexConfigRefusal } from "../chat/codex-config";
-import { CodexReplyError } from "../chat/codex-controller";
+import { type AgentTabController, agentTabController, startAgentTab } from "../chat/agent-tab";
+import type { ForkPoint } from "../chat/claude/controller";
+import { firstVersionOf } from "../chat/claude/versions";
+import { CodexConfigRefusal } from "../chat/codex/config";
+import { CodexReplyError } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
-import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
 import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
-import { firstVersionOf } from "../chat/versions";
+import { sendToAgentTab, sendUnseen, submissionAt } from "../chat/transport/submission";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
@@ -65,6 +60,7 @@ import {
   chatEntriesOf,
   chatInfoOf,
   chatItemIndexOf,
+  chatSubmissionInfo,
   chatToolOf,
   pageEntriesOf,
 } from "./chat-view";
@@ -78,10 +74,16 @@ function opened(workspaceId: string, tabId: string): boolean {
   return useChatStore.getState().tabs[chatKey(workspaceId, tabId)] !== undefined;
 }
 
-async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabController> {
+async function openedTab(
+  workspaceId: string,
+  tabId: string,
+  fullTranscript = false,
+): Promise<AgentTabController> {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) await target.controller.open();
+  const cold = !opened(workspaceId, tabId);
+  if (target.agent === "claude" && fullTranscript) await target.controller.openToRead(cold);
+  else if (cold) await target.controller.open();
   return target;
 }
 
@@ -94,9 +96,8 @@ async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabCo
 async function readableTab(workspaceId: string, tabId: string): Promise<AgentTabController> {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) {
-    await (target.agent === "claude" ? target.controller.openToRead() : target.controller.open());
-  }
+  if (target.agent === "claude") await target.controller.openToRead();
+  else if (!opened(workspaceId, tabId)) await target.controller.open();
   return target;
 }
 
@@ -414,7 +415,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId };
   },
 
-  "chat.state": async ({ workspaceId, tabId, peek }) => {
+  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
+    const tracked =
+      submissionId ?? (after === undefined ? undefined : submissionAt(workspaceId, tabId, after));
+    if (tracked) {
+      const target = agentTabController(workspaceId, tabId);
+      if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+      const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+      return {
+        ...withProfile(workspaceId, tabId, chatSubmissionInfo(target.agent, chat, tracked)),
+        trackedSubmission: true,
+      };
+    }
     if (peek && !opened(workspaceId, tabId)) {
       const target = agentTabController(workspaceId, tabId);
       if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
@@ -424,7 +436,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.read": async ({ workspaceId, tabId, messages, since, subagents }) => {
-    const target = await openedTab(workspaceId, tabId);
+    const target = await openedTab(workspaceId, tabId, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     return {
       ...infoOf(workspaceId, tabId, target),
@@ -511,6 +523,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     when,
     device,
     submission,
+    wait,
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
@@ -537,6 +550,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         when,
         device,
         trustedSubmission,
+        wait,
       );
     } catch (error) {
       if (trustedSubmission && error instanceof CodexReplyError) return { rejected: error.message };
@@ -600,7 +614,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.entryItem": async ({ workspaceId, tabId, i }) => {
     // Opened as chat.read opens it, so that the entries are counted alike.
-    const { agent } = await openedTab(workspaceId, tabId);
+    const { agent } = await openedTab(workspaceId, tabId, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     const index = chatItemIndexOf(chat, i, extrasOf(workspaceId, tabId, agent));
     const item =

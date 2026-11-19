@@ -229,6 +229,11 @@ export type CliChangeKind =
   | "commit"
   | "terminalNew"
   | "terminalInput"
+  | "fileWrite"
+  | "fileWriteTree"
+  | "fileMkdir"
+  | "fileRead"
+  | "fileReadTree"
   | "chatNew"
   | "chatInput"
   | "chatInterrupt"
@@ -262,6 +267,7 @@ export type CliChangeKind =
   | "worktreeRemove"
   | "worktreeRemoveBranch"
   | "workspaceRemove"
+  | "workspaceEdit"
   | "workspacePin"
   | "workspaceMove"
   | "permissionAllow"
@@ -277,7 +283,7 @@ export interface CliChange {
    * message or the prompt.
    */
   readonly body?: string;
-  /** A tabClose's tab is a terminal (or one of the tabs is). */
+  /** This change requires terminal control. */
   readonly terminal?: boolean;
 }
 
@@ -287,7 +293,7 @@ export function isTerminalChange(change: CliChange): boolean {
     change.kind === "terminalInput" ||
     change.kind === "terminalNew" ||
     change.kind === "groupClose" ||
-    (change.kind === "tabClose" && change.terminal === true)
+    change.terminal === true
   );
 }
 
@@ -874,8 +880,14 @@ export interface CliUiOps {
    * if it was not, unless `peek`, which tells such a tab idle.
    */
   "chat.state": {
-    args: { workspaceId: string; tabId: string; peek?: boolean };
-    result: CliChatInfo;
+    args: {
+      workspaceId: string;
+      tabId: string;
+      peek?: boolean;
+      submissionId?: string;
+      after?: number;
+    };
+    result: CliChatInfo & { trackedSubmission?: boolean };
   };
   /**
    * A Claude or Codex tab's messages, and where it stands: those after
@@ -1108,9 +1120,11 @@ export interface CliUiOps {
       device?: string;
       /** User submission metadata supplied by the serving process. */
       submission?: { clientNonce: string; clientDeviceId: string };
+      /** Tracks this specific message for `send --wait`. */
+      wait?: { receiptAt?: number };
     };
     /** `heldId`: the message's id while the tab holds it for after the turn. */
-    result: { heldId?: string; itemKey?: string; rejected?: string };
+    result: { heldId?: string; itemKey?: string; rejected?: string; submissionId?: string };
   };
   /** Takes back a message the tab holds for after the turn, with its whole text. */
   "chat.unqueue": {

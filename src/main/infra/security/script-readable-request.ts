@@ -8,9 +8,8 @@ import path from "node:path";
 // Access-Control-Allow-Origin, and file:// pages get extra privileges by
 // default, so a page script can read `.env`, `.git/config` or `~/.ssh` and
 // send it elsewhere. Requests are filtered by type instead: subresources a
-// page renders with (images, fonts, styles, frames, JS/CSS module scripts)
-// load; script-readable fetches (XHR/fetch, JSON modules) are cancelled —
-// what Chrome allows a page opened from file://.
+// page renders with (images, fonts, styles, JS/CSS module scripts) can load
+// without granting script-readable fetches (XHR/fetch, JSON modules).
 // ---------------------------------------------------------------------------
 
 const MODULE_SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css"]);

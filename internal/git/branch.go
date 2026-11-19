@@ -1,9 +1,9 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -140,14 +140,14 @@ func (s *Service) BranchDelete(ctx context.Context, raw json.RawMessage) (any, e
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	runErr := cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(runErr)
+	code, fatal := gitExitCode(cmd.ProcessState, runErr)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -421,12 +421,15 @@ func (s *Service) branchListOutput(ctx context.Context, cwd string, remotes bool
 	if err != nil {
 		return "", err
 	}
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if runErr := cmd.Run(); runErr != nil {
+	stdout, _, code, err := runCapturedCommand(ctx, cmd)
+	var outputFailure Failure
+	if errors.As(err, &outputFailure) && outputFailure.Kind == KindOutputTooLarge {
+		return "", err
+	}
+	if err != nil || code != 0 {
 		return "", nil // non-fatal fallthrough
 	}
-	return stdout.String(), nil
+	return stdout, nil
 }
 
 // normalizeBranchFetchRef converts an upstream-style ref (e.g. "origin/main")

@@ -48,8 +48,8 @@ export interface OscNotificationDispatcherDeps {
   isActiveTab?: (workspaceId: string, tabId: string) => boolean;
   /** Settings' OS notifications toggle, read at each notification. */
   notificationsEnabled?: () => boolean;
-  /** Called on notification click to activate the workspace in main. */
-  activateWorkspace?: (workspaceId: string) => Promise<void>;
+  /** Called on notification click to connect the workspace. */
+  connectWorkspace?: (workspaceId: string) => Promise<void>;
   /** Called on notification click to bring the app window to the foreground. */
   focusMainWindow?: () => void;
   /** Injected in tests to avoid real Electron Notification. */
@@ -186,9 +186,9 @@ export class OscNotificationDispatcher {
         // 1. Bring the app window to the foreground.
         this.deps.focusMainWindow?.();
 
-        // 2. Activate the workspace in main (fire-and-forget).
-        this.deps.activateWorkspace?.(workspaceId)?.catch((err) => {
-          log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+        // 2. Bring the workspace online for the tab being revealed.
+        this.deps.connectWorkspace?.(workspaceId)?.catch((err) => {
+          log.warn(`connectWorkspace failed: ${(err as Error).message}`);
         });
 
         // 3. Tell the renderer to reveal the workspace + tab.

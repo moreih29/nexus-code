@@ -16,10 +16,12 @@ import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { FS_READ_ABSOLUTE_BINARY_METHOD } from "../../../shared/fs/protocol";
 import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -70,15 +72,22 @@ export interface SetupCliFeatureOptions {
   agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
   workspaceManager: {
     list(): WorkspaceMeta[];
-    create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
-    update(id: string, partial: { pinned?: boolean }): WorkspaceMeta;
+    create(opts: {
+      location: WorkspaceLocation;
+      name?: string;
+      color?: WorkspaceColor;
+    }): WorkspaceMeta;
+    update(
+      id: string,
+      partial: { pinned?: boolean; name?: string; color?: WorkspaceColor },
+    ): WorkspaceMeta;
     reorder(
       id: string,
       opts: { beforeId?: string; afterId?: string; targetGroup: "pinned" | "unpinned" },
     ): WorkspaceMeta;
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
-    activate(id: string): Promise<void>;
+    connect(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
@@ -167,7 +176,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);
-    return entry && { contents: entry.view.webContents, view: entry.view, active: entry.active };
+    return (
+      entry && {
+        contents: entry.view.webContents,
+        view: entry.view,
+        active: entry.active,
+        loadFailure: entry.loadFailure,
+      }
+    );
   });
   const stopWatchingBrowsers = onBrowserTabCreated((tabId, contents) =>
     browser.watch(tabId, contents),
@@ -183,12 +199,18 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       waits: async () => ipcOk(waits.snapshot()),
       pickElement: async (args: unknown) => {
         const { tabId } = validateArgs(ipcContract.cli.call.pickElement.args, args);
-        const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
-        if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
-        // The click left the keyboard in the page; the agent's terminal is next.
-        options.getWindow()?.webContents.focus();
-        const screenshot = await pickPicture(tabId, result.picked);
-        return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+        try {
+          const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
+          if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
+          // The click left the keyboard in the page; the agent's terminal is next.
+          options.getWindow()?.webContents.focus();
+          const screenshot = await pickPicture(tabId, result.picked);
+          return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+        } catch (error) {
+          if (error instanceof CliError)
+            return ipcErr("pick-failed", error.message, { category: "failed" });
+          throw error;
+        }
       },
       cancelPick: async (args: unknown) => {
         browser.cancelPick(validateArgs(ipcContract.cli.call.cancelPick.args, args).tabId);
@@ -210,15 +232,19 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     try {
       return await savePickPicture(tmpdir(), shortId(tabId), picked.png, Date.now());
     } catch (error) {
-      log.warn(`saving a picked element's picture failed: ${(error as Error).message}`);
+      log.warn(
+        `saving a picked element's picture failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
       return undefined;
     }
   };
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
-    workspaceManager.activate(workspaceId).catch((error: unknown) => {
-      log.warn(`activating ${workspaceId} failed: ${(error as Error).message}`);
+    workspaceManager.connect(workspaceId).catch((error: unknown) => {
+      log.warn(
+        `connecting ${workspaceId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+      );
     });
     options.broadcast("pty", "notificationClick", { workspaceId, tabId });
   };
@@ -226,7 +252,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const services: CliServices = {
     appVersion: options.appVersion,
     listWorkspaces: () => workspaceManager.list(),
-    addWorkspace: async (location, name) => {
+    addWorkspace: async (location, name, color) => {
       const listed = await listedAt(workspaceManager.list(), location);
       if (listed) return { workspace: listed, added: false };
       if (location.kind === "local") {
@@ -234,10 +260,15 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if (!found?.isDirectory()) throw new CliError(`no folder at ${location.rootPath}`);
       }
       return {
-        workspace: workspaceManager.create({ location, ...(name ? { name } : {}) }),
+        workspace: workspaceManager.create({
+          location,
+          ...(name ? { name } : {}),
+          ...(color ? { color } : {}),
+        }),
         added: true,
       };
     },
+    editWorkspace: (id, edit) => workspaceManager.update(id, edit),
     pinWorkspace: (id, pinned) => workspaceManager.update(id, { pinned }),
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
@@ -258,12 +289,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
-      request: (deviceId, method, params, timeoutMs) => {
+      request: (deviceId, method, params, timeoutMs, signal) => {
         const remote = options.remote?.();
         if (!remote) {
           throw new CliError("this computer is not in the remote room (Settings › Remote)", 3);
         }
-        return remote.request(deviceId, method, params, timeoutMs);
+        return remote.request(deviceId, method, params, timeoutMs, signal);
       },
     },
     consents,
@@ -358,7 +389,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
       })
       .catch((error: unknown) => {
-        log.warn(`cli request ${requestId} failed: ${(error as Error).message}`);
+        log.warn(
+          `cli request ${requestId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+        );
       })
       .finally(() => running.delete(requestId));
   });

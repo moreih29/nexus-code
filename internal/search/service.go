@@ -22,10 +22,13 @@ import (
 const (
 	defaultMaxResults   = 2000
 	defaultMaxFileSize  = 5 * 1024 * 1024
+	maxSearchFileSize   = 16 * 1024 * 1024
 	batchCountTrigger   = 50
 	batchMatchesTrigger = 200
 	batchTimeTrigger    = 30 * time.Millisecond
 	perFileMatchCap     = 1000
+	earlyCancelLifetime = 30 * time.Second
+	maxEarlyCancels     = 1024
 
 	// previewMaxBytes bounds Match.Preview. Lines up to this length are sent
 	// whole; longer lines (minified bundles, single-line JSON) are cut to a
@@ -50,9 +53,10 @@ type EventSink func(event string, payload any) error
 type Service struct {
 	root string
 
-	mu      sync.Mutex
-	sink    EventSink
-	cancels map[string]context.CancelFunc
+	mu           sync.Mutex
+	sink         EventSink
+	cancels      map[string]context.CancelFunc
+	earlyCancels map[string]time.Time
 }
 
 type Params struct {
@@ -129,7 +133,10 @@ func New(root string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{root: filepath.Clean(abs), cancels: make(map[string]context.CancelFunc)}, nil
+	return &Service{
+		root: filepath.Clean(abs), cancels: make(map[string]context.CancelFunc),
+		earlyCancels: make(map[string]time.Time),
+	}, nil
 }
 
 func (s *Service) SetEventSink(sink EventSink) {
@@ -152,23 +159,22 @@ func (s *Service) Text(ctx context.Context, raw json.RawMessage) (any, error) {
 	if p.SearchID == "" {
 		return nil, proto.ProtocolError("search.text searchId is required")
 	}
+	searchCtx, finish, err := s.registerSearch(ctx, p.SearchID)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
+	if p.Query.MaxFileSize > maxSearchFileSize {
+		return nil, proto.ProtocolError("search.text maxFileSize must be at most 16 MiB")
+	}
 	normalizeQuery(&p.Query)
-
 	re, err := compilePattern(p.Query)
 	if err != nil {
 		return nil, err
 	}
-
-	searchCtx, cancel := context.WithCancel(ctx)
-	s.mu.Lock()
-	s.cancels[p.SearchID] = cancel
-	s.mu.Unlock()
-	defer func() {
-		cancel()
-		s.mu.Lock()
-		delete(s.cancels, p.SearchID)
-		s.mu.Unlock()
-	}()
+	if err := searchCtx.Err(); err != nil {
+		return nil, err
+	}
 
 	start := time.Now()
 	result, err := s.walk(searchCtx, p.SearchID, p.Query, re)
@@ -179,18 +185,66 @@ func (s *Service) Text(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
+// registerSearch consumes a cancellation that overtook this request or
+// publishes its cancel function before compilation or walking begins.
+func (s *Service) registerSearch(ctx context.Context, id string) (context.Context, func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if expiry, ok := s.earlyCancels[id]; ok {
+		delete(s.earlyCancels, id)
+		if time.Now().Before(expiry) {
+			return nil, nil, context.Canceled
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if s.cancels[id] != nil {
+		return nil, nil, proto.ProtocolError("search.text searchId is already running")
+	}
+	searchCtx, cancel := context.WithCancel(ctx)
+	s.cancels[id] = cancel
+	return searchCtx, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		cancel()
+		delete(s.cancels, id)
+	}, nil
+}
+
 func (s *Service) Cancel(_ context.Context, raw json.RawMessage) (any, error) {
 	var p CancelParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || p.SearchID == "" {
 		return nil, proto.ProtocolError("search.cancel params must include searchId")
 	}
 	s.mu.Lock()
-	cancel := s.cancels[p.SearchID]
-	s.mu.Unlock()
-	if cancel != nil {
+	defer s.mu.Unlock()
+	if cancel := s.cancels[p.SearchID]; cancel != nil {
 		cancel()
+	} else {
+		s.rememberCancel(p.SearchID, time.Now())
 	}
 	return struct{}{}, nil
+}
+
+// rememberCancel keeps recent unmatched cancellations with a fixed capacity.
+// The caller holds mu so lookup and registration see each cancel exactly once.
+func (s *Service) rememberCancel(id string, now time.Time) {
+	var oldestID string
+	var oldest time.Time
+	for key, expiry := range s.earlyCancels {
+		if !now.Before(expiry) {
+			delete(s.earlyCancels, key)
+			continue
+		}
+		if oldest.IsZero() || expiry.Before(oldest) {
+			oldestID, oldest = key, expiry
+		}
+	}
+	if len(s.earlyCancels) >= maxEarlyCancels && s.earlyCancels[id].IsZero() {
+		delete(s.earlyCancels, oldestID)
+	}
+	s.earlyCancels[id] = now.Add(earlyCancelLifetime)
 }
 
 func normalizeQuery(q *Query) {
@@ -277,7 +331,10 @@ func (s *Service) walk(ctx context.Context, searchID string, q Query, re *regexp
 		if err != nil || info.Size() == 0 || info.Size() > q.MaxFileSize {
 			return nil
 		}
-		buf, err := readForSearch(abs, info.Size())
+		buf, err := readForSearch(ctx, abs, info.Size())
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || buf == nil {
 			return nil
 		}
@@ -345,7 +402,8 @@ func (s *Service) emitBatch(searchID string, state *batchState) {
 	}
 }
 
-func readForSearch(abs string, size int64) ([]byte, error) {
+// readForSearch probes binary files before reading the bounded text content.
+func readForSearch(ctx context.Context, abs string, size int64) ([]byte, error) {
 	file, err := os.Open(abs)
 	if err != nil {
 		return nil, err
@@ -357,7 +415,7 @@ func readForSearch(abs string, size int64) ([]byte, error) {
 		probeLen = size
 	}
 	probe := make([]byte, probeLen)
-	n, err := io.ReadFull(file, probe)
+	n, err := io.ReadFull(searchReader{ctx, file}, probe)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
@@ -371,7 +429,20 @@ func readForSearch(abs string, size int64) ([]byte, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return io.ReadAll(io.LimitReader(file, size))
+	return io.ReadAll(io.LimitReader(searchReader{ctx, file}, size))
+}
+
+// searchReader checks for cancellation between bounded reads.
+type searchReader struct {
+	ctx    context.Context
+	source io.Reader
+}
+
+func (r searchReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.source.Read(p[:min(len(p), 32<<10)])
 }
 
 func findMatches(buf []byte, re *regexp.Regexp, perFileCap int, remainingGlobal int) []Match {

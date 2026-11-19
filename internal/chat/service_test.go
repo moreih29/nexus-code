@@ -2,8 +2,10 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -66,6 +68,9 @@ func TestFakeProgramHelper(t *testing.T) {
 			// Start a child that runs until it is ended, and tell its pid.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
+			if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+				child.Stdout = os.Stdout
+			}
 			// As Claude and Codex start each command, out of the program's group.
 			if os.Getenv("NEXUS_CHAT_OWN_SESSION") == "1" {
 				ownSession(child)
@@ -102,6 +107,10 @@ func TestFakeChildHelper(t *testing.T) {
 func TestFakeSleeperHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_SLEEPER") != "1" {
 		return
+	}
+	if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
+		signal.Ignore(syscall.SIGTERM)
+		fmt.Println(`{"type":"resistant-child-ready"}`)
 	}
 	time.Sleep(time.Minute)
 	os.Exit(0)
@@ -243,6 +252,125 @@ func send(t *testing.T, service *Service, tabID, text string) error {
 func tabParams(tabID string) json.RawMessage {
 	params, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID})
 	return params
+}
+
+type testStdin func([]byte) (int, error)
+
+func (w testStdin) WriteContext(_ context.Context, data []byte) (int, error) { return w(data) }
+func (w testStdin) Close() error                                             { return nil }
+
+type partialStdin struct {
+	closed bool
+}
+
+func (p *partialStdin) WriteContext(_ context.Context, data []byte) (int, error) {
+	if p.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return len(data) - 1, io.ErrShortWrite
+}
+
+func (p *partialStdin) Close() error {
+	p.closed = true
+	return nil
+}
+
+func TestPartialWriteClosesTheUnframedStdin(t *testing.T) {
+	service := New()
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe := &partialStdin{}
+	sess.proc = &process{stdin: pipe}
+	if err := send(t, service, "tab", "partially written"); err == nil {
+		t.Fatal("partial write reported success")
+	}
+	if !pipe.closed {
+		t.Fatal("a subsequent message could be written onto the partial JSON line")
+	}
+}
+
+func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan struct{})
+	unblock := make(chan struct{})
+	sess.proc = &process{
+		stdin: testStdin(func(data []byte) (int, error) {
+			if !bytes.Contains(data, []byte("hello")) {
+				return len(data), nil
+			}
+			// Simulates output the CLI produced before Write returned.
+			sess.addOutput(sess.proc, []byte(`{"type":"result"}`))
+			close(reading)
+			<-unblock
+			return len(data), nil
+		}),
+	}
+	sent := make(chan error, 1)
+	go func() { sent <- send(t, service, "tab", "hello") }()
+	select {
+	case <-reading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stdout could not be consumed while stdin was writing")
+	}
+	queued := make(chan error, 1)
+	go func() { queued <- send(t, service, "tab", "second") }()
+	replay, replayErr := service.Replay(context.Background(), tabParams("tab"))
+	close(unblock)
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-queued; err != nil {
+		t.Fatal(err)
+	}
+	if replayErr != nil || replay.(ReplayResult).LastSeq != 0 {
+		t.Fatalf("replay exposed an input still being written: %+v %v", replay, replayErr)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 3 || rec.lines[0].Dir != DirIn || rec.lines[1].Dir != DirOut ||
+		rec.lines[2].Dir != DirIn || !bytes.Contains(rec.lines[2].Message, []byte("second")) {
+		t.Fatalf("want confirmed input followed by its output, got %v", describe(rec.lines))
+	}
+}
+
+func TestFailedStdinWriteReplaysFailureInsteadOfApproval(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.proc = &process{
+		stdin: testStdin(func(_ []byte) (int, error) {
+			return 0, io.ErrClosedPipe
+		}),
+	}
+	sess.addOutput(sess.proc, []byte(`{"type":"control_request","request_id":"p","request":{"subtype":"can_use_tool"}}`))
+	params := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"type":"control_response","response":{"request_id":"p"}}}`)
+	if _, err := service.Send(context.Background(), params); err == nil {
+		t.Fatal("the write succeeded despite the broken pipe")
+	}
+	rec.reset()
+	if _, err := service.Replay(context.Background(), tabParams("tab")); err != nil {
+		t.Fatal(err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 2 || rec.lines[0].Dir != DirOut || rec.lines[1].Dir != DirSys ||
+		!strings.Contains(string(rec.lines[1].Message), `"stdin-failed"`) {
+		t.Fatalf("the failed approval was replayed as sent: %v", describe(rec.lines))
+	}
 }
 
 func TestReplayDropsStreamEventsOfCompleteMessages(t *testing.T) {
@@ -539,6 +667,164 @@ func TestCloseForgetsTheTab(t *testing.T) {
 	}
 }
 
+func TestClosedTabGenerationRejectsLateStart(t *testing.T) {
+	service := New()
+	defer service.Close()
+	closed := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","tabGeneration":"old"}`)
+	if _, err := service.CloseTab(context.Background(), closed); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := json.Marshal(map[string]any{
+		"workspaceId": "ws", "tabId": "tab", "tabGeneration": "old",
+		"cwd": t.TempDir(), "program": os.Args[0],
+		"args": []string{"-test.run=^TestFakeProgramHelper$"}, "env": map[string]string{"NEXUS_CHAT_FAKE": "1"},
+	})
+	if _, err := service.Start(context.Background(), start); err == nil {
+		t.Fatal("a start from the closed tab reached the process")
+	}
+	if service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}) != nil {
+		t.Fatal("late start registered a chat session")
+	}
+}
+
+func TestClosedTabGenerationsStayBounded(t *testing.T) {
+	useAttachRoot(t)
+	service := New()
+	defer service.Close()
+	ctx := context.Background()
+	const limit = maxClosedTabGenerations
+	closeTab := func(tabID, generation string) {
+		t.Helper()
+		raw, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID, TabGeneration: generation})
+		if _, err := service.CloseTab(ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range limit + 1 {
+		closeTab(fmt.Sprintf("tab-%d", i), "first")
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed tabs, limit %d", got, limit)
+	}
+	for i := range limit + 1 {
+		closeTab("reopened", fmt.Sprintf("generation-%d", i))
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed generations, limit %d", got, limit)
+	}
+	if got := service.closedOrder.Len(); got != len(service.closedTabs) {
+		t.Fatalf("expiry queue has %d records for %d closed generations", got, len(service.closedTabs))
+	}
+	key := tabKey{workspaceID: "ws", tabID: "reopened"}
+	if _, err := service.sessionFor(key, fmt.Sprintf("generation-%d", limit)); err == nil {
+		t.Fatal("the latest closed generation could start")
+	}
+	if _, err := service.sessionFor(key, "generation-0"); err != nil {
+		t.Fatalf("the oldest generation was not evicted: %v", err)
+	}
+}
+
+func TestClosedTabGenerationsExpire(t *testing.T) {
+	service := New()
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	tab := closedTabGeneration{key, "old"}
+	service.mu.Lock()
+	service.rememberClosedTabLocked(tab, time.Now().Add(-closedTabRetention))
+	service.mu.Unlock()
+	if _, err := service.sessionFor(key, tab.generation); err != nil {
+		t.Fatalf("the expired generation was not removed: %v", err)
+	}
+	if len(service.closedTabs) != 0 || service.closedOrder.Len() != 0 {
+		t.Fatal("the expired generation stayed in the index or expiry queue")
+	}
+}
+
+func TestStartCannotUseARemovedSession(t *testing.T) {
+	for _, closeTab := range []bool{true, false} {
+		name := "failed start"
+		if closeTab {
+			name = "close"
+		}
+		t.Run(name, func(t *testing.T) {
+			service := New()
+			defer service.Close()
+			key := tabKey{workspaceID: "ws", tabID: "tab"}
+			held, err := service.sessionFor(key, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if closeTab {
+				if _, err := service.CloseTab(context.Background(), tabParams("tab")); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := service.startSession(held, StartParams{Cwd: dir, Program: filepath.Join(dir, "missing")}, nil); err == nil {
+				t.Fatal("the invalid process started")
+			}
+			if _, err := service.startSession(held, StartParams{
+				Cwd: dir, Program: os.Args[0], Args: []string{"-test.run=^TestFakeProgramHelper$"},
+			}, mergeEnv(map[string]string{"NEXUS_CHAT_FAKE": "1"})); err == nil {
+				t.Fatal("a retained session could start an untracked process")
+			}
+			startFake(t, service, "tab", nil)
+		})
+	}
+}
+
+func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
+	service := New()
+	defer service.Close()
+	exiting := make(chan struct{})
+	proceed := make(chan struct{})
+	service.SetEventSink(func(event string, _ any) error {
+		if event == EventExit {
+			close(exiting)
+			<-proceed
+		}
+		return nil
+	})
+	startFake(t, service, "tab", nil)
+	proc := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_, _ = service.Stop(context.Background(), tabParams("tab"))
+	}()
+	defer func() {
+		close(proceed)
+		<-stopped
+	}()
+	select {
+	case <-exiting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("agent did not emit the exit")
+	}
+	select {
+	case <-proc.done:
+		t.Fatal("stop released the process before publishing the exit")
+	default:
+	}
+}
+
+func TestDelayedStdoutCannotBeAttributedToTheReplacement(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &process{generation: "old"}
+	replacement := &process{generation: "current"}
+	sess.proc = replacement
+	sess.addOutput(old, []byte(`{"type":"result","subtype":"interrupted"}`))
+	sess.addOutput(replacement, []byte(`{"type":"result","subtype":"success"}`))
+	if len(rec.lines) != 1 || rec.lines[0].ProcessGeneration != "current" ||
+		!bytes.Contains(rec.lines[0].Message, []byte("success")) {
+		t.Fatalf("a delayed result was attributed to the replacement: %v", describe(rec.lines))
+	}
+}
+
 func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")
@@ -589,338 +875,128 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	}
 }
 
-func TestEnvPutsWrapperFirstAndDropsParentSession(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PATH separator")
-	}
-	t.Setenv("CLAUDECODE", "1")
-	service := New()
-	rec := newRecorder()
-	service.SetEventSink(rec.sink)
-	defer service.Close()
-
-	wrapper := t.TempDir()
-	startFake(t, service, "tab", map[string]string{
-		"PATH":                   "/usr/bin:/bin",
-		"NEXUS_WRAPPER_SELF_DIR": wrapper,
-		"NEXUS_TAB_ID":           "tab",
-	})
-	_ = send(t, service, "tab", "env")
-	rec.waitFor(t, "the env", func(lines []LinePayload, _ []ExitPayload) bool {
-		return hasOut(lines, `"type":"env"`)
-	})
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	want := fmt.Sprintf(`{"type":"env","path":%q,"tab":"tab","claudecode":""}`, wrapper+":/usr/bin:/bin")
-	if !hasOut(rec.lines, want) {
-		t.Fatalf("want %s in %s", want, describe(rec.lines))
-	}
-}
-
-func TestLogCapDropsOldestLines(t *testing.T) {
-	log := newLineLog()
-	log.cap = 1000
-	for i := 0; i < 50; i++ {
-		log.add(DirOut, json.RawMessage(fmt.Sprintf(`{"type":"assistant","n":%d}`, i)), "")
-	}
-	if !log.truncated || log.bytes > log.cap {
-		t.Fatalf("truncated %v, bytes %d", log.truncated, log.bytes)
-	}
-	entries := log.since(0)
-	if got := string(entries[len(entries)-1].message); got != `{"type":"assistant","n":49}` {
-		t.Fatalf("newest = %s", got)
-	}
-	if entries[0].seq == 1 {
-		t.Fatal("oldest line kept")
-	}
-}
-
-func TestLogKeepsStreamOfMessageInProgress(t *testing.T) {
-	log := newLineLog()
-	log.add(DirOut, json.RawMessage(`{"type":"stream_event","n":1}`), "")
-	log.add(DirIn, json.RawMessage(`{"type":"user"}`), "")
-	log.add(DirOut, json.RawMessage(`{"type":"assistant"}`), "")
-	log.add(DirOut, json.RawMessage(`{"type":"stream_event","n":2}`), "")
-	var kinds []string
-	for _, e := range log.since(0) {
-		kinds = append(kinds, messageType(e.message))
-	}
-	if got := strings.Join(kinds, ","); got != "user,assistant,stream_event" {
-		t.Fatalf("log = %s", got)
-	}
-}
-
-func TestMessageType(t *testing.T) {
-	cases := map[string]string{
-		`{"type":"assistant","message":{}}`:        "assistant",
-		`{"message":{"type":"x"},"type":"result"}`: "result",
-		`{"type":"a\"b"}`:                          `a"b`,
-		`not json`:                                 "",
-	}
-	for input, want := range cases {
-		if got := messageType(json.RawMessage(input)); got != want {
-			t.Errorf("messageType(%s) = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestTranscriptFindsSessionInAnyProject(t *testing.T) {
-	dir := t.TempDir()
-	project := filepath.Join(dir, "projects", "-some-project")
-	if err := os.MkdirAll(project, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	id := "0b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90"
-	content := `{"type":"user","n":1}` + "\n" + "garbage\n" + `{"type":"assistant","n":2}` + "\n"
-	if err := os.WriteFile(filepath.Join(project, id+".jsonl"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	service := New()
-	params, _ := json.Marshal(TranscriptParams{SessionID: id, ConfigDir: dir})
-	result, err := service.Transcript(context.Background(), params)
+// TestCanceledSendDoesNotWaitForEarlierWrites verifies a queued send can
+// leave without writing or consuming an input sequence number.
+func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
 	if err != nil {
-		t.Fatalf("Transcript: %v", err)
+		t.Fatal(err)
 	}
-	got := result.(TranscriptResult)
-	if !got.Found || len(got.Lines) != 2 || string(got.Lines[1]) != `{"type":"assistant","n":2}` {
-		t.Fatalf("transcript = %+v", got)
+	writes := make(chan struct{}, 1)
+	p := &process{stdin: testStdin(func(data []byte) (int, error) {
+		writes <- struct{}{}
+		return len(data), nil
+	})}
+	sess.proc = p
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.Send(ctx, json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"text":"canceled"}}`))
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) || sess.log.lastSeq() != 0 {
+			t.Fatalf("canceled send returned %v with log sequence %d", err, sess.log.lastSeq())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled send waited behind a blocked write")
 	}
-
-	params, _ = json.Marshal(TranscriptParams{SessionID: "../../etc/passwd", ConfigDir: dir})
-	if _, err := service.Transcript(context.Background(), params); err == nil {
-		t.Fatal("Transcript took a path for a session id")
+	select {
+	case <-writes:
+		t.Fatal("canceled request wrote to the child")
+	default:
 	}
 }
 
-func TestSubagentTranscriptFindsAnAgentByItsIdOrItsCall(t *testing.T) {
-	dir := t.TempDir()
-	id := "0b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90"
-	folder := filepath.Join(dir, "projects", "-some-project", id, "subagents")
-	body := `{"parentUuid":null,"isSidechain":true,"agentId":"a1b2c3","type":"user","message":{"role":"user","content":"go"}}` + "\n" +
-		`{"type":"api-request-blob","base":"..."}` + "\n" +
-		"garbage\n" +
-		`{"parentUuid":"x","isSidechain":true,"type":"assistant","message":{"content":[]}}` + "\n" +
-		`{"type":"attachment","attachment":{}}` + "\n"
-	writeTestFile(t, filepath.Join(folder, "agent-a1b2c3.jsonl"), body)
-	writeTestFile(t, filepath.Join(folder, "agent-a1b2c3.meta.json"), `{"agentType":"Explore","toolUseId":"toolu_01"}`)
-	writeTestFile(t, filepath.Join(folder, "agent-other.jsonl"), `{"type":"user","message":{}}`+"\n")
-	writeTestFile(t, filepath.Join(folder, "agent-other.meta.json"), `{"agentType":"Plan","toolUseId":"toolu_02"}`)
-	service := New()
-	read := func(params SubagentTranscriptParams) SubagentTranscriptResult {
-		t.Helper()
-		raw, _ := json.Marshal(params)
-		result, err := service.SubagentTranscript(context.Background(), raw)
-		if err != nil {
-			t.Fatalf("SubagentTranscript(%+v): %v", params, err)
+// TestReplayCannotFollowAReplacedConnection changes sinks while the first
+// old frame is still being delivered.
+func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.log.add(DirOut, nil, "one")
+	sess.log.add(DirOut, nil, "two")
+	oldFrame := make(chan struct{}, 2)
+	release := make(chan struct{})
+	oldCtx, cancelOld := context.WithCancel(context.Background())
+	defer cancelOld()
+	s.SetConnectionSink(oldCtx, func(string, any) error {
+		oldFrame <- struct{}{}
+		<-release
+		return nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.Replay(oldCtx, tabParams("tab"))
+		result <- err
+	}()
+	select {
+	case <-oldFrame:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("old replay did not reach its first frame")
+	}
+	var fresh []LinePayload
+	newCtx, cancelNew := context.WithCancel(context.Background())
+	defer cancelNew()
+	s.SetConnectionSink(newCtx, func(_ string, payload any) error {
+		fresh = append(fresh, payload.(LinePayload))
+		return nil
+	})
+	close(release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("old replay returned %v", err)
 		}
-		return result.(SubagentTranscriptResult)
+	case <-time.After(2 * time.Second):
+		t.Fatal("old replay did not finish after cancellation")
 	}
-
-	got := read(SubagentTranscriptParams{SessionID: id, AgentID: "a1b2c3", ConfigDir: dir})
-	if !got.Found || len(got.Lines) != 2 {
-		t.Fatalf("by agent id = %+v", got)
+	if len(fresh) != 0 {
+		t.Fatalf("new connection got %d old replay frames", len(fresh))
 	}
-	if typ := messageType(got.Lines[1]); typ != "assistant" {
-		t.Fatalf("second line is %q", typ)
-	}
-	if got := read(SubagentTranscriptParams{SessionID: id, ToolUseID: "toolu_01", ConfigDir: dir}); !got.Found || len(got.Lines) != 2 {
-		t.Fatalf("by call = %+v", got)
-	}
-	// An agent id with no file of its own is looked for by its call.
-	if got := read(SubagentTranscriptParams{SessionID: id, AgentID: "gone", ToolUseID: "toolu_02", ConfigDir: dir}); !got.Found || len(got.Lines) != 1 {
-		t.Fatalf("by call after the id = %+v", got)
-	}
-	if got := read(SubagentTranscriptParams{SessionID: id, ToolUseID: "toolu_03", ConfigDir: dir}); got.Found {
-		t.Fatalf("a call with no agent = %+v", got)
-	}
-
-	for _, bad := range []SubagentTranscriptParams{
-		{SessionID: "../../etc/passwd", AgentID: "a1b2c3", ConfigDir: dir},
-		{SessionID: id, AgentID: "../../x", ConfigDir: dir},
-		{SessionID: id, ConfigDir: dir},
-	} {
-		raw, _ := json.Marshal(bad)
-		if _, err := service.SubagentTranscript(context.Background(), raw); err == nil {
-			t.Fatalf("SubagentTranscript took %+v", bad)
-		}
+	reply, err := s.Replay(newCtx, tabParams("tab"))
+	if err != nil || reply.(ReplayResult).LastSeq != 2 || len(fresh) != 2 || fresh[0].Text != "one" || fresh[1].Text != "two" {
+		t.Fatalf("new replay got %+v, %v and %+v", reply, err, fresh)
 	}
 }
 
-func writeTestFile(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+// TestReplayStopsWhenItsConnectionCancels keeps the sink installed while
+// canceling the host after its first frame.
+func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
+	s := New()
+	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
+	sess.log.add(DirOut, nil, "one")
+	sess.log.add(DirOut, nil, "two")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames := 0
+	s.SetConnectionSink(ctx, func(string, any) error {
+		frames++
+		cancel()
+		return nil
+	})
+	if _, err := s.Replay(ctx, tabParams("tab")); !errors.Is(err, context.Canceled) || frames != 1 {
+		t.Fatalf("replay emitted %d frames, returned %v", frames, err)
 	}
 }
 
-func TestSessionFileFindsClaudeSessions(t *testing.T) {
-	service := New()
-	find := func(params SessionFileParams) SessionFileResult {
-		t.Helper()
-		raw, _ := json.Marshal(params)
-		result, err := service.SessionFile(context.Background(), raw)
-		if err != nil {
-			t.Fatalf("SessionFile(%+v): %v", params, err)
-		}
-		return result.(SessionFileResult)
-	}
-	id := "0b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90"
-	claude := t.TempDir()
-	transcript := filepath.Join(claude, "projects", "-w", id+".jsonl")
-	writeTestFile(t, transcript, "{}\n")
-	if got := find(SessionFileParams{SessionID: id, ConfigDir: claude}); !got.Found || got.Path != transcript {
-		t.Fatalf("claude = %+v", got)
-	}
-	if got := find(SessionFileParams{SessionID: "1b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90", ConfigDir: claude}); got.Found {
-		t.Fatalf("a session not there = %+v", got)
-	}
-	raw, _ := json.Marshal(SessionFileParams{SessionID: "../../etc/passwd", ConfigDir: claude})
-	if _, err := service.SessionFile(context.Background(), raw); err == nil {
-		t.Fatal("SessionFile took a path for a session id")
-	}
-}
-
-func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
-	service := New()
-	stage := func(params StageThreadParams) StageThreadResult {
-		t.Helper()
-		raw, _ := json.Marshal(params)
-		result, err := service.StageThread(context.Background(), raw)
-		if err != nil {
-			t.Fatalf("StageThread(%+v): %v", params, err)
-		}
-		return result.(StageThreadResult)
-	}
-	id := "01a1c494-518d-7651-938d-00031c0ec9fb"
-	name := "rollout-2026-11-10T17-30-17-" + id + ".jsonl"
-	from, to := t.TempDir(), t.TempDir()
-	writeTestFile(t, filepath.Join(from, "sessions", "2026", "11", "10", name), `{"type":"session_meta"}`+"\n")
-	staged := filepath.Join(to, "sessions", stagedDir, name)
-
-	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
-		t.Fatalf("stage = %+v", got)
-	}
-	if body, err := os.ReadFile(staged); err != nil || string(body) != `{"type":"session_meta"}`+"\n" {
-		t.Fatalf("staged copy = %q, %v", body, err)
-	}
-	// The copy is not one of the profile's own threads.
-	if got := rolloutPath(to, id); got != "" {
-		t.Fatalf("rolloutPath took the staged copy: %s", got)
-	}
-	// The copy stays once the thread is forked: the fork reads its history
-	// from it each time it resumes.
-	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
-		t.Fatalf("stage again = %+v", got)
-	}
-	if _, err := os.Stat(staged); err != nil {
-		t.Fatalf("the staged copy went: %v", err)
-	}
-
-	// An archived thread is staged too: the fork unarchives nothing.
-	if err := os.RemoveAll(filepath.Join(from, "sessions")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.RemoveAll(filepath.Join(to, "sessions")); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(from, "archived_sessions", name), "{}\n")
-	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
-		t.Fatalf("archived stage = %+v", got)
-	}
-	if _, err := os.Stat(staged); err != nil {
-		t.Fatalf("archived thread not staged: %v", err)
-	}
-
-	// A copy longer than the thread is not cut back: a fork made from it
-	// reads it to where it was forked.
-	writeTestFile(t, staged, "{}\n{}\n")
-	stage(StageThreadParams{ThreadID: id, From: from, To: to})
-	if body, _ := os.ReadFile(staged); string(body) != "{}\n{}\n" {
-		t.Fatalf("a longer copy was cut back: %q", body)
-	}
-
-	// Profiles of one folder need no copy; a thread not there is not found.
-	if got := stage(StageThreadParams{ThreadID: id, From: from, To: from}); !got.Found {
-		t.Fatalf("same folder = %+v", got)
-	}
-	if _, err := os.Stat(filepath.Join(from, "sessions", stagedDir)); !os.IsNotExist(err) {
-		t.Fatalf("a copy was staged in the folder that keeps the thread: %v", err)
-	}
-	if got := stage(StageThreadParams{ThreadID: "1b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90", From: from, To: to}); got.Found {
-		t.Fatalf("a thread not there = %+v", got)
-	}
-	raw, _ := json.Marshal(StageThreadParams{ThreadID: "../../etc", From: from, To: to})
-	if _, err := service.StageThread(context.Background(), raw); err == nil {
-		t.Fatal("StageThread took a path for a thread id")
-	}
-}
-
-func TestStageThreadBringsTheThreadsItWasForkedFrom(t *testing.T) {
-	service := New()
-	meta := func(id, parent string) string {
-		payload := map[string]string{"id": id}
-		if parent != "" {
-			payload["forked_from_id"] = parent
-		}
-		line, _ := json.Marshal(map[string]any{"type": "session_meta", "payload": payload})
-		return string(line) + "\n"
-	}
-	rollout := func(id string) string { return "rollout-2026-11-11T10-00-00-" + id + ".jsonl" }
-	first := "01a1c8c5-b25a-7e12-808a-07e9fcbe1a9e"
-	second := "01a1c8ca-8ced-7802-8567-1af7c18bc127"
-	third := "01a1c9d0-1111-7222-8333-444455556666"
-	from, to := t.TempDir(), t.TempDir()
-	// The profile keeps the first thread, a copy of the second it forked
-	// from another profile, and the third, forked from that copy in turn.
-	writeTestFile(t, filepath.Join(from, "archived_sessions", rollout(first)), meta(first, ""))
-	writeTestFile(t, filepath.Join(from, "sessions", stagedDir, rollout(second)), meta(second, first))
-	writeTestFile(t, filepath.Join(from, "sessions", "2026", "11", "11", rollout(third)), meta(third, second))
-
-	raw, _ := json.Marshal(StageThreadParams{ThreadID: third, From: from, To: to})
-	if result, err := service.StageThread(context.Background(), raw); err != nil || !result.(StageThreadResult).Found {
-		t.Fatalf("StageThread = %+v, %v", result, err)
-	}
-	for _, id := range []string{first, second, third} {
-		if _, err := os.Stat(filepath.Join(to, "sessions", stagedDir, rollout(id))); err != nil {
-			t.Fatalf("%s not staged: %v", id, err)
-		}
-	}
-
-	// A thread the profile keeps itself is not staged, nor those before it.
-	other := t.TempDir()
-	writeTestFile(t, filepath.Join(other, "sessions", "2026", "11", "11", rollout(second)), meta(second, first))
-	raw, _ = json.Marshal(StageThreadParams{ThreadID: third, From: from, To: other})
-	if _, err := service.StageThread(context.Background(), raw); err != nil {
-		t.Fatal(err)
-	}
-	entries, _ := os.ReadDir(filepath.Join(other, "sessions", stagedDir))
-	if len(entries) != 1 || entries[0].Name() != rollout(third) {
-		t.Fatalf("staged in a profile that keeps the second thread: %v", entries)
-	}
-}
-
-func TestReadJSONLinesKeepsTheEnd(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "t.jsonl")
-	var b strings.Builder
-	for i := 0; i < 100; i++ {
-		fmt.Fprintf(&b, `{"n":%d}`+"\n", i)
-	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	lines, truncated, err := readJSONLines(path, 50)
-	if err != nil || !truncated {
-		t.Fatalf("err %v, truncated %v", err, truncated)
-	}
-	if len(lines) == 0 || string(lines[len(lines)-1]) != `{"n":99}` {
-		t.Fatalf("lines = %s", lines)
-	}
-	for _, line := range lines {
-		if !json.Valid(line) {
-			t.Fatalf("partial line %s", line)
-		}
+// TestChatStderrTailMasksCredentials checks what exit events and logs will see.
+func TestChatStderrTailMasksCredentials(t *testing.T) {
+	p := &process{}
+	p.readStderr(strings.NewReader("connection to https://example:fake-pass@host.test failed\nAuthorization: Bearer fake-auth\nAPP_SECRET=fake-env\n"))
+	got := p.stderr()
+	if strings.Contains(got, "fake-") || !strings.Contains(got, "@host.test failed") {
+		t.Fatalf("unexpected child diagnostic %q", got)
 	}
 }

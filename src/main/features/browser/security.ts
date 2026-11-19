@@ -8,7 +8,7 @@
  *   1. webPreferences — constructor-time hardening.
  *   2. Permission handler — deny-by-default, allow-list only.
  *   3. Navigation guards — will-navigate / will-frame-navigate /
- *      setWindowOpenHandler — block anything that is not http/https.
+ *      setWindowOpenHandler — restrict schemes and embedded local files.
  *
  * CRITICAL: every guard must remain in place.  Removing any one of them
  * creates a code-execution or data-exfiltration vector.
@@ -16,7 +16,7 @@
  *   - `javascript:` → executes arbitrary code in the renderer process.
  *   - `data:`/`blob:` → injects arbitrary HTML.
  *   - `file:` → reads the local filesystem.
- *   - New window (`window.open`) → opened as a hardened popup (http/https/file
+ *   - New window (`window.open`) → opened as a hardened popup (http/https
  *     only) that inherits the tab's partition/session and is recursively
  *     subjected to these same guards; other schemes are denied. It does not
  *     escape the partition sandbox.
@@ -35,8 +35,8 @@ import {
   isSubframeNavigationAllowed,
 } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
-import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import { UserActivation, watchActivation } from "../window/activation";
+import { canNavigateLocalFrame } from "./local-files";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -210,31 +210,6 @@ export function installPermissionHandler(
   });
 }
 
-/**
- * Cancels file:// requests through which page script could read a local file
- * (see isScriptReadableRequest). Electron grants file:// pages privileges
- * Chrome does not, so a page opened from disk in a tab could otherwise read
- * anything the user can — `~/.ssh/id_rsa` included — and send it out.
- * Navigating to, rendering and embedding local files still works.
- */
-export function installLocalFileReadGuard(session: import("electron").Session): void {
-  session.webRequest.onBeforeRequest({ urls: ["file://*/*"] }, (details, callback) => {
-    const cancel = cancelsLocalFileRequest(details.resourceType, details.url);
-    if (cancel) logger.warn(`[file-read] blocked ${details.resourceType}: ${details.url}`);
-    callback({ cancel });
-  });
-}
-
-/**
- * Whether a browser tab's file:// request is cancelled: one page script
- * could read (fetch, XHR, a JSON module), and a frame or object of a local
- * file, which the file:// page that holds it could read as well.
- */
-export function cancelsLocalFileRequest(resourceType: string, url: string): boolean {
-  if (resourceType === "subFrame" || resourceType === "object") return true;
-  return isScriptReadableRequest(resourceType, url);
-}
-
 /** WebContents whose page lifetime already ends their pending prompts. */
 const promptLifetimeTracked = new Set<number>();
 
@@ -307,9 +282,12 @@ export function installNavigationGuards(
   // Covers: location.href assignments, <a target="_self"> clicks, and
   // programmatic webContents.loadURL calls that originate from the page.
   webContents.on("will-navigate", (event, url) => {
-    if (!allowed(url)) {
+    if (
+      !allowed(url) ||
+      (url.startsWith("file:") && event.initiator && event.initiator !== webContents.mainFrame)
+    ) {
       event.preventDefault();
-      logger.warn(`[will-navigate] blocked: ${url}`);
+      logger.warn("[will-navigate] blocked");
       return;
     }
     onNavigate?.(url);
@@ -350,9 +328,17 @@ export function installNavigationGuards(
     // rendering without widening the scheme allowlist.
     if (isBuiltinPdfViewerUrl(url)) return;
 
-    if (!isSubframeNavigationAllowed(url)) {
+    if (
+      !isSubframeNavigationAllowed(url) &&
+      !canNavigateLocalFrame(webContents, url, details.frame, details.initiator)
+    ) {
       details.preventDefault();
-      logger.warn(`[will-frame-navigate] blocked: ${url}`);
+      logger.warn("[will-frame-navigate] blocked");
+    }
+  });
+  webContents.on("will-redirect", (details) => {
+    if (details.url.startsWith("file:") && (popup || !details.isMainFrame)) {
+      details.preventDefault();
     }
   });
 
@@ -380,7 +366,7 @@ export function installNavigationGuards(
   watchActivation(webContents, activation);
   webContents.setWindowOpenHandler(({ url }) => {
     if (isPopupNavigationAllowed(url) && !activation.take()) {
-      logger.warn(`[window-open] blocked without user input: ${url}`);
+      logger.warn("[window-open] blocked without user input");
       return { action: "deny" };
     }
     if (isPopupNavigationAllowed(url)) {
@@ -396,7 +382,7 @@ export function installNavigationGuards(
         },
       };
     }
-    logger.warn(`[window-open] blocked: ${url}`);
+    logger.warn("[window-open] blocked");
     return { action: "deny" };
   });
 

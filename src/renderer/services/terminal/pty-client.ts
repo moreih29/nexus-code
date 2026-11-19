@@ -1,13 +1,18 @@
+import { AppErrorSchema, appErrorFailed } from "../../../shared/error/app-error";
 import { TERMINAL_FLOW_CONTROL } from "../../../shared/pty/flow-control";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { surfaceError } from "../error-surface/surface-error";
 import type { PtyClient, PtyClientOptions, SpawnedSession, TerminalDimensions } from "./types";
 
 const pendingAckBytesBySessionKey = new Map<string, number>();
 const liveSessions = new Set<string>();
 const spawnPromisesBySessionKey = new Map<string, Promise<SpawnedSession>>();
 /** Input waiting for the session's write in flight; present while one is. */
-const queuedInputBySessionKey = new Map<string, string>();
+interface InputQueue {
+  pending: string;
+}
+const queuedInputBySessionKey = new Map<string, InputQueue>();
 /** Input to type once the session's shell is ready; see `queueStartupInput`. */
 const startupInputBySessionKey = new Map<string, StartupInput>();
 const textEncoder = new TextEncoder();
@@ -85,26 +90,53 @@ export function spawnSession(
 export function writeSession(workspaceId: string, tabId: string, data: string): void {
   const key = sessionKey(workspaceId, tabId);
   const queued = queuedInputBySessionKey.get(key);
-  if (queued !== undefined) {
-    queuedInputBySessionKey.set(key, queued + data);
+  if (queued) {
+    queued.pending += data;
     return;
   }
-  queuedInputBySessionKey.set(key, "");
-  void sendInput(key, workspaceId, tabId, data);
+  const queue = { pending: "" };
+  queuedInputBySessionKey.set(key, queue);
+  void sendInput(key, queue, workspaceId, tabId, data);
 }
 
-async function sendInput(key: string, workspaceId: string, tabId: string, data: string) {
+/** Drain a write queue only while it still belongs to the current session. */
+async function sendInput(
+  key: string,
+  queue: InputQueue,
+  workspaceId: string,
+  tabId: string,
+  data: string,
+): Promise<void> {
   let next = data;
-  while (next.length > 0) {
-    try {
-      await ipcCallResult("pty", "write", { workspaceId, tabId, data: next });
-    } catch {
-      // A failed write is visible to the user; the input after it still goes out.
+  try {
+    while (next.length > 0) {
+      const result = await ipcCallResult("pty", "write", { workspaceId, tabId, data: next });
+      if (queuedInputBySessionKey.get(key) !== queue) return;
+      if (!result.ok) {
+        if (result.kind === "cancelled") return;
+        const error = AppErrorSchema.safeParse(result);
+        surfaceError(
+          error.success
+            ? error.data
+            : appErrorFailed(result.message, {
+                code: "terminal-input-failed",
+              }),
+          { surface: "toast" },
+        );
+        return;
+      }
+      next = queue.pending;
+      queue.pending = "";
     }
-    next = queuedInputBySessionKey.get(key) ?? "";
-    queuedInputBySessionKey.set(key, "");
+  } catch (error) {
+    if (queuedInputBySessionKey.get(key) === queue) {
+      surfaceError(appErrorFailed(String(error), { code: "terminal-input-failed" }), {
+        surface: "toast",
+      });
+    }
+  } finally {
+    if (queuedInputBySessionKey.get(key) === queue) queuedInputBySessionKey.delete(key);
   }
-  queuedInputBySessionKey.delete(key);
 }
 
 interface StartupInput {
@@ -199,6 +231,7 @@ export function forgetSession(workspaceId: string, tabId: string): void {
   liveSessions.delete(key);
   spawnPromisesBySessionKey.delete(key);
   pendingAckBytesBySessionKey.delete(key);
+  queuedInputBySessionKey.delete(key);
   dropStartupInput(key);
 }
 

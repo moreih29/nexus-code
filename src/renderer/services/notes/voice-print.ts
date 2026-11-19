@@ -5,7 +5,10 @@
  * voice it is nearest (or a new one). Every so often all the lines are
  * grouped again, which may move earlier lines to the voice they belong to.
  * Until its voice print is known, a line goes with the voice its server
- * label had last.
+ * label had last. That key is only shown for now: a new voice's key is
+ * picked among the lines' voices that are known, so lines coming in while
+ * the first is still heard don't move the numbering on ("3" for the first
+ * voice, after two keys shown for a moment).
  */
 import {
   liveVoice,
@@ -59,6 +62,8 @@ export class VoiceTracker {
   private last: string | null = null;
   private lastRegroup = Number.NEGATIVE_INFINITY;
   private queue: Promise<unknown> = Promise.resolve();
+  /** The lines (by `at`) whose voice is still being worked out. */
+  private readonly pending = new Set<number>();
 
   /** A new take: its audio starts over, and so do the server's labels. */
   startTake(): void {
@@ -80,9 +85,17 @@ export class VoiceTracker {
     this.heard += samples.length;
   }
 
-  /** The voice for words under `label` before their voice print is known. */
+  /**
+   * The voice for words under `label` before their voice print is known.
+   * `taken` is the keys known: not those of the lines still `undecided`.
+   */
   provisional(label: string, taken: Iterable<string>): string {
     return this.byLabel.get(label) ?? this.last ?? nextVoiceKey(taken);
+  }
+
+  /** Whether the line at `at` is still being heard: its key is only the one shown for now. */
+  undecided(at: number): boolean {
+    return this.pending.has(at);
   }
 
   /** The take's audio from `startMs` to `endMs` (its first 10 s), or null when it is gone. */
@@ -103,7 +116,7 @@ export class VoiceTracker {
   /**
    * A line whose words are final: the voice it goes with, and, when all the
    * lines were grouped again, every line's voice by `at`. Lines are heard
-   * in the order they come.
+   * in the order they come; `taken` is the keys known, as `provisional`'s.
    */
   lineHeard(
     line: HeardLine,
@@ -113,6 +126,7 @@ export class VoiceTracker {
     // Its audio now, before the ring moves on.
     const audio = this.audioOf(line.startMs, line.endMs);
     const ms = line.endAt - line.at;
+    this.pending.add(line.at);
     const next = this.queue.then(async () => {
       const vector = audio ? await notesApi.voicePrint(audio).catch(() => null) : null;
       const key = liveVoice(
@@ -121,6 +135,7 @@ export class VoiceTracker {
         taken(),
         this.byLabel.get(line.label) ?? this.last,
       );
+      this.pending.delete(line.at);
       this.byLabel.set(line.label, key);
       this.last = key;
       if (vector) this.samples.push({ at: line.at, ms, vector, key });
@@ -131,7 +146,9 @@ export class VoiceTracker {
       }
       return { key: regrouped?.get(line.at) ?? key, regrouped };
     });
-    this.queue = next.catch(() => {});
+    this.queue = next.catch(() => {
+      this.pending.delete(line.at);
+    });
     return next;
   }
 

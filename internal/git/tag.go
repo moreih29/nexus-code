@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,27 +92,18 @@ func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		stderrStr := stderr.String()
+		stderrStr := stderr
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
 		return nil, classifiedFailure(kind, msg)
 	}
 
-	tags := parseTagList(stdout.String())
+	tags := parseTagList(stdout)
 	return tags, nil
 }
 
@@ -143,27 +133,18 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		stderrStr := stderr.String()
+		stderrStr := stderr
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
 		return nil, classifiedFailure(kind, msg)
 	}
 
-	tags := parseRemoteTagList(stdout.String(), remote)
+	tags := parseRemoteTagList(stdout, remote)
 	return tags, nil
 }
 
@@ -200,14 +181,14 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -239,14 +220,14 @@ func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -288,14 +269,14 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -339,14 +320,14 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -489,14 +470,14 @@ func (s *Service) assertTagTargetExists(ctx context.Context, cwd string, ref str
 	if err != nil {
 		return err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return fatal
 	}

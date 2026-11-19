@@ -7,30 +7,27 @@
 
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
-import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startTabActivityPolling } from "./services/agent-sessions/activity-poll";
 import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
-import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
+import { initBrowserOverlayAutoSuspend } from "./services/browser/suspend-auto";
+import { startCliUiListener } from "./services/cli/ui-requests";
+import { initGitErrorToasts } from "./services/error-surface/git-error-toasts";
+import { initUpdatesSubscriptions } from "./services/updates/operations";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
-import {
-  initBrowserLastUrlPersistence,
-  initBrowserRuntimeSubscriptions,
-} from "./state/operations/browser";
+import { initBrowserRuntimeSubscriptions } from "./state/operations/browser";
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
-import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
-import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
 import { initPortsSync } from "./state/operations/ports";
 import { hydrateReleaseNotesSeen } from "./state/operations/release-notes";
-import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
-import { initUpdatesSubscriptions } from "./state/operations/updates";
-import { registerStatePersistence } from "./state/persistence";
+import { focusWorkspace } from "./state/operations/workspace-selection";
+import { hydrateLayoutSnapshots, registerStatePersistence } from "./state/persistence";
+import { useActiveStore } from "./state/stores/active";
 import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
@@ -44,18 +41,16 @@ import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
-import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
-import { restoredTitles, useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { restoredWorkspace } from "./state/stores/workspaces";
+import { restoredWorkspace, useWorkspacesStore } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
@@ -98,7 +93,7 @@ function installGlobalFileDropGuard(): void {
   });
 }
 
-export async function bootstrapAppState(): Promise<void> {
+async function bootstrapAppState(): Promise<void> {
   // Install the central workspace:removed listener before any async I/O —
   // registered cleanup functions sit in memory regardless, but the listener
   // itself must be live before the first user-initiated workspace removal.
@@ -108,11 +103,8 @@ export async function bootstrapAppState(): Promise<void> {
   // installGlobalFileDropGuard for the file:// navigation hazard it prevents.
   installGlobalFileDropGuard();
 
-  // Wire the OS notification click → workspace activate + tab reveal listener.
+  // Reveal the tab a clicked OS notification points to.
   startNotificationClickListener();
-
-  // Answer the nexus CLI's requests; they wait until the tabs are restored.
-  startCliUiListener();
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
@@ -126,11 +118,6 @@ export async function bootstrapAppState(): Promise<void> {
   // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
   // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
   initBrowserRuntimeSubscriptions();
-
-  // Wire last-URL persistence: debounces currentUrl changes from the runtime
-  // store and flushes them to the tabs store so the URL survives app restarts.
-  // Must be called after initBrowserRuntimeSubscriptions.
-  initBrowserLastUrlPersistence();
 
   // Wire the browser permission prompt subscription so browserPermission:prompt
   // broadcasts from main are forwarded to the PermissionPromptRoot queue.
@@ -283,41 +270,7 @@ export async function bootstrapAppState(): Promise<void> {
   // reflects persisted state on first render.
   useBrowserPermissionsStore.getState().hydrate(state.browserPermissionGrants);
 
-  if (state.layoutByWorkspace) {
-    for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
-      try {
-        const tabsMap: Record<
-          string,
-          (typeof snap.tabs)[number] & {
-            isPreview: boolean;
-            isPinned: boolean;
-            defaultTitle: string;
-          }
-        > = {};
-        for (const t of snap.tabs) {
-          const isPreview =
-            "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
-          const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-          // Its titles as saved: a rename stays the user's, and a name the
-          // app gives follows its language (restoredTitles).
-          tabsMap[t.id] = { ...t, isPreview, isPinned, ...restoredTitles(t) };
-        }
-        useTabsStore.setState((s) => ({
-          byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
-        }));
-
-        const knownTabIds = new Set(snap.tabs.map((t) => t.id));
-        useLayoutStore
-          .getState()
-          .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
-        // Layouts saved before pinning reordered tabs can hold pinned tabs
-        // behind unpinned ones.
-        normalizeWorkspaceTabOrder(wsId);
-      } catch {
-        // Silent repair: skip invalid snapshot for this workspace
-      }
-    }
-  }
+  hydrateLayoutSnapshots(state.layoutByWorkspace);
 
   // The agent view's panels hold tabs, so they come back after the tabs,
   // keeping those that still exist, and let go of each tab as it closes.
@@ -325,7 +278,6 @@ export async function bootstrapAppState(): Promise<void> {
   startAgentViewPruning();
 
   registerStatePersistence();
-  markCliUiReady();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
@@ -343,26 +295,41 @@ export async function bootstrapAppState(): Promise<void> {
 }
 
 /**
- * Load the workspace list from main, push it into the store, and
- * restore the active workspace selection.
- *
- * Does NOT call workspace:activate at startup. Main's init() is the source
- * of truth for the restored active workspace and its conditional auto-connect
- * (key-only SSH and local connect automatically; interactive SSH restores in
- * the disconnected state), so the selection is the workspace main restored.
- * Calling activate here would both trigger a connection and wrongly bump the
- * recency list on every app launch.
+ * Load the workspace list and restore the selection main recorded. Main
+ * owns startup connection policy, including interactive SSH workspaces
+ * that wait for a user to connect.
  */
-export async function bootstrapWorkspaces(
-  setAll: (list: WorkspaceMeta[]) => void,
-  setActiveWorkspaceId: (id: string | null) => void,
-): Promise<void> {
+export async function bootstrapWorkspaces(): Promise<void> {
   // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
-  const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
-  setAll(list);
+  const [workspaces, connections] = await Promise.all([
+    ipcCallResult("workspace", "list", undefined),
+    ipcCallResult("workspace", "connectionSnapshot", undefined).catch((error: unknown) => {
+      log.warn(`Workspace connection snapshot failed: ${String(error)}`);
+    }),
+  ]);
+  if (connections && !connections.ok)
+    log.warn(`Workspace connection snapshot failed: ${connections.message}`);
+  const list = mustSucceed(workspaces);
+  useWorkspacesStore.getState().setAll(list, connections?.ok ? connections.value : undefined);
   const active = await ipcCallResult("workspace", "active", undefined);
-  const selected = restoredWorkspace(list, active.ok ? active.value : null);
-  if (selected) setActiveWorkspaceId(selected.id);
+
+  // The sidebar can already be used while the active-ID reply is pending.
+  if (useActiveStore.getState().activeWorkspaceId !== null) return;
+  const currentList = useWorkspacesStore.getState().workspaces;
+  const selected = restoredWorkspace(currentList, active.ok ? active.value : null);
+  if (selected) focusWorkspace(selected.id, "preserve");
+}
+
+/**
+ * Restore tabs before the workspace can mount and seed a terminal. CLI
+ * requests can arrive throughout startup and wait for both restorations.
+ */
+export function bootstrapWorkbench(
+  hydrateAppState: () => Promise<void> = bootstrapAppState,
+): Promise<void> {
+  const ready = hydrateAppState().then(bootstrapWorkspaces);
+  startCliUiListener(ready);
+  return ready;
 }
 
 /**

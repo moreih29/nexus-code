@@ -14,9 +14,9 @@ import { allLeaves } from "@/state/stores/layout/helpers";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { type CreateTabArgs, type Tab, useTabsStore } from "@/state/stores/tabs";
 import type { CliPlacement } from "../../../shared/cli/ui";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, isShownInAgentView, showBesideCaller } from "../agent-view/show";
 import { requestTabFocus } from "../tab-focus";
-import { activateWorkspace } from "../workspace/tasks";
 
 export interface TabPlace {
   readonly groupId: string;

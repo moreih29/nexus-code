@@ -26,7 +26,7 @@ func newConsoleService(t *testing.T) (*Service, *consoleRecorder) {
 	t.Helper()
 	svc := New()
 	rec := &consoleRecorder{}
-	svc.SetEventSink(func(event string, payload any) error {
+	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		switch p := payload.(type) {
@@ -193,5 +193,19 @@ func TestMergeEnvOverridesPathWhateverItsCase(t *testing.T) {
 	}
 	if len(paths) != 1 || paths[0] != `PATH=C:\nexus\bin;C:\Windows` {
 		t.Fatalf("PATH entries = %q, want only the override", paths)
+	}
+}
+
+// TestMergeEnvKeepsBothCmdLaunchers verifies codex.cmd takes precedence
+// while nexus.exe stays on PATH and the directory names stay intact.
+func TestMergeEnvKeepsBothCmdLaunchers(t *testing.T) {
+	t.Setenv("Path", `C:\Windows`)
+	env := mergeEnv(map[string]string{
+		wrapperDirEnv:         `C:\Nexus Work\cli`,
+		"NEXUS_CMD_CODEX_DIR": `C:\Nexus Work & Notes\cmd!`,
+	})
+	want := `C:\Nexus Work & Notes\cmd!;C:\Nexus Work\cli;C:\Windows`
+	if got := pathValues(env); len(got) != 1 || got[0] != want {
+		t.Fatalf("PATH = %q, want [%q]", got, want)
 	}
 }

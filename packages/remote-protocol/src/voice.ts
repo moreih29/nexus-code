@@ -36,7 +36,10 @@
  *   it lets the device send the session's recording once to POST
  *   /voice/transcriptions for a second pass over the whole file (a more
  *   accurate text and speakers). Only the recording's seconds beyond the
- *   live session's count against the quota again.
+ *   live session's count against the quota again. An `error` may carry one
+ *   too, when the session had audio worth hearing again; a device that gets
+ *   none from it (or from a server that never sends one) has no second pass
+ *   for that session.
  *
  * The second pass (`purpose=note` sessions only), signed in as /voice is:
  * - POST /voice/transcriptions?v=1&lang=<language>, header
@@ -67,7 +70,7 @@ export const VoiceLanguageSchema = z.string().regex(/^([a-z]{2,3}(-[A-Z]{2})?|mu
 export const VoicePurposeSchema = z.enum(["dictation", "note"]);
 export type VoicePurpose = z.infer<typeof VoicePurposeSchema>;
 
-/** How long a `done`'s transcribeToken stays good for. */
+/** How long a `done`'s (or `error`'s) transcribeToken stays good for. */
 export const TRANSCRIBE_TOKEN_MS = 24 * 60 * 60 * 1000;
 
 /** Most bytes of a recording POST /voice/transcriptions takes (about 8 hours of 24 kbps Opus). */
@@ -126,6 +129,12 @@ export const VoiceServerMessageSchema = z.discriminatedUnion("t", [
      */
     code: z.enum(["bad-frame", "provider-error", "unauthorized"]),
     message: z.string(),
+    /**
+     * A note's session that had audio worth hearing again: as `done`'s, lets
+     * its recording go once to POST /voice/transcriptions. Missing from a
+     * server that does not send one.
+     */
+    transcribeToken: z.string().min(1).optional(),
   }),
 ]);
 export type VoiceServerMessage = z.infer<typeof VoiceServerMessageSchema>;

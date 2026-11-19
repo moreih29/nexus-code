@@ -16,3 +16,12 @@ func parents() map[int]int {
 	}
 	return table
 }
+
+// processStart identifies a process by its kernel start timestamp.
+func processStart(pid int) uint64 {
+	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0
+	}
+	return uint64(p.Proc.P_starttime.Sec)*1_000_000 + uint64(p.Proc.P_starttime.Usec)
+}

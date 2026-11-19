@@ -15,11 +15,16 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: () => Promise.resolve({ ok: true, value: undefined }),
 }));
 
-const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
-const { CodexController } = await import(
-  "../../../../../src/renderer/services/chat/codex-controller"
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
 );
-const { clearObservedQueued, dispatchQueuedMessage, emptyTabState, useChatStore } = await import(
+const { CodexController } = await import(
+  "../../../../../src/renderer/services/chat/codex/controller"
+);
+const { clearObservedQueued, dispatchQueuedMessage } = await import(
+  "../../../../../src/renderer/services/chat/transport/queue"
+);
+const { emptyTabState, useChatStore } = await import(
   "../../../../../src/renderer/services/chat/store"
 );
 

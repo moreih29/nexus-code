@@ -250,7 +250,10 @@ export function agentTranscript(model: Pick<ChatModel, "agentItems">, agent: Age
   return [...prompt, ...(model.agentItems[agent.toolUseId] ?? [])];
 }
 
-/** Background Bash runs, workflows and the like: the tasks that are not agents. */
+/**
+ * Background Bash runs, workflows and the like: the tasks that are not agents.
+ * Background commands come from the current run's live model and are not restored from history.
+ */
 export function jobsOf(model: Pick<ChatModel, "tasks">): TaskInfo[] {
   return Object.values(model.tasks).filter((task) => !AGENT_TASK_TYPES.has(task.type));
 }
@@ -950,4 +953,4 @@ export function contextOf(usage: unknown): ContextSummary | null {
   };
 }
 
-export { type UsageLimit, usageLimitsOf } from "./usage-limits";
+export { type UsageLimit, usageLimitsOf } from "./claude/usage-limits";

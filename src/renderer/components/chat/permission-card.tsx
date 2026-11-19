@@ -29,7 +29,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { PermissionAnswer } from "../../services/chat/controller";
+import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { type Scope, scopesOf } from "../../services/chat/permission-scopes";
 import { cn } from "../../utils/cn";
@@ -505,10 +505,16 @@ export { scopesOf };
 // ---------------------------------------------------------------------------
 
 export interface Question {
+  id?: string;
   question: string;
   header?: string;
   multiSelect?: boolean;
   options: { label: string; description?: string }[];
+}
+
+/** Codex names each question; Claude's questions are keyed by their text. */
+export function questionKey(question: Question): string {
+  return question.id ?? question.question;
 }
 
 export function readQuestions(input: Record<string, unknown>): Question[] {
@@ -516,6 +522,7 @@ export function readQuestions(input: Record<string, unknown>): Question[] {
   return (input.questions as Record<string, unknown>[])
     .filter((q) => typeof q?.question === "string")
     .map((q) => ({
+      ...(typeof q.id === "string" ? { id: q.id } : {}),
       question: q.question as string,
       header: typeof q.header === "string" ? q.header : undefined,
       multiSelect: q.multiSelect === true,
@@ -567,8 +574,8 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   );
 
   const answerOf = (q: Question): string => {
-    const labels = [...(picked[q.question] ?? [])];
-    const typed = other[q.question]?.trim();
+    const labels = [...(picked[questionKey(q)] ?? [])];
+    const typed = other[questionKey(q)]?.trim();
     if (typed) labels.push(typed);
     return labels.join(", ");
   };
@@ -588,8 +595,9 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   };
   const submit = () => {
     if (!complete) return;
-    const answers: Record<string, string> = {};
-    for (const each of questions) answers[each.question] = answerOf(each);
+    const answers = Object.fromEntries(
+      questions.map((each) => [questionKey(each), answerOf(each)]),
+    );
     onAnswer(request, { kind: "allow", updatedInput: { ...request.input, answers } });
   };
   const onward = () => {
@@ -608,18 +616,18 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   };
   const toggle = (question: Question, label: string) => {
     setPicked((prev) => {
-      const now = prev[question.question] ?? [];
+      const now = prev[questionKey(question)] ?? [];
       if (question.multiSelect) {
         return {
           ...prev,
-          [question.question]: now.includes(label)
+          [questionKey(question)]: now.includes(label)
             ? now.filter((l) => l !== label)
             : [...now, label],
         };
       }
-      return { ...prev, [question.question]: [label] };
+      return { ...prev, [questionKey(question)]: [label] };
     });
-    if (!question.multiSelect) setOther((prev) => ({ ...prev, [question.question]: "" }));
+    if (!question.multiSelect) setOther((prev) => ({ ...prev, [questionKey(question)]: "" }));
   };
 
   if (!q) return null;
@@ -666,7 +674,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
               <button
                 type="button"
                 role="tab"
-                key={each.question}
+                key={questionKey(each)}
                 aria-selected={here}
                 onClick={() => show(i)}
                 className={cn(
@@ -691,10 +699,10 @@ function QuestionForm({ request, onAnswer }: FormProps) {
           </span>
         )
       )}
-      <QuestionText key={q.question} text={q.question} />
+      <QuestionText key={questionKey(q)} text={q.question} />
       <div className="flex flex-col gap-1.5">
         {q.options.map((option, i) => {
-          const on = picked[q.question]?.includes(option.label) ?? false;
+          const on = picked[questionKey(q)]?.includes(option.label) ?? false;
           return (
             <button
               type="button"
@@ -727,11 +735,11 @@ function QuestionForm({ request, onAnswer }: FormProps) {
           <Pencil aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             ref={otherRef}
-            value={other[q.question] ?? ""}
+            value={other[questionKey(q)] ?? ""}
             onChange={(event) => {
               const value = event.target.value;
-              setOther((prev) => ({ ...prev, [q.question]: value }));
-              if (value && !q.multiSelect) setPicked((prev) => ({ ...prev, [q.question]: [] }));
+              setOther((prev) => ({ ...prev, [questionKey(q)]: value }));
+              if (value && !q.multiSelect) setPicked((prev) => ({ ...prev, [questionKey(q)]: [] }));
             }}
             onKeyDown={(event) => reasonKeys(event, onward, () => giveKeys(root.current))}
             aria-label={t("chat.question.other")}

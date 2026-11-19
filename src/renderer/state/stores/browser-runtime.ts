@@ -36,6 +36,7 @@ export interface BrowserRuntimeState {
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
+  loadFailure: { url: string; description: string } | null;
   /**
    * Cached page snapshot (JPEG dataURL) painted as an absolute overlay over
    * the placeholder area while the native WebContentsView is hidden by a
@@ -75,6 +76,7 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
   canGoBack: false,
   canGoForward: false,
   isLoading: false,
+  loadFailure: null,
   snapshot: null,
   devtoolsOpen: false,
   faviconUrl: null,

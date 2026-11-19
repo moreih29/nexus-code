@@ -3,11 +3,60 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestGitProbeSkipsTheMacStubWithoutDeveloperTools simulates xcode-select on
+// a fresh Mac. The probe must report Git missing before launching the stub.
+func TestGitProbeSkipsTheMacStubWithoutDeveloperTools(t *testing.T) {
+	ctx := context.Background()
+	for _, args := range [][]string{{"--version"}, {"rev-parse", "--show-toplevel"}} {
+		cmd := exec.CommandContext(ctx, "/usr/bin/git", args...)
+		cmd.Env = append(cmd.Environ(), "DEVELOPER_DIR=/missing")
+		err := runGitProbe(ctx, "darwin", cmd, func(actual *exec.Cmd) error {
+			if actual.Path != "/usr/bin/xcode-select" || len(actual.Args) != 2 || actual.Args[1] != "--print-path" {
+				t.Fatalf("unexpected command %q", actual.Args)
+			}
+			if !strings.Contains(strings.Join(actual.Env, "\n"), "DEVELOPER_DIR=/missing") {
+				t.Fatal("probe used a different developer directory")
+			}
+			return &exec.ExitError{}
+		})
+		if !errors.Is(err, exec.ErrNotFound) {
+			t.Fatalf("probe did not report Git missing for %q", args)
+		}
+	}
+}
+
+// TestGitProbePreservesRepoErrors verifies that an installed Git's errors
+// still reach Detect, including on a Mac using a third-party Git binary.
+func TestGitProbePreservesRepoErrors(t *testing.T) {
+	ctx := context.Background()
+	notRepo := errors.New("not a git repository")
+	for _, path := range []string{"/usr/bin/git", "/opt/homebrew/bin/git"} {
+		cmd := exec.CommandContext(ctx, path, "rev-parse")
+		var calls []string
+		err := runGitProbe(ctx, "darwin", cmd, func(actual *exec.Cmd) error {
+			calls = append(calls, actual.Path)
+			if actual == cmd {
+				return notRepo
+			}
+			return nil
+		})
+		want := []string{path}
+		if path == "/usr/bin/git" {
+			want = append([]string{"/usr/bin/xcode-select"}, path)
+		}
+		if strings.Join(calls, ",") != strings.Join(want, ",") || !errors.Is(err, notRepo) {
+			t.Fatalf("probe %s ran %v and returned %v, want %v and the Git error", path, calls, err, want)
+		}
+	}
+}
 
 // ---------------------------------------------------------------------------
 // git.info tests

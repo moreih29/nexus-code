@@ -5,27 +5,19 @@
  * workspace is searched where its files are. Paths are relative to the
  * workspace's folder, with "/" between their parts on every system.
  */
-import { randomUUID } from "node:crypto";
 import {
   RpcErrorCode,
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import {
-  AgentSearchCompleteSchema,
-  AgentSearchFilesResultSchema,
-  AgentSearchProgressPayloadSchema,
-  SEARCH_CANCEL_METHOD,
-  SEARCH_FILES_METHOD,
-  SEARCH_PROGRESS_EVENT,
-  SEARCH_TEXT_METHOD,
-} from "../../../shared/search/protocol";
+import { AgentSearchFilesResultSchema, SEARCH_FILES_METHOD } from "../../../shared/search/protocol";
 import { type FileMatch, TextSearchQuerySchema } from "../../../shared/search/types";
 import {
   type AgentBackedProvider,
   type FsProvider,
   isAgentBackedProvider,
 } from "../fs/bridge/provider";
+import { createAgentSearchSession } from "../search/session";
 import { fitsInFrame, RpcFailure } from "./room";
 
 /** How many files a find gives when it does not say. */
@@ -106,37 +98,26 @@ export async function searchFiles(
     // One more than asked: whether there are more is then known.
     maxResults: limit + 1,
   });
-  const searchId = randomUUID();
   const found: FileMatch[] = [];
   let matches = 0;
   let enough: () => void = () => {};
   const enoughFound = new Promise<"enough">((resolve) => {
     enough = () => resolve("enough");
   });
-  const unsubscribe = agent.onAgentEvent(SEARCH_PROGRESS_EVENT, (payload) => {
-    const parsed = AgentSearchProgressPayloadSchema.safeParse(payload);
-    if (!parsed.success || parsed.data.searchId !== searchId) return;
-    for (const file of parsed.data.batch) {
+  const session = createAgentSearchSession(agent, (batch) => {
+    for (const file of batch) {
       found.push(file);
       matches += file.matches.length;
     }
     if (matches > limit) enough();
   });
-  // True once the agent answered; a search left otherwise is still running there.
-  let answered = false;
-  const complete = agent
-    .callAgentMethod(SEARCH_TEXT_METHOD, { searchId, query }, { timeoutMs: timeMs + 5_000 })
-    .then((result) => {
-      answered = true;
-      AgentSearchCompleteSchema.parse(result);
-      return "done" as const;
-    });
+  const complete = session.start(query, { timeoutMs: timeMs + 5_000 });
   complete.catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   const outOfTime = new Promise<"time">((resolve) => {
     timer = setTimeout(() => resolve("time"), timeMs);
   });
-  let ended: "done" | "enough" | "time";
+  let ended: Awaited<typeof complete> | "enough" | "time";
   try {
     ended = await Promise.race([complete, enoughFound, outOfTime]);
   } catch (error) {
@@ -146,8 +127,7 @@ export async function searchFiles(
     unavailable(error);
   } finally {
     clearTimeout(timer);
-    unsubscribe();
-    if (!answered) void agent.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
+    session.dispose();
   }
 
   // The first `limit` matches, in the order the agent found them.

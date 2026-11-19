@@ -14,14 +14,8 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { CliServices } from "../cli/context";
 import { fitsInFrame, RpcFailure } from "./room";
-import {
-  DEFAULT_READ_ITEMS,
-  fitOversizeCodexChildren,
-  fitPage,
-  fitsAsResult,
-  tabOf,
-  unavailable,
-} from "./serve";
+import { DEFAULT_READ_ITEMS, fitOversizeCodexChildren, fitPage } from "./serving/chat-details";
+import { fitsAsResult, tabOf, unavailable } from "./serving/common";
 
 /** Most chats one device may watch here at once; a new one beyond ends its oldest. */
 export const MAX_WATCHES_PER_DEVICE = 8;

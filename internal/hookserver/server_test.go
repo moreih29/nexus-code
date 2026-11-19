@@ -10,11 +10,52 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
+
+// handshakingConn signals that the handler is waiting for the first line.
+type handshakingConn struct {
+	net.Conn
+	reading chan struct{}
+	started sync.Once
+}
+
+func (c *handshakingConn) Read(p []byte) (int, error) {
+	c.started.Do(func() { close(c.reading) })
+	return c.Conn.Read(p)
+}
+
+// TestCloseReleasesIncompleteRequests covers accepted connections that are
+// still waiting to finish their first frame when the server closes.
+func TestCloseReleasesIncompleteRequests(t *testing.T) {
+	srv := newTestServer(t, nil)
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	conn := &handshakingConn{Conn: server, reading: make(chan struct{})}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		srv.handleConn(conn)
+	}()
+	select {
+	case <-conn.reading:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not begin reading")
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("the incomplete request is still waiting after Close")
+	}
+}
 
 // TestMain points HOME at a scratch directory, so the servers the tests open
 // put their sockets there, and the stale-socket sweep in New runs there, not
@@ -54,6 +95,62 @@ func newTestServer(t *testing.T, sink EventSink) *Server {
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	return srv
+}
+
+// TestAnsweredRequestsStopDeadlineTimers uses a timer that cannot expire.
+// Taking the response must release the timer while the server stays open.
+func TestAnsweredRequestsStopDeadlineTimers(t *testing.T) {
+	for _, kind := range []string{"hook", "cli"} {
+		t.Run(kind, func(t *testing.T) {
+			ids := make(chan string, 1)
+			armed, stopped := make(chan struct{}), make(chan struct{})
+			srv, err := newServer(fmt.Sprintf("timer-%d", os.Getpid()), func(_ string, payload any) error {
+				switch event := payload.(type) {
+				case HookEventPayload:
+					ids <- event.HookID
+				case CLIEventPayload:
+					ids <- event.RequestID
+				}
+				return nil
+			}, func(time.Duration) (<-chan time.Time, func()) {
+				close(armed)
+				return nil, func() { close(stopped) }
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer srv.Close()
+			req := cliRequest(srv.Token())
+			req.Type = kind
+			req.Subcommand = "permission-request"
+			conn := dialAndSendRequest(t, srv.SocketPath(), req)
+			defer conn.Close()
+			var id string
+			select {
+			case id = <-ids:
+			case <-time.After(2 * time.Second):
+				t.Fatal("request event did not arrive")
+			}
+			select {
+			case <-armed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("request deadline was never armed")
+			}
+			if kind == "cli" {
+				err = srv.RespondCLI(id, json.RawMessage("null"))
+			} else {
+				err = srv.Respond(id, HookResponse{})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("answered request left its deadline running")
+			}
+		})
+	}
 }
 
 // dialAndSendRequest 는 테스트에서 hookclient를 흉내내 요청을 전송한다.

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, type BrowserWindow, powerMonitor, session } from "electron";
+import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "electron";
 import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
 import { DEFAULT_THEME } from "../shared/design-tokens";
 import { createLogger, initMainLogger } from "../shared/log/main";
@@ -10,9 +10,9 @@ import {
   lspSettingsFromState,
 } from "../shared/lsp/settings";
 import { ListeningPortsResultSchema } from "../shared/pty/ports";
+import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import { installErrorSafetyNet } from "./error-safety-net";
 import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
 import { registerAppStateChannel } from "./features/app-state";
 import {
@@ -72,6 +72,7 @@ import type { PtyHostHandle } from "./features/pty/types";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import { registerRemoteChannel } from "./features/remote";
 import { registerSystemChannel } from "./features/shell/ipc";
+import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./features/ssh/auth-prompt";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { systemStatsHandler } from "./features/system-stats";
@@ -82,11 +83,17 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { appPage, createMainWindow, updateTitleBarOverlays } from "./features/window";
+import {
+  appPage,
+  closePersistence,
+  createMainWindow,
+  updateTitleBarOverlays,
+} from "./features/window";
 import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
+  getAppWindows,
   getFocusedAppWindow,
   hasAppWindow,
   showAppWindow,
@@ -97,16 +104,18 @@ import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { registerWslChannel } from "./features/wsl/ipc";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
+import { waitForLocalAgentShutdowns } from "./infra/agent/channel/local-channel";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
-import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createSshChannel } from "./infra/agent/ssh/channel";
 import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cache";
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
+import { installErrorSafetyNet } from "./infra/error-safety-net";
 import { broadcast, setupRouter } from "./infra/ipc-router";
+import { finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
-import { syncUserShellPath } from "./infra/shell-path";
+import { syncUserShellPath } from "./infra/platform/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
@@ -128,7 +137,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 /** Opens the app window again after every one was closed; set once the app is ready. */
 let reopenAppWindow: (() => void) | null = null;
+let quitStarted = false;
 app.on("second-instance", () => {
+  if (quitStarted) return;
   if (hasAppWindow()) showAppWindow();
   else reopenAppWindow?.();
 });
@@ -191,6 +202,7 @@ let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
 let remote: {
   themeChanged(): void;
+  forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
   peerFiles: PeerFileReader;
   dispose(): void;
@@ -216,8 +228,8 @@ const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
 // Session-scoped credential cache: wraps the hub so successful passwords are
 // reused on automatic reconnects without re-prompting the user. The cache
 // invalidates itself on retry=true prompts (SSH "Permission denied, try again").
-const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt) =>
-  sshAuthPromptHub.request(prompt),
+const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt, signal) =>
+  sshAuthPromptHub.request(prompt, signal),
 );
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
@@ -235,12 +247,15 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
     portForwards?.removed(removedWorkspaceId);
+    portWatcher?.forgetWorkspace(removedWorkspaceId);
     agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
     lspHost?.forgetWorkspace(removedWorkspaceId);
+    notesFeature?.forgetWorkspace(removedWorkspaceId);
+    remote?.forgetWorkspace(removedWorkspaceId);
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
@@ -305,6 +320,7 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService, {
+  listWorkspaces: () => workspaceManager.list(),
   /**
    * Called synchronously inside the appState.set IPC handler whenever the
    * renderer persists a new language preference.  By the time any renderer
@@ -428,7 +444,7 @@ registerSystemChannel({
     },
   }),
 });
-registerWindowChannel();
+registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
@@ -575,7 +591,6 @@ app.whenReady().then(async () => {
   // is created first, PTY host second, then they are linked here.
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
-    chatHost?.closeWorkspace(workspaceId);
   });
   // Wire held-session restore / release callbacks so manager can drive PTY
   // session lifecycle across reauth boundaries (plan issue 4 + 6).
@@ -740,7 +755,6 @@ app.whenReady().then(async () => {
     },
   });
 
-  // The hookserver connection info is looked up by pull from workspaceManager.getHookInfo().
   // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,
@@ -754,7 +768,11 @@ app.whenReady().then(async () => {
     ports: portWatcher,
     forwards,
     profileEnv: async (workspaceId, profileId) =>
-      (await chatHost?.terminalProfileEnv(workspaceId, profileId)) ?? null,
+      (await chatHost?.terminalProfileEnv(
+        workspaceId,
+        profileId,
+        chatAgentOf(asTaskAgent(stateService.getState().taskAgent) ?? DEFAULT_TASK_AGENT),
+      )) ?? null,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
@@ -763,12 +781,21 @@ app.whenReady().then(async () => {
   // Claude tabs: their programs run through the same agents as terminals.
   chatHost = registerChatChannel({
     workspaceManager,
+    knownChatTabs: (workspaceId) =>
+      (stateService.getState().layoutByWorkspace?.[workspaceId]?.tabs ?? [])
+        .filter((tab) => tab.type === "claude" || tab.type === "codex")
+        .map((tab) => tab.id),
     agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
     profile: (id) => findProfile(stateService, id),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
-    onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),
+    onTurnResult: claudeSetup.noteTurnResult,
+    onTaskEvent: (workspaceId, tabId, message) =>
+      claudeSetup.activity.noteTask(workspaceId, tabId, message),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
+  workspaceManager.setChatSessionCloser(
+    (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
+  );
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop
   // the servers a settings change turns off.
@@ -831,7 +858,7 @@ app.whenReady().then(async () => {
   // With every window closed, as macOS keeps the app running: a click on its
   // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
-    if (hasAppWindow()) return;
+    if (quitStarted || hasAppWindow()) return;
     const newWin = createMainWindow(stateService.getState());
     wireAutofetchWindowFocus(newWin);
     // Reuse the existing permission manager with the new window.
@@ -856,42 +883,72 @@ app.whenReady().then(async () => {
   app.on("activate", reopenAppWindow);
 });
 
+app.on("before-quit", (event) => {
+  closePersistence.interceptQuit(event, getAppWindows(), () => app.quit());
+});
+// Native updates close their windows before before-quit and own the replay.
+autoUpdater?.on("before-quit-for-update", () => closePersistence.allowUpdaterClose());
+
 app.on("window-all-closed", () => {
-  // All renderers are gone — no consumer can use browse sessions any more.
-  sshBrowseRegistry.dispose();
+  // A reopened window can start new sessions with the same reaper.
+  sshBrowseRegistry.closeAll();
   if (!isMac()) {
     app.quit();
   }
 });
 
-// Single dispose path on quit. Order: process hosts first (kill children),
-// then process-local watchers/coalescers, then the registry that owns repo
-// queues, then storage close. Each disposer must be idempotent so this stays
-// safe regardless of how far whenReady() progressed.
-//
 // `will-quit`, not `before-quit`: a window can still cancel the quit after
 // before-quit (unsaved buffers), which would leave the app running with its
 // agents, terminals and storage already torn down. will-quit fires only
 // once every window has closed.
-app.on("will-quit", () => {
-  sshBrowseRegistry.dispose();
-  cliFeature?.dispose();
-  disposeClaudeFeature?.();
-  portWatcher?.dispose();
-  portForwards?.dispose();
-  agentPtyHost?.dispose();
-  chatHost?.dispose();
-  agentProfiles?.dispose();
-  remote?.dispose();
-  lspHost?.dispose();
-  agentFsWatcher?.dispose();
-  gitStatusCoalescer?.clearAll();
-  gitWatcher?.dispose();
-  gitAutofetch?.dispose();
-  void gitHelpersIpc?.dispose();
-  gitRegistry?.disposeAll();
-  workspaceManager.close();
+let quitReady = false;
+app.on("will-quit", (event) => {
+  if (quitReady) return;
+  event.preventDefault();
+  if (quitStarted) return;
+  quitStarted = true;
+  void shutDownMain()
+    .catch((error) => logger.error("App shutdown failed", error))
+    .finally(() => {
+      quitReady = true;
+      app.quit();
+    });
 });
+
+/** Stops main services and waits for writes and children within the quit budget. */
+async function shutDownMain(): Promise<void> {
+  let lspShutdown: Promise<void> | undefined;
+  try {
+    sshBrowseRegistry.dispose();
+    cliFeature?.dispose();
+    disposeClaudeFeature?.();
+    portWatcher?.dispose();
+    portForwards?.dispose();
+    agentPtyHost?.dispose();
+    chatHost?.dispose();
+    agentProfiles?.dispose();
+    remote?.dispose();
+    notesFeature?.dispose();
+    lspShutdown = lspHost?.dispose() ?? undefined;
+    agentFsWatcher?.dispose();
+    gitStatusCoalescer?.clearAll();
+    gitWatcher?.dispose();
+    gitAutofetch?.dispose();
+    gitRegistry?.disposeAll();
+  } finally {
+    await finishMainShutdown(
+      {
+        waitForNotes: () => notesFeature?.waitForWrites(),
+        disposeGitHelpers: () => gitHelpersIpc?.dispose(),
+        ...(lspShutdown ? { lspShutdown } : {}),
+        closeWorkspaces: () => workspaceManager.close(),
+        waitForLocalAgents: waitForLocalAgentShutdowns,
+        warn: (message) => logger.warn(message),
+      },
+      closePersistence.remainingQuitMs(),
+    );
+  }
+}
 
 /**
  * BrowserWindow focus/blur globally pauses only scheduler due checks. Any

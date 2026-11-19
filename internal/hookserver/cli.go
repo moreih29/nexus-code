@@ -3,7 +3,6 @@ package hookserver
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"time"
 )
@@ -71,7 +70,10 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 	}
 
 	_ = conn.SetDeadline(time.Time{})
-	s.cliInflight.Store(requestID, conn)
+	request := s.storeRequest(&s.cliInflight, requestID, conn)
+	if request == nil {
+		return
+	}
 	payload := CLIEventPayload{
 		RequestID:   requestID,
 		WorkspaceID: req.WorkspaceID,
@@ -80,8 +82,7 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 		Verified:    verified,
 	}
 	if err := sink("cli.request", payload); err != nil {
-		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {
-			c := val.(net.Conn)
+		if c, ok := takeRequest(&s.cliInflight, requestID); ok {
 			_ = writeNDJSON(c, cliWireResponse{Error: "NexusCode is not connected"})
 			c.Close()
 		}
@@ -89,25 +90,24 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 	}
 
 	go func() {
-		// The client sends nothing after its frame, so the read ends only
-		// when it goes away or the answer closes the connection.
-		_, _ = io.Copy(io.Discard, conn)
-		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {
-			val.(net.Conn).Close()
+		waitForClientGone(conn)
+		if c, ok := takeRequest(&s.cliInflight, requestID); ok {
+			c.Close()
 			_ = sink("cli.cancel", CLICancelPayload{RequestID: requestID, WorkspaceID: req.WorkspaceID})
 		}
 	}()
 
 	deadline := s.cliDeadline()
 	go func() {
-		timer := time.NewTimer(deadline)
-		defer timer.Stop()
+		expires, stop := s.newTimer(deadline)
+		defer stop()
 		select {
-		case <-timer.C:
+		case <-expires:
 		case <-s.done:
+		case <-request.done:
+			return
 		}
-		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {
-			c := val.(net.Conn)
+		if c, ok := takeRequest(&s.cliInflight, requestID); ok {
 			_ = writeNDJSON(c, cliWireResponse{Error: "NexusCode did not answer"})
 			c.Close()
 		}
@@ -117,11 +117,10 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 // RespondCLI writes main's answer to the CLI request and closes its
 // connection.
 func (s *Server) RespondCLI(requestID string, result json.RawMessage) error {
-	val, ok := s.cliInflight.LoadAndDelete(requestID)
+	conn, ok := takeRequest(&s.cliInflight, requestID)
 	if !ok {
 		return fmt.Errorf("hookserver: cli request %q not found", requestID)
 	}
-	conn := val.(net.Conn)
 	err := writeNDJSON(conn, cliWireResponse{OK: true, Result: result})
 	conn.Close()
 	return err
@@ -129,11 +128,11 @@ func (s *Server) RespondCLI(requestID string, result json.RawMessage) error {
 
 // closeCLI answers every CLI request still waiting when the server closes.
 func (s *Server) closeCLI() {
-	s.cliInflight.Range(func(key, val any) bool {
-		s.cliInflight.Delete(key)
-		conn := val.(net.Conn)
-		_ = writeNDJSON(conn, cliWireResponse{Error: "NexusCode is not connected"})
-		conn.Close()
+	s.cliInflight.Range(func(key, _ any) bool {
+		if conn, ok := takeRequest(&s.cliInflight, key.(string)); ok {
+			_ = writeNDJSON(conn, cliWireResponse{Error: "NexusCode is not connected"})
+			conn.Close()
+		}
 		return true
 	})
 }

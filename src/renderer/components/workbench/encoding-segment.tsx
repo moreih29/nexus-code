@@ -23,7 +23,6 @@ import {
   subscribeModel,
 } from "../../services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "../../services/editor/model/dirty-tracker";
-import { setEncodingOverride } from "../../services/editor/model/file-loader";
 import { reportSaveFailure, saveModelInteractive } from "../../services/editor/save/service";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -181,8 +180,7 @@ function EncodingPopover({
   function choose(encoding: TextEncoding): void {
     onClose();
     if (mode === "reopen") {
-      setEncodingOverride(input, encoding);
-      void reloadModelFromDisk(input);
+      void reloadModelFromDisk(input, encoding);
     } else {
       void saveModelInteractive(input, { encoding }).then(reportSaveFailure);
     }

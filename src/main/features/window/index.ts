@@ -20,6 +20,7 @@ import {
 } from "./activation";
 import type { AppPage } from "./app-csp";
 import { getAppWindows, trackAppWindow } from "./app-windows";
+import { ClosePersistence } from "./close-persistence";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
 import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from "./page-health";
@@ -29,6 +30,8 @@ import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from 
 const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
+
+export const closePersistence = new ClosePersistence((message) => logger.warn(message));
 
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
@@ -224,12 +227,13 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   win.webContents.on("will-navigate", (event, url) => {
     if (isAllowedMainWindowNavigation(url, devServerUrl)) return;
     event.preventDefault();
-    logger.warn(`Blocked main window navigation: ${url}`);
+    logger.warn("Blocked main window navigation");
   });
 
   // The renderer cancels unload (quit, window close, reload) while buffers
   // are unsaved. Electron cancels silently, so ask here; preventDefault lets
   // the unload go ahead when the user chooses to discard.
+  win.on("close", (event) => closePersistence.interceptClose(event, win));
   win.webContents.on("will-prevent-unload", (event) => {
     const t = getMainT();
     const choice = dialog.showMessageBoxSync(win, {
@@ -241,6 +245,7 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       cancelId: 1,
     });
     if (choice === 0) event.preventDefault();
+    else closePersistence.cancelQuit();
   });
 
   // Popups need fresh user input, like Chrome's popup blocker: a previewed
@@ -261,13 +266,13 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       !focused || (focused.processId === main.processId && focused.routingId === main.routingId);
     const previewLink = frameName === PREVIEW_LINK_WINDOW;
     if (!isExternalSchemeAllowed(url)) {
-      logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
+      logger.warn("Blocked window.open with disallowed scheme");
     } else if (!opensHere(previewLink, keyboardInApp)) {
-      logger.warn(`Blocked window.open from where the keyboard is not: ${url}`);
+      logger.warn("Blocked window.open from where the keyboard is not");
     } else if (!activation.take(previewLink ? USER_ACTIVATION_MS : APP_ACTIVATION_MS)) {
-      logger.warn(`Blocked window.open without user input: ${url}`);
+      logger.warn("Blocked window.open without user input");
     } else {
-      shell.openExternal(url);
+      void shell.openExternal(url).catch(() => logger.warn("Could not open external window link"));
     }
     return { action: "deny" };
   });

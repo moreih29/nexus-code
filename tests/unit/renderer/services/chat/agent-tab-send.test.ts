@@ -17,7 +17,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { sendToAgentTab, sendUnseen } = await import(
-  "../../../../../src/renderer/services/chat/agent-tab"
+  "../../../../../src/renderer/services/chat/transport/submission"
 );
 const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 
@@ -79,6 +79,10 @@ function tab(resumed: number, fail?: Error) {
       start();
       sent.push(`now: ${text}`);
     },
+    sendWithTiming: async (text: string, _images: unknown[], timing: "next" | "now") => {
+      start();
+      sent.push(timing === "now" ? `now: ${text}` : text);
+    },
     enqueue: (text: string) => {
       sent.push(`held: ${text}`);
       return "q1";
@@ -119,7 +123,7 @@ describe("sendToAgentTab", () => {
     expect(sendUnseen(WS, t.tabId)).toBe(true);
   });
 
-  test("when it goes: now a Claude tab's alone, after the turn held with its id", async () => {
+  test("both agents send now, and an after-turn message is held with its id", async () => {
     const t = tab(0);
     const claude = { ...t.target, agent: "claude" } as Target;
     expect(await sendToAgentTab(WS, t.tabId, claude, "a", undefined, [], "now")).toEqual({});
@@ -127,7 +131,7 @@ describe("sendToAgentTab", () => {
     expect(await sendToAgentTab(WS, t.tabId, t.target, "c", undefined, [], "after")).toEqual({
       heldId: "q1",
     });
-    expect(t.sent).toEqual(["now: a", "b", "held: c"]);
+    expect(t.sent).toEqual(["now: a", "now: b", "held: c"]);
     // Held, it is not sent yet: the tab is not waiting on it.
     expect(sendUnseen(WS, t.tabId)).toBe(false);
   });

@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -63,6 +65,19 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	l.bytes += e.size()
 	l.trim()
 	return e
+}
+
+// finishInput fills a reserved slot, if the log still includes it.
+func (l *lineLog) finishInput(slot *entry, dir string, message json.RawMessage) {
+	for _, e := range l.since(slot.seq - 1) {
+		if e == slot {
+			l.bytes += len(message)
+			break
+		}
+	}
+	slot.dir = dir
+	slot.message = message
+	l.trim()
 }
 
 // addPinned appends a line the cap keeps. What it holds is bounded by
@@ -182,4 +197,31 @@ func messageType(message json.RawMessage) string {
 		return ""
 	}
 	return probe.Type
+}
+
+var errLineTooLong = errors.New("line too long")
+
+// readLine reads one line of at most limit bytes. A longer line is read to
+// its end and dropped, with errLineTooLong.
+func readLine(reader *bufio.Reader, limit int) ([]byte, error) {
+	var line []byte
+	tooLong := false
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if !tooLong {
+			if len(line)+len(chunk) > limit {
+				tooLong = true
+				line = nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if tooLong && err == nil {
+			return nil, errLineTooLong
+		}
+		return line, err
+	}
 }

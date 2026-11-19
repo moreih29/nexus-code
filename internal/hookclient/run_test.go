@@ -12,6 +12,19 @@ import (
 	"time"
 )
 
+// TestOversizedHookPayloadIsDrainedWithoutForwarding covers the server's
+// frame limit while keeping the caller's input pipe drained.
+func TestOversizedHookPayloadIsDrainedWithoutForwarding(t *testing.T) {
+	in := bytes.NewReader(make([]byte, 16*1024*1024+4096))
+	payload, err := readStdinPayload(in)
+	if err == nil || payload != nil {
+		t.Fatalf("oversized payload returned %d bytes, %v", len(payload), err)
+	}
+	if in.Len() != 0 {
+		t.Fatalf("%d bytes of the hook's input were not drained", in.Len())
+	}
+}
+
 // -----------------------------------------------------------------------
 // 헬퍼 — 테스트용 Unix 소켓 mock 서버
 // -----------------------------------------------------------------------

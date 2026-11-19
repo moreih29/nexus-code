@@ -29,10 +29,14 @@ function credentialKey(prompt: Extract<SshAuthPrompt, { kind: "password" }>): st
 export function createCachingAuthPromptHandler(inner: SshAuthPromptHandler): SshAuthPromptHandler {
   const cache = new Map<string, string>();
 
-  return async function cachingAuthPromptHandler(prompt: SshAuthPrompt): Promise<SshAuthResponse> {
+  return async function cachingAuthPromptHandler(
+    prompt: SshAuthPrompt,
+    signal?: AbortSignal,
+  ): Promise<SshAuthResponse> {
+    signal?.throwIfAborted();
     // Host-key prompts are never cached — always ask the user.
     if (prompt.kind !== "password") {
-      return inner(prompt);
+      return inner(prompt, signal);
     }
 
     const key = credentialKey(prompt);
@@ -48,7 +52,7 @@ export function createCachingAuthPromptHandler(inner: SshAuthPromptHandler): Ssh
       }
     }
 
-    const response = await inner(prompt);
+    const response = await inner(prompt, signal);
     if (response.kind === "password" && response.value) {
       cache.set(key, response.value);
     }

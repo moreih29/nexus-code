@@ -39,12 +39,11 @@ export interface GitProcessOptions {
   readonly interactive?: boolean;
   /** True streams stderr chunks instead of stdout while preserving final stderr classification. */
   readonly streamStderr?: boolean;
+  readonly stdoutCapBytes?: number;
   readonly signal?: AbortSignal;
 }
 
-export interface RunGitOptions extends GitProcessOptions {
-  readonly stdoutCapBytes?: number;
-}
+export type RunGitOptions = GitProcessOptions;
 
 export interface RunGitResult {
   readonly stdout: string;

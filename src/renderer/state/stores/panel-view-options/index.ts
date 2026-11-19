@@ -11,7 +11,7 @@
  * Actions:
  *   loadViewOptions(panelKind, workspaceId) — seed from IPC; skips if loaded.
  *   setViewMode(panelKind, workspaceId, next) — update + debounced persist.
- *   closeForWorkspace(workspaceId) — cancel timers; keep entries.
+ *   closeForWorkspace(workspaceId) — cancel timers and drop entries.
  *
  * Selectors:
  *   useViewOptions(panelKind, workspaceId) — returns entry with stable EMPTY
@@ -24,6 +24,7 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../shared/types/panel";
 import { canUseIpcBridge, ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { registerWorkspaceCleanup } from "../../workspace-cleanup";
 import { cancelViewOptionsSave, scheduleViewOptionsSave } from "./io";
 
 const log = createLogger("panel-view-options");
@@ -77,10 +78,10 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
     if (get().entries.has(key)) return;
 
     // Seed defaults immediately so components render without waiting for IPC.
+    const defaults = { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
     set((state) => {
-      if (state.entries.has(key)) return state;
       const next = new Map(state.entries);
-      next.set(key, { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] });
+      next.set(key, defaults);
       return { entries: next };
     });
 
@@ -90,6 +91,7 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
       .then((result) => {
         const opts = unwrapIpcResult(result);
         set((state) => {
+          if (state.entries.get(key) !== defaults) return state;
           const next = new Map(state.entries);
           next.set(key, { viewMode: opts.viewMode });
           return { entries: next };
@@ -113,10 +115,22 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
   },
 
   closeForWorkspace(workspaceId) {
-    // Cancel pending debounce timers; KEEP entries (persisted viewMode survives).
     cancelViewOptionsSave(workspaceId);
+    set((state) => {
+      const gitKey = entryKey("git", workspaceId);
+      const searchKey = entryKey("search", workspaceId);
+      if (!state.entries.has(gitKey) && !state.entries.has(searchKey)) return state;
+      const entries = new Map(state.entries);
+      entries.delete(gitKey);
+      entries.delete(searchKey);
+      return { entries };
+    });
   },
 }));
+
+registerWorkspaceCleanup((workspaceId) => {
+  usePanelViewOptionsStore.getState().closeForWorkspace(workspaceId);
+});
 
 // ---------------------------------------------------------------------------
 // Selector helper

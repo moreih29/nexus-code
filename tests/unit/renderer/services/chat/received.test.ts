@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { answersOf } from "../../../../../src/renderer/services/chat/app-commands";
-import { cutEntries, historyModel } from "../../../../../src/renderer/services/chat/history";
+import { cutEntries, historyModel } from "../../../../../src/renderer/services/chat/claude/history";
+import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
-  applyLines,
   type ChatItem,
   type ChatLine,
   type ChatModel,

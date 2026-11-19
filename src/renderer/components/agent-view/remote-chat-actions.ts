@@ -10,7 +10,7 @@
 import i18next from "i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
-import type { ChatController } from "../../services/chat/controller";
+import type { ChatController } from "../../services/chat/claude/controller";
 import type { ImageBlock, UserItem } from "../../services/chat/model";
 import { putPeerDraft } from "../../services/remote/peer-drafts";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";

@@ -25,12 +25,12 @@ type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 // do not need synchronization.
 type Dispatcher struct {
 	handlers map[string]Handler
-	ordered  map[string]bool
+	ordered  map[string]func(json.RawMessage) string
 }
 
 // New constructs an empty Dispatcher ready for Register calls.
 func New() *Dispatcher {
-	return &Dispatcher{handlers: make(map[string]Handler), ordered: make(map[string]bool)}
+	return &Dispatcher{handlers: make(map[string]Handler), ordered: make(map[string]func(json.RawMessage) string)}
 }
 
 // Register binds `method` to `handler`. The last registration wins —
@@ -45,13 +45,30 @@ func (d *Dispatcher) Register(method string, handler Handler) {
 // its requests one at a time, in the order they arrived, instead of each
 // on its own goroutine. The order holds across every ordered method.
 func (d *Dispatcher) RegisterOrdered(method string, handler Handler) {
+	d.RegisterOrderedBy(method, handler, nil)
+}
+
+// RegisterOrderedBy runs matching requests in arrival order for each key.
+// Methods with the same key share a queue, including consecutive requests
+// that use different methods. A nil key function uses the default queue.
+func (d *Dispatcher) RegisterOrderedBy(method string, handler Handler, key func(json.RawMessage) string) {
 	d.handlers[method] = handler
-	d.ordered[method] = true
+	d.ordered[method] = key
 }
 
 // Ordered reports whether `method` was registered with RegisterOrdered.
 func (d *Dispatcher) Ordered(method string) bool {
-	return d.ordered[method]
+	_, ok := d.ordered[method]
+	return ok
+}
+
+// OrderKey returns the queue for a request registered as ordered.
+func (d *Dispatcher) OrderKey(req proto.Request) (string, bool) {
+	key, ordered := d.ordered[req.Method]
+	if key == nil {
+		return "", ordered
+	}
+	return key(req.Params), true
 }
 
 // Methods returns a sorted slice of all registered method names.

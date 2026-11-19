@@ -13,12 +13,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
-import { type GitDecorationKind, kindFromEntry, maxKind } from "../../file-tree/git-decoration";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
   type PathTreeNode,
-} from "../../file-tree/tree-builder";
+} from "../../../../utils/path-tree";
+import { type GitDecorationKind, kindFromEntry, maxKind } from "../../file-tree/git-decoration";
 import type { TreeKeyboardRow } from "../../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../../file-tree/use-tree-keyboard";
 import { collectGitEntryPaths } from "../utils/status-utils";

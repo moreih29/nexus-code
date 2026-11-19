@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createAbortError } from "../../../shared/abort";
 import type {
   InferArgs,
@@ -6,18 +5,12 @@ import type {
   InferProgress,
   ipcContract,
 } from "../../../shared/ipc/contract";
-import {
-  AgentSearchCompleteSchema,
-  AgentSearchProgressPayloadSchema,
-  SEARCH_CANCEL_METHOD,
-  SEARCH_PROGRESS_EVENT,
-  SEARCH_TEXT_METHOD,
-} from "../../../shared/search/protocol";
 import type { FileMatch } from "../../../shared/search/types";
 import type { StreamContext } from "../../infra/ipc-router";
 import { isAgentBackedProvider } from "../fs/bridge/provider";
 import { findWorkspace } from "../workspace/guards";
 import type { WorkspaceManager } from "../workspace/manager";
+import { createAgentSearchSession } from "./session";
 
 type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
 type SearchTextArgs = InferArgs<SearchTextStreamProcedure>;
@@ -63,41 +56,29 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
       throw new Error("workspace agent provider is not available");
     }
 
-    const searchId = randomUUID();
     const queue = new AsyncBatchQueue<FileMatch[]>();
-    // True once the agent answered the search request. Any other exit (abort,
-    // a local request timeout, the consumer stopping early) leaves the
-    // search running on the agent, so it must be cancelled there.
-    let answered = false;
-    const unsubscribe = provider.onAgentEvent(SEARCH_PROGRESS_EVENT, (payload) => {
-      const parsed = AgentSearchProgressPayloadSchema.safeParse(payload);
-      if (!parsed.success || parsed.data.searchId !== searchId) return;
-      queue.push(parsed.data.batch);
-    });
-
-    const complete = provider
-      .callAgentMethod(SEARCH_TEXT_METHOD, { searchId, query })
-      .then((result) => {
-        answered = true;
-        return AgentSearchCompleteSchema.parse(result);
-      })
-      .catch((error) => {
-        throw normalizeSearchError(error);
-      })
-      .finally(() => {
-        queue.close();
-      });
-    complete.catch(() => {});
-
+    const session = createAgentSearchSession(provider, (batch) => queue.push(batch));
     const abort = (): void => {
-      void provider.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
       queue.fail(createAbortError());
+      session.cancel();
     };
     ctx.signal.addEventListener("abort", abort, { once: true });
 
     try {
+      if (ctx.signal.aborted) throw createAbortError();
+      const complete = session
+        .start(query)
+        .catch((error) => {
+          throw normalizeSearchError(error);
+        })
+        .finally(() => {
+          queue.close();
+        });
+      complete.catch(() => {});
+
       for (;;) {
         const next = await queue.next();
+        if (ctx.signal.aborted) throw createAbortError();
         if (next.done) {
           return await complete;
         }
@@ -105,10 +86,7 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
       }
     } finally {
       ctx.signal.removeEventListener("abort", abort);
-      unsubscribe();
-      if (!answered) {
-        void provider.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
-      }
+      session.dispose();
     }
   };
 }

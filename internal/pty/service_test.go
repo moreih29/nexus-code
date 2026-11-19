@@ -19,33 +19,40 @@ import (
 
 const testWorkspaceID = "00000000-0000-0000-0000-000000000001"
 
-// TestBurstWriteFrameOrderingPreserved verifies sequential write RPCs return in order.
-func TestBurstWriteFrameOrderingPreserved(t *testing.T) {
+// TestConcurrentWritesKeepFramesWhole verifies that simultaneous RPCs do
+// not splice their input together when each write spans several PTY chunks.
+func TestConcurrentWritesKeepFramesWhole(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "burst-order"
 	spawnTestScript(t, service, tabID, `
-stty -echo
-echo READY
-cat
+stty raw -echo
+printf READY
+exec cat
 `)
 	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
 
-	const frames = 80
-	for i := range frames {
-		writeSession(t, service, tabID, fmt.Sprintf("FRAME%03d\n", i))
+	a := strings.Repeat("A", 32*maxWriteChunkSize)
+	b := strings.Repeat("B", 32*maxWriteChunkSize)
+	start := make(chan struct{})
+	done := make(chan error, 2)
+	for _, frame := range []string{a, b} {
+		params := mustJSON(t, WriteParams{WorkspaceID: testWorkspaceID, TabID: tabID, Data: frame})
+		go func() {
+			<-start
+			_, err := service.Write(context.Background(), params)
+			done <- err
+		}()
 	}
-	recorder.requireTranscriptContains(t, "FRAME079", 2*time.Second)
-
-	transcript := recorder.transcript()
-	cursor := 0
-	for i := range frames {
-		marker := fmt.Sprintf("FRAME%03d", i)
-		idx := strings.Index(transcript[cursor:], marker)
-		if idx < 0 {
-			t.Fatalf("missing %s after byte %d in transcript:\n%s", marker, cursor, transcript)
+	close(start)
+	recorder.requireDataBytesAtLeast(t, len("READY")+len(a)+len(b), 2*time.Second)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
 		}
-		cursor += idx + len(marker)
+	}
+	if got := strings.TrimPrefix(recorder.transcript(), "READY"); got != a+b && got != b+a {
+		t.Fatalf("PTY input frames interleaved or changed: got %d bytes", len(got))
 	}
 }
 
@@ -221,7 +228,7 @@ func newTestService(t *testing.T) (*Service, *eventRecorder) {
 	t.Helper()
 	recorder := &eventRecorder{}
 	service := New()
-	service.SetEventSink(recorder.sink)
+	service.SetEventSink(context.Background(), recorder.sink)
 	t.Cleanup(service.Close)
 	return service, recorder
 }

@@ -14,6 +14,9 @@ import { listenForCallback } from "../../../../../src/main/features/remote/loopb
 import { challengeOf } from "../../../../../src/main/features/remote/pkce";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 
+import { askTicket } from "../../../../../src/main/features/remote/ticket";
+import { oversizedResponse } from "../../../../helpers/http-fixtures";
+
 const SERVER = "http://localhost:8787";
 
 const memoryStore = (initial: SavedAccount | null = null) => keptInMemory(initial);
@@ -189,6 +192,54 @@ describe("the way to the server", () => {
 });
 
 describe("the account", () => {
+  test.each([
+    "unauthorized",
+    "unreachable",
+  ] as const)("ignores an old relay ticket's %s result after the next ticket succeeded", async (failure) => {
+    const proxy = "https://proxy.example";
+    const store = memoryStore({ server: SERVER, token: "tok", user, device });
+    const earlier = Promise.withResolvers<Response>();
+    let asked = 0;
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy,
+      store,
+      openExternal: async () => {},
+      fetch: (() =>
+        asked++ === 0
+          ? earlier.promise
+          : Promise.resolve(new Response(JSON.stringify({ ticket: "new" })))) as typeof fetch,
+    });
+    await account.restore();
+    const attempt = new AbortController();
+    const old = askTicket(account, undefined, attempt.signal).catch((error: unknown) => error);
+    attempt.abort();
+    expect(await askTicket(account)).toBe("new");
+    if (failure === "unauthorized") earlier.resolve(new Response(null, { status: 401 }));
+    else earlier.reject(new TypeError("fetch failed"));
+
+    expect(await old).toMatchObject({ name: "AbortError" });
+    expect(account.state().status).toBe("signed-in");
+    expect(store.value?.token).toBe("tok");
+    expect(account.route.base()).toBe(proxy);
+    expect(asked).toBe(2);
+  });
+
+  test("a current relay ticket's unauthorized response still signs out the account", async () => {
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore({ server: SERVER, token: "tok", user, device }),
+      openExternal: async () => {},
+      fetch: (async () => new Response(null, { status: 401 })) as typeof fetch,
+    });
+    await account.restore();
+
+    await expect(
+      askTicket(account, undefined, new AbortController().signal),
+    ).rejects.toBeInstanceOf(SignedOutError);
+    expect(account.state().status).toBe("signed-out");
+  });
+
   test("signs in through the browser with PKCE and keeps the device's token", async () => {
     const store = memoryStore();
     const server = fakeServer();
@@ -453,4 +504,17 @@ describe("the account", () => {
     await account.restore();
     expect(account.state().status).toBe("signed-out");
   });
+});
+
+test("an oversized account response fails with a response size code", async () => {
+  const response = oversizedResponse(8);
+  const account = new RemoteAccount({
+    server: SERVER,
+    store: memoryStore({ server: SERVER, token: "test", user, device }),
+    openExternal: async () => {},
+    fetch: response.fetch,
+  });
+  await account.restore();
+  await expect(account.devices()).rejects.toMatchObject({ code: "response-too-large" });
+  expect(response.cancelled()).toBe(true);
 });

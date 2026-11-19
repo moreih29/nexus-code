@@ -344,6 +344,12 @@ mock.module("electron", () => ({
     quit: (): void => {},
   },
 
+  // Remote feature registration imports these Electron services.
+  nativeImage: {},
+  shell: {},
+  systemPreferences: {},
+  safeStorage: {},
+
   // ipcMain — used by: setupRouter() in pty-channel, ipc-shim-integration,
   //                    ipc-wrapper-env, show-save-dialog
   ipcMain: {
@@ -372,6 +378,10 @@ mock.module("electron", () => ({
     getFocusedWindow: (): null => null,
     getAllWindows: (): unknown[] => [],
   },
+
+  // Browser driver imports these to capture tabs and find the window they are in.
+  BaseWindow: class BaseWindow {},
+  screen: {},
 
   // Menu — used by features/window/ipc
   Menu: {

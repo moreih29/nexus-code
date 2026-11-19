@@ -1,14 +1,13 @@
 // PTY IPC channel — bridges renderer ↔ main ↔ Go agent host.
 // All PTY sessions are routed to the agent host unconditionally.
 
+import { mergeAgentEnv, profileVariables } from "../../../shared/agent-profiles/env";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { WorkspacePorts } from "../../../shared/pty/ports";
 import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
-import type { HookInfo } from "../workspace/manager";
-import { tabHookToken } from "../workspace/tab-token";
 import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
@@ -33,13 +32,8 @@ export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
   recorder?: PtyRecorderSink;
   /**
-   * Provides workspace display names, activation for OS notifications, and
-   * Pull-based hookserver connection info lookup (getHookInfo).
-   *
-   * `getAgentChannel` is used to guarantee that hookInfo is fresh —
-   * the spawn handler awaits it before capturing the env, which forces channel.ready / the hook.getInfo
-   * pull to complete before the hookInfo lookup. The returned channel object
-   * itself is not used; the call exists only for ready synchronization.
+   * Provides workspace display names and activation for OS notifications.
+   * The agent must boot before its remote wrapper locations are available.
    *
    * `getWrapperBinDir` / `getWrapperAgentBin` — return, by workspace kind,
    * the absolute paths of the wrapper bin directory and the agent binary. When null is returned,
@@ -56,8 +50,7 @@ export interface PtyChannelOptions {
    * so the shim is skipped.
    */
   workspaceManager?: WorkspaceNameLookup & {
-    activate(id: string): Promise<void>;
-    getHookInfo(workspaceId: string): HookInfo | null;
+    connect(id: string): Promise<void>;
     getAgentChannel(workspaceId: string): Promise<unknown>;
     getWrapperBinDir(workspaceId: string): string | null;
     getWrapperAgentBin(workspaceId: string): string | null;
@@ -71,7 +64,7 @@ export interface PtyChannelOptions {
    * variable, made on the workspace's host, and its own variables); null
    * for a profile there is not.
    */
-  profileEnv?: (workspaceId: string, profileId: string) => Promise<Record<string, string> | null>;
+  profileEnv?: (workspaceId: string, profileId?: string) => Promise<Record<string, string> | null>;
   /** The default shell from Settings › Terminal, read at every spawn. */
   getDefaultShell?: () => ShellChoice | undefined;
   /** The shells the user added in Settings › Terminal, read at every spawn. */
@@ -128,7 +121,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     getFocusedWindow: getFocusedAppWindow,
     isActiveTab: options.isActiveTab,
     notificationsEnabled: options.notificationsEnabled,
-    activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
+    connectWorkspace: wm ? (id) => wm.connect(id) : undefined,
     focusMainWindow: () => {
       const win = getActiveAppWindow();
       if (!win) return;
@@ -200,24 +193,21 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     } = request;
     // A terminal opened for a profile (a sign-in for it) runs as its chat
     // does; without it, it would sign in or out of the default folder.
+    const windows = options.windowsAgentFiles !== undefined && wm?.isLocal?.(workspaceId) !== false;
     let env = givenEnv;
-    if (profile !== undefined) {
+    if (profile !== undefined || options.profileEnv) {
       const fromProfile = await options.profileEnv?.(workspaceId, profile);
-      if (!fromProfile) throw new Error(`no profile ${profile}`);
-      env = { ...givenEnv, ...fromProfile };
+      if (profile !== undefined && !fromProfile) {
+        return ipcErr("not-found", `no profile ${profile}`, { category: "failed" });
+      }
+      env = mergeAgentEnv(
+        windows,
+        givenEnv ?? {},
+        profileVariables(fromProfile ?? undefined, windows),
+      );
     }
     recorder.start(workspaceId, tabId, cols, rows);
-    // hookInfo must be read after channel.ready for it to be guaranteed fresh.
-    // Called right after a channel reconnect, a stale cache (the previous boot's socket path)
-    // could be baked into the env, creating a hook client that points at a dead socket.
-    // wm.getAgentChannel triggers ensureProviderReady, and at its end the hook.getInfo
-    // result is set in hookInfoByWorkspace, so a getHookInfo after this await is
-    // structurally guaranteed to be the latest. The returned channel object is not used.
-    if (wm) {
-      await wm.getAgentChannel(workspaceId);
-    }
-    // Look up the socket/token by pull with workspaceManager.getHookInfo and inject them into the env.
-    const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
+    if (wm) await wm.getAgentChannel(workspaceId);
     // Decide the wrapper bin directory and agent binary path by workspace kind.
     // When null, skip the wrapper-related env injection (keeps the graceful pattern).
     const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
@@ -229,8 +219,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             workspaceId,
             tabId,
             agentBin: wrapperAgentBin ?? undefined,
-            agentSocket: hookInfo?.socketPath,
-            hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
           })
         : injectHarnessTerminalEnv(env);
 
@@ -283,11 +271,11 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       const files = await options.windowsAgentFiles();
       const shimResult = applyWindowsShellShim({
         shell: shellPath,
-        env: enrichedEnv,
+        env: mergeAgentEnv(windows, enrichedEnv),
         args: shimmedArgs,
         settingsPath: files?.settingsPath,
         wrapperDir: files?.binDir,
-        ...(files ? { codex: { cmd: files.cmdCodexNoDaemon } } : {}),
+        ...(files ? { codex: { cmdLauncherDir: files.cmdLauncherDir } } : {}),
         // A local agent, and so the shell, inherits this process's environment.
         originalPath: process.env.ORIGINAL_PATH,
       });
@@ -364,11 +352,18 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       write: async (args: unknown) => {
         const { workspaceId, tabId, data } = validateArgs(c.write.args, args);
         options.onInput?.(workspaceId, tabId, data);
-        // write/resize/ack/kill are fire-and-forget from the renderer and no-op
-        // when the workspace is already gone — agentHost.call returns undefined
-        // in that case. Return ipcOk so the router stays silent on either path.
-        await agentHost.call("write", { workspaceId, tabId, data });
-        return ipcOk(undefined);
+        try {
+          const sent = await agentHost.call("write", { workspaceId, tabId, data });
+          // A held session or removed workspace intentionally drops input.
+          // Cancel the renderer's queued suffix as well.
+          if (sent === undefined) return ipcErr("cancelled", "Terminal input was skipped");
+          return ipcOk(undefined);
+        } catch (error) {
+          return ipcErr("terminal-input-failed", String(error), {
+            category: "failed",
+            code: "terminal-input-failed",
+          });
+        }
       },
 
       resize: async (args: unknown) => {

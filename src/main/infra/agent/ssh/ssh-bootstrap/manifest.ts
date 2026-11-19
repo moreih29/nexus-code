@@ -3,6 +3,7 @@
  * remote artifacts. The bootstrap orchestrator reads and writes this
  * manifest on each ensure() pass to skip work the remote already has.
  */
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import {
   AgentArtifactPlatformSchema,
@@ -11,7 +12,7 @@ import {
   SshHostOsSchema,
 } from "../../../../../shared/agent/manifest";
 import { createSshError } from "../../pipe";
-import { runSsh } from "./transport";
+import { quoteShellArg, runSsh, singleQuoteShellArg } from "./transport";
 import {
   type EnsureRemoteAgentOptions,
   KEEP_REMOTE_VERSIONS,
@@ -84,17 +85,37 @@ export async function readRemoteManifest(
   return { artifacts: {} };
 }
 
-/** Replaces the remote manifest atomically. */
+/** Publishes a complete manifest by renaming a sibling on the remote host. */
 export async function writeRemoteManifest(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   manifest: RemoteArtifactManifest,
 ): Promise<void> {
+  const suffix = randomBytes(8).toString("hex");
+  const payload = `${JSON.stringify(manifest, null, 2)}\n`;
+  // Claim a new name without clobbering an existing file. Make it private
+  // before copying any data, and retain the existing manifest's permissions
+  // if it is being replaced. A fresh manifest is private to its owner.
+  const script = [
+    "manifest=$1",
+    "temporary=$manifest.tmp.$2",
+    '(set -C; : > "$temporary") || exit 1',
+    "trap 'rm -f \"$temporary\"' 0",
+    "trap 'exit 1' HUP INT TERM",
+    'chmod go-rwx "$temporary" || exit 1',
+    'if [ -e "$manifest" ] || [ -L "$manifest" ]; then',
+    '  [ -f "$manifest" ] && cp -p "$manifest" "$temporary" || exit 1',
+    "fi",
+    'cat > "$temporary" || exit 1',
+    // A disconnected sender can deliver a short stream that cat reads as EOF.
+    'written=$(wc -c < "$temporary") || exit 1',
+    '[ "$((written + 0))" -eq "$3" ] && [ ! -d "$manifest" ] && mv -f "$temporary" "$manifest"',
+  ].join("\n");
   await runSsh(
     options,
     runner,
-    `mkdir -p ${REMOTE_AGENT_ROOT} && cat > ${REMOTE_AGENT_MANIFEST}`,
-    `${JSON.stringify(manifest, null, 2)}\n`,
+    `mkdir -p ${quoteShellArg(REMOTE_AGENT_ROOT)} && sh -c ${singleQuoteShellArg(script)} sh ${quoteShellArg(REMOTE_AGENT_MANIFEST)} ${suffix} ${Buffer.byteLength(payload)}`,
+    payload,
   );
 }
 

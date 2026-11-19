@@ -1,5 +1,5 @@
 /** nexus open --source and --preview: the tab shows that view, as its switch does, this once. */
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 
 const globals = globalThis as { window?: unknown; document?: unknown };
 const originalWindow = globals.window;
@@ -39,7 +39,12 @@ const viewOf = (tabId: string) => {
   return tab?.type === "editor" ? tab.viewMode : null;
 };
 
+beforeEach(() => {
+  usePreviewDefaultsStore.getState().hydrate({});
+});
+
 afterEach(() => {
+  usePreviewDefaultsStore.getState().hydrate({});
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
 });

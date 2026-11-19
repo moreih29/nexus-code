@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -7,7 +7,21 @@ import {
   decodeWslOutput,
   listWslDistros,
   parseWslDistros,
+  runWslExe,
 } from "../../../../src/main/infra/agent/wsl";
+
+/** A wsl.exe fixture that never reports close unless terminated. */
+function stalledChild() {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+  const kill = mock(() => true);
+  Object.assign(child, {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill,
+  });
+  return { child, kill };
+}
 
 /** A child that prints `stdout`/`stderr`, then exits with `code`, once stdin ends. */
 function fakeChild(result: { stdout?: string; stderr?: Buffer | string; code: number }) {
@@ -53,6 +67,23 @@ describe("createWslBootstrapRunner", () => {
     expect((error as Error & { cause: Error }).cause.message).toBe("mkdir: Permission denied");
   });
 
+  test("ends a stalled WSL bootstrap command even after stdin breaks", async () => {
+    jest.useFakeTimers();
+    try {
+      const { child, kill } = stalledChild();
+      const run = createWslBootstrapRunner("Ubuntu", () => child);
+      const outcome = run("ssh", ["--", "wsl:Ubuntu", "uname -ms"], "payload").catch(
+        (error: unknown) => error,
+      );
+      child.stdin.emit("error", Object.assign(new Error("broken pipe"), { code: "EPIPE" }));
+      jest.advanceTimersByTime(120_000);
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(await outcome).toMatchObject({ code: "transport.timeout" });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("refuses sftp without starting anything, so an upload falls back to cat", async () => {
     const spawn = mock(() => fakeChild({ code: 0 }));
     const run = createWslBootstrapRunner("Ubuntu", spawn);
@@ -75,6 +106,19 @@ describe("WSL distributions", () => {
     expect(
       parseWslDistros("Ubuntu\r\ndocker-desktop\r\ndocker-desktop-data\r\n Debian \r\n\r\n"),
     ).toEqual(["Ubuntu", "Debian"]);
+  });
+
+  test("ends a stalled distribution lookup and returns an empty list", async () => {
+    jest.useFakeTimers();
+    try {
+      const { child, kill } = stalledChild();
+      const listed = listWslDistros((args) => runWslExe(args, (() => child) as never), "win32");
+      jest.advanceTimersByTime(10_000);
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(await listed).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("asks wsl.exe on Windows only, and lists none when it fails", async () => {

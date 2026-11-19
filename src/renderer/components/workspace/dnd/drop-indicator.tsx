@@ -10,7 +10,7 @@
  *   center → full leaf
  */
 import { cn } from "@/utils/cn";
-import type { DropZone } from "./types";
+import type { DropZone } from "../../../types/workbench-dnd";
 
 interface DropIndicatorProps {
   zone: DropZone;

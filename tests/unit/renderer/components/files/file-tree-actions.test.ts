@@ -56,7 +56,7 @@ function seedWorkspace(kind: LocationKind): void {
         name: "ws",
         rootPath: ROOT,
         location,
-        colorTone: "default",
+        color: "auto",
         pinned: false,
         tabs: [],
         sortOrder: 0,

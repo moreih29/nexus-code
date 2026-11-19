@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -711,5 +713,199 @@ func TestWriteFile_HardLinkWrittenInPlace(t *testing.T) {
 	must(t, err)
 	if string(got) != "v2" {
 		t.Fatalf("hard link content %q, want v2", got)
+	}
+}
+
+func TestUploadPathEscape(t *testing.T) {
+	for _, kind := range []string{"relative", "absolute", "parent link", "destination link", "replaced parent"} {
+		t.Run(kind, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.Contains(kind, "link") {
+				t.Skip("creating symlinks requires privileges on Windows")
+			}
+			if kind == "replaced parent" && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+				t.Skip("directory handles anchor the temporary file on Linux and macOS")
+			}
+			root, outside := t.TempDir(), t.TempDir()
+			s, err := New(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(s.Close)
+			ctx := context.Background()
+			p := uploadParams{UploadID: "a0000000-0000-4000-8000-000000000000"}
+			switch kind {
+			case "relative":
+				p.RelPath = "../outside"
+			case "absolute":
+				p.RelPath = filepath.Join(outside, "file")
+			case "parent link", "destination link":
+				if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+					t.Fatal(err)
+				}
+				p.RelPath = "link"
+				if kind == "parent link" {
+					p.RelPath += "/file"
+				}
+			case "replaced parent":
+				parent := filepath.Join(root, "nested")
+				moved := filepath.Join(root, "moved")
+				if err := os.Mkdir(parent, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				p.RelPath = "nested/file"
+				dest, err := s.uploadDestination(p.RelPath, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p.ExpectedPath = dest.path
+				if _, err := s.beginUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(parent, moved); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, parent); err != nil {
+					t.Fatal(err)
+				}
+				p.SHA256 = fmt.Sprintf("%x", sha256.Sum256(nil))
+				if _, err := s.verifyUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				_, err = s.commitUpload(ctx, p)
+				if proto.ErrorCode(err) != CodeOutOfWorkspace {
+					t.Fatalf("committing through a replaced parent: %v", err)
+				}
+				entries, err := os.ReadDir(moved)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("temporary file in moved directory: %v, %v", entries, err)
+				}
+			}
+			if kind != "replaced parent" {
+				dest, err := s.uploadDestination(p.RelPath, false)
+				if err == nil {
+					p.ExpectedPath = dest.path
+					_, err = s.beginUpload(ctx, p)
+				}
+				if proto.ErrorCode(err) != CodeOutOfWorkspace {
+					t.Fatalf("upload destination escaped: %v", err)
+				}
+			}
+			entries, err := os.ReadDir(outside)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("upload changed the outside directory: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestUploadCleanup(t *testing.T) {
+	for _, kind := range []string{"verified commit", "hash mismatch", "abort", "disconnect"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			s, err := New(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(s.Close)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			p := uploadParams{UploadID: "b0000000-0000-4000-8000-000000000000", RelPath: "data", Size: 3}
+			dest, err := s.uploadDestination(p.RelPath, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.ExpectedPath = dest.path
+			if err := os.WriteFile(dest.path, []byte("old"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.beginUpload(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			for _, piece := range []struct {
+				offset int64
+				base64 string
+			}{{1, "ZXc="}, {0, "bg=="}} {
+				p.Offset, p.Data = piece.offset, piece.base64
+				if _, err := s.chunkUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want := "old"
+			switch kind {
+			case "verified commit":
+				p.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("new")))
+				if _, err := s.verifyUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.commitUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				want = "new"
+				if runtime.GOOS != "windows" {
+					info, err := os.Stat(dest.path)
+					if err != nil || info.Mode().Perm() != 0o600 {
+						t.Fatalf("destination mode changed: %v, %v", info, err)
+					}
+				}
+			case "hash mismatch":
+				p.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("bad")))
+				if _, err := s.verifyUpload(ctx, p); err == nil || !strings.Contains(err.Error(), "SHA-256 did not match") {
+					t.Fatalf("verification error: %v", err)
+				}
+			case "abort":
+				if _, err := s.abortUpload(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+			case "disconnect":
+				cancel()
+				s.DropUploads(ctx)
+			}
+			if entries, err := os.ReadDir(root); err != nil || len(entries) != 1 {
+				t.Fatalf("temporary upload remains: %v, %v", entries, err)
+			}
+			if data, err := os.ReadFile(dest.path); err != nil || string(data) != want {
+				t.Fatalf("destination changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestBeginUploadRemovesStaleTemporaryFiles(t *testing.T) {
+	for _, test := range []struct {
+		kind, name string
+		kept       bool
+	}{
+		{"abandoned file", uploadPrefix + "a0000000-0000-4000-8000-000000000000" + uploadSuffix, false},
+		{"recent file", uploadPrefix + "b0000000-0000-4000-8000-000000000000" + uploadSuffix, true},
+		{"unrelated file", uploadPrefix + "not-an-upload" + uploadSuffix, true},
+		{"matching directory", uploadPrefix + "c0000000-0000-4000-8000-000000000000" + uploadSuffix, true},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			root := t.TempDir()
+			entry := filepath.Join(root, test.name)
+			if test.kind == "matching directory" {
+				must(t, os.Mkdir(entry, 0o700))
+			} else {
+				must(t, os.WriteFile(entry, nil, 0o600))
+			}
+			if test.kind != "recent file" {
+				old := time.Now().Add(-25 * time.Hour)
+				must(t, os.Chtimes(entry, old, old))
+			}
+			s, err := New(root)
+			must(t, err)
+			t.Cleanup(s.Close)
+			dest, err := s.uploadDestination("data", false)
+			must(t, err)
+			_, err = s.beginUpload(context.Background(), uploadParams{
+				UploadID: "d0000000-0000-4000-8000-000000000000",
+				RelPath:  "data", ExpectedPath: dest.path,
+			})
+			must(t, err)
+			_, err = os.Lstat(entry)
+			if test.kept && err != nil || !test.kept && !os.IsNotExist(err) {
+				t.Fatalf("expected kept=%v, got stat error %v", test.kept, err)
+			}
+		})
 	}
 }

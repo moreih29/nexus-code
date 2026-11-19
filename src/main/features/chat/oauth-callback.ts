@@ -31,14 +31,26 @@ interface Pending {
 /** How long an address the browser came back to is kept for a wait that comes late. */
 const KEPT_MS = 60_000;
 
+/** Indicates a sign-in that was cancelled by chat host shutdown. */
+export class OAuthCallbacksClosedError extends Error {
+  constructor() {
+    super("OAuth callbacks are closed");
+  }
+}
+
 export class OAuthCallbacks {
   private readonly pending = new Map<string, Pending>();
-  private readonly arrived = new Map<string, string>();
+  private readonly arrived = new Map<
+    string,
+    { url: string; timer: ReturnType<typeof setTimeout> }
+  >();
+  private disposed = false;
 
   constructor(private readonly timeoutMs = OAUTH_CALLBACK_TIMEOUT_MS) {}
 
   /** Serves a page for one sign-in; its address is the redirect to give. */
   async listen(): Promise<{ id: string; redirectUri: string }> {
+    if (this.disposed) throw new OAuthCallbacksClosedError();
     const id = randomUUID();
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -58,6 +70,10 @@ export class OAuthCallbacks {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());
     });
+    if (this.disposed) {
+      server.close();
+      throw new OAuthCallbacksClosedError();
+    }
     const timer = setTimeout(() => this.finish(id, null), this.timeoutMs);
     timer.unref?.();
     this.pending.set(id, { server, timer, waiters: [] });
@@ -68,7 +84,7 @@ export class OAuthCallbacks {
   /** The address the browser came back to; null when it timed out, was cancelled or is unknown. */
   wait(id: string): Promise<string | null> {
     const arrived = this.arrived.get(id);
-    if (arrived !== undefined) return Promise.resolve(arrived);
+    if (arrived !== undefined) return Promise.resolve(arrived.url);
     const entry = this.pending.get(id);
     if (!entry) return Promise.resolve(null);
     return new Promise((resolve) => entry.waiters.push(resolve));
@@ -79,8 +95,11 @@ export class OAuthCallbacks {
     this.finish(id, null);
   }
 
+  /** Stops pending sign-ins and drops callbacks saved for a late waiter. */
   dispose(): void {
+    this.disposed = true;
     for (const id of [...this.pending.keys()]) this.finish(id, null);
+    for (const { timer } of this.arrived.values()) clearTimeout(timer);
     this.arrived.clear();
   }
 
@@ -92,8 +111,9 @@ export class OAuthCallbacks {
     // The page was answered first; the server stops taking new connections.
     entry.server.close();
     if (url !== null) {
-      this.arrived.set(id, url);
-      setTimeout(() => this.arrived.delete(id), KEPT_MS).unref?.();
+      const timer = setTimeout(() => this.arrived.delete(id), KEPT_MS);
+      timer.unref?.();
+      this.arrived.set(id, { url, timer });
     }
     for (const waiter of entry.waiters.splice(0)) waiter(url);
   }

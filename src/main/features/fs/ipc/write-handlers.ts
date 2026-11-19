@@ -1,146 +1,95 @@
-/**
- * Write fs handlers — thin IPC adapters over the workspace's agent-backed
- * filesystem provider.
- *
- * Every handler catches agent-thrown fs errors (ALREADY_EXISTS, NOT_FOUND,
- * PERMISSION_DENIED, IS_DIRECTORY, NOT_EMPTY, …) and returns them as a typed
- * `ipcErr` envelope instead of letting them throw. Without this, Electron's
- * `ipcMain.handle` invocation logger prints
- *   "Error occurred in handler for 'ipc:call': Error: ALREADY_EXISTS: …"
- * on every expected user-facing failure (creating a name that already exists,
- * renaming to a colliding name, deleting a path the watcher hasn't dropped
- * yet, …) — duplicating the toast we already raise in the renderer. The
- * renderer side is unchanged: `unwrapIpcResult` rethrows the envelope as an
- * `Error("CODE: …")` so `toFsToast` keeps classifying it.
- *
- * Mirrors the read/watch handlers, which have used this wrap since they were
- * introduced.
- */
-
-import type { WriteFileResult } from "../../../../shared/fs/types";
+/** Write adapters envelope both provider startup and the agent operation. */
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";
-import { type FsIpcErrorResult, fsErrorToIpcResult, isFsError } from "./fs-result";
+import { runFsCall } from "./fs-result";
 
 const c = ipcContract.fs.call;
 
-export function writeFileHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<WriteFileResult | FsIpcErrorResult> {
-  return async (args: unknown): Promise<WriteFileResult | FsIpcErrorResult> => {
+/** Runs the agent's writeFile operation on the selected workspace. */
+export function writeFileHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath, content, expected, bytes } = validateArgs(c.writeFile.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      return await fs.writeFile(relPath, content, expected, bytes);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.writeFile(relPath, content, expected, bytes);
+    });
   };
 }
 
-export function createFileHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's createFile operation on the selected workspace. */
+export function createFileHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.createFile.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.createFile(relPath);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.createFile(relPath);
+    });
   };
 }
 
-export function mkdirHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's mkdir operation on the selected workspace. */
+export function mkdirHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath, recursive } = validateArgs(c.mkdir.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.mkdir(relPath, recursive);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.mkdir(relPath, recursive);
+    });
   };
 }
 
-export function unlinkHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's unlink operation on the selected workspace. */
+export function unlinkHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.unlink.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.unlink(relPath);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.unlink(relPath);
+    });
   };
 }
 
-export function rmdirHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's rmdir operation on the selected workspace. */
+export function rmdirHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.rmdir.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.rmdir(relPath);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.rmdir(relPath);
+    });
   };
 }
 
-export function renameHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's rename operation on the selected workspace. */
+export function renameHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.rename.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.rename(fromRelPath, toRelPath, overwrite);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.rename(fromRelPath, toRelPath, overwrite);
+    });
   };
 }
 
-export function copyFileHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's copyFile operation on the selected workspace. */
+export function copyFileHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.copyFile.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.copyFile(fromRelPath, toRelPath, overwrite);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.copyFile(fromRelPath, toRelPath, overwrite);
+    });
   };
 }
 
-export function removeAllHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
-  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
+/** Runs the agent's removeAll operation on the selected workspace. */
+export function removeAllHandler(manager: WorkspaceManager) {
+  return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.removeAll.args, args);
-    const fs = await manager.getFs(workspaceId);
-    try {
-      await fs.removeAll(relPath);
-    } catch (error) {
-      if (isFsError(error)) return fsErrorToIpcResult(error);
-      throw error;
-    }
+    return runFsCall(async () => {
+      const fs = await manager.getFs(workspaceId);
+      return fs.removeAll(relPath);
+    });
   };
 }

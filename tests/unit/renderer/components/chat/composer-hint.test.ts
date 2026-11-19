@@ -24,10 +24,11 @@ describe("the composer's hint", () => {
     );
   });
 
-  test("a Codex tab's turn: Enter goes in at once, so no now key", () => {
+  test("a Codex tab's turn: Enter waits for a tool and the now key explains what it discards", () => {
     const { send, nowKey, queueKey } = composerKeys();
     const hint = composerHint(t, true, "codex");
-    expect(hint).toBe(`${send} deliver now · ${queueKey} deliver after the turn`);
-    expect(hint).not.toContain(`${nowKey} `);
+    expect(hint).toBe(
+      `${send} after tool · ${nowKey} now (discards current response) · ${queueKey} after turn`,
+    );
   });
 });

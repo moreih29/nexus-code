@@ -1,8 +1,8 @@
 import { createAbortError, isAbortError, throwIfAborted } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
-import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/ssh/errors";
-import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
+import type { SshErrorCode } from "../../../shared/ssh/errors";
+import { messageForSshErrorCode } from "../../infra/agent/pipe";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
@@ -14,6 +14,7 @@ import {
   ensureRemoteAgent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { agentCallError, sshErrorCode } from "../../infra/ipc-router/agent-errors";
 import type { SshBrowseSessionRegistry } from "../ssh/browse-session-registry";
 import type { WorkspaceManager } from "./manager";
 
@@ -49,6 +50,7 @@ export function registerWorkspaceChannel(
       list: (_args: unknown) => {
         return manager.list();
       },
+      connectionSnapshot: () => ipcOk(manager.connectionSnapshot()),
       active: (_args: unknown) => {
         return manager.getActiveId();
       },
@@ -78,7 +80,8 @@ export function registerWorkspaceChannel(
         // When a browse session id is supplied the user already authenticated
         // via the SSH directory picker; use the legacy create+claimMaster path
         // which reuses that session's ControlMaster without a second prompt.
-        if (createArgs && "location" in createArgs && createArgs.location.kind !== "ssh") {
+        // The legacy `{ rootPath }` shape is always a local folder.
+        if (!("location" in createArgs) || createArgs.location.kind !== "ssh") {
           // Local: commit immediately — no connection step needed.
           const meta = manager.create(createArgs);
           return ipcOk(meta);
@@ -102,18 +105,8 @@ export function registerWorkspaceChannel(
           const meta = await manager.createAndConnectSsh(createArgs);
           return ipcOk(meta);
         } catch (error) {
-          // User-initiated cancellation (password dialog closed / signal aborted).
-          // Return a Result so the router passes through silently — no log.
-          if (isSshAuthCancellation(error) || isAbortError(error)) {
-            return ipcErr("cancelled", "SSH authentication cancelled");
-          }
-          // Typed SSH failures (wrong credentials, host unreachable, …) —
-          // surface as auth-failed so the renderer can show a human message.
-          const code = sshErrorCodeFromError(error);
-          if (code) {
-            return ipcErr("auth-failed", messageForSshErrorCode(code), { code });
-          }
-          // Unexpected bug — rethrow so the router logs it.
+          const expected = agentCallError(error, "auth-failed");
+          if (expected) return expected;
           throw error;
         }
       },
@@ -125,17 +118,15 @@ export function registerWorkspaceChannel(
         const { id, beforeId, afterId, targetGroup } = validateArgs(c.reorder.args, args);
         return manager.reorder(id, { beforeId, afterId, targetGroup });
       },
-      remove: (args: unknown) => {
+      remove: async (args: unknown) => {
         const { id } = validateArgs(c.remove.args, args);
         // remove() is idempotent — a missing workspace is silently ignored.
         // Return ipcOk so the router passes this through without logging.
-        manager.remove(id);
+        await manager.remove(id);
         return ipcOk(undefined);
       },
-      activate: (args: unknown) => {
-        const { id } = validateArgs(c.activate.args, args);
-        return manager.activate(id);
-      },
+      activate: workspaceConnectionHandler(manager, "activate"),
+      connect: workspaceConnectionHandler(manager, "connect"),
       testSsh: testSshHandler(dependencies.createSshChannel, dependencies.sshBootstrap),
     },
     listen: {
@@ -146,6 +137,24 @@ export function registerWorkspaceChannel(
       reordered: {},
     },
   });
+}
+
+/** Report connection and selection outcomes through the IPC result envelope. */
+function workspaceConnectionHandler(manager: WorkspaceManager, action: "activate" | "connect") {
+  return async (args: unknown) => {
+    const { id } = validateArgs(c[action].args, args);
+    if (manager.getName(id) === null) {
+      return ipcErr("not-found", `Workspace not found: ${id}`, { category: "failed" });
+    }
+    try {
+      await manager[action](id);
+      return ipcOk(undefined);
+    } catch (error) {
+      const expected = agentCallError(error, "connection-failed");
+      if (expected) return expected;
+      throw error;
+    }
+  };
 }
 
 /**
@@ -177,6 +186,7 @@ export function testSshHandler(
         identityFile: testArgs.identityFile,
         authMode: testArgs.authMode,
         remotePath: testArgs.remotePath,
+        signal,
       });
       disposeBootstrap = bootstrap.dispose;
       throwIfAborted(signal);
@@ -225,65 +235,10 @@ export function testSshHandler(
  * Converts SSH transport and server failures to the public testSsh result.
  */
 function sshFailureResult(error: unknown): TestSshResult {
-  const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
+  const code = sshErrorCode(error) ?? "ssh.unknown";
   return {
     ok: false,
     code,
     message: messageForSshErrorCode(code),
   };
-}
-
-/**
- * Reads a stable SshErrorCode from errors without trusting arbitrary strings.
- */
-function sshErrorCodeFromError(error: unknown): SshErrorCode | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-
-  const parsed = SshErrorCodeSchema.safeParse((error as { code?: unknown }).code);
-  return parsed.success ? parsed.data : undefined;
-}
-
-/**
- * Maps SshErrorCode values to sanitized messages that never include stderr.
- */
-function messageForSshErrorCode(code: SshErrorCode): string {
-  switch (code) {
-    case "ssh.connect-failed":
-      return "SSH connection failed";
-    case "ssh.auth-failed":
-      return "SSH authentication failed";
-    case "ssh.auth-cancelled":
-      return "SSH authentication cancelled";
-    case "ssh.session-expired":
-      return "SSH browse session expired";
-    case "ssh.path-not-found":
-      return "Remote path not found";
-    case "server.spawn-failed":
-      return "Remote agent failed to start";
-    case "server.protocol-error":
-      return "Remote agent protocol error";
-    case "server.protocol-version-mismatch":
-      return "Remote agent protocol version mismatch";
-    case "ssh.unknown":
-      return "SSH workspace validation failed";
-    case "transport.unknown":
-      return "Agent transport failed";
-    case "transport.timeout":
-      return "Agent request timed out";
-  }
-}
-
-/**
- * Walks the error cause chain to detect user-initiated SSH authentication
- * cancellations. AuthCancelledError can be wrapped inside a createSshError
- * envelope by auth-pty, so the chain must be traversed recursively.
- */
-function isSshAuthCancellation(error: unknown): boolean {
-  if (error instanceof AuthCancelledError) return true;
-  if (error instanceof Error && error.cause !== undefined) {
-    return isSshAuthCancellation(error.cause);
-  }
-  return false;
 }

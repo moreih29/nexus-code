@@ -10,13 +10,16 @@ import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
-import { configCommandOf } from "../../services/chat/claude-config";
+import { configCommandOf } from "../../services/chat/claude/config";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
   pruneAttachmentsOnce,
-} from "../../services/chat/controller";
+} from "../../services/chat/claude/controller";
+import { historyForDisplay } from "../../services/chat/claude/history";
+import { runAppCommand } from "../../services/chat/claude/run-command";
+import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
@@ -55,7 +58,7 @@ import {
 } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { runAppCommand } from "../../services/chat/run-app-command";
+import { jobToolStatuses } from "../../services/chat/running";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -66,7 +69,6 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
-import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -94,6 +96,7 @@ import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
+import { surfaceChatSendError } from "./send-error";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
@@ -213,7 +216,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
-    void controller.answerPermission(request, answer).catch(() => {});
+    void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
@@ -222,19 +225,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const running = state.model.running;
   const canFork = controller.forkPoint("", { before: false }) !== null;
   const asking = state.model.permissions;
+  const unverifiedStart = controller.unverifiedHistoryStart();
   // Set below, where the agents are known; read when a row renders.
   const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   const actions = useMemo<MessageActions>(
     () => ({
       running,
       canFork,
+      canForkItem: (item) =>
+        !!item.uuid &&
+        (item.kind !== "user" || (item.state === "taken" && item.uuid !== unverifiedStart)),
+      canRewindItem: (item) =>
+        item.state === "taken" && !!item.uuid && item.uuid !== unverifiedStart,
       onRewind: (item) => setRewinding(item),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
       onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       taskShower: (item) => taskShower.current(item),
     }),
-    [running, canFork, controller, workspaceId, props.cwd, asking],
+    [running, canFork, controller, workspaceId, props.cwd, asking, unverifiedStart],
   );
 
   // Where the side panel goes follows the tab's width.
@@ -302,7 +311,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
   // Its history's subagents too, which ended: a conversation resumed shows them.
-  const pastModel = state.history;
+  const pastHistory = state.history;
+  const pastModel = useMemo(
+    () => (pastHistory ? historyForDisplay(pastHistory) : null),
+    [pastHistory],
+  );
   const { tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls } = state.model;
   const pastAgents = useMemo(() => (pastModel ? pastAgentsOf(pastModel) : []), [pastModel]);
   const liveAgents = useMemo(
@@ -385,10 +398,14 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   }, [isVisible]);
   // The previews may read what the tab links outside the workspace, while it is open.
   const [looked, setLooked] = useState<readonly string[]>([]);
-  // Taken from the parts it reads, so a line that changes none of them (a
-  // usage report, a turn's end) does not walk the whole session again.
   const history = state.history;
   const { items: liveItems, tools: liveTools, tasks } = state.model;
+  const toolStatuses = useMemo(
+    () => jobToolStatuses({ tasks, tools: liveTools, running }),
+    [tasks, liveTools, running],
+  );
+  // Taken from the parts it reads, so a line that changes none of them (a
+  // usage report, a turn's end) does not walk the whole session again.
   const outside = useMemo(() => {
     const items = history ? [...history.items, ...liveItems] : liveItems;
     const tools = history ? { ...history.tools, ...liveTools } : liveTools;
@@ -667,13 +684,27 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               tabId={tabId}
               cwd={props.cwd}
               rootPath={rootPath}
-              history={state.history}
+              history={pastModel}
               model={state.model}
+              toolStatuses={toolStatuses}
               actions={shown ? undefined : actions}
               items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
+              older={
+                !shown && state.historyPage
+                  ? {
+                      ...state.historyPage,
+                      load: () =>
+                        void controller
+                          .loadEarlier()
+                          .catch((error: Error) =>
+                            showToast({ kind: "error", message: error.message }),
+                          ),
+                    }
+                  : undefined
+              }
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">

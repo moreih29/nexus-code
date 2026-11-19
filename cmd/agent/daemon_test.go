@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -17,8 +18,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	"github.com/nexus-code/nexus-code/internal/pty"
 )
 
 // shortHome returns a temp dir with a SHORT absolute path for use as the
@@ -40,7 +43,7 @@ func shortHome(t *testing.T) string {
 
 // startDaemon starts `bin --daemon root` with HOME redirected to fakeHome so
 // the daemon writes its socket/lock/log under fakeHome/.nexus-code/run/.
-// Returns the started *exec.Cmd and the run directory to poll for the socket.
+// Returns the started command and the daemon's run directory.
 func startDaemon(t *testing.T, bin, root, fakeHome string) (*exec.Cmd, string) {
 	t.Helper()
 	nexusRunDir := filepath.Join(fakeHome, ".nexus-code", "run")
@@ -55,31 +58,53 @@ func startDaemon(t *testing.T, bin, root, fakeHome string) (*exec.Cmd, string) {
 	return cmd, nexusRunDir
 }
 
-// waitForSocket polls runDir until a *.sock file appears, then returns its path.
-func waitForSocket(t *testing.T, runDir string) string {
+// waitForSocket waits for the daemon to announce that it is listening. A
+// bound Unix socket can exist on disk before it accepts connections.
+func waitForSocket(t *testing.T, runDir, root string) string {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		entries, _ := os.ReadDir(runDir)
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".sock") {
-				return filepath.Join(runDir, e.Name())
-			}
-		}
-		time.Sleep(30 * time.Millisecond)
+	id := agentrun.WsID(root, proto.ServerVersion)
+	logPath := filepath.Join(runDir, id+".log")
+	// Create the log if the daemon has not reached it yet. Keep existing
+	// contents so the announcement is visible even if it has already run.
+	// Watch the regular file directly: on kqueue watching the directory
+	// also tries to watch its socket entries, which is unsupported.
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("open daemon log %s: %v", logPath, err)
 	}
-	// Boot failed — dump the run directory and any boot log so the failure
-	// is diagnosable from CI output alone.
-	entries, _ := os.ReadDir(runDir)
-	for _, e := range entries {
-		t.Logf("runDir entry: %s", e.Name())
-		if strings.HasSuffix(e.Name(), ".log") {
-			data, _ := os.ReadFile(filepath.Join(runDir, e.Name()))
-			t.Logf("boot log %s:\n%s", e.Name(), data)
+	if err := logFile.Close(); err != nil {
+		t.Fatalf("close daemon log %s: %v", logPath, err)
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("watch daemon log: %v", err)
+	}
+	defer watcher.Close()
+	if err := watcher.Add(logPath); err != nil {
+		t.Fatalf("watch daemon log %s: %v", logPath, err)
+	}
+
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		// Read after installing the watch so a write before registration
+		// is seen along with writes delivered as events.
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("read daemon log %s: %v", logPath, err)
+		}
+		if strings.Contains(string(data), `"msg":"`+daemonListeningMessage+`"`) {
+			return filepath.Join(runDir, id+".sock")
+		}
+
+		select {
+		case <-watcher.Events:
+		case err := <-watcher.Errors:
+			t.Fatalf("daemon log watcher: %v", err)
+		case <-deadline.C:
+			t.Fatalf("daemon did not announce its listener within 5 s:\n%s", data)
 		}
 	}
-	t.Fatal("daemon socket did not appear within 5 s")
-	return ""
 }
 
 // readReady connects to sockPath and reads the first NDJSON frame (Ready).
@@ -118,7 +143,7 @@ func TestDaemonTakeover(t *testing.T) {
 	cmd, runDir := startDaemon(t, bin, root, fakeHome)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	// Dialer A.
 	connA, lineA := readReady(t, sockPath)
@@ -178,7 +203,7 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 	cmd, runDir := startDaemon(t, bin, root, fakeHome)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	// Dialer A: connect, get Ready.
 	connA, lineA := readReady(t, sockPath)
@@ -218,7 +243,7 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 // (a renderer that vanished while the socket still absorbed writes), so the
 // session pauses at the high watermark with ~100 KB of debt. After dialer B
 // takes over, that stale debt must be dropped and the rest of the output must
-// reach B; before ResetFlowControl was wired in, the session stayed paused
+// reach B; before takeover reset renderer credit, the session stayed paused
 // forever.
 func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 	t.Parallel()
@@ -228,7 +253,7 @@ func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 
 	cmd, runDir := startDaemon(t, bin, root, fakeHome)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	connA, _ := readReady(t, sockPath)
 	defer connA.Close()
@@ -284,6 +309,109 @@ func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
 }
 
+// TestDaemonTakeoverCancelsCreditBlockedReplay withholds A's replay ACKs
+// while B takes over the daemon's Unix socket. B receives its own full replay.
+func TestDaemonTakeoverCancelsCreditBlockedReplay(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd, runDir := startDaemon(t, agentBinary(t), root, shortHome(t))
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	sockPath := waitForSocket(t, runDir, root)
+
+	type frame struct {
+		proto.Response
+		Type    string          `json:"type"`
+		Event   string          `json:"event"`
+		Payload pty.DataPayload `json:"payload"`
+	}
+	connect := func() (net.Conn, func() frame) {
+		conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		decoder := json.NewDecoder(conn)
+		next := func() frame {
+			var f frame
+			if err := decoder.Decode(&f); err != nil {
+				t.Fatalf("read dialer frame: %v", err)
+			}
+			if f.Error != nil {
+				t.Fatalf("request %s failed: %+v", f.ID, f.Error)
+			}
+			return f
+		}
+		if f := next(); f.Type != "ready" {
+			t.Fatalf("first frame type = %q, want ready", f.Type)
+		}
+		return conn, next
+	}
+	send := func(conn net.Conn, id, method, params string) {
+		if err := json.NewEncoder(conn).Encode(proto.Request{ID: id, Method: method, Params: json.RawMessage(params)}); err != nil {
+			t.Fatalf("send %s: %v", method, err)
+		}
+	}
+	ack := func(conn net.Conn, id string, count int) {
+		send(conn, id, "pty.ack", fmt.Sprintf(`{"workspaceId":"ws","tabId":"tab","bytesConsumed":%d}`, count))
+	}
+	chunk := func(f frame) []byte {
+		data, err := base64.StdEncoding.DecodeString(f.Payload.Chunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	a, nextA := connect()
+	spawnOn(t, a, "tab", root, `stty -echo; head -c 120000 /dev/zero | tr '\0' a; printf '\nHISTORY-END\n'; read -r stop`)
+	var history strings.Builder
+	credited := 0
+	for replies := 0; replies < 2; {
+		f := nextA()
+		if f.ID == "first-ack" || f.ID == "last-ack" {
+			replies++
+		}
+		if f.Event != pty.EventData {
+			continue
+		}
+		history.Write(chunk(f))
+		if credited == 0 && history.Len() >= pty.HighWatermarkBytes {
+			credited = history.Len()
+			ack(a, "first-ack", credited)
+		}
+		if strings.HasSuffix(history.String(), "HISTORY-END\r\n") {
+			ack(a, "last-ack", history.Len()-credited)
+		}
+	}
+
+	const tab = `{"workspaceId":"ws","tabId":"tab"}`
+	send(a, "old-replay", "pty.replay", tab)
+	for received := 0; received < pty.HighWatermarkBytes; {
+		f := nextA()
+		if f.ID == "old-replay" {
+			t.Fatal("old replay finished without credit")
+		}
+		if f.Event == pty.EventData && f.Payload.Replay {
+			received += len(chunk(f))
+		}
+	}
+
+	b, nextB := connect()
+	send(b, "new-replay", "pty.replay", tab)
+	var replay strings.Builder
+	for f := nextB(); f.ID != "new-replay"; f = nextB() {
+		if f.Event == pty.EventData && f.Payload.Replay {
+			data := chunk(f)
+			replay.Write(data)
+			ack(b, "ack", len(data))
+		}
+	}
+	if want := "\x1bc" + history.String(); replay.String() != want {
+		t.Fatalf("replacement replay received %d bytes, want exactly %d bytes starting with terminal reset", replay.Len(), len(want))
+	}
+}
+
 // A daemon of another workspace sweeping stale run files takes this
 // workspace's lock for a moment to prove its daemon dead. A daemon starting in
 // that moment must wait it out instead of exiting with ExitCodeLockHeld as if
@@ -335,7 +463,7 @@ func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
 		t.Fatalf("daemon exited while the lock was briefly held: %v", waitErr)
 	case <-time.After(300 * time.Millisecond):
 	}
-	conn, ready := readReady(t, waitForSocket(t, runDir))
+	conn, ready := readReady(t, waitForSocket(t, runDir, root))
 	defer conn.Close()
 	if !strings.Contains(ready, `"ready"`) {
 		t.Fatalf("want ready frame, got %s", ready)
@@ -355,7 +483,7 @@ func TestDaemonExitsOnShutdown(t *testing.T) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	defer func() { _ = cmd.Process.Kill() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	conn, _ := readReady(t, sockPath)
 	defer conn.Close()
@@ -378,6 +506,11 @@ func TestDaemonExitsOnShutdown(t *testing.T) {
 			}
 			break
 		}
+	}
+
+	// The client can re-add the workspace as soon as it receives the reply.
+	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
+		t.Errorf("old daemon socket is still present after shutdown reply: %v", err)
 	}
 
 	select {
@@ -438,17 +571,8 @@ func TestDaemonStopsAnotherDaemon(t *testing.T) {
 	go func() { exitedB <- cmdB.Wait() }()
 	defer func() { _ = cmdB.Process.Kill() }()
 
-	sockA := filepath.Join(runDir, agentrun.WsID(rootA, proto.ServerVersion)+".sock")
-	sockB := filepath.Join(runDir, agentrun.WsID(rootB, proto.ServerVersion)+".sock")
-	for _, sock := range []string{sockA, sockB} {
-		deadline := time.Now().Add(5 * time.Second)
-		for _, err := os.Stat(sock); err != nil; _, err = os.Stat(sock) {
-			if time.Now().After(deadline) {
-				t.Fatalf("daemon socket %s did not appear: %v", sock, err)
-			}
-			time.Sleep(30 * time.Millisecond)
-		}
-	}
+	sockA := waitForSocket(t, runDir, rootA)
+	waitForSocket(t, runDir, rootB)
 
 	conn, _ := readReady(t, sockA)
 	defer conn.Close()

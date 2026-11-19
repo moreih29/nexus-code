@@ -7,7 +7,7 @@
  * for a file the session wrote new.
  */
 
-import { type CodexModel, originalsFor } from "../chat/codex-model";
+import { type CodexModel, originalsFor } from "../chat/codex/model";
 import { changedFilesOf } from "../chat/panel";
 import type { ChatTabState } from "../chat/store";
 

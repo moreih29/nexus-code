@@ -34,7 +34,7 @@ function makeWorkspace(id = WORKSPACE_ID): WorkspaceMeta {
     name: "local",
     location: { kind: "local", rootPath: "/tmp/project" },
     rootPath: "/tmp/project",
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
@@ -188,5 +188,24 @@ describe("workspaces store — fetchList fallback on inconsistency", () => {
     const ids = storeWithFetch.getState().workspaces.map((w) => w.id);
     expect(ids).toContain(ID_A);
     expect(ids).toContain(ID_B);
+  });
+
+  it("keeps a workspace removed while the sort fallback was in flight", async () => {
+    const read = Promise.withResolvers<WorkspaceMeta[]>();
+    const store = createWorkspacesStore({
+      canUseIpcBridge: () => false,
+      listen: () => () => {},
+      fetchList: () => read.promise,
+    });
+    const a = makeWsWithOrder(ID_A, 2048);
+    const b = makeWsWithOrder(ID_B, 3072);
+    store.getState().setAll([a, b]);
+    store.getState().upsert({ ...b, sortOrder: 2048 });
+    store.getState().remove(ID_A);
+
+    read.resolve([makeWsWithOrder(ID_A, 1024), makeWsWithOrder(ID_B, 2048)]);
+    await read.promise;
+
+    expect(store.getState().workspaces.map((workspace) => workspace.id)).toEqual([ID_B]);
   });
 });

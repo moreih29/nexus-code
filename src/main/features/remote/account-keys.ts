@@ -8,6 +8,7 @@
  * from an envelope after another device rotated it, rotates it when it
  * removes a device, and gives the server the password's proof where it asks.
  */
+
 import { z } from "zod";
 import {
   ACCOUNT_AUTH_ERROR,
@@ -22,6 +23,7 @@ import {
   KeyEnvelopesResponseSchema,
   type KeyRotation,
 } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import type {
   AccountKeyState,
   KeyFailure,
@@ -48,6 +50,8 @@ import {
 } from "./device-key";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import type { Kept } from "./sealed-file";
+
+const log = createLogger("remote-account-keys");
 
 const BUNDLE_PATH = "/account/key-bundle";
 
@@ -366,7 +370,7 @@ export class AccountKeys {
       // A device with an older key, or none, asks for the password, as before v2.
       if (!device.key || device.key.kid !== k) continue;
       if (!certChecks(opened.key, userId, device.id, device.key)) {
-        console.warn(`[remote] device ${device.id}'s key does not check; the key was not rotated`);
+        log.warn(`device ${device.id}'s key does not check; the key was not rotated`);
         throw new KeyError("device-key");
       }
       envelopes.push({
@@ -427,19 +431,19 @@ export class AccountKeys {
       if (found && this.held && found.bundle.kid > this.held.kid) {
         // Another device rotated the key: an envelope may carry it here.
         await this.takeEnvelopes().catch((error: unknown) =>
-          console.warn("[remote] taking the new account key from an envelope failed:", error),
+          log.warn(`Could not open the new account key envelope: ${String(error)}`),
         );
       }
       if (!found) this.set({ status: "missing" });
       else if (this.held?.kid === found.bundle.kid) {
         this.set({ status: "unlocked", kid: found.bundle.kid, ...this.extras() });
         await this.syncDeviceKey().catch((error: unknown) =>
-          console.warn("[remote] registering this device's key failed:", error),
+          log.warn(`Could not register this device key: ${String(error)}`),
         );
       } else if (this.held && this.older(found)) {
         // A key older than the one held: the server went back, or is made to. The newer key stays.
-        console.warn(
-          `[remote] the server's account key (version ${found.bundle.kid}) is older than this device's (${this.held.kid}); kept this one`,
+        log.warn(
+          `the server's account key (version ${found.bundle.kid}) is older than this device's (${this.held.kid}); kept this one`,
         );
         this.set({ status: "unlocked", kid: this.held.kid, ...this.extras() });
       } else this.set({ status: "locked", kid: found.bundle.kid, ...this.extras() });
@@ -494,7 +498,7 @@ export class AccountKeys {
         held: current,
       });
       if (!key) {
-        console.warn(`[remote] an envelope of key version ${envelope.kid} did not open`);
+        log.warn(`an envelope of key version ${envelope.kid} did not open`);
         break;
       }
       current = { kid: envelope.kid, key };
@@ -627,7 +631,7 @@ export class AccountKeys {
     } catch (error) {
       if (error instanceof WrongPasswordError) throw new KeyError("wrong-password");
       if (error instanceof KdfTooHeavyError) {
-        console.warn(`[remote] ${error.message}`);
+        log.warn(`${error.message}`);
         throw new KeyError("too-heavy");
       }
       throw error;

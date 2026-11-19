@@ -802,6 +802,24 @@ export type TerminalUpdate = z.infer<typeof TerminalUpdateSchema>;
 export const SessionsUpdateSchema = SessionsSchema.extend({ watchId: z.string() });
 export type SessionsUpdate = z.infer<typeof SessionsUpdateSchema>;
 
+/** Maximum size negotiated at the start of a file transfer. */
+export const MAX_FILE_WRITE_BYTES = 20 * 1024 ** 3;
+
+const FileScope = {
+  /** An absolute path on the serving device, with terminal control. Since 0.14.0. */
+  anywhere: z.literal(true).optional(),
+};
+const FileTransferRef = {
+  /** Keep a one-time approval within the paths used by this copy. */
+  transferId: z.string().uuid().optional(),
+};
+const FileUploadRef = {
+  ...FileScope,
+  uploadId: z.string().min(1).max(64),
+  from: AgentSenderSchema.optional(),
+};
+const FileSha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+
 const Ok = z.object({});
 
 // ---------------------------------------------------------------------------
@@ -1674,7 +1692,15 @@ export const RPC_METHODS = {
    */
   "files.list": {
     capability: "files",
-    params: z.object({ workspaceId: z.string(), path: z.string().max(4096) }),
+    params: z.object({
+      workspaceId: z.string(),
+      path: z.string().max(4096),
+      ...FileScope,
+      ...FileTransferRef,
+      /** Recursive push checks its destination without listing its contents. */
+      writeTarget: z.literal(true).optional(),
+      ...ReadBy,
+    }),
     result: z.object({
       /** The folder, absolute. */
       path: z.string(),
@@ -1705,6 +1731,9 @@ export const RPC_METHODS = {
     params: z.object({
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
+      ...FileScope,
+      ...FileTransferRef,
+      ...ReadBy,
       maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
       as: z.literal("bytes").optional(),
       offset: z.number().int().nonnegative().optional(),
@@ -1755,6 +1784,60 @@ export const RPC_METHODS = {
         version: FileVersionSchema.optional(),
       }),
     ]),
+  },
+  /** Begin writing to a final file path whose parent already exists. Since 0.14.0. */
+  "files.write.begin": {
+    capability: "files.write",
+    params: z.object({
+      ...FileScope,
+      ...FileTransferRef,
+      workspaceId: z.string(),
+      path: z.string().min(1).max(4096),
+      size: z.number().int().nonnegative().max(MAX_FILE_WRITE_BYTES),
+      from: AgentSenderSchema,
+    }),
+    result: z.object({ uploadId: z.string() }),
+  },
+  /** One positioned piece. An upload retains the permission from its begin request. */
+  "files.write.chunk": {
+    capability: "agents",
+    params: z.object({
+      ...FileUploadRef,
+      offset: z.number().int().nonnegative().max(MAX_FILE_WRITE_BYTES),
+      data: z
+        .string()
+        .min(1)
+        .max(Math.ceil(MAX_BYTES_CHUNK / 3) * 4),
+    }),
+    result: Ok,
+  },
+  /** Verify the entire file and place it at its destination. */
+  "files.write.end": {
+    capability: "agents",
+    params: z.object({ ...FileUploadRef, sha256: FileSha256Schema }),
+    result: z.object({
+      path: z.string(),
+      size: z.number().int().nonnegative(),
+      sha256: FileSha256Schema,
+    }),
+  },
+  /** Cancel a pending upload and remove its temporary file. */
+  "files.write.abort": {
+    capability: "agents",
+    params: z.object(FileUploadRef),
+    result: Ok,
+  },
+  /** Make one directory. Succeeds if it is already a directory. Since 0.14.0. */
+  "files.mkdir": {
+    capability: "files.write",
+    params: z.object({
+      ...FileScope,
+      ...FileTransferRef,
+      workspaceId: z.string(),
+      path: z.string().min(1).max(4096),
+      from: AgentSenderSchema,
+    }),
+    result: z.object({ path: z.string() }),
   },
   /**
    * Files by name, as quick open finds them: `query`'s characters in order

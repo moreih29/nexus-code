@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if address := os.Getenv(execTreeFixtureEnv); address != "" {
+		os.Exit(runExecTreeFixture(address))
+	}
 	// The tests' programs get the test's environment, not the login shell
 	// of whoever runs them.
 	loginEnv = func() map[string]string { return nil }
@@ -97,5 +101,57 @@ func TestMergeEnvPutsTheLoginShellBetweenTheAgentAndTheTab(t *testing.T) {
 		if got[key] != want {
 			t.Errorf("%s = %q, want %q", key, got[key], want)
 		}
+	}
+}
+
+func TestLaunchAndHistoryUseTheSameDefaultClaudeDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "agent-default"))
+	was := loginEnv
+	loginEnv = func() map[string]string {
+		return map[string]string{"CLAUDE_CONFIG_DIR": "~/login-default"}
+	}
+	t.Cleanup(func() { loginEnv = was })
+
+	dir := configDir("")
+	want := filepath.Join(home, "login-default")
+	if dir != want {
+		t.Fatalf("history directory = %q, want %q", dir, want)
+	}
+	for _, entry := range mergeEnv(nil) {
+		if entry == "CLAUDE_CONFIG_DIR="+dir {
+			return
+		}
+	}
+	t.Fatalf("launch did not use history directory %q", dir)
+}
+
+func TestEnvPutsWrapperFirstAndDropsParentSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH separator")
+	}
+	t.Setenv("CLAUDECODE", "1")
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	wrapper := t.TempDir()
+	startFake(t, service, "tab", map[string]string{
+		"PATH":                   "/usr/bin:/bin",
+		"NEXUS_WRAPPER_SELF_DIR": wrapper,
+		"NEXUS_TAB_ID":           "tab",
+	})
+	_ = send(t, service, "tab", "env")
+	rec.waitFor(t, "the env", func(lines []LinePayload, _ []ExitPayload) bool {
+		return hasOut(lines, `"type":"env"`)
+	})
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	want := fmt.Sprintf(`{"type":"env","path":%q,"tab":"tab","claudecode":""}`, wrapper+":/usr/bin:/bin")
+	if !hasOut(rec.lines, want) {
+		t.Fatalf("want %s in %s", want, describe(rec.lines))
 	}
 }

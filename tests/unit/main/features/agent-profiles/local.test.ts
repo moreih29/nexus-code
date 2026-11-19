@@ -181,6 +181,18 @@ describe("the environment a profile's program runs with", () => {
     expect(env.PATH).toBe("C:/Windows");
     expect(env.Path).toBe("C:/fake;C:/Windows");
   });
+
+  test("deduplicates inherited Windows variables and ignores saved Nexus overrides", () => {
+    const env = localProfileEnv(
+      {
+        ...profile,
+        env: { CUSTOM: "first", custom: "last", nexus_hook_token: "stale" },
+      },
+      { Path: "first", PATH: "last", NEXUS_HOOK_TOKEN: "live", claudecode: "1" },
+      true,
+    );
+    expect(env).toEqual({ PATH: "last", NEXUS_HOOK_TOKEN: "live", custom: "last" });
+  });
 });
 
 describe("a Claude profile whose sign-in can't be read", () => {

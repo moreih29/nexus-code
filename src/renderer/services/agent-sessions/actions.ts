@@ -14,15 +14,15 @@ import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { showInAgentView } from "../agent-view/show";
-import { existingCodexController } from "../chat/codex-controller";
-import { existingChatController } from "../chat/controller";
+import { existingChatController } from "../chat/claude/controller";
+import { existingCodexController } from "../chat/codex/controller";
 import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
 import { requestTabFocus } from "../tab-focus";
 import { openTerminal } from "../terminal/open-terminal";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { activateWorkspace } from "../workspace/tasks";
 import { typeText } from "./typed-input";
 
 interface SessionRef {

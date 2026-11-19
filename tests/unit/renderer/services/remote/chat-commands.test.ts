@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentTabController } from "../../../../../src/renderer/services/chat/agent-tab";
-import { CodexController } from "../../../../../src/renderer/services/chat/codex-controller";
-import type { ChatController } from "../../../../../src/renderer/services/chat/controller";
+import type { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
+import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
   type CommandCard,

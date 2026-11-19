@@ -13,20 +13,25 @@
  *     Clipboard API silently rejects these.  Routes through the main process
  *     `electron.clipboard.writeText` which has no activation gate.
  *
- * Failure modes (permission denied, document not focused for the navigator
- * path; IPC dropped for the IPC path) surface as silent rejections — copy is
- * non-destructive and the user notices missing paste content quickly. When we
- * add a toast channel for other actions (Reveal in Finder, Rename, Delete)
- * these helpers are the single place to wire failure feedback.
  */
+import { appErrorFailed } from "../../shared/error/app-error";
+
 export function copyText(text: string): void {
   void navigator.clipboard.writeText(text);
 }
 
-export function copyTextViaIpc(text: string): void {
-  // Lazy import to keep the helper testable without the IPC bridge — matches
-  // the lazy pattern in `services/error-surface/surface-error.ts`.
-  void import("../ipc/client").then(({ ipcCallResult }) =>
-    ipcCallResult("clipboard", "writeText", { text }),
-  );
+/** Writes through main and reports whether the clipboard received the text. */
+export async function copyTextViaIpc(text: string): Promise<boolean> {
+  try {
+    const { ipcCallResult, unwrapIpcResult } = await import("../ipc/client");
+    unwrapIpcResult(await ipcCallResult("clipboard", "writeText", { text }));
+    return true;
+  } catch (error) {
+    // Lazy import because the error surface also offers a copy action.
+    const { surfaceError } = await import("../services/error-surface/surface-error");
+    surfaceError(appErrorFailed(String(error), { code: "clipboard-write-failed" }), {
+      surface: "toast",
+    });
+    return false;
+  }
 }

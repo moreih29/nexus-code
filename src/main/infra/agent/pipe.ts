@@ -15,10 +15,20 @@ import { z } from "zod";
 import { AGENT_PROTOCOL_VERSION } from "../../../shared/agent/envelope";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Match the Go agent's per-line limit, measured before UTF-8 decoding. */
+const MAX_AGENT_LINE_BYTES = 64 * 1024 * 1024;
+
+/** The active transport must be replaced after an oversized agent line. */
+export class AgentLineTooLongError extends Error {
+  constructor() {
+    super(`Agent output line exceeded ${MAX_AGENT_LINE_BYTES} bytes`);
+  }
+}
 /** How many timed-out request ids to remember for absorbing late answers. */
 const ABANDONED_REQUEST_IDS_MAX = 1024;
 
@@ -170,8 +180,9 @@ export interface NdjsonPipeDependencies {
   readonly stderr: Readable;
   readonly stdin: Writable;
   readonly classifyStderr: StderrClassifier;
-  readonly onTerminalError: (error: SshError) => void;
+  readonly onTerminalError: (error: SshError, wasReady: boolean) => void;
   readonly requestTimeoutMs?: number;
+  readonly readyTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
   /**
    * Called when the first heartbeat miss is detected (advertisedInterval × 1).
@@ -233,8 +244,8 @@ export interface NdjsonPipe {
   /** Marks the pipe terminally failed from the orchestrator's side. */
   fail(error: Error): void;
   /**
-   * Flushes buffered lines and reports whether ready had settled before close.
-   * `stderrTail` carries the last few raw stderr lines (loader errors, panics,
+   * Flushes buffered lines and reports whether the handshake had succeeded before close.
+   * `stderrTail` carries the last few masked stderr lines (loader errors, panics,
    * unclassified warnings) so the orchestrator can attach them to the terminal
    * error's cause — the file log is then self-sufficient for diagnosis.
    */
@@ -260,15 +271,18 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   // dead workspace. Insertion-ordered, so the oldest id is evicted first.
   const abandonedRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
-  const stdoutLines = createLineSplitter(handleStdoutLine, {
+  /** Stops this transport without buffering or logging the oversized line. */
+  const onLineTooLong = () =>
+    selfFail(createSshError("server.protocol-error", new AgentLineTooLongError()));
+  const stdoutLines = createLineSplitter(handleStdoutLine, onLineTooLong, {
     hwm: STDOUT_BACKPRESSURE_HWM,
     lwm: STDOUT_BACKPRESSURE_LWM,
     pause: () => deps.stdout.pause(),
     resume: () => deps.stdout.resume(),
   });
-  const stderrLines = createLineSplitter(handleStderrLine);
+  const stderrLines = createLineSplitter(handleStderrLine, onLineTooLong);
 
-  // Ring buffer of the most recent raw stderr lines. Retained regardless of
+  // Ring buffer of the most recent masked stderr lines. Retained regardless of
   // classification so an unrecognized fatal line (e.g. a glibc loader error)
   // is still available as diagnostic context when the process closes.
   const STDERR_TAIL_MAX_LINES = 20;
@@ -286,6 +300,8 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
   let readySettled = false;
+  let readyReceived = false;
+  let readyTimer: NodeJS.Timeout | undefined;
 
   // Capabilities from the ready frame — populated once ready arrives.
   let capabilityMethods: readonly string[] | undefined;
@@ -317,11 +333,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     resolveReady = () => {
       if (readySettled) return;
       readySettled = true;
+      readyReceived = true;
+      clearTimeout(readyTimer);
       resolve();
     };
     rejectReady = (error) => {
       if (readySettled) return;
       readySettled = true;
+      clearTimeout(readyTimer);
       reject(error);
     };
   });
@@ -360,11 +379,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   /** Records a terminal pipe failure detected from stream data. */
   function selfFail(error: SshError): void {
-    if (terminalError) return;
+    if (disposed || terminalError) return;
     terminalError = error;
+    clearHeartbeatWatchdog();
+    clearKeepalive();
     rejectReady(error);
     rejectPendingRequests(error);
-    deps.onTerminalError(error);
+    deps.onTerminalError(error, readyReceived);
   }
 
   /** Parses one stdout NDJSON line and routes it to ready, call, or event state. */
@@ -560,7 +581,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
     }
 
-    // Retain the raw line before classification so it survives even when no
+    // Retain the diagnostic before classification so it survives even when no
     // pattern matches — the close handler reads this tail for the cause.
     recordStderr(line);
 
@@ -584,7 +605,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   /** Appends one stderr line to the bounded diagnostic tail buffer. */
   function recordStderr(line: string): void {
-    recentStderr.push(line.slice(0, STDERR_TAIL_MAX_LINE_CHARS));
+    recentStderr.push(redactLogSecrets(line).slice(0, STDERR_TAIL_MAX_LINE_CHARS));
     if (recentStderr.length > STDERR_TAIL_MAX_LINES) {
       recentStderr.shift();
     }
@@ -755,13 +776,25 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     notifyClose(): { wasReady: boolean; stderrTail: string } {
       stdoutLines.flush();
       stderrLines.flush();
-      const wasReady = readySettled;
-      if (!wasReady && deferredSpawnFailure !== null) {
+      const wasReady = readyReceived;
+      if (!readySettled && deferredSpawnFailure !== null) {
         selfFail(createSshError("server.spawn-failed", deferredSpawnFailure));
       }
       return { wasReady, stderrTail: recentStderr.join(" | ") };
     },
   };
+  const readyTimeoutMs = deps.readyTimeoutMs;
+  if (readyTimeoutMs !== undefined && !readySettled) {
+    readyTimer = setTimeout(() => {
+      selfFail(
+        createSshError(
+          "transport.timeout",
+          new Error(`Agent handshake exceeded ${readyTimeoutMs}ms`),
+        ),
+      );
+    }, readyTimeoutMs);
+    readyTimer.unref?.();
+  }
   return pipe;
 }
 
@@ -783,8 +816,11 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
       cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
     // 600 chars (up from 300) so a close diagnostic carrying an exit code plus
     // a multi-line stderr tail is not truncated before the actual error text.
-    const causeSnippet = causeMsg.slice(0, 600);
-    const stack = (error.stack ?? "").split("\n").slice(1, 6).join(" | ");
+    const causeSnippet = redactLogSecrets(causeMsg).slice(0, 600);
+    const stack = redactLogSecrets(error.stack ?? "")
+      .split("\n")
+      .slice(1, 6)
+      .join(" | ");
     getMalformedStdoutLogger().warn(
       `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,
     );
@@ -806,7 +842,7 @@ export function createDisposedError(): Error {
 /**
  * Maps stable SSH error codes to non-sensitive caller-facing messages.
  */
-function messageForSshErrorCode(code: SshErrorCode): string {
+export function messageForSshErrorCode(code: SshErrorCode): string {
   switch (code) {
     case "ssh.connect-failed":
       return "SSH connection failed";
@@ -855,16 +891,23 @@ function getMalformedStdoutLogger(): ReturnType<typeof createLogger> {
 }
 
 function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): void {
-  const preview = escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS));
-  const truncated = line.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
-  const reason = error instanceof Error ? error.message : String(error);
+  const preview = malformedLinePreview(line);
+  // JSON.parse may quote a fragment of the original input with no credential label.
+  const reason = error instanceof SyntaxError ? error.name : redactLogSecrets(String(error));
   // Route this through `createLogger` so it reaches the electron-log file transport. It used to
   // call `console.warn` directly, so it never reached main.log in a packaged app, but
   // this line is the top clue when diagnosing stdout pollution from a remote SSH agent, so file
   // visibility matters.
   getMalformedStdoutLogger().warn(
-    `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
+    `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}`,
   );
+}
+
+/** Redacts the whole line before clipping so a partially visible value cannot leak. */
+function malformedLinePreview(line: string): string {
+  const redacted = redactLogSecrets(line);
+  const truncated = redacted.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
+  return escapeControlChars(redacted.slice(0, MALFORMED_LINE_PREVIEW_CHARS)) + truncated;
 }
 
 /**
@@ -920,7 +963,7 @@ function parseFrame(line: string): ParsedFrame {
 
   if (!isRecord(parsed)) {
     getMalformedStdoutLogger().warn(
-      `parseFrame: parsed value is not a record. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+      `parseFrame: parsed value is not a record. line=${malformedLinePreview(line)}`,
     );
     throw createSshError("server.protocol-error");
   }
@@ -930,7 +973,7 @@ function parseFrame(line: string): ParsedFrame {
   const hasEvent = hasOwnKey(parsed, "event");
   if (hasResult && hasError) {
     getMalformedStdoutLogger().warn(
-      `parseFrame: frame has both result and error. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+      `parseFrame: frame has both result and error. line=${malformedLinePreview(line)}`,
     );
     throw createSshError("server.protocol-error");
   }
@@ -976,7 +1019,7 @@ function parseFrame(line: string): ParsedFrame {
   }
 
   getMalformedStdoutLogger().warn(
-    `parseFrame: frame matched no known schema. hasResult=${hasResult} hasError=${hasError} hasEvent=${hasEvent} line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+    `parseFrame: frame matched no known schema. hasResult=${hasResult} hasError=${hasError} hasEvent=${hasEvent} line=${malformedLinePreview(line)}`,
   );
   throw createSshError("server.protocol-error");
 }
@@ -1062,6 +1105,7 @@ interface LineSplitterBackpressure {
  */
 function createLineSplitter(
   onLine: (line: string) => void,
+  onLineTooLong: () => void,
   backpressure?: LineSplitterBackpressure,
 ): {
   push(chunk: Buffer): void;
@@ -1074,7 +1118,9 @@ function createLineSplitter(
   // growing string for "\n" on every chunk made a large frame quadratic.
   // 0x0A never occurs inside a multi-byte UTF-8 sequence, so splitting the
   // raw bytes on it is safe.
-  let pending: Buffer[] = [];
+  let pending: Buffer | undefined;
+  let pendingBytes = 0;
+  let oversized = false;
   // Running tally of bytes from completed lines dispatched since the last
   // gate transition. Resets to zero after each pause() or resume() call
   // so each measurement window starts fresh.
@@ -1129,34 +1175,67 @@ function createLineSplitter(
     }
   }
 
+  /** Reject an oversized line before retaining or concatenating its bytes. */
+  function fits(bytes: number): boolean {
+    if (pendingBytes + bytes <= MAX_AGENT_LINE_BYTES) return true;
+    pending = undefined;
+    pendingBytes = 0;
+    oversized = true;
+    onLineTooLong();
+    return false;
+  }
+
+  /** Packs small chunks so retained buffer objects cannot grow with the number of reads. */
+  function append(tail: Buffer): Buffer {
+    const end = pendingBytes + tail.length;
+    if (!pending || pending.length < end) {
+      const capacity = Math.min(MAX_AGENT_LINE_BYTES, Math.max(end, (pending?.length ?? 64) * 2));
+      const grown = Buffer.allocUnsafe(capacity);
+      pending?.copy(grown, 0, 0, pendingBytes);
+      pending = grown;
+    }
+    tail.copy(pending, pendingBytes);
+    pendingBytes = end;
+    return pending.subarray(0, end);
+  }
+
   return {
     push(chunk) {
+      if (oversized) return;
       let start = 0;
       let newlineIndex = chunk.indexOf(0x0a);
       while (newlineIndex !== -1) {
         const tail = chunk.subarray(start, newlineIndex);
-        const bytes = pending.length === 0 ? tail : Buffer.concat([...pending, tail]);
-        pending = [];
+        if (!fits(tail.length)) return;
+        const bytes = pending ? append(tail) : tail;
+        pending = undefined;
+        pendingBytes = 0;
         start = newlineIndex + 1;
         try {
           dispatchLine(bytes.toString("utf8").replace(/\r$/, ""));
         } catch (err) {
           // Keep the chunk's remaining lines for the next push, as before.
-          if (start < chunk.length) pending.push(chunk.subarray(start));
+          if (start < chunk.length && fits(chunk.length - start)) {
+            append(chunk.subarray(start));
+          }
           throw err;
         }
         newlineIndex = chunk.indexOf(0x0a, start);
       }
-      if (start < chunk.length) pending.push(chunk.subarray(start));
+      if (start < chunk.length) {
+        if (!fits(chunk.length - start)) return;
+        append(chunk.subarray(start));
+      }
       postBurstResumeCheck();
     },
     flush() {
-      if (pending.length === 0) {
+      if (!pending) {
         postBurstResumeCheck();
         return;
       }
-      const line = Buffer.concat(pending).toString("utf8").replace(/\r$/, "");
-      pending = [];
+      const line = pending.toString("utf8", 0, pendingBytes).replace(/\r$/, "");
+      pending = undefined;
+      pendingBytes = 0;
       dispatchLine(line);
       postBurstResumeCheck();
     },

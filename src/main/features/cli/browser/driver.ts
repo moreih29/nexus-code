@@ -109,6 +109,7 @@ export interface BrowserPage {
   readonly view: View;
   /** Whether the view is in the window; a tab not shown is not. */
   readonly active: boolean;
+  readonly loadFailure?: { url: string; description: string } | null;
 }
 
 export interface BrowserDriver {
@@ -939,6 +940,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
   }
 
+  private checkLoadFailure(tabId: string): void {
+    const failure = this.pageOf(tabId)?.loadFailure;
+    if (failure) throw new CliError(`Could not load ${failure.url}: ${failure.description}`);
+  }
+
   async settle(tabId: string): Promise<PageInfo | null> {
     const deadline = Date.now() + PAGE_START_MS;
     let page = this.pageOf(tabId);
@@ -951,11 +957,13 @@ export class CdpBrowserDriver implements BrowserDriver {
     const done = this.driven.begin(contents);
     try {
       await this.settleOn(contents);
+      this.checkLoadFailure(tabId);
       await this.awaitDownload(contents);
     } finally {
       done();
     }
     if (contents.isDestroyed()) return null;
+    this.checkLoadFailure(tabId);
     const download = this.downloads.get(contents);
     return {
       url: contents.getURL(),
@@ -964,9 +972,14 @@ export class CdpBrowserDriver implements BrowserDriver {
     };
   }
 
-  snapshot(tabId: string, options: { maxLines: number; within?: string }): Promise<PageSnapshot> {
+  async snapshot(
+    tabId: string,
+    options: { maxLines: number; within?: string },
+  ): Promise<PageSnapshot> {
+    this.checkLoadFailure(tabId);
     return this.with(tabId, async (contents, state) => {
       if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
+      this.checkLoadFailure(tabId);
       const within =
         options.within === undefined
           ? undefined

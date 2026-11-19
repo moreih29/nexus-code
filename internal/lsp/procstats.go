@@ -1,9 +1,10 @@
 package lsp
 
 import (
-	"bytes"
 	"strconv"
 	"strings"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // processEntry is one row of the system's process table.
@@ -52,11 +53,8 @@ func treeRSS(table map[int]processEntry, roots []int) map[int]uint64 {
 // ")": field 3 (state) comes first, then field 4 (ppid), and field 24 (rss)
 // is the 22nd.
 func parseProcStat(data []byte, pageSize uint64) (processEntry, bool) {
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 {
-		return processEntry{}, false
-	}
-	fields := strings.Fields(string(data[end+1:]))
+	_, suffix := hostproc.SplitPIDStat(data)
+	fields := strings.Fields(string(suffix))
 	if len(fields) < 22 {
 		return processEntry{}, false
 	}

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 // sessionIDPattern is what a Claude Code session id looks like. Anything
@@ -179,21 +181,10 @@ func newestFile(paths []string) string {
 // configDir resolves Claude Code's config directory on this host.
 func configDir(given string) string {
 	home, _ := os.UserHomeDir()
-	given = strings.TrimSpace(given)
-	if given == "" {
-		given = os.Getenv("CLAUDE_CONFIG_DIR")
-	}
-	if given == "" {
-		if home == "" {
-			return ""
-		}
-		return filepath.Join(home, ".claude")
-	}
-	// A profile's folder, "~\…" too as one picked on Windows reads.
-	if dir := expandProfileDir(given, home); dir != "" {
+	if dir := agentpaths.ProfileEnvDir("CLAUDE_CONFIG_DIR", given); dir != "" {
 		return dir
 	}
-	return given
+	return defaultProfileDir("claude", home)
 }
 
 // readJSONLines reads a JSON-lines file, keeping its last lines within

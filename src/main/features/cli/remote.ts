@@ -6,6 +6,7 @@
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
+  MAX_FILE_WRITE_BYTES,
   MAX_WAIT_MS,
   type RemoteSession,
   type RemoteWorkspace,
@@ -14,6 +15,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { senderOf } from "./sender";
@@ -31,6 +33,8 @@ export const NOT_IN_ROOM = "this computer is not in the remote room (Settings â€
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
 /** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
+// The peer may need to verify a maximum-size upload and then commit it.
+const FILE_WRITE_END_REQUEST_MS = fileVerifyTimeoutMs(MAX_FILE_WRITE_BYTES) + 35_000;
 
 /** A device as JSON names it beside what came from it. */
 export function deviceRef(device: CliDevice): { id: string; name: string } {
@@ -197,7 +201,9 @@ export async function askDevice<M extends RpcMethod>(
   device: CliDevice,
   method: M,
   given: RpcParams<M>,
+  signal?: AbortSignal,
 ): Promise<RpcResult<M>> {
+  signal?.throwIfAborted();
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
   // A read says who reads: a device whose user turned agents down is read by people alone.
@@ -221,13 +227,21 @@ export async function askDevice<M extends RpcMethod>(
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
-      : from && !reads
-        ? AGENT_REQUEST_MS
-        : undefined;
+      : method === "files.write.end"
+        ? FILE_WRITE_END_REQUEST_MS
+        : from &&
+            !reads &&
+            (!isFileTransferMethod(method) ||
+              needsFileConsent(method, params as { anywhere?: true }))
+          ? AGENT_REQUEST_MS
+          : undefined;
   try {
-    return await ctx.services.remote.request(device.id, method, params, timeoutMs);
+    return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {
-    throw failureOf(device, method, error, ctx.services.clock.now());
+    signal?.throwIfAborted();
+    const failure = failureOf(device, method, error, ctx.services.clock.now());
+    if (failure !== error) failure.cause = error;
+    throw failure;
   }
 }
 
@@ -235,8 +249,9 @@ export async function askDevice<M extends RpcMethod>(
 export async function peerSessions(
   ctx: CliContext,
   device: CliDevice,
+  signal?: AbortSignal,
 ): Promise<{ workspaces: RemoteWorkspace[]; sessions: RemoteSession[] }> {
-  return askDevice(ctx, device, "sessions.list", {});
+  return askDevice(ctx, device, "sessions.list", {}, signal);
 }
 
 /** The workspace a --workspace flag names on `device`; "." is no workspace there. */

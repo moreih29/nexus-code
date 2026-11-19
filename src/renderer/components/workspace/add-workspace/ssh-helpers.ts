@@ -2,7 +2,6 @@
 // Pure SSH utility functions — exported for unit tests.
 // ---------------------------------------------------------------------------
 
-import i18next from "i18next";
 import type { SshConfigHost } from "./types";
 
 export function parseSshDestination(input: string): { host: string; user?: string } | null {
@@ -88,54 +87,6 @@ export function formatProfileSubtitle(profile: {
   const userPrefix = profile.user ? `${profile.user}@` : "";
   const portSuffix = profile.port !== 22 ? `:${profile.port}` : "";
   return `${userPrefix}${profile.host}${portSuffix}`;
-}
-
-// ---------------------------------------------------------------------------
-// SSH error humanisation
-// ---------------------------------------------------------------------------
-
-/**
- * Maps an SSH failure to human-readable cause + recovery sentences: an Error
- * whose message embeds the SshErrorCode string, or an `ipcErr` result that
- * carries the code in its `code` field.
- * raw error.message is never surfaced directly in UI.
- */
-export function humanizeSshError(error: unknown): string {
-  const t = i18next.t.bind(i18next);
-  if (typeof error !== "object" || error === null) {
-    return t("common:ssh.error.unknown_error");
-  }
-  const { code, message } = error as { code?: unknown; message?: unknown };
-  if (typeof code !== "string" && !(error instanceof Error)) {
-    return t("common:ssh.error.unknown_error");
-  }
-  const msg = `${typeof code === "string" ? code : ""} ${typeof message === "string" ? message : ""}`;
-  if (msg.includes("ssh.connect-failed")) {
-    return t("common:ssh.error.connect_failed");
-  }
-  if (msg.includes("ssh.auth-failed")) {
-    return t("common:ssh.error.auth_failed");
-  }
-  if (msg.includes("ssh.session-expired")) {
-    return t("common:ssh.error.session_expired");
-  }
-  if (msg.includes("ssh.path-not-found")) {
-    return t("common:ssh.error.path_not_found");
-  }
-  if (msg.includes("server.spawn-failed")) {
-    return t("common:ssh.error.spawn_failed");
-  }
-  if (msg.includes("server.protocol-version-mismatch")) {
-    return t("common:ssh.error.protocol_version_mismatch");
-  }
-  if (msg.includes("server.protocol-error")) {
-    return t("common:ssh.error.protocol_error");
-  }
-  if (msg.includes("transport.unknown") || msg.includes("ssh.unknown")) {
-    return t("common:ssh.error.ssh_unknown");
-  }
-  // Fallback — intentionally generic, no raw message leak
-  return t("common:ssh.error.connection_failed");
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
  * / {@link ContextMenuItem} so the two menus stay visually consistent.
  *
  * BROWSER-OVERLAY SUSPEND
- * Handled centrally by `state/operations/browser-suspend-auto.ts`'s
+ * Handled centrally by `services/browser/suspend-auto.ts`'s
  * MutationObserver — it watches body for any Radix popper container and
  * claims a suspend slot while one is present, so embedded browser views
  * are hidden under DOM menus without per-wrapper wiring.

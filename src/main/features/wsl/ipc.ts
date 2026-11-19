@@ -3,11 +3,14 @@
 // folder. The session joins the SSH browse sessions' registry, so
 // `ssh.browseSession` and `ssh.closeBrowseSession` serve it unchanged.
 
+import { throwIfAborted } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
+import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AgentChannel } from "../../infra/agent/channel";
 import type { LspBootstrapProgressEvent } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { createWslChannel, ensureWslAgent, listWslDistros } from "../../infra/agent/wsl";
-import { register, validateArgs } from "../../infra/ipc-router";
+import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { agentCallError } from "../../infra/ipc-router/agent-errors";
 import type { SshBrowseSessionRegistry } from "../ssh/browse-session-registry";
 import type { BrowseProgressBroadcast } from "../ssh/ipc";
 
@@ -27,7 +30,7 @@ export function registerWslChannel(
   const listDistros = dependencies.listDistros ?? listWslDistros;
   register("wsl", {
     call: {
-      listDistros: () => listDistros(),
+      listDistros: async () => ipcOk(await listDistros()),
       openBrowseSession: openWslBrowseSessionHandler(registry, broadcast, dependencies),
     },
     listen: {},
@@ -43,10 +46,13 @@ export function openWslBrowseSessionHandler(
   registry: SshBrowseSessionRegistry,
   broadcast?: BrowseProgressBroadcast,
   dependencies: WslChannelDependencies = {},
-): (args: unknown) => Promise<{ sessionId: string; initialPath: string }> {
+): (
+  args: unknown,
+  ctx?: CallContext,
+) => Promise<IpcResult<{ sessionId: string; initialPath: string }>> {
   const bootstrap = dependencies.bootstrap ?? ensureWslAgent;
   const createChannel = dependencies.createChannel ?? createWslChannel;
-  return async (args) => {
+  return async (args, ctx) => {
     const { distro, progressId } = validateArgs(c.openBrowseSession.args, args);
     const onProgress =
       progressId && broadcast
@@ -62,21 +68,41 @@ export function openWslBrowseSessionHandler(
         : undefined;
 
     let channel: AgentChannel | null = null;
-    try {
-      const result = await bootstrap({ distro, remotePath: "/" }, { onProgress });
-      channel = createChannel({ distro, remoteCommand: result.remoteCommand });
-      await channel.ready;
-      const sessionId = registry.register(channel, null);
-      return { sessionId, initialPath: result.remoteHome };
-    } catch (error) {
+    const signal = ctx?.signal;
+    const disposeChannel = () => {
       channel?.dispose();
-      throw new Error(wslFailureMessage(error), { cause: error });
+      channel = null;
+    };
+    try {
+      throwIfAborted(signal);
+      const result = await bootstrap(
+        { distro, remotePath: "/", ...(signal ? { signal } : {}) },
+        { onProgress },
+      );
+      throwIfAborted(signal);
+      channel = createChannel({ distro, remoteCommand: result.remoteCommand });
+      signal?.addEventListener("abort", disposeChannel, { once: true });
+      await channel.ready;
+      throwIfAborted(signal);
+      const sessionId = registry.register(channel, null);
+      return ipcOk({ sessionId, initialPath: result.remoteHome });
+    } catch (error) {
+      disposeChannel();
+      if (signal?.aborted) return ipcErr("cancelled", "Operation cancelled");
+      const expected = agentCallError(error);
+      if (expected) {
+        if (expected.kind === "cancelled") return expected;
+        return { ...expected, domain: undefined, message: wslFailureMessage(error) };
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", disposeChannel);
     }
   };
 }
 
 /**
- * What went wrong, for the dialog: a transport error's generic message hides
+ * Keeps diagnostic detail in the envelope for logging: the generic message hides
  * what wsl.exe said (an unknown distribution, WSL not installed), which it
  * carries as its cause.
  */

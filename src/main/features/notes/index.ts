@@ -3,7 +3,7 @@
 import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { DocNode } from "../../../shared/notes/markdown";
 import {
   imageBlock,
@@ -17,11 +17,24 @@ import {
   type WorkspaceMeta,
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import { VoicePrints } from "../voice-print";
-import { NotesStore } from "./store";
+import { NoteError, NotesStore } from "./store";
 
 const c = ipcContract.notes.call;
+const NOTE_WRITE_CALLS: readonly string[] = [
+  "create",
+  "save",
+  "prune",
+  "remove",
+  "addFiles",
+  "addImage",
+  "saveSketch",
+  "removeLocation",
+  "saveTranscript",
+  "appendAudio",
+  "removeRecording",
+] satisfies readonly (keyof typeof c)[];
 
 const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
@@ -87,6 +100,12 @@ export interface NotesFeature {
   ): Promise<NoteAsset>;
   /** The note a window records into, the one told last; none while nothing records. */
   recording(): NoteRecording | undefined;
+  /** Drops recordings and in-flight reports for a removed workspace. */
+  forgetWorkspace(workspaceId: string): void;
+  /** Releases the notes feature's process and recording state at app shutdown. */
+  dispose(): void;
+  /** Waits for the note writes that were in progress at shutdown. */
+  waitForWrites(): Promise<void>;
   /** Makes a note, and tells the windows. */
   create(workspaceId: string, title: string): Promise<NoteContent>;
   /**
@@ -116,15 +135,56 @@ const IMAGE_EXTS: Readonly<Record<string, string>> = {
   ".webp": "webp",
 };
 
+type NoteCall = (args: unknown, ctx?: CallContext) => unknown;
+type TrackWrite = <T>(write: () => Promise<T>) => Promise<T>;
+
+/** Reports expected note failures before they reach the router's bug handler. */
+function withNoteErrors(
+  trackWrite: TrackWrite,
+  handlers: Record<string, NoteCall>,
+): Record<string, NoteCall> {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([method, handler]) => [
+      method,
+      async (args: unknown, ctx?: CallContext) => {
+        try {
+          if (NOTE_WRITE_CALLS.includes(method)) {
+            return await trackWrite(async () => handler(args, ctx));
+          }
+          return await handler(args, ctx);
+        } catch (error) {
+          if (!(error instanceof NoteError)) throw error;
+          if (error.code === "not-found") {
+            return ipcErr("not-found", error.message, { category: "failed", code: error.code });
+          }
+          return ipcErr("invalid-args", error.message, {
+            category: "invalid-input",
+            code: error.code,
+          });
+        }
+      },
+    ]),
+  );
+}
+
 export function registerNotesChannel(opts: {
   userData: string;
   workspaces: () => readonly WorkspaceMeta[];
 }): NotesFeature {
   const store = new NotesStore(path.join(opts.userData, "notes"), (dir) => shell.trashItem(dir));
+  const writes = new Set<Promise<unknown>>();
+  /** Keeps the entire write in the shutdown set, including any awaited reads. */
+  const trackWrite: TrackWrite = (write) => {
+    const pending = write();
+    writes.add(pending);
+    const forget = () => writes.delete(pending);
+    void pending.then(forget, forget);
+    return pending;
+  };
   const locationOf = (workspaceId: string): NoteLocation => {
     const all = opts.workspaces();
     const meta = all.find((w) => w.id === workspaceId);
-    if (!meta) throw new Error(`no workspace ${workspaceId}`);
+    if (!meta) throw new NoteError("not-found", `no workspace ${workspaceId}`);
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
@@ -133,6 +193,15 @@ export function registerNotesChannel(opts: {
 
   // The windows' recorders, by window: what each told last.
   const recordings = new Map<number, NoteRecording>();
+  const pendingRecordings = new Map<number, { workspaceId: string }>();
+  /** Removes the current recording state of a workspace, including unfinished reports. */
+  const forgetWorkspace = (workspaceId: string): void => {
+    for (const byWindow of [recordings, pendingRecordings]) {
+      for (const [senderId, value] of byWindow) {
+        if (value.workspaceId === workspaceId) byWindow.delete(senderId);
+      }
+    }
+  };
   const watched = new Set<number>();
   const recording = (): NoteRecording | undefined => {
     let last: NoteRecording | undefined;
@@ -143,60 +212,59 @@ export function registerNotesChannel(opts: {
     for (const r of recordings.values()) if (r.noteId === noteId) r.title = title;
   };
 
-  const attachPhoto: NotesFeature["attachPhoto"] = async (
-    workspaceId,
-    noteId,
-    bytes,
-    ext,
-    name,
-  ) => {
-    const location = locationOf(workspaceId);
-    const asset = await store.addPhoto(location, noteId, bytes, ext, name);
-    broadcast("notes", "photoAdded", {
-      locationKey: location.key,
-      noteId,
-      src: asset.src,
-      name: asset.name,
+  const attachPhoto: NotesFeature["attachPhoto"] = (workspaceId, noteId, bytes, ext, name) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      const asset = await store.addPhoto(location, noteId, bytes, ext, name);
+      broadcast("notes", "photoAdded", {
+        locationKey: location.key,
+        noteId,
+        src: asset.src,
+        name: asset.name,
+      });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+      return asset;
     });
-    changed({ locationKey: location.key, noteId, change: "saved" });
-    return asset;
-  };
 
-  const create: NotesFeature["create"] = async (workspaceId, title) => {
-    const location = locationOf(workspaceId);
-    const note = await store.create(location, title);
-    changed({ locationKey: location.key, noteId: note.id, change: "created" });
-    return note;
-  };
-  const append: NotesFeature["append"] = async (workspaceId, noteId, blocks, under) => {
-    const location = locationOf(workspaceId);
-    await store.appendBlocks(location, noteId, blocks, under);
-    broadcast("notes", "blocksAdded", {
-      locationKey: location.key,
-      noteId,
-      blocks: blocks as unknown as Record<string, unknown>[],
-      ...(under !== undefined ? { under } : {}),
+  const create: NotesFeature["create"] = (workspaceId, title) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      const note = await store.create(location, title);
+      changed({ locationKey: location.key, noteId: note.id, change: "created" });
+      return note;
     });
-    changed({ locationKey: location.key, noteId, change: "saved" });
-  };
-  const addAsset: NotesFeature["addAsset"] = async (workspaceId, noteId, bytes, name) => {
-    const location = locationOf(workspaceId);
-    // A note that is not there gets no file either.
-    await store.read(location, noteId);
-    const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
-    if (ext) {
-      const asset = await store.addImage(location, noteId, bytes, ext, name);
-      return { asset, block: imageBlock(asset) };
-    }
-    const asset = await store.addFileBytes(location, noteId, bytes, name);
-    return {
-      asset,
-      block: { type: "noteFile", attrs: { src: asset.src, name: asset.name, size: asset.size } },
-    };
-  };
+  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      await store.appendBlocks(location, noteId, blocks, under);
+      broadcast("notes", "blocksAdded", {
+        locationKey: location.key,
+        noteId,
+        blocks: blocks as unknown as Record<string, unknown>[],
+        ...(under !== undefined ? { under } : {}),
+      });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+    });
+  const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
+    trackWrite(async () => {
+      const location = locationOf(workspaceId);
+      // A note that is not there gets no file either.
+      await store.read(location, noteId);
+      const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
+      if (ext) {
+        const asset = await store.addImage(location, noteId, bytes, ext, name);
+        return { asset, block: imageBlock(asset) };
+      }
+      const asset = await store.addFileBytes(location, noteId, bytes, name);
+      return {
+        asset,
+        block: { type: "noteFile", attrs: { src: asset.src, name: asset.name, size: asset.size } },
+      };
+    });
 
   register("notes", {
-    call: {
+    keepOnRendererClose: NOTE_WRITE_CALLS,
+    call: withNoteErrors(trackWrite, {
       list: async (args: unknown) => {
         const { workspaceId } = validateArgs(c.list.args, args);
         return ipcOk(await store.list(locationOf(workspaceId)));
@@ -319,41 +387,55 @@ export function registerNotesChannel(opts: {
       removeLocation: async (args: unknown) => {
         const { key } = validateArgs(c.removeLocation.args, args);
         await store.removeLocation(key);
-        changed({ locationKey: key, change: "removed" });
+        const workspaces = opts.workspaces();
+        const workspaceIds = workspaces
+          .filter((workspace) => noteLocationOf(workspace, workspaces).key === key)
+          .map((workspace) => workspace.id);
+        changed({ locationKey: key, change: "removed", workspaceIds });
         return ipcOk(undefined);
       },
       recording: async (args: unknown, ctx) => {
         const { now } = validateArgs(c.recording.args, args);
         const sender = ctx?.sender;
-        if (!sender) return ipcOk(undefined);
+        if (!sender || sender.isDestroyed()) return ipcOk(undefined);
+        const senderId = sender.id;
         if (!now) {
-          recordings.delete(sender.id);
+          pendingRecordings.delete(senderId);
+          recordings.delete(senderId);
           return ipcOk(undefined);
         }
-        const before = recordings.get(sender.id);
-        let title = before?.noteId === now.noteId ? before.title : "";
-        if (before?.noteId !== now.noteId) {
-          title = await store
-            .read(locationOf(now.workspaceId), now.noteId)
-            .then((n) => n.title)
-            .catch(() => "");
-        }
-        // A window that goes stops recording.
-        if (!watched.has(sender.id)) {
-          watched.add(sender.id);
+        // Install the lifetime guard before looking up a title or touching disk.
+        if (!watched.has(senderId)) {
+          watched.add(senderId);
           sender.once("destroyed", () => {
-            recordings.delete(sender.id);
-            watched.delete(sender.id);
+            pendingRecordings.delete(senderId);
+            recordings.delete(senderId);
+            watched.delete(senderId);
           });
         }
-        recordings.set(sender.id, {
-          workspaceId: now.workspaceId,
-          noteId: now.noteId,
-          title,
-          recordedMs: now.recordedMs,
-          at: Date.now(),
-          paused: now.paused,
-        });
+        pendingRecordings.set(senderId, now);
+        try {
+          const before = recordings.get(senderId);
+          const title =
+            before?.noteId === now.noteId
+              ? before.title
+              : await store
+                  .read(locationOf(now.workspaceId), now.noteId)
+                  .then((note) => note.title)
+                  .catch(() => "");
+          if (pendingRecordings.get(senderId) === now) {
+            recordings.set(senderId, {
+              workspaceId: now.workspaceId,
+              noteId: now.noteId,
+              title,
+              recordedMs: now.recordedMs,
+              at: Date.now(),
+              paused: now.paused,
+            });
+          }
+        } finally {
+          if (pendingRecordings.get(senderId) === now) pendingRecordings.delete(senderId);
+        }
         return ipcOk(undefined);
       },
       readTranscript: async (args: unknown) => {
@@ -395,11 +477,31 @@ export function registerNotesChannel(opts: {
         shell.showItemInFolder(path.join(dir, "location.json"));
         return ipcOk(undefined);
       },
-    },
+    }),
     listen: {
       changed: {},
     },
   });
 
-  return { store, locationOf, changed, attachPhoto, recording, create, append, addAsset };
+  return {
+    store,
+    locationOf,
+    changed,
+    attachPhoto,
+    recording,
+    forgetWorkspace,
+    waitForWrites: async () => {
+      const results = await Promise.allSettled(writes);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
+    },
+    dispose: () => {
+      pendingRecordings.clear();
+      recordings.clear();
+      voicePrints.stop();
+    },
+    create,
+    append,
+    addAsset,
+  };
 }

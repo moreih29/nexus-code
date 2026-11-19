@@ -273,8 +273,8 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("high");
     expect(html).toContain("25%");
     expect(html).toContain("Review the diff");
-    expect(html).toContain("Compact once Codex finishes");
-    expect(html).not.toContain("Compact once Claude finishes");
+    expect(html).toContain("Compact after the Codex turn");
+    expect(html).not.toContain("Compact after the Claude turn");
   });
 
   test("names the plan's meters as the usage line does, the week's too", () => {

@@ -7,6 +7,7 @@ import {
   buildFamily,
   type FamilyInput,
 } from "../../../../../src/renderer/services/agent-sessions/model";
+import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
@@ -24,7 +25,7 @@ function workspace(id: string, task?: WorkspaceMeta["task"]): WorkspaceMeta {
     name: id === ROOT ? "app" : id === TASK ? "fix-login" : "other",
     location: { kind: "local", rootPath: `/w/${id}` },
     rootPath: `/w/${id}`,
-    colorTone: "default",
+    color: "auto",
     pinned: false,
     lastOpenedAt: new Date(0).toISOString(),
     tabs: [],
@@ -85,6 +86,29 @@ function input(overrides: Partial<FamilyInput> = {}): FamilyInput {
 }
 
 describe("buildFamily", () => {
+  it("keeps Claude chat results authoritative while terminal Claude sessions keep their hooks", () => {
+    const state = emptyTabState();
+    const model = applyLine(state.model, {
+      seq: 1,
+      dir: "out",
+      at: NOW,
+      message: { type: "result", subtype: "success", is_error: true, result: "API failed" },
+    });
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: { [ROOT]: { c: claudeTab("c", "Chat"), t: terminal("t", "Terminal") } },
+        claudeByWorkspace: { [ROOT]: { c: claude("running"), t: claude("running") } },
+        chats: { [`${ROOT}:c`]: { ...state, phase: "ready", model } },
+      }),
+    );
+    const sessions = family?.worktrees[0].sessions ?? [];
+    expect(sessions.find((session) => session.tabId === "c")).toMatchObject({
+      state: "error",
+      message: "API failed",
+    });
+    expect(sessions.find((session) => session.tabId === "t")?.state).toBe("running");
+  });
+
   it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
     const family = buildFamily(
       input({

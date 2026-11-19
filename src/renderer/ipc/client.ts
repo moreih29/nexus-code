@@ -6,6 +6,7 @@ import {
   type IpcOkResult,
   type IpcResult,
   type IpcResultKind,
+  ipcErrorToAppError,
   isIpcErrResult,
   isIpcOkResult,
   isIpcResult,
@@ -140,8 +141,7 @@ export function unwrapIpcResult<T>(result: IpcResult<T>): T {
   if (result.ok) return result.value;
   const err = new Error(result.message);
   err.name = `IpcError[${result.kind}]`;
-  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
-  throw err;
+  throw Object.assign(err, ipcErrorToAppError(result), { kind: result.kind });
 }
 
 /**
@@ -194,11 +194,7 @@ export function unwrapGitResult<T>(result: IpcResult<T>): T {
     });
     throw error;
   }
-  // Other expected failures: throw a generic IpcError.
-  const err = new Error(result.message);
-  err.name = `IpcError[${result.kind}]`;
-  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
-  throw err;
+  return unwrapIpcResult(result);
 }
 
 // Re-export result type utilities so renderer code only needs to import from
@@ -289,8 +285,13 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
 
   try {
     window.ipc.streamStart(channel, method, args).then(
-      ({ streamId: startedStreamId }) => {
-        streamId = startedStreamId;
+      (result) => {
+        try {
+          streamId = unwrapIpcResult(result).streamId;
+        } catch (error) {
+          settleReject(error);
+          return;
+        }
         if (settled) {
           if (abortRequested) cancelKnownStream();
           return;

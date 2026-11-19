@@ -38,8 +38,8 @@ import {
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { createLogger } from "../../../shared/log/renderer";
-import { ipcCallResult } from "../../ipc/client";
+import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
+import type { DropZone } from "../../types/workbench-dnd";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
 import { Button } from "../ui/button";
@@ -47,7 +47,6 @@ import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
-import type { DropZone } from "../workspace/dnd/types";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
 import {
@@ -62,8 +61,6 @@ import {
 import { EndedBar } from "./ended-bar";
 import { RemoteSessionPane } from "./remote-pane";
 import { DeviceChip, RemoteTabLabel } from "./remote-sessions";
-
-const log = createLogger("agent-view");
 
 function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
@@ -379,6 +376,7 @@ export const AgentPane = memo(function AgentPane({
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
   const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
   const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
+  const color = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === rootId)?.color);
   return (
     <span
       className={cn(
@@ -389,7 +387,7 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
       <span
         aria-hidden
         className="size-1.5 shrink-0 rounded-full"
-        style={{ background: workspaceColor(rootId) }}
+        style={{ background: workspaceColor(rootId, color) }}
       />
       <span className="truncate">{name}</span>
     </span>
@@ -642,11 +640,7 @@ function OfflinePane({ workspaceId }: { workspaceId: string }) {
     workspace.location.kind === "ssh"
       ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
       : workspace.location.distro;
-  const connect = () => {
-    void ipcCallResult("workspace", "activate", { id: workspaceId }).then((result) => {
-      if (!result.ok) log.warn(`activate failed: ${result.message}`);
-    });
-  };
+  const connect = () => retryWorkspaceConnection(workspaceId);
   return (
     <div className="absolute inset-0 flex island-surface">
       <EmptyState

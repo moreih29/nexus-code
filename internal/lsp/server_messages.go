@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 )
@@ -122,7 +123,7 @@ func (p *serverProcess) handleServerRequest(id json.RawMessage, method string, p
 	}
 }
 
-func (p *serverProcess) respondServerRequest(params RespondServerRequestParams) error {
+func (p *serverProcess) respondServerRequest(ctx context.Context, params RespondServerRequestParams) error {
 	p.mu.Lock()
 	id := p.pendingServerRequests[params.AgentRequestID]
 	watchedFileRegistrations := p.pendingWatchedFileRegistrations[params.AgentRequestID]
@@ -151,7 +152,7 @@ func (p *serverProcess) respondServerRequest(params RespondServerRequestParams) 
 	if err != nil {
 		return err
 	}
-	if err := p.sendRaw(raw); err != nil {
+	if err := p.sendRaw(ctx, raw); err != nil {
 		return err
 	}
 	if len(params.Error) == 0 {
@@ -173,5 +174,5 @@ func (p *serverProcess) sendErrorResponse(id json.RawMessage, code int, message 
 	if err != nil {
 		return
 	}
-	_ = p.sendRaw(raw)
+	_ = p.sendRaw(context.Background(), raw)
 }

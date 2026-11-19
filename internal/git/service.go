@@ -1,9 +1,9 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,6 +24,8 @@ const maxGitFileContentBytes = 5 * 1024 * 1024
 
 type Service struct {
 	root string
+	// commandWaitDelay bounds draining output inherited by Git's helpers.
+	commandWaitDelay time.Duration
 
 	mu       sync.Mutex
 	sink     EventSink
@@ -52,11 +54,12 @@ func New(root string) *Service {
 		abs = root
 	}
 	return &Service{
-		root:           filepath.Clean(abs),
-		streams:        make(map[string]context.CancelFunc),
-		watches:        make(map[string]*watchEntry),
-		gitDirty:       make(map[string]struct{}),
-		askpassPending: make(map[string]*askpassPending),
+		root:             filepath.Clean(abs),
+		commandWaitDelay: time.Second,
+		streams:          make(map[string]context.CancelFunc),
+		watches:          make(map[string]*watchEntry),
+		gitDirty:         make(map[string]struct{}),
+		askpassPending:   make(map[string]*askpassPending),
 	}
 }
 
@@ -71,8 +74,11 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.diff", service.Diff)
 	d.Register("git.commitDetail", service.CommitDetail)
 	d.Register("git.changeStats", service.ChangeStats)
-	d.Register("git.watch", service.Watch)
-	d.Register("git.unwatch", service.Unwatch)
+	// Git directory resolution can run Git itself. Keep that work out of
+	// the dispatch scanner and order watch changes on their own lane.
+	watchQueue := func(json.RawMessage) string { return "git.watch" }
+	d.RegisterOrderedBy("git.watch", service.Watch, watchQueue)
+	d.RegisterOrderedBy("git.unwatch", service.Unwatch, watchQueue)
 	d.Register("git.addToGitignore", service.AddToGitignore)
 	d.Register("git.getFileContent", service.GetFileContent)
 	d.Register("git.blob", service.Blob)
@@ -158,6 +164,9 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 
 	stdout, stderr, tooLarge, err := runGitShow(ctx, s.root, objectSpec, maxGitFileContentBytes)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if isMissing(stderr) {
 			return map[string]any{"kind": "missing", "reason": missingReasonForRef(ref)}, nil
 		}
@@ -180,10 +189,11 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 // limit+1 bytes of it: when the blob is larger than limit, git is killed and
 // tooLarge is reported instead of buffering the whole blob only to reject it.
 func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
-	ctx, cancel := context.WithCancel(ctx)
+	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gitBinary(), "show", "--no-ext-diff", objectSpec)
+	cmd := exec.CommandContext(cmdCtx, gitBinary(), "show", "--no-ext-diff", objectSpec)
 	cmd.Dir = root
+	cmd.WaitDelay = time.Second
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=echo",
@@ -192,13 +202,10 @@ func runGitShow(ctx context.Context, root string, objectSpec string, limit int) 
 		"GIT_FLUSH=1",
 	)
 	cmd.Env = withSafeGitConfig(cmd.Env)
-	var stderrBuf bytes.Buffer
+	var stderrBuf gitStderr
 	cmd.Stderr = &stderrBuf
-	pipe, err := cmd.StdoutPipe()
+	pipe, finish, err := startGitOutput(cmdCtx, cmd)
 	if err != nil {
-		return nil, "", false, err
-	}
-	if err := cmd.Start(); err != nil {
 		return nil, "", false, err
 	}
 	stdout, readErr := io.ReadAll(io.LimitReader(pipe, int64(limit)+1))
@@ -206,9 +213,15 @@ func runGitShow(ctx context.Context, root string, objectSpec string, limit int) 
 		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
+	if err := ctx.Err(); err != nil {
+		return nil, stderrBuf.String(), false, err
+	}
 	if len(stdout) > limit {
 		return nil, stderrBuf.String(), true, nil
+	}
+	if errors.Is(waitErr, exec.ErrWaitDelay) {
+		waitErr = nil
 	}
 	if waitErr == nil {
 		waitErr = readErr

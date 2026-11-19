@@ -12,6 +12,7 @@
  * The dialog's title already shows the idle mark, so there only the line
  * counts.
  */
+import { showsClaudeIdleTitle } from "./idle-title";
 import type { ClaudeStatusBroker } from "./status";
 
 /** How long after the key Claude's sign counts. */
@@ -22,10 +23,6 @@ const INTERRUPTIBLE = new Set(["running", "permissionPending"]);
 
 /** The end of the output kept, since a chunk can end inside a title. */
 const TAIL_CHARS = 64;
-
-/** A terminal title (OSC 0 or 2) starting with the ✳ Claude shows between turns. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: OSC sequences start with ESC
-const IDLE_TITLE = /\x1b\][02];✳/;
 
 /** Esc alone is the key; longer input starting with it is an escape sequence. */
 function isInterruptKey(data: string): boolean {
@@ -219,7 +216,7 @@ export class ClaudeInterruptWatcher {
   private showsTurnEnded(armed: Armed, chunk: string): boolean {
     const output = armed.tail + chunk;
     armed.tail = output.slice(-TAIL_CHARS);
-    if (armed.byTitle && IDLE_TITLE.test(output)) return true;
+    if (armed.byTitle && showsClaudeIdleTitle(output)) return true;
     let shown = false;
     armed.rows.read(chunk, (row) => {
       shown ||= INTERRUPTED_LINES.some((line) => rowShows(row, line));

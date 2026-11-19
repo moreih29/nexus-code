@@ -133,7 +133,6 @@ import {
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { SystemStatsSchema } from "../system/stats";
 import { AppStateSchema, RemoteAgentsPolicySchema } from "../types/app-state";
-import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
   ConnectionProfileIdArgsSchema,
@@ -168,6 +167,7 @@ import {
   WorkspaceMetaSchema,
   WorkspaceTaskSchema,
 } from "../types/workspace";
+import { WorkspaceColorSchema } from "../types/workspace-color";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 import { ReleaseNotesResultSchema } from "../updates/release-notes";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
@@ -279,7 +279,7 @@ const WorkspaceCreateArgsSchema = z.union([
 const WorkspaceUpdateArgsSchema = z.object({
   id: z.string().uuid(),
   name: z.string().optional(),
-  colorTone: ColorToneSchema.optional(),
+  color: WorkspaceColorSchema.optional(),
   pinned: z.boolean().optional(),
 });
 
@@ -590,10 +590,32 @@ const SshConfigHostSchema = z.object({
 // IPC contract map
 // ---------------------------------------------------------------------------
 
+const transcriptPageResult = z.object({
+  found: z.boolean(),
+  lines: z.array(z.unknown()),
+  truncated: z.boolean(),
+  positions: z.array(z.number().int().nonnegative()).optional(),
+  snapshot: z.string().optional(),
+  cursor: z.string().optional(),
+  beforeAnchor: z.string().optional(),
+  anchored: z.boolean().optional(),
+  fragment: z
+    .object({
+      position: z.number().int().nonnegative(),
+      data: z.string(),
+      first: z.boolean(),
+      last: z.boolean(),
+    })
+    .optional(),
+});
+
+export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
+
 export const ipcContract = {
   workspace: {
     call: {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
+      connectionSnapshot: call(z.void(), z.array(WorkspaceConnectionChangedEventSchema)),
       create: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
       /**
        * Atomic workspace creation: for SSH locations, authenticates and
@@ -614,8 +636,11 @@ export const ipcContract = {
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
       reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
+      /** Select and connect the workspace the user chose. */
       activate: call(WorkspaceIdSchema, z.void()),
-      /** The active workspace: the one restored at launch or last activated; null with none. */
+      /** Connect a workspace already shown in a view. */
+      connect: call(WorkspaceIdSchema, z.void()),
+      /** The restored or most recently selected workspace; null with none. */
       active: call(z.void(), WorkspaceIdPrimitive.nullable()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },
@@ -681,6 +706,7 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(SshAuthPromptSchema),
+      dismissed: listen(SshAuthCancelArgsSchema),
     },
   },
 
@@ -1010,6 +1036,19 @@ export const ipcContract = {
           lines: z.array(z.unknown()),
           truncated: z.boolean(),
         }),
+      ),
+      /** An internal page of a Claude transcript, from newest to oldest. */
+      transcriptPage: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+          cursor: z.string().max(128).optional(),
+          beforeAnchor: z.string().max(64).optional(),
+          upTo: z.string().max(128).optional(),
+          before: z.array(z.string().max(128)).optional(),
+        }),
+        transcriptPageResult,
       ),
       /**
        * One subagent's messages, which Claude Code keeps apart from its
@@ -1361,6 +1400,7 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(GitEditorPromptSchema),
+      closed: listen(GitHelperPromptIdArgsSchema),
     },
   },
 
@@ -1702,6 +1742,10 @@ export const ipcContract = {
       minimize: call(z.void(), z.void()),
       toggleMaximize: call(z.void(), z.void()),
       close: call(z.void(), z.void()),
+      closePrepared: call(
+        z.object({ attempt: z.number().int().positive(), saved: z.boolean() }),
+        z.void(),
+      ),
       isMaximized: call(z.void(), z.boolean()),
       /**
        * Opens the app menu at a point of the page, in its CSS pixels. Windows
@@ -1713,6 +1757,8 @@ export const ipcContract = {
     listen: {
       /** Sent to one window only, when it is maximized or restored. */
       maximizedChanged: listen(z.object({ maximized: z.boolean() })),
+      /** Sent to the window whose latest layout must be written before closing. */
+      prepareClose: listen(z.object({ attempt: z.number().int().positive() })),
     },
   },
 
@@ -1798,6 +1844,7 @@ export const ipcContract = {
       create: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           workspaceId: WorkspaceIdPrimitive,
           url: z.string().url(),
           partition: z.string().min(1),
@@ -1805,7 +1852,7 @@ export const ipcContract = {
         z.void(),
       ),
       /** Destroy the WebContentsView and release all resources for `tabId`. */
-      destroy: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      destroy: call(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() }), z.void()),
       /**
        * Resize/reposition the view.
        *
@@ -1818,6 +1865,7 @@ export const ipcContract = {
       setBounds: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           x: z.number(),
           y: z.number(),
           width: z.number(),
@@ -1826,7 +1874,10 @@ export const ipcContract = {
         z.void(),
       ),
       /** Attach (active=true) or detach (active=false) the view. */
-      setActive: call(z.object({ tabId: z.string().uuid(), active: z.boolean() }), z.void()),
+      setActive: call(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), active: z.boolean() }),
+        z.void(),
+      ),
       /** Navigate the tab to `url`. */
       navigate: call(z.object({ tabId: z.string().uuid(), url: z.string().url() }), z.void()),
       goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
@@ -1859,6 +1910,7 @@ export const ipcContract = {
       setDevToolsBounds: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           x: z.number(),
           y: z.number(),
           width: z.number(),
@@ -1873,11 +1925,9 @@ export const ipcContract = {
        *
        * Mechanism follows the VSCode pattern: when `captureSnapshot` is true
        * the main process first calls `webContents.capturePage()` on every
-       * active view, broadcasts the resulting JPEG dataURL via
-       * `browser.snapshot`, and only then hides the view via
-       * `setVisible(false)`.  The renderer overlays the snapshot in DOM, so
-       * the area underneath the modal still shows the page content rather
-       * than going blank.
+       * active view and hides the view via `setVisible(false)`. The resulting
+       * JPEG data URL is broadcast via `browser.snapshot`. The renderer shows
+       * the snapshot beneath the overlay.
        *
        * `captureSnapshot: false` skips the capture entirely and hides
        * immediately — used by drag operations where any delay would break
@@ -1891,10 +1941,8 @@ export const ipcContract = {
        */
       suspendAll: call(z.object({ captureSnapshot: z.boolean() }), z.void()),
       /**
-       * Re-show every WebContentsView that was active when the matching
-       * `suspendAll` ran via `setVisible(true)`.  Broadcasts a `snapshot`
-       * event with `cleared: true` for every tab so the renderer drops its
-       * cached snapshot image and exposes the live view again.
+       * Re-show currently active views and clear cached snapshots, including
+       * snapshots of tabs that deactivated during the overlay.
        */
       resumeAll: call(z.object({}), z.void()),
     },
@@ -1906,24 +1954,22 @@ export const ipcContract = {
       navigated: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           url: z.string(),
           canGoBack: z.boolean(),
           canGoForward: z.boolean(),
         }),
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
-      loadingChanged: listen(z.object({ tabId: z.string().uuid(), isLoading: z.boolean() })),
-      /**
-       * Emitted when a navigation fails (network error, blocked scheme, etc.).
-       * `code` is the Chromium net error code; `description` is a human-readable
-       * message; `url` is the URL that failed to load.
-       */
-      error: listen(
+      loadingChanged: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), isLoading: z.boolean() }),
+      ),
+      /** The main frame's last load failure, cleared on successful navigation. */
+      loadFailureChanged: listen(
         z.object({
           tabId: z.string().uuid(),
-          code: z.number().int(),
-          description: z.string(),
-          url: z.string(),
+          viewId: z.string().uuid(),
+          failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
       /**
@@ -1933,13 +1979,16 @@ export const ipcContract = {
       refused: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           url: z.string(),
           kind: z.string(),
           message: z.string(),
         }),
       ),
       /** Emitted when the page title changes. */
-      titleUpdated: listen(z.object({ tabId: z.string().uuid(), title: z.string() })),
+      titleUpdated: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), title: z.string() }),
+      ),
       /**
        * Emitted when the page advertises favicon(s).
        *
@@ -1951,6 +2000,7 @@ export const ipcContract = {
       faviconUpdated: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           favicons: z.array(z.string()).nullable(),
         }),
       ),
@@ -1971,9 +2021,14 @@ export const ipcContract = {
           z.object({
             kind: z.literal("set"),
             tabId: z.string().uuid(),
+            viewId: z.string().uuid(),
             dataUrl: z.string(),
           }),
-          z.object({ kind: z.literal("cleared"), tabId: z.string().uuid() }),
+          z.object({
+            kind: z.literal("cleared"),
+            tabId: z.string().uuid(),
+            viewId: z.string().uuid(),
+          }),
         ]),
       ),
       /**
@@ -1981,7 +2036,9 @@ export const ipcContract = {
        * docked-DevTools state so the renderer can show / hide its splitter
        * region and start / stop reporting `setDevToolsBounds`.
        */
-      devtoolsToggled: listen(z.object({ tabId: z.string().uuid(), open: z.boolean() })),
+      devtoolsToggled: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), open: z.boolean() }),
+      ),
       /**
        * Emitted when the tab's WebContentsView gains focus (e.g. the user
        * clicks anywhere in the page).
@@ -1995,7 +2052,7 @@ export const ipcContract = {
        * activate the group that owns `tabId` whenever the page itself is
        * clicked, matching the behaviour of every other panel type.
        */
-      focused: listen(z.object({ tabId: z.string().uuid() })),
+      focused: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
       /**
        * Emitted when the browser URL-focus shortcut (browser.focusUrl,
        * ⌘L by default) fires while the page itself has focus. Because the
@@ -2005,7 +2062,7 @@ export const ipcContract = {
        * focus the address bar. The other browser shortcuts act in main
        * directly; only URL focus needs a renderer round-trip.
        */
-      focusUrl: listen(z.object({ tabId: z.string().uuid() })),
+      focusUrl: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
       /**
        * A download the user started in a browser tab is done, saved as
        * `file` where downloads go. One a nexus command started is told in

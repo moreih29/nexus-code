@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -95,27 +94,18 @@ func (s *Service) StashList(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		stderrStr := stderr.String()
+		stderrStr := stderr
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
 		return nil, classifiedFailure(kind, msg)
 	}
 
-	entries := parseStashList(stdout.String())
+	entries := parseStashList(stdout)
 	return entries, nil
 }
 
@@ -139,21 +129,12 @@ func (s *Service) StashApply(ctx context.Context, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		return classifyStashApplyError(stdout.String(), stderr.String(), args, code), nil
+		return classifyStashApplyError(stdout, stderr, args, code), nil
 	}
 	return StashApplyResult{}, nil
 }
@@ -177,14 +158,14 @@ func (s *Service) StashDrop(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -215,21 +196,12 @@ func (s *Service) StashPop(ctx context.Context, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return nil, fatal
 	}
 	if code != 0 {
-		return classifyStashApplyError(stdout.String(), stderr.String(), args, code), nil
+		return classifyStashApplyError(stdout, stderr, args, code), nil
 	}
 	return StashApplyResult{}, nil
 }
@@ -271,14 +243,10 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stdout, finish, err := startGitOutput(streamCtx, cmd)
+	if err != nil {
 		return nil, mapGitStartError(err, args)
 	}
 
@@ -287,7 +255,7 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
 
 	if readErr != nil {
 		return nil, readErr
@@ -295,7 +263,7 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxErr := streamCtx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}
@@ -346,14 +314,14 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(err)
+	code, fatal := gitExitCode(cmd.ProcessState, err)
 	if fatal != nil {
 		return nil, fatal
 	}

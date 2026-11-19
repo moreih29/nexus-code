@@ -559,13 +559,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return !this.disposed;
   }
 
-  dispose(): void {
+  /** Drops editor state and waits for the running servers' shutdown replies. */
+  async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     this.diagnosticsDebouncer.clearAll();
-    for (const [, server] of this.serversById) {
-      server.dispose();
-    }
+    const shutdowns = Array.from(this.serversById.values(), (server) => server.dispose());
     this.serversById.clear();
     this.workspaceServers.clear();
     this.serverPromises.clear();
@@ -581,6 +580,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
     this.channelDisposers.clear();
     this.listeners.clear();
+    await Promise.all(shutdowns);
   }
 
   /**

@@ -44,8 +44,7 @@ export interface HarnessTerminalEnvContext {
  * 6. NEXUS_WORKSPACE_ID / NEXUS_TAB_ID — injected from context.
  * 7. NEXUS_AGENT_SOCKET / NEXUS_HOOK_TOKEN — set only when provided in context.
  *
- * If the caller env sets the same key directly, the caller's value wins (spread order: defaults first,
- * caller second — the existing pattern is kept).
+ * The app's tab and hook variables take precedence over the caller's environment.
  *
  * The input object is not modified.
  * If no context is provided, only TERM_PROGRAM / TERM_PROGRAM_VERSION are set to defaults and
@@ -88,13 +87,6 @@ export function injectHarnessTerminalEnv(
   const base: Record<string, string> = {
     TERM_PROGRAM: HARNESS_TERM_PROGRAM,
     TERM_PROGRAM_VERSION: HARNESS_TERM_PROGRAM_VERSION,
-    ...nexusBase,
   };
-
-  if (env === undefined) {
-    return base;
-  }
-
-  // Spread order: defaults first, caller env second — caller keys win.
-  return { ...base, ...env };
+  return { ...base, ...env, ...nexusBase };
 }

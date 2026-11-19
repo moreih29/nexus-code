@@ -26,6 +26,9 @@ import (
 // -X); the default is what a plain `go build` or test reports.
 var ServerVersion = "0.1.0"
 
+// MaxHookRequestBytes bounds the NDJSON request accepted by the hook socket.
+const MaxHookRequestBytes = 16 * 1024 * 1024
+
 // Protocol version constants advertised on the boot Ready frame so the
 // client can refuse to talk to a server with an incompatible envelope
 // shape. Bump ProtocolVersion when the wire format changes in a way
@@ -278,6 +281,11 @@ func (e CodedError) Error() string { return e.Msg }
 // code. Used by ParseRequest and the host's protocolMessage shaper.
 func ProtocolError(message string) CodedError {
 	return CodedError{Code: CodeProtocolError, Msg: message}
+}
+
+// RequestFailed formats a domain failure using the default RPC error code.
+func RequestFailed(format string, args ...any) CodedError {
+	return CodedError{Code: CodeRequestFailed, Msg: fmt.Sprintf(format, args...)}
 }
 
 // NewError builds a CodedError with an arbitrary stable code.

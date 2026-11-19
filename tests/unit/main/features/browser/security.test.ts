@@ -11,6 +11,7 @@
  */
 
 import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
+import { mainWarnMock } from "../../../../log-test-spies";
 
 // ---------------------------------------------------------------------------
 // Electron mock — must be set up before importing the module under test.
@@ -23,7 +24,6 @@ mock.module("electron", () => ({
 // Lazy import after mock registration
 const {
   buildBrowserTabWebPreferences,
-  cancelsLocalFileRequest,
   installPermissionHandler,
   installNavigationGuards,
   POPUP_ACTIVATION_MS,
@@ -502,16 +502,15 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
   });
 });
 
-describe("a browser tab's file:// requests", () => {
-  test("a page renders local images, styles and module scripts; it reads no file", () => {
-    const file = "file:///Users/x/site/";
-    expect(cancelsLocalFileRequest("mainFrame", `${file}index.html`)).toBe(false);
-    expect(cancelsLocalFileRequest("image", `${file}logo.png`)).toBe(false);
-    expect(cancelsLocalFileRequest("stylesheet", `${file}site.css`)).toBe(false);
-    expect(cancelsLocalFileRequest("script", `${file}app.js`)).toBe(false);
-    expect(cancelsLocalFileRequest("xhr", "file:///Users/x/.ssh/id_rsa")).toBe(true);
-    // A frame or object of a local file is the page's to read.
-    expect(cancelsLocalFileRequest("subFrame", "file:///Users/x/.ssh/id_rsa")).toBe(true);
-    expect(cancelsLocalFileRequest("object", "file:///Users/x/.ssh/id_rsa")).toBe(true);
-  });
+test("blocked browser navigations omit URL payloads from diagnostics", () => {
+  const view = makeFakeWebContents();
+  installNavigationGuards(view as never);
+  const event = makeFakeEvent();
+  const logs = mainWarnMock.mock.calls.length;
+  view.emit("will-navigate", event, "data:text/plain,private-navigation-token");
+
+  expect(event.prevented).toBe(true);
+  const warnings = mainWarnMock.mock.calls.slice(logs);
+  expect(warnings).toHaveLength(1);
+  expect(JSON.stringify(warnings)).not.toContain("private-navigation-token");
 });

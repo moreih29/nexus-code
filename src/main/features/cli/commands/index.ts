@@ -10,6 +10,7 @@ import { chatControlCommands } from "./chat-control";
 import { deviceCommands } from "./device";
 import { editorCommands } from "./editor";
 import { eventCommands } from "./events";
+import { fileCommands } from "./file";
 import { layoutCommands, tabArrangeCommands } from "./layout";
 import { noteCommands } from "./note";
 import { notifyCommands } from "./notify";
@@ -27,6 +28,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...chatControlCommands,
   ...eventCommands,
   ...deviceCommands,
+  ...fileCommands,
   ...tabArrangeCommands,
   ...layoutCommands,
   ...viewCommands,

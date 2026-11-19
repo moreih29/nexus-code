@@ -2,8 +2,8 @@
 // until the limit resets) or reached (which stays up).
 
 import { useTranslation } from "react-i18next";
+import { rateLimitKey, rateLimitNotice } from "../../services/chat/claude/rate-limit";
 import type { RateLimitInfo } from "../../services/chat/model";
-import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { shownReset } from "../../services/chat/usage-line";
 import { useNotificationsStore } from "../../state/stores/notifications";
 import { Banner } from "../ui/banner";

@@ -1,19 +1,34 @@
 // Claude tab IPC channel: renderer ↔ main ↔ the workspace's agent.
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import { ChatHost, type ChatHostOptions } from "./host";
-import { OAuthCallbacks } from "./oauth-callback";
+import { agentCallError } from "../../infra/ipc-router/agent-errors";
+import { AgentProfileSelectionError, ChatHost, type ChatHostOptions } from "./host";
+import { OAuthCallbacksClosedError } from "./oauth-callback";
 
 const c = ipcContract.chat.call;
+
+/** Surfaces a stale profile as a recoverable error at the IPC boundary. */
+function withProfileError<T>(run: (args: unknown) => Promise<IpcResult<T>>) {
+  return async (args: unknown): Promise<IpcResult<T>> => {
+    try {
+      return await run(args);
+    } catch (error) {
+      if (error instanceof AgentProfileSelectionError) {
+        return ipcErr("not-found", error.message, { category: "failed" });
+      }
+      throw error;
+    }
+  };
+}
 
 export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">): ChatHost {
   const host = new ChatHost({
     ...options,
     broadcast: (event, args) => broadcast("chat", event, args),
   });
-  const oauth = new OAuthCallbacks();
+  const { oauth } = host;
 
   register("chat", {
     call: {
@@ -39,8 +54,16 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
       },
       send: async (args: unknown) => {
         const { workspaceId, tabId, message } = validateArgs(c.send.args, args);
-        await host.send(workspaceId, tabId, message);
-        return ipcOk(undefined);
+        try {
+          await host.send(workspaceId, tabId, message);
+          return ipcOk(undefined);
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          const detail = error instanceof Error ? error.message : String(error);
+          return typeof code === "string"
+            ? ipcErr(code, detail, { category: "failed" })
+            : ipcErr("chat.send-failed", detail, { category: "bug" });
+        }
       },
       stop: async (args: unknown) => {
         await host.call("stop", validateArgs(c.stop.args, args));
@@ -72,7 +95,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
         return ipcOk(undefined);
       },
-      transcript: async (args: unknown) => {
+      transcript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId, profileId)) as {
           found?: boolean;
@@ -84,8 +107,27 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lines: result.lines ?? [],
           truncated: result.truncated === true,
         });
-      },
-      subagentTranscript: async (args: unknown) => {
+      }),
+      transcriptPage: withProfileError(async (args: unknown) => {
+        const { workspaceId, sessionId, profileId, ...page } = validateArgs(
+          c.transcriptPage.args,
+          args,
+        );
+        try {
+          return ipcOk(await host.transcriptPage(workspaceId, sessionId, profileId, page));
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === "chat.transcript-cursor-stale") {
+            return ipcErr(code, "The chat history changed. Try reading earlier messages again.", {
+              category: "failed",
+            });
+          }
+          const failure = agentCallError(error);
+          if (failure) return failure;
+          throw error;
+        }
+      }),
+      subagentTranscript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
           c.subagentTranscript.args,
           args,
@@ -101,8 +143,8 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lines: result.lines ?? [],
           truncated: result.truncated === true,
         });
-      },
-      sessionFile: async (args: unknown) => {
+      }),
+      sessionFile: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.sessionFile.args, args);
         const result = (await host.sessionFile(workspaceId, sessionId, profileId)) as {
           found?: boolean;
@@ -113,15 +155,15 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
             ? { found: true, path: result.path }
             : { found: false },
         );
-      },
-      stageThread: async (args: unknown) => {
+      }),
+      stageThread: withProfileError(async (args: unknown) => {
         const { workspaceId, threadId, ...options } = validateArgs(c.stageThread.args, args);
         const result = (await host.stageThread(workspaceId, threadId, options)) as {
           found?: boolean;
         };
         return ipcOk({ found: result.found === true });
-      },
-      claudeConfig: async (args: unknown) => {
+      }),
+      claudeConfig: withProfileError(async (args: unknown) => {
         const { workspaceId, profileId } = validateArgs(c.claudeConfig.args, args);
         const result = (await host.claudeConfig(workspaceId, profileId)) as {
           found?: boolean;
@@ -131,8 +173,18 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk(
           validateArgs(c.claudeConfig.result, { found: true, values: result.values ?? {} }),
         );
+      }),
+      oauthListen: async () => {
+        try {
+          return ipcOk(await oauth.listen());
+        } catch (error) {
+          if (error instanceof OAuthCallbacksClosedError) {
+            return ipcErr("chat.oauth-closed", error.message, { category: "cancelled" });
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          return ipcErr("chat.oauth-listen-failed", message, { category: "failed" });
+        }
       },
-      oauthListen: async () => ipcOk(await oauth.listen()),
       oauthWait: async (args: unknown) => {
         const { id } = validateArgs(c.oauthWait.args, args);
         return ipcOk({ url: await oauth.wait(id) });
@@ -141,24 +193,24 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         oauth.cancel(validateArgs(c.oauthCancel.args, args).id);
         return ipcOk(undefined);
       },
-      cli: async (args: unknown) => {
+      cli: withProfileError(async (args: unknown) => {
         const { workspaceId, cwd, command, profileId } = validateArgs(c.cli.args, args);
         return ipcOk(await host.cli(workspaceId, cwd, command, profileId));
-      },
-      sessions: async (args: unknown) => {
+      }),
+      sessions: withProfileError(async (args: unknown) => {
         const { workspaceId, cwd, profileId } = validateArgs(c.sessions.args, args);
         const result = (await host.sessions(workspaceId, cwd, profileId)) as {
           sessions?: unknown;
         };
         return ipcOk(validateArgs(c.sessions.result, result.sessions ?? []));
-      },
-      deleteSession: async (args: unknown) => {
+      }),
+      deleteSession: withProfileError(async (args: unknown) => {
         const { workspaceId, cwd, sessionId, profileId } = validateArgs(c.deleteSession.args, args);
         const result = (await host.deleteSession(workspaceId, cwd, sessionId, profileId)) as {
           deleted?: unknown;
         };
         return ipcOk({ deleted: result.deleted === true });
-      },
+      }),
       fileSizes: async (args: unknown) => {
         const { workspaceId, paths } = validateArgs(c.fileSizes.args, args);
         const result = (await host.fileSizes(workspaceId, paths)) as { sizes?: unknown };

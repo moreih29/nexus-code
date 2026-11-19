@@ -43,6 +43,9 @@ describe("VoiceTracker", () => {
     heardMs = 0;
   });
 
+  /** The keys known, as the recorder gives them: not those of lines still being heard. */
+  const known = () => [...lines].filter(([at]) => !tracker.undecided(at)).map(([, k]) => k);
+
   /** `who` says a line of `seconds` under the server's `label`: the voice it ends up with. */
   async function say(who: number, seconds: number, label = "1"): Promise<string> {
     const startMs = heardMs;
@@ -55,12 +58,8 @@ describe("VoiceTracker", () => {
       endMs: heardMs,
       label,
     };
-    lines.set(line.at, tracker.provisional(label, lines.values()));
-    const { key, regrouped } = await tracker.lineHeard(
-      line,
-      () => [...lines].filter(([at]) => at !== line.at).map(([, k]) => k),
-      () => ({}),
-    );
+    lines.set(line.at, tracker.provisional(label, known()));
+    const { key, regrouped } = await tracker.lineHeard(line, known, () => ({}));
     for (const [at, k] of regrouped ?? []) if (lines.has(at)) lines.set(at, k);
     lines.set(line.at, key);
     return key;
@@ -73,6 +72,14 @@ describe("VoiceTracker", () => {
     expect(await say(3, 5)).toBe("3");
     // The words under the server's label go with the voice heard last until known.
     expect(tracker.provisional("1", lines.values())).toBe("3");
+  });
+
+  test("numbers the first voice 1 when more lines come while it is still heard", async () => {
+    // A long first line, and two more right after it, before the model has heard the first.
+    const heard = [say(1, 22), say(1, 0.1), say(1, 9)];
+    expect([...lines.values()]).toEqual(["1", "1", "1"]);
+    expect(await Promise.all(heard)).toEqual(["1", "1", "1"]);
+    expect(await say(2, 4)).toBe("2");
   });
 
   test("asks the model for at most 10 seconds of a line, and none for a short one", async () => {

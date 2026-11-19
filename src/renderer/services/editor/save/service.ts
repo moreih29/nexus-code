@@ -39,24 +39,37 @@ import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
 import { SaveSequentializer, SaveSupersededError } from "./sequentializer";
 
+/** Registers the Monaco palette action in the editor's current UI language. */
 export function installEditorSaveAction(
   editor: Monaco.editor.IStandaloneCodeEditor,
   input: EditorInput,
 ): Monaco.IDisposable {
-  return editor.addAction({
-    id: "nexus.file.save",
-    label: "Save File",
-    // Intentionally NO `keybindings` here. ⌘S is owned by the global
-    // dispatcher (shared/keybindings → COMMANDS.fileSave), which wins at
-    // capture phase anyway. Registering a Monaco-side ⌘S as well would
-    // leave a ghost binding that resurfaces the moment the user rebinds
-    // fileSave to another key via the keybinding settings — Monaco would
-    // then fire save on the *old* key. The action stays registered so it
-    // remains discoverable/invocable from Monaco's F1 command palette.
-    run: () => {
-      runSaveAndReport(input);
+  const register = () =>
+    editor.addAction({
+      id: "nexus.file.save",
+      label: i18next.t("settings:keybindings.command.file.save"),
+      // The global keybinding dispatcher owns the save shortcut.
+      run: () => runSaveAndReport(input),
+    });
+  let action: Monaco.IDisposable | undefined = register();
+
+  const refresh = () => {
+    action?.dispose();
+    action = register();
+  };
+  const release = () => {
+    i18next.off("languageChanged", refresh);
+    action?.dispose();
+    action = undefined;
+  };
+  i18next.on("languageChanged", refresh);
+  const editorLifetime = editor.onDidDispose(release);
+  return {
+    dispose() {
+      editorLifetime.dispose();
+      release();
     },
-  });
+  };
 }
 
 export interface SaveOptions {
@@ -102,8 +115,8 @@ export function reportSaveFailure(result: SaveResult): void {
  *   cleared to `""` which causes `saveModel` to build `{exists:false}` as the
  *   expected value — matching the writeFile IPC guard.
  * - **reload**: replaces the buffer with the on-disk content via
- *   `reloadModelFromDisk`, discarding unsaved edits. Returns `{kind:"not-dirty"}`
- *   (the buffer is now clean).
+ *   `reloadModelFromDisk`, discarding edits present at approval. Returns
+ *   `{kind:"not-dirty"}` only when the disk version was applied.
  * - **cancel**: returns the original conflict result unchanged so callers can
  *   decide whether to keep the tab open.
  *
@@ -128,8 +141,8 @@ export async function saveModelInteractive(
   }
 
   if (choice === "reload") {
-    await reloadModelFromDisk(input);
-    return { kind: "not-dirty" };
+    const applied = await reloadModelFromDisk(input);
+    return { kind: applied ? "not-dirty" : "superseded" };
   }
 
   // choice === "overwrite": sync dirty-tracker metadata to the actual disk
@@ -197,7 +210,7 @@ export async function saveModel(
   // SaveReason.EXPLICIT before invoking the model's save. saveModel is
   // only called from explicit user gestures (Cmd+S, close-confirm), so
   // every entry counts as EXPLICIT.
-  promoteAllPreviewTabsForFile(resolved.filePath);
+  promoteAllPreviewTabsForFile(resolved.workspaceId, resolved.filePath);
 
   const dirtyEntry = getDirtyEntry(resolved.cacheUri);
   if (!dirtyEntry) return { kind: "no-model" };

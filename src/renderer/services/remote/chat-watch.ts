@@ -23,12 +23,12 @@ import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
-import { codexHistoryAvailable, codexHistoryBusy } from "../chat/codex-history";
-import type { CodexModel } from "../chat/codex-model";
+import { supportsControl } from "../chat/claude/versions";
+import { codexHistoryAvailable, codexHistoryBusy, codexServerVersion } from "../chat/codex/history";
+import type { CodexModel } from "../chat/codex/model";
 import type { ToolCall } from "../chat/model";
 import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
-import { supportsControl } from "../chat/versions";
 import {
   type ChatSource,
   type ChatWindow,
@@ -369,10 +369,11 @@ export function tabSource(
           can: {
             rewind:
               codexIdle &&
-              codexHistoryAvailable(codex.appServerVersion ?? chat.version) &&
+              codexHistoryAvailable(codexServerVersion(codex, chat.version)) &&
               codex.items.some((item) => item.kind === "user" && item.rewindable),
             fork: codexIdle && codex.items.length > 0,
             background: false,
+            now: true,
             moveNow: true,
             config: true,
           },

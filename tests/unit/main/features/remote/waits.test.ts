@@ -6,6 +6,11 @@ import { waitOnChat, waitOnTerminalFor } from "../../../../../src/main/features/
 interface Fake {
   tabs: { id: string; type: string; title: string; dead?: boolean }[];
   chat?: { state: string; since?: number; message?: string };
+  chatFor?: (after: number | undefined) => {
+    state: "asking" | "working" | "idle";
+    trackedSubmission?: boolean;
+    message?: string;
+  };
   claude?: { status: string; message?: string; turnStartedAt?: number } | null;
   /** Changes the fake as time goes. */
   onSleep?: (now: number) => void;
@@ -27,9 +32,10 @@ function services(fake: Fake, start = 100_000) {
     activity: () => null,
     foregroundProcess: async () => null,
     waits: { begin: () => () => {} },
-    ui: async (op: string) => {
+    ui: async (op: string, args: { after?: number }) => {
       if (op === "tabs.list") return { tabs: fake.tabs };
-      if (op === "chat.state") return { agent: "claude", ...fake.chat };
+      if (op === "chat.state")
+        return { agent: "claude", ...(fake.chatFor?.(args.after) ?? fake.chat) };
       if (op === "terminal.read") return { text: "building\nready on :3000\n" };
       throw new Error(`unexpected ${op}`);
     },
@@ -87,6 +93,26 @@ describe("waiting on a chat", () => {
     };
     const { s } = services(fake, 111_000);
     expect(await waitOnChat(s, { ...chat, after: 100_000 })).toEqual({ done: true, state: "idle" });
+  });
+
+  test("the remote at receipt follows its submission even past the old time grace", async () => {
+    let looked = 0;
+    const fake: Fake = {
+      tabs: [{ id: "c1", type: "claude", title: "Fix" }],
+      chatFor: (at) => {
+        if (at !== 100_000) return { state: "asking", message: "another turn's question" };
+        return ++looked < 2
+          ? { state: "working", trackedSubmission: true }
+          : { state: "idle", trackedSubmission: true, message: "the submitted turn" };
+      },
+    };
+    const { s } = services(fake, 111_000);
+    expect(await waitOnChat(s, { ...chat, after: 100_000 })).toEqual({
+      done: true,
+      state: "idle",
+      message: "the submitted turn",
+    });
+    expect(looked).toBe(2);
   });
 
   test("closed while waiting; NotFound for no such chat", async () => {

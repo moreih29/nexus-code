@@ -332,10 +332,10 @@ interface ThemeCardProps {
 function ThemeCard({ source, selected }: ThemeCardProps) {
   const { t } = useTranslation("settings");
   // Surface chrome first, then the syntax accents.
-  const swatches: { value: string; label: string }[] = [
-    { value: source.bg.primary, label: "bg" },
+  const swatches = [
+    { value: source.bg.primary, label: "background" },
     { value: source.bg.secondary, label: "panel" },
-    { value: source.bg.floating, label: "float" },
+    { value: source.bg.floating, label: "floating" },
     { value: source.fg.muted, label: "muted" },
     { value: source.accent, label: "accent" },
     { value: source.syntax.keyword, label: "keyword" },
@@ -343,7 +343,7 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
     { value: source.syntax.number, label: "number" },
     { value: source.syntax.function, label: "function" },
     { value: source.syntax.type, label: "type" },
-  ];
+  ] as const;
 
   return (
     <RadioGroup.Item
@@ -381,7 +381,11 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
 
       <div className="flex gap-1 px-3 pt-2">
         {swatches.map((s) => (
-          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} />
+          <Swatch
+            key={s.label}
+            value={s.value}
+            title={`${t(`appearance.themeSwatches.${s.label}`)}: ${s.value}`}
+          />
         ))}
       </div>
 

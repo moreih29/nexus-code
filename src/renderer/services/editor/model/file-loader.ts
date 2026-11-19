@@ -7,6 +7,7 @@ import type { FileContent, FsChangedEvent } from "../../../../shared/fs/types";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import { relPath } from "../../../utils/path";
 import {
   bytesFromBase64,
@@ -20,16 +21,27 @@ import type { EditorInput } from "../types";
 /** A file's text, decoded, and the encoding it was read in. */
 export type FileLoadResult = Omit<FileContent, "encoding" | "bytes"> & { encoding: TextEncoding };
 
-/** The encoding each file was reopened or saved in, by its cache URI, while the app runs. */
-const encodingOverrides = new Map<string, TextEncoding>();
+/** The encoding each file was reopened or saved in while its workspace remains open. */
+const encodingOverrides = new Map<string, Map<string, TextEncoding>>();
+
+registerWorkspaceCleanup((workspaceId) => {
+  encodingOverrides.delete(workspaceId);
+});
 
 function overrideKey(input: EditorInput): string {
   return workspaceUriFor(input.workspaceId, input.filePath);
 }
 
-/** Reads `input` in `encoding` from now on, as Reopen with Encoding asks. */
+/** Remembers the encoding from an applied reopen or a successful save. */
 export function setEncodingOverride(input: EditorInput, encoding: TextEncoding): void {
-  encodingOverrides.set(overrideKey(input), encoding);
+  const { workspaceId } = input;
+  if (!useWorkspacesStore.getState().workspaces.some((workspace) => workspace.id === workspaceId)) {
+    return;
+  }
+  const key = overrideKey(input);
+  const overrides = encodingOverrides.get(workspaceId) ?? new Map<string, TextEncoding>();
+  overrides.set(key, encoding);
+  encodingOverrides.set(workspaceId, overrides);
 }
 
 /** The user's languages, the app's first, for guessing an encoding. */
@@ -76,7 +88,11 @@ export function relPathForInput(input: EditorInput): string {
   return relPath(input.filePath, workspaceRootForInput(input));
 }
 
-export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {
+/** Reads using the requested encoding or the override current when the read starts. */
+export async function readFileForModel(
+  input: EditorInput,
+  encoding = encodingOverrides.get(input.workspaceId)?.get(overrideKey(input)),
+): Promise<FileLoadResult> {
   const rp = relPathForInput(input);
   const result = unwrapIpcResult(
     await ipcCallResult("fs", "readFile", { workspaceId: input.workspaceId, relPath: rp }),
@@ -85,7 +101,7 @@ export async function readFileForModel(input: EditorInput): Promise<FileLoadResu
     throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, input.filePath));
   }
   const { kind: _kind, ...content } = result;
-  return decodeFileContent(content, encodingOverrides.get(overrideKey(input)));
+  return decodeFileContent(content, encoding);
 }
 
 /** mtime/size only — cheap probe for "did this file change since we loaded it". */

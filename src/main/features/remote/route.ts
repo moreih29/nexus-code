@@ -6,6 +6,10 @@
  * PROXY_DOWN_MS, then try it again.
  */
 
+import { createLogger } from "../../../shared/log/main";
+
+const log = createLogger("remote-route");
+
 /** How long requests go straight to the server once the proxy could not be reached. */
 export const PROXY_DOWN_MS = 5 * 60_000;
 
@@ -46,7 +50,7 @@ export class ServerRoute {
   unreachable(address: string): boolean {
     if (this.proxy === null || !sameHost(address, this.proxy)) return false;
     if (this.now() >= this.downUntil) {
-      console.warn("[remote] the proxy could not be reached; going to the server straight");
+      log.warn("The proxy could not be reached, using the direct server route.");
     }
     this.downUntil = this.now() + PROXY_DOWN_MS;
     return true;
@@ -54,44 +58,60 @@ export class ServerRoute {
 }
 
 /**
- * Brings a socket that went straight back through the proxy, as the relay's
- * may stay for days on a desktop left on: once requests go through the
- * proxy again while `via()` (the address the socket is open to, null while
- * none is) is the server's, the proxy's /info is asked, and when it
- * answers the socket is opened anew (`reconnect`), through it. When it
- * does not, the proxy is passed by for another while. `check` looks now;
- * the returned function stops the looking every RETURN_CHECK_MS.
+ * Checks whether a socket that went straight can return through the proxy.
+ * The result belongs to the open socket and route that initiated the probe.
  */
 export function returnToProxy(options: {
   route: ServerRoute;
-  via: () => string | null;
+  via: () => { readonly origin: string } | null;
   reconnect: () => void;
   fetch?: typeof fetch;
 }): { check(): Promise<void>; stop(): void } {
   const { route } = options;
   const fetchFn = options.fetch ?? fetch;
+  const lifetime = new AbortController();
   let asking = false;
-  const check = async () => {
+
+  /** Probes the proxy while the current socket is open to the server directly. */
+  async function check(): Promise<void> {
     const proxy = route.proxy;
-    const via = options.via();
-    if (proxy === null || via === null || sameHost(via, proxy) || route.base() !== proxy) return;
-    if (asking) return;
+    if (lifetime.signal.aborted || asking || proxy === null || route.base() !== proxy) return;
+    const connection = options.via();
+    if (
+      connection === null ||
+      sameHost(connection.origin, proxy) ||
+      !sameHost(connection.origin, route.server)
+    ) {
+      return;
+    }
+
     asking = true;
+    let reachable: boolean;
     try {
       const res = await fetchFn(new URL("/info", proxy), {
-        signal: AbortSignal.timeout(RETURN_PROBE_TIMEOUT_MS),
+        signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(RETURN_PROBE_TIMEOUT_MS)]),
       });
-      if (res.ok) options.reconnect();
-      else route.unreachable(proxy);
+      reachable = res.ok;
     } catch {
-      route.unreachable(proxy);
+      reachable = false;
     } finally {
       asking = false;
     }
-  };
+
+    if (lifetime.signal.aborted || options.via() !== connection || route.base() !== proxy) return;
+    if (reachable) options.reconnect();
+    else route.unreachable(proxy);
+  }
+
   const timer = setInterval(() => void check(), RETURN_CHECK_MS);
   timer.unref?.();
-  return { check, stop: () => clearInterval(timer) };
+  return {
+    check,
+    stop() {
+      clearInterval(timer);
+      lifetime.abort();
+    },
+  };
 }
 
 /** Whether two addresses are of one host, a websocket's (wss:) and its https: alike. */

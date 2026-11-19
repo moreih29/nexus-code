@@ -51,6 +51,7 @@ export function chatAgentContext(
 const remoteInstructions = [
   "The user's other computers in the remote (nexus device list) are reached the same way:",
   "session list --device all, then chat or terminal read/send/wait ... --device NAME.",
+  "Copy files with nexus file pull --device DEVICE --workspace WS REMOTE [LOCAL] or nexus file push --device DEVICE --workspace WS LOCAL... REMOTE (add -r for a folder).",
 ];
 
 function locationOf(
@@ -87,7 +88,7 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "listens on, as nexus port list shows), then snapshot (the page with element refs), click e12,",
     "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
     "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
-    "workspace move/pin (the sidebar's rows),",
+    "workspace move/pin/edit (the sidebar's rows: order, pin, name and color),",
     "and nexus view agents|workspaces, view layout/open/split for the agent view's panels;",
     "nexus problems lists the language servers' errors in open files.",
     "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",

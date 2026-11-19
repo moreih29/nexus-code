@@ -1,7 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createLogger } from "../../../../shared/log/main";
 import type { StderrClassifier } from "../pipe";
-import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
+import { AgentLineTooLongError, createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
 import { ChannelEventRegistry } from "./event-registry";
 import type {
   AgentCallOptions,
@@ -36,6 +36,7 @@ function getChannelLogger(): ReturnType<typeof createLogger> {
 /** Max chars of a child's stderr tail to embed in one close-diagnostic line. */
 const CLOSE_LOG_STDERR_TAIL_CHARS = 300;
 
+const AGENT_READY_TIMEOUT_MS = 30_000;
 const DISPOSE_KILL_GRACE_MS = 100;
 const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;
 const DEFAULT_RECONNECT_DELAY_MS = 100;
@@ -78,6 +79,8 @@ export interface ChannelCloseContext {
 
 export interface ReconnectingProcessChannelOptions {
   readonly spawn: () => ChildProcessWithoutNullStreams;
+  /** Starts transport-specific cleanup after stdin has been ended. */
+  readonly disposeChild?: (child: ChildProcessWithoutNullStreams) => void;
   readonly classifyStderr: StderrClassifier;
   readonly closeError: (wasReady: boolean, context?: ChannelCloseContext) => Error;
   /**
@@ -108,6 +111,7 @@ interface ActiveProcess {
   ready: boolean;
   /** The daemon said another connection took it over (AGENT_PREEMPTED_EVENT). */
   preempted: boolean;
+  reconnectAfterClose?: SshError;
   forceKillTimer: NodeJS.Timeout | null;
 }
 
@@ -192,7 +196,10 @@ export function createReconnectingProcessChannel(
       active?.pipe.dispose();
       if (active && !active.child.stdin.destroyed) active.child.stdin.end();
       if (!terminalError) emitLifecycle({ type: "disposed" });
-      if (active) terminateChild(active);
+      if (active && !active.closed) {
+        if (options.disposeChild) options.disposeChild(active.child);
+        else terminateChild(active);
+      }
     },
   };
 
@@ -222,8 +229,9 @@ export function createReconnectingProcessChannel(
       stderr: child.stderr,
       stdin: child.stdin,
       classifyStderr: options.classifyStderr,
-      onTerminalError: (error) => handlePipeFailure(attempt, error, phase),
+      onTerminalError: (error, wasReady) => handlePipeFailure(attempt, error, phase, wasReady),
       requestTimeoutMs: options.requestTimeoutMs,
+      readyTimeoutMs: AGENT_READY_TIMEOUT_MS,
       expectedProtocolMajor: options.expectedProtocolMajor,
       onDegraded: () => {
         if (state === "disposed" || active !== attempt) return;
@@ -319,13 +327,22 @@ export function createReconnectingProcessChannel(
     attempt: ActiveProcess,
     error: SshError,
     phase: "connecting" | "reconnecting",
+    wasReady: boolean,
   ): void {
     if (state === "disposed" || active !== attempt) return;
     getChannelLogger().warn(
       `[${label}] agent pipe failure (phase=${phase}, pid=${attempt.child.pid}, code=${error.code}): ${error.message}`,
     );
-    if (phase === "reconnecting") {
+    if (wasReady && error.cause instanceof AgentLineTooLongError) {
+      attempt.reconnectAfterClose = error;
       terminateChild(attempt);
+      return;
+    }
+    // A stalled handshake must be stopped before the next dialer starts.
+    // This process has no active RPCs to drain.
+    if (!attempt.ready && error.code === "transport.timeout") attempt.child.kill("SIGKILL");
+    else terminateChild(attempt);
+    if (phase === "reconnecting") {
       if (options.isFatalReconnectError?.(error)) {
         consecutiveFatalFailures += 1;
         if (consecutiveFatalFailures >= MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES) {
@@ -343,7 +360,6 @@ export function createReconnectingProcessChannel(
     state = "terminal";
     terminalError = error;
     emitLifecycle({ type: "failure", error });
-    terminateChild(attempt);
   }
 
   /**
@@ -407,7 +423,7 @@ export function createReconnectingProcessChannel(
     );
 
     if (state === "disposed" || terminalError) return;
-    if (wasReady && (code === 0 || attempt.preempted)) {
+    if (wasReady && (attempt.preempted || (code === 0 && !attempt.reconnectAfterClose))) {
       getChannelLogger().info(
         attempt.preempted
           ? `[${label}] another connection took the agent over; channel is now terminal`
@@ -429,7 +445,9 @@ export function createReconnectingProcessChannel(
       if (!wasAlreadyReconnecting) {
         emitLifecycle({
           type: "reconnecting",
-          cause: code === null ? null : new Error(`agent process exited with code ${code}`),
+          cause:
+            attempt.reconnectAfterClose ??
+            (code === null ? null : new Error(`agent process exited with code ${code}`)),
           hadEpoch: lastAgentEpoch !== 0,
         });
       }

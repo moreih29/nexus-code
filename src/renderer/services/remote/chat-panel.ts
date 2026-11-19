@@ -12,12 +12,14 @@ import {
   type ViewGoal,
   type ViewUsageMeter,
 } from "../../../../packages/remote-protocol/src";
-import type { CodexModel } from "../chat/codex-model";
+import { codexServerVersion } from "../chat/codex/history";
+import type { CodexModel } from "../chat/codex/model";
 import { type GoalView, shownGoalOf } from "../chat/goal";
 import type { ChatItem, ToolCall } from "../chat/model";
 import { agentsOf, changedFilesOf, contextOf, jobsOf, todosOf } from "../chat/panel";
 import { followsMessage } from "../chat/profile-moves";
-import type { PeerSubmission, QueuedMessage } from "../chat/store";
+import type { QueuedMessage } from "../chat/transport/queue";
+import type { PeerSubmission } from "../chat/transport/submission";
 import { claudeUsageLine, codexUsageLine } from "../chat/usage-line";
 import { type ChatSource, conversationOf, viewTaskOf } from "./chat-page";
 
@@ -172,7 +174,7 @@ function codexMcpStatus(status: string, needsLogin?: boolean): string {
 }
 
 function codexExtrasOf(source: ChatSource, model: CodexModel): Partial<ChatPanel> {
-  const version = model.appServerVersion ?? source.chat.version ?? model.version;
+  const version = codexServerVersion(model, source.chat.version) ?? model.version;
   const session = {
     ...(model.threadId ? { id: model.threadId } : {}),
     ...(version ? { version } : {}),
@@ -246,7 +248,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   };
 }
 
-/** A message the tab holds for after its turn, as the panel tells it: its text cut short. */
+/** A held message as the panel tells it, with a bounded text preview. */
 function heldOf(
   item: QueuedMessage,
   submission?: PeerSubmission,

@@ -25,6 +25,14 @@ import { type GitHelperConnection, setDefaultGitHelperConnection } from "./launc
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 
 type HelperRoute = "editor.open";
+const MAX_HELPER_REQUEST_BYTES = 1024 * 1024;
+const MAX_EDITOR_FILE_BYTES = 4 * 1024 * 1024;
+const DISCONNECTED: HelperWireResponse = { ok: false, error: "Git helper disconnected." };
+
+interface HelperRequestLifetime {
+  readonly signal: AbortSignal;
+  promptOpened?(): void;
+}
 
 interface GitHelpersIpcManagerOptions {
   readonly userDataDir: string;
@@ -87,6 +95,8 @@ export class GitHelpersIpcManager {
   private readonly platform: NodeJS.Platform;
   private readonly pid: number;
   private readonly token: string;
+  /** Connected helpers that have not yet submitted the request they came for. */
+  private readonly awaitingRequests = new Map<net.Socket, AbortController>();
   private readonly pending = new Map<string, PendingPrompt>();
   private server: net.Server | null = null;
   private endpoint: GitHelpersEndpoint | null = null;
@@ -146,10 +156,19 @@ export class GitHelpersIpcManager {
     setDefaultGitHelperConnection(null);
 
     if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      // Clients with a prompt receive its shutdown reply. An idle socket
+      // has no pending prompt to resolve and can keep server.close waiting.
+      for (const [socket, lifetime] of this.awaitingRequests) {
+        lifetime.abort();
+        socket.destroy();
+      }
+      await closed;
     }
     if (endpoint?.kind === "unix") {
-      await fs.unlink(endpoint.path).catch(() => {});
+      await fs.unlink(endpoint.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      });
     }
   }
 
@@ -168,12 +187,15 @@ export class GitHelpersIpcManager {
    * Processes one decoded helper payload. Tests call this directly to exercise
    * token and active-prompt validation without opening an OS socket.
    */
-  async handleHelperRequest(payload: HelperRequestPayload): Promise<HelperWireResponse> {
+  async handleHelperRequest(
+    payload: HelperRequestPayload,
+    lifetime?: HelperRequestLifetime,
+  ): Promise<HelperWireResponse> {
     this.assertAuthorizedPayload(payload);
 
     switch (payload.route as HelperRoute) {
       case "editor.open":
-        return this.openEditorPrompt(payload);
+        return this.openEditorPrompt(payload, lifetime);
       default:
         throw new Error(`Unsupported Git helper route: ${String(payload.route)}`);
     }
@@ -276,34 +298,66 @@ export class GitHelpersIpcManager {
    * JSON-line response. Each helper invocation uses one short-lived socket.
    */
   private handleSocket(socket: net.Socket): void {
-    let buffer = "";
+    let chunks: Buffer[] = [];
+    let bytes = 0;
     let handled = false;
-    socket.setEncoding("utf8");
+    const disconnected = new AbortController();
+    this.awaitingRequests.set(socket, disconnected);
+    socket.once("close", () => {
+      chunks = [];
+      this.awaitingRequests.delete(socket);
+      disconnected.abort();
+    });
 
-    const finish = async (line: string): Promise<void> => {
-      if (handled) return;
-      handled = true;
-      try {
-        const payload = JSON.parse(line) as HelperRequestPayload;
-        const response = await this.handleHelperRequest(payload);
+    /** Writes a single compatible JSON reply while the connection can still receive it. */
+    const reply = (response: HelperWireResponse): void => {
+      this.awaitingRequests.delete(socket);
+      if (!socket.destroyed && !disconnected.signal.aborted) {
         socket.end(`${JSON.stringify(response)}\n`);
-      } catch (error) {
-        socket.end(`${JSON.stringify({ ok: false, error: errorMessage(error) })}\n`);
       }
     };
 
-    socket.on("data", (chunk) => {
-      buffer += chunk;
-      const newline = buffer.indexOf("\n");
-      if (newline >= 0) {
-        void finish(buffer.slice(0, newline));
+    /** Dispatches one complete line and drops the receive buffer immediately. */
+    const finish = async (line: string): Promise<void> => {
+      handled = true;
+      chunks = [];
+      try {
+        const payload = JSON.parse(line) as HelperRequestPayload;
+        const response = await this.handleHelperRequest(payload, {
+          signal: disconnected.signal,
+          promptOpened: () => this.awaitingRequests.delete(socket),
+        });
+        reply(response);
+      } catch (error) {
+        reply({ ok: false, error: errorMessage(error) });
       }
+    };
+
+    socket.on("data", (chunk: Buffer) => {
+      if (handled) return;
+      const newline = chunk.indexOf(0x0a);
+      const part = newline < 0 ? chunk : chunk.subarray(0, newline);
+      bytes += part.length;
+      if (bytes > MAX_HELPER_REQUEST_BYTES) {
+        handled = true;
+        chunks = [];
+        reply({
+          ok: false,
+          error: `Git helper request exceeds ${MAX_HELPER_REQUEST_BYTES} bytes.`,
+        });
+        return;
+      }
+      chunks.push(part);
+      if (newline >= 0) void finish(Buffer.concat(chunks, bytes).toString("utf8"));
     });
 
-    socket.on("end", () => {
-      if (buffer.trim().length > 0) {
-        void finish(buffer.trim());
+    socket.once("end", () => {
+      if (handled) {
+        disconnected.abort();
+        return;
       }
+      const line = Buffer.concat(chunks, bytes).toString("utf8").trim();
+      if (line) void finish(line);
     });
 
     socket.on("error", () => {});
@@ -326,9 +380,15 @@ export class GitHelpersIpcManager {
    * Broadcasts a commit-message editor prompt after reading Git's temporary
    * message file. The renderer's save/cancel handler owns the final write.
    */
-  private async openEditorPrompt(payload: HelperRequestPayload): Promise<HelperWireResponse> {
+  private async openEditorPrompt(
+    payload: HelperRequestPayload,
+    lifetime?: HelperRequestLifetime,
+  ): Promise<HelperWireResponse> {
     if (!payload.filePath) throw new Error("Git editor helper request missing file path.");
-    const initialContent = await fs.readFile(payload.filePath, "utf8").catch(() => "");
+    const { signal } = lifetime ?? {};
+    if (signal?.aborted) return DISCONNECTED;
+    const initialContent = await readEditorFile(payload.filePath, signal);
+    if (signal?.aborted) return DISCONNECTED;
     const promptId = crypto.randomUUID();
     const event = GitEditorPromptSchema.parse({
       promptId,
@@ -339,12 +399,22 @@ export class GitHelpersIpcManager {
     }) satisfies GitEditorPrompt;
 
     return new Promise((resolve) => {
+      const closePrompt = () => {
+        this.pending.delete(promptId);
+        resolve(DISCONNECTED);
+        this.broadcast("editor", "closed", { promptId });
+      };
+      signal?.addEventListener("abort", closePrompt, { once: true });
       this.pending.set(promptId, {
         kind: "editor",
         promptId,
         filePath: payload.filePath ?? "",
-        resolve,
+        resolve: (response) => {
+          signal?.removeEventListener("abort", closePrompt);
+          resolve(response);
+        },
       });
+      lifetime?.promptOpened?.();
       this.broadcast("editor", "prompt", event);
     });
   }
@@ -365,6 +435,28 @@ export class GitHelpersIpcManager {
   }
 }
 
+/** Reads only the bounded prefix needed to distinguish a complete file from an oversized one. */
+async function readEditorFile(filePath: string, signal?: AbortSignal): Promise<string> {
+  const file = await fs.open(filePath, "r").catch(() => null);
+  if (!file) return "";
+  try {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    while (!signal?.aborted && bytes <= MAX_EDITOR_FILE_BYTES) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_EDITOR_FILE_BYTES + 1 - bytes));
+      const read = await file.read(chunk).catch(() => null);
+      if (!read || signal?.aborted) return "";
+      if (read.bytesRead === 0) return Buffer.concat(chunks, bytes).toString("utf8");
+      bytes += read.bytesRead;
+      chunks.push(chunk.subarray(0, read.bytesRead));
+    }
+    if (signal?.aborted) return "";
+    throw new Error(`Git editor file exceeds ${MAX_EDITOR_FILE_BYTES} bytes.`);
+  } finally {
+    await file.close();
+  }
+}
+
 /**
  * Registers renderer-response IPC methods for askpass and editor prompts.
  */
@@ -378,11 +470,12 @@ export function registerGitHelperIpcChannels(manager: GitHelpersIpcManager): voi
   });
 
   register("editor", {
+    keepOnRendererClose: ["save"],
     call: {
       save: (args) => manager.saveEditor(args),
       cancel: (args) => manager.cancelEditor(args),
     },
-    listen: { prompt: {} },
+    listen: { prompt: {}, closed: {} },
   });
 }
 

@@ -17,6 +17,7 @@ import type {
   ToolCall,
 } from "../../../../../src/renderer/services/chat/model";
 import type { AnswerExtras } from "../../../../../src/renderer/services/chat/panel";
+import { jobToolStatuses } from "../../../../../src/renderer/services/chat/running";
 import { foldToolRuns } from "../../../../../src/renderer/services/chat/tool-runs";
 
 const call = (id: string, extra: Partial<ToolCall> = {}): ToolCall =>
@@ -48,6 +49,7 @@ function sources(
 ): ListSources {
   return {
     tools,
+    toolStatuses: {},
     callsUnder: callsUnder(tools),
     shown: foldToolRuns(items, tools),
     extras: new Map(),
@@ -71,6 +73,34 @@ describe("itemView", () => {
     const next = { ...tools, c2: call("c2", { status: "done" }) };
     expect(rendersAgain(a, sources(items, tools), sources(items, next))).toBe(false);
     expect(rendersAgain(b, sources(items, tools), sources(items, next))).toBe(true);
+  });
+
+  test.each([
+    ["running", "background"],
+    ["completed", "done"],
+    ["failed", "error"],
+  ])("a background job that is %s gives its tool row %s", (status, expected) => {
+    const calls = { ...tools, c2: call("c2", { status: "done" }) };
+    const job = {
+      taskId: "bash-job",
+      type: "local_bash",
+      description: "Build",
+      toolUseId: "c2",
+      backgrounded: true,
+    };
+    const withJob = (jobStatus: string) =>
+      sources(items, calls, {
+        toolStatuses: jobToolStatuses({
+          tasks: { [job.taskId]: { ...job, status: jobStatus } },
+          tools: calls,
+          running: false,
+        }),
+      });
+    const before = status === "running" ? sources(items, calls) : withJob("running");
+    const after = withJob(status);
+    expect(itemView(b, after)?.toolStatuses).toEqual({ c2: expected });
+    expect(rendersAgain(b, before, after)).toBe(true);
+    expect(rendersAgain(a, before, after)).toBe(false);
   });
 
   test("a call under its subagent's call changing renders it again", () => {
@@ -163,7 +193,12 @@ describe("itemView", () => {
 
 describe("sameView", () => {
   test("its own blocks changing renders it again", () => {
-    const view: ItemView = { blocks: [{ type: "text", text: "a" }], tools: {}, earlier: new Map() };
+    const view: ItemView = {
+      blocks: [{ type: "text", text: "a" }],
+      tools: {},
+      toolStatuses: {},
+      earlier: new Map(),
+    };
     expect(sameView(view, { ...view })).toBe(true);
     expect(sameView(view, { ...view, blocks: [{ type: "text", text: "a" }] })).toBe(false);
   });

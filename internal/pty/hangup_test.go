@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -220,60 +221,90 @@ while :; do sleep 1; done
 	requireGone(t, job, 2*time.Second, "the background job")
 }
 
-// zombieChildren lists this process's children that ended and were never
-// waited for.
-func zombieChildren(t *testing.T) []string {
-	t.Helper()
-	out, err := exec.Command("ps", "-A", "-o", "pid=,ppid=,stat=").Output()
-	if err != nil {
-		t.Fatalf("ps: %v", err)
-	}
-	self := strconv.Itoa(os.Getpid())
-	var zombies []string
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 3 && fields[1] == self && strings.HasPrefix(fields[2], "Z") {
-			zombies = append(zombies, fields[0])
-		}
-	}
-	return zombies
+// spawnWaitContext signals once the second request has reached its wait.
+type spawnWaitContext struct {
+	context.Context
+	waiting func()
 }
 
-// Two spawns of one tab racing each other start two shells; the one that
-// loses is killed, and must be waited for too or it stays a zombie of the
-// daemon. Not parallel: other tests' shells are briefly zombies as they end.
-func TestRacingSpawnsOfATabLeaveNoZombie(t *testing.T) {
+// Done exposes the wait barrier and the context's original cancellation.
+func (c spawnWaitContext) Done() <-chan struct{} {
+	c.waiting()
+	return c.Context.Done()
+}
+
+// TestRacingSpawnsOfATabForkOnlyOnce checks that overlapping requests
+// share the shell even before it has been published in the session map.
+func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 	service, _ := newTestService(t)
-	for i := 0; i < 5; i++ {
-		params := mustJSON(t, SpawnParams{
-			WorkspaceID: testWorkspaceID, TabID: fmt.Sprintf("race-%d", i), Cwd: t.TempDir(),
-			Shell: "/bin/sh", Args: []string{"-c", "sleep 30"}, Cols: 80, Rows: 24,
-		})
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		for j := 0; j < 2; j++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				<-start
-				if _, err := service.Spawn(context.Background(), params); err != nil {
-					t.Errorf("spawn: %v", err)
-				}
-			}()
+	first, duplicate, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	var starts atomic.Int32
+	service.startPTY = func(spec spawnSpec) (*terminal, *child, error) {
+		if starts.Add(1) != 1 {
+			close(duplicate)
+			return nil, nil, errors.New("a second shell was started")
 		}
-		close(start)
-		wg.Wait()
+		close(first)
+		<-release
+		return startTerminal(spec)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		zombies := zombieChildren(t)
-		if len(zombies) == 0 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("shells never waited for: %v", zombies)
-		}
-		time.Sleep(50 * time.Millisecond)
+	params := SpawnParams{
+		WorkspaceID: testWorkspaceID, TabID: "racing-spawns", Cwd: t.TempDir(),
+		Shell: "/bin/sh", Args: []string{"-c", "exec /bin/sleep 60"}, Cols: 80, Rows: 24,
+	}
+	type response struct {
+		value any
+		err   error
+	}
+	var calls sync.WaitGroup
+	spawn := func(ctx context.Context, params SpawnParams) <-chan response {
+		raw := mustJSON(t, params)
+		done := make(chan response, 1)
+		calls.Add(1)
+		go func() {
+			defer calls.Done()
+			value, err := service.Spawn(ctx, raw)
+			done <- response{value, err}
+		}()
+		return done
+	}
+	defer func() { unblock(); calls.Wait() }()
+
+	owner := spawn(context.Background(), params)
+	select {
+	case <-first:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first request never attempted to start a shell")
+	}
+	waiting := make(chan struct{})
+	params.Cols, params.Rows = 120, 40
+	joined := spawn(spawnWaitContext{context.Background(), sync.OnceFunc(func() { close(waiting) })}, params)
+	select {
+	case <-waiting:
+	case <-duplicate:
+		t.Fatal("second request forked a shell for an already starting tab")
+	case <-time.After(2 * time.Second):
+		t.Fatal("second request neither started nor joined the first")
+	}
+
+	unblock()
+	a, b := <-owner, <-joined
+	firstSpawn, firstOK := a.value.(SpawnResult)
+	attached, attachedOK := b.value.(SpawnResult)
+	if a.err != nil || b.err != nil || !firstOK || !attachedOK || starts.Load() != 1 ||
+		firstSpawn.Attached || !attached.Attached || firstSpawn.PID != attached.PID {
+		t.Fatalf("spawns returned %+v and %+v with %d starts", a, b, starts.Load())
+	}
+	session := service.lookup(tabKey{workspaceID: testWorkspaceID, tabID: params.TabID})
+	if session == nil {
+		t.Fatal("the shared shell exited before the attach finished")
+	}
+	session.sizeMu.Lock()
+	cols, rows := session.lastCols, session.lastRows
+	session.sizeMu.Unlock()
+	if cols != params.Cols || rows != params.Rows {
+		t.Fatalf("joined terminal is %dx%d, want %dx%d", cols, rows, params.Cols, params.Rows)
 	}
 }
 

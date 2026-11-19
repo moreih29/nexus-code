@@ -1,8 +1,9 @@
 /**
  * A note's transcript, beside its text: each recording with its people and
  * what they said, a time to a line. While this note records, the words
- * come in as they are said. A person's chip shows only what they said, and
- * its pencil names them (the name goes to each of their voices); a search
+ * come in as they are said. A person's chip shows only what they said
+ * (shown above the lines too, which takes it back to everyone), and its
+ * pencil names them (the name goes to each of their voices); a search
  * shows the lines with its words; a line's time, while either holds, shows
  * that line in the whole conversation. A line is moved to another voice by
  * clicking its speaker, and goes into the note as a quote; a recording of
@@ -44,10 +45,11 @@ import {
 import { useUIStore } from "../../state/stores/ui";
 import type { DropdownMenuPoint } from "../ui/dropdown-menu";
 import { LineMoveMenu, LineRow, type LineTarget, PartialRow } from "./transcript-line";
-import { RecordingHeading } from "./transcript-recording";
+import { PickedSpeaker, RecordingHeading } from "./transcript-recording";
 import {
   type Cast,
   castOf,
+  isNamed,
   isNarrowed,
   isPicked,
   personOf,
@@ -147,6 +149,23 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     setQuery("");
     searchToggleRef.current?.focus();
   }, []);
+
+  // The person picked, as their chip names them: shown above the lines, which
+  // the recording's chips scroll away from.
+  const alone = useMemo(() => {
+    if (!speaker) return null;
+    const recording = recordings.find((r) => r.id === speaker.recordingId);
+    const p = casts.get(speaker.recordingId)?.people.find((x) => x.person === speaker.person);
+    if (recording && p) {
+      return {
+        name: speakerName(recording, p.keys[0] as string, unnamed),
+        color: speakerColor(p.color),
+      };
+    }
+    // Gone from its recording (its voices grouped again): still the way back.
+    const { person } = speaker;
+    return { name: isNamed(person) ? person : unnamed(person.slice(1)), color: null };
+  }, [speaker, recordings, casts, unnamed]);
 
   const pick = useCallback((recordingId: string, person: string) => {
     setSpeaker((now) => (isPicked(now, recordingId, person) ? null : { recordingId, person }));
@@ -337,9 +356,22 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       <TranscriptSash beside panel={panel} />
       <TranscriptSash beside={false} panel={panel} />
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3">
-        <span className="mr-auto text-app-ui-sm font-medium text-foreground">
+        <span className="shrink-0 text-app-ui-sm font-medium text-foreground">
           {t("transcript.title")}
         </span>
+        <div className="mr-auto flex min-w-0 pl-1">
+          {alone && (
+            <PickedSpeaker
+              name={alone.name}
+              color={alone.color}
+              onClear={() => {
+                setSpeaker(null);
+                // The chip goes; the keyboard stays in the transcript.
+                scroller.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
+        </div>
         {recordings.length > 0 && (
           <button
             ref={searchToggleRef}

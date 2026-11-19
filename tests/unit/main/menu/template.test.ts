@@ -32,7 +32,7 @@ describe("buildMenuTemplate (mac)", () => {
     expect(item).toBeDefined();
     if (item?.type !== "command") throw new Error("unreachable");
     expect(item.accelerator).toBe("CmdOrCtrl+W");
-    expect(item.label).toBe("Close Editor");
+    expect(item.label).toBe("Close Tab");
   });
 
   it("binds Cmd+R to files.refresh (overriding Electron default Reload)", () => {

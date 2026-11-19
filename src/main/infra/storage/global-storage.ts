@@ -10,6 +10,7 @@ import {
   type WorkspaceTask,
   WorkspaceTaskSchema,
 } from "../../../shared/types/workspace";
+import { toWorkspaceColor } from "../../../shared/types/workspace-color";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ interface WorkspaceRow {
   name: string;
   root_path: string;
   location: string | null;
-  color_tone: string;
+  color: string;
   pinned: number;
   last_opened_at: number;
   sort_order: number;
@@ -231,7 +232,7 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
     name: row.name,
     location,
     rootPath: rootPathFromLocation(location),
-    colorTone: row.color_tone as WorkspaceMeta["colorTone"],
+    color: toWorkspaceColor(row.color),
     pinned: row.pinned === 1,
     lastOpenedAt: new Date(row.last_opened_at).toISOString(),
     tabs: [],
@@ -293,7 +294,7 @@ export class GlobalStorage {
     this.db
       .prepare(
         `INSERT INTO workspaces
-           (id, name, root_path, location, color_tone, pinned, last_opened_at,
+           (id, name, root_path, location, color, pinned, last_opened_at,
             sort_order, pinned_sort_order, task)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
@@ -302,7 +303,7 @@ export class GlobalStorage {
         normalized.name,
         rootPath,
         JSON.stringify(location),
-        normalized.colorTone ?? "default",
+        normalized.color,
         normalized.pinned ? 1 : 0,
         normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
         normalized.sortOrder,
@@ -334,14 +335,14 @@ export class GlobalStorage {
     this.db
       .prepare(
         `UPDATE workspaces
-         SET name = ?, root_path = ?, location = ?, color_tone = ?, pinned = ?, last_opened_at = ?
+         SET name = ?, root_path = ?, location = ?, color = ?, pinned = ?, last_opened_at = ?
          WHERE id = ?`,
       )
       .run(
         partial.name ?? row.name,
         rootPath,
         locationJson,
-        (partial.colorTone ?? row.color_tone) as string,
+        partial.color ?? toWorkspaceColor(row.color),
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
         partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,
         id,

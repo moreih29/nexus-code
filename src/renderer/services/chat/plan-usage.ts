@@ -35,7 +35,7 @@ import { defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { type CodexRateLimits, mergeRateLimits, rateLimitsOf } from "./codex-model";
+import { type CodexRateLimits, mergeRateLimits, rateLimitsOf } from "./codex/model";
 import { usageLimitsOf } from "./panel";
 
 /** Every profile one of whose tabs can ask is asked this often, the window shown. */

@@ -1,12 +1,19 @@
 /** The relay's socket: a socket that never opened says what it went to was not reached. */
-import { describe, expect, test } from "bun:test";
-import { OutdatedError, UnreachableError } from "../../../../../src/main/features/remote/errors";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
+  OutdatedError,
+  SignedOutError,
+  UnreachableError,
+} from "../../../../../src/main/features/remote/errors";
+import {
+  CLOSE_REPLACED,
+  CLOSE_SIGNED_OUT,
   RELAY_PING,
   RELAY_PONG,
   RelayConnection,
   type RelayStatus,
 } from "../../../../../src/main/features/remote/relay-connection";
+import { returnToProxy, ServerRoute } from "../../../../../src/main/features/remote/route";
 
 class FakeSocket {
   readyState = 0;
@@ -16,6 +23,8 @@ class FakeSocket {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
   emit(type: string, event: object = {}) {
+    if (type === "open") this.readyState = 1;
+    if (type === "close") this.readyState = 3;
     for (const listener of this.listeners.get(type) ?? []) listener(event as never);
   }
   readonly sent: string[] = [];
@@ -25,6 +34,7 @@ class FakeSocket {
   }
   close() {
     this.closed = true;
+    this.readyState = 2;
   }
 }
 
@@ -213,9 +223,207 @@ test("a socket that never opened does not try again at once", async () => {
   relay.stop();
 });
 
+describe("relay ticket ownership", () => {
+  const firstUrl = "wss://nexus.example/relay?ticket=old";
+  const nextUrl = "wss://proxy.example/relay?ticket=new";
+
+  /** Controls which ticket completes first and records every allocated socket. */
+  function harness() {
+    const first = Promise.withResolvers<string>();
+    const next = Promise.withResolvers<string>();
+    const tickets = [first, next];
+    const sockets: FakeSocket[] = [];
+    const statuses: RelayStatus[] = [];
+    const signedOut = jest.fn();
+    const url = jest.fn(() => {
+      const ticket = tickets.shift();
+      if (!ticket) throw new Error("unexpected ticket request");
+      return ticket.promise;
+    });
+    const relay = new RelayConnection({
+      url,
+      onOpen: () => {},
+      onFrame: () => {},
+      onStatus: (status) => statuses.push(status),
+      onSignedOut: signedOut,
+      socket: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      backoff: () => 100,
+    });
+    relay.start();
+    return { relay, first, next, url, sockets, statuses, signedOut };
+  }
+
+  afterEach(() => jest.useRealTimers());
+
+  test.each([
+    "first",
+    "last",
+  ] as const)("only opens the current socket when the stale ticket succeeds %s", async (order) => {
+    jest.useFakeTimers();
+    const { relay, first, next, sockets } = harness();
+    try {
+      relay.reconnect();
+      if (order === "first") {
+        first.resolve(firstUrl);
+        await Promise.resolve();
+        expect(sockets).toHaveLength(0);
+      }
+      next.resolve(nextUrl);
+      await Promise.resolve();
+      sockets[0]?.emit("open");
+      if (order === "last") {
+        first.resolve(firstUrl);
+        await Promise.resolve();
+      }
+      expect(sockets.map((socket) => socket.url)).toEqual([nextUrl]);
+    } finally {
+      relay.stop();
+    }
+    expect(sockets.every((socket) => socket.closed)).toBe(true);
+  });
+
+  test.each([
+    ["retry", () => new UnreachableError(new TypeError("unreachable"))],
+    ["give up", () => new OutdatedError()],
+    ["sign out", () => new SignedOutError()],
+  ] as const)("a stale ticket cannot %s after the replacement is online", async (_action, error) => {
+    jest.useFakeTimers();
+    const { relay, first, next, url, sockets, statuses, signedOut } = harness();
+    try {
+      relay.reconnect();
+      next.resolve(nextUrl);
+      await Promise.resolve();
+      sockets[0]?.emit("open");
+
+      first.reject(error());
+      await Promise.resolve();
+      jest.advanceTimersByTime(100);
+
+      expect(statuses).toEqual(["connecting", "online"]);
+      expect(sockets.map((socket) => [socket.url, socket.closed])).toEqual([[nextUrl, false]]);
+      expect(url).toHaveBeenCalledTimes(2);
+      expect(signedOut).not.toHaveBeenCalled();
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test.each([
+    [CLOSE_REPLACED, "replaced", 0],
+    [CLOSE_SIGNED_OUT, "stopped", 1],
+  ] as const)("current socket close %s still ends the relay", async (code, status, called) => {
+    jest.useFakeTimers();
+    const { relay, first, url, sockets, statuses, signedOut } = harness();
+    try {
+      first.resolve(firstUrl);
+      await Promise.resolve();
+      sockets[0]?.emit("open");
+      sockets[0]?.emit("close", { code });
+
+      relay.reconnect();
+      jest.advanceTimersByTime(60_000);
+      expect(statuses).toEqual(["connecting", "online", status]);
+      expect(url).toHaveBeenCalledTimes(1);
+      expect(signedOut).toHaveBeenCalledTimes(called);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a ticket from before stop cannot open a socket after start", async () => {
+    jest.useFakeTimers();
+    const { relay, first, next, sockets } = harness();
+    try {
+      relay.stop();
+      relay.start();
+      first.resolve(firstUrl);
+      await Promise.resolve();
+      expect(sockets).toHaveLength(0);
+      next.resolve(nextUrl);
+      await Promise.resolve();
+      expect(sockets.map((socket) => socket.url)).toEqual([nextUrl]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a stop during the connecting notification prevents asking for a ticket", () => {
+    const url = jest.fn(async () => firstUrl);
+    const relay = new RelayConnection({
+      url,
+      onOpen: () => {},
+      onFrame: () => {},
+      onStatus: (status) => {
+        if (status === "connecting") relay.stop();
+      },
+      onSignedOut: () => {},
+    });
+    relay.start();
+    expect(url).not.toHaveBeenCalled();
+  });
+});
+
+test("a proxy probe completing during automatic reconnect leaves the pending ticket in charge", async () => {
+  const ticket = Promise.withResolvers<string>();
+  const response = Promise.withResolvers<Response>();
+  const sockets: FakeSocket[] = [];
+  const url = jest.fn(() =>
+    sockets.length === 0
+      ? Promise.resolve("wss://nexus.example/relay?ticket=direct")
+      : ticket.promise,
+  );
+  const relay = new RelayConnection({
+    url,
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: () => {},
+    onSignedOut: () => {},
+    socket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  const probe = returnToProxy({
+    route: new ServerRoute("https://nexus.example", "https://proxy.example", () => 0),
+    via: () => relay.onlineRoute(),
+    reconnect: () => relay.reconnect(),
+    fetch: (() => response.promise) as typeof fetch,
+  });
+  try {
+    relay.start();
+    await Promise.resolve();
+    sockets[0]?.emit("open");
+    const pending = probe.check();
+    sockets[0]?.emit("close", { code: 1006 });
+    expect(url).toHaveBeenCalledTimes(2);
+
+    response.resolve(new Response("{}"));
+    await pending;
+    expect(url).toHaveBeenCalledTimes(2);
+    ticket.resolve("wss://proxy.example/relay?ticket=recovered");
+    await Promise.resolve();
+    sockets[1]?.emit("open");
+    expect(relay.onlineRoute()?.origin).toBe("wss://proxy.example");
+    expect(sockets).toHaveLength(2);
+  } finally {
+    probe.stop();
+    relay.stop();
+  }
+  expect(sockets[1]?.closed).toBe(true);
+});
+
 describe("the heartbeat", () => {
   const heartbeat = { every: 10, wait: 15 };
-  const open = () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  /** Opens the connection before advancing the heartbeat clock. */
+  async function open() {
     const sockets: FakeSocket[] = [];
     const frames: unknown[] = [];
     const statuses: RelayStatus[] = [];
@@ -228,56 +436,61 @@ describe("the heartbeat", () => {
       socket: (url) => {
         const socket = new FakeSocket(url);
         sockets.push(socket);
-        return socket as never;
+        return socket;
       },
       backoff: () => 60_000,
       heartbeat,
     });
-    const next = async (count: number) => {
-      for (let i = 0; i < 100 && sockets.length < count; i++) await Bun.sleep(1);
-      return sockets[count - 1];
-    };
-    return { relay, sockets, frames, statuses, next };
-  };
+    relay.start();
+    await Promise.resolve();
+    const socket = sockets[0];
+    if (!socket) throw new Error("no socket");
+    socket.emit("open");
+    return { relay, sockets, frames, statuses, socket };
+  }
 
   test("an answered heartbeat keeps the socket, and the answer is no frame", async () => {
-    const { relay, sockets, frames, next } = open();
-    relay.start();
-    const socket = await next(1);
-    socket?.emit("open");
-    for (let beats = 0; beats < 3; beats++) {
-      for (let i = 0; i < 100 && (socket?.sent.length ?? 0) <= beats; i++) await Bun.sleep(1);
-      expect(socket?.sent[beats]).toBe(RELAY_PING);
-      socket?.emit("message", { data: RELAY_PONG });
+    const { relay, sockets, frames, socket } = await open();
+    try {
+      for (let beat = 0; beat < 3; beat++) {
+        jest.advanceTimersByTime(heartbeat.every);
+        expect(socket.sent[beat]).toBe(RELAY_PING);
+        socket.emit("message", { data: RELAY_PONG });
+      }
+      expect([sockets.length, socket.closed, frames]).toEqual([1, false, []]);
+    } finally {
+      relay.stop();
     }
-    expect([sockets.length, socket?.closed, frames]).toEqual([1, false, []]);
-    relay.stop();
   });
 
   test("one not answered lets the socket go and joins the room again at once", async () => {
-    const { relay, sockets, statuses, next } = open();
-    relay.start();
-    const first = await next(1);
-    first?.emit("open");
-    const second = await next(2);
-    expect(first?.sent).toEqual([RELAY_PING]);
-    expect(first?.closed).toBe(true);
-    expect(second).toBeDefined();
-    expect(statuses).not.toContain("waiting");
-    // Its own close, when it comes at last, is not taken for another loss.
-    first?.emit("close", { code: 1006 });
-    await Bun.sleep(5);
-    expect(sockets).toHaveLength(2);
-    relay.stop();
+    const { relay, sockets, statuses, socket } = await open();
+    try {
+      jest.advanceTimersByTime(heartbeat.every);
+      expect(socket.sent).toEqual([RELAY_PING]);
+      jest.advanceTimersByTime(heartbeat.wait - 1);
+      expect(socket.closed).toBe(false);
+
+      jest.advanceTimersByTime(1);
+      await Promise.resolve();
+      expect(socket.closed).toBe(true);
+      expect(sockets).toHaveLength(2);
+      expect(statuses).not.toContain("waiting");
+
+      // Its close may arrive after the next socket starts connecting.
+      socket.emit("close", { code: 1006 });
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      expect(sockets).toHaveLength(2);
+    } finally {
+      relay.stop();
+    }
   });
 
   test("none is sent once the socket is let go", async () => {
-    const { relay, next } = open();
-    relay.start();
-    const socket = await next(1);
-    socket?.emit("open");
+    const { relay, socket } = await open();
     relay.stop();
-    await Bun.sleep(30);
-    expect(socket?.sent).toEqual([]);
+    jest.advanceTimersByTime(3 * heartbeat.every);
+    expect(socket.sent).toEqual([]);
   });
 });

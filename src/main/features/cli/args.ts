@@ -3,6 +3,7 @@
  *
  * `--name value`, `--name=value` and bare `--name` (true) are flags; `-h` is
  * `--help`; `--` ends the flags. Everything else is positional, in order.
+ * A value that starts with `--` is given as `--name=--value`.
  * Which flags take a value is the command's to say, so a bare flag followed
  * by a word is told apart by the spec.
  */
@@ -13,6 +14,8 @@ export interface FlagSpec {
   readonly description: string;
   /** A short name for the value in help, such as "N" or "URL". */
   readonly value?: string;
+  /** A single-letter alias, spelled with one dash. */
+  readonly short?: string;
   /** A string flag that may be given again: its values, in order, as a list. */
   readonly repeat?: boolean;
 }
@@ -57,12 +60,16 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       flags.help = true;
       continue;
     }
-    if (!arg.startsWith("--") || arg === "--") {
+    const short =
+      arg.length === 2 && arg.startsWith("-")
+        ? Object.keys(specs).find((name) => specs[name]?.short === arg[1])
+        : undefined;
+    if (!arg.startsWith("--") && short === undefined) {
       positionals.push(arg);
       continue;
     }
     const eq = arg.indexOf("=");
-    const name = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+    const name = short ?? (eq === -1 ? arg.slice(2) : arg.slice(2, eq));
     const spec = all[name];
     if (!spec) throw new CliUsageError(`unknown flag --${name}`);
     let raw: string | undefined = eq === -1 ? undefined : arg.slice(eq + 1);
@@ -73,7 +80,9 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       continue;
     }
     if (raw === undefined) {
-      if (i >= argv.length) {
+      // A flag where the value should be is a value gone missing, not the
+      // value: PowerShell 5.1 drops `--name ''`, leaving `--name --json`.
+      if (i >= argv.length || (argv[i] as string).startsWith("--")) {
         // `--since #3`: the shell took "#3" for a comment. `--command ""`:
         // PowerShell 5.1 passes no empty argument.
         const hint =

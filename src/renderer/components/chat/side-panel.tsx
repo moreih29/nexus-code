@@ -22,8 +22,10 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { createLogger } from "../../../shared/log/renderer";
 import { artifactsOf } from "../../services/chat/artifact";
-import type { ChatController } from "../../services/chat/controller";
+import type { ChatController } from "../../services/chat/claude/controller";
+import { firstVersionOf } from "../../services/chat/claude/versions";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
@@ -49,7 +51,6 @@ import { usePlanUsageStore } from "../../services/chat/plan-usage";
 import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import { formatTokens, shownReset } from "../../services/chat/usage-line";
-import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
@@ -65,6 +66,8 @@ import { FileKindIcon } from "./file-kind-icon";
 import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
 import { ActivitySections } from "./running-section";
+
+const log = createLogger("chat-side-panel");
 
 interface SidePanelProps {
   controller: ChatController;
@@ -293,7 +296,8 @@ export function TodosSection({
 
 function stop(controller: ChatController, taskId: string, failed: string): void {
   controller.stopTask(taskId).catch((err: Error) => {
-    showToast({ kind: "error", message: `${failed}: ${err.message}` });
+    log.warn(`Background task stop failed: ${err.message}`);
+    showToast({ kind: "error", message: failed });
   });
 }
 
@@ -1100,18 +1104,23 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
               key={server.name}
               title={signingIn ? t("chat.panel.mcp.signing_in_hint") : server.name}
             >
-              <span className="min-w-0 flex-1 truncate">{server.name}</span>
               {signingIn ? (
-                <span className="flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
-                  {t("chat.panel.mcp.signing_in")}
-                  <TextButton onClick={() => controller.reopenMcpSignIn()}>
-                    {t("chat.panel.mcp.reopen")}
-                  </TextButton>
-                  <TextButton onClick={() => controller.cancelMcpSignIn()}>
-                    {t("chat.panel.mcp.cancel")}
-                  </TextButton>
-                </span>
-              ) : server.status === "needs-auth" ? (
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="break-all">{server.name}</span>
+                  <div className="flex flex-wrap items-center gap-1 text-app-micro text-muted-foreground">
+                    <span>{t("chat.panel.mcp.signing_in")}</span>
+                    <TextButton onClick={() => controller.reopenMcpSignIn()}>
+                      {t("chat.panel.mcp.reopen")}
+                    </TextButton>
+                    <TextButton onClick={() => controller.cancelMcpSignIn()}>
+                      {t("chat.panel.mcp.cancel")}
+                    </TextButton>
+                  </div>
+                </div>
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              )}
+              {signingIn ? null : server.status === "needs-auth" ? (
                 <TextButton onClick={() => controller.mcpAuthenticate(server.name).catch(fail)}>
                   {t("chat.panel.mcp.sign_in")}
                 </TextButton>

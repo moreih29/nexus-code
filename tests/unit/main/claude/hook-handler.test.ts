@@ -7,7 +7,8 @@
  *   (which releases the hook process).
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
+import { TurnOrder } from "../../../../src/main/features/claude/turn-order";
 
 // electron mock — must be declared before the dynamic import.
 mock.module("electron", () => ({
@@ -33,6 +34,7 @@ mock.module("electron", () => ({
 }));
 
 const { registerHookHandler } = await import("../../../../src/main/features/claude/hook-handler");
+const { setupClaudeFeature } = await import("../../../../src/main/features/claude/index");
 const { ClaudeStatusBroker } = await import("../../../../src/main/features/claude/status");
 const { ActiveContextStore } = await import("../../../../src/main/features/claude/active-context");
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
@@ -46,8 +48,15 @@ const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-
 // Helpers
 // ---------------------------------------------------------------------------
 
+interface ShownNotification {
+  title: string;
+  body: string;
+  shown: boolean;
+  close: () => void;
+}
+
 function makeNotificationCtor() {
-  const instances: Array<{ title: string; body: string; shown: boolean }> = [];
+  const instances: ShownNotification[] = [];
   class FakeNotification {
     title: string;
     body: string;
@@ -55,7 +64,12 @@ function makeNotificationCtor() {
     constructor(opts: { title: string; body: string }) {
       this.title = opts.title;
       this.body = opts.body;
-      instances.push({ title: opts.title, body: opts.body, shown: false });
+      instances.push({
+        title: opts.title,
+        body: opts.body,
+        shown: false,
+        close: () => this.handlers.close?.(),
+      });
     }
     on(event: string, cb: () => void) {
       this.handlers[event] = cb;
@@ -137,7 +151,7 @@ interface Harness {
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
-  notifInstances: Array<{ title: string; body: string; shown: boolean }>;
+  notifInstances: ShownNotification[];
   FakeNotification: new (opts: {
     title: string;
     body: string;
@@ -943,13 +957,64 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
     expect(broker.snapshot()).toHaveLength(0);
   });
 
-  test("알 수 없는 subcommand 무시", async () => {
-    const { broker, emit } = makeHarness();
-    emit(makeHookPayload("unknown-future-subcommand"));
-    await new Promise((r) => setTimeout(r, 0));
-    // No state change expected.
+  test("acknowledges a new hook without changing Claude's state", async () => {
+    const { broker, channel, emit } = makeHarness();
+    const hook = makeHookPayload("unknown-future-subcommand");
+    emit(hook);
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(broker.snapshot()).toHaveLength(0);
+    expect(channel.callArgs).toEqual([
+      ["claude.respondHook", { hookId: hook.hookId, response: { exitCode: 0 } }],
+    ]);
   });
+});
+
+test("dismissing a Claude notification cancels its fallback timer", async () => {
+  jest.useFakeTimers();
+  try {
+    const { notifInstances, emit } = makeHarness();
+    emit(makeHookPayload("notification", { message: "Input needed" }));
+    await Promise.resolve();
+    expect(jest.getTimerCount()).toBe(1);
+    notifInstances[0]?.close();
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a terminal exit rejects a late hook from the ended Claude turn", async () => {
+  const agentHost = makeHookAgentHost();
+  const feature = setupClaudeFeature({
+    agentHost: {
+      ...agentHost,
+      call: async () => undefined,
+      isAlive: () => true,
+      dispose: () => {},
+      closeWorkspaceSessions: () => {},
+      restoreAfterReauth: async () => {},
+      releaseHeld: () => {},
+    },
+    workspaceManager: {
+      getName: () => "TestWorkspace",
+      tryGetAgentChannel: async () => null,
+      connect: async () => {},
+    },
+    broadcastFn: () => {},
+    notificationsEnabled: () => false,
+  });
+  const turn = { prompt_id: "ended-prompt" };
+  const prompt = makeHookPayload("user-prompt-submit", turn);
+  try {
+    agentHost.emit("claude.hook", prompt);
+    expect(feature.broker.get(prompt.workspaceId, prompt.tabId)?.status).toBe("running");
+    agentHost.emit("exit", { workspaceId: prompt.workspaceId, tabId: prompt.tabId });
+    agentHost.emit("claude.hook", makeHookPayload("stop", turn));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(feature.broker.get(prompt.workspaceId, prompt.tabId)).toBeNull();
+  } finally {
+    feature.dispose();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1313,4 +1378,21 @@ describe("hook-handler — permission requests answered from the app", () => {
     expect(asks?.list("ws-test", "tab-test")).toEqual([]);
     expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
   });
+});
+
+test("retains recent ended turns without retaining every terminal ever closed", () => {
+  const turns = new TurnOrder();
+  turns.isStale("workspace", "old-terminal", "user-prompt-submit", "old");
+  turns.end("workspace", "old-terminal");
+  expect(turns.isStale("workspace", "old-terminal", "stop", "old")).toBe(true);
+
+  turns.isStale("workspace", "open-terminal", "user-prompt-submit", "current");
+  for (let tab = 0; tab < 512; tab++) {
+    turns.isStale("workspace", `tab-${tab}`, "user-prompt-submit", "prompt");
+    turns.end("workspace", `tab-${tab}`);
+  }
+
+  expect(turns.acceptsResult("workspace", "old-terminal", "old")).toBe(true);
+  expect(turns.isStale("workspace", "tab-511", "stop", "prompt")).toBe(true);
+  expect(turns.acceptsResult("workspace", "open-terminal", "older")).toBe(false);
 });

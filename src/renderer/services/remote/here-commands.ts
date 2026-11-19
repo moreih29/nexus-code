@@ -17,7 +17,7 @@ import {
   COMMAND_LINKS,
   terminalCommandOf,
 } from "../chat/app-commands";
-import { CODEX_COMMANDS } from "../chat/codex-commands";
+import { CODEX_COMMANDS } from "../chat/codex/commands";
 
 const HERE: Record<"claude" | "codex", ReadonlySet<string>> = {
   claude: new Set(["copy", "diff", "help", "exit", ...Object.keys(COMMAND_LINKS)]),

@@ -1,12 +1,15 @@
 package git
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -134,5 +137,63 @@ func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("repo-configured fsmonitor command ran during status")
+	}
+}
+
+const largeStatusFiles = 17_000
+
+// largeStatusPath gives each fixture record a realistic path. The 17,000
+// NUL-delimited records total more than 2 MiB.
+func largeStatusPath(index int) string {
+	return fmt.Sprintf("%s-%05d.txt", strings.Repeat("f", 125), index)
+}
+
+// runLargeStatusFixture serves porcelain data and the auxiliary status
+// commands without creating the untracked files.
+func runLargeStatusFixture() int {
+	if len(os.Args) < 2 {
+		return 1
+	}
+	switch os.Args[1] {
+	case "status":
+		out := bufio.NewWriter(os.Stdout)
+		for i := range largeStatusFiles {
+			if _, err := fmt.Fprintf(out, "? %s\x00", largeStatusPath(i)); err != nil {
+				return 1
+			}
+		}
+		if err := out.Flush(); err != nil {
+			return 1
+		}
+	case "rev-parse":
+		root, err := os.Getwd()
+		if err != nil {
+			return 1
+		}
+		_, _ = fmt.Fprintln(os.Stdout, filepath.Join(root, ".git"))
+	case "remote", "stash", "tag":
+		// The repository has no remotes, stashes or tags.
+	default:
+		return 1
+	}
+	return 0
+}
+
+// TestStatusPreservesLargePorcelainOutput checks that the status RPC parses
+// every entry even when its porcelain output exceeds two MiB.
+func TestStatusPreservesLargePorcelainOutput(t *testing.T) {
+	setFakeGitExecutable(t, "large-status")
+	result, err := New(t.TempDir()).Status(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := result.(GitStatus).Untracked
+	if len(entries) != largeStatusFiles {
+		t.Fatalf("status returned %d untracked files, want %d", len(entries), largeStatusFiles)
+	}
+	for i, entry := range entries {
+		if want := largeStatusPath(i); entry.RelPath != want {
+			t.Fatalf("status entry %d = %q, want %q", i, entry.RelPath, want)
+		}
 	}
 }

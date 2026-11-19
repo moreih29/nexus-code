@@ -150,6 +150,8 @@ export const NoteChangedSchema = z.object({
   locationKey: z.string(),
   /** The note that changed, if it was one; missing when a whole location went. */
   noteId: z.string().optional(),
+  /** Workspaces that use the deleted location, for a whole-location removal. */
+  workspaceIds: z.array(WorkspaceIdSchema).optional(),
   /** What happened to it. */
   change: z.enum(["created", "saved", "removed"]),
 });

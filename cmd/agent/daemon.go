@@ -104,6 +104,9 @@ const reattachGrace = 300 * time.Second
 // only exits this much later.
 const lockRetryWindow = 250 * time.Millisecond
 
+// daemonListeningMessage announces that the daemon can accept its first dialer.
+const daemonListeningMessage = "daemon listening"
+
 // shutdownReplyDelay is how long the daemon waits after answering
 // agent.shutdown before it exits, so the reply reaches the dialer.
 const shutdownReplyDelay = 100 * time.Millisecond
@@ -226,6 +229,8 @@ func runDaemon(root string) {
 
 	// Step 6: bind the Unix socket. The run directory (0700) is already
 	// ensured above; explicit socket chmod 0600 guards against any umask.
+	// The socket trusts callers running as this user: they can already read
+	// the user's files, so the daemon requires no separate connection token.
 	ln, err := net.Listen("unix", paths.Sock)
 	if err != nil {
 		agentLogger.Error("daemon listen failed", "path", paths.Sock, "err", err)
@@ -303,24 +308,27 @@ func runDaemon(root string) {
 	// reconnect state must be discarded.
 	epoch := agentrun.NewEpoch()
 
-	// cleanupAndExit tears down all shared resources and terminates.
-	// Called only on genuine daemon shutdown — not on dialer disconnect.
-	// Only the first caller tears down; any other blocks until it exits.
+	// Release the workspace before acknowledging shutdown. A new launcher
+	// may try this socket and lock as soon as the reply reaches the app.
 	var shutdown sync.Once
-	cleanupAndExit := func(code int) {
+	releaseWorkspace := func() {
 		shutdown.Do(func() {
 			pty.Close()  // hang up every terminal, as closing its tab does
 			chat.Close() // and end every Claude tab's program
 			lsp.Close()
+			fsys.DropUploads(nil)
 			if hooksrv != nil {
 				_ = hooksrv.Close()
 			}
 			_ = ln.Close()
 			_ = os.Remove(paths.Sock)
 			lock.Unlock()
-			_ = logFile.Close()
-			os.Exit(code)
 		})
+	}
+	cleanupAndExit := func(code int) {
+		releaseWorkspace()
+		_ = logFile.Close()
+		os.Exit(code)
 	}
 
 	// agent.shutdown comes from the app removing the workspace: no dialer
@@ -328,6 +336,7 @@ func runDaemon(root string) {
 	// terminals and language servers through reattachGrace.
 	d.Register("agent.shutdown", func(_ context.Context, _ json.RawMessage) (any, error) {
 		agentLogger.Info("daemon shutdown requested")
+		releaseWorkspace()
 		time.AfterFunc(shutdownReplyDelay, func() { cleanupAndExit(0) })
 		return struct{}{}, nil
 	})
@@ -385,6 +394,7 @@ func runDaemon(root string) {
 		var preempted atomic.Int32
 
 		host := stdioserver.New(d, conn, conn, agentLogger)
+		host.RegisterShutdownHook(func() { fsys.DropUploads(host.Context()) })
 
 		// Ready goes first: the client takes the first frame it gets for the
 		// handshake, and an event ahead of it reads as an agent without an
@@ -404,21 +414,12 @@ func runDaemon(root string) {
 		}
 
 		// Wire event sinks to this host. On the next dialer, they are re-wired.
-		fsys.SetEventSink(func(event string, payload any) error {
-			emitErr := host.EmitEvent(event, payload)
-			if event == "fs.changed" {
-				if changed, ok := payload.(agentfs.FsChangedPayload); ok {
-					if routeErr := lsp.HandleFSChanged(changed); emitErr == nil {
-						emitErr = routeErr
-					}
-				}
-			}
-			return emitErr
-		})
+		fsys.SetEventSink(fsEventSink(host, lsp))
 		git.SetEventSink(host.EmitEvent)
 		lsp.SetEventSink(host.EmitEvent)
-		pty.SetEventSink(host.EmitEvent)
-		chat.SetEventSink(host.EmitEvent)
+		// Installing this sink also hands renderer credit over after Ready.
+		pty.SetEventSink(host.Context(), host.EmitEvent)
+		chat.SetConnectionSink(host.Context(), host.EmitEvent)
 		search.SetEventSink(host.EmitEvent)
 		if hooksrv != nil {
 			hooksrv.SetEventSink(host.EmitEvent)
@@ -473,15 +474,6 @@ func runDaemon(root string) {
 			}
 			close(hostDone)
 		})
-
-		// PTY output debt the previous dialer never acked belongs to it; the
-		// new renderer will never ack it. Left in place, a session that went
-		// past the high watermark during a silent disconnect stays paused for
-		// good, and pty.replay blocks on the same window. Reset after Ready so
-		// the resumed output does not reach the dialer ahead of that frame,
-		// and before Run so the dialer's first replay already sees open
-		// windows.
-		pty.ResetFlowControl()
 
 		// 송신 4s < 판정 5s — 도착 지터 마진. 근거는 proto.HeartbeatSendMs 주석 참조.
 		host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)
@@ -550,6 +542,7 @@ func runDaemon(root string) {
 	}
 
 	// Main serve loop.
+	agentLogger.Info(daemonListeningMessage)
 	conn := waitForDialer("initial-connect")
 
 	for conn != nil {

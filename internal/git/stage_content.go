@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -141,22 +140,15 @@ func (s *Service) writeBlob(ctx context.Context, topLevel string, relPath string
 	if err != nil {
 		return "", err
 	}
-	var stdout, stderr bytes.Buffer
 	cmd.Stdin = strings.NewReader(content)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", ctxErr
-	}
-	code, fatal := gitExitCode(runErr)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return "", fatal
 	}
 	if code != 0 {
-		return "", gitError(args, stderr.String(), code)
+		return "", gitError(args, stderr, code)
 	}
-	hash := strings.TrimSpace(stdout.String())
+	hash := strings.TrimSpace(stdout)
 	if hash == "" {
 		return "", proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git hash-object returned no object id"}
 	}

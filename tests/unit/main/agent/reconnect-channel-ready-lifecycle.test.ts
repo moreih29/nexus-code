@@ -98,3 +98,82 @@ describe("no-epoch reconnect emits the ready lifecycle event", () => {
     }
   });
 });
+
+describe("agent ready deadline", () => {
+  it("rejects initial ready and terminates a silent process", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeHarness();
+      const ready = channel.ready.catch((error: unknown) => error);
+      jest.advanceTimersByTime(30_000);
+      expect(children[0]?.killed).toBe(true);
+      expect(await ready).toMatchObject({ code: "transport.timeout" });
+      expect(children).toHaveLength(1);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("terminates a silent reconnect attempt and resumes on the next ready", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeHarness();
+      const recovered = Promise.withResolvers<void>();
+      channel.onLifecycle((event) => {
+        if (event.type === "ready") recovered.resolve();
+      });
+      children[0]?.stdout.emitData('{"type":"ready"}\n');
+      await channel.ready;
+      children[0]?.emit("close", 137, "SIGKILL");
+      jest.advanceTimersByTime(1);
+
+      const silent = children[1];
+      expect(silent).toBeDefined();
+      jest.advanceTimersByTime(30_000);
+      expect(silent?.killed).toBe(true);
+      silent?.emit("close", 137, "SIGKILL");
+      jest.advanceTimersByTime(1);
+      expect(children).toHaveLength(3);
+      children[2]?.stdout.emitData('{"type":"ready"}\n');
+      await recovered.promise;
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+it("rejects an oversized unterminated frame and reconnects after the ready child exits", async () => {
+  jest.useFakeTimers();
+  try {
+    const { channel, children } = makeHarness();
+    const events: ChannelLifecycleEvent[] = [];
+    channel.onLifecycle((event) => events.push(event));
+    const child = children[0]!;
+    child.stdout.emitData('{"type":"ready"}\n');
+    await channel.ready;
+    const outcome = channel.call("fs.readFile").catch((error: unknown) => error);
+
+    const mib = Buffer.alloc(1024 * 1024, 0xe0);
+    for (let i = 0; i < 64; i += 1) child.stdout.emit("data", mib);
+    expect(child.killed).toBe(false);
+    child.stdout.emit("data", Buffer.from("x"));
+    expect(child.killed).toBe(true);
+    expect(await outcome).toMatchObject({
+      code: "server.protocol-error",
+      cause: { message: expect.stringContaining("67108864") },
+    });
+
+    child.emit("close", 0, null);
+    expect(events.map(({ type }) => type)).toEqual(["reconnecting"]);
+    jest.advanceTimersByTime(1);
+    expect(children).toHaveLength(2);
+    children[1]?.stdout.emitData('{"type":"ready"}\n');
+    await flushMicrotasks();
+    expect(events.map(({ type }) => type)).toEqual(["reconnecting", "ready"]);
+    channel.dispose();
+  } finally {
+    jest.useRealTimers();
+  }
+});

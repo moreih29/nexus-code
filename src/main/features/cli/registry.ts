@@ -5,6 +5,7 @@
  */
 import type { CliFile, CliResult } from "../../../shared/cli/protocol";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { CliUsageError, type FlagSpec, GLOBAL_FLAGS, type ParsedArgs, parseArgs } from "./args";
 import { type CliContext, CliError } from "./context";
 
@@ -56,7 +57,8 @@ function usageLine(command: CliCommand): string {
 function flagLines(flags: Record<string, FlagSpec>): string[] {
   const rows = Object.entries(flags).map(([name, spec]) => {
     const value = spec.type === "boolean" ? "" : ` ${spec.value ?? spec.type.toUpperCase()}`;
-    return [`--${name}${value}`, spec.description] as const;
+    const short = spec.short ? `-${spec.short}, ` : "";
+    return [`${short}--${name}${value}`, spec.description] as const;
   });
   const width = Math.max(0, ...rows.map(([left]) => left.length));
   return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`);
@@ -177,7 +179,9 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
         error.exitCode,
       );
     }
-    log.warn(`nexus ${command.path.join(" ")} failed: ${(error as Error).message}`);
+    log.warn(
+      `nexus ${command.path.join(" ")} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+    );
     return result("", `nexus: ${(error as Error).message}\n`, 1);
   }
 }

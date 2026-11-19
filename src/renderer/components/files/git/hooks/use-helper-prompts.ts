@@ -129,7 +129,7 @@ function subscribeGitHelperPromptSnapshot(listener: () => void): () => void {
 }
 
 /**
- * Installs the single renderer listener pair for Git helper prompts.
+ * Installs the global renderer listeners for Git helper prompts.
  */
 export function installGitHelperPromptListeners(listen: typeof ipcListen = ipcListen): () => void {
   const unlistenAskpass = listen("askpass", "prompt", (prompt) => {
@@ -141,10 +141,14 @@ export function installGitHelperPromptListeners(listen: typeof ipcListen = ipcLi
   const unlistenEditor = listen("editor", "prompt", (prompt) => {
     enqueuePrompt({ kind: "editor", prompt });
   });
+  const unlistenEditorClosed = listen("editor", "closed", ({ promptId }) => {
+    clearEditorPrompt(promptId);
+  });
   return () => {
     unlistenAskpass();
     unlistenAskpassClosed();
     unlistenEditor();
+    unlistenEditorClosed();
   };
 }
 

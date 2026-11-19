@@ -10,6 +10,7 @@
 import os from "node:os";
 import { z } from "zod";
 import { type ServerInfo, ServerInfoSchema } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import {
   type RemoteAccountState,
   type RemoteDeviceInfo,
@@ -18,11 +19,14 @@ import {
   type SignInFailure,
   type SignInProvider,
 } from "../../../shared/remote/account";
+import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
+
+const log = createLogger("remote-account");
 
 export { SignedOutError } from "./errors";
 
@@ -182,7 +186,7 @@ export class RemoteAccount {
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
-      console.warn("[remote] sign-in failed:", error instanceof Error ? error.message : error);
+      log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       listener.close();
       this.signingIn = null;
@@ -245,17 +249,20 @@ export class RemoteAccount {
   /**
    * Asks the server as this device: the JSON it answered, or a ServerError;
    * a 401 signs the app out and throws SignedOutError. `headers` adds to the
-   * request's own (the account password's proof, say).
+   * request's own (the account password's proof, say). An aborted request
+   * cannot update the route or sign the account out.
    */
   request(
     method: string,
     path: string,
     body?: unknown,
     headers?: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     return this.call(method, path, {
       ...(body !== undefined ? { body } : {}),
       ...(headers ? { headers } : {}),
+      signal,
     });
   }
 
@@ -284,8 +291,11 @@ export class RemoteAccount {
       headers?: Record<string, string>;
       signedIn?: boolean;
       timeoutMs?: number;
+      signal?: AbortSignal;
     } = {},
   ): Promise<unknown> {
+    const { signal } = options;
+    signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
@@ -298,18 +308,21 @@ export class RemoteAccount {
       : options.body !== undefined
         ? JSON.stringify(options.body)
         : undefined;
-    const send = (base: string) =>
-      this.fetch(this.route.url(path, { base }), {
+    const send = (base: string) => {
+      const timeout = AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+      return this.fetch(this.route.url(path, { base }), {
         method,
         headers,
-        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
+    };
     const base = this.route.base();
     let res: Response;
     try {
       res = await send(base);
     } catch (error) {
+      signal?.throwIfAborted();
       // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
       // is slow. The proxy not reached, the server is asked straight, now and for a while; a
       // request that timed out may have gone through, and is not sent again.
@@ -317,14 +330,24 @@ export class RemoteAccount {
       try {
         res = await send(this.route.base());
       } catch (again) {
+        signal?.throwIfAborted();
         throw new UnreachableError(again);
       }
     }
+    // A stale relay ticket can no longer change the account or its route.
+    signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
+      void res.body?.cancel().catch(() => {});
       this.forget();
       throw new SignedOutError();
     }
-    const text = await res.text();
+    const text = await readResponseText(res).catch((error: unknown) => {
+      if (error instanceof ResponseTooLargeError) {
+        throw new ServerError(res.status, error.code, `${method} ${path}`);
+      }
+      throw error;
+    });
+    signal?.throwIfAborted();
     const answer = parseJson(text);
     if (!res.ok) {
       const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;

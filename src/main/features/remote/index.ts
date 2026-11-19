@@ -12,6 +12,7 @@ import { MAX_TRANSCRIBE_BYTES } from "../../../../packages/remote-protocol/src/v
 import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
@@ -26,6 +27,7 @@ import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
 import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { FileWrites } from "./file-writes";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
 import { installIdAt } from "./install-id";
@@ -44,6 +46,8 @@ import { TerminalWatches } from "./terminal-watches";
 import { askTicket } from "./ticket";
 import { VoiceSessions } from "./voice";
 import { listedComputers, VoiceNames } from "./voice-names";
+
+const log = createLogger("remote-index");
 
 const c = ipcContract.remote.call;
 
@@ -186,6 +190,8 @@ export async function registerRemoteChannel(options: {
   keys: AccountKeys;
   /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
+  /** Drops the removed workspace's cached Git facts. */
+  forgetWorkspace(workspaceId: string): void;
   /** The user's other computers, for the nexus command's --device. */
   cli: CliRemote;
   /** Reads a file of another computer's workspace, for the previews of quick look over its chats. */
@@ -200,6 +206,7 @@ export async function registerRemoteChannel(options: {
   );
   // In the account's room while signed in with the account key; out of it otherwise.
   let room: RemoteRoom | null = null;
+  let disposed = false;
   let roomFor = "";
   let roomState: RoomState = { status: "off", peers: [] };
   /** The room, to ask another device through; Unavailable while out of it. */
@@ -265,7 +272,7 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
-  const server = remoteServer(process.env, app.isPackaged, (m) => console.warn(`[remote] ${m}`));
+  const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
     proxy: remoteProxy(process.env, app.isPackaged, server),
@@ -315,22 +322,23 @@ export async function registerRemoteChannel(options: {
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
-  const relayUrl = async () => {
-    const ticket = await askTicket(account);
+  /** Gets a ticket for the current attempt and builds its WebSocket URL. */
+  const relayUrl = async (signal: AbortSignal) => {
+    const ticket = await askTicket(account, undefined, signal);
+    signal.throwIfAborted();
     const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
-    relayVia = url.origin;
     return url.toString();
   };
-  /** Where the relay's socket went, and the socket: one that went straight goes back through the proxy. */
-  let relayVia: string | null = null;
   let relay: RelayConnection | null = null;
-  returnToProxy({
+  const proxyProbe = returnToProxy({
     route: account.route,
-    via: () => (roomState.status === "online" ? relayVia : null),
+    via: () => relay?.onlineRoute() ?? null,
     reconnect: () => relay?.reconnect(),
   });
+  /** Keeps the relay in the room for the signed-in account and current key. */
   function syncRoom(): void {
+    if (disposed) return;
     const signedIn = account.state();
     const key = keys?.key() ?? null;
     const want = signedIn.status === "signed-in" && key ? { signedIn, key } : null;
@@ -340,11 +348,13 @@ export async function registerRemoteChannel(options: {
     if (room && id !== roomFor) {
       room.stop();
       room = null;
+      relay = null;
       setRoomState({ status: "off", peers: [] });
     }
     if (room || !want) return;
     const { device } = want.signedIn;
     roomFor = id;
+    const fileWrites = new FileWrites();
     room = new RemoteRoom({
       self: { id: device.id, name: device.name, platform: device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
@@ -387,10 +397,12 @@ export async function registerRemoteChannel(options: {
           : {}),
         ...(options.notes ? { notes: options.notes } : {}),
         agents: agentGate,
+        fileWrites,
         deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
         controls,
       }),
       onChange: setRoomState,
+      onDisconnect: (peer) => void fileWrites.drop(peer),
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {
@@ -916,6 +928,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {
       try {
         return await peerFiles.openBytes(peer, absPath, offset, length, signal);
@@ -963,10 +976,14 @@ export async function registerRemoteChannel(options: {
           };
         });
       },
-      request: (deviceId, method, params, timeoutMs) =>
-        inRoom().request(deviceId, method, params, timeoutMs),
+      request: (deviceId, method, params, timeoutMs, signal) =>
+        inRoom().request(deviceId, method, params, timeoutMs, signal),
     },
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      proxyProbe.stop();
+      pairing.stop();
       account.cancelSignIn();
       voice.cancel();
       noteVoice.cancel();

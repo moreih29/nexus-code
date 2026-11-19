@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
@@ -36,6 +37,9 @@ func main() {
 	// What the agent was started with stays with it: on Linux it brings
 	// along Chromium's descriptors, which would reach every terminal.
 	inheritfd.CloseOnExec()
+	if code, handled := hookclient.PrintChildHelper(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 
 	// hook 서브커맨드 분기 — PTY/FS/Git/LSP 서비스 init 전에 처리해 빠른 시작을 보장한다.
 	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
@@ -161,39 +165,30 @@ func main() {
 	})
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout, agentLogger)
-	fsys.SetEventSink(func(event string, payload any) error {
-		err := host.EmitEvent(event, payload)
-		if event == "fs.changed" {
-			if changed, ok := payload.(agentfs.FsChangedPayload); ok {
-				if routeErr := lsp.HandleFSChanged(changed); err == nil {
-					err = routeErr
-				}
-			}
-		}
-		return err
-	})
+	fsys.SetEventSink(fsEventSink(host, lsp))
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
-	pty.SetEventSink(host.EmitEvent)
-	chat.SetEventSink(host.EmitEvent)
+	pty.SetEventSink(host.Context(), host.EmitEvent)
+	chat.SetConnectionSink(host.Context(), host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	if hooksrv != nil {
 		// hookserver의 EventSink를 host가 생성된 뒤 연결한다.
 		// 다른 서비스(fs/git/pty)의 SetEventSink와 같은 패턴.
 		hooksrv.SetEventSink(host.EmitEvent)
 	}
-	defer fsys.Close()
-	defer git.Close()
-	defer lsp.Close()
-	// PTY cleanup runs as a shutdown hook, not a defer: every termination path
-	// (EOF, SIGTERM, idle watchdog) ends in drainAndExit → os.Exit, which skips
-	// defers. Pdeathsig (Linux only) and the master-fd-close SIGHUP are not
-	// enough on their own — a non-Linux remote has no Pdeathsig, and a shell
-	// that ignores SIGHUP would orphan. The hook hangs up each shell and kills
-	// what is left of its session if it does not end (pty.Service.Close).
-	host.RegisterShutdownHook(pty.Close)
-	// The Claude tabs' programs end with the agent the same way.
-	host.RegisterShutdownHook(chat.Close)
+	// Every stdio exit path ends at os.Exit. Start independent cleanup in
+	// parallel so a slow watcher or shell cannot keep other children alive.
+	host.RegisterShutdownHook(func() {
+		var cleanup sync.WaitGroup
+		for _, closeService := range []func(){pty.Close, chat.Close, lsp.Close, fsys.Close, git.Close} {
+			cleanup.Add(1)
+			go func() {
+				defer cleanup.Done()
+				closeService()
+			}()
+		}
+		cleanup.Wait()
+	})
 	if hooksrv != nil {
 		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
 		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
@@ -271,6 +266,9 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 		if err := hs.WaitReady(waitCtx); err != nil {
 			return nil, proto.NewError(proto.CodeUnavailable, "hookserver not ready: "+err.Error())
 		}
+		// The daemon's 0600 socket trusts this user, whose processes can
+		// already read the user's files. The master hook token can be returned
+		// over that connection without a separate connection token.
 		return map[string]any{
 			"socketPath": hs.SocketPath(),
 			"token":      hs.Token(),

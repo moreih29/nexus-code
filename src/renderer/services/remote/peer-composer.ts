@@ -34,15 +34,10 @@ import {
   RESTART_AFTER,
   terminalCommandOf,
 } from "../chat/app-commands";
-import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex-commands";
+import { CODEX_REMOTE_COMMANDS, parseCodexCommand } from "../chat/codex/commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
-import {
-  type ChatTabState,
-  type CommandCard,
-  emptyTabState,
-  type QueuedMessage,
-  type RevealPart,
-} from "../chat/store";
+import { type ChatTabState, type CommandCard, emptyTabState, type RevealPart } from "../chat/store";
+import type { QueuedMessage } from "../chat/transport/queue";
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
@@ -235,22 +230,15 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     await answerOf(send(text, images, uploads, when));
   };
   const timingOf = (how: "send" | "now" | "queue") =>
-    how === "queue"
-      ? "after"
-      : how === "now" && agent === "claude" && can()?.now
-        ? "now"
-        : undefined;
+    how === "queue" ? "after" : how === "now" && can()?.now ? "now" : undefined;
   const tell = (error: Error) => deps.onError?.(error.message);
   return {
     key: `remote:${ref.deviceId}:${ref.workspaceId}:${ref.tabId}`,
     modes: CHAT_MODES[agent],
     send: (text, images) => sendChecked(text, images),
-    // A Claude chat's ↩ waits for the tool it runs, ⌘↩ does not (as its
-    // device lets it); a Codex chat's ↩ goes into the turn already.
+    sendNow: (text, images) => sendChecked(text, images, [], timingOf("now")),
     ...(agent === "claude"
       ? {
-          sendNow: (text: string, images?: ImageBlock[]) =>
-            sendChecked(text, images, [], can()?.now ? "now" : undefined),
           readHeldNow: async () => {
             if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
           },

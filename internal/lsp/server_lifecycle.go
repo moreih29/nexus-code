@@ -26,12 +26,22 @@ func (p *serverProcess) doShutdown(ctx context.Context) error {
 	_, requestErr := p.request(requestCtx, "shutdown", nil)
 	cancel()
 
-	_ = p.notify("exit", nil)
-	if p.waitForExit(shutdownExitGrace) {
-		return requestErr
+	// A server may ignore shutdown yet still honor exit. Give the exit frame
+	// and process a shared grace period, including any wait for its writer.
+	if ctx.Err() == nil {
+		exitCtx, cancelExit := context.WithTimeout(ctx, shutdownExitGrace)
+		if err := p.notify(exitCtx, "exit", nil); err == nil {
+			select {
+			case <-p.done:
+				cancelExit()
+				return requestErr
+			case <-exitCtx.Done():
+			}
+		}
+		cancelExit()
 	}
 
-	p.kill()
+	p.abortInput()
 	if p.waitForExit(shutdownExitGrace) {
 		return requestErr
 	}
@@ -41,8 +51,18 @@ func (p *serverProcess) doShutdown(ctx context.Context) error {
 func (p *serverProcess) forceClose() {
 	p.stopIdleTimer()
 	p.markShuttingDown()
-	p.kill()
+	p.abortInput()
 	p.waitForExit(shutdownExitGrace)
+}
+
+// abortInput rejects future writes immediately and unblocks the current one.
+// Kill the reader before closing the pipe, which can wait for OS I/O.
+func (p *serverProcess) abortInput() {
+	p.abortOnce.Do(func() {
+		close(p.inputDone)
+		p.kill()
+		go func() { _ = p.stdin.Close() }()
+	})
 }
 
 // markShuttingDown has serverExited say the agent stopped the server.
@@ -58,7 +78,7 @@ func (p *serverProcess) resetIdleTimer() {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.exited {
+	if p.exited || p.shuttingDown {
 		return
 	}
 	if p.idleTimer == nil {

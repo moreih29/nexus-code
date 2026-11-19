@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -13,6 +14,11 @@ import {
   remoteAgentBinaryPath,
   type SshBootstrapRunner,
 } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
+import { writeRemoteManifest } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/manifest";
+import {
+  REMOTE_AGENT_MANIFEST,
+  REMOTE_AGENT_ROOT,
+} from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/types";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { POSIX_CLI_LAUNCHER } from "../../../../src/shared/cli/launcher";
 import { CODEX_WRAPPER } from "../../../../src/shared/codex/wrapper";
@@ -56,6 +62,103 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+describe.skipIf(process.platform === "win32")(
+  "remote manifest publication through POSIX sh",
+  () => {
+    const options = { host: "example.test", remotePath: "/project" };
+    const manifest = {
+      artifacts: {
+        agent: {
+          kind: "agent",
+          name: "에이전트",
+          version: "0.1.0",
+          os: "linux",
+          arch: "amd64",
+          path: "/opt/nexus/agent",
+          sha256: "0".repeat(64),
+          size: 0,
+          installedAt: "2026-05-12T00:00:00.000Z",
+        },
+      },
+    } as const;
+
+    /** Executes the generated command in an isolated home, with a failing utility when requested. */
+    function remoteFs(fail?: "cat" | "mv" | "early EOF") {
+      if (
+        REMOTE_AGENT_ROOT !== "~/.nexus-code" ||
+        REMOTE_AGENT_MANIFEST !== "~/.nexus-code/manifest.json"
+      ) {
+        throw new Error("The manifest test requires the sandboxed home-relative paths");
+      }
+      const home = path.join(tmpDir, "remote-home");
+      const dir = path.join(home, ".nexus-code");
+      const file = path.join(dir, "manifest.json");
+      const bin = path.join(tmpDir, "remote-tools");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(bin);
+      if (fail === "cat" || fail === "mv") {
+        fs.writeFileSync(
+          path.join(bin, fail),
+          fail === "cat" ? "#!/bin/sh\nprintf '{partial'\nexit 1\n" : "#!/bin/sh\nexit 1\n",
+          { mode: 0o755 },
+        );
+      }
+
+      const runner: SshBootstrapRunner = async (_command, args, input) => {
+        const run = spawnSync("/bin/sh", ["-c", `umask 022; ${args.at(-1)}`], {
+          cwd: home,
+          env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+          encoding: "utf8",
+          input: fail === "early EOF" ? String(input).slice(0, 4) : input,
+        });
+        if (run.error) throw run.error;
+        if (run.status !== 0) throw new Error(`remote manifest write failed: ${run.stderr}`);
+        return { stdout: run.stdout };
+      };
+      return { dir, file, runner };
+    }
+
+    it("gives a fresh manifest only owner permissions under a permissive umask", async () => {
+      const { dir, file, runner } = remoteFs();
+
+      await writeRemoteManifest(options, runner, manifest);
+
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(manifest);
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      expect(fs.readdirSync(dir)).toEqual(["manifest.json"]);
+    });
+
+    it("retains the existing manifest mode when publishing new contents", async () => {
+      const { dir, file, runner } = remoteFs();
+      fs.writeFileSync(file, "old", { mode: 0o640 });
+      fs.chmodSync(file, 0o640);
+
+      await writeRemoteManifest(options, runner, manifest);
+
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(manifest);
+      expect(fs.statSync(file).mode & 0o777).toBe(0o640);
+      expect(fs.readdirSync(dir)).toEqual(["manifest.json"]);
+    });
+
+    it.each([
+      "cat",
+      "mv",
+      "early EOF",
+    ] as const)("keeps the original manifest and removes temporary files after %s", async (fail) => {
+      const { dir, file, runner } = remoteFs(fail);
+      const original = '{ "artifacts": {} }\n';
+      fs.writeFileSync(file, original, { mode: 0o600 });
+
+      await expect(writeRemoteManifest(options, runner, manifest)).rejects.toThrow(
+        "remote manifest write failed",
+      );
+
+      expect(fs.readFileSync(file, "utf8")).toBe(original);
+      expect(fs.readdirSync(dir)).toEqual(["manifest.json"]);
+    });
+  },
+);
 
 function artifactMetadata(payload: Buffer): { sha256: string; size: number } {
   return {
@@ -219,6 +322,7 @@ describe("ssh-bootstrap", () => {
         "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/nexus && chmod 755 /home/deploy/.nexus-code/bin/nexus",
       ]),
       POSIX_CLI_LAUNCHER,
+      expect.any(AbortSignal),
     );
     expect(runner).toHaveBeenCalledWith(
       "ssh",
@@ -226,6 +330,7 @@ describe("ssh-bootstrap", () => {
         "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/codex && chmod 755 /home/deploy/.nexus-code/bin/codex",
       ]),
       CODEX_WRAPPER,
+      expect.any(AbortSignal),
     );
     expect(result.remoteShell).toBeUndefined();
   });
@@ -254,7 +359,7 @@ describe("ssh-bootstrap", () => {
         verifyCount += 1;
         return { stdout: verifyCount === 1 ? `${"0".repeat(64)}\n` : `${sha256}\n` };
       }
-      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+      if (command === "ssh" && remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
         expect(typeof input).toBe("string");
         return { stdout: "" };
       }
@@ -318,7 +423,7 @@ describe("ssh-bootstrap", () => {
       if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
         return { stdout: `${sha256}\n` };
       }
-      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+      if (command === "ssh" && remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
         expect(typeof input).toBe("string");
         return { stdout: "" };
       }
@@ -353,7 +458,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: remoteManifest };
       }
       if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
-        if (remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        if (remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
           remoteManifest = String(input);
         }
         if (remoteCommand.includes("bin/pyright-langserver")) {
@@ -429,7 +534,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: remoteManifest };
       }
       if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
-        if (remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        if (remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
           remoteManifest = String(input);
         }
         return { stdout: "" };
@@ -557,6 +662,58 @@ describe("ssh-bootstrap", () => {
     expect(unlinkCalls).toEqual([result.controlPath]);
   });
 
+  it("starts the SSH bootstrap deadline after interactive auth and disposes the master on expiry", async () => {
+    jest.useFakeTimers();
+    try {
+      const { distDir } = writeDist();
+      const pty = new FakePty();
+      const prompt = Promise.withResolvers<{ kind: "password"; promptId: string; value: string }>();
+      const runnerStarted = Promise.withResolvers<void>();
+      const unlink = mock((_path: string) => {});
+      const runner = mock(() => {
+        runnerStarted.resolve();
+        return new Promise<{ stdout: string }>(() => {});
+      });
+      let failure: unknown;
+      const boot = ensureRemoteAgent(
+        { host: "example.test", remotePath: "/project", authMode: "interactive" },
+        {
+          distDir,
+          runner,
+          promptHandler: () => prompt.promise,
+          auth: {
+            spawnPty: () => pty as never,
+            spawn: () => {
+              const child = Object.assign(new EventEmitter(), { stdin: { end() {} } });
+              queueMicrotask(() => child.emit("close", 0));
+              return child as never;
+            },
+            unlink,
+          },
+        },
+      ).catch((error: unknown) => {
+        failure = error;
+      });
+      pty.emitData("alice@example.test's password:");
+      jest.advanceTimersByTime(120_000);
+      expect(runner).not.toHaveBeenCalled();
+      expect(failure).toBeUndefined();
+      prompt.resolve({ kind: "password", promptId: "prompt", value: "secret" });
+      await flushMicrotasks();
+      expect(pty.writes).toEqual(["secret\r"]);
+      pty.emitExit(0);
+      await runnerStarted.promise;
+
+      jest.advanceTimersByTime(120_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(failure).toMatchObject({ code: "transport.timeout" });
+      expect(unlink).toHaveBeenCalledTimes(1);
+      await boot;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   // ── Acceptance tests for Task 4: wrapper SFTP upload + remoteBinDir ──
 
   it("acceptance-1: uploads wrapper exactly once when manifest.wrapper is set", async () => {
@@ -580,7 +737,7 @@ describe("ssh-bootstrap", () => {
         const isWrapper = remoteCommand.includes("bin/claude");
         return { stdout: `${isWrapper ? wrapperSha256 : sha256}\n` };
       }
-      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+      if (command === "ssh" && remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
@@ -622,7 +779,7 @@ describe("ssh-bootstrap", () => {
       if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
         return { stdout: `${sha256}\n` };
       }
-      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+      if (command === "ssh" && remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
@@ -662,7 +819,7 @@ describe("ssh-bootstrap", () => {
         const isWrapper = remoteCommand.includes("bin/claude");
         return { stdout: `${isWrapper ? wrapperSha256 : sha256}\n` };
       }
-      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+      if (command === "ssh" && remoteCommand.includes(" sh ~/.nexus-code/manifest.json ")) {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };

@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { isDrivePath, toSlashPath } from "../../../shared/fs/drive-path";
+import { createLogger } from "../../../shared/log/renderer";
 import type {
+  WorkspaceConnectionChangedEvent,
   WorkspaceConnectionEventStatus,
   WorkspaceConnectionProgressEvent,
   WorkspaceMeta,
@@ -8,6 +10,8 @@ import type {
 import { compareWorkspaceOrder, workspaceSortKey } from "../../../shared/workspace-order";
 import { canUseIpcBridge, ipcCallResult, ipcListen, mustSucceed } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
+
+const log = createLogger("workspaces");
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -36,7 +40,7 @@ export interface WorkspacesState {
   connectionStatusByWorkspaceId: Record<string, WorkspaceConnectionStatus>;
   /** Last bootstrap progress event per workspace ID. Cleared to undefined on connection complete/error. */
   connectionProgressByWorkspaceId: Record<string, WorkspaceConnectionProgressEvent | undefined>;
-  setAll: (workspaces: WorkspaceMeta[]) => void;
+  setAll: (workspaces: WorkspaceMeta[], snapshot?: WorkspaceConnectionChangedEvent[]) => void;
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
@@ -270,39 +274,7 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
     // `changed` and `reordered` need inline ipcListen here.
     if (deps.canUseIpcBridge()) {
       deps.listen("workspace", "changed", (incoming) => {
-        const meta = withSlashRoot(incoming);
-        set((state) => {
-          const existing = state.workspaces.find((w) => w.id === meta.id);
-
-          if (!existing) {
-            // New workspace — append at tail; setAll will reorder on next full load.
-            return { workspaces: [...state.workspaces, meta] };
-          }
-
-          // Hot-path guard: if only non-sort fields changed (e.g. lastOpenedAt),
-          // update in place without triggering a re-sort.
-          const sortFieldsChanged =
-            meta.sortOrder !== existing.sortOrder ||
-            meta.pinnedSortOrder !== existing.pinnedSortOrder ||
-            meta.pinned !== existing.pinned;
-
-          if (!sortFieldsChanged) {
-            const next = state.workspaces.map((w) => (w.id === meta.id ? meta : w));
-            return { workspaces: next };
-          }
-
-          // Sort position changed — re-insert at the correct position.
-          const { workspaces: sorted, consistent } = applySortedInsert(state.workspaces, meta);
-
-          if (!consistent) {
-            // Store is stale; trigger an async full re-fetch outside the setter.
-            void fetchList().then((list) => {
-              get().setAll(list);
-            });
-          }
-
-          return { workspaces: sorted };
-        });
+        get().upsert(incoming);
       });
 
       deps.listen("workspace", "connectionChanged", ({ workspaceId, status }) => {
@@ -339,70 +311,65 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       });
     }
 
-    registerWorkspaceCleanup((id) => {
-      set((state) => ({
-        workspaces: state.workspaces.filter((w) => w.id !== id),
-        connectionStatusByWorkspaceId: Object.fromEntries(
-          Object.entries(state.connectionStatusByWorkspaceId).filter(
-            ([workspaceId]) => workspaceId !== id,
-          ),
-        ),
-        connectionProgressByWorkspaceId: Object.fromEntries(
-          Object.entries(state.connectionProgressByWorkspaceId).filter(
-            ([workspaceId]) => workspaceId !== id,
-          ),
-        ),
-      }));
-    });
+    registerWorkspaceCleanup((id) => get().remove(id));
 
     return {
       workspaces: [],
       connectionStatusByWorkspaceId: {},
       connectionProgressByWorkspaceId: {},
 
-      setAll(incoming) {
+      setAll(incoming, snapshot = []) {
         const workspaces = incoming.map(withSlashRoot);
-        set((state) => ({
-          workspaces,
-          connectionStatusByWorkspaceId: pruneConnectionStatuses(
-            state.connectionStatusByWorkspaceId,
+        set((state) => {
+          const statuses = Object.fromEntries(
+            snapshot.map(({ workspaceId, status }) => [
+              workspaceId,
+              statusFromConnectionEvent(status),
+            ]),
+          );
+          return {
             workspaces,
-          ),
-        }));
+            // Live events can arrive while bootstrap waits for its snapshot.
+            connectionStatusByWorkspaceId: pruneConnectionStatuses(
+              { ...statuses, ...state.connectionStatusByWorkspaceId },
+              workspaces,
+            ),
+          };
+        });
       },
 
       upsert(incoming) {
         const meta = withSlashRoot(incoming);
-        set((state) => {
-          const existing = state.workspaces.find((w) => w.id === meta.id);
+        const { workspaces } = get();
+        const existing = workspaces.find((w) => w.id === meta.id);
 
-          if (!existing) {
-            // New workspace — append at tail; sort will be applied on next setAll.
-            return { workspaces: [...state.workspaces, meta] };
-          }
+        if (!existing) {
+          // New workspace — append at tail; sort will be applied on next setAll.
+          set({ workspaces: [...workspaces, meta] });
+          return;
+        }
 
-          // Hot-path guard: if sort fields are unchanged, update in place.
-          const sortFieldsChanged =
-            meta.sortOrder !== existing.sortOrder ||
-            meta.pinnedSortOrder !== existing.pinnedSortOrder ||
-            meta.pinned !== existing.pinned;
+        if (
+          meta.sortOrder === existing.sortOrder &&
+          meta.pinnedSortOrder === existing.pinnedSortOrder &&
+          meta.pinned === existing.pinned
+        ) {
+          set({ workspaces: workspaces.map((w) => (w.id === meta.id ? meta : w)) });
+          return;
+        }
 
-          if (!sortFieldsChanged) {
-            const next = state.workspaces.map((w) => (w.id === meta.id ? meta : w));
-            return { workspaces: next };
-          }
-
-          // Sort position changed — re-insert at the correct position.
-          const { workspaces: sorted, consistent } = applySortedInsert(state.workspaces, meta);
-
-          if (!consistent) {
-            void fetchList().then((list) => {
-              get().setAll(list);
-            });
-          }
-
-          return { workspaces: sorted };
-        });
+        const { workspaces: sorted, consistent } = applySortedInsert(workspaces, meta);
+        set({ workspaces: sorted });
+        if (!consistent) {
+          void fetchList()
+            .then((list) => {
+              // A full-list response can predate a newer workspace event.
+              if (get().workspaces === sorted) get().setAll(list);
+            })
+            .catch((error: unknown) =>
+              log.warn(`workspace order refresh failed: ${String(error)}`),
+            );
+        }
       },
 
       remove(id) {
@@ -410,6 +377,11 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
           workspaces: state.workspaces.filter((w) => w.id !== id),
           connectionStatusByWorkspaceId: Object.fromEntries(
             Object.entries(state.connectionStatusByWorkspaceId).filter(
+              ([workspaceId]) => workspaceId !== id,
+            ),
+          ),
+          connectionProgressByWorkspaceId: Object.fromEntries(
+            Object.entries(state.connectionProgressByWorkspaceId).filter(
               ([workspaceId]) => workspaceId !== id,
             ),
           ),

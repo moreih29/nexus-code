@@ -9,6 +9,8 @@
 
 /** How many finished turns a tab remembers; late frames come within seconds. */
 const PAST_TURNS_KEPT = 16;
+/** Keeps the late-hook guard bounded even when every session used a different tab. */
+const ENDED_TABS_KEPT = 512;
 
 interface TabTurns {
   /** The prompt id of the turn under way, if any frame has told it yet. */
@@ -19,6 +21,7 @@ interface TabTurns {
 
 export class TurnOrder {
   private readonly tabs = new Map<string, TabTurns>();
+  private readonly ended = new Set<string>();
 
   /**
    * Records a frame and says whether it belongs to a turn that is already
@@ -35,6 +38,7 @@ export class TurnOrder {
     const key = `${workspaceId}:${tabId}`;
     let tab = this.tabs.get(key);
     if (tab?.past.includes(promptId)) return true;
+    this.ended.delete(key);
     if (!tab) {
       tab = { past: [] };
       this.tabs.set(key, tab);
@@ -51,10 +55,26 @@ export class TurnOrder {
     return false;
   }
 
+  /** An identified stream result must belong to the current prompt. */
+  acceptsResult(workspaceId: string, tabId: string, promptId: string | undefined): boolean {
+    if (!promptId) return true;
+    const tab = this.tabs.get(`${workspaceId}:${tabId}`);
+    return !tab?.past.includes(promptId) && (!tab?.current || tab.current === promptId);
+  }
+
   /** The session ended: frames of its last turn that still come are stale. */
   end(workspaceId: string, tabId: string): void {
-    const tab = this.tabs.get(`${workspaceId}:${tabId}`);
-    if (tab) this.retire(tab);
+    const key = `${workspaceId}:${tabId}`;
+    const tab = this.tabs.get(key);
+    if (!tab || this.ended.has(key)) return;
+    this.retire(tab);
+    this.ended.add(key);
+    if (this.ended.size <= ENDED_TABS_KEPT) return;
+    const oldest = this.ended.values().next().value;
+    if (oldest !== undefined) {
+      this.ended.delete(oldest);
+      this.tabs.delete(oldest);
+    }
   }
 
   private retire(tab: TabTurns): void {

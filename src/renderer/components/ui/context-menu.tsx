@@ -5,7 +5,7 @@
  * consistent and avoids re-typing the long Tailwind className for each item.
  *
  * BROWSER-OVERLAY SUSPEND
- * Handled centrally by `state/operations/browser-suspend-auto.ts` — see
+ * Handled centrally by `services/browser/suspend-auto.ts` — see
  * that module for the rationale.
  */
 import { Check, ChevronRight } from "lucide-react";

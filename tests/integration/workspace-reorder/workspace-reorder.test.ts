@@ -359,7 +359,7 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     const insertRow = (id: string, sortOrder: number): void => {
       db.prepare(
         `INSERT INTO workspaces
-           (id, name, root_path, location, color_tone, pinned, last_opened_at,
+           (id, name, root_path, location, color, pinned, last_opened_at,
             sort_order, pinned_sort_order)
          VALUES (?, 'ws', '/r', '{"kind":"local","rootPath":"/r"}', 'default', 0, 1000, ?, 0)`,
       ).run(id, sortOrder);
@@ -379,7 +379,7 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
           name: "ws",
           rootPath: "/r",
           location: { kind: "local", rootPath: "/r" },
-          colorTone: "default",
+          color: "auto",
           pinned: false,
           lastOpenedAt: new Date().toISOString(),
           tabs: [],
@@ -512,7 +512,7 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       name: "ws-A",
       rootPath: "/a",
       location: { kind: "local", rootPath: "/a" },
-      colorTone: "default",
+      color: "auto",
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],
@@ -524,7 +524,7 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       name: "ws-B",
       rootPath: "/b",
       location: { kind: "local", rootPath: "/b" },
-      colorTone: "default",
+      color: "auto",
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],
@@ -567,7 +567,7 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       name: "ws-1",
       rootPath: "/a",
       location: { kind: "local", rootPath: "/a" },
-      colorTone: "default",
+      color: "auto",
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],
@@ -579,7 +579,7 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       name: "ws-2",
       rootPath: "/b",
       location: { kind: "local", rootPath: "/b" },
-      colorTone: "default",
+      color: "auto",
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],

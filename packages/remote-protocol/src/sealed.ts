@@ -49,7 +49,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.13.4";
+export const SCHEMA_VERSION = "0.14.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -83,6 +83,8 @@ export const CAPABILITIES = [
   "terminal.control",
   /** files.list, files.read, files.find and files.search, in a workspace's folders. */
   "files",
+  /** Workspace file writes and directory creation, with agent control. Since 0.14.0. */
+  "files.write",
   /** git.status, git.diff, git.log and git.show of a workspace. */
   "git",
   /** notes.list and notes.attach: a workspace's notes, and photos put into one. */

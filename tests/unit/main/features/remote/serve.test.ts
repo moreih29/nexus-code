@@ -1354,6 +1354,31 @@ describe("when a message goes, and the ones held for after the turn", () => {
     });
   });
 
+  test("a default Codex send can be held and keeps its authenticated device and nonce", async () => {
+    const clientNonce = "4df598dc-f794-42a4-b204-d43a3a137be3";
+    const codex = { workspaceId: "w2", tabId: "t4" };
+    const { serve, asked } = sendServices(() => ({ heldId: "held" }));
+    expect(
+      await serve({
+        from: "phone",
+        method: "chat.send",
+        params: { ...codex, text: "next", clientNonce },
+      }),
+    ).toEqual({ at: 1000, heldId: "held", clientNonce });
+    expect(asked).toEqual([
+      [
+        "chat.send",
+        {
+          ...codex,
+          text: "next",
+          user: true,
+          device: "phone",
+          submission: { clientNonce, clientDeviceId: "phone" },
+        },
+      ],
+    ]);
+  });
+
   test("a held message is taken back whole, or changed; an unread one withdrawn; the unread hurried", async () => {
     const { serve, asked } = sendServices((op) =>
       op === "chat.unqueue"

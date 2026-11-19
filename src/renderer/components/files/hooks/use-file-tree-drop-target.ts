@@ -34,9 +34,9 @@ import { parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
 import { basename, relPath } from "@/utils/path";
 import { createLogger } from "../../../../shared/log/renderer";
+import { MIME_FILE } from "../../../types/workbench-dnd";
 import { isMac } from "../../../utils/platform";
-import { parseFileDragPayload } from "../../workspace/dnd/payload";
-import { MIME_FILE } from "../../workspace/dnd/types";
+import { parseFileDragPayload } from "../../../utils/workbench-dnd-payload";
 
 /**
  * Delay (ms) before a closed directory under the cursor auto-expands

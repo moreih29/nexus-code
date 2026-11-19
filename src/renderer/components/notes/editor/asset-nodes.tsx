@@ -8,6 +8,7 @@ import { FileText, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { formatBytes } from "../../../utils/format-bytes";
 import type { NoteHost } from "./host";
 
 export interface AssetNodeOptions {
@@ -84,13 +85,6 @@ function ImageView({ node, selected, extension }: ReactNodeViewProps) {
   );
 }
 
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
 function FileView({ node, selected, extension }: ReactNodeViewProps) {
   const { t } = useTranslation("notes");
   const host = (extension.options as AssetNodeOptions).host;
@@ -113,7 +107,7 @@ function FileView({ node, selected, extension }: ReactNodeViewProps) {
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-app-body text-foreground">{name}</span>
           <span className="text-app-micro text-muted-foreground">
-            {formatBytes(size)} · {t("file.copied")}
+            {formatBytes(size, "notes")} · {t("file.copied")}
           </span>
         </span>
         <button

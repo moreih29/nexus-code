@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"regexp"
@@ -220,18 +219,11 @@ func (s *Service) runSyncGit(ctx context.Context, cwd string, args []string, int
 	if err != nil {
 		return "", "", 0, err
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", "", 0, ctxErr
-	}
-	code, fatal := gitExitCode(runErr)
+	stdout, stderr, code, fatal := runCapturedCommand(ctx, cmd)
 	if fatal != nil {
 		return "", "", 0, fatal
 	}
-	return stdout.String(), stderr.String(), code, nil
+	return stdout, stderr, code, nil
 }
 
 // nonEmpty filters empty strings for summary joining.

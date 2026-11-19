@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 import {
   ChatHost,
   type ChatHostOptions,
@@ -16,12 +16,17 @@ import {
   THINKING_DISPLAY_FROM,
   takesThinkingDisplay,
 } from "../../../../src/main/features/chat/launch";
+import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
+import { sessionAgents } from "../../../../src/main/features/remote/serving/sessions";
 import type {
+  AgentCallOptions,
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
+import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
+import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -34,14 +39,23 @@ class FakeChannel implements AgentChannel {
     envPath: "/home/u/.local/bin:/usr/bin",
   };
   versionOutput = "2.1.318 (Claude Code)\n";
+  versionWait?: Promise<void>;
+  transcriptPageError?: string;
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
     this.calls.push({ method, params });
     if (method === "lsp.findBinary") return this.found as T;
-    if (method === "chat.exec") return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
+    if (method === "chat.exec") {
+      await this.versionWait;
+      return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
+    }
     if (method === "chat.start") return { pid: 42 } as T;
+    if (method === "chat.transcriptPage" && this.transcriptPageError) {
+      throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
+    }
+    if (method === "chat.transcript") return { found: true, lines: [] } as T;
     return {} as T;
   }
   fire(): void {}
@@ -70,6 +84,8 @@ class FakeChannel implements AgentChannel {
 function setup(
   overrides: Partial<ChatWorkspaceManager> = {},
   agentContext?: ChatHostOptions["agentContext"],
+  onTaskEvent?: ChatHostOptions["onTaskEvent"],
+  profile?: ChatHostOptions["profile"],
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -82,7 +98,7 @@ function setup(
       providerReady = listener;
       return () => {};
     },
-    getHookInfo: () => ({ socketPath: "/tmp/h.sock", token: "tok" }),
+    getSpawnHookInfo: async () => ({ socketPath: "/tmp/h.sock", token: "tok" }),
     getWrapperBinDir: () => "/home/u/.nexus-code/bin",
     getWrapperAgentBin: () => "/home/u/.nexus-code/bin/agent",
     getWrapperShimDir: () => "/home/u/.nexus-code/shim/ws",
@@ -92,12 +108,35 @@ function setup(
   const host = new ChatHost({
     workspaceManager: manager,
     agentContext,
+    onTaskEvent,
+    profile,
     broadcast: (event, args) => events.push({ event, args }),
-    onTurnStopped: (ws, tab) => status.push(`stopped ${ws} ${tab}`),
+    onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
 }
+
+test.each([
+  ["unsupported-method", undefined, true],
+  ["unsupported-method", "snapshot-cursor", false],
+  ["server.request-failed", undefined, false],
+  ["transport.timeout", undefined, false],
+] as const)("transcript page fallback with %s and cursor %s", async (code, cursor, fallback) => {
+  const { host, channel } = setup();
+  channel.transcriptPageError = code;
+  const page = host.transcriptPage(WS, "session-id", undefined, { cursor });
+  if (fallback) {
+    expect(await page).toEqual({ found: true, lines: [], truncated: false });
+    expect(channel.calls.map((call) => call.method)).toEqual([
+      "chat.transcriptPage",
+      "chat.transcript",
+    ]);
+  } else {
+    await expect(page).rejects.toMatchObject({ code });
+    expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
+  }
+});
 
 describe("chat launch", () => {
   test("resume and fork add their flags after the stream-json ones", () => {
@@ -239,6 +278,8 @@ describe("chat launch", () => {
 
   test("parses claude --version", () => {
     expect(parseClaudeVersion("2.1.318 (Claude Code)\n")).toBe("2.1.318");
+    expect(parseClaudeVersion("Node 22.14.0 was found\r\n  codex-cli 0.166.0\r\n")).toBe("0.166.0");
+    expect(parseClaudeVersion("diagnostic: settings schema 2.1.318")).toBeNull();
     expect(parseClaudeVersion("nope")).toBeNull();
   });
 
@@ -283,6 +324,133 @@ describe("chat launch", () => {
 });
 
 describe("ChatHost", () => {
+  test("an omitted default profile has the same environment in chat and the terminal", async () => {
+    const profile: AgentProfile = {
+      id: "claude-default",
+      agent: "claude",
+      name: "",
+      color: "blue",
+      dir: "",
+      env: {
+        CLAUDE_CONFIG_DIR: "/profiles/default",
+        CUSTOM: "configured",
+        nexus_hook_token: "stale",
+        NEXUS_AGENT_SOCKET: "/stale.sock",
+        NEXUS_OTHER: "stale",
+      },
+    };
+    const { host, channel } = setup({}, undefined, undefined, (id) =>
+      id === profile.id ? profile : null,
+    );
+    await host.start(WS, TAB, "/repo", {});
+    const terminal = await host.terminalProfileEnv(WS, undefined);
+    expect(terminal).toEqual(await host.terminalProfileEnv(WS, profile.id));
+    expect(terminal).toEqual({ CLAUDE_CONFIG_DIR: "/profiles/default", CUSTOM: "configured" });
+    const start = channel.calls.find(({ method }) => method === "chat.start")?.params;
+    expect(start).toMatchObject({
+      env: { ...terminal, NEXUS_AGENT_SOCKET: "/tmp/h.sock", NEXUS_HOOK_TOKEN: "tok" },
+    });
+    expect((start as { env: Record<string, string> }).env).not.toHaveProperty("NEXUS_OTHER");
+    await host.transcript(WS, "session");
+    await host.transcriptPage(WS, "session", undefined, {});
+    await host.deleteSession(WS, "/repo", "session");
+    expect(
+      channel.calls.filter(
+        ({ method }) =>
+          method === "chat.transcript" ||
+          method === "chat.transcriptPage" ||
+          method === "chat.deleteSession",
+      ),
+    ).toEqual([
+      {
+        method: "chat.transcript",
+        params: { sessionId: "session", configDir: "/profiles/default" },
+      },
+      {
+        method: "chat.transcriptPage",
+        params: { sessionId: "session", configDir: "/profiles/default" },
+      },
+      {
+        method: "chat.deleteSession",
+        params: { sessionId: "session", cwd: "/repo", configDir: "/profiles/default" },
+      },
+    ]);
+  });
+
+  test("a missing or wrong-agent profile cannot spawn or read, delete, or stage default history", async () => {
+    const { host, channel } = setup({}, undefined, undefined);
+    for (const id of ["missing", "codex-default"]) {
+      expect(await host.start(WS, TAB, "/repo", {}, id)).toMatchObject({
+        ok: false,
+        reason: "failed",
+      });
+      await expect(host.transcript(WS, "session", id)).rejects.toThrow(/profile/i);
+      await expect(host.transcriptPage(WS, "session", id, {})).rejects.toThrow(/profile/i);
+      await expect(host.deleteSession(WS, "/repo", "session", id)).rejects.toThrow(/profile/i);
+    }
+    await expect(host.stageThread(WS, "thread", { fromProfileId: "missing" })).rejects.toThrow(
+      /profile/i,
+    );
+    expect(
+      channel.calls.some(({ method }) =>
+        /chat\.(start|transcript|deleteSession|stageThread)/.test(method),
+      ),
+    ).toBe(false);
+  });
+
+  test("a killed chat task ends its background agent in the phone and desktop session lists", async () => {
+    const activity = new SessionActivityLog(() => 1234);
+    const { host, channel } = setup({}, undefined, (workspaceId, tabId, message) =>
+      activity.noteTask(workspaceId, tabId, message),
+    );
+    await host.start(WS, TAB, "/repo", {});
+    const input = { subagent_type: "Explore", run_in_background: true };
+    activity.noteHook(WS, TAB, "pre-tool-use", {
+      tool_name: "Agent",
+      tool_use_id: "toolu_agent",
+      tool_input: input,
+    });
+    activity.noteHook(WS, TAB, "subagent-start", { agent_id: "agent-A", agent_type: "Explore" });
+    const current = () => activity.get(WS, TAB)?.agents ?? [];
+    expect(sessionAgents(current())?.map((agent) => agent.id)).toEqual(["agent-A"]);
+    expect(liveAgents(current())).toHaveLength(1);
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      message: {
+        type: "system",
+        subtype: "task_started",
+        task_type: "local_agent",
+        task_id: "task-A",
+        tool_use_id: "toolu_agent",
+      },
+    });
+    // The stream can report the kill before the async Agent result hook reaches main.
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      replay: true,
+      message: {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-A",
+        status: "killed",
+      },
+    });
+    activity.noteHook(WS, TAB, "post-tool-use", {
+      tool_name: "Agent",
+      tool_use_id: "toolu_agent",
+      tool_input: input,
+      tool_response: { status: "async_launched", agentId: "agent-A" },
+    });
+    expect(current()[0]).toMatchObject({ id: "agent-A", state: "stopped", end: 1234 });
+    expect(sessionAgents(current())).toBeUndefined();
+    expect(liveAgents(current())).toHaveLength(0);
+    host.dispose();
+  });
+
   test("start runs the wrapper with the PATH claude was found on", async () => {
     const { channel, host } = setup();
     const result = await host.start(WS, TAB, "/repo", { resume: "s1" });
@@ -297,6 +465,10 @@ describe("ChatHost", () => {
     expect(start.cwd).toBe("/repo");
     expect(start.args).toContain("--resume");
     expect(start.env.PATH).toBe("/home/u/.local/bin:/usr/bin");
+    const probe = channel.calls.find(({ method }) => method === "chat.exec")?.params as {
+      program: string;
+    };
+    expect(start.env.NEXUS_CLAUDE_PROGRAM).toBe(probe.program);
     expect(start.env.NEXUS_HOOK_TOKEN).toBe("tok");
     expect(start).toMatchObject({ resumed: true });
     expect(start).not.toHaveProperty("resetLog");
@@ -336,7 +508,7 @@ describe("ChatHost", () => {
         getAgentChannel: async () => channel,
         tryGetAgentChannel: async () => channel,
         onProviderReady: () => () => {},
-        getHookInfo: () => null,
+        getSpawnHookInfo: async () => null,
         getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
         getWrapperAgentBin: () => null,
         getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
@@ -346,7 +518,6 @@ describe("ChatHost", () => {
       windowsAgentFiles: async () => ({
         binDir: "C:\\Users\\u\\.nexus-code\\bin",
         settingsPath: "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
-        cmdCodexNoDaemon: false,
       }),
     });
     await host.start(WS, TAB, "C:\\repo", {});
@@ -380,6 +551,41 @@ describe("ChatHost", () => {
     await expect(host.cli(WS, "/repo", { kind: "agents" })).rejects.toThrow("not found");
   });
 
+  test("cli receives the agent's timeout result after the child and its pipes are closed", async () => {
+    jest.useFakeTimers();
+    const { channel, host } = setup();
+    const original = channel.call.bind(channel);
+    const dispatched = Promise.withResolvers<void>();
+    const result = { code: -1, stdout: "partial output", stderr: "", timedOut: true };
+    channel.call = async <T>(method: string, params?: unknown, options?: AgentCallOptions) => {
+      if (method !== "chat.exec") return original<T>(method, params);
+      const { timeoutMs } = params as { timeoutMs: number };
+      const command = Promise.withResolvers<T>();
+      const reply = setTimeout(() => command.resolve(result as T), timeoutMs + 1_000);
+      const cutoff = setTimeout(
+        () => command.reject(new Error("agent request timed out")),
+        options?.timeoutMs ?? 30_000,
+      );
+      dispatched.resolve();
+      return command.promise.finally(() => {
+        clearTimeout(reply);
+        clearTimeout(cutoff);
+      });
+    };
+    try {
+      const pending = host.cli(WS, "/repo", { kind: "plugins" }).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      await dispatched.promise;
+      jest.advanceTimersByTime(31_000);
+      expect(await pending).toEqual({ value: result });
+    } finally {
+      host.dispose();
+      jest.useRealTimers();
+    }
+  });
+
   test("a Codex tab runs the app server of the codex the PATH has", async () => {
     const { channel, host } = setup();
     channel.found = { path: "/home/u/.local/bin/codex", envPath: "/home/u/.local/bin:/usr/bin" };
@@ -392,6 +598,7 @@ describe("ChatHost", () => {
     expect(channel.calls.find((c) => c.method === "chat.start")?.params).toEqual({
       workspaceId: WS,
       tabId: TAB,
+      tabGeneration: expect.any(String),
       cwd: "/repo",
       program: "/home/u/.local/bin/codex",
       args: ["app-server"],
@@ -493,7 +700,129 @@ describe("ChatHost", () => {
     result({ subtype: "success", terminal_reason: "aborted_tools" });
     result({ subtype: "error_during_execution" }, { replay: true });
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
-    expect(status).toEqual([`stopped ${WS} ${TAB}`, `stopped ${WS} ${TAB}`, `exit ${WS} ${TAB}`]);
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+      `exit ${WS} ${TAB}`,
+    ]);
+  });
+
+  test("reports success, error and interruption when Claude sends only a result", async () => {
+    const { channel, host, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    for (const result of [
+      { subtype: "success" },
+      { subtype: "success", is_error: true },
+      { subtype: "success", terminal_reason: "interrupted" },
+    ]) {
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        dir: "out",
+        message: { type: "result", ...result },
+      });
+    }
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+    ]);
+  });
+
+  test("closing a chat during version discovery cancels its late spawn", async () => {
+    const { host, channel } = setup();
+    const version = Promise.withResolvers<void>();
+    channel.versionWait = version.promise;
+    const start = host.start(WS, TAB, "/repo", {});
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(channel.calls.some((call) => call.method === "chat.exec")).toBe(true);
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    version.resolve();
+    expect(await start).toMatchObject({ ok: false });
+    expect(channel.calls.some((call) => call.method === "chat.start")).toBe(false);
+    expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    const generation = (method: string) =>
+      (channel.calls.find((call) => call.method === method)?.params as { tabGeneration?: string })
+        ?.tabGeneration;
+    const closed = generation("chat.close");
+    expect(typeof closed).toBe("string");
+    expect(generation("chat.start")).not.toBe(closed);
+  });
+
+  test("an old process exit and result leave the replacement's hook state alone", async () => {
+    const { channel, host, status, events } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "sys",
+      message: { event: "start", processGeneration: "new" },
+    });
+    channel.emit("chat.line", {
+      workspaceId: WS,
+      tabId: TAB,
+      dir: "out",
+      processGeneration: "old",
+      message: { type: "result", subtype: "error" },
+    });
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "old" });
+    expect(status).toEqual([]);
+    expect(events.map((event) => event.event)).toEqual(["line"]);
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "new" });
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+  });
+
+  test("removing a workspace sends chat.close and forgets its open tab intents", async () => {
+    const { host, channel, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const generation = (
+      channel.calls.find((call) => call.method === "chat.start")?.params as {
+        tabGeneration: string;
+      }
+    ).tabGeneration;
+    await host.closeWorkspace(WS, channel);
+    expect(channel.calls.filter((call) => call.method === "chat.close")).toEqual([
+      { method: "chat.close", params: { workspaceId: WS, tabId: TAB, tabGeneration: generation } },
+    ]);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
+  });
+
+  test("removing a disconnected workspace forgets chats without connecting again", async () => {
+    const lookup = mock(async () => {
+      throw new Error("workspace offline");
+    });
+    const { host, channel, status } = setup({ tryGetAgentChannel: lookup });
+    await host.startCodex(WS, TAB, "/repo", {});
+    await host.closeWorkspace(WS, null);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(channel.calls.some((call) => call.method === "chat.close")).toBe(false);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
+  });
+
+  test("reattach recognizes a missed start without reverting to an older replayed process", async () => {
+    const { channel, host, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const start = (seq: number, generation: string, replay: boolean) =>
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        seq,
+        replay,
+        dir: "sys",
+        message: { event: "start", processGeneration: generation },
+      });
+    start(1, "old", false);
+    start(10, "current", true);
+    start(1, "old", true);
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "current" });
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
   });
 
   test("holds on reconnecting and resyncs when the agent is back", async () => {

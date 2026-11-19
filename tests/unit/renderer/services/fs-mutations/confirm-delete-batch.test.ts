@@ -113,7 +113,7 @@ function seedWorkspace(kind: "local" | "ssh"): void {
         name: "ws",
         rootPath: ROOT,
         location,
-        colorTone: "default",
+        color: "auto",
         pinned: false,
         tabs: [],
         sortOrder: 0,

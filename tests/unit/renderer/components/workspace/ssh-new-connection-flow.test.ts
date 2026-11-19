@@ -41,7 +41,7 @@ interface HookDispatcher {
   useState(initial: unknown): [unknown, (next: unknown) => void];
   useCallback(cb: unknown, deps?: readonly unknown[]): unknown;
   useMemo(factory: () => unknown, deps?: readonly unknown[]): unknown;
-  useEffect(fn: () => void, deps?: readonly unknown[]): void;
+  useEffect(fn: () => undefined | (() => void), deps?: readonly unknown[]): void;
   useContext(ctx: unknown): unknown;
   useSyncExternalStore(subscribe: unknown, getSnapshot: () => unknown): unknown;
 }
@@ -97,6 +97,18 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
+const surfacedErrors: unknown[] = [];
+const realSurface = await import(
+  "../../../../../src/renderer/services/error-surface/surface-error"
+);
+mock.module("../../../../../src/renderer/services/error-surface/surface-error", () => ({
+  ...realSurface,
+  surfaceError: (error: unknown) => {
+    surfacedErrors.push(error);
+    return { surface: "inline", userMessage: "localized SSH failure" };
+  },
+}));
+
 const { SshNewConnectionView } = await import(
   "../../../../../src/renderer/components/workspace/add-workspace/ssh-new-connection-view"
 );
@@ -136,11 +148,13 @@ type FormElement = ReactElement<{
 function mountView() {
   const refs: Array<{ current: unknown }> = [];
   const states: unknown[] = [];
-  let effects: Array<() => void> = [];
+  let effects: Array<() => undefined | (() => void)> = [];
+  let cleanups: Array<() => void> = [];
   let refCursor = 0;
   let stateCursor = 0;
   const phases: string[] = [];
   const onConnected = mock((_session: SshBrowseSession) => {});
+  const cancelConnectRef = { current: null as (() => void) | null };
 
   const dispatcher: HookDispatcher = {
     useRef(initial) {
@@ -177,6 +191,7 @@ function mountView() {
     try {
       element = SshNewConnectionView({
         onConnected,
+        cancelConnectRef,
         configHosts: [],
         configHostsLoading: false,
         onConnectPhaseChange: (phase) => phases.push(phase),
@@ -185,13 +200,17 @@ function mountView() {
     } finally {
       reactInternals.H = previous;
     }
-    for (const fn of effects) fn();
+    cleanups = effects.flatMap((fn) => fn() ?? []);
     return element;
   }
 
   return {
     render,
+    unmount: () => {
+      for (const cleanup of cleanups) cleanup();
+    },
     onConnected,
+    cancel: () => cancelConnectRef.current?.(),
     /** Submits the form from `form` (default: a fresh render). */
     submit: (form: FormElement = render()) => form.props.onSubmit({ preventDefault: () => {} }),
     /** Phase reported to the parent by the latest render. */
@@ -219,6 +238,7 @@ function callsTo(method: string): Array<{ method: string; args: unknown }> {
 beforeEach(() => {
   ipcCalls.length = 0;
   toastCalls.length = 0;
+  surfacedErrors.length = 0;
   openBrowseSession = async () => ipcOk(SESSION);
   saveProfile = async () => ipcOk(undefined);
 });
@@ -301,4 +321,55 @@ describe("SSH connect flow — double-submit during in-flight connect", () => {
     expect(view.onConnected).toHaveBeenCalledTimes(1);
     expect(view.phase()).toBe("idle");
   });
+});
+
+it("leaving before SSH browse completes closes the late session without saving or navigating", async () => {
+  const browse = Promise.withResolvers<unknown>();
+  openBrowseSession = () => browse.promise;
+  const view = mountView();
+  view.submit();
+  view.unmount();
+  browse.resolve(ipcOk(SESSION));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(callsTo("ssh.closeBrowseSession")).toEqual([
+    { method: "ssh.closeBrowseSession", args: { sessionId: SESSION.sessionId } },
+  ]);
+  expect(callsTo("connectionProfile.save")).toHaveLength(0);
+  expect(view.onConnected).not.toHaveBeenCalled();
+});
+
+it("leaving during profile save releases the session and suppresses the obsolete result", async () => {
+  const saving = Promise.withResolvers<void>();
+  const save = Promise.withResolvers<unknown>();
+  saveProfile = () => {
+    saving.resolve();
+    return save.promise;
+  };
+  const view = mountView();
+  view.submit();
+  await saving.promise;
+  view.cancel();
+  expect(callsTo("ssh.closeBrowseSession")).toHaveLength(1);
+  save.resolve(ipcErr("not-found", "profile unavailable"));
+  await save.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(view.onConnected).not.toHaveBeenCalled();
+  expect(toastCalls).toHaveLength(0);
+});
+
+it("a failed SSH connection keeps its domain code and presents the surface message once", async () => {
+  openBrowseSession = async () =>
+    ipcErr("auth-failed", "private SSH details", {
+      category: "failed",
+      domain: "ssh",
+      code: "ssh.auth-failed",
+    });
+  const view = mountView();
+  view.submit();
+  await settle(view);
+  expect(surfacedErrors).toEqual([
+    { category: "failed", domain: "ssh", code: "ssh.auth-failed", message: "private SSH details" },
+  ]);
+  expect(view.inlineError()).toBe("localized SSH failure");
 });

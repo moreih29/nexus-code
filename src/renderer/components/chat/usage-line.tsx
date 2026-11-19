@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { useNow } from "../../hooks/use-now";
-import type { CodexModel } from "../../services/chat/codex-model";
+import type { CodexModel } from "../../services/chat/codex/model";
 import type { ChatModel } from "../../services/chat/model";
 import { usePlanClaudeUsage, usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {

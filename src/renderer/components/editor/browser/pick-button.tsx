@@ -24,16 +24,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconButton } from "@/components/ui/icon-button";
 import { showToast } from "@/components/ui/toast";
+import { normaliseError } from "@/hooks/use-ipc-action";
 import { ipcCallResult } from "@/ipc/client";
 import { showTerminal } from "@/services/agent-sessions/actions";
 import { type AgentSession, sessionKey } from "@/services/agent-sessions/model";
 import { pasteForTerminal, pickTargets, targetLabels } from "@/services/browser/element-pick";
+import { surfaceError } from "@/services/error-surface/surface-error";
 import { getTerminalController } from "@/services/terminal/terminal-registry";
 import { useClaudeStatusStore } from "@/state/stores/claude-status";
 import { useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
+import { ipcErrorToAppError } from "../../../../shared/ipc/result";
 
 interface PickButtonProps {
   tabId: string;
@@ -101,13 +104,12 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
     [tabId],
   );
 
-  const copyInstead = (text: string, message: string) => {
-    copyTextViaIpc(text);
-    showToast({ kind: "info", message });
+  const copyInstead = async (text: string, message: string) => {
+    if (await copyTextViaIpc(text)) showToast({ kind: "info", message });
   };
 
   const deliver = (session: AgentSession, text: string) => {
-    if (!pasteInto(session, text)) copyInstead(text, t("browser.pick_terminal_closed"));
+    if (!pasteInto(session, text)) void copyInstead(text, t("browser.pick_terminal_closed"));
   };
 
   const start = async () => {
@@ -117,19 +119,24 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
     }
     pickingRef.current = true;
     setPicking(true);
-    const result = await ipcCallResult("cli", "pickElement", { tabId });
-    pickingRef.current = false;
-    setPicking(false);
-    if (!result.ok) {
-      showToast({ kind: "error", message: t("browser.pick_failed", { message: result.message }) });
-      return;
+    try {
+      const result = await ipcCallResult("cli", "pickElement", { tabId });
+      if (!result.ok) {
+        surfaceError(ipcErrorToAppError(result), { surface: "toast" });
+        return;
+      }
+      if (!("text" in result.value)) return;
+      const { text } = result.value;
+      const sessions = await agentSessions(workspaceId);
+      if (sessions.length === 0) void copyInstead(text, t("browser.pick_no_agent"));
+      else if (sessions.length === 1 && sessions[0]) deliver(sessions[0], text);
+      else setChoice({ text, sessions });
+    } catch (error) {
+      surfaceError(normaliseError(error), { surface: "toast" });
+    } finally {
+      pickingRef.current = false;
+      setPicking(false);
     }
-    if (!("text" in result.value)) return;
-    const { text } = result.value;
-    const sessions = await agentSessions(workspaceId);
-    if (sessions.length === 0) copyInstead(text, t("browser.pick_no_agent"));
-    else if (sessions.length === 1 && sessions[0]) deliver(sessions[0], text);
-    else setChoice({ text, sessions });
   };
 
   const label = picking ? t("browser.cancel_pick") : t("browser.pick_element");

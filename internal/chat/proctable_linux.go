@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"os"
 	"strconv"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // parents maps each process to its parent, read from /proc.
@@ -37,14 +39,27 @@ func parents() map[int]int {
 // parentheses itself, so fields are counted from the last ")": the state,
 // then the parent.
 func parentInStat(data []byte) (int, bool) {
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 {
-		return 0, false
-	}
-	fields := bytes.Fields(data[end+1:])
+	_, suffix := hostproc.SplitPIDStat(data)
+	fields := bytes.Fields(suffix)
 	if len(fields) < 2 {
 		return 0, false
 	}
 	ppid, err := strconv.Atoi(string(fields[1]))
 	return ppid, err == nil
+}
+
+// processStart identifies a process by the kernel's start ticks.
+func processStart(pid int) uint64 {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0
+	}
+	_, suffix := hostproc.SplitPIDStat(data)
+	fields := bytes.Fields(suffix)
+	const startTimeField = 22 - 3 // suffix begins with field 3, state.
+	if len(fields) <= startTimeField {
+		return 0
+	}
+	start, _ := strconv.ParseUint(string(fields[startTimeField]), 10, 64)
+	return start
 }

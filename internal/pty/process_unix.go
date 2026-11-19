@@ -3,10 +3,11 @@
 package pty
 
 import (
-	"errors"
 	"os"
 	"syscall"
 	"time"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // hangupGrace is how long a closed tab's shell has to end on the hangup
@@ -43,7 +44,7 @@ func (s *session) stopChild() (finish func()) {
 // killSession kills the shell and every process left in its session, which
 // the shell leads. Processes started meanwhile are caught by another pass.
 func (c *child) killSession() {
-	_ = c.signalGroup(syscall.SIGKILL)
+	_ = hostproc.SignalGroup(c.Pid, syscall.SIGKILL)
 	for pass := 0; pass < 3; pass++ {
 		left := sessionProcesses(c.Pid)
 		if len(left) == 0 {
@@ -53,15 +54,6 @@ func (c *child) killSession() {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
-}
-
-// signalGroup sends signal to the child process group rooted at the shell.
-func (c *child) signalGroup(signal syscall.Signal) error {
-	err := syscall.Kill(-c.Pid, signal)
-	if errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
 }
 
 // exitPayload translates the shell's exit into the PTY exit wire shape.

@@ -289,6 +289,19 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`ALTER TABLE session_spans ADD COLUMN agent TEXT`);
     },
   },
+  // A workspace's color replaces its tone (subdued, default, prominent, pinned),
+  // which no screen used: every workspace starts as "auto", whatever its tone
+  // was. The `color_tone` column stays, unused, so an older build opening the
+  // same database still inserts into it (it has a DEFAULT) and a downgrade is
+  // safe; nothing reads or writes it now. Idempotent.
+  {
+    version: 10,
+    up: (db) => {
+      if (!hasColumn(db, "workspaces", "color")) {
+        db.exec("ALTER TABLE workspaces ADD COLUMN color TEXT NOT NULL DEFAULT 'auto';");
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {

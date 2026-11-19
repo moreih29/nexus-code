@@ -76,9 +76,8 @@ export interface ModelEntry {
    */
   lspNeedsRehydrate?: boolean;
   /**
-   * Bumped by each external-change read and by each save. A reconcile
-   * applies its read only if nothing newer started meanwhile, so a slow
-   * read cannot install older disk content over newer.
+   * Bumped by manual and external-change reads and by successful saves.
+   * Only the current generation can apply a disk read.
    */
   diskReadSeq?: number;
   /** True while a rehydrate didOpen is in flight. */
@@ -119,7 +118,7 @@ export interface ModelEntryDeps {
   attachDirtyTracker: typeof attachDirtyTracker;
   detachDirtyTracker: typeof detachDirtyTracker;
   markDirtyTrackerSaved: typeof markSaved;
-  readFileForModel: (input: EditorInput) => Promise<FileLoadResult>;
+  readFileForModel: (input: EditorInput, encoding?: TextEncoding) => Promise<FileLoadResult>;
   statFileForModel: (input: EditorInput) => Promise<{ mtime: string; size: number }>;
   getDirtyEntry: typeof getDirtyEntry;
   subscribeFsChanged: (

@@ -3,39 +3,102 @@
 package chat
 
 import (
-	"errors"
 	"os"
+	"sync"
 	"syscall"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
+	"golang.org/x/sys/unix"
 )
 
-// tree is nothing of its own on Unix: the program's process group and its
-// descendants, found when it is signalled, are the commands it runs.
-type tree struct{}
+// tree records the commands seen at explicit stop so escalation can still
+// reach them after the parent exits and the OS reparents its children.
+type tree struct {
+	mu       sync.Mutex
+	start    uint64
+	targets  map[int]uint64
+	released bool
+}
 
-func (p *process) holdTree()    {}
-func (p *process) releaseTree() {}
+// holdTree records the launched group's leader.
+func (p *process) holdTree() error {
+	p.tree.mu.Lock()
+	defer p.tree.mu.Unlock()
+	p.tree.start = processStart(p.cmd.Process.Pid)
+	return nil
+}
+
+// releaseTree completes any explicit termination before reporting exit.
+func (p *process) releaseTree() {
+	p.tree.mu.Lock()
+	defer p.tree.mu.Unlock()
+	if p.tree.targets != nil {
+		_ = p.signalOwnedTargets(syscall.SIGKILL, false)
+		p.tree.targets = nil
+	}
+	p.tree.released = true
+}
 
 // signalTerm asks the program and the commands it runs to exit.
 func (p *process) signalTerm() error {
-	return signalTree(p.cmd.Process.Pid, syscall.SIGTERM)
+	return p.signalOwnedTree(syscall.SIGTERM)
 }
 
-// kill kills the program and the commands it runs.
-func (p *process) kill() {
-	_ = signalTree(p.cmd.Process.Pid, syscall.SIGKILL)
+// signalKill forcefully ends the program and the commands it runs.
+func (p *process) signalKill() error {
+	return p.signalOwnedTree(syscall.SIGKILL)
 }
 
-// signalTree signals the program's process group, and every process under
-// the program: Claude and Codex start each command in a session of its
-// own, out of the group. Ending the program alone left them running, as a
-// server Claude started was once the agent exited. Its descendants are
-// found first, while the program runs: once it has exited, they are
-// another process's children. A command left running when the program
-// exits by itself is not found.
-func signalTree(pid int, signal syscall.Signal) error {
-	under := descendants(pid)
-	err := signalGroup(pid, signal)
-	for _, child := range under {
+// signalOwnedTree discovers detached tool sessions before signalling.
+func (p *process) signalOwnedTree(signal syscall.Signal) error {
+	p.tree.mu.Lock()
+	defer p.tree.mu.Unlock()
+	if p.tree.released {
+		return os.ErrProcessDone
+	}
+	pid := p.cmd.Process.Pid
+	start := processStart(pid)
+	if p.tree.start == 0 {
+		p.tree.start = start
+	}
+	leaderAlive := start != 0 && start == p.tree.start
+	if p.tree.targets == nil {
+		p.tree.targets = make(map[int]uint64)
+	}
+	if leaderAlive {
+		for _, child := range descendants(pid) {
+			if start := processStart(child); start != 0 {
+				p.tree.targets[child] = start
+			}
+		}
+	}
+	err := p.signalOwnedTargets(signal, leaderAlive)
+	if !leaderAlive && start == 0 && p.tree.start == 0 {
+		// The proc table may be unavailable even while the launcher runs.
+		return p.cmd.Process.Signal(signal)
+	}
+	return err
+}
+
+// signalOwnedTargets checks start times so recorded PIDs do not identify
+// unrelated jobs after the grace period and PID reuse.
+func (p *process) signalOwnedTargets(signal syscall.Signal, leaderAlive bool) error {
+	pid := p.cmd.Process.Pid
+	groupAlive := leaderAlive
+	targets := make([]int, 0, len(p.tree.targets))
+	for child, start := range p.tree.targets {
+		if processStart(child) == start {
+			targets = append(targets, child)
+			if pgid, err := unix.Getpgid(child); err == nil && pgid == pid {
+				groupAlive = true
+			}
+		}
+	}
+	var err error
+	if groupAlive {
+		err = hostproc.SignalGroup(pid, signal)
+	}
+	for _, child := range targets {
 		_ = syscall.Kill(child, signal)
 	}
 	return err
@@ -64,14 +127,6 @@ func descendants(pid int) []int {
 		stack = append(stack, children[child]...)
 	}
 	return found
-}
-
-func signalGroup(pid int, signal syscall.Signal) error {
-	err := syscall.Kill(-pid, signal)
-	if errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
 }
 
 // exitPayload translates the program's exit into the chat.exit wire shape.

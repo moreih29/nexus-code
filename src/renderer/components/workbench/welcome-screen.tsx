@@ -5,10 +5,10 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../ui/button";
 
 interface WelcomeScreenProps {
-  readonly onAddWorkspace: () => void;
+  readonly onAddWorkspace?: () => void;
 }
 
-/** Renders the entrypoint for opening the Add-Workspace flow (local folder OR SSH). */
+/** Prompts the user to add their first workspace or select an existing one. */
 export function WelcomeScreen({ onAddWorkspace }: WelcomeScreenProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -16,13 +16,15 @@ export function WelcomeScreen({ onAddWorkspace }: WelcomeScreenProps): React.JSX
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <div>
           <h1 className="text-app-body-emphasis text-foreground">{t("welcome.no_workspace")}</h1>
-          <p className="mt-2 text-app-ui-sm text-muted-foreground">{t("welcome.add_to_start")}</p>
+          <p className="mt-2 text-app-ui-sm text-muted-foreground">
+            {onAddWorkspace ? t("welcome.add_to_start") : t("welcome.select_from_sidebar")}
+          </p>
         </div>
-        <div className="flex flex-wrap justify-center gap-2">
+        {onAddWorkspace && (
           <Button type="button" variant="outline" size="sm" onClick={onAddWorkspace}>
             {t("welcome.add_workspace")}
           </Button>
-        </div>
+        )}
       </div>
     </div>
   );

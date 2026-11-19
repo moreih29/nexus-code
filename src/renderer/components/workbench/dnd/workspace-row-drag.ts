@@ -5,7 +5,7 @@
  * it must round-trip through JSON, so payload fields must be plain
  * serializable values only.
  *
- * Kept separate from workspace/dnd/types.ts — that module belongs to the
+ * Kept separate from types/workbench-dnd.ts — that module belongs to the
  * panel-layout / tab DnD system and uses a different drop model.
  */
 

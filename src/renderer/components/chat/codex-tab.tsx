@@ -13,15 +13,20 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
-import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex-commands";
+import type { PermissionAnswer } from "../../services/chat/claude/controller";
+import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
 import {
   type CodexController,
   codexController,
   MIN_CODEX_VERSION,
-} from "../../services/chat/codex-controller";
-import { codexHistoryAvailable, codexHistoryBusy } from "../../services/chat/codex-history";
-import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
-import type { PermissionAnswer } from "../../services/chat/controller";
+} from "../../services/chat/codex/controller";
+import {
+  codexHistoryAvailable,
+  codexHistoryBusy,
+  codexServerVersion,
+} from "../../services/chat/codex/history";
+import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
+import { runCodexCommand } from "../../services/chat/codex/run-command";
 import { filesThere } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
@@ -47,7 +52,6 @@ import {
 } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { runCodexCommand } from "../../services/chat/run-codex-command";
 import {
   type ChatTabState,
   chatKey,
@@ -96,6 +100,7 @@ import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
+import { surfaceChatSendError } from "./send-error";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
@@ -155,7 +160,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   }, [isVisible, controller]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
-    void controller.answerPermission(request, answer).catch(() => {});
+    void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
   // The pane shows the conversation or one of the runs its commands
@@ -551,7 +556,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   );
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
-  const historyAvailable = codexHistoryAvailable(model.appServerVersion ?? state.version);
+  const historyAvailable = codexHistoryAvailable(codexServerVersion(model, state.version));
   const forkFrom = (item: UserItem | AssistantItem) => {
     try {
       const fork = controller.forkPoint(item);

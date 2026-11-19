@@ -7,17 +7,13 @@
 
 import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { RelaySender } from "../../../shared/chat/relay";
-import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
-import { type CodexController, type CodexTabHooks, codexController } from "./codex-controller";
-import { type ChatController, type ChatTabHooks, chatController } from "./controller";
-import type { ImageBlock } from "./model";
-import { chatKey, type PeerSubmission, useChatStore } from "./store";
+import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
+import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
 import { clipTitle, titleOf } from "./tab-title";
-
-const log = createLogger("chat");
+import { sendFirstMessage } from "./transport/submission";
 
 /** What a Claude tab keeps: the session to go on with, and its title. */
 export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks {
@@ -119,97 +115,6 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
 }
 
 /**
- * Messages sent to tabs that their conversation does not show yet, by chat
- * key: how many messages of the user's it showed when one was sent. Until it
- * shows more, the tab counts as working, though no turn has begun.
- */
-const unseenSends = new Map<string, number>();
-
-function userMessages(key: string): number {
-  const chat = useChatStore.getState().tabs[key];
-  return chat ? chat.model.items.filter((item) => item.kind === "user").length : 0;
-}
-
-/** Whether a message sent to the tab is yet to show in its conversation. */
-export function sendUnseen(workspaceId: string, tabId: string): boolean {
-  const key = chatKey(workspaceId, tabId);
-  const before = unseenSends.get(key);
-  if (before === undefined) return false;
-  if (userMessages(key) <= before) return true;
-  unseenSends.delete(key);
-  return false;
-}
-
-/**
- * Sends `text` to a tab, starting its program if it is not running; the tab
- * counts as working from now, not only once the message shows. `from`: the
- * agent that sent it through the nexus command, when one did.
- */
-export async function sendToAgentTab(
-  workspaceId: string,
-  tabId: string,
-  target: AgentTabController,
-  text: string,
-  from?: RelaySender,
-  images: ImageBlock[] = [],
-  when: SendTiming = "next",
-  device?: string,
-  submission?: PeerSubmission,
-): Promise<{ heldId?: string; itemKey?: string }> {
-  const { controller } = target;
-  const key = chatKey(workspaceId, tabId);
-  // Working from now, though the program may be starting and a conversation
-  // resumed after a restart still coming in: its messages are counted only
-  // once it is in, or they would pass for the one sent.
-  unseenSends.set(key, Number.POSITIVE_INFINITY);
-  try {
-    await controller.prepareSend();
-    unseenSends.set(key, userMessages(key));
-    const id = submission ? crypto.randomUUID() : undefined;
-    if (id && submission) {
-      useTabsStore.getState().addChatPeerSubmission(workspaceId, tabId, id, submission);
-      const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-      const recent =
-        tab?.type === "claude" || tab?.type === "codex" ? tab.props.peerSubmissions : undefined;
-      useChatStore.getState().update(key, (prev) => ({
-        ...prev,
-        peerSubmissions: recent ?? { [id]: submission },
-      }));
-    }
-    if (when === "after" && (!id || controller.state.model.running)) {
-      const heldId = controller.enqueue(text, images, from, device, id);
-      // Held, it is not sent yet: the chat is not waiting on it.
-      if (heldId) unseenSends.delete(key);
-      return heldId ? { heldId } : {};
-    }
-    if (when === "now" && target.agent === "claude") {
-      await target.controller.sendNow(text, images, from, id);
-    } else {
-      const heldId =
-        target.agent === "codex" && id
-          ? await target.controller.sendPeer(text, images, id)
-          : target.agent === "claude"
-            ? await target.controller.send(text, images, from, id)
-            : await target.controller.send(text, images, from);
-      if (heldId) {
-        unseenSends.delete(key);
-        return { heldId };
-      }
-    }
-    return id && target.agent === "codex" ? { itemKey: `u-peer-${id}` } : {};
-  } catch (err) {
-    unseenSends.delete(key);
-    throw err;
-  }
-}
-
-/**
- * When a message sent during a turn goes, as the composer's keys have it:
- * next (↩), now (⌘↩, Claude's alone), after the turn (⌘⇧↩).
- */
-export type SendTiming = "next" | "now" | "after";
-
-/**
  * Starts the program of a new Claude or Codex tab and sends it `message`
  * when there is one, from the agent that asked for the tab (`from`) when
  * one did; shown or not, the conversation starts now.
@@ -223,16 +128,7 @@ export function startAgentTab(
   const text = message.trim();
   const target = agentTabController(workspaceId, tabId);
   if (text === "" || !target) return;
-  const key = chatKey(workspaceId, tabId);
-  // Working from now: opening the program comes before the message.
-  unseenSends.set(key, 0);
-  void target.controller
-    .open()
-    .then(() => sendToAgentTab(workspaceId, tabId, target, text, from))
-    .catch((err: Error) => {
-      unseenSends.delete(key);
-      log.warn(`first message to ${target.agent} tab not sent: ${err.message}`);
-    });
+  sendFirstMessage(workspaceId, tabId, target, text, from);
 }
 
 /**

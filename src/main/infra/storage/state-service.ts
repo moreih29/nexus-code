@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { createLogger } from "../../../shared/log/main";
 import {
   type AppState,
   AppStateSchema,
@@ -8,6 +9,8 @@ import {
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
 import { migrateAppState } from "./app-state-migrations";
+
+const log = createLogger("storage");
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
@@ -61,9 +64,10 @@ export class StateService {
   }
 
   setState(partial: Partial<AppState>): void {
-    AppStateSchema.parse({ ...this.state, ...partial });
-    this.state = { ...this.state, ...partial };
-    this.flush();
+    const next = { ...this.state, ...partial };
+    AppStateSchema.parse(next);
+    this.flush(next);
+    this.state = next;
   }
 
   mergeState(partial: Partial<AppState>): void {
@@ -82,20 +86,31 @@ export class StateService {
     this.flush();
   }
 
-  private flush(): void {
+  private flush(state = this.state): void {
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });
-    const serialized = JSON.stringify(this.state, null, 2);
+    const serialized = JSON.stringify(state, null, 2);
     // fsync before the rename so a crash or power loss cannot leave the
     // renamed file empty.
     const fd = fs.openSync(this.tmpPath, "w");
     try {
-      fs.writeSync(fd, serialized, null, "utf8");
-      fs.fsyncSync(fd);
-    } finally {
-      fs.closeSync(fd);
+      try {
+        fs.writeSync(fd, serialized, null, "utf8");
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(this.tmpPath, this.filePath);
+    } catch (error) {
+      try {
+        fs.unlinkSync(this.tmpPath);
+      } catch (cleanupError) {
+        if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+          log.warn(`Could not remove temporary app state: ${String(cleanupError)}`);
+        }
+      }
+      throw error;
     }
-    fs.renameSync(this.tmpPath, this.filePath);
   }
 }
 

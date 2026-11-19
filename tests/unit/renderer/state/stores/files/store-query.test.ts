@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shims — must run before any store import
@@ -31,9 +31,16 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { ensureRoot, toggleExpand } from "../../../../../../src/renderer/state/operations/files";
+import {
+  __cancelPendingSavesForTests,
+  ensureRoot,
+  toggleExpand,
+} from "../../../../../../src/renderer/state/operations/files";
 import { handleFsChanged, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/fs/types";
+
+// Expanded-folder saves must be canceled before the file's IPC mock is restored.
+afterEach(__cancelPendingSavesForTests);
 
 // ---------------------------------------------------------------------------
 // Constants

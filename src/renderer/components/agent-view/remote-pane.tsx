@@ -11,15 +11,16 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
+import { appErrorFailed } from "../../../shared/error/app-error";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
-import { configCommandOf } from "../../services/chat/claude-config";
-import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex-commands";
-import { emptyCodexModel } from "../../services/chat/codex-model";
-import type { PermissionAnswer } from "../../services/chat/controller";
+import { configCommandOf } from "../../services/chat/claude/config";
+import type { PermissionAnswer } from "../../services/chat/claude/controller";
+import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex/commands";
+import { emptyCodexModel } from "../../services/chat/codex/model";
 import type { GoalView } from "../../services/chat/goal";
 import { isUnder } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
@@ -32,6 +33,7 @@ import type {
 import { agentTranscript } from "../../services/chat/panel";
 import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import type { CommandCard } from "../../services/chat/store";
+import { surfaceError } from "../../services/error-surface/surface-error";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
@@ -52,7 +54,7 @@ import {
   recoverPeerSubmission,
   usePeerSubmissions,
 } from "../../services/remote/peer-submissions";
-import { usePeerTerminal } from "../../services/remote/peer-terminal";
+import { usePeerTerminal, watchPeerTerminalTyping } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
   chatProfileIdThere,
@@ -67,7 +69,10 @@ import {
   usePeerTypes,
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
-import { TerminalTyping } from "../../services/remote/terminal-typing";
+import {
+  TerminalInputQueueFullError,
+  type TerminalTyping,
+} from "../../services/remote/terminal-typing";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
@@ -1351,28 +1356,15 @@ function RemoteTerminal({
           return session ? askOf(session) : undefined;
         })()
       : target.ask;
-  const typing = useMemo(
-    () =>
-      new TerminalTyping(
-        async (input) => {
-          const result = await ipcCallResult("remote", "peerTerminalInput", {
-            deviceId,
-            workspaceId,
-            tabId,
-            ...input,
-          });
-          if (!result.ok) throw new Error(result.message);
-        },
-        (error) =>
-          showToast({
-            kind: "error",
-            message: t("agentView.remote.failed", {
-              message: error instanceof Error ? error.message : String(error),
-            }),
-          }),
-      ),
-    [deviceId, workspaceId, tabId, t],
-  );
+  const [typing, setTyping] = useState<TerminalTyping | null>(null);
+  useLayoutEffect(() => {
+    setTyping(null);
+    return watchPeerTerminalTyping({ deviceId, workspaceId, tabId }, setTyping, (error) => {
+      const code =
+        error instanceof TerminalInputQueueFullError ? error.code : "terminal-input-failed";
+      surfaceError(appErrorFailed(String(error), { code }), { surface: "toast" });
+    });
+  }, [deviceId, workspaceId, tabId]);
   if (read.status !== "ready") {
     return <Waiting read={read} reach={reach} device={target.deviceName} />;
   }
@@ -1381,7 +1373,7 @@ function RemoteTerminal({
       <RemoteTerminalScreen
         text={read.value.text}
         {...(read.value.caret ? { caret: read.value.caret } : {})}
-        {...(types && reach === "online" ? { typing } : {})}
+        {...(typing && reach === "online" ? { typing } : {})}
       />
       {reach === "online" && controls && ask && ask.requestId !== answered && (
         <RemoteTerminalAsk

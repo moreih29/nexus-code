@@ -20,7 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { CodexModel, CodexRateLimits } from "../chat/codex-model";
+import type { CodexModel, CodexRateLimits } from "../chat/codex/model";
 import type {
   AssistantItem,
   ChatItem,
@@ -33,7 +33,8 @@ import type {
 import { AGENT_TOOLS, jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
-import type { ChatTabState, PeerSubmission } from "../chat/store";
+import type { ChatTabState } from "../chat/store";
+import type { PeerSubmission } from "../chat/transport/submission";
 
 /** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;
@@ -124,6 +125,7 @@ export function viewItemOf(item: ChatItem): ViewItem {
         uuid: _u,
         sentUuid: _s,
         turnId: _t,
+        turnResult: _r,
         optimistic: _o,
         peerWritePending: _p,
         images,
@@ -132,7 +134,7 @@ export function viewItemOf(item: ChatItem): ViewItem {
       return { ...rest, images: images.map(imageRef) };
     }
     case "assistant": {
-      const { uuid: _u, ...rest } = item;
+      const { uuid: _u, turnId: _t, ...rest } = item;
       return rest;
     }
     case "received": {

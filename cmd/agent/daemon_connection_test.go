@@ -6,9 +6,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	"golang.org/x/sys/unix"
 )
 
 // dialerProcess is an `agent --dial` run as the SSH session runs it, its
@@ -100,6 +103,50 @@ func daemonLog(runDir, root string) string {
 	return string(data)
 }
 
+// waitForUnreadOutput observes pending data without consuming it, so the
+// connection really closes with unread bytes.
+func waitForUnreadOutput(t *testing.T, conn net.Conn) {
+	t.Helper()
+	raw, err := conn.(*net.UnixConn).SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	var n int
+	var readErr error
+	if err := raw.Read(func(fd uintptr) bool {
+		var firstByte [1]byte
+		n, _, readErr = unix.Recvfrom(int(fd), firstByte[:], unix.MSG_PEEK)
+		return readErr != unix.EAGAIN && readErr != unix.EWOULDBLOCK
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || readErr != nil {
+		t.Fatalf("daemon had no unread output: n=%d err=%v", n, readErr)
+	}
+}
+
+// waitForDialerLog waits for the daemon to record its disconnect decision
+// before another connection can turn that decision into a takeover.
+func waitForDialerLog(t *testing.T, runDir, root string, matches func(string) bool) {
+	t.Helper()
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(20 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		if log := daemonLog(runDir, root); matches(log) {
+			return
+		}
+		select {
+		case <-poll.C:
+		case <-deadline.C:
+			t.Fatalf("daemon did not record the expected disconnect:\n%s", daemonLog(runDir, root))
+		}
+	}
+}
+
 // A connection that ends with a reset rather than a close is a dialer gone
 // mid-output: the SSH session ended under it while the daemon still wrote, and
 // Linux reports a socket closed with unread data as reset. That is a dialer
@@ -110,14 +157,17 @@ func TestDaemonSurvivesAResetConnection(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	first, readyA := readReady(t, sockPath)
+	defer first.Close()
 	spawnOn(t, first, "tab", root, "while :; do echo tick; sleep 0.01; done")
-	// What the daemon sends meanwhile is left unread when the connection closes.
-	time.Sleep(300 * time.Millisecond)
+	waitForUnreadOutput(t, first)
 	_ = first.Close()
-	time.Sleep(200 * time.Millisecond)
+	waitForDialerLog(t, runDir, root, func(log string) bool {
+		return strings.Contains(log, "dialer connection broke") ||
+			(runtime.GOOS != "linux" && strings.Contains(log, "dialer disconnected cleanly"))
+	})
 
 	next, readyB := readReady(t, sockPath)
 	defer next.Close()
@@ -148,7 +198,7 @@ func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	if ready := dialer.nextLine(t); !strings.Contains(ready, `"ready"`) {
@@ -164,19 +214,20 @@ func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	if _, err := dialer.stdin.Write(append(spawn, '\n')); err != nil {
 		t.Fatal(err)
 	}
-	_ = dialer.nextLine(t)
-	_ = dialer.stdout.Close()
-	time.Sleep(300 * time.Millisecond)
-	_ = dialer.stdin.Close()
-	_ = dialer.exitCode(t, 5*time.Second)
-
-	deadline := time.Now().Add(3 * time.Second)
-	for !strings.Contains(daemonLog(runDir, root), "dialer disconnected cleanly") {
-		if time.Now().After(deadline) {
-			t.Fatalf("the daemon did not see the dialer leave cleanly:\n%s", daemonLog(runDir, root))
-		}
-		time.Sleep(20 * time.Millisecond)
+	for !strings.Contains(dialer.nextLine(t), `"event":"pty.data"`) {
 	}
+	_ = dialer.stdout.Close()
+	// The ping reply still has to be drained after the output pipe closes.
+	if _, err := dialer.stdin.Write([]byte(`{"id":"p","method":"ping"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	_ = dialer.stdin.Close()
+	if code := dialer.exitCode(t, 5*time.Second); code != 0 {
+		t.Fatalf("dialer exit code %d, want 0", code)
+	}
+	waitForDialerLog(t, runDir, root, func(log string) bool {
+		return strings.Contains(log, "dialer disconnected cleanly")
+	})
 	if next, _ := readReady(t, sockPath); next != nil {
 		_, _ = next.Write([]byte(`{"id":"bye","method":"agent.shutdown"}` + "\n"))
 		_ = next.Close()
@@ -192,7 +243,7 @@ func TestDialerEndsWhenItsDaemonGoes(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -213,7 +264,7 @@ func TestDialerTakenOverIsToldSo(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -244,7 +295,7 @@ func TestDialerEndsCleanlyWhenTheAppCloses(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	dialer := startDialer(t, bin, sockPath)
 	_ = dialer.nextLine(t)
@@ -268,11 +319,14 @@ func TestDaemonGreetsEachDialerWithReadyFirst(t *testing.T) {
 	root := t.TempDir()
 	cmd, runDir := startDaemon(t, bin, root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	sockPath := waitForSocket(t, runDir)
+	sockPath := waitForSocket(t, runDir, root)
 
 	conn, _ := readReady(t, sockPath)
 	spawnOn(t, conn, "tab", root, "yes")
-	time.Sleep(100 * time.Millisecond)
+	frames := newPtyFrames(conn)
+	if output, _ := frames.until(t, conn, 3*time.Second, func(text string, _ bool) bool { return text != "" }); output == "" {
+		t.Fatal("terminal never started writing")
+	}
 	for i := 0; i < 60; i++ {
 		next, first := readReady(t, sockPath)
 		_ = conn.Close()

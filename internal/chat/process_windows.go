@@ -3,18 +3,19 @@
 package chat
 
 import (
-	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"syscall"
-	"unsafe"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 
 	"golang.org/x/sys/windows"
 )
 
 func newSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{}
+	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 }
 
 // tree is the job object the program runs in. It holds the processes the
@@ -27,38 +28,21 @@ type tree struct {
 	job windows.Handle
 }
 
-// holdTree puts the program in a job of its own. A process it starts
-// before it is in the job is left out; one that waits on the program's
-// input still ends when the input is closed.
-func (p *process) holdTree() {
-	job, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		return
-	}
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	// What is in the job when it is let go of ends with it. No process may
-	// leave it: Git Bash, which runs Claude's commands, starts each program
-	// out of any job that lets it.
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		_ = windows.CloseHandle(job)
-		return
-	}
-	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-		false, uint32(p.cmd.Process.Pid))
-	if err != nil {
-		_ = windows.CloseHandle(job)
-		return
-	}
-	defer windows.CloseHandle(process)
-	if err := windows.AssignProcessToJobObject(job, process); err != nil {
-		_ = windows.CloseHandle(job)
-		return
-	}
+// holdTree assigns the suspended launcher before it can start any children.
+func (p *process) holdTree() error {
 	p.tree.mu.Lock()
+	defer p.tree.mu.Unlock()
+	pid := p.cmd.Process.Pid
+	job, err := hostproc.AssignJob(pid, true)
+	if err != nil {
+		return fmt.Errorf("assign chat process to job: %w", err)
+	}
+	if err := hostproc.ResumeSuspended(uint32(pid)); err != nil {
+		_ = windows.CloseHandle(job)
+		return fmt.Errorf("resume chat process: %w", err)
+	}
 	p.tree.job = job
-	p.tree.mu.Unlock()
+	return nil
 }
 
 // releaseTree lets go of the job once the program has exited, which ends
@@ -80,23 +64,18 @@ func (p *process) endTree() bool {
 	return p.tree.job != 0 && windows.TerminateJobObject(p.tree.job, 1) == nil
 }
 
-// signalTerm ends the program and what it runs. Windows has no signal to
-// ask it with.
+// signalTerm uses the job on Windows, where there is no portable TERM.
 func (p *process) signalTerm() error {
+	return p.signalKill()
+}
+
+// signalKill terminates the job, or the launcher if it was cancelled during
+// creation before it was able to join the job.
+func (p *process) signalKill() error {
 	if p.endTree() {
 		return nil
 	}
-	err := p.cmd.Process.Kill()
-	if errors.Is(err, os.ErrProcessDone) {
-		return nil
-	}
-	return err
-}
-
-func (p *process) kill() {
-	if !p.endTree() {
-		_ = p.cmd.Process.Kill()
-	}
+	return p.cmd.Process.Kill()
 }
 
 // exitPayload translates the program's exit into the chat.exit wire shape.

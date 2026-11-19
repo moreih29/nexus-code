@@ -36,7 +36,7 @@ func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	stderr := &cappedBuffer{limit: execOutputCap}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
+	err := runChatCommand(cmd, p.Args)
 
 	result := ExecResult{Code: 0, Stdout: stdout.String(), Stderr: stderr.String()}
 	if runCtx.Err() != nil {
@@ -46,7 +46,7 @@ func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	var exitErr *exec.ExitError
 	switch {
-	case err == nil:
+	case err == nil, errors.Is(err, exec.ErrWaitDelay):
 	case errors.As(err, &exitErr):
 		result.Code = exitErr.ExitCode()
 	default:
@@ -56,6 +56,21 @@ func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 	}
 	return result, nil
+}
+
+// runChatCommand owns normal one-shot helpers. The app's Claude background
+// command places --bg first and owns its own lifetime after launch.
+func runChatCommand(cmd *exec.Cmd, args []string) error {
+	if len(args) != 0 && (args[0] == "--bg" || args[0] == "--background") {
+		return cmd.Run()
+	}
+	p := &process{cmd: cmd}
+	cmd.Cancel = p.signalKill
+	if err := p.startOwned(); err != nil {
+		return err
+	}
+	defer p.releaseTree()
+	return cmd.Wait()
 }
 
 // cappedBuffer keeps the first limit bytes written to it.

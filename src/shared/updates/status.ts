@@ -33,7 +33,7 @@ export const UpdateStatusSchema = z.discriminatedUnion("kind", [
     trigger: TriggerSchema,
     // The renderer words the message from the reason; the detail stays in
     // the main-process log.
-    reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
+    reason: z.enum(["rate-limited", "http", "network", "unexpected", "response-too-large"]),
     status: z.number().int().optional(),
   }),
   z.object({ kind: z.literal("downloading"), version: z.string() }),

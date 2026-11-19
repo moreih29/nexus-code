@@ -58,14 +58,10 @@ func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	var stderr bytes.Buffer
+	var stderr gitStderr
 	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
+	stdout, finish, err := startGitOutput(streamCtx, cmd)
+	if err != nil {
 		return nil, mapGitStartError(err, diffArgs(params))
 	}
 	result, readErr := s.emitDiffChunks(streamCtx, params.StreamID, stdout, params.MaxChunkBytes, params.MaxBytes)
@@ -73,14 +69,14 @@ func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	waitErr := cmd.Wait()
+	waitErr := finish()
 	if readErr != nil && !errors.Is(readErr, context.Canceled) {
 		return nil, readErr
 	}
 	if ctxErr := streamCtx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
-	code, fatal := gitExitCode(waitErr)
+	code, fatal := gitExitCode(cmd.ProcessState, waitErr)
 	if fatal != nil {
 		return nil, fatal
 	}

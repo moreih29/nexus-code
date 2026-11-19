@@ -37,7 +37,6 @@ func newBareSession(ringCap int) *session {
 		readDone:  make(chan struct{}),
 		createdAt: time.Now(),
 	}
-	s.flowCond = sync.NewCond(&s.flowMu)
 	return s
 }
 
@@ -205,7 +204,7 @@ func TestAccumulateReplayContentMatch(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
-	svc.SetEventSink(rec.sink)
+	svc.SetEventSink(context.Background(), rec.sink)
 	t.Cleanup(svc.Close)
 
 	tabID := "replay-match"
@@ -246,7 +245,7 @@ func TestReplayRedrawsDeliveredOutput(t *testing.T) {
 	var mu sync.Mutex
 	var live, replayed []byte
 	svc := New()
-	svc.SetEventSink(func(event string, payload any) error {
+	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		dp, ok := payload.(DataPayload)
 		if event != EventData || !ok {
 			return nil
@@ -308,7 +307,7 @@ func TestSpawnAttachesToRunningSession(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
-	svc.SetEventSink(rec.sink)
+	svc.SetEventSink(context.Background(), rec.sink)
 	t.Cleanup(svc.Close)
 
 	tabID := "spawn-attach"
@@ -353,7 +352,7 @@ func TestReplayOrderingNoReversal(t *testing.T) {
 	// then succeed.
 	failRemaining := 1 // fail the first emit call
 	svc := New()
-	svc.SetEventSink(func(event string, payload any) error {
+	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		if event != EventData {
 			return nil
 		}
@@ -435,7 +434,7 @@ func TestRingReleasedOnSessionExit(t *testing.T) {
 	svc := New()
 	var mu sync.Mutex
 	var exits []ExitPayload
-	svc.SetEventSink(func(event string, payload any) error {
+	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		if event == EventExit {
 			if ep, ok := payload.(ExitPayload); ok {
 				mu.Lock()
@@ -496,21 +495,20 @@ exit 0
 	}
 }
 
-// TestResetFlowControlUnblocksZombieDeadlock verifies the fix for the zombie
+// TestSetEventSinkClearsPreviousDialerDebt verifies the fix for the zombie
 // window deadlock scenario:
 //
-//  1. noteEmitted accumulates debt past HighWatermarkBytes without matching acks
+//  1. The sink accumulates debt past HighWatermarkBytes without matching acks
 //     (simulating a zombie dialer whose OS socket buffer absorbs writes).
 //  2. readLoop blocks in waitForOutputWindow — paused=true.
-//  3. ResetFlowControl is called (simulating a new dialer wiring its sink).
+//  3. A new dialer installs its sink.
 //  4. pty.replay completes successfully and live output resumes.
 //
-// Without the fix, step 4 would block forever because emitBytes calls
-// waitForOutputWindow which re-enters the same paused condition.
-func TestResetFlowControlUnblocksZombieDeadlock(t *testing.T) {
+// The replay would otherwise block waiting on credit from the previous dialer.
+func TestSetEventSinkClearsPreviousDialerDebt(t *testing.T) {
 	t.Parallel()
 	// Phase 1: spawn a PTY that produces continuous output, then drive
-	// noteEmitted past HighWatermarkBytes without any acks.
+	// output debt past HighWatermarkBytes without any acks.
 	svc := New()
 
 	// Sink that succeeds but never triggers acks — models the OS buffer
@@ -518,7 +516,7 @@ func TestResetFlowControlUnblocksZombieDeadlock(t *testing.T) {
 	var mu sync.Mutex
 	var afterReset []string
 	zombieActive := true
-	svc.SetEventSink(func(event string, payload any) error {
+	sink := func(event string, payload any) error {
 		if event != EventData {
 			return nil
 		}
@@ -535,7 +533,8 @@ func TestResetFlowControlUnblocksZombieDeadlock(t *testing.T) {
 			}
 		}
 		return nil
-	})
+	}
+	svc.SetEventSink(context.Background(), sink)
 	t.Cleanup(svc.Close)
 
 	tabID := "zombie-deadlock"
@@ -562,7 +561,7 @@ sleep 10
 sessionFound:
 
 	// Directly manipulate the session's flow state to simulate the zombie window:
-	// set outstanding to HighWatermarkBytes and paused=true, as if noteEmitted
+	// set outstanding to HighWatermarkBytes and paused=true, as if the sink
 	// accumulated that debt without any acks arriving.
 	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
 	svc.mu.Lock()
@@ -572,27 +571,27 @@ sessionFound:
 		t.Fatal("session not in map")
 	}
 
-	sess.flowMu.Lock()
+	svc.mu.Lock()
 	sess.outstanding = HighWatermarkBytes
 	sess.paused = true
-	sess.flowMu.Unlock()
+	svc.mu.Unlock()
 
-	// Phase 2: simulate new dialer wiring — ResetFlowControl must unblock.
+	// Phase 2: simulate new dialer wiring — SetEventSink must unblock.
 	mu.Lock()
 	zombieActive = false
 	mu.Unlock()
-	svc.ResetFlowControl()
+	svc.SetEventSink(context.Background(), sink)
 
 	// Phase 3: verify the flow gate is now open.
-	sess.flowMu.Lock()
+	svc.mu.Lock()
 	stillPaused := sess.paused
 	stillOutstanding := sess.outstanding
-	sess.flowMu.Unlock()
+	svc.mu.Unlock()
 	if stillPaused {
-		t.Fatal("paused still true after ResetFlowControl — readLoop would deadlock")
+		t.Fatal("paused still true after SetEventSink — readLoop would deadlock")
 	}
 	if stillOutstanding != 0 {
-		t.Fatalf("outstanding = %d after ResetFlowControl, want 0", stillOutstanding)
+		t.Fatalf("outstanding = %d after SetEventSink, want 0", stillOutstanding)
 	}
 
 	// Phase 4: replay must complete without blocking (would time out if paused).
@@ -611,7 +610,7 @@ sessionFound:
 			t.Fatalf("replay error: %v", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("replay blocked — zombie deadlock not fixed (ResetFlowControl had no effect)")
+		t.Fatal("replay blocked — zombie deadlock not fixed (SetEventSink had no effect)")
 	}
 }
 
@@ -634,7 +633,7 @@ func TestReplayWigglesSIGWINCHAfterFlush(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
-	svc.SetEventSink(rec.sink)
+	svc.SetEventSink(context.Background(), rec.sink)
 	t.Cleanup(svc.Close)
 
 	tabID := "wiggle-sigwinch"
