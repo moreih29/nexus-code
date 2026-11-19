@@ -16,6 +16,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
+import { createLogger } from "../../../shared/log/main";
 import { withBlocks } from "../../../shared/notes/insert";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
@@ -42,6 +43,8 @@ import {
   type NoteSummary,
   SKETCH_ID_RE,
 } from "../../../shared/notes/types";
+
+const log = createLogger("notes");
 
 const EMPTY_DOC: DocNode = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -541,8 +544,24 @@ async function readJson<T>(file: string): Promise<T> {
 
 async function writeAtomic(file: string, data: string): Promise<void> {
   const tmp = `${file}.${process.pid}.${randomBytes(3).toString("hex")}.tmp`;
-  await fs.writeFile(tmp, data);
-  await fs.rename(tmp, file);
+  const handle = await fs.open(tmp, "wx");
+  try {
+    try {
+      await fs.writeFile(handle, data);
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(tmp, file);
+  } catch (error) {
+    try {
+      await fs.unlink(tmp);
+    } catch (cleanupError) {
+      if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+        log.warn(`Could not remove temporary note file: ${String(cleanupError)}`);
+      }
+    }
+    throw error;
+  }
 }
 
 async function readdirSafe(dir: string): Promise<string[]> {
