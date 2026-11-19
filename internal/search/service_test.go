@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,32 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 )
+
+// TestCancelBeforeSearchRegistration verifies that a cancel dispatched first
+// still stops its search before any progress reaches the client.
+func TestCancelBeforeSearchRegistration(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "match.txt"), []byte("needle\n"), 0o644))
+	service := mustSearch(t, root)
+	service.SetEventSink(func(_ string, payload any) error {
+		if progress := payload.(ProgressPayload); progress.SearchID == "closed" {
+			t.Error("canceled search sent progress")
+		}
+		return nil
+	})
+	ctx := context.Background()
+	_, err := service.Cancel(ctx, mustJSON(t, CancelParams{SearchID: "closed"}))
+	must(t, err)
+	_, err = service.Text(ctx, mustJSON(t, Params{SearchID: "closed", Query: Query{Pattern: "needle"}}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled search returned %v", err)
+	}
+	result, err := service.Text(ctx, mustJSON(t, Params{SearchID: "next", Query: Query{Pattern: "needle"}}))
+	must(t, err)
+	if result.(Complete).MatchesFound != 1 {
+		t.Fatalf("replacement search returned %+v", result)
+	}
+}
 
 func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
 	root := t.TempDir()
