@@ -47,13 +47,13 @@ import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { MIME_TAB, type TabDragPayload } from "../../../types/workbench-dnd";
 import { codexStatusLabel, estimatedLabel } from "../../agent-list/session-status";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { GoalTabBadge } from "../../chat/goal-bar";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
-import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { followRenameDraft, type RenameDraft } from "./rename-draft";
 
 /**

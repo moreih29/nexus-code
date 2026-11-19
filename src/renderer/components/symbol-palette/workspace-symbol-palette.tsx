@@ -3,13 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { provideWorkspaceSymbols } from "../../services/editor/lsp/bridge";
 import { registerWorkspaceSymbolProvider } from "../../services/lsp-ux/workspace-symbol-registry";
 import { useActiveStore } from "../../state/stores/active";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { CommandPalette } from "../ui/palette/command-palette";
 import {
   closeWorkspaceSymbolPalette,
   isWorkspaceSymbolPaletteOpen,
   subscribeWorkspaceSymbolPalette,
-} from "./workspace-symbol-palette-state";
+} from "../../state/stores/workspace-symbol-palette";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { CommandPalette } from "../ui/palette/command-palette";
 import { createWorkspaceSymbolPaletteSource } from "./workspace-symbol-source";
 
 export function WorkspaceSymbolPaletteRoot(): React.JSX.Element {

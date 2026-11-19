@@ -20,10 +20,10 @@ import {
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
 import { useStableHandlers } from "../../../../hooks/use-stable-handlers";
+import { gitErrorPlacement } from "../../../../services/error-surface/git-error-placement";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
 import { getCommitDraft, useCommitDraftStore } from "../../../../state/stores/git/commit-drafts";
-import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
 import {
   usePanelViewOptionsStore,
   useViewOptions,

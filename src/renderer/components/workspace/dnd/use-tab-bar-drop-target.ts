@@ -24,9 +24,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
+import { MIME_FILE } from "../../../types/workbench-dnd";
+import { hasSupportedMime, parseDragPayload } from "../../../utils/workbench-dnd-payload";
 import { DND_TAB_ITEM_SELECTOR } from "./markers";
-import { hasSupportedMime, parseDragPayload } from "./payload";
-import { MIME_FILE } from "./types";
 
 export interface InsertionState {
   /** Insertion line x in coordinates relative to the tab list element. */
