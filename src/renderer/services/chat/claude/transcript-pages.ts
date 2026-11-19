@@ -80,6 +80,10 @@ export class TranscriptPages {
     };
   }
 
+  get hasPartialRow(): boolean {
+    return this.partial !== undefined;
+  }
+
   get lines(): readonly unknown[] {
     return this.entries;
   }

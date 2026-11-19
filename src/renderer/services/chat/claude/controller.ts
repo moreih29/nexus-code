@@ -17,6 +17,7 @@ import {
   type ChatModel,
   emptyModel,
   type ImageBlock,
+  opensTurn,
   type PermissionRequest,
   type UserItem,
 } from "../model";
@@ -504,7 +505,22 @@ export class ChatController {
       if (page.snapshot) {
         const pages = new TranscriptPages(page, page.snapshot);
         this.transcriptPages = pages;
-        this.publishTranscript(source, pages.project(), pages.lines, page.truncated, true);
+        const current = () =>
+          !this.disposed && this.transcriptSource === source && this.transcriptPages === pages;
+        let history: ChatModel | undefined;
+        try {
+          history = await this.readTranscriptBatch(source, pages, current, "opening");
+        } finally {
+          if (current()) {
+            this.publishTranscript(
+              source,
+              history ?? pages.project(),
+              pages.lines,
+              pages.truncated,
+              true,
+            );
+          }
+        }
       } else {
         this.publishTranscript(
           source,
@@ -559,6 +575,34 @@ export class ChatController {
     return read;
   }
 
+  /** A click or first open reads a meaningful part of the transcript, across fragment frames. */
+  private async readTranscriptBatch(
+    source: TranscriptSource,
+    pages: TranscriptPages,
+    current: () => boolean,
+    action: "opening" | "earlier",
+  ): Promise<ChatModel | undefined> {
+    const args = this.transcriptArgs(source);
+    const requested = new Set<string>();
+    const shown = this.state.history?.items.length ?? 0;
+    while (current()) {
+      const cursor = pages.cursor;
+      if (!pages.hasPartialRow && (action === "opening" || requested.size > 0)) {
+        const read = pages.project();
+        const enough =
+          action === "opening" ? read.items.some(opensTurn) : read.items.length > shown;
+        if (enough || !cursor) return read;
+      }
+      if (!cursor || requested.has(cursor))
+        throw new Error("The transcript cursor did not advance");
+      requested.add(cursor);
+      const result = await ipcCallResult("chat", "transcriptPage", { ...args, cursor });
+      if (!current()) return;
+      if (!result.ok && result.kind === "chat.transcript-cursor-stale") pages.cursor = undefined;
+      pages.prepend(unwrapIpcResult(result));
+    }
+  }
+
   async loadEarlier(): Promise<void> {
     const source = this.transcriptSource;
     const pages = this.transcriptPages;
@@ -571,15 +615,10 @@ export class ChatController {
       this.transcriptPages === pages;
     this.update((prev) => ({ ...prev, historyPage: { hasEarlier: true, loading: true } }));
     try {
-      const result = await ipcCallResult("chat", "transcriptPage", {
-        ...this.transcriptArgs(source),
-        cursor,
-      });
-      if (!current()) return;
-      if (!result.ok && result.kind === "chat.transcript-cursor-stale") pages.cursor = undefined;
-      const page = unwrapIpcResult(result);
-      pages.prepend(page);
-      this.publishTranscript(source, pages.project(), pages.lines, pages.truncated, false);
+      const history = await this.readTranscriptBatch(source, pages, current, "earlier");
+      if (current() && history) {
+        this.publishTranscript(source, history, pages.lines, pages.truncated, false);
+      }
     } catch (error) {
       if (current()) throw error;
     } finally {

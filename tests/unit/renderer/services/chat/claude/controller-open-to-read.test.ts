@@ -259,21 +259,123 @@ test.each([
   "conversation reset",
 ])("an earlier page cannot replace the current history after %s", async (change) => {
   const pending = Promise.withResolvers<TranscriptPageResult>();
-  transcriptPage = (cursor) =>
-    cursor ? pending.promise : Promise.resolve(page([user("recent", "recent")], [250], "older"));
+  const continued = Promise.withResolvers<void>();
+  const wire = Buffer.from(JSON.stringify(user("old", "old")));
+  transcriptPage = async (cursor) => {
+    if (!cursor) return page([user("recent", "recent")], [250], "older");
+    if (cursor === "older") {
+      return {
+        ...page([], [], "finish-row"),
+        fragment: {
+          position: 0,
+          data: wire.subarray(10).toString("base64"),
+          first: false,
+          last: true,
+        },
+      };
+    }
+    expect(cursor).toBe("finish-row");
+    continued.resolve();
+    return pending.promise;
+  };
   const { controller, shown } = openTail();
   await shown;
   const older = controller.loadEarlier();
+  await continued.promise;
   if (change === "conversation reset") {
     controller.receive({ dir: "out", seq: 1, message: { type: "conversation_reset" } });
     controller.flushNow();
   }
   const before = controller.state.history;
   pending.resolve({
-    ...page([user("old", "old")], [0]),
+    ...page([], []),
+    fragment: {
+      position: 0,
+      data: wire.subarray(0, 10).toString("base64"),
+      first: true,
+      last: false,
+    },
     snapshot: change === "different snapshot" ? "other-snapshot" : "same-snapshot",
   });
   if (change === "different snapshot") await expect(older).rejects.toThrow("no longer joins");
   else await older;
   expect(controller.state.history).toBe(before);
+});
+
+test.each([
+  "opening",
+  "earlier",
+] as const)("%s completes a fragmented row in one action", async (action) => {
+  const opening = action === "opening";
+  const entry = opening
+    ? {
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "read", content: "large result" }],
+        },
+      }
+    : user("fragmented", "large message");
+  const bytes = Buffer.from(JSON.stringify(entry));
+  const fragment = (start: number, end: number, cursor: string): TranscriptPageResult => ({
+    ...page([], [], cursor),
+    fragment: {
+      position: 250,
+      data: bytes.subarray(start, end).toString("base64"),
+      first: start === 0,
+      last: end === bytes.length,
+    },
+  });
+  const trailing = fragment(20, bytes.length, "middle");
+  const requested: (string | undefined)[] = [];
+  transcriptPage = async (cursor) => {
+    requested.push(cursor);
+    switch (cursor) {
+      case undefined:
+        return opening ? trailing : page([user("recent", "recent")], [400], "large");
+      case "large":
+        return trailing;
+      case "middle":
+        return fragment(10, 20, "beginning");
+      case "beginning":
+        return fragment(0, 10, "before-row");
+      case "before-row":
+        if (!opening) throw new Error("an earlier read went past the completed row");
+        return page(
+          [
+            user("prompt", "read the file"),
+            {
+              type: "assistant",
+              uuid: "calling",
+              message: {
+                id: "tool-message",
+                content: [{ type: "tool_use", id: "read", name: "Read", input: {} }],
+              },
+            },
+          ],
+          [50, 100],
+          "stop-at-turn",
+        );
+      default:
+        throw new Error("the read went past the last turn");
+    }
+  };
+  const { controller, shown } = openTail();
+  await shown;
+  if (opening) {
+    expect(controller.state.history?.items.map((item) => item.kind)).toEqual(["user", "assistant"]);
+    expect(controller.state.history?.tools.read).toMatchObject({
+      name: "Read",
+      status: "done",
+      result: { text: "large result" },
+    });
+    expect(requested).toEqual([undefined, "middle", "beginning", "before-row"]);
+  } else {
+    expect(controller.state.history?.items).toHaveLength(1);
+    await controller.loadEarlier();
+    expect(
+      controller.state.history?.items.map((item) => item.kind === "user" && item.uuid),
+    ).toEqual(["fragmented", "recent"]);
+    expect(requested).toEqual([undefined, "large", "middle", "beginning"]);
+  }
+  expect(completeReads).toBe(0);
 });
