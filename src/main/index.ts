@@ -244,6 +244,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
     portForwards?.removed(removedWorkspaceId);
+    portWatcher?.forgetWorkspace(removedWorkspaceId);
     agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);

@@ -134,6 +134,16 @@ export class PortWatcher {
     }
   }
 
+  /** Drops polling and debounce state for a workspace that no longer exists. */
+  forgetWorkspace(workspaceId: string): void {
+    this.lastReplay.delete(workspaceId);
+    const prefix = `${workspaceId}:`;
+    for (const key of this.lastOutput.keys()) {
+      if (key.startsWith(prefix)) this.lastOutput.delete(key);
+    }
+    this.stop(workspaceId);
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const dispose of this.disposers.splice(0)) dispose();
