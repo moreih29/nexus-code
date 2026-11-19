@@ -3,7 +3,7 @@ import { generatingElapsed } from "../../../../../src/renderer/components/chat/s
 import {
   applyCodexLine,
   emptyCodexModel,
-} from "../../../../../src/renderer/services/chat/codex-model";
+} from "../../../../../src/renderer/services/chat/codex/model";
 import {
   applyLine,
   type ChatModel,

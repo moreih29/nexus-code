@@ -14,8 +14,8 @@
 //   claude      → closeChatTab, then closeTab
 //   codex       → closeCodexTab, then closeTab
 
-import { closeCodexTab } from "@/services/chat/codex-controller";
-import { closeChatTab } from "@/services/chat/controller";
+import { closeChatTab } from "@/services/chat/claude/controller";
+import { closeCodexTab } from "@/services/chat/codex/controller";
 import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";

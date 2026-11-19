@@ -29,7 +29,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import type { PermissionAnswer } from "../../services/chat/controller";
+import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { type Scope, scopesOf } from "../../services/chat/permission-scopes";
 import { cn } from "../../utils/cn";

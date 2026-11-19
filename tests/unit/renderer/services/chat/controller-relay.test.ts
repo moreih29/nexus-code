@@ -28,9 +28,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { CodexController } = await import(
-  "../../../../../src/renderer/services/chat/codex-controller"
+  "../../../../../src/renderer/services/chat/codex/controller"
 );
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");

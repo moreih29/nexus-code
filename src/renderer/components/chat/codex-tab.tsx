@@ -13,19 +13,20 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
-import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex-commands";
+import type { PermissionAnswer } from "../../services/chat/claude/controller";
+import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
 import {
   type CodexController,
   codexController,
   MIN_CODEX_VERSION,
-} from "../../services/chat/codex-controller";
+} from "../../services/chat/codex/controller";
 import {
   codexHistoryAvailable,
   codexHistoryBusy,
   codexServerVersion,
-} from "../../services/chat/codex-history";
-import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
-import type { PermissionAnswer } from "../../services/chat/controller";
+} from "../../services/chat/codex/history";
+import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
+import { runCodexCommand } from "../../services/chat/codex/run-command";
 import { filesThere } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
@@ -51,7 +52,6 @@ import {
 } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { runCodexCommand } from "../../services/chat/run-codex-command";
 import {
   type ChatTabState,
   chatKey,

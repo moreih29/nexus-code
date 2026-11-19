@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { useNow } from "../../hooks/use-now";
-import type { CodexModel } from "../../services/chat/codex-model";
+import type { CodexModel } from "../../services/chat/codex/model";
 import {
   clockLabel,
   firstLineOf,

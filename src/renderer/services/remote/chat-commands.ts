@@ -15,12 +15,12 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import type { AgentTabController } from "../chat/agent-tab";
 import { APP_COMMANDS, appCommandsBeside, listedCommands } from "../chat/app-commands";
-import { collaborationModeOf } from "../chat/codex-collaboration";
-import { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS } from "../chat/codex-commands";
+import { runAppCommand } from "../chat/claude/run-command";
+import { collaborationModeOf } from "../chat/codex/collaboration";
+import { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS } from "../chat/codex/commands";
+import { runCodexCommand } from "../chat/codex/run-command";
 import type { ChatModel, ToolCall } from "../chat/model";
 import { withRelayed } from "../chat/relayed";
-import { runAppCommand } from "../chat/run-app-command";
-import { runCodexCommand } from "../chat/run-codex-command";
 import { type CommandCard, chatKey, useChatStore } from "../chat/store";
 import { UiRequestError } from "../cli/handler";
 

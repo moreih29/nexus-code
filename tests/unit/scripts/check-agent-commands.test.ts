@@ -6,7 +6,7 @@ import {
   codexMethodsIn,
   codexServiceTierCommandsIn,
 } from "../../../scripts/check-agent-commands";
-import { CONFIG_KEYS } from "../../../src/renderer/services/chat/claude-config";
+import { CONFIG_KEYS } from "../../../src/renderer/services/chat/claude/config";
 
 describe("Claude Code's commands, as its bundle defines them", () => {
   test("the type before the name, with aliases; one turned off is told", () => {

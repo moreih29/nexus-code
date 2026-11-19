@@ -26,10 +26,10 @@ import {
   startAgentTab,
   submissionAt,
 } from "../chat/agent-tab";
-import { CodexConfigRefusal } from "../chat/codex-config";
-import { CodexReplyError } from "../chat/codex-controller";
+import type { ForkPoint } from "../chat/claude/controller";
+import { CodexConfigRefusal } from "../chat/codex/config";
+import { CodexReplyError } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
-import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
 import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";

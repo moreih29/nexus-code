@@ -11,7 +11,7 @@
 
 import { useTranslation } from "react-i18next";
 import type { ChatStatus } from "../../../../packages/remote-protocol/src/view";
-import { MIN_CODEX_VERSION } from "../../services/chat/codex-controller";
+import { MIN_CODEX_VERSION } from "../../services/chat/codex/controller";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { Banner } from "../ui/banner";
 

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ChatController, RewindPreview } from "../../services/chat/controller";
+import type { ChatController, RewindPreview } from "../../services/chat/claude/controller";
 import type { UserItem } from "../../services/chat/model";
 import { shownPath } from "../../utils/path";
 import { Button } from "../ui/button";

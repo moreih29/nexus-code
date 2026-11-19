@@ -5,7 +5,7 @@
  */
 
 import { dateTimeFormat } from "../../utils/intl-format";
-import type { CodexLimitWindow, CodexModel } from "./codex-model";
+import type { CodexLimitWindow, CodexModel } from "./codex/model";
 import type { ChatModel } from "./model";
 import { contextOf, usageLimitsOf } from "./panel";
 

@@ -5,7 +5,7 @@ import {
   CODEX_CONFIG_PROFILE_KEY,
   type CodexConfigSet,
   codexNumericConfigValue,
-} from "../../services/chat/codex-config";
+} from "../../services/chat/codex/config";
 import { SettingsGroup, SettingsRow } from "../settings/section";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";

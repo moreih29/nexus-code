@@ -4,7 +4,7 @@ import {
   CodexConfigRefusal,
   codexConfigEdits,
   codexConfigSnapshot,
-} from "../../../../../src/renderer/services/chat/codex-config";
+} from "../../../../../src/renderer/services/chat/codex/config";
 import {
   ConfigRefusal,
   chatConfigOf,

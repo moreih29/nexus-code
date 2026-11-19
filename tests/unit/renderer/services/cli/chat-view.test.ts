@@ -7,7 +7,7 @@ import {
   applyCodexLine,
   type CodexModel,
   emptyCodexModel,
-} from "../../../../../src/renderer/services/chat/codex-model";
+} from "../../../../../src/renderer/services/chat/codex/model";
 import type {
   ChatLine,
   ChatModel,
