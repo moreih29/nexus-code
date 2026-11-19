@@ -3,7 +3,7 @@
  * its tab goes quiet with the shell back in the foreground, running nothing,
  * its state is cleared.
  */
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 import { ClaudeExitWatch } from "../../../../src/main/features/cli/claude-exit";
 
@@ -11,11 +11,20 @@ const QUIET_MS = 15;
 const T = { workspaceId: "w", tabId: "t" };
 
 const open: Array<{ dispose(): void }> = [];
+beforeEach(() => {
+  jest.useFakeTimers();
+});
 afterEach(() => {
   for (const it of open.splice(0)) it.dispose();
+  jest.useRealTimers();
 });
 
-const settle = (ms = QUIET_MS * 3) => new Promise((r) => setTimeout(r, ms));
+/** Advances the quiet timer and lets the foreground lookup settle. */
+async function advance(ms = QUIET_MS): Promise<void> {
+  jest.advanceTimersByTime(ms);
+  await Promise.resolve();
+  await Promise.resolve();
+}
 
 type Front = { name: string; alone: boolean | undefined } | null;
 
@@ -58,7 +67,7 @@ test("Claude killed mid-turn: the shell's prompt goes quiet, and its state ends"
   broker.set(T.workspaceId, T.tabId, "running");
   print("zsh: killed     claude\r\n% ");
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
-  await settle();
+  await advance();
   expect(broker.get(T.workspaceId, T.tabId)).toBeNull();
 });
 
@@ -66,16 +75,17 @@ test("an idle Claude that died is cleared too, so nothing types a prompt into th
   const { broker, print } = setup(() => front("-bash"));
   broker.set(T.workspaceId, T.tabId, "idle");
   print();
-  await settle();
+  await advance();
   expect(broker.get(T.workspaceId, T.tabId)).toBeNull();
 });
 
 test("Claude, or a program it runs, still in the foreground keeps its state", async () => {
   for (const program of [front("claude"), front("node"), front("vim"), null]) {
-    const { broker, print } = setup(() => program);
+    const { broker, looked, print } = setup(() => program);
     broker.set(T.workspaceId, T.tabId, "running");
     print();
-    await settle();
+    await advance();
+    expect(looked).toEqual(["w:t"]);
     expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
   }
 });
@@ -85,43 +95,45 @@ test("looks only once output is quiet, and only at tabs with Claude's state", as
   broker.set(T.workspaceId, T.tabId, "running");
   for (let i = 0; i < 4; i++) {
     print();
-    await settle(QUIET_MS / 3);
+    await advance(QUIET_MS / 3);
   }
   expect(looked).toEqual([]);
   print("x", { workspaceId: "w", tabId: "plain" });
-  await settle();
+  await advance();
   expect(looked).toEqual(["w:t"]);
 });
 
 test("a Claude started while the program was looked up keeps its state", async () => {
   let answer: (program: Front) => void = () => {};
-  const { broker, print } = setup(() => new Promise((r) => (answer = r)));
+  const { broker, looked, print } = setup(() => new Promise((r) => (answer = r)));
   broker.set(T.workspaceId, T.tabId, "running");
   print();
-  await settle();
+  await advance();
+  expect(looked).toEqual(["w:t"]);
   // The shell was in front when looked at; the wrapper then started Claude,
   // whose SessionStart lands before the answer.
-  await settle(5);
+  await advance(1);
   broker.set(T.workspaceId, T.tabId, "idle", undefined, null);
   answer(front("bash"));
-  await settle(5);
+  await advance(0);
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("idle");
 });
 
 test("Claude started by a script keeps its state: the script's shell waits for it", async () => {
   // `bash run.sh` that runs claude: the script's bash leads the group in
   // front, with Claude in it, so the shell there is not alone.
-  const { broker, print } = setup(() => front("bash", false));
+  const { broker, looked, print } = setup(() => front("bash", false));
   broker.set(T.workspaceId, T.tabId, "running");
   print();
-  await settle();
+  await advance();
+  expect(looked).toEqual(["w:t"]);
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
 });
 
 test("from an agent that does not tell whether the shell is alone, its name is enough", async () => {
-  const { broker, print } = setup(() => front("zsh", undefined));
+  const { broker, print } = setup(() => ({ name: "zsh", alone: undefined }));
   broker.set(T.workspaceId, T.tabId, "running");
   print();
-  await settle();
+  await advance();
   expect(broker.get(T.workspaceId, T.tabId)).toBeNull();
 });

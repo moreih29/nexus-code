@@ -3,7 +3,6 @@ package hookserver
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"time"
 )
@@ -89,9 +88,7 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 	}
 
 	go func() {
-		// The client sends nothing after its frame, so the read ends only
-		// when it goes away or the answer closes the connection.
-		_, _ = io.Copy(io.Discard, conn)
+		waitForClientGone(conn)
 		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {
 			val.(net.Conn).Close()
 			_ = sink("cli.cancel", CLICancelPayload{RequestID: requestID, WorkspaceID: req.WorkspaceID})

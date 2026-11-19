@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -88,6 +90,72 @@ func TestCLIClientGoneIsToldToMain(t *testing.T) {
 	}
 	if err := srv.RespondCLI(requestID, json.RawMessage(`{}`)); err == nil {
 		t.Fatal("an answer to a cancelled request was taken")
+	}
+}
+
+// missedCloseConn models the Windows AF_UNIX read which misses an immediate
+// peer close. A read deadline frees the stalled read so EOF can be observed.
+type missedCloseConn struct {
+	net.Conn
+	deadline  chan struct{}
+	peerGone  chan struct{}
+	stop      chan struct{}
+	armed     sync.Once
+	firstRead bool
+}
+
+// SetReadDeadline signals that the watcher can recover from the missed close.
+func (c *missedCloseConn) SetReadDeadline(deadline time.Time) error {
+	if !deadline.IsZero() {
+		c.armed.Do(func() { close(c.deadline) })
+	}
+	return nil
+}
+
+// Read holds the first read after disconnect until its simulated deadline.
+func (c *missedCloseConn) Read(p []byte) (int, error) {
+	if c.firstRead {
+		return c.Conn.Read(p)
+	}
+	c.firstRead = true
+	<-c.peerGone
+	select {
+	case <-c.deadline:
+		return 0, os.ErrDeadlineExceeded
+	case <-c.stop:
+		return 0, net.ErrClosed
+	}
+}
+
+// TestCLIClientGoneAfterMissedRead verifies the CLI still cancels when the
+// transport delivers EOF only after the first read has timed out.
+func TestCLIClientGoneAfterMissedRead(t *testing.T) {
+	requests := make(chan CLIEventPayload, 1)
+	cancels := make(chan CLICancelPayload, 1)
+	srv := newTestServer(t, func(_ string, payload any) error {
+		switch event := payload.(type) {
+		case CLIEventPayload:
+			requests <- event
+		case CLICancelPayload:
+			cancels <- event
+		}
+		return nil
+	})
+	server, client := net.Pipe()
+	conn := &missedCloseConn{Conn: server, deadline: make(chan struct{}), peerGone: make(chan struct{}), stop: make(chan struct{})}
+	defer server.Close()
+	defer close(conn.stop)
+	srv.handleCLI(conn, cliRequest(srv.Token()), false)
+	request := <-requests
+	_ = client.Close()
+	close(conn.peerGone)
+	select {
+	case event := <-cancels:
+		if event.RequestID != request.RequestID {
+			t.Fatalf("cancel = %+v, want request %s", event, request.RequestID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CLI cancellation was lost when the read missed the disconnect")
 	}
 }
 
