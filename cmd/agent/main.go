@@ -37,6 +37,9 @@ func main() {
 	// What the agent was started with stays with it: on Linux it brings
 	// along Chromium's descriptors, which would reach every terminal.
 	inheritfd.CloseOnExec()
+	if code, handled := hookclient.PrintChildHelper(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 
 	// hook 서브커맨드 분기 — PTY/FS/Git/LSP 서비스 init 전에 처리해 빠른 시작을 보장한다.
 	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
