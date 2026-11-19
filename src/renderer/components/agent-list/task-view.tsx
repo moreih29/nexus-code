@@ -315,7 +315,7 @@ function TaskHeader({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => copyTextViaIpc(path)}>
+            <DropdownMenuItem onSelect={() => void copyTextViaIpc(path)}>
               {t("agentList.task.copy_path")}
             </DropdownMenuItem>
             {!worktree.isRoot && (

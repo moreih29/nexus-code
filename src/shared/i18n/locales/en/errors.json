@@ -27,6 +27,9 @@
   "terminal": {
     "inputFailed": "Terminal input could not be sent. Check the terminal before typing again."
   },
+  "clipboard": {
+    "writeFailed": "Could not copy to the clipboard."
+  },
   "open": {
     "TOO_LARGE": "File too large to open (max {{maxMb}} MB).",
     "failed": "Failed to open file."
