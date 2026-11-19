@@ -8,7 +8,10 @@
  * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
 
-import { beforeAll, describe, expect, it, mock } from "bun:test";
+import { beforeAll, describe, expect, it, mock, spyOn } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -57,15 +60,26 @@ mock.module("electron-log/main", () => ({
   },
 }));
 
+let userData = "/tmp";
 mock.module("electron", () => ({
   ipcMain: { handle: fakeIpcMainHandle, on: fakeIpcMainOn },
   webContents: { getAllWebContents: fakeGetAllWebContents },
-  app: { getPath: () => "/tmp" },
+  app: { getPath: () => userData, isPackaged: false, getVersion: () => "0.1.0" },
+  nativeImage: {},
+  shell: {},
+  systemPreferences: {},
+  safeStorage: {
+    isAsyncEncryptionAvailable: async () => true,
+    getSelectedStorageBackend: () => "test",
+    decryptStringAsync: async (bytes: Buffer) => ({ result: bytes.toString("utf8") }),
+  },
 }));
 
 const { broadcast, excludeFromBroadcast, register, setupRouter, validateArgs } = await import(
   "../../src/main/infra/ipc-router"
 );
+const { registerRemoteChannel } = await import("../../src/main/features/remote");
+const { remoteServer } = await import("../../src/main/features/remote/server");
 const { isIpcErrResult } = await import("../../src/shared/ipc/result");
 
 // ---------------------------------------------------------------------------
@@ -194,5 +208,52 @@ describe("ipc round-trip — routing errors", () => {
     await expect(handler({}, "integration-echo", "noSuchMethod", {})).rejects.toThrow(
       "unknown method: integration-echo.noSuchMethod",
     );
+  });
+});
+
+describe("remote shutdown", () => {
+  it("stops the temporary relay when the registered remote feature shuts down", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "nexus-remote-dispose-"));
+    userData = directory;
+    const ticket = Promise.withResolvers<AbortSignal | null | undefined>();
+    const fetch = spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+      if (new URL(String(url)).pathname === "/relay/ticket") {
+        ticket.resolve(options?.signal);
+        return new Promise<Response>(() => {});
+      }
+      return new Response(null, { status: 404 });
+    });
+    try {
+      await writeFile(
+        path.join(directory, "remote-account.bin"),
+        JSON.stringify({
+          server: remoteServer(process.env, false),
+          token: "fixture-token",
+          user: { id: "u1", name: "Test", email: "test@example.test" },
+          device: { id: "d1", name: "Test", platform: "darwin" },
+        }),
+      );
+      const off = { get: () => false, set: () => {} };
+      const remote = await registerRemoteChannel({
+        services: () => null,
+        allowControl: off,
+        allowTerminal: off,
+        agents: { get: () => "deny", set: () => {} },
+      });
+      try {
+        const start = getHandler()({}, "remote", "pairStart", undefined);
+        const signal = await ticket.promise;
+        await start;
+        remote.dispose();
+        expect(signal?.aborted).toBe(true);
+      } finally {
+        await getHandler()({}, "remote", "pairStop", undefined);
+        remote.dispose();
+      }
+    } finally {
+      fetch.mockRestore();
+      userData = "/tmp";
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

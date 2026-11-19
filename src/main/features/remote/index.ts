@@ -974,8 +974,10 @@ export async function registerRemoteChannel(options: {
         inRoom().request(deviceId, method, params, timeoutMs, signal),
     },
     dispose: () => {
+      if (disposed) return;
       disposed = true;
       proxyProbe.stop();
+      pairing.stop();
       account.cancelSignIn();
       voice.cancel();
       noteVoice.cancel();
