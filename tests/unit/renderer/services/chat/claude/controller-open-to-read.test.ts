@@ -305,16 +305,19 @@ test.each([
 test.each([
   "opening",
   "earlier",
+  "earlier with an answer before its question",
 ] as const)("%s completes a fragmented row in one action", async (action) => {
   const opening = action === "opening";
-  const entry = opening
-    ? {
-        type: "user",
-        message: {
-          content: [{ type: "tool_result", tool_use_id: "read", content: "large result" }],
-        },
-      }
-    : user("fragmented", "large message");
+  const acrossTurn = action === "earlier with an answer before its question";
+  const entry =
+    opening || acrossTurn
+      ? {
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "read", content: "large result" }],
+          },
+        }
+      : user("fragmented", "large message");
   const bytes = Buffer.from(JSON.stringify(entry));
   const fragment = (start: number, end: number, cursor: string): TranscriptPageResult => ({
     ...page([], [], cursor),
@@ -333,13 +336,27 @@ test.each([
       case undefined:
         return opening ? trailing : page([user("recent", "recent")], [400], "large");
       case "large":
+        return acrossTurn
+          ? page(
+              [
+                {
+                  type: "assistant",
+                  uuid: "answer",
+                  message: { id: "answer", content: [{ type: "text", text: "the answer" }] },
+                },
+              ],
+              [350],
+              "result",
+            )
+          : trailing;
+      case "result":
         return trailing;
       case "middle":
         return fragment(10, 20, "beginning");
       case "beginning":
         return fragment(0, 10, "before-row");
       case "before-row":
-        if (!opening) throw new Error("an earlier read went past the completed row");
+        if (!opening && !acrossTurn) throw new Error("an earlier read went past the completed row");
         return page(
           [
             user("prompt", "read the file"),
@@ -361,17 +378,25 @@ test.each([
   };
   const { controller, shown } = openTail();
   await shown;
-  if (opening) {
-    expect(controller.state.history?.items.map((item) => item.kind)).toEqual(["user", "assistant"]);
+  if (!opening) {
+    expect(controller.state.history?.items).toHaveLength(1);
+    await controller.loadEarlier();
+  }
+  if (opening || acrossTurn) {
+    expect(controller.state.history?.items.map((item) => item.kind)).toEqual(
+      acrossTurn ? ["user", "assistant", "assistant", "user"] : ["user", "assistant"],
+    );
     expect(controller.state.history?.tools.read).toMatchObject({
       name: "Read",
       status: "done",
       result: { text: "large result" },
     });
-    expect(requested).toEqual([undefined, "middle", "beginning", "before-row"]);
+    expect(requested).toEqual(
+      acrossTurn
+        ? [undefined, "large", "result", "middle", "beginning", "before-row"]
+        : [undefined, "middle", "beginning", "before-row"],
+    );
   } else {
-    expect(controller.state.history?.items).toHaveLength(1);
-    await controller.loadEarlier();
     expect(
       controller.state.history?.items.map((item) => item.kind === "user" && item.uuid),
     ).toEqual(["fragmented", "recent"]);

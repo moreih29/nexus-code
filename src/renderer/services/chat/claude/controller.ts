@@ -584,13 +584,19 @@ export class ChatController {
   ): Promise<ChatModel | undefined> {
     const args = this.transcriptArgs(source);
     const requested = new Set<string>();
-    const shown = this.state.history?.items.length ?? 0;
+    const shown = this.state.history?.items ?? [];
     while (current()) {
       const cursor = pages.cursor;
       if (!pages.hasPartialRow && (action === "opening" || requested.size > 0)) {
         const read = pages.project();
+        const first = read.items[0];
         const enough =
-          action === "opening" ? read.items.some(opensTurn) : read.items.length > shown;
+          action === "opening"
+            ? read.items.some(opensTurn)
+            : read.items.length > shown.length &&
+              first !== undefined &&
+              first.key !== shown[0]?.key &&
+              opensTurn(first);
         if (enough || !cursor) return read;
       }
       if (!cursor || requested.has(cursor))
