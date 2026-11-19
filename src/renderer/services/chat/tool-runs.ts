@@ -4,6 +4,7 @@
 import { ARTIFACT_TOOL } from "./artifact";
 import type { AssistantBlock, AssistantItem, ChatItem, ToolCall } from "./model";
 import { AGENT_TOOLS, SEND_FILES_TOOL } from "./panel";
+import type { ToolRowStatuses } from "./running";
 
 /**
  * Calls that keep a line of their own: a subagent's, those that ask the
@@ -95,7 +96,10 @@ export interface RunTally {
   denied: number;
 }
 
-export function tallyRun(calls: readonly (ToolCall | undefined)[]): RunTally {
+export function tallyRun(
+  calls: readonly (ToolCall | undefined)[],
+  toolStatuses: ToolRowStatuses,
+): RunTally {
   const tally: RunTally = {
     commands: 0,
     reads: 0,
@@ -108,8 +112,9 @@ export function tallyRun(calls: readonly (ToolCall | undefined)[]): RunTally {
   const read = new Set<string>();
   const edited = new Set<string>();
   for (const call of calls) {
-    if (call?.status === "error") tally.failed++;
-    if (call?.status === "denied") tally.denied++;
+    const status = call && (toolStatuses[call.id] ?? call.status);
+    if (status === "error") tally.failed++;
+    if (status === "denied") tally.denied++;
     const name = call?.name ?? "";
     const input = (call?.input ?? {}) as Record<string, unknown>;
     const path = [input.file_path, input.notebook_path].find(

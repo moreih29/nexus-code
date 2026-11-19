@@ -3,8 +3,8 @@
 // subagents and the `claude -p` runs it started), and below, folded, what
 // ended, newest first.
 
-import type { ChatItem, ToolCall } from "./model";
-import { AGENT_TOOLS, type AgentRow, type AgentStatus } from "./panel";
+import type { ChatItem, ChatModel, ToolCall } from "./model";
+import { AGENT_TOOLS, type AgentRow, type AgentStatus, jobsOf } from "./panel";
 
 /** A background job as the panel takes it: a task of the tab's, or as another computer tells one. */
 export interface JobLike {
@@ -15,6 +15,7 @@ export interface JobLike {
   /** running, then completed, failed, killed or stopped. */
   status: string;
   toolUseId?: string;
+  backgrounded?: boolean;
   startedAt?: number;
   endedAt?: number;
   summary?: string;
@@ -70,6 +71,38 @@ export function jobStatus(status: string): AgentStatus {
     default:
       return "stopped";
   }
+}
+
+/** The CLI can confirm the handoff before the foreground call returns. */
+function waitsForJob(job: JobLike, waitsForCall: boolean): boolean {
+  return waitsForCall && job.backgrounded !== true;
+}
+
+export type ToolRowStatus = ToolCall["status"] | "background";
+export type ToolRowStatuses = Readonly<Partial<Record<string, ToolRowStatus>>>;
+
+const JOB_TOOL_STATUS = {
+  running: "background",
+  completed: "done",
+  failed: "error",
+  stopped: "stopped",
+} as const;
+
+/** A handed-off call's row follows the job once the CLI starts tracking it. */
+export function jobToolStatuses({
+  tasks,
+  tools,
+  running,
+}: Pick<ChatModel, "tasks" | "tools" | "running">): ToolRowStatuses {
+  const statuses: Partial<Record<string, ToolRowStatus>> = {};
+  for (const job of jobsOf({ tasks })) {
+    const id = job.toolUseId;
+    const tool = id ? tools[id] : undefined;
+    if (!id || !tool || tool.status === "denied") continue;
+    if (waitsForJob(job, running && canBackground(tool))) continue;
+    statuses[id] = JOB_TOOL_STATUS[jobStatus(job.status)];
+  }
+  return statuses;
 }
 
 function str(value: unknown): string | undefined {
@@ -158,7 +191,8 @@ export function activityOf<J extends JobLike>({
     const status = jobStatus(job.status);
     const running = status === "running";
     // A command just sent to the background is the job its call started.
-    const isWaited = running && job.toolUseId !== undefined && waited.has(job.toolUseId);
+    const isWaited =
+      running && waitsForJob(job, job.toolUseId !== undefined && waited.has(job.toolUseId));
     rows.push({
       key: `job:${job.taskId}`,
       kind: "command",

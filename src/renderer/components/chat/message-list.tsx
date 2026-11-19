@@ -72,6 +72,7 @@ import {
 } from "../../services/chat/panel";
 import { followsMessage } from "../../services/chat/profile-moves";
 import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
+import type { ToolRowStatuses } from "../../services/chat/running";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, tallyRun } from "../../services/chat/tool-runs";
 import { showPeerSession } from "../../services/remote/show-peer";
@@ -98,6 +99,8 @@ import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { SentFiles } from "./sent-files";
 import { ToolRow } from "./tool-row";
 
+const NO_TOOL_STATUSES: ToolRowStatuses = {};
+
 interface MessageListProps {
   workspaceId: string;
   /** The tab the conversation is, if it is one. */
@@ -106,6 +109,7 @@ interface MessageListProps {
   rootPath: string;
   history: ChatModel | null;
   model: ChatModel;
+  toolStatuses?: ToolRowStatuses;
   /** Shown when there is no message yet. */
   empty?: React.ReactNode;
   actions?: MessageActions;
@@ -219,6 +223,7 @@ export function MessageList({
   rootPath,
   history,
   model,
+  toolStatuses = NO_TOOL_STATUSES,
   empty,
   actions,
   items,
@@ -495,14 +500,22 @@ export function MessageList({
   );
   const under = useMemo(() => callsUnder(tools), [tools]);
   const views = useMemo(() => {
-    const sources = { tools, callsUnder: under, shown, extras, earlier, asked: shownCall };
+    const sources = {
+      tools,
+      toolStatuses,
+      callsUnder: under,
+      shown,
+      extras,
+      earlier,
+      asked: shownCall,
+    };
     const out = new Map<ChatItem, ItemView>();
     for (const item of windowItems) {
       const view = itemView(item, sources);
       if (view) out.set(item, view);
     }
     return out;
-  }, [windowItems, tools, under, shown, extras, earlier, shownCall]);
+  }, [windowItems, tools, toolStatuses, under, shown, extras, earlier, shownCall]);
 
   const list = (
     <div className="relative min-h-0 flex-1">
@@ -558,6 +571,7 @@ export function MessageList({
               streaming={streaming}
               ctx={ctx}
               tools={tools}
+              toolStatuses={toolStatuses}
               shownEarlier={earlier.inLastTurn}
             />
           )}
@@ -614,7 +628,14 @@ const Item = memo(function Item({ item, ctx, view }: ItemProps) {
         <AssistantMessage
           item={item}
           ctx={ctx}
-          view={view ?? { blocks: item.blocks, tools: {}, earlier: new Map() }}
+          view={
+            view ?? {
+              blocks: item.blocks,
+              tools: {},
+              toolStatuses: NO_TOOL_STATUSES,
+              earlier: new Map(),
+            }
+          }
         />
       );
     case "notice":
@@ -1064,6 +1085,7 @@ function AssistantMessage({
             toolUseId={block.toolUseId}
             ctx={ctx}
             tools={view.tools}
+            toolStatuses={view.toolStatuses}
             shownEarlier={view.earlier.get(block.toolUseId)}
           />
         ),
@@ -1100,10 +1122,6 @@ function runKey(blocks: AssistantBlock[]): string {
   return first?.type === "tool" ? first.toolUseId : "";
 }
 
-function isLive(tool: ToolCall | undefined): boolean {
-  return !tool || tool.status === "running" || tool.status === "streaming";
-}
-
 /** The kinds of call a run's line counts, in its order. */
 const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
 
@@ -1123,7 +1141,7 @@ function ToolRun({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const { tools } = view;
+  const { tools, toolStatuses } = view;
   // Opens when the side panel asks to see a call of the run's.
   const asked = view.asked;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once; a call joining the run later does not open it again
@@ -1133,14 +1151,17 @@ function ToolRun({
     }
   }, [asked]);
   const calls = blocks.flatMap((block) => (block.type === "tool" ? [tools[block.toolUseId]] : []));
-  const running = calls.some(isLive);
-  const tally = tallyRun(calls);
+  const live = blocks.filter((block) => {
+    if (block.type !== "tool") return false;
+    const status = toolStatuses[block.toolUseId] ?? tools[block.toolUseId]?.status;
+    return !status || status === "running" || status === "streaming" || status === "background";
+  });
+  const running = live.length > 0;
+  const tally = tallyRun(calls, toolStatuses);
   const label = RUN_KINDS.filter((kind) => tally[kind] > 0)
     .map((kind) => t(`chat.tool.run.${kind}`, { count: tally[kind] }))
     .join(" · ");
-  const rows = open
-    ? blocks
-    : blocks.filter((block) => block.type === "tool" && isLive(tools[block.toolUseId]));
+  const rows = open ? blocks : live;
   return (
     <div className="my-1 text-app-ui-sm" data-testid="chat-tool-run">
       <div className="flex min-w-0 items-center gap-1">
@@ -1191,6 +1212,7 @@ function ToolRun({
                 toolUseId={block.toolUseId}
                 tool={tools[block.toolUseId]}
                 tools={tools}
+                toolStatuses={toolStatuses}
                 cwd={ctx.cwd}
                 onBackground={backgroundOf(ctx.actions, block.toolUseId)}
               />
@@ -1210,12 +1232,14 @@ function CallRow({
   toolUseId,
   ctx,
   tools,
+  toolStatuses,
   shownEarlier,
 }: {
   toolUseId: string;
   ctx: ItemContext;
   /** Its call and the calls it runs, by id; more is fine. */
   tools: Readonly<Record<string, ToolCall>>;
+  toolStatuses: ToolRowStatuses;
   /** The image files it sends that its turn showed before. */
   shownEarlier?: ReadonlySet<string>;
 }) {
@@ -1254,6 +1278,7 @@ function CallRow({
       toolUseId={toolUseId}
       tool={tool}
       tools={tools}
+      toolStatuses={toolStatuses}
       cwd={ctx.cwd}
       onBackground={backgroundOf(ctx.actions, toolUseId)}
     />
@@ -1302,11 +1327,13 @@ function Streaming({
   streaming,
   ctx,
   tools,
+  toolStatuses,
   shownEarlier,
 }: {
   streaming: StreamingMessage;
   ctx: ItemContext;
   tools: Record<string, ToolCall>;
+  toolStatuses: ToolRowStatuses;
   /** What the last turn shows in full so far, which it shows as chips. */
   shownEarlier: ReadonlySet<string>;
 }) {
@@ -1329,7 +1356,13 @@ function Streaming({
         ) : block.type === "thinking" ? (
           <Thinking key={index} text={block.text} live />
         ) : block.toolUseId ? (
-          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} tools={tools} />
+          <CallRow
+            key={block.toolUseId}
+            toolUseId={block.toolUseId}
+            ctx={ctx}
+            tools={tools}
+            toolStatuses={toolStatuses}
+          />
         ) : null,
       )}
     </div>
