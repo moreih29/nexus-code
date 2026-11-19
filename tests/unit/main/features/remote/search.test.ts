@@ -1,5 +1,5 @@
 /** A workspace's files searched from another device: by name, and for text, in its agent. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { findFiles, searchFiles } from "../../../../../src/main/features/remote/search";
 import type { FileMatch } from "../../../../../src/shared/search/types";
@@ -171,16 +171,26 @@ describe("searching files for text", () => {
   });
 
   test("out of time: what it found so far, cut", async () => {
-    const { fs, calls } = fakeAgent({
-      batches: [[{ relPath: "x", matches: [match(0, 0, 1, "a")] }]],
-      hang: true,
-    });
-    const found = await searchFiles(fs, { workspaceId: "w1", query: "a" }, 20);
-    expect(found).toEqual({
-      files: [{ path: "x", matches: [{ line: 1, column: 0, length: 1, text: "a" }] }],
-      truncated: true,
-    });
-    expect(calls.at(-1)?.method).toBe("search.cancel");
+    jest.useFakeTimers();
+    try {
+      const { fs, calls } = fakeAgent({
+        batches: [[{ relPath: "x", matches: [match(0, 0, 1, "a")] }]],
+        hang: true,
+      });
+      const pending = searchFiles(fs, { workspaceId: "w1", query: "a" }, 20);
+      await Promise.resolve();
+      expect(calls.map((call) => call.method)).toEqual(["search.text"]);
+      jest.advanceTimersByTime(20);
+      expect(await pending).toEqual({
+        files: [{ path: "x", matches: [{ line: 1, column: 0, length: 1, text: "a" }] }],
+        truncated: true,
+      });
+      expect(calls.slice(1)).toEqual([
+        { method: "search.cancel", params: { searchId: calls[0]?.params.searchId } },
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("a pattern that is no regular expression is the asker's error", async () => {

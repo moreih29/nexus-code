@@ -69,35 +69,45 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
     // a local request timeout, the consumer stopping early) leaves the
     // search running on the agent, so it must be cancelled there.
     let answered = false;
+    let started = false;
+    let cancelSent = false;
     const unsubscribe = provider.onAgentEvent(SEARCH_PROGRESS_EVENT, (payload) => {
       const parsed = AgentSearchProgressPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.searchId !== searchId) return;
       queue.push(parsed.data.batch);
     });
 
-    const complete = provider
-      .callAgentMethod(SEARCH_TEXT_METHOD, { searchId, query })
-      .then((result) => {
-        answered = true;
-        return AgentSearchCompleteSchema.parse(result);
-      })
-      .catch((error) => {
-        throw normalizeSearchError(error);
-      })
-      .finally(() => {
-        queue.close();
-      });
-    complete.catch(() => {});
-
-    const abort = (): void => {
+    const cancel = (): void => {
+      if (!started || answered || cancelSent) return;
+      cancelSent = true;
       void provider.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
+    };
+    const abort = (): void => {
       queue.fail(createAbortError());
+      cancel();
     };
     ctx.signal.addEventListener("abort", abort, { once: true });
 
     try {
+      if (ctx.signal.aborted) throw createAbortError();
+      started = true;
+      const complete = provider
+        .callAgentMethod(SEARCH_TEXT_METHOD, { searchId, query })
+        .then((result) => {
+          answered = true;
+          return AgentSearchCompleteSchema.parse(result);
+        })
+        .catch((error) => {
+          throw normalizeSearchError(error);
+        })
+        .finally(() => {
+          queue.close();
+        });
+      complete.catch(() => {});
+
       for (;;) {
         const next = await queue.next();
+        if (ctx.signal.aborted) throw createAbortError();
         if (next.done) {
           return await complete;
         }
@@ -106,9 +116,7 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
     } finally {
       ctx.signal.removeEventListener("abort", abort);
       unsubscribe();
-      if (!answered) {
-        void provider.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
-      }
+      cancel();
     }
   };
 }

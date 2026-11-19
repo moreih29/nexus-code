@@ -118,6 +118,39 @@ async function consumeSearch(
 }
 
 describe("searchTextStream", () => {
+  test("cancels once when IPC aborts as the agent request is sent", async () => {
+    const ctrl = new AbortController();
+    const provider = makeAgentProvider({});
+    const canceled: unknown[] = [];
+    let searchParams: unknown;
+    let reply!: (result: SearchComplete) => void;
+    const response = new Promise<SearchComplete>((resolve) => {
+      reply = resolve;
+    });
+    provider.callAgentMethod = async (method, params) => {
+      if (method === "search.cancel") {
+        canceled.push(params);
+        return {};
+      }
+      searchParams = params;
+      ctrl.abort();
+      return response;
+    };
+    const handler = searchTextStream(makeManager(provider) as never);
+    const pending = handler(
+      { workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) },
+      context(ctrl.signal),
+    ).next();
+    await Promise.resolve();
+    const canceledBeforeReply = canceled.slice();
+    reply({ filesScanned: 1, matchesFound: 0, limitHit: false, elapsedMs: 1 });
+    await expect(pending).rejects.toThrow("aborted");
+    expect(canceledBeforeReply).toEqual([
+      { searchId: (searchParams as { searchId: string }).searchId },
+    ]);
+    expect(canceled).toHaveLength(1);
+  });
+
   test("throws AbortError when the stream signal is already aborted", async () => {
     const ctrl = new AbortController();
     ctrl.abort();
