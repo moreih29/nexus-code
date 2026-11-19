@@ -77,7 +77,7 @@ function str(value: unknown): string | undefined {
 }
 
 /** A command's line as a row says it: what the model said it does, else its first line. */
-function commandLabel(tool: ToolCall): string {
+export function commandLabel(tool: ToolCall): string {
   const input = (tool.input ?? {}) as Record<string, unknown>;
   const said = str(input.description)?.trim();
   if (said) return said;

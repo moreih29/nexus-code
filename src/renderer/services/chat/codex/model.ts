@@ -38,6 +38,7 @@ import {
   type ToolCall,
   type UserItem,
 } from "../model";
+import { commandLabel, WAITED_CALL_DELAY_MS } from "../running";
 import {
   type CodexCollaborationMode,
   type CodexCollaborationSettings,
@@ -88,6 +89,13 @@ export interface CodexServerRequest {
   params: Rec;
 }
 
+/** A live command and whether its process can outlast the turn that started it. */
+interface LiveCommand {
+  turnId: string;
+  startedAt?: number;
+  canContinue: boolean;
+}
+
 export interface CodexModel extends ChatModel {
   /** Keeps sequence-based item keys unique across the tab's agent logs. */
   logSeqOffset?: number;
@@ -103,6 +111,8 @@ export interface CodexModel extends ChatModel {
   turnId?: string;
   /** Log sequence of the current turn's last tool completion. */
   toolCompletedSeq?: number;
+  /** Commands observed starting in the live log, until their lifecycle settles. */
+  liveCommands?: Record<string, LiveCommand>;
   /** What the program is signed in with (its kind only); null when it is not. */
   account?: { type: string } | null;
   /** The program needs a sign-in before a turn can run. */
@@ -167,6 +177,7 @@ export function loseCodexLog(prev: CodexModel): CodexModel {
     mcpServers: undefined,
     mcpLogin: undefined,
   });
+  settleCommands(draft, undefined);
   stopRunningTools(draft);
   stopRunningTasks(draft, undefined);
   return draft.next;
@@ -255,6 +266,7 @@ export function applyCodexLine(
       draft.next.originals = { ...draft.next.originals, [path]: before };
     }
   } else if (line.dir === "sys") {
+    if (message.event === "exit" || message.event === "start") settleCommands(draft, at);
     applySys(draft, message, keySeq, at);
     if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
     if (message.event === "start" || message.event === "exit") {
@@ -440,7 +452,7 @@ function applyResponse(
           const child = rec(raw);
           const id = str(child?.id);
           if (child && id && id !== m.threadId && parentThreadOf(child) === m.threadId) {
-            applyNativeAgent(m, id, child);
+            applyNativeAgent(m, id, child, undefined, undefined, at);
           }
         }
       }
@@ -455,7 +467,7 @@ function applyResponse(
         sent.request.includeTurns === true &&
         m.tasks[id]?.type === "codex_subagent"
       ) {
-        applyNativeAgent(m, id, thread);
+        applyNativeAgent(m, id, thread, undefined, undefined, at);
         applyAgentTranscript(draft, id, thread, seq);
       } else if (
         sent.request.includeTurns === false &&
@@ -603,17 +615,70 @@ function parentThreadOf(thread: Rec): string | undefined {
   return str(thread.parentThreadId) ?? str(spawn?.parent_thread_id);
 }
 
+/** Translates a child turn's outcome without treating a still-active turn as ended. */
+function nativeTurnEnd(status: unknown): string | undefined {
+  switch (status) {
+    case "completed":
+    case "failed":
+      return status;
+    case "interrupted":
+      return "stopped";
+  }
+}
+
+/** Updates a known child from its own thread and turn events. */
+function applyNativeAgentNotification(
+  m: CodexModel,
+  id: string,
+  method: string,
+  params: Rec,
+  at: number | undefined,
+): void {
+  const task = m.tasks[id];
+  if (task?.type !== "codex_subagent") return;
+  let status: string | undefined;
+  switch (method) {
+    case "thread/statusChanged":
+      if (!["active", "idle", "systemError"].includes(String(rec(params.status)?.type))) return;
+      applyNativeAgent(m, id, { status: params.status }, undefined, undefined, at);
+      return;
+    case "thread/closed":
+      if (task.status === "running") status = "stopped";
+      break;
+    case "turn/started":
+      status = "running";
+      break;
+    case "turn/completed":
+      status = nativeTurnEnd(rec(params.turn)?.status);
+      break;
+  }
+  if (status) applyNativeAgent(m, id, {}, status, undefined, at);
+}
+
+/** Merges discovery metadata or an explicit child lifecycle update into its row. */
 function applyNativeAgent(
   m: CodexModel,
   id: string,
   metadata: Rec = {},
   status?: string,
   prompt?: string,
+  at?: number,
 ): void {
   const before = m.tasks[id];
   const kind = str(rec(metadata.status)?.type);
   const lastTurn = Array.isArray(metadata.turns) ? rec(metadata.turns.at(-1)) : undefined;
-  const terminal = str(lastTurn?.status);
+  const previous = before?.status;
+  // An idle status says the turn ended. Its specific outcome can arrive
+  // separately and takes precedence over an idle snapshot.
+  const nextStatus =
+    status ??
+    (kind === "active"
+      ? "running"
+      : kind === "systemError"
+        ? "failed"
+        : (nativeTurnEnd(lastTurn?.status) ??
+          (kind === "idle" && (!previous || previous === "running") ? "completed" : previous) ??
+          "stopped"));
   const next: TaskInfo = {
     ...before,
     taskId: id,
@@ -622,20 +687,13 @@ function applyNativeAgent(
     description:
       str(metadata.agentNickname) || str(metadata.name) || before?.description || prompt || id,
     subagentType: str(metadata.agentRole) ?? before?.subagentType,
-    status:
-      status ??
-      (kind === "active"
-        ? "running"
-        : terminal === "failed" || kind === "systemError"
-          ? "failed"
-          : terminal === "interrupted"
-            ? "stopped"
-            : terminal === "completed" || kind === "idle"
-              ? "completed"
-              : (before?.status ?? "stopped")),
+    status: nextStatus,
     prompt: before?.prompt ?? (prompt || str(metadata.preview) || undefined),
     startedAt:
-      num(metadata.createdAt) === undefined ? before?.startedAt : Number(metadata.createdAt) * 1000,
+      num(metadata.createdAt) === undefined
+        ? (before?.startedAt ?? (nextStatus === "running" ? at : undefined))
+        : Number(metadata.createdAt) * 1000,
+    endedAt: nextStatus === "running" ? undefined : (before?.endedAt ?? at),
   };
   m.tasks = { ...m.tasks, [id]: next };
 }
@@ -863,7 +921,10 @@ function applyNotification(
   // its context's size and compactions.
   const threadId = str(params.threadId);
   const another = threadId && m.threadId && threadId !== m.threadId;
-  if (another && (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method))) return;
+  if (another) {
+    applyNativeAgentNotification(m, threadId, method, params, at);
+    if (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method)) return;
+  }
   if (
     threadId &&
     !m.threadId &&
@@ -889,16 +950,12 @@ function applyNotification(
       const item = rec(params.item);
       const turnId = str(params.turnId) ?? m.turnId ?? "";
       if (item) {
-        const when = num(item.startedAtMs) ?? at;
         const completed = method === "item/completed";
-        const toolRan = applyItem(
-          draft,
-          turnId,
-          item,
-          completed ? "completed" : "started",
-          tag,
-          when,
-        );
+        const phase = completed ? "completed" : "started";
+        const toolRan =
+          item.type === "commandExecution"
+            ? applyCommandEvent(draft, turnId, item, phase, tag, at)
+            : applyItem(draft, turnId, item, phase, tag, num(item.startedAtMs) ?? at);
         if (m.running && turnId === m.turnId) {
           noteTurnActivity(m, at);
           if (completed && toolRan && m.permissions.length === 0) {
@@ -1083,7 +1140,25 @@ function applyNotification(
 function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: number | undefined) {
   const m = draft.next;
   const status = str(turn.status) ?? "completed";
+  if (status === "inProgress") return;
   const turnId = str(turn.id);
+  if (turnId) {
+    // Some versions include the command's final item here even when its
+    // individual completion notification did not reach the tab.
+    for (const raw of Array.isArray(turn.items) ? turn.items : []) {
+      const item = rec(raw);
+      const id = str(item?.id);
+      if (
+        item?.type === "commandExecution" &&
+        id &&
+        m.liveCommands?.[id]?.turnId === turnId &&
+        (item.status === "completed" || item.status === "failed" || item.status === "declined")
+      ) {
+        applyCommandEvent(draft, turnId, item, "completed", String(seq), at);
+      }
+    }
+    settleCommands(draft, at, turnId);
+  }
   const sawTurnStart = turnId && turnId === m.turnId;
   m.running = false;
   m.turn = null;
@@ -1107,12 +1182,128 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   };
   const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
   finishSubmittedTurn(draft, turnId, failure);
+  if (status === "interrupted" || status === "failed") {
+    stopRunningTools(draft, (tool) => !tool.parentToolUseId && !m.liveCommands?.[tool.id]);
+  }
   if (status === "interrupted") {
-    stopRunningTools(draft);
     draft.push({ kind: "notice", key: `n${seq}`, code: "interrupted", at });
   } else if (status === "failed") {
-    stopRunningTools(draft);
     pushError(draft, failure ?? "failed", `n${seq}`, at);
+  }
+}
+
+/** Projects a live command into the same job list the local and remote panels consume. */
+function setCommandJob(
+  m: CodexModel,
+  id: string,
+  status: string,
+  startedAt: number | undefined,
+  endedAt?: number,
+  durationMs?: number,
+): void {
+  const tool = m.tools[id];
+  if (!tool) return;
+  const taskId = `codex-command:${id}`;
+  const elapsed =
+    startedAt !== undefined && endedAt !== undefined ? endedAt - startedAt : durationMs;
+  // A brief foreground command never reached the running panel.
+  if (
+    !m.tasks[taskId] &&
+    status !== "running" &&
+    elapsed !== undefined &&
+    elapsed < WAITED_CALL_DELAY_MS
+  )
+    return;
+  m.tasks = {
+    ...m.tasks,
+    [taskId]: {
+      taskId,
+      type: "local_bash",
+      toolUseId: id,
+      description: commandLabel(tool),
+      status,
+      startedAt,
+      endedAt,
+    },
+  };
+}
+
+/** Drops the live tracking entry after its terminal row has been recorded. */
+function forgetCommand(m: CodexModel, id: string): void {
+  const { [id]: _command, ...rest } = m.liveCommands ?? {};
+  m.liveCommands = Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+/** Applies a live command item without closing a still-running terminal on a partial update. */
+function applyCommandEvent(
+  draft: CodexDraft,
+  turnId: string,
+  item: Rec,
+  phase: "started" | "completed",
+  tag: string,
+  at: number | undefined,
+): boolean | undefined {
+  const m = draft.next;
+  const id = str(item.id);
+  if (!id) return;
+  const live = m.liveCommands?.[id];
+  const job = m.tasks[`codex-command:${id}`];
+  if (live && phase === "completed" && live.turnId !== turnId) return;
+  const when = num(item.startedAtMs) ?? at;
+  const canContinue =
+    live?.canContinue === true ||
+    str(item.processId) !== undefined ||
+    item.source === "unifiedExecStartup" ||
+    item.source === "unifiedExecInteraction";
+  const stillRunning =
+    canContinue && item.status === "inProgress" && num(item.exitCode) === undefined;
+  const toolRan = applyItem(draft, turnId, item, stillRunning ? "started" : phase, tag, when);
+  const tool = m.tools[id];
+  if (!tool) return toolRan;
+  if (tool.status === "running") {
+    const command = { turnId, startedAt: live?.startedAt ?? when, canContinue };
+    m.liveCommands = { ...m.liveCommands, [id]: command };
+    if (job?.status === "running") markCommandBackground(draft, tool);
+    return false;
+  }
+  if (live || job) {
+    const status =
+      tool.status === "done" ? "completed" : tool.status === "error" ? "failed" : "stopped";
+    setCommandJob(
+      m,
+      id,
+      status,
+      live?.startedAt ?? job?.startedAt,
+      num(item.completedAtMs) ?? at,
+      num(item.durationMs),
+    );
+    if (live) forgetCommand(m, id);
+  }
+  return toolRan;
+}
+
+/** A terminal kept past its original turn does not block a later turn. */
+function markCommandBackground(draft: CodexDraft, tool: ToolCall): void {
+  draft.setTool(tool.id, () => ({
+    ...tool,
+    input: { ...rec(tool.input), run_in_background: true },
+  }));
+}
+
+/** Settles one turn's foreground commands, or all commands on program exit. */
+function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: string): void {
+  const m = draft.next;
+  for (const [id, command] of Object.entries(m.liveCommands ?? {})) {
+    if (turnId !== undefined && command.turnId !== turnId) continue;
+    const tool = m.tools[id];
+    if (turnId !== undefined && command.canContinue && tool?.status === "running") {
+      markCommandBackground(draft, tool);
+      setCommandJob(m, id, "running", command.startedAt);
+      continue;
+    }
+    if (tool?.status === "running") draft.setTool(id, () => ({ ...tool, status: "stopped" }));
+    setCommandJob(m, id, "stopped", command.startedAt, at);
+    forgetCommand(m, id);
   }
 }
 
@@ -1208,7 +1399,7 @@ function applyItem(
       }
       return;
   }
-  if (discoverAgents) applyNativeAgentItem(m, item);
+  if (discoverAgents) applyNativeAgentItem(m, item, at);
   const tools = toolsOf(item, id, phase);
   if (!tools) return;
   const ran =
@@ -1221,12 +1412,12 @@ function applyItem(
   return ran;
 }
 
-function applyNativeAgentItem(m: CodexModel, item: Rec): void {
+function applyNativeAgentItem(m: CodexModel, item: Rec, at: number | undefined): void {
   if (item.type === "subAgentActivity") {
     const id = str(item.agentThreadId);
     const status =
       item.kind === "completed" ? "completed" : item.kind === "interrupted" ? "stopped" : "running";
-    if (id && id !== m.threadId) applyNativeAgent(m, id, {}, status);
+    if (id && id !== m.threadId) applyNativeAgent(m, id, {}, status, undefined, at);
   }
   if (item.type !== "collabAgentToolCall" || !Array.isArray(item.receiverThreadIds)) return;
   if (item.senderThreadId && item.senderThreadId !== m.threadId) return;
@@ -1243,7 +1434,14 @@ function applyNativeAgentItem(m: CodexModel, item: Rec): void {
             : state === "pendingInit" || state === "running" || item.tool === "spawnAgent"
               ? "running"
               : undefined;
-    applyNativeAgent(m, id, {}, status, item.tool === "spawnAgent" ? str(item.prompt) : undefined);
+    applyNativeAgent(
+      m,
+      id,
+      {},
+      status,
+      item.tool === "spawnAgent" ? str(item.prompt) : undefined,
+      at,
+    );
   }
 }
 
