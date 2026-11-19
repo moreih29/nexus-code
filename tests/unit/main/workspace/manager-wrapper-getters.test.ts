@@ -127,7 +127,7 @@ function writeAgentManifest(dir: string, version: string): void {
 }
 
 /**
- * Type cast for direct access to WorkspaceManager's private sshBootstraps map.
+ * Type cast for direct access to the remote connection's bootstrap map.
  * Test only — in production code it is set only inside startRemoteProvider.
  */
 function injectSshBootstrap(
@@ -136,9 +136,9 @@ function injectSshBootstrap(
   bootstrap: ReturnType<typeof makeSshBootstrap>,
 ) {
   const m = manager as unknown as {
-    sshBootstraps: Map<string, ReturnType<typeof makeSshBootstrap>>;
+    remote: { sshBootstraps: Map<string, ReturnType<typeof makeSshBootstrap>> };
   };
-  m.sshBootstraps.set(workspaceId, bootstrap);
+  m.remote.sshBootstraps.set(workspaceId, bootstrap);
 }
 
 // ---------------------------------------------------------------------------
