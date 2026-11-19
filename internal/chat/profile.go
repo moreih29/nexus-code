@@ -17,7 +17,7 @@ import (
 	"runtime"
 	"strings"
 
-	nexusfs "github.com/nexus-code/nexus-code/internal/fs"
+	"github.com/nexus-code/nexus-code/internal/filelink"
 )
 
 // ProfileDirParams is the wire shape for chat.profileDir.
@@ -206,7 +206,7 @@ func makeLink(link, target string, dir bool) error {
 		return os.Symlink(target, link)
 	}
 	if dir {
-		return nexusfs.Junction(link, target)
+		return filelink.Junction(link, target)
 	}
 	if err := os.Symlink(target, link); err == nil {
 		return nil

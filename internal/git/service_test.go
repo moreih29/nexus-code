@@ -131,14 +131,14 @@ func TestGetFileContentSizeCap(t *testing.T) {
 	runGit(t, root, "add", "at-cap.txt", "over-cap.txt")
 	service := New(root)
 
-	res, err := service.GetFileContent(context.Background(), mustRawJSON(t, FileContentParams{Ref: "INDEX", RelPath: "at-cap.txt"}))
+	res, err := service.GetFileContent(context.Background(), mustJSON(t, FileContentParams{Ref: "INDEX", RelPath: "at-cap.txt"}))
 	if err != nil {
 		t.Fatalf("blob at the cap: %v", err)
 	}
 	if got := res.(map[string]any); got["kind"] != "ok" || got["sizeBytes"] != maxGitFileContentBytes || len(got["content"].(string)) != maxGitFileContentBytes {
 		t.Fatalf("blob at the cap: kind=%v sizeBytes=%v", got["kind"], got["sizeBytes"])
 	}
-	_, err = service.GetFileContent(context.Background(), mustRawJSON(t, FileContentParams{Ref: "INDEX", RelPath: "over-cap.txt"}))
+	_, err = service.GetFileContent(context.Background(), mustJSON(t, FileContentParams{Ref: "INDEX", RelPath: "over-cap.txt"}))
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("blob over the cap: err = %v, want read-limit error", err)
 	}
@@ -156,7 +156,7 @@ func TestGetFileContentStopsReadingAtCap(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := service.GetFileContent(context.Background(), mustRawJSON(t, FileContentParams{Ref: "HEAD", RelPath: "big.bin"}))
+		_, err := service.GetFileContent(context.Background(), mustJSON(t, FileContentParams{Ref: "HEAD", RelPath: "big.bin"}))
 		done <- err
 	}()
 	select {
@@ -167,15 +167,6 @@ func TestGetFileContentStopsReadingAtCap(t *testing.T) {
 	case <-time.After(processTimeout):
 		t.Fatal("GetFileContent kept reading past the size cap")
 	}
-}
-
-func mustRawJSON(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
 
 // A blob not in UTF-8 goes to the reader as its bytes, as fs.readFile's do.

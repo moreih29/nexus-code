@@ -8,7 +8,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"unsafe"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 
 	"golang.org/x/sys/windows"
 )
@@ -31,29 +32,8 @@ type tree struct {
 // before it is in the job is left out; one that waits on the program's
 // input still ends when the input is closed.
 func (p *process) holdTree() {
-	job, err := windows.CreateJobObject(nil, nil)
+	job, err := hostproc.AssignJob(p.cmd.Process.Pid, true)
 	if err != nil {
-		return
-	}
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	// What is in the job when it is let go of ends with it. No process may
-	// leave it: Git Bash, which runs Claude's commands, starts each program
-	// out of any job that lets it.
-	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		_ = windows.CloseHandle(job)
-		return
-	}
-	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-		false, uint32(p.cmd.Process.Pid))
-	if err != nil {
-		_ = windows.CloseHandle(job)
-		return
-	}
-	defer windows.CloseHandle(process)
-	if err := windows.AssignProcessToJobObject(job, process); err != nil {
-		_ = windows.CloseHandle(job)
 		return
 	}
 	p.tree.mu.Lock()

@@ -410,17 +410,7 @@ func runDaemon(root string) {
 		}
 
 		// Wire event sinks to this host. On the next dialer, they are re-wired.
-		fsys.SetEventSink(func(event string, payload any) error {
-			emitErr := host.EmitEvent(event, payload)
-			if event == "fs.changed" {
-				if changed, ok := payload.(agentfs.FsChangedPayload); ok {
-					if routeErr := lsp.HandleFSChanged(changed); emitErr == nil {
-						emitErr = routeErr
-					}
-				}
-			}
-			return emitErr
-		})
+		fsys.SetEventSink(fsEventSink(host, lsp))
 		git.SetEventSink(host.EmitEvent)
 		lsp.SetEventSink(host.EmitEvent)
 		// Installing this sink also hands renderer credit over after Ready.

@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"os"
 	"strconv"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // parents maps each process to its parent, read from /proc.
@@ -37,11 +39,8 @@ func parents() map[int]int {
 // parentheses itself, so fields are counted from the last ")": the state,
 // then the parent.
 func parentInStat(data []byte) (int, bool) {
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 {
-		return 0, false
-	}
-	fields := bytes.Fields(data[end+1:])
+	_, suffix := hostproc.SplitPIDStat(data)
+	fields := bytes.Fields(suffix)
 	if len(fields) < 2 {
 		return 0, false
 	}

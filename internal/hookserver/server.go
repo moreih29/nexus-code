@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // connDeadline 은 hook 클라이언트 연결 1개에 허용하는 최대 응답 대기 시간이다.
@@ -605,11 +606,10 @@ func newHookID() (string, error) {
 
 // writeNDJSON 은 v를 JSON으로 직렬화해 개행 문자와 함께 conn에 쓴다.
 func writeNDJSON(w interface{ Write([]byte) (int, error) }, v any) error {
-	data, err := json.Marshal(v)
+	data, err := proto.MarshalFrame(v)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 	_, err = w.Write(data)
 	return err
 }
