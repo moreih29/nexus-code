@@ -9,9 +9,13 @@
 // there while no update came: a watch lost unseen, started again.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatPage, ChatPanel } from "../../../../packages/remote-protocol/src";
+import {
+  type ChatPage,
+  type ChatPanel,
+  MAX_READ_ITEMS,
+} from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
-import { applyUpdate, keepEarlier, withEarlier } from "./chat-model";
+import { applyUpdate, keepEarlier, watchMissedUpdate, withEarlier } from "./chat-model";
 import { forgetPeerSubmissions, observePeerEchoes } from "./peer-submissions";
 import type { PeerRead } from "./room";
 import { usePeerRejoins, useRemoteRoom } from "./room";
@@ -21,8 +25,7 @@ export const REWATCH_MS = 3000;
 /** How often the chat is checked to still be there: a watch says nothing when it is closed. */
 export const ALIVE_MS = 15_000;
 /**
- * How long the watch is to have said nothing for a chat longer there than
- * here to count as lost: an update on its way is not taken for one.
+ * How long the watch should be quiet before its page is checked for missed updates.
  */
 export const QUIET_MS = 5000;
 /** How many items before those shown are read at a time. */
@@ -54,7 +57,8 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   const [read, setRead] = useState<PeerRead<WatchedChat>>({ status: "loading" });
   // Bumped to start the watch again.
   const [round, setRound] = useState(0);
-  const watch = useRef<{ id: string; rev: number } | null>(null);
+  const watch = useRef<{ id: string; rev: number; start: number } | null>(null);
+  const recoveryLimit = useRef<number | undefined>(undefined);
   // When the watch last sent something, or began.
   const heardAt = useRef(0);
   const latest = useRef(read);
@@ -67,6 +71,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
     const ref = { deviceId, workspaceId, tabId };
     let live = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let probing = false;
     const again = () => {
       if (live) setRound((r) => r + 1);
     };
@@ -93,6 +98,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
           queueMicrotask(again);
           return now;
         }
+        if (update.total < w.start) w.start = value.start;
         const panel = update.panel ?? now.value.panel;
         if (update.items.length || update.panel) {
           queueMicrotask(() => {
@@ -107,11 +113,14 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         return { status: "ready", value: panel ? { ...value, panel } : value };
       });
     });
+    const recovery = recoveryLimit.current;
+    recoveryLimit.current = undefined;
     void ipcCallResult("remote", "peerChatWatch", {
       deviceId,
       workspaceId,
       tabId,
       appends: true,
+      ...(recovery !== undefined ? { limit: recovery } : {}),
     }).then((result) => {
       if (!live) {
         if (result.ok) {
@@ -124,7 +133,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       }
       if (result.ok) {
         const { watchId, ...page } = result.value;
-        watch.current = { id: watchId, rev: 0 };
+        watch.current = { id: watchId, rev: 0, start: page.start };
         heardAt.current = Date.now();
         observePeerEchoes(
           ref,
@@ -149,9 +158,17 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       retry = setTimeout(again, REWATCH_MS);
     });
     const alive = setInterval(() => {
-      void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit: 1 }).then(
-        (result) => {
-          if (!live) return;
+      const w = watch.current;
+      const before = latest.current;
+      if (probing || !w || before.status !== "ready" || Date.now() - heardAt.current <= QUIET_MS)
+        return;
+      const revision = w.rev;
+      const limit = Math.max(1, Math.min(MAX_READ_ITEMS, before.value.total - w.start));
+      probing = true;
+      void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit })
+        .then((result) => {
+          // A probe is a snapshot of this revision. A newer watch update wins.
+          if (!live || watch.current !== w || w.rev !== revision) return;
           if (!result.ok) {
             if (result.kind === "not-found") {
               forgetPeerSubmissions(ref);
@@ -159,19 +176,14 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
             }
             return;
           }
-          // Longer there than here, and the watch quiet: it was lost, as when the device
-          // started over unseen; watched again.
-          const now = latest.current;
-          if (
-            watch.current &&
-            now.status === "ready" &&
-            result.value.total !== now.value.total &&
-            Date.now() - heardAt.current > QUIET_MS
-          ) {
+          if (watchMissedUpdate(before.value, result.value)) {
+            recoveryLimit.current = limit;
             again();
           }
-        },
-      );
+        })
+        .finally(() => {
+          probing = false;
+        });
     }, ALIVE_MS);
     return () => {
       live = false;

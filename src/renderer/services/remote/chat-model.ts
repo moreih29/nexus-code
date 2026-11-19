@@ -169,6 +169,64 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
   };
 }
 
+/** Whether a quiet watch missed a change visible in an independent page read. */
+export function watchMissedUpdate(current: ChatPage, fresh: ChatPage): boolean {
+  if (current.total !== fresh.total || !sameWireValue(current.status, fresh.status)) return true;
+  // The independent read may cover fewer rows when its frame is full.
+  for (const [index, item] of fresh.items.entries()) {
+    const at = fresh.start + index - current.start;
+    if (at >= 0 && !sameWireValue(current.items[at], item)) return true;
+  }
+  return (
+    Object.entries(fresh.tools).some(([id, tool]) => {
+      const existing = current.tools[id];
+      return existing ? !sameWatchedTool(existing, tool) : tool.parentToolUseId === null;
+    }) ||
+    Object.entries(fresh.tasks).some(([id, task]) => !sameWireValue(current.tasks[id], task)) ||
+    Object.entries(fresh.agentItems).some(
+      ([id, items]) =>
+        current.agentItems[id] !== undefined && !sameWireValue(current.agentItems[id], items),
+    )
+  );
+}
+
+/** Compares JSON received as separate snapshots, regardless of property order. */
+function sameWireValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((entry, index) => sameWireValue(entry, b[index]))
+    );
+  }
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+  return (
+    keys.length === Object.values(right).filter((value) => value !== undefined).length &&
+    keys.every((key) => Object.hasOwn(right, key) && sameWireValue(left[key], right[key]))
+  );
+}
+
+/** Compares tool facts even when the watch and read fit different result text in their frames. */
+function sameWatchedTool(a: ChatPage["tools"][string], b: ChatPage["tools"][string]): boolean {
+  const { result: aResult, ...aTool } = a;
+  const { result: bResult, ...bTool } = b;
+  if (!sameWireValue(aTool, bTool)) return false;
+  if (!aResult || !bResult) return aResult === bResult;
+  const { text: aText, truncated: aCut, structured: aData, ...aFacts } = aResult;
+  const { text: bText, truncated: bCut, structured: bData, ...bFacts } = bResult;
+  const sameText =
+    aText === bText || (aCut && bText.startsWith(aText)) || (bCut && aText.startsWith(bText));
+  const comparableData = (aData !== undefined || !aCut) && (bData !== undefined || !bCut);
+  return (
+    !!sameText && sameWireValue(aFacts, bFacts) && (!comparableData || sameWireValue(aData, bData))
+  );
+}
+
 /**
  * A watched chat's page with an update put in: items at their index (one
  * before the page's start moves the start back), the list cut at `total`,
