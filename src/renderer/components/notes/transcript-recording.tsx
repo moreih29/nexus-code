@@ -3,8 +3,10 @@
  * runs, how far its second pass is, its menu, and its people. A person's
  * chip shows only what they said (and back to everyone, clicked again); the
  * pencil in a picked chip names them, which names each of their voices.
+ * The person picked is also shown above the lines (`PickedSpeaker`), where
+ * it stays as the recording scrolls away.
  */
-import { Loader2, MoreHorizontal, Pencil, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, MoreHorizontal, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import { memo, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -245,5 +247,41 @@ function SpeakerChip({
         </button>
       )}
     </span>
+  );
+}
+
+/**
+ * The person the transcript shows alone, above its lines: their chip in the
+ * recording scrolls away with it, this one stays. Clicked, everyone again.
+ */
+export function PickedSpeaker({
+  name,
+  color,
+  onClear,
+}: {
+  name: string;
+  color: string | null;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation("notes");
+  return (
+    <button
+      type="button"
+      className="inline-flex h-6 min-w-0 items-center gap-1.5 rounded-(--radius-pill) border border-ring bg-[var(--sidebar-item-selected-bg)] pr-1 pl-2 text-app-micro text-foreground hover:bg-[var(--state-hover-bg)]"
+      onClick={onClear}
+      title={t("transcript.everyone")}
+      data-testid="transcript-picked"
+    >
+      {color && (
+        <span
+          className="size-1.5 shrink-0 rounded-full"
+          style={{ background: color }}
+          aria-hidden="true"
+        />
+      )}
+      <span className="truncate">{name}</span>
+      <span className="sr-only">{t("transcript.everyone")}</span>
+      <X className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
   );
 }
