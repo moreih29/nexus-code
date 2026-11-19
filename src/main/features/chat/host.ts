@@ -415,7 +415,7 @@ export class ChatHost {
     workspaceId: string,
     sessionId: string,
     profileId: string | undefined,
-    page: { cursor?: string; upTo?: string; before?: string[] },
+    page: { cursor?: string; beforeAnchor?: string; upTo?: string; before?: string[] },
   ): Promise<TranscriptPageResult> {
     const args = { sessionId, ...this.configDir(workspaceId, profileId) };
     const channel = await this.channelFor(workspaceId);

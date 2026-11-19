@@ -597,6 +597,8 @@ const transcriptPageResult = z.object({
   positions: z.array(z.number().int().nonnegative()).optional(),
   snapshot: z.string().optional(),
   cursor: z.string().optional(),
+  beforeAnchor: z.string().optional(),
+  anchored: z.boolean().optional(),
   fragment: z
     .object({
       position: z.number().int().nonnegative(),
@@ -1042,6 +1044,7 @@ export const ipcContract = {
           sessionId: z.string().max(128),
           profileId: z.string().max(64).optional(),
           cursor: z.string().max(128).optional(),
+          beforeAnchor: z.string().max(64).optional(),
           upTo: z.string().max(128).optional(),
           before: z.array(z.string().max(128)).optional(),
         }),

@@ -6,14 +6,49 @@ export class TranscriptPages {
   readonly snapshot: string;
   readonly truncated: boolean;
   cursor: string | undefined;
-  private entries: unknown[] = [];
-  private positions: number[] = [];
+  beforeAnchor: string | undefined;
+  cursorExpired = false;
+  private readonly keySnapshot: string;
+  private entries: unknown[];
+  private positions: number[];
   private partial: { position: number; parts: Uint8Array[] } | undefined;
 
-  constructor(page: TranscriptPageResult, snapshot: string) {
+  constructor(page: TranscriptPageResult, snapshot: string, retained?: TranscriptPages) {
     this.snapshot = snapshot;
     this.truncated = page.truncated;
+    this.keySnapshot = retained?.keySnapshot ?? snapshot;
+    this.entries = retained?.entries ?? [];
+    this.positions = retained?.positions ?? [];
     this.prepend(page);
+  }
+
+  /** A batch can be abandoned without moving the displayed history's boundary. */
+  copy(): TranscriptPages {
+    const batch = new TranscriptPages(
+      {
+        found: true,
+        lines: [],
+        positions: [],
+        snapshot: this.snapshot,
+        truncated: this.truncated,
+        cursor: this.cursor,
+        beforeAnchor: this.beforeAnchor,
+      },
+      this.snapshot,
+      this,
+    );
+    batch.partial = this.partial;
+    batch.cursorExpired = this.cursorExpired;
+    return batch;
+  }
+
+  expireCursor(): void {
+    if (this.cursor) this.cursorExpired = true;
+    this.cursor = undefined;
+  }
+
+  get hasEarlier(): boolean {
+    return this.cursor !== undefined || this.cursorExpired;
   }
 
   prepend(page: TranscriptPageResult): void {
@@ -64,10 +99,13 @@ export class TranscriptPages {
     ) {
       throw new Error("The transcript page overlaps previously read rows");
     }
-    this.entries = entries.concat(this.entries);
-    this.positions = positions.concat(this.positions);
+    if (entries.length > 0) {
+      this.entries = entries.concat(this.entries);
+      this.positions = positions.concat(this.positions);
+    }
     this.partial = partial;
     this.cursor = page.cursor;
+    if (!partial) this.beforeAnchor = page.beforeAnchor;
   }
 
   project() {
@@ -75,7 +113,7 @@ export class TranscriptPages {
     return {
       ...history,
       items: history.items.map((item) =>
-        item.kind === "task_end" ? item : { ...item, key: `${this.snapshot}:${item.key}` },
+        item.kind === "task_end" ? item : { ...item, key: `${this.keySnapshot}:${item.key}` },
       ),
     };
   }

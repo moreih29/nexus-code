@@ -20,7 +20,7 @@ import (
 const (
 	transcriptPageBytes    = 512 * 1024
 	transcriptPageTurns    = 20
-	transcriptPageOverhead = 384
+	transcriptPageOverhead = 448
 	transcriptReadBlock    = 64 * 1024
 	transcriptAnchorBytes  = 2048
 	transcriptSnapshots    = 128
@@ -28,19 +28,22 @@ const (
 
 type transcriptPageParams struct {
 	TranscriptParams
-	Cursor string   `json:"cursor,omitempty"`
-	UpTo   string   `json:"upTo,omitempty"`
-	Before []string `json:"before,omitempty"`
+	Cursor       string   `json:"cursor,omitempty"`
+	BeforeAnchor string   `json:"beforeAnchor,omitempty"`
+	UpTo         string   `json:"upTo,omitempty"`
+	Before       []string `json:"before,omitempty"`
 }
 
 type transcriptPage struct {
-	Found     bool                `json:"found"`
-	Lines     []json.RawMessage   `json:"lines"`
-	Positions []int64             `json:"positions"`
-	Truncated bool                `json:"truncated"`
-	Snapshot  string              `json:"snapshot,omitempty"`
-	Cursor    string              `json:"cursor,omitempty"`
-	Fragment  *transcriptFragment `json:"fragment,omitempty"`
+	Found        bool                `json:"found"`
+	Lines        []json.RawMessage   `json:"lines"`
+	Positions    []int64             `json:"positions"`
+	Truncated    bool                `json:"truncated"`
+	Snapshot     string              `json:"snapshot,omitempty"`
+	Cursor       string              `json:"cursor,omitempty"`
+	BeforeAnchor string              `json:"beforeAnchor,omitempty"`
+	Anchored     bool                `json:"anchored,omitempty"`
+	Fragment     *transcriptFragment `json:"fragment,omitempty"`
 }
 
 type transcriptFragment struct {
@@ -123,7 +126,9 @@ func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any,
 	if err := decodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
 		return nil, err
 	}
-	if !sessionIDPattern.MatchString(p.SessionID) || (p.Cursor != "" && (len(p.Before) > 0 || p.UpTo != "")) {
+	if !sessionIDPattern.MatchString(p.SessionID) ||
+		(p.Cursor != "" && p.BeforeAnchor != "") ||
+		((p.Cursor != "" || p.BeforeAnchor != "") && (len(p.Before) > 0 || p.UpTo != "")) {
 		return nil, protocolError("invalid chat.transcriptPage params")
 	}
 	page, err := s.readTranscriptPage(ctx, p, transcriptCapBytes, transcriptPageBytes)
@@ -179,7 +184,14 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 		if err != nil {
 			return page, err
 		}
-		if p.UpTo != "" || len(p.Before) > 0 {
+		if p.BeforeAnchor != "" {
+			var matched bool
+			snapshot.end, matched, err = transcriptEndBeforeAnchor(file, snapshot, p.BeforeAnchor)
+			if err != nil || !matched {
+				return page, err
+			}
+			page.Anchored = true
+		} else if p.UpTo != "" || len(p.Before) > 0 {
 			snapshot.end, err = transcriptCutEnd(ctx, file, snapshot, p)
 			if err != nil {
 				return page, err
@@ -227,6 +239,12 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 			return page, err
 		}
 		page.Cursor = snapshot.cursor(pos, fragment, boundary)
+		if fragment < 0 {
+			page.BeforeAnchor, err = transcriptBeforeAnchor(file, pos, snapshot.end)
+			if err != nil {
+				return page, err
+			}
+		}
 		if p.Cursor == "" {
 			s.transcriptPages.add(snapshot)
 		}
@@ -265,6 +283,47 @@ func cursorAnchor(file *os.File, snapshot *transcriptSnapshot, pos int64) ([32]b
 	part := buf[:min(transcriptAnchorBytes, snapshot.end-start)]
 	_, err := file.ReadAt(part, start)
 	return sha256.Sum256(part), err
+}
+
+// A finished page can be resumed across agent lifetimes. Fingerprint bytes
+// on the displayed side of its exclusive boundary so an append leaves it
+// valid. The new agent still verifies that boundary against the session file.
+const transcriptBeforeAnchorSize = 8 + 2 + sha256.Size
+
+func transcriptBeforeAnchor(file *os.File, pos, end int64) (string, error) {
+	var block [transcriptAnchorBytes]byte
+	sample := block[:min(transcriptAnchorBytes, end-pos)]
+	if _, err := file.ReadAt(sample, pos); err != nil {
+		return "", err
+	}
+	var token [transcriptBeforeAnchorSize]byte
+	binary.BigEndian.PutUint64(token[:8], uint64(pos))
+	binary.BigEndian.PutUint16(token[8:10], uint16(len(sample)))
+	digest := sha256.Sum256(sample)
+	copy(token[10:], digest[:])
+	return base64.RawURLEncoding.EncodeToString(token[:]), nil
+}
+
+func transcriptEndBeforeAnchor(file *os.File, snapshot *transcriptSnapshot, anchor string) (int64, bool, error) {
+	if len(anchor) != base64.RawURLEncoding.EncodedLen(transcriptBeforeAnchorSize) {
+		return 0, false, nil
+	}
+	token, err := base64.RawURLEncoding.DecodeString(anchor)
+	if err != nil || len(token) != transcriptBeforeAnchorSize {
+		return 0, false, nil
+	}
+	pos := int64(binary.BigEndian.Uint64(token[:8]))
+	length := int64(binary.BigEndian.Uint16(token[8:10]))
+	if pos <= 0 || pos < snapshot.floor || pos >= snapshot.end ||
+		length <= 0 || length > transcriptAnchorBytes || length > snapshot.end-pos {
+		return 0, false, nil
+	}
+	var block [transcriptAnchorBytes + 1]byte
+	if _, err := file.ReadAt(block[:length+1], pos-1); err != nil {
+		return 0, false, err
+	}
+	hash := sha256.Sum256(block[1 : length+1])
+	return pos, block[0] == '\n' && bytes.Equal(hash[:], token[10:]), nil
 }
 
 // A cut uses the first matching UUID in the retained window, as the

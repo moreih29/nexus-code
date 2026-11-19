@@ -44,6 +44,8 @@ func TestTranscriptPages(t *testing.T) {
 		{name: "replace at the same size", input: base, change: "replace", stale: true},
 		{name: "profile mismatch", input: base, change: "profile", stale: true},
 		{name: "new agent", input: base, change: "agent", stale: true},
+		{name: "new agent resumes exclusively before the displayed page after append", input: base, change: "resume", want: []string{old, big}},
+		{name: "resume rejects an overwritten boundary", input: base, change: "anchor changed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -84,6 +86,31 @@ func TestTranscriptPages(t *testing.T) {
 				params.ConfigDir = t.TempDir()
 			case "agent":
 				service = New()
+			case "resume", "anchor changed":
+				if len(page.Lines) != 1 || !equalRows([]string{string(page.Lines[0])}, []string{tip}) || page.BeforeAnchor == "" {
+					t.Fatal("fixture did not return an anchor before the displayed last row")
+				}
+				if tc.change == "resume" {
+					write(path, tc.input+line("appended", "new text")+"\n")
+				} else {
+					write(path, strings.Replace(tc.input, tip, line("recent", "다른"), 1))
+				}
+				service = New()
+				params.BeforeAnchor = page.BeforeAnchor
+				page, err = service.readTranscriptPage(ctx, params, retention, budget)
+				if err != nil {
+					t.Fatal(err)
+				}
+				params.BeforeAnchor = ""
+				if tc.change == "anchor changed" {
+					if page.Found || page.Anchored {
+						t.Fatal("a different row matched the old anchor")
+					}
+					return
+				}
+				if !page.Anchored {
+					t.Fatal("the new agent could not verify the boundary")
+				}
 			}
 			if tc.stale {
 				if page.Cursor == "" {

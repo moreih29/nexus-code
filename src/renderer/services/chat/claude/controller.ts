@@ -8,6 +8,7 @@
 
 import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
+import type { TranscriptPageResult } from "../../../../shared/ipc/contract";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
@@ -535,10 +536,13 @@ export class ChatController {
     }
   }
 
-  private async readFullTranscript(source: TranscriptSource): Promise<void> {
-    const result = unwrapIpcResult(
-      await ipcCallResult("chat", "transcript", this.transcriptArgs(source)),
-    );
+  private async readFullTranscript(
+    source: TranscriptSource,
+    legacy?: TranscriptPageResult,
+  ): Promise<void> {
+    const result =
+      legacy ??
+      unwrapIpcResult(await ipcCallResult("chat", "transcript", this.transcriptArgs(source)));
     if (this.disposed || this.transcriptSource !== source) return;
     if (!result.found && this.transcriptPages)
       throw new Error("The transcript is no longer available");
@@ -555,13 +559,7 @@ export class ChatController {
       source.cut ?? (before?.size ? { before } : undefined),
     );
     this.transcriptPages = undefined;
-    this.publishTranscript(
-      source,
-      source.appended ? { ...joinHistory(history, source.appended), goal: history.goal } : history,
-      result.lines,
-      result.truncated,
-      true,
-    );
+    this.publishTranscript(source, history, result.lines, result.truncated, true);
   }
 
   private completeTranscript(): Promise<void> | undefined {
@@ -581,22 +579,20 @@ export class ChatController {
     pages: TranscriptPages,
     current: () => boolean,
     action: "opening" | "earlier",
+    pageRead = action === "opening",
   ): Promise<ChatModel | undefined> {
     const args = this.transcriptArgs(source);
     const requested = new Set<string>();
-    const shown = this.state.history?.items ?? [];
+    const shownFirst = this.state.history?.items[0]?.key;
     while (current()) {
       const cursor = pages.cursor;
-      if (!pages.hasPartialRow && (action === "opening" || requested.size > 0)) {
+      if (!pages.hasPartialRow && pageRead) {
         const read = pages.project();
         const first = read.items[0];
         const enough =
           action === "opening"
             ? read.items.some(opensTurn)
-            : read.items.length > shown.length &&
-              first !== undefined &&
-              first.key !== shown[0]?.key &&
-              opensTurn(first);
+            : first !== undefined && first.key !== shownFirst && opensTurn(first);
         if (enough || !cursor) return read;
       }
       if (!cursor || requested.has(cursor))
@@ -604,34 +600,60 @@ export class ChatController {
       requested.add(cursor);
       const result = await ipcCallResult("chat", "transcriptPage", { ...args, cursor });
       if (!current()) return;
-      if (!result.ok && result.kind === "chat.transcript-cursor-stale") pages.cursor = undefined;
+      if (!result.ok && result.kind === "chat.transcript-cursor-stale") {
+        pages.expireCursor();
+        return;
+      }
       pages.prepend(unwrapIpcResult(result));
+      pageRead = true;
     }
   }
 
   async loadEarlier(): Promise<void> {
     const source = this.transcriptSource;
-    const pages = this.transcriptPages;
-    const cursor = pages?.cursor;
-    if (!source || !pages || !cursor || this.state.historyPage?.loading) return;
+    const visible = this.transcriptPages;
+    if (!source || !visible?.hasEarlier || this.state.historyPage?.loading) return;
     const current = () =>
       !this.disposed &&
       !this.changingSession &&
       this.transcriptSource === source &&
-      this.transcriptPages === pages;
+      this.transcriptPages === visible;
     this.update((prev) => ({ ...prev, historyPage: { hasEarlier: true, loading: true } }));
     try {
-      const history = await this.readTranscriptBatch(source, pages, current, "earlier");
+      let pages = visible.copy();
+      let history = pages.cursor
+        ? await this.readTranscriptBatch(source, pages, current, "earlier")
+        : undefined;
+      if (!current()) return;
+      if (pages.cursorExpired) {
+        visible.expireCursor();
+        const page = visible.beforeAnchor
+          ? unwrapIpcResult(
+              await ipcCallResult("chat", "transcriptPage", {
+                ...this.transcriptArgs(source),
+                beforeAnchor: visible.beforeAnchor,
+              }),
+            )
+          : undefined;
+        if (!current()) return;
+        if (!page?.anchored || !page.snapshot) {
+          await this.readFullTranscript(source, page?.found && !page.snapshot ? page : undefined);
+          return;
+        }
+        pages = new TranscriptPages(page, page.snapshot, visible);
+        history = await this.readTranscriptBatch(source, pages, current, "earlier", true);
+      }
       if (current() && history) {
+        this.transcriptPages = pages;
         this.publishTranscript(source, history, pages.lines, pages.truncated, false);
       }
     } catch (error) {
       if (current()) throw error;
     } finally {
-      if (this.transcriptPages === pages && this.transcriptSource === source) {
+      if (this.transcriptPages === visible && this.transcriptSource === source) {
         this.update((prev) => ({
           ...prev,
-          historyPage: { hasEarlier: !!pages.cursor, loading: false },
+          historyPage: { hasEarlier: visible.hasEarlier, loading: false },
         }));
       }
     }
@@ -639,13 +661,16 @@ export class ChatController {
 
   private publishTranscript(
     source: TranscriptSource,
-    read: ChatModel,
+    projected: ChatModel,
     lines: readonly unknown[],
     truncated: boolean,
     initial: boolean,
   ): void {
     const pages = this.transcriptPages;
-    this.earlierHistoryUnknown = truncated || pages?.cursor !== undefined;
+    this.earlierHistoryUnknown = truncated || pages?.hasEarlier === true;
+    const read = source.appended
+      ? { ...joinHistory(projected, source.appended), goal: projected.goal }
+      : projected;
     // A task's end the log tells too is the log's: it has no uuid to cut at.
     const told = new Set(
       this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
@@ -671,7 +696,7 @@ export class ChatController {
           history.items.length > 0 || Object.keys(agentItems).length > 0
             ? { ...history, agentItems }
             : null,
-        historyPage: pages ? { hasEarlier: !!pages.cursor, loading: false } : undefined,
+        historyPage: pages ? { hasEarlier: pages.hasEarlier, loading: false } : undefined,
         // A previously unread page must not replace a goal that the live log set or cleared.
         model:
           (initial || !prev.history?.goal) &&
@@ -1313,34 +1338,38 @@ export class ChatController {
   /** The agent is back: replay what the tab missed, or find its program gone. */
   async resync(): Promise<void> {
     this.flushNow();
+    const source = this.transcriptSource;
     let replay: ReplayResult;
     try {
       replay = await this.replay(this.state.model.lastSeq);
     } catch {
       return;
     }
+    if (this.disposed || this.changingSession || this.transcriptSource !== source) return;
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       return;
     }
     // A new agent: what the tab showed becomes its history. Its cursor died with the old agent.
-    const earlierHistoryUnknown = this.earlierHistoryUnknown;
-    const source = this.transcriptSource;
     const pages = this.transcriptPages;
-    this.resetTranscript();
-    this.earlierHistoryUnknown = earlierHistoryUnknown;
+    if (!pages && this.opening) return;
     if (source && pages) {
+      this.fullTranscript = undefined;
       this.transcriptSource = {
         ...source,
         appended: joinHistory(source.appended ?? null, this.state.model),
       };
-      pages.cursor = undefined;
-      this.transcriptPages = pages;
+      pages.expireCursor();
+    } else {
+      const earlierHistoryUnknown = this.earlierHistoryUnknown;
+      this.resetTranscript();
+      this.earlierHistoryUnknown = earlierHistoryUnknown;
     }
     this.update((prev) => ({
       ...prev,
       phase: "ended",
       history: joinHistory(prev.history, prev.model),
+      historyPage: pages ? { hasEarlier: pages.hasEarlier, loading: false } : undefined,
       model: emptyModel(),
     }));
     this.rejectPending("the program is gone");

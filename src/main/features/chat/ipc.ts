@@ -118,13 +118,9 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         } catch (error) {
           const code = (error as { code?: unknown } | null)?.code;
           if (code === "chat.transcript-cursor-stale") {
-            return ipcErr(
-              code,
-              "The chat history changed. Reopen the conversation to read it again.",
-              {
-                category: "failed",
-              },
-            );
+            return ipcErr(code, "The chat history changed. Try reading earlier messages again.", {
+              category: "failed",
+            });
           }
           const failure = agentCallError(error);
           if (failure) return failure;

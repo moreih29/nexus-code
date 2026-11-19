@@ -8,11 +8,15 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { historyModel } from "../../../../../../src/renderer/services/chat/claude/history";
 import type { TranscriptPageResult } from "../../../../../../src/shared/ipc/contract";
 
+import { type IpcErrResult, ipcErr } from "../../../../../../src/shared/ipc/result";
+
 let releaseStart: () => void = () => {};
 let started = false;
 let replyToInitialize: ((requestId: string) => void) | undefined;
 let onStartRequested: (() => void) | undefined;
-let transcriptPage: ((cursor?: string) => Promise<TranscriptPageResult>) | undefined;
+let transcriptPage:
+  | ((cursor?: string, beforeAnchor?: string) => Promise<TranscriptPageResult | IpcErrResult>)
+  | undefined;
 let completeLines: readonly unknown[] | undefined;
 let completeReads = 0;
 
@@ -22,13 +26,15 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (
     _channel: string,
     method: string,
-    args: { message?: { request_id?: string }; cursor?: string },
+    args: { message?: { request_id?: string }; cursor?: string; beforeAnchor?: string },
   ) => {
     if (method === "replay") {
       return Promise.resolve({ ok: true, value: { found: false } });
     }
     if (method === "transcriptPage" && transcriptPage) {
-      return transcriptPage(args.cursor).then((value) => ({ ok: true, value }));
+      return transcriptPage(args.cursor, args.beforeAnchor).then((value) =>
+        "ok" in value ? value : { ok: true, value },
+      );
     }
     if (method === "transcript") {
       completeReads++;
@@ -403,4 +409,73 @@ test.each([
     expect(requested).toEqual([undefined, "large", "middle", "beginning"]);
   }
   expect(completeReads).toBe(0);
+});
+
+test.each([
+  "agent replaced",
+  "stale cursor",
+  "anchor missing",
+  "legacy agent",
+] as const)("earlier history resumes at the displayed boundary after %s", async (cause) => {
+  const recent = user("recent", "recent");
+  const old = user("old", "old");
+  const liveRow = {
+    type: "assistant",
+    uuid: "live",
+    message: { id: "live", content: [{ type: "text", text: "live output" }] },
+  };
+  completeLines = [old, recent, liveRow];
+  const answer = {
+    type: "assistant",
+    uuid: "answer",
+    message: { id: "answer", content: [{ type: "text", text: "older answer" }] },
+  };
+  const requests: { cursor?: string; beforeAnchor?: string }[] = [];
+  transcriptPage = async (cursor, beforeAnchor) => {
+    requests.push({ cursor, beforeAnchor });
+    if (beforeAnchor) {
+      expect(beforeAnchor).toBe("displayed-boundary");
+      if (cause === "anchor missing") return { found: false, truncated: false, lines: [] };
+      if (cause === "legacy agent")
+        return { found: true, truncated: false, lines: [old, recent, liveRow] };
+      return { ...page([old, answer], [50, 150]), anchored: true, snapshot: "new-snapshot" };
+    }
+    if (cursor === "previous") {
+      return { ...page([answer], [150], "next"), beforeAnchor: "unpublished-boundary" };
+    }
+    if (cursor === "next") return ipcErr("chat.transcript-cursor-stale", "expired");
+    return { ...page([recent], [250], "previous"), beforeAnchor: "displayed-boundary" };
+  };
+
+  const { controller, shown } = openTail();
+  await shown;
+  const recentKey = controller.state.history?.items[0]?.key;
+  if (cause !== "stale cursor") {
+    controller.receive({
+      dir: "out",
+      seq: 1,
+      message: liveRow,
+    });
+    await controller.resync();
+    expect(controller.state.historyPage?.hasEarlier).toBe(true);
+  }
+
+  await controller.loadEarlier();
+  const items = controller.state.history?.items ?? [];
+  const uuid = (item: (typeof items)[number]) => "uuid" in item && item.uuid;
+  const fallback = cause === "anchor missing" || cause === "legacy agent";
+  expect(items.map(uuid)).toEqual([
+    "old",
+    ...(fallback ? [] : ["answer"]),
+    "recent",
+    ...(cause === "stale cursor" ? [] : ["live"]),
+  ]);
+  if (!fallback) expect(items.find((item) => uuid(item) === "recent")?.key).toBe(recentKey);
+  expect(requests.map((request) => request.cursor ?? request.beforeAnchor)).toEqual(
+    cause === "stale cursor"
+      ? [undefined, "previous", "next", "displayed-boundary"]
+      : [undefined, "displayed-boundary"],
+  );
+  expect(completeReads).toBe(cause === "anchor missing" ? 1 : 0);
+  expect(controller.state.historyPage?.hasEarlier ?? false).toBe(false);
 });
