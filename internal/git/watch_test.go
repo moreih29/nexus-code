@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -130,5 +132,25 @@ func assertWatched(t *testing.T, watcher *fsnotify.Watcher, gitDir string, want 
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Fatalf("watched dirs:\n got  %v\n want %v", got, want)
+	}
+}
+
+// TestGitWatchRefreshesRepositoriesBeyondBatchBudget checks that the existing
+// per-repository refresh event reaches the client when the batch fills up.
+func TestGitWatchRefreshesRepositoriesBeyondBatchBudget(t *testing.T) {
+	s := New(t.TempDir())
+	s.timer = time.NewTimer(time.Hour)
+	defer s.timer.Stop()
+	var refreshed []string
+	s.SetEventSink(func(_ string, payload any) error {
+		refreshed = append(refreshed, payload.(ChangedPayload).GitDir)
+		return nil
+	})
+	for i := 0; i < 128; i++ {
+		s.bufferGitDirty(strconv.Itoa(i))
+	}
+	s.bufferGitDirty("overflow")
+	if len(s.gitDirty) != 128 || !slices.Equal(refreshed, []string{"overflow"}) {
+		t.Fatalf("queued %d repositories, refreshed %v", len(s.gitDirty), refreshed)
 	}
 }
