@@ -28,9 +28,8 @@ import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
 import { initPortsSync } from "./state/operations/ports";
 import { hydrateReleaseNotesSeen } from "./state/operations/release-notes";
-import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
-import { registerStatePersistence } from "./state/persistence";
+import { hydrateLayoutSnapshots, registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
@@ -44,11 +43,9 @@ import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
-import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
-import { restoredTitles, useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
@@ -283,41 +280,7 @@ export async function bootstrapAppState(): Promise<void> {
   // reflects persisted state on first render.
   useBrowserPermissionsStore.getState().hydrate(state.browserPermissionGrants);
 
-  if (state.layoutByWorkspace) {
-    for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
-      try {
-        const tabsMap: Record<
-          string,
-          (typeof snap.tabs)[number] & {
-            isPreview: boolean;
-            isPinned: boolean;
-            defaultTitle: string;
-          }
-        > = {};
-        for (const t of snap.tabs) {
-          const isPreview =
-            "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
-          const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-          // Its titles as saved: a rename stays the user's, and a name the
-          // app gives follows its language (restoredTitles).
-          tabsMap[t.id] = { ...t, isPreview, isPinned, ...restoredTitles(t) };
-        }
-        useTabsStore.setState((s) => ({
-          byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
-        }));
-
-        const knownTabIds = new Set(snap.tabs.map((t) => t.id));
-        useLayoutStore
-          .getState()
-          .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
-        // Layouts saved before pinning reordered tabs can hold pinned tabs
-        // behind unpinned ones.
-        normalizeWorkspaceTabOrder(wsId);
-      } catch {
-        // Silent repair: skip invalid snapshot for this workspace
-      }
-    }
-  }
+  hydrateLayoutSnapshots(state.layoutByWorkspace);
 
   // The agent view's panels hold tabs, so they come back after the tabs,
   // keeping those that still exist, and let go of each tab as it closes.

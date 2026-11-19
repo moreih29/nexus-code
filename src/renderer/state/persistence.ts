@@ -14,8 +14,9 @@ import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
 import { ipcCallResult } from "../ipc/client";
+import { normalizeWorkspaceTabOrder } from "./operations/tab-order";
 import { useLayoutStore } from "./stores/layout";
-import { useTabsStore } from "./stores/tabs";
+import { restoredTitles, useTabsStore } from "./stores/tabs";
 
 // Re-exported so existing callers (e.g. tests) can keep importing from this module.
 export { STATE_PERSIST_DEBOUNCE_MS };
@@ -45,6 +46,45 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
     activeGroupId: layout.activeGroupId,
     tabs,
   };
+}
+
+/** Restore tabs and repair layout references before installing persistence. */
+export function hydrateLayoutSnapshots(snapshots: AppState["layoutByWorkspace"]): void {
+  if (snapshots) {
+    for (const [wsId, snap] of Object.entries(snapshots)) {
+      try {
+        const tabsMap: Record<
+          string,
+          (typeof snap.tabs)[number] & {
+            isPreview: boolean;
+            isPinned: boolean;
+            defaultTitle: string;
+          }
+        > = {};
+        for (const t of snap.tabs) {
+          const isPreview =
+            "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
+          const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
+          // Its titles as saved: a rename stays the user's, and a name the
+          // app gives follows its language (restoredTitles).
+          tabsMap[t.id] = { ...t, isPreview, isPinned, ...restoredTitles(t) };
+        }
+        useTabsStore.setState((s) => ({
+          byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
+        }));
+
+        const knownTabIds = new Set(snap.tabs.map((t) => t.id));
+        useLayoutStore
+          .getState()
+          .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
+        // Layouts saved before pinning reordered tabs can hold pinned tabs
+        // behind unpinned ones.
+        normalizeWorkspaceTabOrder(wsId);
+      } catch {
+        // Silent repair: skip invalid snapshot for this workspace
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

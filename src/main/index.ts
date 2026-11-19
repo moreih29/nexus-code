@@ -305,6 +305,7 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService, {
+  listWorkspaces: () => workspaceManager.list(),
   /**
    * Called synchronously inside the appState.set IPC handler whenever the
    * renderer persists a new language preference.  By the time any renderer

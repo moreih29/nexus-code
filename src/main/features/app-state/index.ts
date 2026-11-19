@@ -1,11 +1,16 @@
 import { ipcContract } from "../../../shared/ipc/contract";
 import type { AppState } from "../../../shared/types/app-state";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
+
+import { restoreLayoutOrigins } from "./layout-origins";
 
 const c = ipcContract.appState.call;
 
 export interface AppStateChannelOptions {
+  /** Current workspace metadata for restoring legacy layout records. */
+  listWorkspaces?: () => WorkspaceMeta[];
   /**
    * Invoked synchronously after a `set` call that includes a `language`
    * field, with the newly requested language value.
@@ -62,7 +67,8 @@ export function registerAppStateChannel(
   register("appState", {
     call: {
       get: (_args: unknown) => {
-        return stateService.getState();
+        const state = stateService.getState();
+        return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
         const patch = validateArgs(c.set.args, args);
