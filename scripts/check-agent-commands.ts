@@ -20,7 +20,11 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { APP_COMMANDS, type AppCommand } from "../src/renderer/services/chat/app-commands";
-import { CONFIG_KEYS, parseConfigUsage } from "../src/renderer/services/chat/claude-config";
+import {
+  CONFIG_KEYS,
+  type ListedKey,
+  parseConfigUsage,
+} from "../src/renderer/services/chat/claude-config";
 import { CODEX_COMMANDS } from "../src/renderer/services/chat/codex-commands";
 
 /** A command its definition turns off; the check says when it is on again. */
@@ -59,13 +63,29 @@ const CLAUDE_LEFT_OUT: Record<string, string> = {
   "terminal-setup": TERMINAL,
   theme: TERMINAL,
   tui: TERMINAL,
-  // https://code.claude.com/docs/en/ultrareview
-  ultrareview: "an account-gated cloud review alias omitted by the headless slash catalog",
   "use-case": "an account-gated picker (Life Sciences)",
   version: OFF,
   voice: "dictation in the terminal",
   wellbeing: OFF,
 };
+
+/** Commands the tab gets from the CLI when its account and feature flags expose them. */
+const CLAUDE_LEFT_OUT_WHEN_UNAVAILABLE: Record<string, string> = {
+  advisor: "chooses a second model for advice when the advisor tool is enabled",
+  "extra-usage": "the former name of /usage-credits, gated by the same billing options",
+  import: "imports another agent's configuration when the import feature is enabled",
+  "skill-doctor": "reports skill usage and context cost when feature-flag fetching is enabled",
+  ultrareview: "runs a cloud code review on eligible accounts",
+  "usage-credits": "manages usage credits or requests them from an admin on eligible accounts",
+};
+
+/** Keys a bare /config can omit when Claude Code is signed out. */
+const CLAUDE_SIGN_IN_CONFIG_KEYS = new Set([
+  "remoteControl",
+  "agentPushNotifEnabled",
+  "inputNeededNotifEnabled",
+  "promptSuggestionEnabled",
+]);
 
 /** Claude Code's commands the tab could run and does not yet. */
 const CLAUDE_LATER: Record<string, string> = {
@@ -150,14 +170,14 @@ interface Report {
   notes: string[];
 }
 
-function run(command: string, args: string[]): string {
+function run(command: string, args: string[], exitCodes: readonly number[] = [0]): string {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     timeout: 120_000,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) {
+  if (result.status === null || !exitCodes.includes(result.status)) {
     throw new Error(
       `${command} ${args.join(" ")} exited ${result.status}: ${result.stderr.trim()}`,
     );
@@ -308,7 +328,8 @@ function claudeHeadless(program: string): { commands: string[]; configUsage: str
     "-p",
     "--no-session-persistence",
     "--settings",
-    '{"disableAllHooks":true}',
+    // /config lists teammateMode only with agent teams enabled.
+    '{"disableAllHooks":true,"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}',
     "--output-format",
     "stream-json",
     "--verbose",
@@ -334,40 +355,57 @@ function claudeHeadless(program: string): { commands: string[]; configUsage: str
   return { commands, configUsage };
 }
 
+function claudeSignedOut(program: string): boolean {
+  // auth status exits 1 when signed out. Require the JSON to confirm that state.
+  const status = JSON.parse(run(program, ["auth", "status", "--json"], [0, 1])) as {
+    loggedIn?: boolean;
+  };
+  if (typeof status?.loggedIn !== "boolean") throw new Error("no loggedIn in claude auth status");
+  return !status.loggedIn;
+}
+
+/** Compare the keys the dialog gets from a bare /config with the table of value sources. */
+export function claudeConfigProblems(listed: readonly ListedKey[], signedOut: boolean): string[] {
+  if (listed.length === 0) return ["/config: no keys in a bare /config's answer"];
+  const problems: string[] = [];
+  const listedKeys = new Set(listed.map((k) => k.key));
+  const tableKeys = new Set(CONFIG_KEYS.map((k) => k.key));
+  for (const key of listedKeys) {
+    if (!tableKeys.has(key)) {
+      problems.push(
+        `/config ${key}: new; the settings dialog shows it under Other, its value read from nowhere (CONFIG_KEYS)`,
+      );
+    }
+  }
+  for (const key of tableKeys) {
+    if (listedKeys.has(key) || (signedOut && CLAUDE_SIGN_IN_CONFIG_KEYS.has(key))) continue;
+    problems.push(`/config ${key}: Claude Code no longer lists it (CONFIG_KEYS)`);
+  }
+  return problems;
+}
+
 function checkClaude(): Report {
   const program = findProgram("claude");
   const version = run(program, ["--version"]).trim().split(/\s+/)[0];
   const cli = claudeCommandsIn(readFileSync(program).toString("latin1"));
   const headless = claudeHeadless(program);
+  const fromCli = new Set(headless.commands);
   const { problems, notes } = accountFor("Claude Code", cli, {
-    fromCli: new Set(headless.commands),
+    fromCli,
     app: APP_COMMANDS,
     appTable: "APP_COMMANDS",
-    leftOut: CLAUDE_LEFT_OUT,
+    leftOut: {
+      ...CLAUDE_LEFT_OUT,
+      ...Object.fromEntries(
+        Object.entries(CLAUDE_LEFT_OUT_WHEN_UNAVAILABLE).filter(([name]) => !fromCli.has(name)),
+      ),
+    },
     later: CLAUDE_LATER,
     appOnly: CLAUDE_APP_ONLY,
   });
 
-  // The settings dialog shows every key a bare /config lists; the table
-  // says where each one's value is read.
   const listed = parseConfigUsage(headless.configUsage);
-  if (listed.length === 0) {
-    problems.push("/config: no keys in a bare /config's answer");
-  } else {
-    const listedKeys = new Set(listed.map((k) => k.key));
-    const tableKeys = new Set(CONFIG_KEYS.map((k) => k.key));
-    for (const key of listedKeys) {
-      if (!tableKeys.has(key)) {
-        problems.push(
-          `/config ${key}: new; the settings dialog shows it under Other, its value read from nowhere (CONFIG_KEYS)`,
-        );
-      }
-    }
-    for (const key of tableKeys) {
-      if (!listedKeys.has(key))
-        problems.push(`/config ${key}: Claude Code no longer lists it (CONFIG_KEYS)`);
-    }
-  }
+  problems.push(...claudeConfigProblems(listed, claudeSignedOut(program)));
   notes.push(`/config: ${listed.length} keys, the table ${CONFIG_KEYS.length}`);
   return { title: `Claude Code ${version} (${program})`, problems, notes };
 }

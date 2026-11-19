@@ -1057,7 +1057,7 @@ export class ChatController {
     from?: RelaySender,
     id?: string,
     queued = false,
-  ): Promise<void> {
+  ): Promise<undefined> {
     if (!(await this.ensureRunning())) {
       if (id) throw new Error("Claude is not running");
       return;
