@@ -1,15 +1,11 @@
+import { reducePosixSegments } from "./posix-segments";
+
 /** Resolve `.` and `..` segments in a POSIX absolute path without Node. */
 function normalizePosix(p: string): string {
-  const parts = p.split("/");
-  const resolved: string[] = [];
-  for (const part of parts) {
-    if (part === "..") {
-      resolved.pop();
-    } else if (part !== ".") {
-      resolved.push(part);
-    }
-  }
-  const result = resolved.join("/");
+  const result = reducePosixSegments(p, {
+    emptySegments: "keep",
+    leadingParents: "discard",
+  }).join("/");
   // Preserve the leading `/` — an absolute path should always start with one.
   return result.startsWith("/") ? result : `/${result}`;
 }

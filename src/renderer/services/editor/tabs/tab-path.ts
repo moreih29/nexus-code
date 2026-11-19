@@ -1,3 +1,5 @@
+import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
+
 /**
  * Path normalization used by tab-lookup matchers.
  *
@@ -12,21 +14,10 @@ export function normalizeFilePath(filePath: string): string {
 
   const isAbsolute = filePath.startsWith("/");
   const hasTrailingSlash = filePath.endsWith("/");
-  const parts: string[] = [];
-
-  for (const part of filePath.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      const previous = parts.at(-1);
-      if (previous && previous !== "..") {
-        parts.pop();
-      } else if (!isAbsolute) {
-        parts.push(part);
-      }
-      continue;
-    }
-    parts.push(part);
-  }
+  const parts = reducePosixSegments(filePath, {
+    emptySegments: "discard",
+    leadingParents: isAbsolute ? "discard" : "keep",
+  });
 
   let normalized = `${isAbsolute ? "/" : ""}${parts.join("/")}`;
   if (normalized === "") normalized = isAbsolute ? "/" : ".";
