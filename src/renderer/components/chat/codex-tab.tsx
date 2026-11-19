@@ -96,6 +96,7 @@ import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
+import { surfaceChatSendError } from "./send-error";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
@@ -155,7 +156,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   }, [isVisible, controller]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
-    void controller.answerPermission(request, answer).catch(() => {});
+    void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
   // The pane shows the conversation or one of the runs its commands

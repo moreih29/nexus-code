@@ -66,9 +66,11 @@ import {
   type ChatTabState,
   type CommandCard,
   chatKey,
+  chatSendErrorKind,
   clearObservedQueued,
   dispatchQueuedMessage,
   emptyTabState,
+  isChatWriteRejected,
   type QueuedMessage,
   useChatStore,
 } from "./store";
@@ -1281,10 +1283,7 @@ export class CodexController {
     const collaboration = this.collaborationChange;
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
-    if (!(await this.ensureRunning())) {
-      if (id) throw new Error("Codex is not running");
-      return;
-    }
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
     if (!(await this.ready)) throw new Error(this.state.error ?? "Codex has no thread to send to");
     // A message sent while a mode change is pending must use the newly
     // acknowledged mode. A failed switch must leave the draft unsent.
@@ -1355,7 +1354,12 @@ export class CodexController {
         told(result, turnId);
         return;
       } catch (err) {
-        if (id && !(err instanceof CodexReplyError)) throw err;
+        if (
+          !(err instanceof CodexReplyError) &&
+          (id || isChatWriteRejected(err) || chatSendErrorKind(err) === "chat.stdin-incomplete")
+        ) {
+          throw err;
+        }
         this.flushNow();
         log.info(`steer not taken: ${(err as Error).message}`);
         // The active turn refused the message. Wait for a turn boundary.
@@ -1374,15 +1378,16 @@ export class CodexController {
     // The thread holds them from this turn on: the tab keeps a pick only
     // until it is sent, so a thread changed since is not overridden.
     if (model || effort) this.hooks.onChosen?.({});
-    // Its answer, or its error as a notice, comes in the log.
-    const start = this.request("turn/start", {
+    // Its answer comes in the log. The composer waits for the separate write outcome.
+    const { reply, written } = this.requestWithWrite("turn/start", {
       threadId,
       clientUserMessageId,
       input,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(mode ? MODE_SETTINGS[mode] : {}),
-    })
+    });
+    const start = reply
       .then((result) => told(result))
       .finally(() => {
         this.flushNow();
@@ -1391,7 +1396,11 @@ export class CodexController {
       });
     this.startingTurn = start;
     if (id) await start;
-    else void start.catch(() => {});
+    else {
+      void start.catch(() => {});
+      await written;
+      this.flushNow();
+    }
   }
 
   /** The composer took the message the app put back. */
@@ -1479,7 +1488,7 @@ export class CodexController {
           return { ...next, afterTool: 0 };
         return next;
       },
-      (error) => error instanceof CodexReplyError,
+      (error) => error instanceof CodexReplyError || isChatWriteRejected(error),
       (id) => this.sawQueuedMessage(id),
       () => this.sendNextQueued(),
       (item) => this.canSendQueued(item),
@@ -1688,6 +1697,15 @@ export class CodexController {
     params: Record<string, unknown>,
     timeoutMs = REQUEST_TIMEOUT_MS,
   ): Promise<Record<string, unknown>> {
+    return this.requestWithWrite(method, params, timeoutMs).reply;
+  }
+
+  /** Tracks stdin delivery separately from the program's JSON-RPC reply. */
+  private requestWithWrite(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): { written: Promise<void>; reply: Promise<Record<string, unknown>> } {
     const id = nextId();
     const key = idKey(id) as string;
     const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -1697,7 +1715,8 @@ export class CodexController {
       }, timeoutMs);
       this.pending.set(key, { resolve, reject, timer });
     });
-    this.write({ id, method, params }).catch((err: Error) => {
+    const written = this.write({ id, method, params });
+    void written.catch((err: Error) => {
       const entry = this.pending.get(key);
       if (!entry) return;
       clearTimeout(entry.timer);
@@ -1705,12 +1724,13 @@ export class CodexController {
       entry.reject(err);
     });
     if (HISTORY_MUTATIONS.has(method)) {
-      return promise.then((result) => {
+      const reply = promise.then((result) => {
         invalidateCodexHistory(this.target.workspaceId);
         return result;
       });
+      return { reply, written };
     }
-    return promise;
+    return { reply: promise, written };
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {

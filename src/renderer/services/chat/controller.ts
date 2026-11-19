@@ -54,6 +54,7 @@ import {
   clearObservedQueued,
   dispatchQueuedMessage,
   emptyTabState,
+  isChatWriteRejected,
   type QueuedMessage,
   useChatStore,
 } from "./store";
@@ -1058,10 +1059,7 @@ export class ChatController {
     id?: string,
     queued = false,
   ): Promise<undefined> {
-    if (!(await this.ensureRunning())) {
-      if (id) throw new Error("Claude is not running");
-      return;
-    }
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     // A program just started takes the tab's flags and pick first, so its
     // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
@@ -1076,6 +1074,7 @@ export class ChatController {
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
+    this.flushNow();
     if (id) this.hooks.onPeerWritten?.(id);
     // A session the user named, or the tab, keeps that name; Claude makes it none.
     if (first && !this.named && !this.ownName) void this.nameSession(first);
@@ -1153,7 +1152,7 @@ export class ChatController {
       this.state.queue,
       (update) => this.update(update),
       (next) => this.sendMessage(next.text, next.images, false, next.from, next.id, true),
-      () => false,
+      isChatWriteRejected,
       (id) => this.sawQueuedMessage(id),
       () => {
         this.flushNow();

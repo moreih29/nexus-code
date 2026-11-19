@@ -74,6 +74,7 @@ import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent"
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
+import { surfaceChatSendError } from "./send-error";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -485,25 +486,32 @@ export const Composer = memo(function Composer({
       if (controller.submitPeer(as, body, images, files)) clear();
       return;
     }
-    let message: string;
-    let uploads: string[];
     setSending(true);
     try {
-      ({ message, uploads } = await withAttachments(body));
-    } catch (err) {
-      showError(err as Error);
-      return;
+      const { message, uploads } = await withAttachments(body);
+      clear();
+      try {
+        if (uploads.length > 0 && controller.sendUploaded) {
+          await controller.sendUploaded(as, message, images, uploads);
+        } else if (as === "queue") {
+          controller.enqueue(message, images);
+        } else if (as === "now" && controller.sendNow) {
+          await controller.sendNow(message, images);
+        } else {
+          await controller.send(message, images);
+        }
+      } catch (error) {
+        // Restore the original text and attachments for another attempt.
+        if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
+        if (images.length) setImages((prev) => [...images, ...prev]);
+        if (files.length) setFiles((prev) => [...files, ...prev]);
+        throw error;
+      }
+    } catch (error) {
+      surfaceChatSendError(error);
     } finally {
       setSending(false);
     }
-    const sendUploaded = controller.sendUploaded?.bind(controller);
-    if (uploads.length > 0 && sendUploaded) {
-      void sendUploaded(as, message, images, uploads).catch((err: Error) => showError(err));
-    } else if (how === "queue" && running) controller.enqueue(message, images);
-    else if (how === "now" && running && controller.sendNow) {
-      void controller.sendNow(message, images).catch((err: Error) => showError(err));
-    } else void controller.send(message, images).catch((err: Error) => showError(err));
-    clear();
   };
   // The submit of the latest render, for a send that waits on the dictation's end.
   const submitRef = useRef(submit);
