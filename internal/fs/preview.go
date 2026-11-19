@@ -38,6 +38,23 @@ type previewResult struct {
 	Version string `json:"version,omitempty"`
 }
 
+// sameResolvedFile reports whether the path this agent resolved is the file
+// the caller authorized. Spellings of one file differ with the host's file
+// system: on a case-insensitive one the caller's canonical name carries the
+// on-disk case, which EvalSymlinks does not restore. A retargeted link still
+// ends at another file.
+func sameResolvedFile(real, expected string) bool {
+	if real == expected {
+		return true
+	}
+	a, err := os.Stat(real)
+	if err != nil {
+		return false
+	}
+	b, err := os.Stat(expected)
+	return err == nil && os.SameFile(a, b)
+}
+
 type previewStamp struct {
 	device, inode uint64
 	change        int64
@@ -79,7 +96,7 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 			return s.previewWorkspacePath(abs)
 		}
 		real, err := filepath.EvalSymlinks(abs)
-		if err == nil && p.ExpectedRealPath != "" && real != p.ExpectedRealPath {
+		if err == nil && p.ExpectedRealPath != "" && !sameResolvedFile(real, p.ExpectedRealPath) {
 			err = FSError{Code: CodeOutOfWorkspace, Path: abs}
 		}
 		return real, err
