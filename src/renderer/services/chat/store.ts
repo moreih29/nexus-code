@@ -38,6 +38,18 @@ export interface QueuedMessage {
   device?: string;
 }
 
+/** Reads the failure code the chat IPC carried across the process boundary. */
+export function chatSendErrorKind(error: unknown): string | undefined {
+  const kind = (error as { kind?: unknown } | null)?.kind;
+  return typeof kind === "string" ? kind : undefined;
+}
+
+/** The agent knows no bytes of the requested message reached the program. */
+export function isChatWriteRejected(error: unknown): boolean {
+  const kind = chatSendErrorKind(error);
+  return kind === "chat.stdin-write-failed" || kind === "chat.not-running";
+}
+
 /** Keeps the payload available for recovery until delivery has been confirmed. */
 export function dispatchQueuedMessage(
   queue: readonly QueuedMessage[],

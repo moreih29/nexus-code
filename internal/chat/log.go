@@ -65,6 +65,19 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	return e
 }
 
+// finishInput fills a reserved slot, if the log still includes it.
+func (l *lineLog) finishInput(slot *entry, dir string, message json.RawMessage) {
+	for _, e := range l.since(slot.seq - 1) {
+		if e == slot {
+			l.bytes += len(message)
+			break
+		}
+	}
+	slot.dir = dir
+	slot.message = message
+	l.trim()
+}
+
 // addPinned appends a line the cap keeps. What it holds is bounded by
 // whoever adds it.
 func (l *lineLog) addPinned(dir string, message json.RawMessage) *entry {

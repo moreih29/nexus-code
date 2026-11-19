@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../src/renderer/services/chat/codex-config";
+import { ipcErr } from "../../../../../src/shared/ipc/result";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -16,13 +17,20 @@ type Message = Record<string, unknown> & { params?: Record<string, unknown> };
 let codex: ((message: Message) => void) | undefined;
 /** Whether a Codex program fails to come up, as a fork's does when its thread cannot be read. */
 let startFails = false;
+let rejectTurnWrite = false;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
-    if (method === "send") codex?.(args.message as Message);
+    if (method === "send") {
+      const message = args.message as Message;
+      if (rejectTurnWrite && message.method === "turn/start") {
+        return Promise.resolve(ipcErr("chat.stdin-write-failed", "broken pipe"));
+      }
+      codex?.(message);
+    }
     if (method === "codexStart") {
       return Promise.resolve({
         ok: true,
@@ -54,6 +62,7 @@ const sent: Message[] = [];
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   startFails = false;
+  rejectTurnWrite = false;
   codex = undefined;
   sent.length = 0;
 });
@@ -188,6 +197,24 @@ describe("the pick a Codex tab keeps", () => {
 });
 
 describe("delivering a Codex queue entry", () => {
+  test("reports failed stdin to the composer and keeps a failed queued attachment", async () => {
+    const c = tab();
+    await c.prepareSend();
+    rejectTurnWrite = true;
+    const image = { mediaType: "image/png", data: "aW1hZ2U=" };
+    await expect(c.send("direct prompt", [image])).rejects.toMatchObject({
+      kind: "chat.stdin-write-failed",
+    });
+    expect(c.model.running).toBe(false);
+    expect(c.model.items).toEqual([]);
+
+    c.enqueue("queued prompt", [image]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(c.state.queue).toMatchObject([
+      { status: "failed", text: "queued prompt", images: [image] },
+    ]);
+  });
+
   function line(c: Controller, message: Message, dir: "in" | "out" = "out") {
     c.receive({ seq: ++lineSeq, dir, message } as never);
     c.flushNow();

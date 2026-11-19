@@ -33,6 +33,7 @@ const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/wo
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
 const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
 const { ChatHost } = await import("../../../../src/main/features/chat/host");
+const { startAgentPtyHost } = await import("../../../../src/main/features/pty/agent-host");
 
 type ChannelLifecycleCallback = (event: { type: string }) => void;
 
@@ -54,7 +55,7 @@ class StubChannel {
     if (method === "hook.getInfo") return this.hookInfo();
     if (method === "lsp.findBinary") return { path: "/stub/model" };
     if (method === "chat.exec") return { code: 0, stdout: "2.1.400" };
-    if (method === "chat.start") {
+    if (method === "chat.start" || method === "pty.spawn") {
       this.spawns.push(params as (typeof this.spawns)[number]);
       return { pid: 1 };
     }
@@ -72,7 +73,7 @@ class StubChannel {
     return () => this.lifecycleListeners.delete(cb);
   }
 
-  emitLifecycle(event: { type: string }): void {
+  emitLifecycle(event: { type: string; hadEpoch?: boolean }): void {
     for (const cb of [...this.lifecycleListeners]) cb(event);
   }
 
@@ -240,6 +241,42 @@ test("a superseded local hook reply cannot release chat resync", async () => {
     await resynced.promise;
     expect(events).toEqual(["held", "held", "resync"]);
     expect(manager.getHookInfo(id)).toEqual(current);
+  } finally {
+    host.dispose();
+    globalDb.close();
+  }
+});
+
+test("PTY spawn waits for the local replacement's hook endpoint", async () => {
+  const harness = makeHarness();
+  const { manager, channels, globalDb } = harness;
+  const host = startAgentPtyHost(manager);
+  try {
+    const { id } = await bootLocalWorkspace(harness);
+    const [channel] = channels;
+    const answer = Promise.withResolvers<unknown>();
+    channel.hookInfo.mockImplementation(() => answer.promise);
+    channel.emitLifecycle({ type: "reconnecting", hadEpoch: false });
+    channel.emitLifecycle({ type: "ready" });
+    const spawn = host.call("spawn", {
+      workspaceId: id,
+      tabId: "terminal",
+      cwd: "/project",
+      cols: 80,
+      rows: 24,
+      env: { NEXUS_IN_APP: "1", NEXUS_WRAPPER_SELF_DIR: "/stub/bin" },
+    });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(channel.spawns).toHaveLength(0);
+    } finally {
+      answer.resolve({ socketPath: "/tmp/new-terminal.sock", token: "new-terminal" });
+      await spawn;
+    }
+    expect(channel.spawns[0]?.env).toMatchObject({
+      NEXUS_AGENT_SOCKET: "/tmp/new-terminal.sock",
+      NEXUS_HOOK_TOKEN: "new-terminal",
+    });
   } finally {
     host.dispose();
     globalDb.close();

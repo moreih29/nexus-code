@@ -94,6 +94,7 @@ import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
+import { surfaceChatSendError } from "./send-error";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
@@ -213,7 +214,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
-    void controller.answerPermission(request, answer).catch(() => {});
+    void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);

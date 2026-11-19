@@ -54,6 +54,7 @@ import {
   clearObservedQueued,
   dispatchQueuedMessage,
   emptyTabState,
+  isChatWriteRejected,
   type QueuedMessage,
   useChatStore,
 } from "./store";
@@ -540,6 +541,7 @@ export class ChatController {
   }
 
   private async start(resume: StartArgs): Promise<boolean> {
+    if (this.disposed) return false;
     const { workspaceId, tabId, cwd } = this.target;
     // Before the new program's initialize tells the mode it starts in.
     const mode = this.lastMode;
@@ -547,17 +549,20 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
+      const prepared = await this.fromAnotherProfile(resume);
+      if (this.disposed) return false;
       result = await startChat({
         workspaceId,
         tabId,
         cwd,
-        ...(await this.fromAnotherProfile(resume)),
+        ...prepared,
         ...profileArg(this.target.profileId),
       });
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return false;
     }
+    if (this.disposed) return false;
     if (!result.ok) {
       this.update((prev) => ({
         ...prev,
@@ -1058,10 +1063,7 @@ export class ChatController {
     id?: string,
     queued = false,
   ): Promise<undefined> {
-    if (!(await this.ensureRunning())) {
-      if (id) throw new Error("Claude is not running");
-      return;
-    }
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     // A program just started takes the tab's flags and pick first, so its
     // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
@@ -1076,6 +1078,7 @@ export class ChatController {
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
+    this.flushNow();
     if (id) this.hooks.onPeerWritten?.(id);
     // A session the user named, or the tab, keeps that name; Claude makes it none.
     if (first && !this.named && !this.ownName) void this.nameSession(first);
@@ -1153,7 +1156,7 @@ export class ChatController {
       this.state.queue,
       (update) => this.update(update),
       (next) => this.sendMessage(next.text, next.images, false, next.from, next.id, true),
-      () => false,
+      isChatWriteRejected,
       (id) => this.sawQueuedMessage(id),
       () => {
         this.flushNow();
@@ -1833,6 +1836,7 @@ export class ChatController {
   }
 
   private async write(message: Record<string, unknown>): Promise<void> {
+    if (this.disposed) throw new Error("the tab closed");
     const { workspaceId, tabId } = this.target;
     unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
   }

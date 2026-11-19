@@ -37,7 +37,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       }
     }
     if (method === "send") codex?.(args.message as Message);
-    if (method === "replay") return Promise.resolve({ ok: true, value: replayResponse?.() });
+    if (method === "replay") {
+      return Promise.resolve(replayResponse?.()).then((value) => ({ ok: true, value }));
+    }
     if (method === "codexStart") {
       starts.push(args);
       onStart?.();
@@ -125,6 +127,17 @@ function tab(respond?: (message: Message) => unknown | Promise<unknown>): Contro
 }
 
 const order = () => sent.map((m) => m.method);
+
+test("closing a Codex tab during replay cannot open a new program once replay ends", async () => {
+  const c = tab();
+  const replay = Promise.withResolvers<unknown>();
+  replayResponse = () => replay.promise;
+  const opening = c.open();
+  await c.close();
+  replay.resolve({ found: false, running: false, truncated: false, lastSeq: 0 });
+  await opening;
+  expect(starts).toEqual([]);
+});
 
 test("resumes a Codex thread after agent replacement and queues against the new log", async () => {
   jest.useFakeTimers();

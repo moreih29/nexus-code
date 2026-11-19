@@ -596,8 +596,8 @@ export class WorkspaceManager {
     return this.hookInfoByWorkspace.get(workspaceId) ?? null;
   }
 
-  /** Returns the hooks for the channel a chat is about to use. */
-  async getChatHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null> {
+  /** Returns the hooks for the channel about to start a chat or terminal. */
+  async getSpawnHookInfo(workspaceId: string, channel: AgentChannel): Promise<HookInfo | null> {
     let refresh = this.localHookRefreshes.get(channel);
     while (refresh) {
       await refresh.promise;

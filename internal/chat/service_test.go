@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -243,6 +244,125 @@ func send(t *testing.T, service *Service, tabID, text string) error {
 func tabParams(tabID string) json.RawMessage {
 	params, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID})
 	return params
+}
+
+type testStdin func([]byte) (int, error)
+
+func (w testStdin) Write(data []byte) (int, error) { return w(data) }
+func (w testStdin) Close() error                   { return nil }
+
+type partialStdin struct {
+	closed bool
+}
+
+func (p *partialStdin) Write(data []byte) (int, error) {
+	if p.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return len(data) - 1, io.ErrShortWrite
+}
+
+func (p *partialStdin) Close() error {
+	p.closed = true
+	return nil
+}
+
+func TestPartialWriteClosesTheUnframedStdin(t *testing.T) {
+	service := New()
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe := &partialStdin{}
+	sess.proc = &process{stdin: pipe}
+	if err := send(t, service, "tab", "partially written"); err == nil {
+		t.Fatal("partial write reported success")
+	}
+	if !pipe.closed {
+		t.Fatal("a subsequent message could be written onto the partial JSON line")
+	}
+}
+
+func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan struct{})
+	unblock := make(chan struct{})
+	sess.proc = &process{
+		stdin: testStdin(func(data []byte) (int, error) {
+			if !bytes.Contains(data, []byte("hello")) {
+				return len(data), nil
+			}
+			// Simulates output the CLI produced before Write returned.
+			sess.addOutput(sess.proc, []byte(`{"type":"result"}`))
+			close(reading)
+			<-unblock
+			return len(data), nil
+		}),
+	}
+	sent := make(chan error, 1)
+	go func() { sent <- send(t, service, "tab", "hello") }()
+	select {
+	case <-reading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("stdout could not be consumed while stdin was writing")
+	}
+	queued := make(chan error, 1)
+	go func() { queued <- send(t, service, "tab", "second") }()
+	replay, replayErr := service.Replay(context.Background(), tabParams("tab"))
+	close(unblock)
+	if err := <-sent; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-queued; err != nil {
+		t.Fatal(err)
+	}
+	if replayErr != nil || replay.(ReplayResult).LastSeq != 0 {
+		t.Fatalf("replay exposed an input still being written: %+v %v", replay, replayErr)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 3 || rec.lines[0].Dir != DirIn || rec.lines[1].Dir != DirOut ||
+		rec.lines[2].Dir != DirIn || !bytes.Contains(rec.lines[2].Message, []byte("second")) {
+		t.Fatalf("want confirmed input followed by its output, got %v", describe(rec.lines))
+	}
+}
+
+func TestFailedStdinWriteReplaysFailureInsteadOfApproval(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	sess, err := service.sessionFor(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.proc = &process{
+		stdin: testStdin(func(_ []byte) (int, error) {
+			return 0, io.ErrClosedPipe
+		}),
+	}
+	sess.addOutput(sess.proc, []byte(`{"type":"control_request","request_id":"p","request":{"subtype":"can_use_tool"}}`))
+	params := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","message":{"type":"control_response","response":{"request_id":"p"}}}`)
+	if _, err := service.Send(context.Background(), params); err == nil {
+		t.Fatal("the write succeeded despite the broken pipe")
+	}
+	rec.reset()
+	if _, err := service.Replay(context.Background(), tabParams("tab")); err != nil {
+		t.Fatal(err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) != 2 || rec.lines[0].Dir != DirOut || rec.lines[1].Dir != DirSys ||
+		!strings.Contains(string(rec.lines[1].Message), `"stdin-failed"`) {
+		t.Fatalf("the failed approval was replayed as sent: %v", describe(rec.lines))
+	}
 }
 
 func TestReplayDropsStreamEventsOfCompleteMessages(t *testing.T) {
@@ -536,6 +656,164 @@ func TestCloseForgetsTheTab(t *testing.T) {
 	list, _ := service.List(context.Background(), nil)
 	if n := len(list.(ListResult).Sessions); n != 0 {
 		t.Fatalf("list has %d sessions", n)
+	}
+}
+
+func TestClosedTabGenerationRejectsLateStart(t *testing.T) {
+	service := New()
+	defer service.Close()
+	closed := json.RawMessage(`{"workspaceId":"ws","tabId":"tab","tabGeneration":"old"}`)
+	if _, err := service.CloseTab(context.Background(), closed); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := json.Marshal(map[string]any{
+		"workspaceId": "ws", "tabId": "tab", "tabGeneration": "old",
+		"cwd": t.TempDir(), "program": os.Args[0],
+		"args": []string{"-test.run=^TestFakeProgramHelper$"}, "env": map[string]string{"NEXUS_CHAT_FAKE": "1"},
+	})
+	if _, err := service.Start(context.Background(), start); err == nil {
+		t.Fatal("a start from the closed tab reached the process")
+	}
+	if service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}) != nil {
+		t.Fatal("late start registered a chat session")
+	}
+}
+
+func TestClosedTabGenerationsStayBounded(t *testing.T) {
+	useAttachRoot(t)
+	service := New()
+	defer service.Close()
+	ctx := context.Background()
+	const limit = maxClosedTabGenerations
+	closeTab := func(tabID, generation string) {
+		t.Helper()
+		raw, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID, TabGeneration: generation})
+		if _, err := service.CloseTab(ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range limit + 1 {
+		closeTab(fmt.Sprintf("tab-%d", i), "first")
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed tabs, limit %d", got, limit)
+	}
+	for i := range limit + 1 {
+		closeTab("reopened", fmt.Sprintf("generation-%d", i))
+	}
+	if got := len(service.closedTabs); got > limit {
+		t.Fatalf("recorded %d closed generations, limit %d", got, limit)
+	}
+	if got := service.closedOrder.Len(); got != len(service.closedTabs) {
+		t.Fatalf("expiry queue has %d records for %d closed generations", got, len(service.closedTabs))
+	}
+	key := tabKey{workspaceID: "ws", tabID: "reopened"}
+	if _, err := service.sessionFor(key, fmt.Sprintf("generation-%d", limit)); err == nil {
+		t.Fatal("the latest closed generation could start")
+	}
+	if _, err := service.sessionFor(key, "generation-0"); err != nil {
+		t.Fatalf("the oldest generation was not evicted: %v", err)
+	}
+}
+
+func TestClosedTabGenerationsExpire(t *testing.T) {
+	service := New()
+	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	tab := closedTabGeneration{key, "old"}
+	service.mu.Lock()
+	service.rememberClosedTabLocked(tab, time.Now().Add(-closedTabRetention))
+	service.mu.Unlock()
+	if _, err := service.sessionFor(key, tab.generation); err != nil {
+		t.Fatalf("the expired generation was not removed: %v", err)
+	}
+	if len(service.closedTabs) != 0 || service.closedOrder.Len() != 0 {
+		t.Fatal("the expired generation stayed in the index or expiry queue")
+	}
+}
+
+func TestStartCannotUseARemovedSession(t *testing.T) {
+	for _, closeTab := range []bool{true, false} {
+		name := "failed start"
+		if closeTab {
+			name = "close"
+		}
+		t.Run(name, func(t *testing.T) {
+			service := New()
+			defer service.Close()
+			key := tabKey{workspaceID: "ws", tabID: "tab"}
+			held, err := service.sessionFor(key, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if closeTab {
+				if _, err := service.CloseTab(context.Background(), tabParams("tab")); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := service.startSession(held, StartParams{Cwd: dir, Program: filepath.Join(dir, "missing")}, nil); err == nil {
+				t.Fatal("the invalid process started")
+			}
+			if _, err := service.startSession(held, StartParams{
+				Cwd: dir, Program: os.Args[0], Args: []string{"-test.run=^TestFakeProgramHelper$"},
+			}, mergeEnv(map[string]string{"NEXUS_CHAT_FAKE": "1"})); err == nil {
+				t.Fatal("a retained session could start an untracked process")
+			}
+			startFake(t, service, "tab", nil)
+		})
+	}
+}
+
+func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
+	service := New()
+	defer service.Close()
+	exiting := make(chan struct{})
+	proceed := make(chan struct{})
+	service.SetEventSink(func(event string, _ any) error {
+		if event == EventExit {
+			close(exiting)
+			<-proceed
+		}
+		return nil
+	})
+	startFake(t, service, "tab", nil)
+	proc := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		_, _ = service.Stop(context.Background(), tabParams("tab"))
+	}()
+	defer func() {
+		close(proceed)
+		<-stopped
+	}()
+	select {
+	case <-exiting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("agent did not emit the exit")
+	}
+	select {
+	case <-proc.done:
+		t.Fatal("stop released the process before publishing the exit")
+	default:
+	}
+}
+
+func TestDelayedStdoutCannotBeAttributedToTheReplacement(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &process{generation: "old"}
+	replacement := &process{generation: "current"}
+	sess.proc = replacement
+	sess.addOutput(old, []byte(`{"type":"result","subtype":"interrupted"}`))
+	sess.addOutput(replacement, []byte(`{"type":"result","subtype":"success"}`))
+	if len(rec.lines) != 1 || rec.lines[0].ProcessGeneration != "current" ||
+		!bytes.Contains(rec.lines[0].Message, []byte("success")) {
+		t.Fatalf("a delayed result was attributed to the replacement: %v", describe(rec.lines))
 	}
 }
 
