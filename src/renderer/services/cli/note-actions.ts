@@ -7,6 +7,7 @@
 import type { CliRecorder, CliUiOp } from "../../../shared/cli/ui";
 import { type ToastInput, watchToasts } from "../../components/ui/toast";
 import { openOrRevealNoteTab } from "../../state/operations/tabs";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import {
   pauseRecording,
   recorderElapsedMs,
@@ -16,7 +17,6 @@ import {
   useRecorderStore,
 } from "../notes/recorder";
 import { voiceAvailabilityNow, voiceLanguage } from "../voice/availability";
-import { activateWorkspace } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 
 type NoteOp = Extract<CliUiOp, `note.${string}`>;

@@ -14,7 +14,7 @@ import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { showAgentList } from "../../services/agent-sessions/actions";
 import { useCodexWorkspaceStatus } from "../../services/agent-sessions/use-codex-status";
-import { activateWorkspace } from "../../services/workspace/tasks";
+import { activateWorkspace } from "../../state/operations/workspace-selection";
 import {
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
