@@ -8,11 +8,17 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let releaseStart: () => void = () => {};
 let started = false;
+let replyToInitialize: ((requestId: string) => void) | undefined;
+let onStartRequested: (() => void) | undefined;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
-  ipcCallResult: (_channel: string, method: string) => {
+  ipcCallResult: (
+    _channel: string,
+    method: string,
+    args: { message?: { request_id?: string } },
+  ) => {
     if (method === "replay") {
       return Promise.resolve({ ok: true, value: { found: false } });
     }
@@ -39,7 +45,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
           started = true;
           resolve({ ok: true, value: { ok: true, version: "2.1.322", attached: false } });
         };
+        onStartRequested?.();
       });
+    }
+    if (method === "send" && args.message?.request_id) {
+      replyToInitialize?.(args.message.request_id);
     }
     return Promise.resolve({ ok: true, value: undefined });
   },
@@ -55,6 +65,8 @@ afterEach(() => {
   releaseStart();
   for (const c of live.splice(0)) c.dispose();
   started = false;
+  replyToInitialize = undefined;
+  onStartRequested = undefined;
 });
 
 describe("opening a Claude tab to read it", () => {
@@ -66,12 +78,24 @@ describe("opening a Claude tab to read it", () => {
       sessionId: "s-read",
     });
     live.push(c);
+    replyToInitialize = (requestId) =>
+      c.receive({
+        dir: "out",
+        seq: 1,
+        message: {
+          type: "control_response",
+          response: { subtype: "success", request_id: requestId, response: {} },
+        },
+      } as never);
+    const requested = Promise.withResolvers<void>();
+    onStartRequested = requested.resolve;
     const opening = c.open();
     await c.openToRead();
     expect(started).toBe(false);
     const state = useChatStore.getState().tabs[chatKey("ws-read", "t-read")];
     expect(state?.history?.items.some((item) => item.kind === "user")).toBe(true);
     expect(state?.phase).toBe("starting");
+    await requested.promise;
     releaseStart();
     await opening;
     expect(started).toBe(true);

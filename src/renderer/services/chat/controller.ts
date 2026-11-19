@@ -46,6 +46,7 @@ import {
 } from "./model";
 import { planUsageKeyFor, registerPlanSource, wantPlanUsage } from "./plan-usage";
 import { lastMessageId, sameProfile, withMove } from "./profile-moves";
+import { ProgramStartup, stopChatProgram } from "./program-startup";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import {
   type ChatTabState,
@@ -244,7 +245,11 @@ export class ChatController {
   /** How many times the user picked a mode, which a program starting then takes over its last one's. */
   private modePicks = 0;
   /** A started program's initialize, and the flags given again after it. */
+  private changingSession = false;
   private initializing: Promise<void> = Promise.resolve();
+  private readonly startup = new ProgramStartup(() =>
+    stopChatProgram(this.target.workspaceId, this.target.tabId),
+  );
   /** How many times this run of the program said it had no MCP servers, and was asked again. */
   private mcpEmptyAsks = 0;
   private buffered: ChatLine[] = [];
@@ -364,6 +369,11 @@ export class ChatController {
   }
 
   private async doOpen(shown: () => void): Promise<void> {
+    if (this.startup.failed) {
+      shown();
+      await this.start(this.startArgs());
+      return;
+    }
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
@@ -540,7 +550,13 @@ export class ChatController {
     return false;
   }
 
-  private async start(resume: StartArgs): Promise<boolean> {
+  /** Starts and initializes a program before allowing tab input. */
+  private start(resume: StartArgs): Promise<boolean> {
+    return this.startup.run(() => this.startProgram(resume));
+  }
+
+  /** Spawns Claude and applies the tab's settings after its required initialize. */
+  private async startProgram(resume: StartArgs): Promise<boolean> {
     if (this.disposed) return false;
     const { workspaceId, tabId, cwd } = this.target;
     // Before the new program's initialize tells the mode it starts in.
@@ -549,13 +565,14 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
-      const prepared = await this.fromAnotherProfile(resume);
+      await this.startup.prepare();
+      const args = await this.fromAnotherProfile(resume);
       if (this.disposed) return false;
       result = await startChat({
         workspaceId,
         tabId,
         cwd,
-        ...prepared,
+        ...args,
         ...profileArg(this.target.profileId),
       });
     } catch (err) {
@@ -572,21 +589,19 @@ export class ChatController {
       return false;
     }
     if (!isSupportedClaude(result.version)) {
-      this.update((prev) => ({
-        ...prev,
-        phase: "failed",
-        version: result.version,
-        error: "old-version",
-      }));
-      return false;
+      this.update((prev) => ({ ...prev, version: result.version }));
+      return this.rejectStartup("old-version");
     }
-    this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
+    this.update((prev) => ({ ...prev, version: result.version }));
+    if (resume.resetLog && result.attached) {
+      return this.rejectStartup("Claude attached to the previous program");
+    }
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
       let started: unknown;
       this.initPending = true;
-      this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
+      const initialized = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
           started = init.current_permission_mode;
@@ -631,16 +646,36 @@ export class ChatController {
           }
         })
         .then(
-          () => {},
-          (err: Error) => {
-            log.warn(`initialize failed: ${err.message}`);
-          },
+          () => true,
+          (err: Error) => this.rejectStartup(err.message),
         )
         .finally(() => {
           this.initPending = false;
         });
+      this.initializing = initialized.then(() => undefined);
+      if (!(await initialized)) return false;
     }
+    if (this.disposed) return false;
+    this.flushNow();
+    if (this.state.model.process === "exited")
+      return this.rejectStartup("Claude exited during startup");
+    this.startup.failed = false;
+    this.update((prev) => ({ ...prev, phase: "ready" }));
     return true;
+  }
+
+  /** Records the failure and keeps the tab available for a fresh startup. */
+  private async rejectStartup(message: string): Promise<false> {
+    if (this.disposed) return false;
+    log.warn(`Claude startup failed: ${message}`);
+    try {
+      await this.startup.reject();
+    } catch (error) {
+      log.warn(`Claude startup cleanup failed: ${(error as Error).message}`);
+    }
+    this.flushNow();
+    this.update((prev) => ({ ...prev, phase: "failed", error: message }));
+    return false;
   }
 
   /**
@@ -680,6 +715,7 @@ export class ChatController {
 
   /** Starts the program again, going on with the session. */
   async restart(): Promise<void> {
+    if (this.changingSession) throw new Error("Claude is changing the conversation");
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
@@ -755,33 +791,29 @@ export class ChatController {
    */
   async resumeSession(sessionId: string, profileId?: string): Promise<void> {
     if (this.state.model.running) throw new Error("a turn is running");
-    const { workspaceId, tabId } = this.target;
-    if (this.state.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
-    }
-    this.flushNow();
-    const from =
-      profileId !== undefined && !sameProfile(profileId, this.target.profileId)
-        ? profileId
-        : undefined;
-    const fork: ForkPoint | undefined = from ? { sessionId, profileId: from } : undefined;
-    this.sessionId = fork ? undefined : sessionId;
-    this.target = { ...this.target, sessionId: this.sessionId, fork, moves: undefined };
-    this.hooks.onTarget?.(fork ? { fork } : { sessionId });
-    this.hooks.onMoves?.([]);
-    this.titled = false;
-    // The session gone on with has its own name.
-    this.pendingName = undefined;
-    this.named = false;
-    // A command's card told of the session the tab had.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      card: undefined,
-      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-    }));
-    await this.loadTranscript(sessionId, undefined, from);
-    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
+    await this.changeSession(async () => {
+      const from =
+        profileId !== undefined && !sameProfile(profileId, this.target.profileId)
+          ? profileId
+          : undefined;
+      const fork: ForkPoint | undefined = from ? { sessionId, profileId: from } : undefined;
+      this.sessionId = fork ? undefined : sessionId;
+      this.sessionName = undefined;
+      this.target = { ...this.target, sessionId: this.sessionId, fork, moves: undefined };
+      this.titled = false;
+      this.pendingName = undefined;
+      this.named = false;
+      this.update((prev) => ({
+        ...prev,
+        history: null,
+        card: undefined,
+        model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+      }));
+      await this.loadTranscript(sessionId, undefined, from);
+      await this.startChangedSession(this.startArgs());
+      this.publishSessionTarget();
+      this.hooks.onMoves?.([]);
+    });
   }
 
   /**
@@ -791,31 +823,101 @@ export class ChatController {
    */
   async switchProfile(profileId: string): Promise<void> {
     if (sameProfile(profileId, this.target.profileId)) return;
-    const { workspaceId, tabId } = this.target;
-    if (this.state.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    await this.changeSession(async () => {
+      this.sessionId = undefined;
+      this.sessionName = undefined;
+      this.target = {
+        ...this.target,
+        sessionId: undefined,
+        fork: undefined,
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+        moves: undefined,
+      };
+      this.titled = false;
+      this.update((prev) => ({
+        ...prev,
+        history: null,
+        queue: [],
+        card: undefined,
+        model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+      }));
+      await this.startChangedSession({});
+      this.hooks.onProfile?.(profileId);
+      this.hooks.onTitle?.(this.sessionName ?? "");
+      this.publishSessionTarget();
+    });
+  }
+
+  /** Waits for a confirmed stop before changing the session and its profile. */
+  private async changeSession(change: (shown: number) => Promise<void>): Promise<void> {
+    if (
+      this.disposed ||
+      this.changingSession ||
+      this.startup.pending ||
+      this.state.queue.some((item) => item.status === "sending")
+    ) {
+      throw new Error("Claude is changing the conversation");
     }
-    this.flushNow();
-    this.sessionId = undefined;
-    this.sessionName = undefined;
-    this.target = {
-      ...this.target,
-      sessionId: undefined,
-      fork: undefined,
-      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
-      moves: undefined,
-    };
-    this.hooks.onProfile?.(profileId);
-    this.hooks.onTitle?.("");
-    this.titled = false;
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      queue: [],
-      card: undefined,
-      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-    }));
-    if (await this.start({ resetLog: true })) await this.rebuild();
+    this.changingSession = true;
+    try {
+      this.flushNow();
+      const shown = this.state.model.items.length;
+      if (this.state.model.process === "running") {
+        await stopChatProgram(this.target.workspaceId, this.target.tabId);
+      }
+      this.flushNow();
+      if (this.disposed) throw new Error("the tab closed");
+      const source = this.state;
+      const target = this.target;
+      const sessionId = this.sessionId;
+      const sessionName = this.sessionName;
+      const titled = this.titled;
+      const pendingName = this.pendingName;
+      const named = this.named;
+      const lastMode = this.lastMode;
+      try {
+        await change(shown);
+      } catch (error) {
+        this.target = target;
+        this.sessionId = sessionId;
+        this.sessionName = sessionName;
+        this.titled = titled;
+        this.pendingName = pendingName;
+        this.named = named;
+        this.lastMode = lastMode;
+        this.startup.failed = true;
+        this.update((prev) => ({
+          ...source,
+          phase: "failed",
+          error: (error as Error).message,
+          model: {
+            ...source.model,
+            lastSeq: Math.max(source.model.lastSeq, prev.model.lastSeq),
+            process: "exited",
+            running: false,
+            turn: null,
+            permissions: [],
+          },
+        }));
+        throw error;
+      }
+    } finally {
+      this.changingSession = false;
+    }
+  }
+
+  /** Starts the proposed session and reports failure before tab metadata is saved. */
+  private async startChangedSession(args: StartArgs): Promise<void> {
+    if (!(await this.start({ ...args, resetLog: true }))) {
+      throw new Error(this.state.error ?? "Claude could not start the requested session");
+    }
+  }
+
+  /** Persists the session the replacement actually established or is forking. */
+  private publishSessionTarget(): void {
+    const fork = this.target.fork;
+    if (fork) this.hooks.onTarget?.({ fork });
+    else if (this.sessionId) this.hooks.onTarget?.({ sessionId: this.sessionId });
   }
 
   /**
@@ -833,51 +935,44 @@ export class ChatController {
       await this.switchProfile(profileId);
       return;
     }
-    const { workspaceId, tabId } = this.target;
-    // Messages held for the turn's end would go to the program that stops.
-    this.update((prev) => (prev.queue.length > 0 ? { ...prev, queue: [] } : prev));
-    this.flushNow();
-    const shown = this.state.model.items.length;
-    if (this.state.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
-    }
-    this.flushNow();
-    // The program stopped here told of its exit; the conversation goes on.
-    const model = this.state.model;
-    const items = model.items.filter(
-      (item, i) => i < shown || !(item.kind === "notice" && item.code === "exited"),
-    );
-    const joined = joinHistory(this.state.history, { ...model, items });
-    const all = { ...emptyModel(), items: joined.items, tools: joined.tools };
-    // A copy that has no id of its own yet is copied from where it copies.
-    const fork: ForkPoint =
-      this.sessionId === undefined && pending
-        ? { ...pending, profileId: pending.profileId ?? this.profileId }
-        : { sessionId, profileId: this.profileId };
-    const after = lastMessageId(all.items);
-    const moves = after
-      ? withMove(this.target.moves, { profileId, after, at: Date.now() })
-      : [...(this.target.moves ?? [])];
-    this.sessionId = undefined;
-    this.sessionName = undefined;
-    this.target = {
-      ...this.target,
-      sessionId: undefined,
-      fork,
-      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
-      moves,
-    };
-    this.hooks.onProfile?.(profileId);
-    this.hooks.onTarget?.({ fork });
-    this.hooks.onMoves?.(moves);
-    // The conversation stays in sight; the new program's log starts empty.
-    this.update((prev) => ({
-      ...prev,
-      history: all.items.length > 0 ? all : null,
-      card: undefined,
-      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-    }));
-    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
+    await this.changeSession(async (shown) => {
+      // The program stopped here told of its exit; the conversation goes on.
+      const model = this.state.model;
+      const items = model.items.filter(
+        (item, i) => i < shown || !(item.kind === "notice" && item.code === "exited"),
+      );
+      const joined = joinHistory(this.state.history, { ...model, items });
+      const all = { ...emptyModel(), items: joined.items, tools: joined.tools };
+      // A copy that has no id of its own yet is copied from where it copies.
+      const fork: ForkPoint =
+        this.sessionId === undefined && pending
+          ? { ...pending, profileId: pending.profileId ?? this.profileId }
+          : { sessionId, profileId: this.profileId };
+      const after = lastMessageId(all.items);
+      const moves = after
+        ? withMove(this.target.moves, { profileId, after, at: Date.now() })
+        : [...(this.target.moves ?? [])];
+      this.sessionId = undefined;
+      this.sessionName = undefined;
+      this.target = {
+        ...this.target,
+        sessionId: undefined,
+        fork,
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+        moves,
+      };
+      this.update((prev) => ({
+        ...prev,
+        history: all.items.length > 0 ? all : null,
+        queue: [],
+        card: undefined,
+        model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+      }));
+      await this.startChangedSession(this.startArgs());
+      this.hooks.onProfile?.(profileId);
+      this.publishSessionTarget();
+      this.hooks.onMoves?.(moves);
+    });
   }
 
   /**
@@ -1067,6 +1162,7 @@ export class ChatController {
     // A program just started takes the tab's flags and pick first, so its
     // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
+    if (this.changingSession) throw new Error("Claude is changing the conversation");
     if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
       throw new Error("The conversation changed while delivering a queued message");
     const first = !this.titled && text.trim() ? text.trim() : undefined;
@@ -1152,6 +1248,7 @@ export class ChatController {
   }
 
   private sendNextQueued(): void {
+    if (this.changingSession) return;
     dispatchQueuedMessage(
       this.state.queue,
       (update) => this.update(update),
@@ -1843,7 +1940,12 @@ export class ChatController {
 
   /** Starts the program again when it is not running, for a message to go to. */
   private async ensureRunning(): Promise<boolean> {
-    if (this.opening) await this.opening;
+    if (this.disposed || this.changingSession) return false;
+    if (this.opening) {
+      await this.opening;
+      if (this.state.phase === "failed") return false;
+    }
+    if (this.startup.pending) return this.startup.pending;
     const { phase, model } = this.state;
     if (phase === "ready" && model.process === "running") return true;
     if (phase === "held" || phase === "not-found") return false;
@@ -1891,7 +1993,7 @@ export class ChatController {
       if (title && title !== this.sessionName) {
         this.sessionName = title;
         this.titled = true;
-        this.hooks.onRename?.(title);
+        if (!this.changingSession) this.hooks.onRename?.(title);
       }
     } else if (message.type === "control_request") {
       const request = message.request as Record<string, unknown> | undefined;
@@ -1939,8 +2041,10 @@ export class ChatController {
       const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
-      this.hooks.onSession?.(model.sessionId);
-      if (name) void this.renameSession(name).catch(() => {});
+      if (!this.changingSession) {
+        this.hooks.onSession?.(model.sessionId);
+        if (name) void this.renameSession(name).catch(() => {});
+      }
     }
     // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {

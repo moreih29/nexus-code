@@ -37,6 +37,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       }
     }
     if (method === "send") codex?.(args.message as Message);
+    if (method === "stop") onStop?.();
     if (method === "replay") {
       return Promise.resolve(replayResponse?.()).then((value) => ({ ok: true, value }));
     }
@@ -73,6 +74,7 @@ const starts: Message[] = [];
 let hostFolder: { canonicalCwd?: string } = {};
 let replayResponse: (() => unknown) | undefined;
 let onStart: (() => void) | undefined;
+let onStop: (() => void) | undefined;
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
@@ -85,6 +87,7 @@ afterEach(() => {
   hostFolder = {};
   replayResponse = undefined;
   onStart = undefined;
+  onStop = undefined;
 });
 
 /** A tab whose program is not running and answers initialize a while after it is asked. */
@@ -128,6 +131,19 @@ function tab(respond?: (message: Message) => unknown | Promise<unknown>): Contro
 
 const order = () => sent.map((m) => m.method);
 
+/** Streams a scripted app-server's lines with no real startup delay. */
+function scriptProgram(c: Controller, reply: (message: Message) => Message): void {
+  const line = (dir: "sys" | "in" | "out", message: Message) =>
+    c.receive({ seq: ++lineSeq, dir, message } as never);
+  onStart = () => line("sys", { event: "start" });
+  onStop = () => line("sys", { event: "exit", code: 0 });
+  codex = (message) => {
+    sent.push(message);
+    line("in", message);
+    if (message.id !== undefined) line("out", { id: message.id, ...reply(message) });
+  };
+}
+
 test("closing a Codex tab during replay cannot open a new program once replay ends", async () => {
   const c = tab();
   const replay = Promise.withResolvers<unknown>();
@@ -137,6 +153,130 @@ test("closing a Codex tab during replay cannot open a new program once replay en
   replay.resolve({ found: false, running: false, truncated: false, lastSeq: 0 });
   await opening;
   expect(starts).toEqual([]);
+});
+
+test("a rejected Codex initialize leaves a failed tab and lets retry spawn another program", async () => {
+  const c = tab();
+  onStart = () => c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start" } } as never);
+  let stops = 0;
+  onStop = () => {
+    stops += 1;
+    c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 0 } } as never);
+  };
+  let rejectInitialize = true;
+  codex = (message) => {
+    sent.push(message);
+    if (message.id === undefined) return;
+    c.receive({ seq: ++lineSeq, dir: "in", message } as never);
+    const reply =
+      rejectInitialize && message.method === "initialize"
+        ? { error: { code: -32600, message: "initialize refused" } }
+        : { result: message.method === "thread/resume" ? { thread: { id: "t1" } } : {} };
+    c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } } as never);
+  };
+  await expect(c.prepareSend()).rejects.toThrow();
+  expect(c.state).toMatchObject({ phase: "failed", error: "initialize refused" });
+  expect(stops).toBe(1);
+  expect(order()).not.toContain("thread/resume");
+
+  rejectInitialize = false;
+  await c.prepareSend();
+  expect(c.state.phase).toBe("ready");
+  expect(starts).toHaveLength(2);
+  expect(c.currentThread()).toBe("t1");
+});
+
+test("Codex stays unready until resume returns the requested thread", async () => {
+  const c = tab();
+  const resuming = Promise.withResolvers<void>();
+  const reply = Promise.withResolvers<Message>();
+  codex = (message) => {
+    if (message.id === undefined) return;
+    c.receive({ seq: ++lineSeq, dir: "in", message } as never);
+    if (message.method === "thread/resume") resuming.resolve();
+    const result = message.method === "thread/resume" ? reply.promise : {};
+    void Promise.resolve(result).then((value) => {
+      c.receive({
+        seq: ++lineSeq,
+        dir: "out",
+        message: { id: message.id, result: value },
+      } as never);
+    });
+  };
+  const prepared = c.prepareSend().then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await resuming.promise;
+  const phase = c.state.phase;
+  reply.resolve({});
+  expect(await prepared).toBeInstanceOf(Error);
+  expect(phase).toBe("starting");
+  expect(c.state.error).toBe("Codex did not return the requested thread");
+});
+
+test("a failed restored Codex resume keeps the thread and waits for an explicit retry", async () => {
+  const c = tab();
+  let canResume = false;
+  scriptProgram(c, (message) => {
+    if (message.method === "thread/resume") {
+      return canResume
+        ? { result: { thread: { id: "t1" } } }
+        : { error: { code: -32600, message: "no rollout found for thread id t1" } };
+    }
+    if (message.method === "thread/start") return { result: { thread: { id: "wrong" } } };
+    if (message.method === "turn/start") return { result: { turn: { id: "sent" } } };
+    return { result: {} };
+  });
+  await expect(c.send("preserve this prompt")).rejects.toThrow();
+  expect(c.currentThread()).toBe("t1");
+  expect(c.state.phase).toBe("failed");
+  expect(order()).not.toContain("thread/start");
+  expect(order()).not.toContain("turn/start");
+
+  canResume = true;
+  await c.send("preserve this prompt");
+  expect(sent.find((message) => message.method === "turn/start")?.params).toMatchObject({
+    threadId: "t1",
+    input: [{ type: "text", text: "preserve this prompt" }],
+  });
+});
+
+test("a known empty Codex thread can be replaced when it has no rollout", async () => {
+  const c = new CodexController({ workspaceId: "ws-codex-handshake", tabId: "empty", cwd: "/p" });
+  live.push(c);
+  let count = 0;
+  scriptProgram(c, (message) => {
+    if (message.method === "thread/start")
+      return { result: { thread: { id: `empty-${++count}` } } };
+    if (message.method === "thread/resume")
+      return { error: { code: -32600, message: "no rollout found for thread id empty-1" } };
+    return { result: {} };
+  });
+  await c.prepareSend();
+  expect(c.currentThread()).toBe("empty-1");
+  await c.restart();
+  expect(c.state.phase).toBe("ready");
+  expect(c.currentThread()).toBe("empty-2");
+});
+
+test("a refused profile resume does not persist the destination thread or title", async () => {
+  const c = tab();
+  const persisted: string[] = [];
+  c.setHooks({
+    onProfile: (id) => persisted.push(id),
+    onThread: (id) => persisted.push(id),
+    onTitle: (title) => persisted.push(title),
+  });
+  scriptProgram(c, (message) =>
+    message.method === "thread/resume"
+      ? { error: { code: -32600, message: "resume refused" } }
+      : { result: {} },
+  );
+  await expect(c.resumeThread("dest", "Destination", "work")).rejects.toThrow("resume refused");
+  expect(c.currentThread()).toBe("t1");
+  expect(c.profileId).toBe("codex-default");
+  expect(persisted).toEqual([]);
 });
 
 test("resumes a Codex thread after agent replacement and queues against the new log", async () => {

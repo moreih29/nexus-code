@@ -383,9 +383,7 @@ function applyResponse(
       return;
     }
     if (sent.subtype === "thread/resume") {
-      // The app starts a new thread instead, and says so where the tab had a
-      // conversation to go on with. One that never had a turn was never
-      // saved by Codex, so it cannot be resumed and nothing is lost.
+      // The tab keeps its conversation when resuming it fails.
       if (!m.items.some((i) => i.kind !== "notice")) return;
       // The server's reason is for the log and the notice's tooltip.
       draft.push({
@@ -415,10 +413,13 @@ function applyResponse(
       m.appServerVersion = str(result.userAgent)?.match(/^[^/]+\/([\d.]+)\b/)?.[1];
       return;
     case "thread/start":
-    case "thread/resume":
+    case "thread/resume": {
       if (sent.request.ephemeral === true) return;
+      const intended = sent.subtype === "thread/resume" ? str(sent.request.threadId) : undefined;
+      if (intended && str(rec(result.thread)?.id) !== intended) return;
       applyThread(draft, result, seq);
       return;
+    }
     case "thread/list":
       if (
         typeof sent.request.parentThreadId === "string" &&
