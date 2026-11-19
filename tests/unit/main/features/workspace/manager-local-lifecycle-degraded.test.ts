@@ -28,12 +28,14 @@ mock.module("electron", () => ({
   },
 }));
 
-const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
-const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
-const { ChatHost } = await import("../../../../src/main/features/chat/host");
-const { startAgentPtyHost } = await import("../../../../src/main/features/pty/agent-host");
+const { GlobalStorage } = await import("../../../../../src/main/infra/storage/global-storage");
+const { WorkspaceStorage } = await import(
+  "../../../../../src/main/infra/storage/workspace-storage"
+);
+const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
+const { ChatHost } = await import("../../../../../src/main/features/chat/host");
+const { startAgentPtyHost } = await import("../../../../../src/main/features/pty/agent-host");
 
 type ChannelLifecycleCallback = (event: { type: string }) => void;
 

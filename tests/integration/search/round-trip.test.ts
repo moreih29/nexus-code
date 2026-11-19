@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { StreamContext } from "../../src/main/infra/ipc-router";
+import type { StreamContext } from "../../../src/main/infra/ipc-router";
 import {
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
   useSearchStore,
-} from "../../src/renderer/state/stores/search";
-import type { FileMatch, SearchComplete } from "../../src/shared/search/types";
+} from "../../../src/renderer/state/stores/search";
+import type { FileMatch, SearchComplete } from "../../../src/shared/search/types";
 import {
   createIpcPair,
   installWindowForPair,
@@ -14,7 +14,7 @@ import {
   resetInMemoryIpc,
   setupInMemoryRouter,
   waitFor,
-} from "../helpers/ipc-pair";
+} from "../../helpers/ipc-pair";
 
 // Re-establish the electron mock in case a sibling test file in the same bun
 // worker has overwritten it (mock.module persists across files in a worker).

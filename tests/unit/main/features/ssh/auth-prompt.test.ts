@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   AuthCancelledError,
   SshAuthPromptHub,
-} from "../../../../src/main/infra/agent/ssh/auth-prompt";
-import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
+} from "../../../../../src/main/features/ssh/auth-prompt";
+import type { SshAuthPrompt } from "../../../../../src/shared/ssh/auth-prompt";
 
 interface BroadcastEvent {
   readonly channelName: string;

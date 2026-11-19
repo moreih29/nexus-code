@@ -14,10 +14,12 @@ mock.module("electron", () => ({
   },
 }));
 
-const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
-const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
+const { GlobalStorage } = await import("../../../../../src/main/infra/storage/global-storage");
+const { WorkspaceStorage } = await import(
+  "../../../../../src/main/infra/storage/workspace-storage"
+);
+const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 
 class StubChannel {
   readonly ready = Promise.resolve();

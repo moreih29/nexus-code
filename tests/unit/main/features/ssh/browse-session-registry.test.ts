@@ -16,9 +16,9 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   BROWSE_IDLE_TTL_MS,
   SshBrowseSessionRegistry,
-} from "../../../../src/main/features/ssh/browse-session-registry";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
-import type { SshControlMaster } from "../../../../src/main/infra/agent/ssh/master";
+} from "../../../../../src/main/features/ssh/browse-session-registry";
+import type { AgentChannel } from "../../../../../src/main/infra/agent/channel";
+import type { SshControlMaster } from "../../../../../src/main/infra/agent/ssh/master";
 
 // ---------------------------------------------------------------------------
 // Helpers
