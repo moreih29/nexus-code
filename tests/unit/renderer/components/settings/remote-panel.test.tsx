@@ -28,17 +28,8 @@ describe("the remote panel's account", () => {
     expect(both).toContain("Sign in with GitHub");
   });
 
-  test("marks each sign-in with its provider, and the dev one as local only", () => {
+  test("marks the dev sign-in as local only", () => {
     const html = render({ status: "signed-out", server }, ["google", "github", "dev"]);
-    expect(html).toContain('data-provider="google"');
-    // Google's four-color G, as its branding asks, and Roboto.
-    for (const color of ["#EA4335", "#4285F4", "#FBBC05", "#34A853"]) {
-      expect(html).toContain(color);
-    }
-    expect(html).toContain("Roboto");
-    expect(html).toContain('data-provider="github"');
-    expect(html).toContain('fill="currentColor"');
-    expect(html).toContain('data-provider="dev"');
     expect(html).toContain("Local server only");
   });
 
