@@ -8,74 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
-
-// processNotice receives the PID of a Git helper that inherited its pipes.
-type processNotice chan string
-
-// Write publishes the helper's startup marker without holding up exec's copy.
-func (notice processNotice) Write(p []byte) (int, error) {
-	select {
-	case notice <- string(p):
-	default:
-	}
-	return len(p), nil
-}
-
-// TestCancelledGitReturnsWithInheritedOutputPipes covers a Git launcher
-// that is killed on cancellation while its helper keeps stdout open.
-func TestCancelledGitReturnsWithInheritedOutputPipes(t *testing.T) {
-	fakeDir := t.TempDir()
-	writeFakeGit(t, fakeDir, `#!/bin/sh
-/bin/sleep 60 &
-printf '%s\n' "$!"
-wait
-`)
-	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cmd, err := New(t.TempDir()).command(ctx, []string{"status"}, "", nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ready := make(processNotice, 1)
-	cmd.Stdout = ready
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	finished := make(chan error, 1)
-	go func() { finished <- cmd.Wait() }()
-	var marker string
-	select {
-	case marker = <-ready:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Git helper did not announce itself")
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(marker))
-	if err != nil || pid <= 1 {
-		t.Fatalf("invalid helper PID %q", marker)
-	}
-	helper, err := os.FindProcess(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer helper.Release()
-	defer helper.Signal(syscall.SIGKILL)
-	cancel()
-	select {
-	case err := <-finished:
-		if err == nil {
-			t.Fatal("cancelled Git unexpectedly succeeded")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Git wait is still blocked on the helper's output pipe")
-	}
-}
 
 func TestStreamDefaultEmitsStdoutAndClassifiesStderr(t *testing.T) {
 	root := t.TempDir()

@@ -7,19 +7,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
 
-// TestMain lets the test binary double as the askpass helper: interactive
-// commands name os.Executable() as GIT_ASKPASS, as the agent does.
+const gitFixtureEnv = "NEXUS_TEST_GIT_FIXTURE"
+
+// TestMain lets the test binary double as Git or the askpass helper on
+// Windows and Unix. Interactive calls use os.Executable() as GIT_ASKPASS.
 //
 // It also keeps the developer's global and system git config, such as their
 // own pull.rebase, out of every git command the tests run. Setting it here
 // rather than with t.Setenv lets those tests run in parallel.
 func TestMain(m *testing.M) {
-	if addr := os.Getenv(waitDelayFixtureAddr); addr != "" {
-		os.Exit(runWaitDelayFixture(addr))
+	switch os.Getenv(gitFixtureEnv) {
+	case "wait-delay":
+		os.Exit(runWaitDelayFixture(os.Getenv(waitDelayFixtureAddr)))
+	case "output-budget":
+		os.Exit(runOutputBudgetFixture())
+	case "large-status":
+		os.Exit(runLargeStatusFixture())
 	}
 	if socketPath, ok := AskpassSocketFromEnv(); ok {
 		os.Exit(RunAskpassHelper(socketPath, os.Args[1:], os.Stdout, os.Stderr))
@@ -37,6 +45,34 @@ func TestMain(m *testing.M) {
 		_ = os.RemoveAll(templates.root)
 	}
 	os.Exit(code)
+}
+
+// setFakeGitExecutable exposes the test binary as Git on Windows and Unix.
+func setFakeGitExecutable(t *testing.T, fixture string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	path := filepath.Join(dir, name)
+	if err := os.Link(exe, path); err != nil {
+		// The test executable and TempDir can be on different filesystems.
+		data, err := os.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv(gitFixtureEnv, fixture)
 }
 
 // runGit runs git in dir and returns its stdout. A non-zero exit fails the
