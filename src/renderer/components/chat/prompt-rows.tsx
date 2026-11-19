@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import type { ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 import { ChatMarkdown } from "./chat-markdown";
-import { readQuestions } from "./permission-card";
+import { questionKey, readQuestions } from "./permission-card";
 
 /** The tools whose calls ask the user, which these rows show. */
 export const PROMPT_TOOLS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
@@ -137,9 +137,9 @@ export function AnsweredQuestions({ tool }: { tool: ToolCall }) {
       <MessageCircleQuestion aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <dl className="flex min-w-0 flex-1 flex-col gap-2">
         {questions.map((q) => {
-          const answer = answers[q.question];
+          const answer = answers[questionKey(q)] ?? answers[q.question];
           return (
-            <div key={q.question} className="min-w-0">
+            <div key={questionKey(q)} className="min-w-0">
               <dt className="line-clamp-3 break-words text-muted-foreground" title={q.question}>
                 {q.question}
               </dt>

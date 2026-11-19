@@ -51,6 +51,28 @@ describe("codex answers", () => {
     expect(answerOf(method, params, { kind: "deny" })).toEqual({ answers: {} });
   });
 
+  test("equal question text can carry two independent Codex answers", () => {
+    const method = "item/tool/requestUserInput";
+    const params = {
+      questions: [
+        { id: "source", question: "Which color?" },
+        { id: "destination", question: "Which color?" },
+      ],
+    };
+    expect(
+      answerOf(method, params, {
+        kind: "allow",
+        updatedInput: { answers: { source: "Red", destination: "Blue" } },
+      }),
+    ).toEqual({ answers: { source: { answers: ["Red"] }, destination: { answers: ["Blue"] } } });
+    expect(() =>
+      answerOf(method, params, {
+        kind: "allow",
+        updatedInput: { answers: { "Which color?": "Red" } },
+      }),
+    ).toThrow("question ID");
+  });
+
   test("the version gate", () => {
     expect(isSupportedCodex("0.166.0")).toBe(true);
     expect(isSupportedCodex("0.170.1")).toBe(true);

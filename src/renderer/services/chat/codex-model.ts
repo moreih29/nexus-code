@@ -1740,6 +1740,7 @@ function permissionOf(
             const options = Array.isArray(q.options) ? q.options : [];
             return [
               {
+                id: str(q.id),
                 question,
                 header: str(q.header),
                 multiSelect: false,

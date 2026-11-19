@@ -2320,15 +2320,26 @@ export function answerOf(
     case "item/tool/requestUserInput": {
       if (answer.kind !== "allow") return { answers: {} };
       const given = (answer.updatedInput?.answers ?? {}) as Record<string, unknown>;
-      const answers: Record<string, { answers: string[] }> = {};
-      for (const raw of Array.isArray(params.questions) ? params.questions : []) {
-        const q = raw as { id?: unknown; question?: unknown };
-        const text = typeof q.question === "string" ? given[q.question] : undefined;
-        if (typeof q.id === "string" && typeof text === "string" && text) {
-          answers[q.id] = { answers: [text] };
+      const questions = (Array.isArray(params.questions) ? params.questions : []) as {
+        id?: unknown;
+        question?: unknown;
+      }[];
+      const answers = questions.flatMap((q) => {
+        if (typeof q?.id !== "string") return [];
+        let text = Object.hasOwn(given, q.id) ? given[q.id] : undefined;
+        if (
+          text === undefined &&
+          typeof q.question === "string" &&
+          Object.hasOwn(given, q.question)
+        ) {
+          if (questions.some((other) => other !== q && other?.question === q.question)) {
+            throw new Error("Questions with the same text need answers keyed by question ID");
+          }
+          text = given[q.question];
         }
-      }
-      return { answers };
+        return typeof text === "string" && text ? [[q.id, { answers: [text] }]] : [];
+      });
+      return { answers: Object.fromEntries(answers) };
     }
   }
   switch (answer.kind) {
