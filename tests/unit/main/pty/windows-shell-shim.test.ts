@@ -11,6 +11,7 @@ import {
   applyWindowsShellShim,
   wrapperHooksSettings,
 } from "../../../../src/main/features/pty/windows-shell-shim";
+import { CODEX_CMD_HELP, CODEX_CMD_LAUNCHER } from "../../../../src/shared/codex/wrapper";
 
 const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
 /** cmd's claude macro: the tab's mark set, claude with the hooks, the mark cleared. */
@@ -58,6 +59,15 @@ describe("wrapperHooksSettings", () => {
 });
 
 describe("applyWindowsShellShim", () => {
+  test("the two Windows shells use the same bounded Codex help probe", () => {
+    const script = decode(applyWindowsShellShim({ shell: "pwsh.exe", env: ENV, codex: {} }).args);
+    const probe = CODEX_CMD_HELP.slice(0, CODEX_CMD_HELP.indexOf("\nif (Test-NexusCodexNoDaemon"));
+    expect(probe).toContain("3000");
+    expect(probe).toContain(".WaitForExit(");
+    expect(script).toContain(probe);
+    expect(CODEX_CMD_LAUNCHER).toContain("if errorlevel 1 goto :plain");
+  });
+
   test("PowerShell defines a claude function as it starts", () => {
     for (const shell of [
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",

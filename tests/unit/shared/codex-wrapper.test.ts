@@ -10,6 +10,8 @@ import os from "node:os";
 import path from "node:path";
 import { applyWindowsShellShim } from "../../../src/main/features/pty/windows-shell-shim";
 import {
+  CODEX_CMD_BATCH_HELP,
+  CODEX_CMD_BATCH_HELP_FILE,
   CODEX_CMD_HELP,
   CODEX_CMD_HELP_FILE,
   CODEX_CMD_LAUNCHER,
@@ -235,6 +237,8 @@ describeOnWindows("PowerShell's codex function", () => {
         'if "%~1"=="--help" (',
         "  echo Usage: codex [OPTIONS] [PROMPT]",
         "  if not defined FAKE_OLD echo       --no-daemon",
+        '  if defined FAKE_STALLED "%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul',
+        "  if defined FAKE_BROKEN exit /b 1",
         "  exit /b 0",
         ")",
         "echo ARGS:%*",
@@ -274,6 +278,14 @@ describeOnWindows("PowerShell's codex function", () => {
       'ARGS:--no-daemon "a b"\nARGS:agents\nARGS:--remote=ws://x\nARGS:--no-daemon resume\nARGS:hi\n',
     );
   }, 60_000);
+
+  test("a stalled or unsuccessful help probe runs the command without --no-daemon", () => {
+    expect(
+      runPowerShell(
+        "$env:FAKE_STALLED = '1'; codex stalled; Remove-Item Env:FAKE_STALLED; $env:FAKE_BROKEN = '1'; codex broken",
+      ),
+    ).toBe("ARGS:stalled\nARGS:broken\n");
+  }, 30_000);
 });
 
 test("the generated cmd launcher uses the shared Codex server arguments", () => {
@@ -292,6 +304,7 @@ describeOnWindows("cmd Codex launcher", () => {
     for (const dir of [shim, copy]) {
       write(path.join(dir, "codex.cmd"), CODEX_CMD_LAUNCHER);
       write(path.join(dir, CODEX_CMD_HELP_FILE), CODEX_CMD_HELP);
+      write(path.join(dir, CODEX_CMD_BATCH_HELP_FILE), CODEX_CMD_BATCH_HELP);
     }
     write(
       path.join(real, "codex.cmd"),
@@ -300,6 +313,7 @@ describeOnWindows("cmd Codex launcher", () => {
         'if "%~1"=="--help" (',
         '  if "!NEXUS_CMD_TEST_PERCENT!"=="unexpected expansion" exit /b 8',
         "  if not defined FAKE_OLD echo --no-daemon",
+        '  if defined FAKE_STALLED "%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul',
         "  exit /b 0",
         ")",
         "echo ARGS:%*",
@@ -308,12 +322,22 @@ describeOnWindows("cmd Codex launcher", () => {
       ].join("\r\n"),
     );
 
-    const cases = ["", '"one & two"', "agents", "-c x queue", '"--remote=ws://x"', "resume", "hi"];
+    const cases = [
+      "",
+      '"one & two"',
+      "agents",
+      "-c x queue",
+      '"--remote=ws://x"',
+      "resume",
+      "stall",
+      "hi",
+    ];
     const batch = cases.flatMap((args, i) => {
       const command = `case-${i}.cmd`;
       write(path.join(tmp, command), `@echo off\r\ncodex ${args}\r\n`);
       return [
-        ...(i === cases.length - 1 ? ["set FAKE_OLD=1"] : []),
+        ...(args === "stall" ? ["set FAKE_STALLED=1"] : []),
+        ...(args === "hi" ? ["set FAKE_STALLED=", "set FAKE_OLD=1"] : []),
         `"%ComSpec%" /d /v:off /c ${command}`,
         "echo EXIT:%errorlevel%",
       ];
@@ -346,6 +370,7 @@ describeOnWindows("cmd Codex launcher", () => {
         "-c x queue",
         '"--remote=ws://x"',
         "--no-daemon resume",
+        "stall",
         "hi",
       ].flatMap((args) => [`ARGS:${args}`, "EXIT:23"]),
     );

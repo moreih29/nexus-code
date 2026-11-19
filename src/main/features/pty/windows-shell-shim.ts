@@ -22,9 +22,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  CODEX_CMD_BATCH_HELP,
+  CODEX_CMD_BATCH_HELP_FILE,
   CODEX_CMD_HELP,
   CODEX_CMD_HELP_FILE,
   CODEX_CMD_LAUNCHER,
+  CODEX_POWERSHELL_PROBE,
   CODEX_SERVER_ARGS,
   CODEX_WRAPPER,
 } from "../../../shared/codex/wrapper";
@@ -63,28 +66,40 @@ let installing: Promise<WindowsAgentFiles | null> | undefined;
 
 /**
  * Copies the wrappers to ~/.nexus-code/bin and writes claude's hooks to
- * ~/.nexus-code/claude-settings.json, once per run of the app. The copies
+ * ~/.nexus-code/claude-settings.json, caching a complete install. The copies
  * keep Git Bash off the MSIX package's files, which a process outside the
  * package may not use. Null when the directory can't be written; the
  * terminals then run claude and codex as they are.
  */
 export function installWindowsAgentFiles(): Promise<WindowsAgentFiles | null> {
-  installing ??= (async () => {
-    const dir = binDir();
-    try {
-      await ensureDir(dir);
-      await fs.writeFile(path.join(dir, "codex"), CODEX_WRAPPER);
-    } catch (error) {
-      log.warn(`wrappers unavailable in Windows terminals: ${(error as Error).message}`);
-      return null;
-    }
-    const [settingsPath, cmdLauncherDir] = await Promise.all([
-      installClaudeFiles(dir),
-      installCmdLauncher(path.join(dir, "cmd")),
-    ]);
-    return { binDir: dir, settingsPath, cmdLauncherDir };
-  })();
+  installing ??= installFiles().then(
+    (files) => {
+      if (!files?.settingsPath || !files.cmdLauncherDir) installing = undefined;
+      return files;
+    },
+    (error: unknown) => {
+      installing = undefined;
+      throw error;
+    },
+  );
   return installing;
+}
+
+/** Returns the usable parts of this attempt even when another part fails. */
+async function installFiles(): Promise<WindowsAgentFiles | null> {
+  const dir = binDir();
+  try {
+    await ensureDir(dir);
+    await fs.writeFile(path.join(dir, "codex"), CODEX_WRAPPER);
+  } catch (error) {
+    log.warn(`wrappers unavailable in Windows terminals: ${(error as Error).message}`);
+    return null;
+  }
+  const [settingsPath, cmdLauncherDir] = await Promise.all([
+    installClaudeFiles(dir),
+    installCmdLauncher(path.join(dir, "cmd")),
+  ]);
+  return { binDir: dir, settingsPath, cmdLauncherDir };
 }
 
 /** Copies the claude wrapper to `dir` and writes its hooks; their file, if written. */
@@ -108,6 +123,7 @@ async function installCmdLauncher(dir: string): Promise<string | undefined> {
   try {
     await ensureDir(dir);
     await fs.writeFile(path.join(dir, CODEX_CMD_HELP_FILE), CODEX_CMD_HELP);
+    await fs.writeFile(path.join(dir, CODEX_CMD_BATCH_HELP_FILE), CODEX_CMD_BATCH_HELP);
     await fs.writeFile(path.join(dir, "codex.cmd"), CODEX_CMD_LAUNCHER);
     return dir;
   } catch (error) {
@@ -152,7 +168,8 @@ const POWERSHELL_CODEX = `function global:codex {
   if (-not $real) { Write-Error 'codex: command not found'; return }
   $flags = @()
   $server = $args | Where-Object { $_ -in @(${CODEX_SERVER_ARGS.map((arg) => `'${arg}'`).join(", ")}) -or "$_" -like '--remote=*' }
-  if (-not $server -and ((& $real.Source --help 2>$null) -match '--no-daemon')) { $flags = , '--no-daemon' }
+  ${CODEX_POWERSHELL_PROBE}
+  if (-not $server -and (Test-NexusCodexNoDaemon $real.Source)) { $flags = , '--no-daemon' }
   if ($MyInvocation.ExpectingInput) { $input | & $real.Source @flags @args } else { & $real.Source @flags @args }
 }`;
 
