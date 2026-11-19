@@ -33,6 +33,7 @@ import { loopbackPort } from "../../../shared/pty/ports";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
 import { showToast } from "../../components/ui/toast";
 import { ipcListen } from "../../ipc/client";
+import type { ListenArg, ListenEvents } from "../../ipc/types";
 import { useBrowserRuntimeStore } from "../stores/browser-runtime";
 import { useLayoutStore } from "../stores/layout/store";
 import type { BrowserTabProps } from "../stores/tabs";
@@ -42,6 +43,35 @@ import { showForwardFailure } from "./ports";
 // ---------------------------------------------------------------------------
 // IPC subscriptions
 // ---------------------------------------------------------------------------
+
+const browserViews = new Map<string, { workspaceId: string; viewId: string }>();
+
+/** Start a renderer-owned generation before requesting its native view. */
+export function beginBrowserView(workspaceId: string, tabId: string): string {
+  const viewId = crypto.randomUUID();
+  browserViews.set(tabId, { workspaceId, viewId });
+  return viewId;
+}
+
+/** Drop the runtime when its view goes away, even if IPC replies are still queued. */
+export function endBrowserView(tabId: string, viewId: string): void {
+  if (browserViews.get(tabId)?.viewId !== viewId) return;
+  browserViews.delete(tabId);
+  useBrowserRuntimeStore.getState().removeRuntime(tabId);
+}
+
+/** Deliver page events only to the mounted view that requested this generation. */
+function listenToView<E extends Exclude<ListenEvents<"browser">, "downloaded">>(
+  event: E,
+  receive: (payload: ListenArg<"browser", E>, workspaceId: string) => void,
+): () => void {
+  return ipcListen("browser", event, (payload) => {
+    const view = browserViews.get(payload.tabId);
+    if (!view || view.viewId !== payload.viewId) return;
+    const tab = useTabsStore.getState().byWorkspace[view.workspaceId]?.[payload.tabId];
+    if (tab?.type === "browser") receive(payload, view.workspaceId);
+  });
+}
 
 type Unsubscribe = () => void;
 
@@ -60,26 +90,25 @@ export function initBrowserRuntimeSubscriptions(): void {
   activeUnsubs = [];
 
   activeUnsubs.push(
-    ipcListen("browser", "navigated", ({ tabId, url, canGoBack, canGoForward }) => {
+    listenToView("navigated", ({ tabId, url, canGoBack, canGoForward }, workspaceId) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, {
         currentUrl: url,
         canGoBack,
         canGoForward,
       });
       // Capture the committed URL before layout persistence takes its snapshot.
-      const workspaceId = findWorkspaceForTab(tabId);
-      if (workspaceId) useTabsStore.getState().setBrowserLastUrl(workspaceId, tabId, url);
+      useTabsStore.getState().setBrowserLastUrl(workspaceId, tabId, url);
     }),
   );
 
   activeUnsubs.push(
-    ipcListen("browser", "loadingChanged", ({ tabId, isLoading }) => {
+    listenToView("loadingChanged", ({ tabId, isLoading }) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { isLoading });
     }),
   );
 
   activeUnsubs.push(
-    ipcListen("browser", "loadFailureChanged", ({ tabId, failure }) => {
+    listenToView("loadFailureChanged", ({ tabId, failure }) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, {
         loadFailure: failure,
         ...(failure ? { isLoading: false } : {}),
@@ -89,29 +118,24 @@ export function initBrowserRuntimeSubscriptions(): void {
 
   // A local address of an SSH workspace whose port could not be forwarded.
   activeUnsubs.push(
-    ipcListen("browser", "refused", ({ tabId, url, kind, message }) => {
-      const workspaceId = findWorkspaceForTab(tabId);
-      if (!workspaceId) return;
+    listenToView("refused", ({ url, kind, message }, workspaceId) => {
       showForwardFailure(workspaceId, loopbackPort(url) ?? 0, kind, message);
     }),
   );
 
   activeUnsubs.push(
-    ipcListen("browser", "titleUpdated", ({ tabId, title }) => {
+    listenToView("titleUpdated", ({ tabId, title }, workspaceId) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { title });
       // Sync processTitle onto the tab too — so the tab name follows the page title like Chrome.
       // If the user set customTitle via renameTab, the display stays as is.
-      const workspaceId = findWorkspaceForTab(tabId);
-      if (workspaceId) {
-        useTabsStore.getState().setProcessTitle(workspaceId, tabId, title);
-      }
+      useTabsStore.getState().setProcessTitle(workspaceId, tabId, title);
     }),
   );
 
   // page-favicon-updated → browser-runtime store. Uses only the first entry of the candidate array.
   // If null or an empty array, faviconUrl is cleared so TabItem returns to the default Globe icon.
   activeUnsubs.push(
-    ipcListen("browser", "faviconUpdated", ({ tabId, favicons }) => {
+    listenToView("faviconUpdated", ({ tabId, favicons }) => {
       const next = favicons && favicons.length > 0 ? favicons[0] : null;
       useBrowserRuntimeStore.getState().setRuntime(tabId, { faviconUrl: next });
     }),
@@ -124,7 +148,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   // `cleared` event clears the cache when the modal closes and the native
   // view is shown again.
   activeUnsubs.push(
-    ipcListen("browser", "snapshot", (payload) => {
+    listenToView("snapshot", (payload) => {
       if (payload.kind === "set") {
         useBrowserRuntimeStore.getState().setRuntime(payload.tabId, { snapshot: payload.dataUrl });
       } else {
@@ -138,7 +162,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   // ResizeObserver that sends `setDevToolsBounds`; when it returns to false
   // the region unmounts and the page region reclaims the full content area.
   activeUnsubs.push(
-    ipcListen("browser", "devtoolsToggled", ({ tabId, open }) => {
+    listenToView("devtoolsToggled", ({ tabId, open }) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { devtoolsOpen: open });
     }),
   );
@@ -149,7 +173,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   // group that owns the tab so clicking a browser panel behaves like clicking
   // any other panel.
   activeUnsubs.push(
-    ipcListen("browser", "focused", ({ tabId }) => {
+    listenToView("focused", ({ tabId }) => {
       activateGroupForTab(tabId);
     }),
   );
@@ -158,7 +182,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   // focus, so it was caught by the main key interceptor and bounced here —
   // focus the address bar for that tab (mirrors the in-renderer command).
   activeUnsubs.push(
-    ipcListen("browser", "focusUrl", ({ tabId }) => {
+    listenToView("focusUrl", ({ tabId }) => {
       useBrowserRuntimeStore.getState().requestUrlFocus(tabId);
     }),
   );

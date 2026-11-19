@@ -1805,6 +1805,7 @@ export const ipcContract = {
       create: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           workspaceId: WorkspaceIdPrimitive,
           url: z.string().url(),
           partition: z.string().min(1),
@@ -1812,7 +1813,7 @@ export const ipcContract = {
         z.void(),
       ),
       /** Destroy the WebContentsView and release all resources for `tabId`. */
-      destroy: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      destroy: call(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() }), z.void()),
       /**
        * Resize/reposition the view.
        *
@@ -1825,6 +1826,7 @@ export const ipcContract = {
       setBounds: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           x: z.number(),
           y: z.number(),
           width: z.number(),
@@ -1833,7 +1835,10 @@ export const ipcContract = {
         z.void(),
       ),
       /** Attach (active=true) or detach (active=false) the view. */
-      setActive: call(z.object({ tabId: z.string().uuid(), active: z.boolean() }), z.void()),
+      setActive: call(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), active: z.boolean() }),
+        z.void(),
+      ),
       /** Navigate the tab to `url`. */
       navigate: call(z.object({ tabId: z.string().uuid(), url: z.string().url() }), z.void()),
       goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
@@ -1866,6 +1871,7 @@ export const ipcContract = {
       setDevToolsBounds: call(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           x: z.number(),
           y: z.number(),
           width: z.number(),
@@ -1909,17 +1915,21 @@ export const ipcContract = {
       navigated: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           url: z.string(),
           canGoBack: z.boolean(),
           canGoForward: z.boolean(),
         }),
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
-      loadingChanged: listen(z.object({ tabId: z.string().uuid(), isLoading: z.boolean() })),
+      loadingChanged: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), isLoading: z.boolean() }),
+      ),
       /** The main frame's last load failure, cleared on successful navigation. */
       loadFailureChanged: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
@@ -1930,13 +1940,16 @@ export const ipcContract = {
       refused: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           url: z.string(),
           kind: z.string(),
           message: z.string(),
         }),
       ),
       /** Emitted when the page title changes. */
-      titleUpdated: listen(z.object({ tabId: z.string().uuid(), title: z.string() })),
+      titleUpdated: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), title: z.string() }),
+      ),
       /**
        * Emitted when the page advertises favicon(s).
        *
@@ -1948,6 +1961,7 @@ export const ipcContract = {
       faviconUpdated: listen(
         z.object({
           tabId: z.string().uuid(),
+          viewId: z.string().uuid(),
           favicons: z.array(z.string()).nullable(),
         }),
       ),
@@ -1968,9 +1982,14 @@ export const ipcContract = {
           z.object({
             kind: z.literal("set"),
             tabId: z.string().uuid(),
+            viewId: z.string().uuid(),
             dataUrl: z.string(),
           }),
-          z.object({ kind: z.literal("cleared"), tabId: z.string().uuid() }),
+          z.object({
+            kind: z.literal("cleared"),
+            tabId: z.string().uuid(),
+            viewId: z.string().uuid(),
+          }),
         ]),
       ),
       /**
@@ -1978,7 +1997,9 @@ export const ipcContract = {
        * docked-DevTools state so the renderer can show / hide its splitter
        * region and start / stop reporting `setDevToolsBounds`.
        */
-      devtoolsToggled: listen(z.object({ tabId: z.string().uuid(), open: z.boolean() })),
+      devtoolsToggled: listen(
+        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), open: z.boolean() }),
+      ),
       /**
        * Emitted when the tab's WebContentsView gains focus (e.g. the user
        * clicks anywhere in the page).
@@ -1992,7 +2013,7 @@ export const ipcContract = {
        * activate the group that owns `tabId` whenever the page itself is
        * clicked, matching the behaviour of every other panel type.
        */
-      focused: listen(z.object({ tabId: z.string().uuid() })),
+      focused: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
       /**
        * Emitted when the browser URL-focus shortcut (browser.focusUrl,
        * ⌘L by default) fires while the page itself has focus. Because the
@@ -2002,7 +2023,7 @@ export const ipcContract = {
        * focus the address bar. The other browser shortcuts act in main
        * directly; only URL focus needs a renderer round-trip.
        */
-      focusUrl: listen(z.object({ tabId: z.string().uuid() })),
+      focusUrl: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
       /**
        * A download the user started in a browser tab is done, saved as
        * `file` where downloads go. One a nexus command started is told in
