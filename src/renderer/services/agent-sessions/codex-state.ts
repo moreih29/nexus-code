@@ -66,6 +66,40 @@ export function codexStateOf(
   return { state: "idle", since: endedAt, ...told };
 }
 
+/** Uses Claude's stream to keep a chat's status independent of terminal hook order. */
+export function claudeChatStateOf(
+  chat: ChatTabState | undefined,
+  seenAt: number | undefined,
+  viewing: boolean,
+): CodexSessionState | undefined {
+  if (!chat) return undefined;
+  const { model } = chat;
+  const result = model.lastResult;
+  if (!model.running && model.permissions.length === 0 && result?.outcome) {
+    if (result.outcome === "interrupted") {
+      return {
+        state: "idle",
+        since: result.at,
+        message: lastAnswer(model),
+        prompt: lastPrompt(model),
+      };
+    }
+    if (result.outcome === "error") {
+      return { state: "error", since: result.at, message: result.error, prompt: lastPrompt(model) };
+    }
+  }
+  if (
+    result?.outcome ||
+    model.running ||
+    model.permissions.length > 0 ||
+    chat.phase === "failed" ||
+    chat.phase === "not-found"
+  ) {
+    return codexStateOf(chat, seenAt, viewing);
+  }
+  return undefined;
+}
+
 /**
  * The strongest state of the Codex tabs in `tabs` of `workspaceIds`, for a
  * workspace card or a task's: null when none of them works or waits.

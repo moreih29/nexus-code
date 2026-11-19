@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
 // A watched directory that is deleted and recreated at the same path must be
@@ -27,9 +29,9 @@ func TestWatchRecreatedDirectoryIsWatchedAgain(t *testing.T) {
 	}
 	defer fsys.Close()
 
-	changes := make(chan FsChange, 64)
+	changes := make(chan filewatch.FsChange, 64)
 	fsys.SetEventSink(func(event string, payload any) error {
-		if p, ok := payload.(FsChangedPayload); ok && event == "fs.changed" {
+		if p, ok := payload.(filewatch.FsChangedPayload); ok && event == "fs.changed" {
 			for _, c := range p.Changes {
 				changes <- c
 			}
@@ -184,10 +186,10 @@ func watchParams(rel string) json.RawMessage {
 	return raw
 }
 
-func collectChanges(fsys *Service) <-chan FsChange {
-	changes := make(chan FsChange, 1024)
+func collectChanges(fsys *Service) <-chan filewatch.FsChange {
+	changes := make(chan filewatch.FsChange, 1024)
 	fsys.SetEventSink(func(event string, payload any) error {
-		if p, ok := payload.(FsChangedPayload); ok && event == "fs.changed" {
+		if p, ok := payload.(filewatch.FsChangedPayload); ok && event == "fs.changed" {
 			for _, c := range p.Changes {
 				changes <- c
 			}
@@ -199,7 +201,7 @@ func collectChanges(fsys *Service) <-chan FsChange {
 
 // waitForChanges waits until every relPath in want has been reported and
 // returns every relPath seen up to then.
-func waitForChanges(t *testing.T, changes <-chan FsChange, want ...string) map[string]bool {
+func waitForChanges(t *testing.T, changes <-chan filewatch.FsChange, want ...string) map[string]bool {
 	t.Helper()
 	seen := make(map[string]bool)
 	deadline := time.After(5 * time.Second)

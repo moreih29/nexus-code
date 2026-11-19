@@ -14,7 +14,7 @@ import {
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatTabState } from "../chat/store";
-import { codexStateOf } from "./codex-state";
+import { claudeChatStateOf, codexStateOf } from "./codex-state";
 
 /**
  * Where a session stands for the user: waiting on them (a permission, an
@@ -214,8 +214,8 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
     const key = sessionKey(workspace.id, tab.id);
     const status = claude[tab.id];
     if (tab.type === "claude") {
-      // Its hooks tell its state once its program started; idle until then.
-      const state = status?.status ?? "idle";
+      const streamed = claudeChatStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      const state = streamed?.state ?? status?.status ?? "idle";
       sessions.push({
         key,
         workspaceId: workspace.id,
@@ -226,9 +226,9 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         state,
         phase: phaseOf(state),
         estimated: false,
-        since: status?.since,
-        message: status?.message,
-        prompt: status?.prompt,
+        since: streamed ? streamed.since : status?.since,
+        message: streamed ? streamed.message : status?.message,
+        prompt: streamed?.prompt ?? status?.prompt,
       });
       continue;
     }

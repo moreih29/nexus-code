@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,5 +98,33 @@ func TestMergeEnvPutsTheLoginShellBetweenTheAgentAndTheTab(t *testing.T) {
 		if got[key] != want {
 			t.Errorf("%s = %q, want %q", key, got[key], want)
 		}
+	}
+}
+
+func TestEnvPutsWrapperFirstAndDropsParentSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH separator")
+	}
+	t.Setenv("CLAUDECODE", "1")
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	wrapper := t.TempDir()
+	startFake(t, service, "tab", map[string]string{
+		"PATH":                   "/usr/bin:/bin",
+		"NEXUS_WRAPPER_SELF_DIR": wrapper,
+		"NEXUS_TAB_ID":           "tab",
+	})
+	_ = send(t, service, "tab", "env")
+	rec.waitFor(t, "the env", func(lines []LinePayload, _ []ExitPayload) bool {
+		return hasOut(lines, `"type":"env"`)
+	})
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	want := fmt.Sprintf(`{"type":"env","path":%q,"tab":"tab","claudecode":""}`, wrapper+":/usr/bin:/bin")
+	if !hasOut(rec.lines, want) {
+		t.Fatalf("want %s in %s", want, describe(rec.lines))
 	}
 }

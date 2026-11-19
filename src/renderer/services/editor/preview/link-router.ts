@@ -1,3 +1,4 @@
+import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
 // Markdown link / image classifier for the Preview pane.
 //
 // Five kinds of href appear in user-supplied markdown:
@@ -144,16 +145,10 @@ function posixResolve(baseDir: string, target: string): string {
 /** Collapse `.` / `..` / repeated `/` in a POSIX absolute path. */
 function normalizePosix(p: string): string {
   const isAbs = p.startsWith("/");
-  const parts = p.split("/");
-  const stack: string[] = [];
-  for (const part of parts) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      stack.pop();
-      continue;
-    }
-    stack.push(part);
-  }
+  const stack = reducePosixSegments(p, {
+    emptySegments: "discard",
+    leadingParents: "discard",
+  });
   return (isAbs ? "/" : "") + stack.join("/");
 }
 

@@ -1,10 +1,11 @@
 package ports
 
 import (
-	"bytes"
 	"encoding/binary"
 	"strconv"
 	"strings"
+
+	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
 // baseName strips a program's folder: ps names some programs by their path.
@@ -64,12 +65,11 @@ func parseLsof(out []byte) []Listener {
 // spaces and parentheses itself, so the fields after it are counted from the
 // last ")": field 3 (state) comes first, then field 4 (ppid).
 func parseProcStat(data []byte) (Process, bool) {
-	open := bytes.IndexByte(data, '(')
-	end := bytes.LastIndexByte(data, ')')
-	if open < 0 || end < open {
+	name, suffix := hostproc.SplitPIDStat(data)
+	if name == nil {
 		return Process{}, false
 	}
-	fields := strings.Fields(string(data[end+1:]))
+	fields := strings.Fields(string(suffix))
 	if len(fields) < 2 {
 		return Process{}, false
 	}
@@ -77,7 +77,7 @@ func parseProcStat(data []byte) (Process, bool) {
 	if err != nil {
 		return Process{}, false
 	}
-	return Process{PPID: ppid, Name: string(data[open+1 : end])}, true
+	return Process{PPID: ppid, Name: string(name)}, true
 }
 
 // tcpListen is the state /proc/net/tcp gives a listening socket.

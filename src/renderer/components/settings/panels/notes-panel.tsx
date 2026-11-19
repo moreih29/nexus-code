@@ -13,7 +13,7 @@ import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../../ipc/client";
 import { surfaceError } from "../../../services/error-surface/surface-error";
 import { notesApi } from "../../../services/notes/api";
-import { formatBytes } from "../../notes/editor/asset-nodes";
+import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsPage } from "../section";
@@ -79,7 +79,7 @@ export function NotesPanel() {
       title: t("storage.removeConfirm.title", { label: entry.location.label }),
       description: t("storage.removeConfirm.description", {
         count: entry.notes,
-        size: formatBytes(total(entry)),
+        size: formatBytes(total(entry), "notes"),
       }),
       confirmLabel: t("storage.removeConfirm.confirm"),
       variant: "destructive",
@@ -119,7 +119,7 @@ export function NotesPanel() {
         ) : (
           <div className="flex flex-col gap-2" data-testid="notes-storage">
             <p className="text-app-ui-sm text-muted-foreground">
-              {t("storage.total", { size: formatBytes(sum), count })}
+              {t("storage.total", { size: formatBytes(sum, "notes"), count })}
             </p>
             <UsageBar entries={entries} />
             <div className="flex flex-col gap-0.5">
@@ -153,7 +153,7 @@ export function NotesPanel() {
                   </div>
                   <span className="flex shrink-0 flex-col items-end">
                     <span className="text-app-ui-sm text-foreground">
-                      {formatBytes(total(entry))}
+                      {formatBytes(total(entry), "notes")}
                     </span>
                     <span className="text-app-micro text-muted-foreground">
                       {t("storage.notes", { count: entry.notes })}

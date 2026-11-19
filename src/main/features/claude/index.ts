@@ -2,6 +2,7 @@
 //
 // setupClaudeFeature() is called after app.whenReady() in src/main/index.ts.
 
+import type { ClaudeTurnResult } from "../../../shared/claude/turn-result";
 import { broadcast } from "../../infra/ipc-router";
 import type { PtyHostHandle } from "../pty/types";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
@@ -12,9 +13,11 @@ import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handl
 import { ClaudeInterruptWatcher } from "./interrupt";
 import { registerClaudeChannel } from "./ipc";
 import { answersDialog, PermissionAsks } from "./permission-asks";
+import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
 import { ClaudeReconnectCheck } from "./reconnect";
 import { SessionActivityLog } from "./session-activity";
 import { ClaudeStatusBroker } from "./status";
+import { TurnOrder } from "./turn-order";
 
 // ---------------------------------------------------------------------------
 // Dependency types
@@ -56,7 +59,7 @@ export interface SetupClaudeFeatureResult {
    * A Claude tab's turn ended short: interrupted, or failed. No hook says so,
    * and the tab's program tells it in a result line.
    */
-  noteTurnStopped: (workspaceId: string, tabId: string) => void;
+  noteTurnResult: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** A Claude tab's program exited, maybe without its SessionEnd hook. */
   noteProgramExit: (workspaceId: string, tabId: string) => void;
   /** Function that releases every subscription. */
@@ -117,29 +120,35 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
 
   // 3. Register hook-handler.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
+  const turns = new TurnOrder();
+  const dialogs = new PermissionDialogs();
 
-  const offHook = registerHookHandler({
-    broker,
-    activeContext,
-    activity,
-    asks,
-    chatAnswers,
-    agentHost,
-    channelProvider: workspaceManager,
-    workspaceManager,
-    getFocusedWindow,
-    electronNotificationCtor: options.electronNotificationCtor,
-    broadcastFn,
-    notificationsEnabled: options.notificationsEnabled,
-    connectWorkspace: (id) => workspaceManager.connect(id),
-    focusMainWindow: () => {
-      const win = getActiveAppWindow();
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
+  const offHook = registerHookHandler(
+    {
+      broker,
+      activeContext,
+      activity,
+      asks,
+      chatAnswers,
+      agentHost,
+      channelProvider: workspaceManager,
+      workspaceManager,
+      getFocusedWindow,
+      electronNotificationCtor: options.electronNotificationCtor,
+      broadcastFn,
+      notificationsEnabled: options.notificationsEnabled,
+      connectWorkspace: (id) => workspaceManager.connect(id),
+      focusMainWindow: () => {
+        const win = getActiveAppWindow();
+        if (!win) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      },
     },
-  });
+    turns,
+    dialogs,
+  );
 
   // Claude gone without its SessionEnd hook (its exit seen, its state cleared
   // by hand) takes its record along: the agents it ran stopped with it.
@@ -212,13 +221,36 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       // The dialog answered in the terminal no longer waits on the app.
       if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
     },
-    noteTurnStopped: (workspaceId, tabId) => {
-      const status = broker.get(workspaceId, tabId)?.status;
-      if (status === "running" || status === "permissionPending") {
-        broker.set(workspaceId, tabId, "idle");
+    noteTurnResult: (workspaceId, tabId, result) => {
+      if (!turns.acceptsResult(workspaceId, tabId, result.promptId)) return;
+      const key = `${workspaceId}:${tabId}`;
+      dialogs.closeAgent(key, MAIN_AGENT);
+      asks.retain(workspaceId, tabId, (agent) => agent !== MAIN_AGENT);
+      const focused = getFocusedWindow();
+      const viewing =
+        focused !== null && !focused.isMinimized() && activeContext.isActive(workspaceId, tabId);
+      const status =
+        result.outcome === "error"
+          ? "error"
+          : result.outcome === "interrupted" || viewing
+            ? "idle"
+            : "completed";
+      const message = result.outcome === "interrupted" ? undefined : result.detail?.slice(0, 500);
+      if (dialogs.isOpen(key)) {
+        dialogs.setUnder(key, { status, message });
+      } else {
+        const previous = broker.get(workspaceId, tabId);
+        broker.set(
+          workspaceId,
+          tabId,
+          status,
+          message ?? (status === previous?.status ? previous.message : undefined),
+        );
       }
     },
     noteProgramExit: (workspaceId, tabId) => {
+      turns.end(workspaceId, tabId);
+      dialogs.clear(`${workspaceId}:${tabId}`);
       broker.clear(workspaceId, tabId);
       activity.clear(workspaceId, tabId);
       asks.clear(workspaceId, tabId);

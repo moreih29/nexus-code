@@ -1,6 +1,7 @@
 import i18next from "i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../shared/fs/defaults";
-import { FS_ERROR, type FsErrorCode, hasFsErrorCode } from "../../shared/fs/errors";
+import { FS_ERROR, type FsErrorCode } from "../../shared/fs/errors";
+import { classifyFsError, FILE_ERROR_CODES, localizedFsError } from "./error-classification";
 
 /**
  * Reader-side error mapping for the editor's "Open" path. Re-exports
@@ -11,23 +12,7 @@ import { FS_ERROR, type FsErrorCode, hasFsErrorCode } from "../../shared/fs/erro
 export type FileErrorCode = FsErrorCode | "OTHER";
 
 export function parseFileErrorCode(message: string): FileErrorCode {
-  const candidates: FsErrorCode[] = [
-    FS_ERROR.NOT_FOUND,
-    FS_ERROR.PERMISSION_DENIED,
-    FS_ERROR.IS_DIRECTORY,
-    FS_ERROR.TOO_LARGE,
-    FS_ERROR.ALREADY_EXISTS,
-    FS_ERROR.OUT_OF_WORKSPACE,
-    FS_ERROR.NOT_EMPTY,
-    FS_ERROR.NOT_DIRECTORY,
-    FS_ERROR.CROSS_DEVICE,
-    FS_ERROR.NO_SPACE,
-    FS_ERROR.UNSUPPORTED_REMOTE,
-  ];
-  for (const code of candidates) {
-    if (hasFsErrorCode(message, code)) return code;
-  }
-  return "OTHER";
+  return classifyFsError(message, FILE_ERROR_CODES) ?? "OTHER";
 }
 
 export function fileErrorMessage(
@@ -40,7 +25,7 @@ export function fileErrorMessage(
     case "OTHER":
       return i18next.t("errors:open.failed");
     default:
-      return i18next.t(`errors:fs.${code}`);
+      return localizedFsError(code);
   }
 }
 
@@ -52,5 +37,5 @@ export function fileErrorMessage(
 export function fsErrorReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const code = parseFileErrorCode(message);
-  return code === "OTHER" ? message : i18next.t(`errors:fs.${code}`);
+  return code === "OTHER" ? message : localizedFsError(code);
 }

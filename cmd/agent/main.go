@@ -165,17 +165,7 @@ func main() {
 	})
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout, agentLogger)
-	fsys.SetEventSink(func(event string, payload any) error {
-		err := host.EmitEvent(event, payload)
-		if event == "fs.changed" {
-			if changed, ok := payload.(agentfs.FsChangedPayload); ok {
-				if routeErr := lsp.HandleFSChanged(changed); err == nil {
-					err = routeErr
-				}
-			}
-		}
-		return err
-	})
+	fsys.SetEventSink(fsEventSink(host, lsp))
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
 	pty.SetEventSink(host.Context(), host.EmitEvent)

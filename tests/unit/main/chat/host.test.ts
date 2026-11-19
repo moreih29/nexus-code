@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
   ChatHost,
   type ChatHostOptions,
@@ -97,7 +97,7 @@ function setup(
     workspaceManager: manager,
     agentContext,
     broadcast: (event, args) => events.push({ event, args }),
-    onTurnStopped: (ws, tab) => status.push(`stopped ${ws} ${tab}`),
+    onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
@@ -497,7 +497,34 @@ describe("ChatHost", () => {
     result({ subtype: "success", terminal_reason: "aborted_tools" });
     result({ subtype: "error_during_execution" }, { replay: true });
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
-    expect(status).toEqual([`stopped ${WS} ${TAB}`, `stopped ${WS} ${TAB}`, `exit ${WS} ${TAB}`]);
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+      `exit ${WS} ${TAB}`,
+    ]);
+  });
+
+  test("reports success, error and interruption when Claude sends only a result", async () => {
+    const { channel, host, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    for (const result of [
+      { subtype: "success" },
+      { subtype: "success", is_error: true },
+      { subtype: "success", terminal_reason: "interrupted" },
+    ]) {
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        dir: "out",
+        message: { type: "result", ...result },
+      });
+    }
+    expect(status).toEqual([
+      `completed ${WS} ${TAB}`,
+      `error ${WS} ${TAB}`,
+      `interrupted ${WS} ${TAB}`,
+    ]);
   });
 
   test("closing a chat during version discovery cancels its late spawn", async () => {
@@ -541,6 +568,39 @@ describe("ChatHost", () => {
     expect(events.map((event) => event.event)).toEqual(["line"]);
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, processGeneration: "new" });
     expect(status).toEqual([`exit ${WS} ${TAB}`]);
+  });
+
+  test("removing a workspace sends chat.close and forgets its open tab intents", async () => {
+    const { host, channel, status } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const generation = (
+      channel.calls.find((call) => call.method === "chat.start")?.params as {
+        tabGeneration: string;
+      }
+    ).tabGeneration;
+    await host.closeWorkspace(WS, channel);
+    expect(channel.calls.filter((call) => call.method === "chat.close")).toEqual([
+      { method: "chat.close", params: { workspaceId: WS, tabId: TAB, tabGeneration: generation } },
+    ]);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
+  });
+
+  test("removing a disconnected workspace forgets chats without connecting again", async () => {
+    const lookup = mock(async () => {
+      throw new Error("workspace offline");
+    });
+    const { host, channel, status } = setup({ tryGetAgentChannel: lookup });
+    await host.startCodex(WS, TAB, "/repo", {});
+    await host.closeWorkspace(WS, null);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(channel.calls.some((call) => call.method === "chat.close")).toBe(false);
+    expect(status).toEqual([`exit ${WS} ${TAB}`]);
+    expect((host as unknown as { tabIntents: ReadonlyMap<string, unknown> }).tabIntents.size).toBe(
+      0,
+    );
   });
 
   test("reattach recognizes a missed start without reverting to an older replayed process", async () => {

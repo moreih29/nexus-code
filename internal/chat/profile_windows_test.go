@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	nexusfs "github.com/nexus-code/nexus-code/internal/fs"
+	"github.com/nexus-code/nexus-code/internal/filelink"
 )
 
 // Without Developer Mode or an administrator, a profile's shared folder is a
@@ -25,7 +25,7 @@ func TestJunctionsAndHardLinksAreKnownAsLinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := nexusfs.Junction(filepath.Join(own, "skills"), filepath.Join(def, "skills")); err != nil {
+	if err := filelink.Junction(filepath.Join(own, "skills"), filepath.Join(def, "skills")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Link(filepath.Join(def, "config.toml"), filepath.Join(own, "config.toml")); err != nil {

@@ -62,7 +62,11 @@ import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { type HookInfo, WorkspaceHooks } from "./connection/hooks";
 import { LocalWorkspaceConnections } from "./connection/local";
 import { RemoteWorkspaceConnections } from "./connection/remote";
-import { createInitialFsProvider, WorkspaceConnectionState } from "./connection/state";
+import {
+  createInitialFsProvider,
+  createWorkspaceRemovedError,
+  WorkspaceConnectionState,
+} from "./connection/state";
 import { defaultWslTransport, type WorkspaceWslTransport } from "./connection/wsl";
 import { WorkspaceContext } from "./context";
 
@@ -175,6 +179,11 @@ export class WorkspaceManager {
    * tries to kill sessions via IPC after the context is already gone.
    */
   private ptySessionCloser: ((workspaceId: string) => void) | null = null;
+  /** Closes chats on the already-open channel before removal closes it. */
+  private chatSessionCloser:
+    | ((workspaceId: string, channel: AgentChannel | null) => Promise<void>)
+    | null = null;
+  private readonly workspaceRemovals = new Map<string, Promise<void>>();
 
   /**
    * Optional async callback invoked by `remove()` after the PTY sessions are
@@ -352,8 +361,11 @@ export class WorkspaceManager {
    * Returns the ready workspace-scoped agent channel, booting it if needed.
    */
   async getAgentChannel(id: string): Promise<AgentChannel> {
+    if (this.workspaceRemovals.has(id)) throw createWorkspaceRemovedError(id);
     const ctx = this.requireContext(id);
     await this.ensureProviderReady(ctx);
+    if (this.workspaceRemovals.has(id) || !this.connections.isLiveContext(id, ctx))
+      throw createWorkspaceRemovedError(id);
     const channel = this.local.localChannels.get(id) ?? this.remote.sshChannels.get(id);
     if (!channel) {
       throw new Error(`agent channel not available for workspace: ${id}`);
@@ -531,7 +543,7 @@ export class WorkspaceManager {
   }
 
   async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {
-    if (!this.contexts.has(id)) return null;
+    if (!this.contexts.has(id) || this.workspaceRemovals.has(id)) return null;
     return this.getAgentChannel(id);
   }
 
@@ -887,17 +899,31 @@ export class WorkspaceManager {
     return this.update(id, { lastOpenedAt: new Date().toISOString() });
   }
 
-  remove(id: string): void {
-    const ctx = this.contexts.get(id);
-    if (!ctx) {
-      return;
-    }
+  /** Installs chat cleanup without coupling the workspace manager to the chat host. */
+  setChatSessionCloser(
+    closer: (workspaceId: string, channel: AgentChannel | null) => Promise<void>,
+  ): void {
+    this.chatSessionCloser = closer;
+  }
 
+  /** Removes the workspace and waits for its chats to close on its current agent. */
+  remove(id: string): Promise<void> {
+    const pending = this.workspaceRemovals.get(id);
+    if (pending) return pending;
+    const ctx = this.contexts.get(id);
+    if (!ctx) return Promise.resolve();
+    const removal = this.removeWorkspace(id, ctx).finally(() => this.workspaceRemovals.delete(id));
+    this.workspaceRemovals.set(id, removal);
+    return removal;
+  }
+
+  /** Tears down the removed workspace's sessions before releasing its resources. */
+  private async removeWorkspace(id: string, ctx: WorkspaceContext): Promise<void> {
     // A workspace's tasks go with it. Their worktrees stay on disk; git
     // forgets one once its folder is deleted (`git worktree prune`).
-    for (const task of this.list()) {
-      if (task.task?.parentId === id) this.remove(task.id);
-    }
+    const taskRemovals = this.list()
+      .filter((task) => task.task?.parentId === id)
+      .map((task) => this.remove(task.id));
 
     // Step 1 — terminate all PTY sessions for this workspace *before* the
     // context is deleted. This prevents the renderer's post-removal pty.kill
@@ -907,6 +933,19 @@ export class WorkspaceManager {
     // renderer's dead-terminal banner fires without waiting for IPC.
     this.ptySessionCloser?.(id);
     this.remote.cancelPending(id);
+    if (this.chatSessionCloser) {
+      const status = this.connections.connectionStatuses.get(id);
+      const channel =
+        this.local.localChannels.get(id) ??
+        (status === "connected" || status === "unstable"
+          ? this.remote.sshChannels.get(id)
+          : undefined);
+      const closingChats = this.chatSessionCloser(id, channel ?? null).catch((error: unknown) => {
+        log.warn(`chat cleanup failed for removed workspace ${id}: ${String(error)}`);
+      });
+      // Start the parent's close while child workspaces close their chats.
+      await Promise.all([...taskRemovals, closingChats]);
+    }
 
     // Step 1b — destroy all browser views for this workspace and schedule
     // clearStorageData. View destroys happen synchronously inside the async

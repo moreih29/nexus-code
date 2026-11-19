@@ -51,6 +51,13 @@ export class TurnOrder {
     return false;
   }
 
+  /** An identified stream result must belong to the current prompt. */
+  acceptsResult(workspaceId: string, tabId: string, promptId: string | undefined): boolean {
+    if (!promptId) return true;
+    const tab = this.tabs.get(`${workspaceId}:${tabId}`);
+    return !tab?.past.includes(promptId) && (!tab?.current || tab.current === promptId);
+  }
+
   /** The session ended: frames of its last turn that still come are stale. */
   end(workspaceId: string, tabId: string): void {
     const tab = this.tabs.get(`${workspaceId}:${tabId}`);

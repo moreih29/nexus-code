@@ -81,6 +81,48 @@ test("a Claude interrupt rejection clears only the matching pending request", ()
 });
 
 describe("chat model from a recorded conversation", () => {
+  test("a Claude result closes foreground permissions and tools while background work continues", () => {
+    const tool = (id: string, input: Record<string, unknown> = {}) => ({
+      id,
+      name: "Bash",
+      input,
+      status: "running" as const,
+      parentToolUseId: null,
+    });
+    const model: ChatModel = {
+      ...emptyModel(),
+      running: true,
+      permissions: [
+        { requestId: "foreground", toolName: "Bash", input: {}, suggestions: [] },
+        { requestId: "background", toolName: "Bash", input: {}, suggestions: [], agentId: "agent" },
+      ],
+      tools: {
+        foreground: tool("foreground"),
+        background: tool("background", { run_in_background: true }),
+      },
+      tasks: {
+        agent: {
+          taskId: "agent",
+          type: "local_agent",
+          description: "background",
+          status: "running",
+          backgrounded: true,
+        },
+      },
+    };
+    const finished = applyLine(model, {
+      seq: 1,
+      dir: "out",
+      at: 2000,
+      message: { type: "result", subtype: "success", is_error: true, result: "failed" },
+    });
+    expect(finished.running).toBe(false);
+    expect(finished.permissions.map((request) => request.requestId)).toEqual(["background"]);
+    expect(finished.tools.foreground.status).toBe("stopped");
+    expect(finished.tools.background.status).toBe("running");
+    expect(finished.tasks.agent.status).toBe("running");
+  });
+
   test("the whole conversation", () => {
     const model = run(FIXTURE);
     expect(model.sessionId).toBe("f676b90f-cba3-42f4-85ac-18f5f3aaab1b");

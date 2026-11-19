@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -195,4 +197,31 @@ func messageType(message json.RawMessage) string {
 		return ""
 	}
 	return probe.Type
+}
+
+var errLineTooLong = errors.New("line too long")
+
+// readLine reads one line of at most limit bytes. A longer line is read to
+// its end and dropped, with errLineTooLong.
+func readLine(reader *bufio.Reader, limit int) ([]byte, error) {
+	var line []byte
+	tooLong := false
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if !tooLong {
+			if len(line)+len(chunk) > limit {
+				tooLong = true
+				line = nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if tooLong && err == nil {
+			return nil, errLineTooLong
+		}
+		return line, err
+	}
 }
