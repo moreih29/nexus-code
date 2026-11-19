@@ -42,7 +42,7 @@
 
 import { shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import {
@@ -113,6 +113,18 @@ export interface UpdatesDomainHandle {
 const logger = createLogger("updates");
 
 const c = ipcContract.updates.call;
+
+/** Completes the IPC reply when the system has accepted or rejected the link. */
+async function openUpdateLink(url: string) {
+  try {
+    await shell.openExternal(url);
+    return ipcOk(undefined);
+  } catch {
+    // Native shell errors may include the full URL, including credentials.
+    logger.warn("Could not open link to updates");
+    return ipcErr("open-external-failed", "Could not open link to updates");
+  }
+}
 
 /**
  * Installs the updates domain: registers IPC handlers and returns a handle
@@ -360,19 +372,17 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
 
       openReleasePage: (args: unknown) => {
         const { url } = validateArgs(c.openReleasePage.args, args);
-        if (isExternalSchemeAllowed(url)) {
-          void shell.openExternal(url);
-        } else {
-          logger.warn(`updates: blocked openReleasePage with disallowed scheme: ${url}`);
+        if (!isExternalSchemeAllowed(url)) {
+          logger.warn("Blocked update link with disallowed scheme");
+          return ipcErr("invalid-args", "Unsupported update link");
         }
-        return ipcOk(undefined);
+        return openUpdateLink(url);
       },
 
       getStatus: () => ipcOk({ status: currentStatus, progress: currentProgress }),
 
       openStorePage: () => {
-        if (process.windowsStore) void shell.openExternal(STORE_PAGE_URL);
-        return ipcOk(undefined);
+        return process.windowsStore ? openUpdateLink(STORE_PAGE_URL) : ipcOk(undefined);
       },
 
       releaseNotes: async () => {

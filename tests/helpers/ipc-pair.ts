@@ -1,4 +1,5 @@
 import { mock } from "bun:test";
+import { EventEmitter } from "node:events";
 
 export type InMemoryStreamEvent =
   | { streamId: string; kind: "progress"; data: unknown }
@@ -48,7 +49,7 @@ mock.module("electron", () => ({
   },
 }));
 
-export class InMemoryWebContents {
+export class InMemoryWebContents extends EventEmitter {
   readonly id: number;
   readonly sent: { channel: string; args: unknown[] }[] = [];
   readonly streamEvents: InMemoryStreamEvent[] = [];
@@ -57,6 +58,7 @@ export class InMemoryWebContents {
   private readonly eventListeners = new Map<string, Set<ListenCallback>>();
 
   constructor(id: number) {
+    super();
     this.id = id;
   }
 
@@ -85,7 +87,9 @@ export class InMemoryWebContents {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
     this.destroyed = true;
+    this.emit("destroyed");
     this.streamListeners.clear();
     this.eventListeners.clear();
   }

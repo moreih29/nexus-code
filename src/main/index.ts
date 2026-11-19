@@ -244,12 +244,14 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
     portForwards?.removed(removedWorkspaceId);
+    portWatcher?.forgetWorkspace(removedWorkspaceId);
     agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
     lspHost?.forgetWorkspace(removedWorkspaceId);
+    notesFeature?.forgetWorkspace(removedWorkspaceId);
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
@@ -880,8 +882,8 @@ app.on("before-quit", (event) => {
 autoUpdater?.on("before-quit-for-update", () => closePersistence.allowUpdaterClose());
 
 app.on("window-all-closed", () => {
-  // All renderers are gone — no consumer can use browse sessions any more.
-  sshBrowseRegistry.dispose();
+  // A reopened window can start new sessions with the same reaper.
+  sshBrowseRegistry.closeAll();
   if (!isMac()) {
     app.quit();
   }
@@ -921,6 +923,7 @@ async function shutDownMain(): Promise<void> {
     chatHost?.dispose();
     agentProfiles?.dispose();
     remote?.dispose();
+    notesFeature?.dispose();
     const lspShutdown = lspHost?.dispose();
     agentFsWatcher?.dispose();
     gitStatusCoalescer?.clearAll();

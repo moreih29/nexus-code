@@ -110,16 +110,15 @@ export class SshBrowseSessionRegistry {
     disposeSession(session);
   }
 
-  /**
-   * Closes all open sessions and stops the reaper timer. Call on app shutdown
-   * or when the renderer window is destroyed.
-   */
+  /** Closes the current sessions when all windows have gone. */
+  closeAll(): void {
+    for (const sessionId of this.sessions.keys()) this.close(sessionId);
+  }
+
+  /** Closes the sessions and stops the reaper when the app quits. */
   dispose(): void {
     clearInterval(this.reaperTimer);
-    for (const session of this.sessions.values()) {
-      disposeSession(session);
-    }
-    this.sessions.clear();
+    this.closeAll();
   }
 
   /**

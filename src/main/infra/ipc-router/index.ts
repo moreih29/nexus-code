@@ -83,6 +83,7 @@ interface PendingStream {
   closed: boolean;
   errorSent: boolean;
   generatorDone: boolean;
+  releaseSender?: () => void;
 }
 
 interface ChannelDef {
@@ -178,7 +179,7 @@ export function setupRouter(): void {
         const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         return reportCallBug(procedure, correlationId, detail);
       } finally {
-        if (callContext.key) pendingCallControllers.delete(callContext.key);
+        callContext.release?.();
       }
     },
   );
@@ -208,6 +209,11 @@ export function setupRouter(): void {
         generatorDone: false,
       };
       pendingStreamControllers.set(key, pendingStream);
+      pendingStream.releaseSender = trackSender(event.sender, () => {
+        detachStream(key, pendingStream);
+        pendingStream.controller.abort();
+        void closeStreamGenerator(pendingStream);
+      });
       setImmediate(() => {
         void runStream(key, pendingStream, descriptor, handler, args);
       });
@@ -220,6 +226,43 @@ export function setupRouter(): void {
 function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {
   log.error(`ipc:call — ${procedure}: ${detail}`, { correlationId });
   return ipcErr("bug", "An unexpected error occurred", { category: "bug", correlationId });
+}
+
+interface SenderLifetime {
+  readonly cleanup: Set<() => void>;
+  readonly destroyed: () => void;
+}
+
+const senderLifetimes = new WeakMap<WebContents, SenderLifetime>();
+
+/** Owns pending work with one destroy listener per renderer. */
+function trackSender(sender: WebContents | undefined, abandon: () => void): () => void {
+  if (!sender?.once) return () => {};
+  if (sender.isDestroyed()) {
+    abandon();
+    return () => {};
+  }
+
+  let lifetime = senderLifetimes.get(sender);
+  if (!lifetime) {
+    const cleanup = new Set<() => void>();
+    const destroyed = () => {
+      senderLifetimes.delete(sender);
+      const callbacks = [...cleanup];
+      cleanup.clear();
+      for (const cancel of callbacks) cancel();
+    };
+    lifetime = { cleanup, destroyed };
+    senderLifetimes.set(sender, lifetime);
+    sender.once("destroyed", destroyed);
+  }
+  const { cleanup, destroyed } = lifetime;
+  cleanup.add(abandon);
+  return () => {
+    if (!cleanup.delete(abandon) || cleanup.size > 0) return;
+    sender.removeListener("destroyed", destroyed);
+    senderLifetimes.delete(sender);
+  };
 }
 
 function senderId(event: { sender?: { id?: number } }): string {
@@ -243,7 +286,7 @@ function createCallContext(
   event: import("electron").IpcMainInvokeEvent,
   requestId: unknown,
   correlationId: string,
-): { key?: string; ctx?: CallContext } {
+): { release?: () => void; ctx: CallContext } {
   const sender = event.sender;
   if (typeof requestId !== "string" || requestId.length === 0) {
     return { ctx: { correlationId, sender } };
@@ -251,8 +294,21 @@ function createCallContext(
   const key = requestKey(event, requestId);
   const controller = new AbortController();
   pendingCallControllers.set(key, controller);
+  const remove = () => {
+    if (pendingCallControllers.get(key) === controller) pendingCallControllers.delete(key);
+  };
+  const releaseSender = trackSender(sender, () => {
+    remove();
+    controller.abort();
+  });
   if (consumePreCanceledRequest(key)) controller.abort();
-  return { key, ctx: { requestId, signal: controller.signal, correlationId, sender } };
+  return {
+    release: () => {
+      remove();
+      releaseSender();
+    },
+    ctx: { requestId, signal: controller.signal, correlationId, sender },
+  };
 }
 
 function getStreamDescriptor(channelName: string, method: string): AnyStreamProcedure | undefined {
@@ -347,15 +403,23 @@ async function runStream(
   }
 }
 
-async function cleanupStream(key: string, pendingStream: PendingStream): Promise<void> {
-  const shouldCloseGenerator =
-    pendingStream.generator &&
-    !pendingStream.generatorDone &&
-    !pendingStream.closed &&
-    !pendingStream.controller.signal.aborted;
+/** Drops routing and renderer ownership before waiting for handler cleanup. */
+function detachStream(key: string, pendingStream: PendingStream): void {
   pendingStream.closed = true;
-  pendingStreamControllers.delete(key);
-  if (shouldCloseGenerator) await pendingStream.generator?.return(undefined).catch(() => {});
+  if (pendingStreamControllers.get(key) === pendingStream) pendingStreamControllers.delete(key);
+  pendingStream.releaseSender?.();
+}
+
+/** Returns an unfinished iterator once, including one supplied after cancellation. */
+async function closeStreamGenerator(pendingStream: PendingStream): Promise<void> {
+  if (!pendingStream.generator || pendingStream.generatorDone) return;
+  pendingStream.generatorDone = true;
+  await pendingStream.generator.return(undefined).catch(() => {});
+}
+
+async function cleanupStream(key: string, pendingStream: PendingStream): Promise<void> {
+  detachStream(key, pendingStream);
+  await closeStreamGenerator(pendingStream);
 }
 
 function shouldStopStream(key: string, pendingStream: PendingStream): boolean {
@@ -370,9 +434,8 @@ function cancelStream(key: string, pendingStream: PendingStream): void {
   pendingStream.controller.abort();
   if (pendingStream.cancelMode === "handler") return;
   sendStreamError(pendingStream, createAbortError());
-  pendingStream.closed = true;
-  pendingStreamControllers.delete(key);
-  void pendingStream.generator?.return(undefined).catch(() => {});
+  detachStream(key, pendingStream);
+  void closeStreamGenerator(pendingStream);
 }
 
 function sendStreamEvent(pendingStream: PendingStream, payload: StreamEventPayload): void {

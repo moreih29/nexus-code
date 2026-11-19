@@ -287,7 +287,7 @@ export function installNavigationGuards(
       (url.startsWith("file:") && event.initiator && event.initiator !== webContents.mainFrame)
     ) {
       event.preventDefault();
-      logger.warn(`[will-navigate] blocked: ${url}`);
+      logger.warn("[will-navigate] blocked");
       return;
     }
     onNavigate?.(url);
@@ -333,7 +333,7 @@ export function installNavigationGuards(
       !canNavigateLocalFrame(webContents, url, details.frame, details.initiator)
     ) {
       details.preventDefault();
-      logger.warn(`[will-frame-navigate] blocked: ${url}`);
+      logger.warn("[will-frame-navigate] blocked");
     }
   });
   webContents.on("will-redirect", (details) => {
@@ -366,7 +366,7 @@ export function installNavigationGuards(
   watchActivation(webContents, activation);
   webContents.setWindowOpenHandler(({ url }) => {
     if (isPopupNavigationAllowed(url) && !activation.take()) {
-      logger.warn(`[window-open] blocked without user input: ${url}`);
+      logger.warn("[window-open] blocked without user input");
       return { action: "deny" };
     }
     if (isPopupNavigationAllowed(url)) {
@@ -382,7 +382,7 @@ export function installNavigationGuards(
         },
       };
     }
-    logger.warn(`[window-open] blocked: ${url}`);
+    logger.warn("[window-open] blocked");
     return { action: "deny" };
   });
 

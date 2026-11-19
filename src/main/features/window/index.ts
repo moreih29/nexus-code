@@ -227,7 +227,7 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   win.webContents.on("will-navigate", (event, url) => {
     if (isAllowedMainWindowNavigation(url, devServerUrl)) return;
     event.preventDefault();
-    logger.warn(`Blocked main window navigation: ${url}`);
+    logger.warn("Blocked main window navigation");
   });
 
   // The renderer cancels unload (quit, window close, reload) while buffers
@@ -266,13 +266,13 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       !focused || (focused.processId === main.processId && focused.routingId === main.routingId);
     const previewLink = frameName === PREVIEW_LINK_WINDOW;
     if (!isExternalSchemeAllowed(url)) {
-      logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
+      logger.warn("Blocked window.open with disallowed scheme");
     } else if (!opensHere(previewLink, keyboardInApp)) {
-      logger.warn(`Blocked window.open from where the keyboard is not: ${url}`);
+      logger.warn("Blocked window.open from where the keyboard is not");
     } else if (!activation.take(previewLink ? USER_ACTIVATION_MS : APP_ACTIVATION_MS)) {
-      logger.warn(`Blocked window.open without user input: ${url}`);
+      logger.warn("Blocked window.open without user input");
     } else {
-      shell.openExternal(url);
+      void shell.openExternal(url).catch(() => logger.warn("Could not open external window link"));
     }
     return { action: "deny" };
   });

@@ -110,7 +110,7 @@ export function installLocalFileReadGuard(contents: WebContents): void {
         // A frame or tab may have gone away before Electron delivered the request.
       }
     }
-    if (cancel) logger.warn(`[file-read] blocked ${resourceType}: ${url}`);
+    if (cancel) logger.warn(`[file-read] blocked ${resourceType}`);
     callback({ cancel });
   });
 }
