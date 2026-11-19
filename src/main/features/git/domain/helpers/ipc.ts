@@ -87,6 +87,8 @@ export class GitHelpersIpcManager {
   private readonly platform: NodeJS.Platform;
   private readonly pid: number;
   private readonly token: string;
+  /** Connected helpers that have not yet submitted the request they came for. */
+  private readonly awaitingRequests = new Set<net.Socket>();
   private readonly pending = new Map<string, PendingPrompt>();
   private server: net.Server | null = null;
   private endpoint: GitHelpersEndpoint | null = null;
@@ -146,7 +148,11 @@ export class GitHelpersIpcManager {
     setDefaultGitHelperConnection(null);
 
     if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      // Clients with a prompt receive its shutdown reply. An idle socket
+      // has no pending prompt to resolve and can keep server.close waiting.
+      for (const socket of this.awaitingRequests) socket.destroy();
+      await closed;
     }
     if (endpoint?.kind === "unix") {
       await fs.unlink(endpoint.path).catch(() => {});
@@ -279,10 +285,13 @@ export class GitHelpersIpcManager {
     let buffer = "";
     let handled = false;
     socket.setEncoding("utf8");
+    this.awaitingRequests.add(socket);
+    socket.once("close", () => this.awaitingRequests.delete(socket));
 
     const finish = async (line: string): Promise<void> => {
       if (handled) return;
       handled = true;
+      this.awaitingRequests.delete(socket);
       try {
         const payload = JSON.parse(line) as HelperRequestPayload;
         const response = await this.handleHelperRequest(payload);
