@@ -4,12 +4,21 @@
 // as it loads and seeks without being read whole first, for local and SSH
 // workspaces alike.
 //
-// A file changed on disk is loaded again, and playback goes back to where
-// it was.
+// A file changed on disk (or on another computer) is loaded again while
+// the player is stopped or ended, and playback goes back to where it was.
+// While it plays it is not cut off: a bar says the file changed, and loads
+// it again, at the same place, when asked.
 
 import { type SyntheticEvent, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  changePending,
+  isPlaying,
+  mediaResume,
+  nextShownVersion,
+} from "../../../services/editor/preview/file-refresh";
 import type { MediaKind } from "../../../services/editor/preview/media";
+import { Banner } from "../../ui/banner";
 import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion, versionedUrl } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
@@ -68,7 +77,16 @@ interface MediaPlayerProps {
 
 function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerProps) {
   const { t } = useTranslation();
-  const src = versionedUrl(url, useFileVersion(workspaceId, relPath));
+  const latest = useFileVersion(workspaceId, relPath);
+  const [playing, setPlaying] = useState(false);
+  const [shown, setShown] = useState(latest);
+  /** Whether the next load is one the user asked for during playback, which goes on playing. */
+  const resumePlay = useRef(false);
+  // While it plays the shown version stays; once it stops, the latest loads.
+  const next = nextShownVersion(shown, latest, playing);
+  if (next !== shown) setShown(next);
+  const pending = changePending(shown, latest);
+  const src = versionedUrl(url, shown);
   const [failed, setFailed] = useState(false);
   // A failure (a format it cannot play, the file missing mid-write) is
   // tried again once the file changes.
@@ -99,7 +117,13 @@ function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerPro
     const media = e.currentTarget;
     const resume = resumeAt.current;
     resumeAt.current = null;
-    if (resume !== null && resume > 0 && resume < media.duration) media.currentTime = resume;
+    const wasPlaying = resumePlay.current;
+    resumePlay.current = false;
+    if (resume !== null) {
+      const again = mediaResume(resume, media.duration, wasPlaying);
+      if (again.at !== null) media.currentTime = again.at;
+      if (again.play) void media.play().catch(() => {});
+    }
     const video = media instanceof HTMLVideoElement ? media : null;
     onInfo?.({
       duration: media.duration,
@@ -107,6 +131,7 @@ function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerPro
       height: video?.videoHeight ?? 0,
     });
   };
+  const track = (e: SyntheticEvent<HTMLMediaElement>) => setPlaying(isPlaying(e.currentTarget));
   const player = {
     src,
     controls: true,
@@ -115,16 +140,40 @@ function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerPro
     onTimeUpdate: (e: SyntheticEvent<HTMLMediaElement>) => {
       if (resumeAt.current === null) position.current = e.currentTarget.currentTime;
     },
+    onPlay: track,
+    onPlaying: track,
+    onPause: track,
+    onEnded: track,
     onError: () => setFailed(true),
   } as const;
 
   return (
-    <div className="flex-1 min-h-0 flex items-center justify-center p-4 bg-[var(--surface-backdrop-bg)]">
-      {kind === "video" ? (
-        <video {...player} className="max-w-full max-h-full" />
-      ) : (
-        <audio {...player} className="w-full max-w-xl" />
+    <div className="flex-1 min-h-0 flex flex-col">
+      {pending && (
+        <Banner
+          display="bar"
+          variant="info"
+          role="status"
+          message={t("mediaPreview.file_changed")}
+          actions={[
+            {
+              label: t("mediaPreview.reload"),
+              onAction: () => {
+                resumePlay.current = playing;
+                setPlaying(false);
+                setShown(latest);
+              },
+            },
+          ]}
+        />
       )}
+      <div className="flex-1 min-h-0 flex items-center justify-center p-4 bg-[var(--surface-backdrop-bg)]">
+        {kind === "video" ? (
+          <video {...player} className="max-w-full max-h-full" />
+        ) : (
+          <audio {...player} className="w-full max-w-xl" />
+        )}
+      </div>
     </div>
   );
 }

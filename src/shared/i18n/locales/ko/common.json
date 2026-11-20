@@ -734,7 +734,9 @@
   },
   "mediaPreview": {
     "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
-    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다."
+    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다.",
+    "file_changed": "파일이 바뀌었어요",
+    "reload": "다시 불러오기"
   },
   "pdfPreview": {
     "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",

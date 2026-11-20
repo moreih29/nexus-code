@@ -734,7 +734,9 @@
   },
   "mediaPreview": {
     "outside_workspace": "This file is outside the workspace and cannot be played.",
-    "load_failed": "Could not play this file: its format may not be supported."
+    "load_failed": "Could not play this file: its format may not be supported.",
+    "file_changed": "The file changed",
+    "reload": "Reload"
   },
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
