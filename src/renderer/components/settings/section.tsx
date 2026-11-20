@@ -97,6 +97,8 @@ export function SettingsPage({ children }: { children: ReactNode }) {
 
 interface SettingLabelProps {
   label: string;
+  /** The key the setting is in a file, in code type after the name. */
+  code?: string;
   description?: ReactNode;
   /** The control the name labels, so clicking the name works it. */
   htmlFor?: string;
@@ -104,10 +106,10 @@ interface SettingLabelProps {
   onReset?: () => void;
 }
 
-function SettingLabel({ label, description, htmlFor, dirty, onReset }: SettingLabelProps) {
+function SettingLabel({ label, code, description, htmlFor, dirty, onReset }: SettingLabelProps) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className={cn("flex min-w-0 items-center gap-1.5", code && "flex-wrap gap-y-0.5")}>
         {htmlFor ? (
           <label
             htmlFor={htmlFor}
@@ -117,6 +119,11 @@ function SettingLabel({ label, description, htmlFor, dirty, onReset }: SettingLa
           </label>
         ) : (
           <span className="truncate text-app-body text-foreground">{label}</span>
+        )}
+        {code && (
+          <span className="min-w-0 break-all rounded-(--radius-control) bg-muted px-1 font-mono text-app-micro text-muted-foreground">
+            {code}
+          </span>
         )}
         {onReset && <ResetButton onClick={onReset} label={label} visible={!!dirty} />}
       </div>
@@ -166,6 +173,7 @@ interface SettingsRowProps extends SettingLabelProps {
 
 export function SettingsRow({
   label,
+  code,
   description,
   htmlFor,
   dirty,
@@ -176,6 +184,7 @@ export function SettingsRow({
     <div className="flex items-center justify-between gap-4">
       <SettingLabel
         label={label}
+        code={code}
         description={description}
         htmlFor={htmlFor}
         dirty={dirty}
@@ -192,6 +201,7 @@ export function SettingsRow({
 
 interface SettingsSwitchProps {
   label: string;
+  code?: string;
   description?: ReactNode;
   checked: boolean;
   disabled?: boolean;
@@ -203,6 +213,7 @@ interface SettingsSwitchProps {
 
 export function SettingsSwitch({
   label,
+  code,
   description,
   checked,
   disabled,
@@ -214,6 +225,7 @@ export function SettingsSwitch({
   return (
     <SettingsRow
       label={label}
+      code={code}
       description={description}
       htmlFor={id}
       dirty={dirty}

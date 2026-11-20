@@ -6,6 +6,11 @@ import {
   SessionsUpdateSchema,
   TerminalUpdateSchema,
 } from "../../../packages/remote-protocol/src/rpc";
+import {
+  BehaviorChangesSchema,
+  BehaviorFileSchema,
+  BehaviorWriteResultSchema,
+} from "../agent-profiles/behavior";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -2484,6 +2489,28 @@ export const ipcContract = {
       loginCancel: call(z.object({ id: z.string().max(64) }), z.void()),
       /** Opens a sign-in's https address in the system browser. */
       openUrl: call(z.object({ url: z.string().url().max(8192) }), z.void()),
+      /**
+       * The profile's behavior file (settings.json, config.toml) on this machine and
+       * the values of the fields Settings edits. `prepare` first makes the folder and links.
+       */
+      readBehavior: call(
+        z.object({ profileId: z.string().max(64), prepare: z.boolean().optional() }),
+        BehaviorFileSchema,
+      ),
+      /** Writes the changed fields only, if the file is still at `version`. */
+      writeBehavior: call(
+        z.object({
+          profileId: z.string().max(64),
+          version: z.string().max(128),
+          changes: BehaviorChangesSchema,
+        }),
+        BehaviorWriteResultSchema,
+      ),
+      /** Replaces the profile's link to the default folder's behavior file with a copy of its own. */
+      unshareBehavior: call(
+        z.object({ profileId: z.string().max(64) }),
+        z.object({ path: z.string() }),
+      ),
     },
     listen: {
       loginOutput: listen(z.object({ id: z.string(), text: z.string() })),

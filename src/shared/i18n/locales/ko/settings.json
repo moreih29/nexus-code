@@ -695,6 +695,154 @@
       "cancel": "취소",
       "sameOrg": "{{name}} 프로필과 같은 조직입니다. 다른 조직으로 다시 로그인하세요.",
       "sameAccount": "{{name}} 프로필과 같은 계정입니다"
+    },
+    "behavior": {
+      "title": "동작 설정",
+      "openFile": "{{file}} 열기",
+      "loading": "읽는 중…",
+      "ssh": "이 컴퓨터의 폴더만 다룹니다. SSH 호스트의 같은 프로필 폴더는 그 컴퓨터의 파일입니다",
+      "shared": {
+        "warn": "{{file}}을 기본 프로필과 함께 씁니다. 여기서 바꾸면 기본 프로필도 바뀝니다",
+        "unshare": "이 프로필만 따로 쓰기",
+        "confirmTitle": "{{file}}을 이 프로필 전용으로 바꿀까요?",
+        "confirmBody": "지금 내용을 복사해 이 프로필 폴더에 둡니다. 기본 프로필은 바뀌지 않습니다",
+        "confirm": "따로 쓰기",
+        "own": "이 프로필 전용",
+        "failed": "따로 쓰지 못했습니다: {{message}}"
+      },
+      "broken": "{{file}}을 읽을 수 없어 고치지 않습니다 ({{reason}}). 파일을 고친 뒤 다시 여세요",
+      "outside": "파일이 밖에서 바뀌었습니다. 다시 읽어도 바꾼 값은 남습니다",
+      "reload": "다시 읽기",
+      "conflict": "파일이 밖에서 바뀌어 저장하지 않았습니다. 다시 읽은 뒤 저장하세요",
+      "unsupported": "파일에서 직접 고치세요",
+      "unsupportedSave": "{{fields}}: 파일에서 직접 고쳐야 하는 모양입니다. 저장하지 않았습니다",
+      "saveFailed": "동작 설정을 저장하지 못했습니다: {{message}}",
+      "default": "기본값",
+      "defaultAccount": "기본값 (계정에 따름)",
+      "tabNote": {
+        "claude": "여기 값은 새 탭의 시작값입니다. 탭에서 바꾼 모델과 권한 모드는 그 탭에만 적용됩니다",
+        "codex": "승인과 샌드박스는 새 탭의 시작값입니다. 탭의 권한 선택에서 바꾸면 그 탭에만 적용됩니다"
+      },
+      "footer": {
+        "claude": "허용·거부 규칙, hooks, 상태 줄은 {{file}}에서 고칩니다 · MCP는 MCP 화면에서",
+        "codex": "MCP 서버, 규칙, hooks, 알림은 {{file}}에서 고칩니다"
+      },
+      "groups": {
+        "model": "모델",
+        "work": "작업 방식",
+        "permissions": "권한"
+      },
+      "fields": {
+        "model": {
+          "label": "시작 모델",
+          "hint": "Claude 기본 목록에서 고릅니다"
+        },
+        "thinking": {
+          "label": "확장 사고",
+          "hint": "끄면 생각 과정 없이 바로 답합니다"
+        },
+        "permissionMode": {
+          "label": "권한 모드",
+          "hint": "새 탭이 시작할 때의 모드"
+        },
+        "language": {
+          "label": "응답 언어",
+          "hint": "비우면 Claude가 정합니다",
+          "placeholder": "예: 한국어"
+        },
+        "outputStyle": {
+          "label": "출력 스타일"
+        },
+        "autoCompact": {
+          "label": "자동 압축",
+          "hint": "컨텍스트가 차면 대화를 요약합니다"
+        },
+        "autoMemory": {
+          "label": "자동 메모리",
+          "hint": "알게 된 것을 다음 대화에 기억합니다"
+        },
+        "attribution": {
+          "label": "커밋·PR에 Claude 표시",
+          "hint": "Co-Authored-By 줄과 PR 끝의 문구"
+        },
+        "sandbox": {
+          "label": "Bash 샌드박스",
+          "hint": "명령을 파일·네트워크 제한 안에서 실행합니다"
+        },
+        "approvalPolicy": {
+          "label": "승인",
+          "hint": "명령을 실행하기 전에 물을지"
+        },
+        "sandboxMode": {
+          "label": "샌드박스",
+          "hint": "명령이 고칠 수 있는 범위"
+        },
+        "sandboxNetwork": {
+          "label": "샌드박스 안 네트워크",
+          "hint": "워크스페이스만 쓰기일 때 밖으로 연결 허용"
+        },
+        "webSearch": {
+          "label": "웹 검색",
+          "hint": "끄기 · 캐시 · 인덱스 · 실시간",
+          "locked": "다른 API 주소에서는 꺼집니다"
+        },
+        "reasoningSummary": {
+          "label": "추론 요약",
+          "hint": "생각 과정을 얼마나 보여 줄지"
+        },
+        "autoCompactLimit": {
+          "label": "자동 압축 기준",
+          "hint": "비우면 모델 기본값",
+          "placeholder": "예: 100000"
+        },
+        "verbosity": {
+          "label": "답 길이"
+        },
+        "codexModel": {
+          "label": "시작 모델",
+          "hint": "비우면 Codex 기본 모델",
+          "placeholder": "예: gpt-5"
+        }
+      },
+      "options": {
+        "permissionMode": {
+          "default": "기본",
+          "plan": "계획",
+          "acceptEdits": "편집 자동 수락",
+          "auto": "자동",
+          "dontAsk": "묻지 않음"
+        },
+        "outputStyle": {
+          "default": "기본"
+        },
+        "approvalPolicy": {
+          "on-request": "필요할 때 묻기",
+          "never": "묻지 않기",
+          "untrusted": "신뢰 밖만 묻기"
+        },
+        "sandboxMode": {
+          "read-only": "읽기 전용",
+          "workspace-write": "워크스페이스만 쓰기",
+          "danger-full-access": "전체 접근"
+        },
+        "webSearch": {
+          "disabled": "끄기",
+          "cached": "캐시",
+          "indexed": "인덱스",
+          "live": "실시간"
+        },
+        "reasoningSummary": {
+          "auto": "자동",
+          "concise": "간단히",
+          "detailed": "자세히",
+          "none": "숨김"
+        },
+        "verbosity": {
+          "low": "짧게",
+          "medium": "보통",
+          "high": "길게"
+        }
+      }
     }
   },
   "profileRules": {

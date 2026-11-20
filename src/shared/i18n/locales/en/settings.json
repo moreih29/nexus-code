@@ -695,6 +695,154 @@
       "cancel": "Cancel",
       "sameOrg": "Same organization as the {{name}} profile. Sign in again with another one.",
       "sameAccount": "Same account as the {{name}} profile"
+    },
+    "behavior": {
+      "title": "Behavior",
+      "openFile": "Open {{file}}",
+      "loading": "Reading…",
+      "ssh": "Only this computer's folder is edited. The same profile folder on an SSH host is that computer's file",
+      "shared": {
+        "warn": "{{file}} is shared with the default profile. Changing it here changes the default profile too",
+        "unshare": "Use a separate file for this profile",
+        "confirmTitle": "Make {{file}} this profile's own?",
+        "confirmBody": "The current content is copied into this profile's folder. The default profile is not changed",
+        "confirm": "Separate",
+        "own": "This profile only",
+        "failed": "Could not separate it: {{message}}"
+      },
+      "broken": "{{file}} cannot be read, so it is not changed ({{reason}}). Fix the file and reopen this",
+      "outside": "The file changed outside. Reading it again keeps your edits",
+      "reload": "Read again",
+      "conflict": "The file changed outside, so nothing was saved. Read it again, then save",
+      "unsupported": "Edit this in the file",
+      "unsupportedSave": "{{fields}}: has a form that must be edited in the file. Nothing was saved",
+      "saveFailed": "Could not save the behavior settings: {{message}}",
+      "default": "Default",
+      "defaultAccount": "Default (by account)",
+      "tabNote": {
+        "claude": "These are the starting values of a new tab. A model or permission mode changed in a tab applies to that tab only",
+        "codex": "Approval and sandbox are the starting values of a new tab. Changing them in a tab's permission choice applies to that tab only"
+      },
+      "footer": {
+        "claude": "Allow and deny rules, hooks and the status line are edited in {{file}} · MCP servers are in the MCP screen",
+        "codex": "MCP servers, rules, hooks and notifications are edited in {{file}}"
+      },
+      "groups": {
+        "model": "Model",
+        "work": "Ways of working",
+        "permissions": "Permissions"
+      },
+      "fields": {
+        "model": {
+          "label": "Starting model",
+          "hint": "Pick from Claude's list of models"
+        },
+        "thinking": {
+          "label": "Extended thinking",
+          "hint": "Off: answers at once without thinking first"
+        },
+        "permissionMode": {
+          "label": "Permission mode",
+          "hint": "The mode a new tab starts in"
+        },
+        "language": {
+          "label": "Reply language",
+          "hint": "Empty: Claude chooses",
+          "placeholder": "e.g. Korean"
+        },
+        "outputStyle": {
+          "label": "Output style"
+        },
+        "autoCompact": {
+          "label": "Auto-compact",
+          "hint": "Summarizes the conversation when the context fills"
+        },
+        "autoMemory": {
+          "label": "Auto memory",
+          "hint": "Remembers what it learns in the next conversation"
+        },
+        "attribution": {
+          "label": "Credit Claude in commits and PRs",
+          "hint": "The Co-Authored-By line and the PR footer"
+        },
+        "sandbox": {
+          "label": "Bash sandbox",
+          "hint": "Runs commands with file and network limits"
+        },
+        "approvalPolicy": {
+          "label": "Approval",
+          "hint": "Whether to ask before running a command"
+        },
+        "sandboxMode": {
+          "label": "Sandbox",
+          "hint": "What a command may change"
+        },
+        "sandboxNetwork": {
+          "label": "Network in the sandbox",
+          "hint": "Allow connecting out when it writes the workspace only"
+        },
+        "webSearch": {
+          "label": "Web search",
+          "hint": "Off · cached · indexed · live",
+          "locked": "Off for another API address"
+        },
+        "reasoningSummary": {
+          "label": "Reasoning summary",
+          "hint": "How much of the thinking to show"
+        },
+        "autoCompactLimit": {
+          "label": "Auto-compact limit",
+          "hint": "Empty: the model's default",
+          "placeholder": "e.g. 100000"
+        },
+        "verbosity": {
+          "label": "Answer length"
+        },
+        "codexModel": {
+          "label": "Starting model",
+          "hint": "Empty: Codex's default model",
+          "placeholder": "e.g. gpt-5"
+        }
+      },
+      "options": {
+        "permissionMode": {
+          "default": "Default",
+          "plan": "Plan",
+          "acceptEdits": "Accept edits",
+          "auto": "Auto",
+          "dontAsk": "Don't ask"
+        },
+        "outputStyle": {
+          "default": "Default"
+        },
+        "approvalPolicy": {
+          "on-request": "Ask when needed",
+          "never": "Never ask",
+          "untrusted": "Ask outside trusted"
+        },
+        "sandboxMode": {
+          "read-only": "Read only",
+          "workspace-write": "Workspace only",
+          "danger-full-access": "Full access"
+        },
+        "webSearch": {
+          "disabled": "Off",
+          "cached": "Cached",
+          "indexed": "Indexed",
+          "live": "Live"
+        },
+        "reasoningSummary": {
+          "auto": "Auto",
+          "concise": "Concise",
+          "detailed": "Detailed",
+          "none": "Hidden"
+        },
+        "verbosity": {
+          "low": "Short",
+          "medium": "Medium",
+          "high": "Long"
+        }
+      }
     }
   },
   "profileRules": {

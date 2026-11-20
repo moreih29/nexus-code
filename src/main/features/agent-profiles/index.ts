@@ -12,6 +12,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
+import { readBehavior, unshareBehaviorFile, writeBehavior } from "./behavior";
 import {
   inspectLocalFolder,
   LocalLogins,
@@ -74,6 +75,18 @@ export function registerAgentProfilesChannel(state: StateService): { dispose(): 
       loginCancel: async (args: unknown) => {
         logins.cancel(validateArgs(c.loginCancel.args, args).id);
         return ipcOk(undefined);
+      },
+      readBehavior: async (args: unknown) => {
+        const { profileId, prepare } = validateArgs(c.readBehavior.args, args);
+        return ipcOk(await readBehavior(profile(profileId), { prepare }));
+      },
+      writeBehavior: async (args: unknown) => {
+        const { profileId, version, changes } = validateArgs(c.writeBehavior.args, args);
+        return ipcOk(await writeBehavior(profile(profileId), version, changes));
+      },
+      unshareBehavior: async (args: unknown) => {
+        const { profileId } = validateArgs(c.unshareBehavior.args, args);
+        return ipcOk(await unshareBehaviorFile(profile(profileId)));
       },
       openUrl: async (args: unknown) => {
         const { url } = validateArgs(c.openUrl.args, args);
