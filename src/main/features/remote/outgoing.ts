@@ -38,7 +38,7 @@ const FILE_CHUNK_KINDS = new Set<FrameKind>([
 interface OutgoingFrame {
   kind: FrameKind;
   priority: FramePriority;
-  watch?: string;
+  snapshotKey?: string;
   wanted?(): boolean;
   send(current: () => boolean): Promise<number | null>;
 }
@@ -76,9 +76,9 @@ export class OutgoingFrames {
 
   push(frame: OutgoingFrame): Promise<number | null> {
     if (this.closed) return Promise.resolve(null);
-    // A full snapshot replaces the old one. Delta watchers use a revision gap to resync.
-    if (frame.watch) {
-      const superseded = this.queue.findIndex((item) => item.watch === frame.watch);
+    // Only a full snapshot can replace an earlier frame.
+    if (frame.snapshotKey) {
+      const superseded = this.queue.findIndex((item) => item.snapshotKey === frame.snapshotKey);
       if (superseded >= 0) this.drop(superseded);
     }
     if (this.queue.length >= QUEUE_LIMIT) {

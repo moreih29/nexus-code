@@ -960,6 +960,58 @@ describe("what goes in a frame", () => {
     await flushRelay();
     expect(told).toEqual([["a", "chat.update", update]]);
   });
+
+  test("queued watch notifications keep every delta and only the latest session list", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const told: [string, unknown][] = [];
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key, {
+      onNotification: (_from, method, params) => told.push([method, params]),
+    });
+    a.room.start();
+    b.room.start();
+    try {
+      await flushRelay();
+      const chat = {
+        watchId: "chat",
+        rev: 1,
+        total: 0,
+        items: [],
+        tools: {},
+        tasks: {},
+        agentItems: {},
+      };
+      const terminal = { watchId: "terminal", rev: 1, start: 0, text: "$ " };
+      const sessions = { watchId: "sessions", workspaces: [], sessions: [] };
+      const nextChat = { ...chat, rev: 2 };
+      const nextTerminal = { ...terminal, rev: 2, start: 2, text: "ls" };
+      const nextSessions = {
+        ...sessions,
+        workspaces: [{ id: "w1", name: "app", path: "/app" }],
+      };
+      const sent = await Promise.all([
+        a.room.notify("b", "chat.update", chat),
+        a.room.notify("b", "terminal.update", terminal),
+        a.room.notify("b", "sessions.update", sessions),
+        a.room.notify("b", "chat.update", nextChat),
+        a.room.notify("b", "terminal.update", nextTerminal),
+        a.room.notify("b", "sessions.update", nextSessions),
+      ]);
+      expect(sent).toEqual([true, true, false, true, true, true]);
+      await flushRelay();
+      expect(told).toEqual([
+        ["chat.update", chat],
+        ["terminal.update", terminal],
+        ["chat.update", nextChat],
+        ["terminal.update", nextTerminal],
+        ["sessions.update", nextSessions],
+      ]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
+  });
 });
 
 describe("the protocol a device speaks", () => {

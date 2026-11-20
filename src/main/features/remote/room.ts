@@ -556,7 +556,9 @@ export class RemoteRoom {
       (await this.post(to, peer, message, {
         kind: `notification:${method}`,
         priority: FramePriority.Watch,
-        watch: `${to}|${method}|${params.watchId}`,
+        ...(method === "sessions.update"
+          ? { snapshotKey: `${to}|${method}|${params.watchId}` }
+          : {}),
       })) !== null
     );
   }
@@ -600,7 +602,7 @@ export class RemoteRoom {
       kind: FrameKind;
       priority: FramePriority;
       wanted?: () => boolean;
-      watch?: string;
+      snapshotKey?: string;
       onSending?: (seq: number) => void;
     } = { kind: "hello", priority: FramePriority.Hello },
   ): Promise<number | null> {
@@ -608,7 +610,7 @@ export class RemoteRoom {
     const sent = this.outbox.push({
       kind: options.kind,
       priority: options.priority,
-      ...(options.watch ? { watch: options.watch } : {}),
+      ...(options.snapshotKey ? { snapshotKey: options.snapshotKey } : {}),
       wanted: () => this.status === "online" && options.wanted?.() !== false,
       send: async (current) => {
         const seq = ++this.seq;

@@ -117,15 +117,15 @@ test.each([
   }
 });
 
-test("a waiting watch update is replaced only by the same watch's latest revision", async () => {
+test("a queued snapshot is replaced by the latest snapshot of the same watch", async () => {
   const dropped = jest.fn();
   const queue = new OutgoingFrames(dropped, () => {});
   const sent: number[] = [];
-  const enqueue = (watch: string, revision: number) =>
+  const enqueue = (snapshotKey: string, revision: number) =>
     queue.push({
-      kind: "notification:chat.update",
+      kind: "notification:sessions.update",
       priority: FramePriority.Watch,
-      watch,
+      snapshotKey,
       send: async () => sent.push(revision),
     });
   try {
