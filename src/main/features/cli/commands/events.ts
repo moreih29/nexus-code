@@ -83,17 +83,46 @@ async function readPeerEvents(
   limit: number,
   workspaceId: string | undefined,
 ): Promise<{ events: CliSessionEvent[]; cursor: number; more: boolean }> {
-  const read = await askDevice(ctx, device, "events.read", {
-    ...(since !== undefined ? { since } : {}),
-    limit: workspaceId === undefined ? Math.min(limit, MAX_PEER_EVENTS) : MAX_PEER_EVENTS,
+  const page = (after: number | undefined) =>
+    askDevice(
+      ctx,
+      device,
+      "events.read",
+      {
+        ...(after !== undefined ? { since: after } : {}),
+        limit: workspaceId === undefined ? Math.min(limit, MAX_PEER_EVENTS) : MAX_PEER_EVENTS,
+      },
+      ctx.signal,
+    );
+  let read = await page(since);
+  const tell = (event: (typeof read.events)[number]): CliSessionEvent => ({
+    ...event,
+    phase: event.to,
   });
-  // Told as this computer's are: its phase is where it came to.
-  const told = read.events.map((event): CliSessionEvent => ({ ...event, phase: event.to }));
-  if (workspaceId === undefined) return { ...read, events: told };
-  const ours = told.filter((event) => event.workspaceId === workspaceId);
-  return since === undefined
-    ? { events: ours.slice(-limit), cursor: read.cursor, more: false }
-    : { events: ours.slice(0, limit), cursor: read.cursor, more: read.more || ours.length > limit };
+  if (workspaceId === undefined) return { ...read, events: read.events.map(tell) };
+  if (since === undefined) {
+    const matching = read.events.filter((event) => event.workspaceId === workspaceId);
+    return { events: matching.slice(-limit).map(tell), cursor: read.cursor, more: false };
+  }
+
+  const cursor = read.cursor;
+  const events: CliSessionEvent[] = [];
+  let after = since;
+  for (;;) {
+    const matching = read.events.filter(
+      (event) => event.seq <= cursor && event.workspaceId === workspaceId,
+    );
+    const remaining = limit - events.length;
+    events.push(...matching.slice(0, remaining).map(tell));
+    const last = read.events.at(-1)?.seq;
+    const more = read.more && last !== undefined && last < cursor;
+    if (events.length === limit) {
+      return { events, cursor, more: more || matching.length > remaining };
+    }
+    if (!more || last === after) return { events, cursor, more: false };
+    after = last;
+    read = await page(after);
+  }
 }
 
 const events: CliCommand = {
@@ -163,9 +192,10 @@ const events: CliCommand = {
           ? undefined
           : resolveWorkspace(ctx, flags.workspace as string).id;
     }
+    let after = since;
     const readNext = () =>
       device
-        ? readPeerEvents(ctx, device, since, limit, workspaceId)
+        ? readPeerEvents(ctx, device, after, limit, workspaceId)
         : readEvents(ctx, since, limit, workspaceId);
 
     const { clock } = ctx.services;
@@ -173,8 +203,12 @@ const events: CliCommand = {
     let read = await readNext();
     while (read.events.length === 0 && clock.now() - startedAt < waitMs) {
       if (ctx.signal?.aborted) break;
+      // A filtered peer read already inspected everything through its cursor.
+      if (device && workspaceId !== undefined && !read.more) after = read.cursor;
       // Another computer is asked through the relay: less often.
-      await clock.sleep(device ? PEER_POLL_MS : WAIT_POLL_MS);
+      await clock.sleep(
+        Math.min(device ? PEER_POLL_MS : WAIT_POLL_MS, waitMs - (clock.now() - startedAt)),
+      );
       read = await readNext();
     }
     const timedOut = waitMs > 0 && read.events.length === 0;
@@ -194,7 +228,7 @@ const events: CliCommand = {
     const on = device ? ` --device ${shortId(device.id)}` : "";
     const more =
       read.more && lastSeq !== undefined
-        ? `\nMore after #${lastSeq}: nexus events --since ${lastSeq}${on}`
+        ? `\nMore after #${lastSeq}: nexus events --since ${lastSeq}${on}${workspaceId ? ` --workspace ${workspaceId}` : ""}`
         : "";
     const text =
       rows.length === 0

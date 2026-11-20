@@ -315,6 +315,42 @@ describe("events --device", () => {
     });
   });
 
+  test("advances past unrelated pages and resumes a filtered wait at the scanned cursor", async () => {
+    const app = withPeer({
+      "events.read": (params) => {
+        const { since } = params as { since: number };
+        if (since === 3) {
+          return {
+            events: Array.from({ length: 500 }, (_, i) => event(i + 4, API_WS)),
+            cursor: 504,
+            more: true,
+          };
+        }
+        if (since === 503) {
+          return { events: [event(504, API_WS)], cursor: 504, more: false };
+        }
+        return { events: [event(505, SITE)], cursor: 505, more: false };
+      },
+    });
+    const result = await nexus(app, [
+      "events",
+      "--device",
+      "Mac mini",
+      "--workspace",
+      "site",
+      "--since",
+      "3",
+      "--wait",
+      "15s",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).events.map((e: { seq: number }) => e.seq)).toEqual([505]);
+    expect(asked(app, "events.read").map((params) => (params as { since: number }).since)).toEqual([
+      3, 503, 504,
+    ]);
+  });
+
   test("--wait asks again until a change comes; --device all is refused", async () => {
     let reads = 0;
     const app = withPeer({
