@@ -33,6 +33,7 @@ import { BrowserPermissionPromptManager } from "./features/browser/permission-pr
 import type { ChatHost } from "./features/chat/host";
 import { instructionsFor } from "./features/chat/instructions";
 import { registerChatChannel } from "./features/chat/ipc";
+import { createPromptFiles } from "./features/chat/prompt-files";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
@@ -870,6 +871,7 @@ app.whenReady().then(async () => {
         });
       },
     },
+    ...(isWindows() ? { promptFiles: createPromptFiles() } : {}),
     savedClaudeInstructions: (workspaceId, tabId) => {
       const tab = stateService
         .getState()

@@ -42,5 +42,8 @@
     "changed_on_disk": "the file changed on disk while saving",
     "read_only": "File is read-only.",
     "unencodable": "{{encoding}} has no character \"{{char}}\" (line {{line}}, column {{column}})"
+  },
+  "chat": {
+    "commandLineTooLong": "The instructions for this chat are too long for Windows to start Claude Code. Shorten the instructions in Settings or for this session, then try again."
   }
 }

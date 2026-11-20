@@ -6,16 +6,22 @@ import {
 } from "../../../../src/main/features/chat/host";
 import { claudeInstructionLaunchState } from "../../../../src/main/features/chat/instructions";
 import {
+  APPEND_PROMPT_FILE_FROM,
   CLAUDE_TAB_ARGS,
   CLAUDE_TAB_PROMPT,
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
   codexTabEnv,
+  escapeWindowsArg,
   gitBashPath,
   parseClaudeVersion,
   THINKING_DISPLAY_FROM,
+  takesAppendPromptFile,
   takesThinkingDisplay,
+  WINDOWS_COMMAND_LINE_MAX,
+  windowsCommandLineLength,
+  windowsCommandLineTooLong,
 } from "../../../../src/main/features/chat/launch";
 import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
 import { sessionAgents } from "../../../../src/main/features/remote/serving/sessions";
@@ -336,6 +342,40 @@ describe("chat launch", () => {
       `${CLAUDE_TAB_PROMPT}\n\n${instructions}`,
     );
     expect(args.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
+  });
+
+  test("a prompt file replaces the prompt argument and carries no text on the line", () => {
+    const args = claudeTabArgs({ resume: "s1" }, undefined, null, "x", "C:\runp.txt");
+    expect(args).not.toContain("--append-system-prompt");
+    expect(args[args.indexOf("--append-system-prompt-file") + 1]).toBe("C:\runp.txt");
+    expect(args.join(" ")).not.toContain(CLAUDE_TAB_PROMPT);
+  });
+
+  test("only a claude known to take --append-system-prompt-file is given a file", () => {
+    expect(takesAppendPromptFile(APPEND_PROMPT_FILE_FROM)).toBe(true);
+    expect(takesAppendPromptFile("2.1.321")).toBe(true);
+    for (const version of ["2.1.68", null, "garbage"]) {
+      expect(takesAppendPromptFile(version)).toBe(false);
+    }
+  });
+
+  test("Windows argument escaping matches Go's os/exec", () => {
+    expect(escapeWindowsArg("")).toBe('""');
+    expect(escapeWindowsArg("plain")).toBe("plain");
+    expect(escapeWindowsArg('a"b')).toBe('a\\"b');
+    expect(escapeWindowsArg('a\\"b')).toBe('a\\\\\\"b');
+    expect(escapeWindowsArg("a\b")).toBe("a\b");
+    expect(escapeWindowsArg("a b")).toBe('"a b"');
+    expect(escapeWindowsArg("a b\\")).toBe('"a b\\\\"');
+  });
+
+  test("the command line length counts the escapes, and quotes can exceed the limit", () => {
+    expect(windowsCommandLineLength("c.exe", ["-p", "a b"])).toBe('c.exe -p "a b"'.length);
+    const quotes = '"'.repeat(WINDOWS_COMMAND_LINE_MAX / 2);
+    expect(windowsCommandLineTooLong("c.exe", ["--append-system-prompt", quotes])).toBe(true);
+    expect(windowsCommandLineTooLong("c.exe", ["--append-system-prompt", "a".repeat(30_000)])).toBe(
+      false,
+    );
   });
 
   test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
@@ -800,6 +840,83 @@ describe("ChatHost", () => {
       NEXUS_CLAUDE_TAB_ID: TAB,
       BASH_ENV: "/c/Users/u/.nexus-code/shim/ws/bashenv",
       NEXUS_BASH_WRAPPER_DIR: "/c/Users/u/.nexus-code/bin",
+    });
+  });
+
+  describe("Windows instructions file", () => {
+    function windowsHost(instructions: string, files: string[], removed: string[]) {
+      const channel = new FakeChannel();
+      channel.found = { path: "C:/Users/u/.local/bin/claude.exe" };
+      channel.versionOutput = "2.1.321 (Claude Code)\n";
+      const host = new ChatHost({
+        workspaceManager: {
+          getAgentChannel: async () => channel,
+          tryGetAgentChannel: async () => channel,
+          onProviderReady: () => () => {},
+          getSpawnHookInfo: async () => null,
+          getWrapperBinDir: () => null,
+          getWrapperAgentBin: () => null,
+          getWrapperShimDir: () => null,
+          isLocal: () => true,
+        },
+        broadcast: () => {},
+        windowsAgentFiles: async () => ({ binDir: "C:/bin" }),
+        instructions: () => instructions,
+        promptFiles: {
+          write: async (_tab, text) => {
+            files.push(text);
+            return `C:/run/p${files.length}.txt`;
+          },
+          remove: async (file) => {
+            removed.push(file);
+          },
+        },
+      });
+      return { channel, host };
+    }
+    const argsOf = (channel: FakeChannel) =>
+      (channel.calls.find((c) => c.method === "chat.start")?.params as { args: string[] }).args;
+
+    test("passes the merged prompt by file, and removes it when the tab closes", async () => {
+      const files: string[] = [];
+      const removed: string[] = [];
+      const { channel, host } = windowsHost("Use Korean.", files, removed);
+      await host.start(WS, TAB, "C:/repo", {});
+      const args = argsOf(channel);
+      expect(args).not.toContain("--append-system-prompt");
+      expect(args[args.indexOf("--append-system-prompt-file") + 1]).toBe("C:/run/p1.txt");
+      expect(files).toEqual([`${CLAUDE_TAB_PROMPT}\n\nUse Korean.`]);
+      expect(removed).toEqual([]);
+      await host.closeWorkspace(WS, channel);
+      expect(removed).toEqual(["C:/run/p1.txt"]);
+    });
+
+    test("a restart writes a new file and removes the old one", async () => {
+      const files: string[] = [];
+      const removed: string[] = [];
+      const { host } = windowsHost("A", files, removed);
+      await host.start(WS, TAB, "C:/repo", {});
+      await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toHaveLength(2);
+      expect(removed).toEqual(["C:/run/p1.txt"]);
+    });
+
+    test("without instructions the prompt stays on the command line", async () => {
+      const files: string[] = [];
+      const { channel, host } = windowsHost("", files, []);
+      await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toEqual([]);
+      expect(argsOf(channel)).toContain("--append-system-prompt");
+    });
+
+    test("an unknown claude version keeps the argument, and a line too long is refused", async () => {
+      const files: string[] = [];
+      const { channel, host } = windowsHost('"'.repeat(20_000), files, []);
+      channel.versionOutput = "not a version\n";
+      const result = await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toEqual([]);
+      expect(result.ok).toBe(false);
+      expect(channel.calls.some((c) => c.method === "chat.start")).toBe(false);
     });
   });
 
