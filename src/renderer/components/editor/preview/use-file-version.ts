@@ -8,13 +8,25 @@
 
 import { useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
-import { peerOf } from "../../../services/remote/peer-workspace";
+import { fileSignal } from "../../../services/editor/preview/file-refresh";
+import { peerOf, usePeerFileRevision } from "../../../services/remote/peer-workspace";
 
+/**
+ * The version of the file, one signal for every workspace: the local watch's
+ * for a file here (or over SSH or WSL), the generation another computer's
+ * host gives for a file there.
+ */
 export function useFileVersion(workspaceId: string, relPath: string): number {
+  const local = useLocalFileVersion(workspaceId, relPath);
+  const remote = usePeerFileRevision(workspaceId, relPath);
+  return fileSignal(peerOf(workspaceId) !== null, local, remote);
+}
+
+function useLocalFileVersion(workspaceId: string, relPath: string): number {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    // Another computer's file is shown as it was read: no change of it is heard here.
+    // Another computer's file has no local watch: usePeerFileRevision follows it.
     if (peerOf(workspaceId)) return;
     let cancelled = false;
     // `${mtime}|${size}` last observed; null = missing, undefined = no
