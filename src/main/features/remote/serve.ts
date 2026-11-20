@@ -235,9 +235,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
           request.params as RpcParams<"consent.answer">,
         );
       case "chat.read":
-        return readChat(s, request.params as RpcParams<"chat.read">);
+        return readChat(s, request.params as RpcParams<"chat.read">, from);
       case "terminal.read":
-        return readTerminal(s, request.params as RpcParams<"terminal.read">);
+        return readTerminal(s, request.params as RpcParams<"terminal.read">, from);
       case "chat.send":
         return sendChat(
           s,

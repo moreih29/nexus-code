@@ -13,12 +13,21 @@ import {
   type ServerFrame,
   ServerFrameSchema,
 } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
 import { OutdatedError, SignedOutError } from "./errors";
+import { responsiveTimeout } from "./frame-stall";
+
+const log = createLogger("remote-relay");
 
 /** Another connection of this device took its place in the room. */
 export const CLOSE_REPLACED = 4000;
 /** The device's sign-in ended: signed out, removed, or expired. */
 export const CLOSE_SIGNED_OUT = 4001;
+/** The relay closed a socket that exhausted its frame budget. */
+export const CLOSE_FLOODING = 4002;
+const FLOOD_RETRY_INITIAL_MS = 60_000;
+const FLOOD_RETRY_MAX_MS = 15 * 60_000;
+const FLOOD_RETRY_RESET_MS = 10 * 60_000;
 
 /**
  * How often a connection that was in the room tries again at once when it
@@ -46,8 +55,41 @@ export const RELAY_PONG = '{"t":"pong"}';
  * may be cut on the way.
  */
 export const HEARTBEAT_EVERY_MS = 25_000;
-/** How long an answer is waited for before the socket is taken for lost. */
+/** How long each heartbeat waits for a pong. */
 export const PONG_WAIT_MS = 10_000;
+const MAX_MISSED_PONGS = 2;
+export const SEND_BUFFER_STALL_MS = 8_000;
+export const SOCKET_OPEN_TIMEOUT_MS = 15_000;
+const SEND_BUFFER_CHECK_MS = 1_000;
+const RECOVERY_LOG_INTERVAL_MS = 30_000;
+export type RelayRecoveryReason =
+  | "pong-timeout"
+  | "send-failed"
+  | "send-buffer-stalled"
+  | "inbox-stalled"
+  | "outbox-stalled"
+  | "peer-probes-unanswered";
+type RelayWarning = RelayRecoveryReason | "open-timeout" | `pong-miss-${number}`;
+export type RelayStopReason = "user" | "room-changed" | "pairing-ended" | "shutdown";
+type LocalCloseReason =
+  | RelayRecoveryReason
+  | RelayStopReason
+  | "open-timeout"
+  | "route-change"
+  | "superseded";
+type ConnectReason =
+  | RelayRecoveryReason
+  | "open-timeout"
+  | "start"
+  | "route-change"
+  | "socket-closed"
+  | "ticket-failed"
+  | "flooding";
+const SERVER_CLOSE_REASONS: ReadonlyMap<number, string> = new Map([
+  [CLOSE_REPLACED, "replaced"],
+  [CLOSE_SIGNED_OUT, "signed-out"],
+  [CLOSE_FLOODING, "flooding"],
+]);
 
 /**
  * - connecting: asking for a ticket, or opening the socket;
@@ -90,6 +132,7 @@ export interface RelayConnectionDeps {
 interface ActiveSocket {
   readonly socket: Socket;
   readonly origin: string;
+  openedAt: number;
 }
 
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
@@ -105,13 +148,23 @@ export class RelayConnection {
   private owner: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
+  private floodBackoffMs = 0;
   private running = false;
   private status: RelayStatus = "stopped";
   /** When a lost connection last tried again at once. */
   private quickAt = Number.NEGATIVE_INFINITY;
   private beat: ReturnType<typeof setInterval> | null = null;
   /** Running while a heartbeat waits for the relay to answer. */
-  private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private cancelPong: (() => void) | null = null;
+  private missedPongs = 0;
+  private openTimer: ReturnType<typeof setTimeout> | null = null;
+  private writeBuffer: {
+    amount: number;
+    progressedAt: number;
+    timer: ReturnType<typeof setInterval>;
+  } | null = null;
+  private readonly warnedAt = new Map<RelayWarning, number>();
+  private invalidErrorAt = -Infinity;
 
   constructor(private readonly deps: RelayConnectionDeps) {}
 
@@ -119,13 +172,14 @@ export class RelayConnection {
     if (this.running) return;
     this.running = true;
     this.attempt = 0;
-    void this.connect();
+    this.floodBackoffMs = 0;
+    void this.connect("start");
   }
 
-  stop(): void {
+  stop(reason: RelayStopReason = "user"): void {
     this.running = false;
     this.clearTimer();
-    this.drop();
+    this.drop(reason);
     this.set("stopped");
   }
 
@@ -133,19 +187,27 @@ export class RelayConnection {
   reconnect(): void {
     if (!this.running) return;
     this.clearTimer();
-    this.drop();
+    this.drop("route-change");
     this.attempt = 0;
-    void this.connect();
+    void this.connect("route-change");
+  }
+
+  /** Reopens a stalled connection with the same backoff as other socket losses. */
+  recover(reason: RelayRecoveryReason): void {
+    const { connection, owner } = this;
+    if (!connection || !owner || this.status !== "online") return;
+    this.closeCurrent(connection, reason);
+    if (this.quickRetry()) void this.connect(reason);
+    else this.retry(owner, reason);
   }
 
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
   send(frame: ClientFrame): boolean {
-    const socket = this.connection?.socket;
-    if (this.status !== "online" || !socket) return false;
+    const connection = this.connection;
+    if (this.status !== "online" || !connection) return false;
     const text = JSON.stringify(frame);
     if (Buffer.byteLength(text, "utf8") > MAX_FRAME_BYTES) return false;
-    socket.send(text);
-    return true;
+    return this.sendText(connection, text);
   }
 
   get bufferedAmount(): number {
@@ -153,23 +215,86 @@ export class RelayConnection {
   }
 
   /** The route of the actual open socket, with identity stable across probes. */
-  onlineRoute(): { readonly origin: string } | null {
+  onlineRoute(): { readonly origin: string; readonly openedAt: number } | null {
     const connection = this.connection;
     return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
 
-  /** The room answered: the connection is good, and the next loss starts the backoff over. */
+  /** Presence resets ordinary retries. Flooding history needs a sustained connection. */
   healthy(): void {
     this.attempt = 0;
   }
 
+  private sendText(connection: ActiveSocket, text: string): boolean {
+    const { socket } = connection;
+    this.observeWriteBuffer(connection);
+    if (this.connection !== connection) return false;
+    try {
+      if (socket.readyState !== 1) throw new Error("relay socket is closed");
+      socket.send(text);
+    } catch {
+      this.warnRecovery("send-failed");
+      this.recover("send-failed");
+      return false;
+    }
+    if (this.connection === connection) this.observeWriteBuffer(connection);
+    return true;
+  }
+
+  /** Checks drain progress independently of incoming frames and heartbeat responses. */
+  private observeWriteBuffer(connection: ActiveSocket): void {
+    const amount = connection.socket.bufferedAmount ?? 0;
+    if (amount === 0) {
+      this.stopWriteMonitor();
+      return;
+    }
+    const now = performance.now();
+    const buffer = this.writeBuffer;
+    if (!buffer) {
+      const timer = setInterval(() => {
+        if (this.connection === connection) this.observeWriteBuffer(connection);
+      }, SEND_BUFFER_CHECK_MS);
+      timer.unref?.();
+      this.writeBuffer = { amount, progressedAt: now, timer };
+      return;
+    }
+    if (amount < buffer.amount) buffer.progressedAt = now;
+    buffer.amount = amount;
+    const elapsed = now - buffer.progressedAt;
+    if (elapsed >= SEND_BUFFER_STALL_MS) {
+      this.warnRecovery("send-buffer-stalled", elapsed);
+      this.recover("send-buffer-stalled");
+    }
+  }
+
+  private stopWriteMonitor(): void {
+    if (this.writeBuffer) clearInterval(this.writeBuffer.timer);
+    this.writeBuffer = null;
+  }
+
+  private warnOccasionally(key: RelayWarning, message: string): void {
+    const now = performance.now();
+    if (now - (this.warnedAt.get(key) ?? -Infinity) < RECOVERY_LOG_INTERVAL_MS) return;
+    this.warnedAt.set(key, now);
+    log.warn(message);
+  }
+
+  private warnRecovery(reason: RelayRecoveryReason | "open-timeout", elapsed = 0): void {
+    this.warnOccasionally(
+      reason,
+      `Relay reconnect reason=${reason} elapsedMs=${Math.round(elapsed)} bufferedBytes=${this.bufferedAmount}`,
+    );
+  }
+
   /** Gets a ticket and opens a socket only while this attempt owns the relay. */
-  private async connect(): Promise<void> {
+  private async connect(reason: ConnectReason): Promise<void> {
     if (!this.running) return;
+    this.clearTimer();
     const owner = new AbortController();
     this.owner = owner;
     this.set("connecting");
     if (!this.owns(owner)) return;
+    log.info(`Relay connecting reason=${reason}`);
 
     let url: string;
     let connection: ActiveSocket;
@@ -179,58 +304,104 @@ export class RelayConnection {
       const origin = new URL(url).origin;
       const socket = (this.deps.socket ?? ((address) => new WebSocket(address) as Socket))(url);
       if (!this.owns(owner)) {
-        if (socket.readyState <= 1) socket.close(1000, "bye");
+        this.closeSocket(socket, "superseded");
         return;
       }
-      connection = { origin, socket };
+      connection = { origin, socket, openedAt: Infinity };
     } catch (error) {
       if (!this.owns(owner)) return;
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
       } else if (error instanceof OutdatedError) this.giveUp("outdated");
-      else this.retry(owner);
+      else this.retry(owner, "ticket-failed");
       return;
     }
 
     const { socket } = connection;
     this.connection = connection;
-    let opened = false;
+    const started = performance.now();
+    this.openTimer = setTimeout(() => {
+      if (this.connection !== connection) return;
+      this.warnRecovery("open-timeout", performance.now() - started);
+      this.closeCurrent(connection, "open-timeout");
+      this.deps.unreachable?.(url);
+      this.retry(owner, "open-timeout");
+    }, SOCKET_OPEN_TIMEOUT_MS);
+    this.openTimer.unref?.();
     socket.addEventListener("open", () => {
       if (this.connection !== connection) return;
-      opened = true;
+      connection.openedAt = performance.now();
+      this.clearOpenTimer();
+      log.debug(
+        `Relay socket opened elapsedMs=${Math.round(connection.openedAt - started)} reason=${reason}`,
+      );
       this.set("online");
       if (this.connection !== connection) return;
-      this.startHeartbeat(connection, owner);
+      this.startHeartbeat(connection);
       this.deps.onOpen();
     });
     socket.addEventListener("message", (event: { data: unknown }) => {
       if (this.connection !== connection) return;
-      // Anything from the relay answers the heartbeat.
-      this.clearPongTimer();
-      if (typeof event.data !== "string" || event.data === RELAY_PONG) return;
+      if (event.data === RELAY_PONG) {
+        this.missedPongs = 0;
+        this.clearPongTimer();
+        return;
+      }
+      if (typeof event.data !== "string") return;
       if (event.data.length > MAX_DELIVERED_CHARS) return;
-      let parsed: ReturnType<typeof ServerFrameSchema.safeParse>;
+      let decoded: unknown;
       try {
-        parsed = ServerFrameSchema.safeParse(JSON.parse(event.data));
+        decoded = JSON.parse(event.data);
       } catch {
         return;
       }
-      if (parsed.success) this.deps.onFrame(parsed.data);
+      const data = decoded;
+      const isError =
+        data !== null && typeof data === "object" && "t" in data && data.t === "error";
+      // Some relay errors carry only a code and an optional seq.
+      const candidate = isError && !("message" in data) ? { ...data, message: "" } : data;
+      const parsed = ServerFrameSchema.safeParse(candidate);
+      if (parsed.success) {
+        this.deps.onFrame(parsed.data);
+      } else if (isError) {
+        const now = performance.now();
+        if (now - this.invalidErrorAt >= RECOVERY_LOG_INTERVAL_MS) {
+          this.invalidErrorAt = now;
+          log.warn("Relay error frame did not match the expected format");
+        }
+      }
     });
     socket.addEventListener("close", (event: { code: number }) => {
       if (this.connection !== connection) return;
+      const opened = Number.isFinite(connection.openedAt);
+      const reason = SERVER_CLOSE_REASONS.get(event.code) ?? "socket-closed";
+      log.info(`Relay socket closed code=${event.code} opened=${opened} reason=${reason}`);
       this.connection = null;
       this.stopHeartbeat();
+      this.clearOpenTimer();
+      this.stopWriteMonitor();
+      if (performance.now() - connection.openedAt >= FLOOD_RETRY_RESET_MS) {
+        this.floodBackoffMs = 0;
+      }
       if (event.code === CLOSE_REPLACED) this.giveUp("replaced");
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
+      } else if (event.code === CLOSE_FLOODING) {
+        this.floodBackoffMs = Math.min(
+          FLOOD_RETRY_MAX_MS,
+          Math.max(FLOOD_RETRY_INITIAL_MS, this.floodBackoffMs * 2),
+        );
+        log.warn(
+          `Relay closed a flooding connection code=${CLOSE_FLOODING} retryMs=${this.floodBackoffMs}`,
+        );
+        this.retry(owner, "flooding", this.floodBackoffMs);
       } else if (opened && this.quickRetry()) {
-        void this.connect();
+        void this.connect("socket-closed");
       } else {
         if (!opened) this.deps.unreachable?.(url);
-        this.retry(owner);
+        this.retry(owner, "socket-closed");
       }
     });
     // An error is followed by a close, which decides what comes next.
@@ -238,49 +409,48 @@ export class RelayConnection {
   }
 
   /**
-   * Sends the relay a heartbeat now and then while `socket` is open; one
-   * not answered in time lets the socket go and joins the room again, as a
+   * Sends the relay a heartbeat while the socket is open; two consecutive
+   * misses let the socket go and join the room again, as a
    * socket that closed does. Its own close may come long after, or never.
    */
-  private startHeartbeat(connection: ActiveSocket, owner: AbortController): void {
-    const { socket } = connection;
+  private startHeartbeat(connection: ActiveSocket): void {
     this.stopHeartbeat();
     const { every, wait } = this.deps.heartbeat ?? {
       every: HEARTBEAT_EVERY_MS,
       wait: PONG_WAIT_MS,
     };
     this.beat = setInterval(() => {
-      if (this.connection !== connection || this.pongTimer) return;
-      try {
-        socket.send(RELAY_PING);
-      } catch {
-        return;
-      }
-      this.pongTimer = setTimeout(() => {
-        this.pongTimer = null;
+      if (this.connection !== connection || this.cancelPong) return;
+      if (!this.sendText(connection, RELAY_PING) || this.connection !== connection) return;
+      this.cancelPong = responsiveTimeout(wait, (elapsed) => {
+        this.cancelPong = null;
         if (this.connection !== connection) return;
-        this.connection = null;
-        this.stopHeartbeat();
-        try {
-          socket.close();
-        } catch {
-          // Closing already.
-        }
-        if (this.quickRetry()) void this.connect();
-        else this.retry(owner);
-      }, wait);
+        const misses = ++this.missedPongs;
+        const reconnect = misses >= MAX_MISSED_PONGS;
+        this.warnOccasionally(
+          `pong-miss-${misses}`,
+          `Relay heartbeat missed reason=pong-timeout elapsedMs=${Math.round(elapsed)} consecutive=${misses} reconnect=${reconnect}`,
+        );
+        if (reconnect) this.recover("pong-timeout");
+      });
     }, every);
   }
 
   private stopHeartbeat(): void {
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
+    this.missedPongs = 0;
     this.clearPongTimer();
   }
 
   private clearPongTimer(): void {
-    if (this.pongTimer) clearTimeout(this.pongTimer);
-    this.pongTimer = null;
+    this.cancelPong?.();
+    this.cancelPong = null;
+  }
+
+  private clearOpenTimer(): void {
+    if (this.openTimer) clearTimeout(this.openTimer);
+    this.openTimer = null;
   }
 
   /** Whether a connection lost from the room may try again at once (QUICK_RETRY_EVERY_MS). */
@@ -293,16 +463,16 @@ export class RelayConnection {
   }
 
   /** Schedules backoff only for the attempt that reported the loss. */
-  private retry(owner: AbortController): void {
+  private retry(owner: AbortController, reason: ConnectReason, floodDelay?: number): void {
     if (!this.owns(owner)) return;
     this.set("waiting");
     if (!this.owns(owner)) return;
-    const delay = (this.deps.backoff ?? defaultBackoff)(this.attempt);
-    this.attempt += 1;
+    const delay = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
+    log.info(`Relay retry scheduled reason=${reason} delayMs=${delay}`);
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.owns(owner)) void this.connect();
+      if (this.owns(owner)) void this.connect(reason);
     }, delay);
   }
 
@@ -314,14 +484,29 @@ export class RelayConnection {
   }
 
   /** Invalidates the attempt and detaches its socket before closing it. */
-  private drop(): void {
+  private drop(reason: LocalCloseReason = "user"): void {
     const owner = this.owner;
-    const socket = this.connection?.socket;
     this.owner = null;
+    if (this.connection) this.closeCurrent(this.connection, reason);
+    owner?.abort();
+  }
+
+  private closeCurrent({ socket }: ActiveSocket, reason: LocalCloseReason): void {
     this.connection = null;
     this.stopHeartbeat();
-    owner?.abort();
-    if (socket && socket.readyState <= 1) socket.close(1000, "bye");
+    this.clearOpenTimer();
+    this.stopWriteMonitor();
+    this.closeSocket(socket, reason);
+  }
+
+  private closeSocket(socket: Socket, reason: LocalCloseReason): void {
+    if (socket.readyState > 1) return;
+    log.info(`Relay closing socket code=1000 reason=${reason}`);
+    try {
+      socket.close(1000, reason);
+    } catch {
+      // The socket may have closed while being detached.
+    }
   }
 
   /** Whether pending work still belongs to the active relay attempt. */
@@ -336,6 +521,7 @@ export class RelayConnection {
 
   private set(status: RelayStatus): void {
     if (status === this.status) return;
+    log.info(`Relay state changed from=${this.status} to=${status}`);
     this.status = status;
     this.deps.onStatus(status);
   }

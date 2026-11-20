@@ -57,6 +57,8 @@ export async function remoteConsents(
   deviceId: string,
   controls: ConsentControls,
   now = Date.now(),
+  listTabs = (workspaceId: string): Promise<readonly { id: string; title: string }[]> =>
+    services.ui("tabs.list", { workspaceId }).then((r) => r.tabs),
 ): Promise<RemoteConsent[]> {
   const pending = services.consents.list();
   if (pending.length === 0) return [];
@@ -65,10 +67,7 @@ export async function remoteConsents(
   const titleOf = async (workspaceId: string, tabId: string) => {
     let listed = tabs.get(workspaceId);
     if (!listed) {
-      listed = services
-        .ui("tabs.list", { workspaceId })
-        .then((r) => r.tabs)
-        .catch(() => []);
+      listed = listTabs(workspaceId).catch(() => []);
       tabs.set(workspaceId, listed);
     }
     return (await listed).find((t) => t.id === tabId)?.title;
