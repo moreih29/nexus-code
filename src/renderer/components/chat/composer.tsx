@@ -35,8 +35,10 @@ import {
   applyCompletion,
   completionAt,
   fileMention,
+  followTyped,
   isFolder,
   matchCommands,
+  type TypedToken,
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
@@ -306,13 +308,17 @@ export const Composer = memo(function Composer({
     area.setSelectionRange(at, at);
     setCaret(at);
   });
-  const edit = (next: string, at: number) => {
+  const edit = (next: string, at: number, typed: TypedToken | null = null) => {
+    typedRef.current = typed;
     setText(next);
     pendingCaret.current = at;
     areaRef.current?.focus();
   };
 
-  const completion = completionAt(text, caret);
+  // The `@` being typed, so one typed into a sentence opens the list while
+  // a caret moved into an existing mention does not.
+  const typedRef = useRef<TypedToken | null>(null);
+  const completion = completionAt(text, caret, typedRef.current?.start ?? null);
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
   const [dismissed, setDismissed] = useState<string | null>(null);
   // A menu put away stays away only while its word lasts: once the word is
@@ -389,7 +395,7 @@ export const Composer = memo(function Composer({
         ? { kind: "command", name: item.key }
         : { kind: "file", path: item.key },
     );
-    edit(next.text, next.caret);
+    edit(next.text, next.caret, next.open);
   };
 
   /** Types a `/` or `@` at the caret, from the + menu. */
@@ -400,7 +406,8 @@ export const Composer = memo(function Composer({
     }
     const at = Math.min(caret, text.length);
     const space = at > 0 && !/\s/.test(text[at - 1]) ? " " : "";
-    edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, at + space.length + 1);
+    const token = { start: at + space.length, caret: at + space.length + 1 };
+    edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, token.caret, token);
   };
 
   // Fitted as what it holds or how it is written changes, not on every
@@ -836,10 +843,17 @@ export const Composer = memo(function Composer({
               ref={areaRef}
               value={text}
               onChange={(e) => {
+                const at = e.target.selectionStart;
+                typedRef.current = followTyped(text, e.target.value, at, typedRef.current);
                 setText(e.target.value);
-                setCaret(e.target.selectionStart);
+                setCaret(at);
               }}
-              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onSelect={(e) => {
+                const at = e.currentTarget.selectionStart;
+                // The caret went somewhere other than where the typing left it.
+                if (typedRef.current && typedRef.current.caret !== at) typedRef.current = null;
+                setCaret(at);
+              }}
               onFocus={() => {
                 setFocused(true);
                 dictation.onFocus();
