@@ -72,6 +72,7 @@ import {
   uuidBefore,
   withSubagentLog,
 } from "./history";
+import { claudeModelCatalogKey, useClaudeModelCatalog } from "./model-catalog";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import { applyLines, endGoal } from "./stream-model";
 import { TranscriptPages } from "./transcript-pages";
@@ -368,6 +369,10 @@ export class ChatController {
   get claudeProfileDefaultModel(): string | undefined {
     const connection = this.connection;
     return connection?.method === "custom" ? connection.defaultModel : undefined;
+  }
+
+  get modelCatalogKey(): string {
+    return claudeModelCatalogKey(this.target.workspaceId, this.target.profileId);
   }
 
   /**
@@ -2496,6 +2501,18 @@ export class ChatController {
   }
 
   private afterModel(before: ChatModel, model: ChatModel): void {
+    if (before.init !== model.init) {
+      const catalog = useClaudeModelCatalog.getState();
+      if (model.init?.models.length) {
+        catalog.remember({
+          tabKey: this.key,
+          profileKey: this.modelCatalogKey,
+          models: model.init.models,
+        });
+      } else {
+        catalog.forget(this.key);
+      }
+    }
     if (before.goal !== model.goal) this.liveGoalChanged = true;
     // The mode the program is in, for one started again in the tab to go on in.
     if (model.permissionMode) this.lastMode = model.permissionMode;
@@ -2554,6 +2571,7 @@ export class ChatController {
     this.connectionRestart.dispose();
     this.removeReceiver?.();
     this.leavePlanUsage();
+    useClaudeModelCatalog.getState().forget(this.key);
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }

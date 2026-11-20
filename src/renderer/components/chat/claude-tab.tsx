@@ -19,6 +19,10 @@ import {
   pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { historyForDisplay } from "../../services/chat/claude/history";
+import {
+  borrowedClaudeModels,
+  useClaudeModelCatalog,
+} from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
@@ -154,6 +158,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
   const steady = useStateBesideStream(state);
+  const modelCatalogKey = isVisible && !steady.model.init ? controller.modelCatalogKey : undefined;
+  const fallbackModels = useClaudeModelCatalog((catalog) =>
+    modelCatalogKey ? borrowedClaudeModels(catalog, modelCatalogKey, controller.key) : undefined,
+  );
   const goal = useTabGoal(workspaceId, tabId);
 
   // The line under the composer: the context and the plan's usage when the
@@ -804,6 +812,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
+            fallbackModels={fallbackModels}
             relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}

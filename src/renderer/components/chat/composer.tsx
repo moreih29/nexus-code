@@ -149,6 +149,8 @@ export interface ComposerController {
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
+  /** A local Claude tab can borrow its profile's options while its own list is missing. */
+  fallbackModels?: readonly ModelInfo[];
   instructionsTab?: InstructionsTab;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
@@ -225,6 +227,7 @@ function parked(area: HTMLElement): boolean {
 export const Composer = memo(function Composer({
   controller,
   state,
+  fallbackModels,
   instructionsTab,
   relayed,
   local,
@@ -256,6 +259,7 @@ export const Composer = memo(function Composer({
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
+  const models = model.init?.models ?? fallbackModels ?? [];
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
@@ -293,7 +297,7 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
+    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
     FIT.NO_ADD,
   );
 
@@ -890,12 +894,18 @@ export const Composer = memo(function Composer({
               <ModelChip
                 controller={controller}
                 state={state}
+                models={models}
                 short={fit >= FIT.SHORT_MODEL}
                 onMenu={onMenu("model")}
               />
             )}
             {(fit < FIT.NO_EFFORT || kept("effort")) && (
-              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+              <EffortChip
+                controller={controller}
+                state={state}
+                models={models}
+                onMenu={onMenu("effort")}
+              />
             )}
             {instructionsTab && (
               <SessionInstructionsChip {...instructionsTab} compact={fit >= FIT.TRUNCATE_MODE} />
@@ -1371,11 +1381,15 @@ export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean
 function ModelChip({
   controller,
   state,
+  models,
   short,
   onMenu,
-}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
+}: ChipProps & {
+  models: readonly ModelInfo[];
+  short: boolean;
+  onMenu: (open: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
   const profileDefault = controller.claudeProfileDefaultModel;
   const options = modelPickerOptions(models, profileDefault !== undefined);
   let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
@@ -1427,10 +1441,10 @@ function ModelChip({
 function EffortChip({
   controller,
   state,
+  models,
   onMenu,
-}: ChipProps & { onMenu: (open: boolean) => void }) {
+}: ChipProps & { models: readonly ModelInfo[]; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
   const levels =
     currentModelInfo(models, state.model.model, state.model.chosenModel)?.supportedEffortLevels ??
     [];
