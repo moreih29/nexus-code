@@ -867,6 +867,8 @@ export interface CliUiOps {
       workspaceId: string;
       tabId: string;
       settings: CliChatSettings;
+      /** Mode used to authorize this change. */
+      expectedMode?: string;
       /**
        * The user sets them, from another device (the remote): the mode that
        * lets everything run too, unless a policy keeps it off.

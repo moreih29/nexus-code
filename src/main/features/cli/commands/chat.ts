@@ -596,16 +596,23 @@ const chatSet: CliCommand = {
     await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
     let delegated: CallerMode | undefined;
     const dangerous = settings.mode === CHAT_MODES[agent].dangerous;
+    let expectedMode: string | undefined;
     if (settings.mode !== undefined) {
-      const from = dangerous
-        ? undefined
-        : (await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS))
-            .mode;
-      delegated = await mayLoosen(ctx, workspace, agent, `"${tab.title}"`, settings.mode, from);
+      expectedMode = (
+        await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS)
+      ).mode;
+      delegated = await mayLoosen(
+        ctx,
+        workspace,
+        agent,
+        `"${tab.title}"`,
+        settings.mode,
+        expectedMode,
+      );
     }
     const choices = await ctx.services.ui(
       "chat.settings",
-      { ...target, settings, ...(dangerous ? { allowDangerousMode: true } : {}) },
+      { ...target, settings, expectedMode, ...(dangerous ? { allowDangerousMode: true } : {}) },
       SEND_TIMEOUT_MS,
     );
     if (delegated && choices.mode === settings.mode) {

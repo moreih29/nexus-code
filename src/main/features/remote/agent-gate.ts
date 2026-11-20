@@ -23,6 +23,7 @@ import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/cha
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
+import { findNote } from "./notes";
 import { RpcFailure } from "./room";
 
 const MINUTE_MS = 60_000;
@@ -103,7 +104,7 @@ export class AgentGate {
   }
 
   /** Resolves when the request may go ahead; a RpcFailure saying why when not. */
-  async check(services: CliServices, request: AgentRequest): Promise<void> {
+  async check(services: CliServices, request: AgentRequest): Promise<string | undefined> {
     const { device, params } = request;
     const { from } = params;
     // The device's share first: its agents' names are its to make up.
@@ -118,10 +119,10 @@ export class AgentGate {
       "too many messages from that agent",
     );
     refuseBeyondAsked(request);
-    await this.consent(services, request);
-    if (await needsFreshApproval(services, request)) {
-      await this.consent(services, request, undefined, true);
-    }
+    this.checkRead();
+    const { approval, expectedMode } = await operationApproval(services, request);
+    await this.consent(services, request, undefined, approval);
+    return expectedMode;
   }
 
   /** File transfers use the same prompt and session approvals as other controls. */
@@ -176,16 +177,17 @@ export class AgentGate {
     services: CliServices,
     request: AgentRequest,
     scope?: FileConsent,
-    eachTime = false,
+    approval: Approval = "policy",
   ) {
     const { device, params } = request;
     const { from } = params;
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
-    if (policy === "allow" && !eachTime) return;
-    const change = await changeOf(services, request, scope, eachTime);
+    if (policy === "allow" && approval === "policy") return;
+    const eachTime = approval === "once";
     const pair = JSON.stringify([device.id, from.workspaceId, params.workspaceId]);
     if (!eachTime && this.allowed.has(pair)) return;
+    const change = await changeOf(services, request, scope, approval);
     const waiting = this.prompting.get(device.id) ?? 0;
     if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
       throw new RpcFailure(
@@ -290,15 +292,23 @@ async function tabTitle(services: CliServices, workspaceId: string, tabId: strin
   return tabs.find((t) => t.id === tabId)?.title ?? tabId.slice(0, 8);
 }
 
-async function needsFreshApproval(
+type Approval = "policy" | "session" | "once";
+
+async function operationApproval(
   services: CliServices,
   { method, params }: AgentRequest,
-): Promise<boolean> {
+): Promise<{ approval: Approval; expectedMode?: string }> {
+  if (
+    method === "notes.voiceNames.delete" ||
+    (method === "settings.instructions.set" && params.layer !== "workspace")
+  )
+    return { approval: "once" };
+  if (method === "chat.rewind" || method === "chat.profile") return { approval: "session" };
   if (typeof params.permissionMode === "string") {
     if (method === "chat.new") {
       const agent = params.agent === "codex" ? "codex" : "claude";
       const next = chatModeNamed(agent, params.permissionMode);
-      return next !== undefined && loosens(agent, CHAT_MODES[agent].fallback, next);
+      if (next && loosens(agent, CHAT_MODES[agent].fallback, next)) return { approval: "session" };
     }
     if (method === "chat.configure" && params.tabId) {
       const current = await services.ui("chat.settings", {
@@ -307,15 +317,13 @@ async function needsFreshApproval(
         settings: {},
       });
       const next = chatModeNamed(current.agent, params.permissionMode);
-      return next !== undefined && loosens(current.agent, current.mode, next);
+      return {
+        approval: next && loosens(current.agent, current.mode, next) ? "session" : "policy",
+        expectedMode: current.mode,
+      };
     }
   }
-  return (
-    method === "chat.rewind" ||
-    method === "chat.profile" ||
-    method === "notes.voiceNames.delete" ||
-    (method === "settings.instructions.set" && params.layer !== "workspace")
-  );
+  return { approval: "policy" };
 }
 
 /** What the user is asked to let the agent do, as the consent prompt says it. */
@@ -323,8 +331,9 @@ async function changeOf(
   services: CliServices,
   { method, params }: AgentRequest,
   scope?: FileConsent,
-  eachTime = false,
+  approval: Approval = "policy",
 ): Promise<CliChange> {
+  const eachTime = approval === "once";
   const { workspaceId, tabId = "" } = params;
   const title = () => tabTitle(services, workspaceId, tabId);
   switch (method) {
@@ -386,13 +395,14 @@ async function changeOf(
     case "chat.fork":
       return { kind: "chatFork", detail: await title() };
     case "chat.resume":
-      return { kind: "chatNew", detail: String(params.sessionId) };
+      return {
+        kind: "chatNew",
+        detail: tabId ? await title() : (AGENT_NAMES[String(params.agent)] ?? "Chat"),
+      };
     case "chat.rewind": {
       const target = { workspaceId, tabId, itemKey: String(params.itemKey) };
       const preview =
-        eachTime && params.files === true
-          ? await services.ui("chat.rewindPreview", target)
-          : undefined;
+        params.files === true ? await services.ui("chat.rewindPreview", target) : undefined;
       if (preview && !preview.canRewind)
         throw new RpcFailure(
           RpcErrorCode.InvalidParams,
@@ -406,7 +416,6 @@ async function changeOf(
       };
     }
     case "chat.profile": {
-      if (!eachTime) return { kind: "chatSettings", detail: await title() };
       const profiles = await services.ui("chat.profile", {
         workspaceId,
         tabId,
@@ -417,13 +426,15 @@ async function changeOf(
       return {
         kind: params.fresh === true ? "chatProfileNew" : "chatProfile",
         detail: `"${await title()}" (${profiles.from} → ${profiles.to})`,
-        eachTime: true,
       };
     }
     case "settings.instructions.set":
       return {
         kind: "instructionsEdit",
-        detail: String(params.layer),
+        detail:
+          params.layer === "workspace"
+            ? services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name
+            : (AGENT_NAMES[String(params.layer)] ?? "Shared"),
         body: String(params.text || "Clear this layer"),
         ...(eachTime ? { eachTime: true } : {}),
       };
@@ -431,7 +442,8 @@ async function changeOf(
       const action = params.change as Record<string, unknown>;
       return {
         kind: "noteSpeakers",
-        detail: String(params.note),
+        detail:
+          (await findNote(services, workspaceId, String(params.note))).title || "Untitled note",
         body: Object.values(action).join(" "),
       };
     }
@@ -439,7 +451,8 @@ async function changeOf(
       const action = params.action as Record<string, unknown>;
       return {
         kind: "noteSpeakers",
-        detail: String(params.note),
+        detail:
+          (await findNote(services, workspaceId, String(params.note))).title || "Untitled note",
         body: [action.op, action.speaker, action.name].join(" "),
       };
     }
@@ -465,9 +478,7 @@ async function changeOf(
       };
       return {
         kind: method === "layout.change" && action.op === "close" ? "groupClose" : "layout",
-        detail: [action.op, action.path ?? action.groupId ?? action.panelId]
-          .filter(Boolean)
-          .join(" "),
+        detail: action.path ?? services.listWorkspaces().find((w) => w.id === workspaceId)?.name,
       };
     }
     case "worktree.new": {
@@ -484,15 +495,15 @@ async function changeOf(
         kind: params.deleteBranch === true ? "worktreeRemoveBranch" : "worktreeRemove",
         detail:
           services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name ??
-          workspaceId,
+          "Worktree",
         ...(params.force === true ? { body: "Discard uncommitted changes" } : {}),
       };
     case "chat.new":
-      if (eachTime)
+      if (approval === "session")
         return {
           kind: "chatMode",
           detail: `${AGENT_NAMES[String(params.agent)]} (${String(params.permissionMode)})`,
-          eachTime,
+          ...(typeof params.prompt === "string" && params.prompt ? { body: params.prompt } : {}),
         };
       return {
         kind: "chatNew",

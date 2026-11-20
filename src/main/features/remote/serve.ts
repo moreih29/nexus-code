@@ -238,6 +238,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
     let relay: RelaySender | undefined;
+    let expectedMode: string | undefined;
     if (by && !watches.agents) {
       throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
     }
@@ -257,7 +258,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
-      await watches.agents.check(s, {
+      expectedMode = await watches.agents.check(s, {
         device,
         method,
         params: params as AgentRequest["params"],
@@ -516,7 +517,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
-        return configureChat(s, request.params as RpcParams<"chat.configure">, relay !== undefined);
+        return configureChat(
+          s,
+          request.params as RpcParams<"chat.configure">,
+          relay !== undefined,
+          expectedMode,
+        );
       case "chat.profile":
         return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":

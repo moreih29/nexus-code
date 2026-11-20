@@ -339,6 +339,7 @@ async function applySettings(
   { agent, controller }: AgentTabController,
   wanted: CliChatSettings,
   allowDangerousMode = false,
+  expectedMode?: string,
 ): Promise<void> {
   await whenReady(workspaceId, tabId, agent);
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
@@ -358,6 +359,12 @@ async function applySettings(
   // The model first: the effort is the new model's.
   if (plan.model !== undefined) await controller.setModel(plan.model);
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
+  if (wanted.mode !== undefined && expectedMode !== undefined) {
+    const current = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!current || chatChoicesOf(agent, current.model).mode !== expectedMode) {
+      throw new UiRequestError("the tab's permission mode changed; run the command again");
+    }
+  }
   if (plan.mode !== undefined) await controller.setPermissionMode(plan.mode);
   await whenShown(workspaceId, tabId, agent, plan);
 }
@@ -765,10 +772,24 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { agent: tab.type, ...(mode === undefined ? {} : { mode }) };
   },
 
-  "chat.settings": async ({ workspaceId, tabId, settings, user, allowDangerousMode }) => {
+  "chat.settings": async ({
+    workspaceId,
+    tabId,
+    settings,
+    user,
+    allowDangerousMode,
+    expectedMode,
+  }) => {
     const target = await openedTab(workspaceId, tabId);
     if (hasSettings(settings))
-      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
+      await applySettings(
+        workspaceId,
+        tabId,
+        target,
+        settings,
+        user || allowDangerousMode,
+        expectedMode,
+      );
     else await whenReady(workspaceId, tabId, target.agent);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");

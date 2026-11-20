@@ -289,6 +289,7 @@ export async function configureChat(
   services: CliServices,
   { workspaceId, tabId, model, effort, permissionMode }: RpcParams<"chat.configure">,
   byAgent = false,
+  expectedMode?: string,
 ): Promise<RpcResult<"chat.configure">> {
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const settings = {
@@ -314,7 +315,7 @@ export async function configureChat(
     .ui(
       "chat.settings",
       // An agent never takes the mode that lets everything run.
-      { workspaceId, tabId, settings, ...(byAgent ? {} : { user: true }) },
+      { workspaceId, tabId, settings, ...(byAgent ? { expectedMode } : { user: true }) },
       SETTINGS_TIMEOUT_MS,
     )
     .catch(unavailable);

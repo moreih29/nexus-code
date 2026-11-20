@@ -245,6 +245,12 @@ export async function askDevice<M extends RpcMethod>(
       },
     );
   }
+  if (
+    from &&
+    (method === "chat.new" || method === "chat.configure") &&
+    (params as { permissionMode?: string }).permissionMode !== undefined
+  )
+    requirePeerCli(ctx, device);
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS

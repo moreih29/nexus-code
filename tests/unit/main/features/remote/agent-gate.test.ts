@@ -367,38 +367,37 @@ test("a session approval for a file control is the existing device and workspace
 });
 
 test.each([
-  ["allow", ["once", "deny"], [true, true]],
-  ["ask", ["session", "once", "deny"], [undefined, true, true]],
-] as const)("a peer rewind always asks under %s and never caches explicit approval", async (policy, answers, approvals) => {
-  const { g, services, asked } = gate(policy, [...answers]);
+  "allow",
+  "ask",
+] as const)("peer rewind offers a reusable workspace approval under %s", async (policy) => {
+  const { g, services, asked } = gate(policy, ["session"]);
   const request = {
     ...send(),
     method: "chat.rewind" as const,
     params: { ...send().params, itemKey: "user-1", files: false },
   };
   await g.check(services, request);
-  await expect(g.check(services, request)).rejects.toMatchObject({ code: 1002 });
-  expect(asked.map((prompt) => (prompt.change as { eachTime?: boolean }).eachTime)).toEqual([
-    ...approvals,
-  ]);
+  await g.check(services, request);
+  expect(asked.map((prompt) => prompt.change)).toEqual([{ kind: "chatRewind", detail: "Review" }]);
 });
 
 test("persistent global layers and voice deletion require fresh peer approval", async () => {
-  const { g, services, asked } = gate("allow", ["once", "deny", "once"]);
+  const { g, services, asked } = gate("ask", ["session", "once", "deny", "once"]);
   const request = {
     ...send(),
     method: "settings.instructions.set" as const,
     params: { ...send().params, layer: "all", text: "Review test results." },
   };
+  await g.check(services, { ...request, params: { ...request.params, layer: "workspace" } });
   await g.check(services, request);
   await expect(g.check(services, request)).rejects.toMatchObject({ code: 1002 });
-  await g.check(services, { ...request, params: { ...request.params, layer: "workspace" } });
   await g.check(services, {
     ...send(),
     method: "notes.voiceNames.delete",
     params: { ...send().params, name: "Alex" },
   });
   expect(asked.map((prompt) => prompt.change)).toEqual([
+    expect.objectContaining({ kind: "instructionsEdit" }),
     expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
     expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
     expect.objectContaining({ kind: "voiceNamesDelete", eachTime: true }),
