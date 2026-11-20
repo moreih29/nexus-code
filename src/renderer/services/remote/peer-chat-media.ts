@@ -1,5 +1,5 @@
-// Read results shared by the remote chats in this renderer. A peer connection
-// scopes both settled entries and requests that have yet to answer.
+// Remote chat reads are scoped to a live connection. Versioned attachment
+// candidates can be checked again while the peer stays in the room.
 
 import { useCallback, useSyncExternalStore } from "react";
 import type { RemoteAccountState } from "../../../shared/remote/account";
@@ -15,17 +15,23 @@ import {
   remoteImageKey,
 } from "../chat/model";
 
-interface Access {
+interface ReadAccess {
   id: number;
   cacheId: number;
   scopeId: number;
   signal: AbortSignal;
 }
 
+interface PeerAccess {
+  scopeId: number;
+  read: ReadAccess | null;
+}
+
 interface CacheLimits<T> {
   entries: number;
   bytes: number;
-  freshMs: number;
+  freshMs?: number;
+  scope?: (access: ReadAccess) => number;
   size(value: T): number;
   revalidate?: boolean;
 }
@@ -34,11 +40,11 @@ const MAX_ACTIVE = 64;
 const MAX_WAITING = 256;
 
 function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
-  const cached = new Map<string, { cacheId: number; value: T; bytes: number; until: number }>();
+  const cached = new Map<string, { scope: number; value: T; bytes: number; until: number }>();
   const pending = new Map<string, Promise<T>>();
   const waiting = new Map<
     string,
-    { access: Access; start(): void; reject(reason: unknown): void }
+    { access: ReadAccess; start(): void; reject(reason: unknown): void }
   >();
   let active = 0;
   const results = createKeyedListenerBus<string, T | null>();
@@ -61,34 +67,35 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
     return item.value;
   }
 
-  const scoped = (access: Access, key: string) => `${access.id}:${key}`;
+  const scoped = (access: ReadAccess, key: string) => `${access.id}:${key}`;
   return {
-    subscribe(access: Access | null, key: string, listener: (value: T | null) => void) {
+    subscribe(access: ReadAccess | null, key: string, listener: (value: T | null) => void) {
       return access && !access.signal.aborted
         ? results.subscribe(scoped(access, key), listener)
         : () => {};
     },
-    revoke(access: Access, keepCandidates = false) {
+    revoke(access: ReadAccess) {
       for (const [key, job] of waiting) {
         if (job.access === access) {
           waiting.delete(key);
           job.reject(access.signal.reason);
         }
       }
-      if (!keepCandidates) {
-        for (const [key, item] of cached) {
-          if (item.cacheId === access.cacheId) drop(key);
-        }
+    },
+    clear(scope: number) {
+      for (const [key, item] of cached) {
+        if (item.scope === scope) drop(key);
       }
     },
     async read(
-      access: Access | null,
+      access: ReadAccess | null,
       key: string,
       load: (signal: AbortSignal, known: T | undefined) => Promise<T>,
     ) {
       if (!access || access.signal.aborted) throw new Error("peer connection unavailable");
       const slot = scoped(access, key);
-      const cacheKey = `${access.cacheId}:${key}`;
+      const scope = limits?.scope?.(access) ?? access.cacheId;
+      const cacheKey = `${scope}:${key}`;
       if (!limits?.revalidate) {
         const value = hit(cacheKey, Date.now());
         if (value !== undefined) return value;
@@ -107,10 +114,10 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
             const weight = 2 * cacheKey.length + limits.size(next);
             if (weight <= limits.bytes) {
               cached.set(cacheKey, {
-                cacheId: access.cacheId,
+                scope,
                 value: next,
                 bytes: weight,
-                until: Date.now() + limits.freshMs,
+                until: Date.now() + (limits.freshMs ?? Infinity),
               });
               bytes += weight;
               for (const [old] of cached) {
@@ -162,9 +169,10 @@ interface Attachment {
 
 const attachments = peerReads<Attachment>({
   revalidate: true,
+  // Each read gets fresh version proof, even after the peer returns to the room.
+  scope: (access) => access.scopeId,
   entries: 128,
   bytes: 16 * 1024 * 1024,
-  freshMs: 30_000,
   size: ({ image, version }) =>
     version === undefined
       ? Infinity
@@ -186,26 +194,25 @@ const folderNames = peerReads<ReadonlySet<string>>({
 const pictures = peerReads<ImageBlock>(undefined, 8);
 
 function mediaAccess(
-  access: Access | null,
+  access: PeerAccess | null,
   target: readonly string[],
-  visible: boolean,
+  read: ReadAccess | null,
 ): ChatMediaAccess | null {
   return (
     access && {
       scope: JSON.stringify([access.scopeId, ...target]),
-      signal: access.signal,
-      visible,
+      signal: read?.signal ?? null,
     }
   );
 }
 
 export function peerImageLoader(
   target: { deviceId: string; workspaceId: string; tabId: string },
-  access: Access | null,
+  access: PeerAccess | null,
   visible = true,
 ): ImageLoader {
   const site = [target.deviceId, target.workspaceId, target.tabId];
-  const current = visible ? access : null;
+  const current = visible ? (access?.read ?? null) : null;
   const key = (ref: RemoteImageRef) => JSON.stringify([...site, IMAGE_EDGE, remoteImageKey(ref)]);
   return Object.assign(
     (image: ImageBlock) => {
@@ -242,7 +249,7 @@ export function peerImageLoader(
         .then(({ image }) => image);
     },
     {
-      access: mediaAccess(access, site, visible),
+      access: mediaAccess(access, site, current),
       subscribe: (ref: RemoteImageRef, listener: (image: ImageBlock | null) => void) =>
         attachments.subscribe(current, key(ref), (next) => listener(next?.image ?? null)),
     },
@@ -259,11 +266,11 @@ function splitPath(path: string): { dir: string; name: string } | null {
 
 export function peerChatFiles(
   { deviceId, workspaceId }: { deviceId: string; workspaceId: string },
-  access: Access | null,
+  access: PeerAccess | null,
   visible = true,
 ): ChatFiles {
   const where = { deviceId, workspaceId };
-  const current = visible ? access : null;
+  const current = visible ? (access?.read ?? null) : null;
   const key = (path: string) => JSON.stringify([deviceId, workspaceId, path]);
   const namesIn = (path: string) =>
     folderNames.read(current, key(path), async (signal) => {
@@ -272,7 +279,7 @@ export function peerChatFiles(
       return new Set(result.value.entries.filter((e) => e.kind !== "dir").map((e) => e.name));
     });
   return {
-    access: mediaAccess(access, [deviceId, workspaceId], visible),
+    access: mediaAccess(access, [deviceId, workspaceId], current),
     epoch: current?.id ?? null,
     connection: current?.cacheId ?? null,
     async there(paths) {
@@ -327,7 +334,7 @@ interface WatchedPeer {
   connection: string | null;
   reads: string | null;
   controller?: AbortController;
-  access: Access | null;
+  access: PeerAccess | null;
 }
 
 const watched = new Map<string, WatchedPeer>();
@@ -337,23 +344,27 @@ let stopWatching: (() => void) | undefined;
 
 function reset(peer: WatchedPeer, connection: string | null, reads: string | null = null) {
   const previous = peer.access;
-  const foreground = previous !== null && connection === peer.connection;
-  if (previous) {
+  const previousRead = previous?.read;
+  const foreground = previousRead && connection === peer.connection;
+  if (previousRead) {
     peer.controller?.abort();
-    attachments.revoke(previous, foreground);
-    folderNames.revoke(previous);
-    pictures.revoke(previous);
+    attachments.revoke(previousRead);
+    folderNames.revoke(previousRead);
+    folderNames.clear(previousRead.cacheId);
+    pictures.revoke(previousRead);
   }
   const controller = connection === null ? undefined : new AbortController();
   const id = ++nextAccess;
-  // Mounted views can keep their last result through a rejoin while read access lasts.
-  const scopeId = previous && peer.reads === reads ? previous.scopeId : id;
+  const keep = previous && reads !== null && peer.reads === reads;
+  const scopeId = keep ? previous.scopeId : id;
+  if (previous && !keep) attachments.clear(previous.scopeId);
   peer.controller = controller;
   peer.connection = connection;
   peer.reads = reads;
-  peer.access = controller
-    ? { id, cacheId: foreground ? previous.cacheId : id, scopeId, signal: controller.signal }
+  const read = controller
+    ? { id, cacheId: foreground ? previousRead.cacheId : id, scopeId, signal: controller.signal }
     : null;
+  peer.access = reads === null ? null : { scopeId, read };
   peer.listeners.notify(undefined);
 }
 
@@ -361,9 +372,14 @@ function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
   const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
   const serves = peer?.serves?.slice().sort();
   const connection = peer?.online ? JSON.stringify([peer.rejoins ?? 0, peer.schema, serves]) : null;
-  if (connection !== watcher.connection || (refresh && connection !== null)) {
-    const reads = serves?.filter((method) => method === "chat.read" || method === "files");
-    reset(watcher, connection, JSON.stringify(reads ?? ["chat.read", "files"]));
+  const allowed = serves?.filter((method) => method === "chat.read" || method === "files");
+  const reads = peer ? JSON.stringify(allowed ?? ["chat.read", "files"]) : null;
+  if (
+    reads !== watcher.reads ||
+    connection !== watcher.connection ||
+    (refresh && connection !== null)
+  ) {
+    reset(watcher, connection, reads);
   }
 }
 
@@ -444,11 +460,11 @@ export function watchPeerChatAccess(deviceId: string, notify: () => void): () =>
   };
 }
 
-export function peerChatAccess(deviceId: string): Access | null {
+export function peerChatAccess(deviceId: string): PeerAccess | null {
   return watched.get(deviceId)?.access ?? null;
 }
 
-export function usePeerChatAccess(deviceId: string): Access | null {
+export function usePeerChatAccess(deviceId: string): PeerAccess | null {
   const subscribe = useCallback(
     (notify: () => void) => watchPeerChatAccess(deviceId, notify),
     [deviceId],

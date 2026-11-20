@@ -43,10 +43,8 @@ export function remoteImageKey(ref: RemoteImageRef): string {
 export interface ChatMediaAccess {
   /** Identifies what can stay on screen while the next read runs. */
   scope: string;
-  /** The current read generation. Its replies are ignored after abort. */
-  signal: AbortSignal;
-  /** Hidden panels keep their last result and pause new reads. */
-  visible: boolean;
+  /** The current read generation. Null while the peer is offline or the panel is hidden. */
+  signal: AbortSignal | null;
 }
 
 export interface ImageLoader {

@@ -19,10 +19,11 @@ export function useRemotePicture(
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: access and key identify the read and subscription.
   useEffect(() => {
-    if (!access?.visible || key === null) return;
+    const signal = access?.signal;
+    if (!signal || signal.aborted || key === null) return;
     let live = true;
     const off = watch((image) => {
-      if (!live || access.signal.aborted) return;
+      if (!live || signal.aborted) return;
       setGot((was) =>
         was.access !== access ||
         was.key !== key ||
@@ -37,5 +38,6 @@ export function useRemotePicture(
     };
   }, [access, key]);
 
-  return { image: shown.image, failed: access === null || shown.failed };
+  const unavailable = access !== undefined && !access?.signal;
+  return { image: shown.image, failed: shown.failed || (unavailable && shown.image === null) };
 }

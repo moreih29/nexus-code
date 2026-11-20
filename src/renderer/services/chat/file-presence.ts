@@ -153,12 +153,13 @@ export function useFoundFiles(
   // `key` stands for `paths`, which is a new array each render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` and `outside` only say when to look again
   useEffect(() => {
-    if (files && !files.access?.visible) return;
+    const signal = files?.access?.signal;
+    if (files && (!signal || signal.aborted)) return;
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
     const looked = files ? files.there(wanted) : filesThere(workspaceId, root, wanted);
     void looked.then((next) => {
-      if (!live || files?.access?.signal.aborted) return;
+      if (!live || signal?.aborted) return;
       setFound((was) =>
         was.scope !== scope ||
         (was.paths.size === next.size && [...next].every((path) => was.paths.has(path)))
