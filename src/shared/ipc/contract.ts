@@ -679,6 +679,7 @@ const notesContracts = {
       recording: call(NotesArgs.recording, z.void()),
       /** The note's recordings and their words (transcript.json); none yet is an empty one. */
       readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
+      hasRecordingAudio: call(NotesArgs.hasRecordingAudio, z.boolean()),
       /** Writes transcript.json, and transcript.md beside it. */
       saveTranscript: call(NotesArgs.saveTranscript, z.void()),
       appendAudio: call(NotesArgs.appendAudio, z.void()),

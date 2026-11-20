@@ -1,6 +1,7 @@
 import i18next from "i18next";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TranscriptRecording } from "../../../shared/notes/transcript";
 import type { VoiceNameStatus } from "../../../shared/notes/voice-names";
 import { loadVoiceMemory, useVoiceMemory, voiceMemoryApi } from "../../services/notes/voice-memory";
 import { useVoicePrintAvailable } from "../../services/notes/voice-print";
@@ -33,14 +34,20 @@ export function SpeakerNameDialog({
   speaker,
   initial,
   names,
-  audio,
+  workspaceId,
+  noteId,
+  takes,
+  audioRemoved,
   onSave,
   onClose,
 }: {
   speaker: string;
   initial: string;
   names: readonly string[];
-  audio: boolean;
+  workspaceId: string;
+  noteId: string;
+  takes: TranscriptRecording["takes"];
+  audioRemoved: boolean;
   onSave: (name: string, remember: boolean) => void;
   onClose: () => void;
 }) {
@@ -49,21 +56,34 @@ export function SpeakerNameDialog({
   const model = useVoicePrintAvailable();
   const [name, setName] = useState(initial);
   const [remember, setRemember] = useState(true);
+  const [audio, setAudio] = useState<boolean | null>(null);
+  useEffect(() => {
+    let current = true;
+    void recordingHasVoiceAudio({ workspaceId, noteId }, { takes, audioRemoved })
+      .catch(() => false)
+      .then((value) => {
+        if (current) setAudio(value);
+      });
+    return () => {
+      current = false;
+    };
+  }, [workspaceId, noteId, takes, audioRemoved]);
   const inputId = useId();
   const namesId = useId();
   const checkId = useId();
   const hintId = useId();
-  const reason = !audio
-    ? t("voiceMemory.audioMissing")
-    : !status
-      ? t("voiceMemory.loading")
-      : !status.available
-        ? t("voiceMemory.unavailable")
-        : status.consent === "declined"
-          ? t("voiceMemory.declinedHint")
-          : !model
-            ? t("voiceMemory.modelUnavailable")
-            : null;
+  const reason =
+    audioRemoved || !takes.length || audio === false
+      ? t("voiceMemory.audioMissing")
+      : !status || audio === null
+        ? t("voiceMemory.loading")
+        : !status.available
+          ? t("voiceMemory.unavailable")
+          : status.consent === "declined"
+            ? t("voiceMemory.declinedHint")
+            : !model
+              ? t("voiceMemory.modelUnavailable")
+              : null;
   const checked = reason === null && remember;
 
   return (

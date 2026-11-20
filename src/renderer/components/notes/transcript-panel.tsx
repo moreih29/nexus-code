@@ -586,7 +586,10 @@ export const TranscriptPanel = memo(function TranscriptPanel({
           speaker={speakerName(namingRecording, namingKey, unnamed)}
           initial={namingRecording.speakers[namingKey] ?? ""}
           names={names}
-          audio={hasVoiceAudio(namingRecording)}
+          workspaceId={workspaceId}
+          noteId={noteId}
+          takes={namingRecording.takes}
+          audioRemoved={namingRecording.audioRemoved === true}
           onSave={(value, remember) => {
             setNaming(null);
             name(naming.recordingId, naming.keys, value, remember);

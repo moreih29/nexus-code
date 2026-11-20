@@ -9,6 +9,7 @@ import {
 } from "../../../shared/notes/voice-names";
 import type { VoiceSample } from "../../../shared/notes/voices";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { notesApi } from "./api";
 import { readPrints } from "./read-prints";
 import {
   flushTranscript,
@@ -90,6 +91,18 @@ function recordingOf({ workspaceId, noteId, recordingId }: RecordingRef) {
 
 export function hasVoiceAudio(recording: TranscriptRecording): boolean {
   return !recording.audioRemoved && recording.takes.length > 0;
+}
+
+export async function recordingHasVoiceAudio(
+  ref: Pick<RecordingRef, "workspaceId" | "noteId">,
+  recording: Pick<TranscriptRecording, "takes" | "audioRemoved">,
+): Promise<boolean> {
+  if (recording.audioRemoved || !recording.takes.length) return false;
+  return notesApi.hasRecordingAudio(
+    ref.workspaceId,
+    ref.noteId,
+    recording.takes.map((take) => take.file),
+  );
 }
 
 export function canSuggestNames(status: VoiceNameStatus | null): boolean {
@@ -183,6 +196,11 @@ async function findSuggestions(
     };
     if (!current()) return "changed";
     const { workspaceId, noteId } = ref;
+    if (!live && !(await recordingHasVoiceAudio(ref, before))) {
+      if (current()) putSuggestions(key, []);
+      return "unavailable";
+    }
+    if (!current()) return "changed";
     const prints =
       samples ??
       (await readPrints(workspaceId, noteId, before, {
@@ -285,6 +303,19 @@ export async function rememberNamedVoice(
   const selected = new Set(keys);
   const ownLines = (r: TranscriptRecording) => r.lines.filter((l) => selected.has(l.speaker));
   const lines = ownLines(before);
+  const stillConfirmed = (
+    recording: TranscriptRecording | undefined,
+  ): recording is TranscriptRecording => {
+    if (
+      !recording ||
+      !hasVoiceAudio(recording) ||
+      !keys.every((key) => recording.speakers[key] === name)
+    )
+      return false;
+    const latest = ownLines(recording);
+    return lines.every((line, i) => line === latest[i]);
+  };
+  if (!(await recordingHasVoiceAudio(ref, before)) || !stillConfirmed(recordingOf(ref))) return;
   const samples =
     liveSamples() ??
     (await readPrints(ref.workspaceId, ref.noteId, before, {
@@ -292,13 +323,12 @@ export async function rememberNamedVoice(
       minimumMs: VOICE_NAME_LINE_MS,
     }));
   const after = recordingOf(ref);
-  if (!after || !hasVoiceAudio(after) || !keys.every((key) => after.speakers[key] === name)) return;
-  const latest = ownLines(after);
-  if (!lines.every((line, i) => line === latest[i])) return;
+  if (!stillConfirmed(after)) return;
   const vector = speakerPrints({ lines: lines.map((l) => ({ ...l, speaker: key })) }, samples).get(
     key,
   );
-  if (!vector) return;
+  if (!vector || !(await recordingHasVoiceAudio(ref, after))) return;
+  if (!stillConfirmed(recordingOf(ref))) return;
   unwrapIpcResult(
     await ipcCallResult("voiceMemory", "learn", {
       revision: status.revision,
