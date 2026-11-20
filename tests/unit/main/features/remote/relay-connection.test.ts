@@ -6,6 +6,7 @@ import {
   UnreachableError,
 } from "../../../../../src/main/features/remote/errors";
 import {
+  CLOSE_FLOODING,
   CLOSE_REPLACED,
   CLOSE_SIGNED_OUT,
   RELAY_PING,
@@ -16,7 +17,7 @@ import {
   SOCKET_OPEN_TIMEOUT_MS,
 } from "../../../../../src/main/features/remote/relay-connection";
 import { returnToProxy, ServerRoute } from "../../../../../src/main/features/remote/route";
-import { mainInfoMock } from "../../../../log-test-spies";
+import { mainInfoMock, mainWarnMock } from "../../../../log-test-spies";
 
 class FakeSocket {
   readyState = 0;
@@ -505,6 +506,36 @@ describe("the heartbeat", () => {
         { t: "error", code: "rate-limited", message: "", seq: 42 },
         { t: "error", code: "rate-limited", message: "" },
         { t: "error", code: "too-big", message: "too big" },
+      ]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("flooding backs off despite presence and resets only after a sustained connection", async () => {
+    const { relay, sockets, statuses } = await open({ every: 2_000_000, wait: 1_000 });
+    try {
+      const warnings = mainWarnMock.mock.calls.length;
+      for (const [index, delay] of [60_000, 120_000, 240_000, 60_000].entries()) {
+        const socket = sockets[index];
+        if (index > 0) socket?.emit("open");
+        relay.healthy();
+        if (index === 3) jest.advanceTimersByTime(10 * 60_000);
+
+        socket?.emit("close", { code: CLOSE_FLOODING });
+        expect(statuses.at(-1)).toBe("waiting");
+        jest.advanceTimersByTime(delay - 1);
+        await Promise.resolve();
+        expect(sockets).toHaveLength(index + 1);
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+        expect(sockets).toHaveLength(index + 2);
+      }
+      expect(mainWarnMock.mock.calls.slice(warnings).map(([msg]) => msg)).toEqual([
+        expect.stringContaining("code=4002 retryMs=60000"),
+        expect.stringContaining("code=4002 retryMs=120000"),
+        expect.stringContaining("code=4002 retryMs=240000"),
+        expect.stringContaining("code=4002 retryMs=60000"),
       ]);
     } finally {
       relay.stop();

@@ -22,6 +22,11 @@ const log = createLogger("remote-relay");
 export const CLOSE_REPLACED = 4000;
 /** The device's sign-in ended: signed out, removed, or expired. */
 export const CLOSE_SIGNED_OUT = 4001;
+/** The relay closed a socket that exhausted its frame budget. */
+export const CLOSE_FLOODING = 4002;
+const FLOOD_RETRY_INITIAL_MS = 60_000;
+const FLOOD_RETRY_MAX_MS = 15 * 60_000;
+const FLOOD_RETRY_RESET_MS = 10 * 60_000;
 
 /**
  * How often a connection that was in the room tries again at once when it
@@ -113,6 +118,7 @@ export class RelayConnection {
   private owner: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
+  private floodBackoffMs = 0;
   private running = false;
   private status: RelayStatus = "stopped";
   /** When a lost connection last tried again at once. */
@@ -135,6 +141,7 @@ export class RelayConnection {
     if (this.running) return;
     this.running = true;
     this.attempt = 0;
+    this.floodBackoffMs = 0;
     void this.connect();
   }
 
@@ -182,7 +189,7 @@ export class RelayConnection {
     return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
 
-  /** The room answered: the connection is good, and the next loss starts the backoff over. */
+  /** Presence resets ordinary retries. Flooding history needs a sustained connection. */
   healthy(): void {
     this.attempt = 0;
   }
@@ -275,7 +282,7 @@ export class RelayConnection {
 
     const { socket } = connection;
     this.connection = connection;
-    let opened = false;
+    let openedAt: number | undefined;
     const started = performance.now();
     this.openTimer = setTimeout(() => {
       if (this.connection !== connection) return;
@@ -287,9 +294,9 @@ export class RelayConnection {
     this.openTimer.unref?.();
     socket.addEventListener("open", () => {
       if (this.connection !== connection) return;
-      opened = true;
+      openedAt = performance.now();
       this.clearOpenTimer();
-      log.debug(`Relay socket opened elapsedMs=${Math.round(performance.now() - started)}`);
+      log.debug(`Relay socket opened elapsedMs=${Math.round(openedAt - started)}`);
       this.set("online");
       if (this.connection !== connection) return;
       this.startHeartbeat(connection);
@@ -327,15 +334,28 @@ export class RelayConnection {
     });
     socket.addEventListener("close", (event: { code: number }) => {
       if (this.connection !== connection) return;
+      const opened = openedAt !== undefined;
       log.info(`Relay socket closed code=${event.code} opened=${opened}`);
       this.connection = null;
       this.stopHeartbeat();
       this.clearOpenTimer();
       this.stopWriteMonitor();
+      if (openedAt !== undefined && performance.now() - openedAt >= FLOOD_RETRY_RESET_MS) {
+        this.floodBackoffMs = 0;
+      }
       if (event.code === CLOSE_REPLACED) this.giveUp("replaced");
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
+      } else if (event.code === CLOSE_FLOODING) {
+        this.floodBackoffMs = Math.min(
+          FLOOD_RETRY_MAX_MS,
+          Math.max(FLOOD_RETRY_INITIAL_MS, this.floodBackoffMs * 2),
+        );
+        log.warn(
+          `Relay closed a flooding connection code=${CLOSE_FLOODING} retryMs=${this.floodBackoffMs}`,
+        );
+        this.retry(owner, this.floodBackoffMs);
       } else if (opened && this.quickRetry()) {
         void this.connect();
       } else {
@@ -397,12 +417,11 @@ export class RelayConnection {
   }
 
   /** Schedules backoff only for the attempt that reported the loss. */
-  private retry(owner: AbortController): void {
+  private retry(owner: AbortController, floodDelay?: number): void {
     if (!this.owns(owner)) return;
     this.set("waiting");
     if (!this.owns(owner)) return;
-    const delay = (this.deps.backoff ?? defaultBackoff)(this.attempt);
-    this.attempt += 1;
+    const delay = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = null;
