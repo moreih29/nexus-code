@@ -32,6 +32,7 @@ const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_
 const _ensureRootPromises = new Map<string, Promise<void>>();
 // Tail of the watch/unwatch chain per `${workspaceId}\0${relPath}`.
 const _watchChains = new Map<string, Promise<unknown>>();
+const panelWatches = new Map<string, { count: number; ready: Promise<boolean> }>();
 // Directories whose reload was requested while a readdir was already in flight.
 const _pendingReloads = new Set<string>();
 
@@ -46,20 +47,48 @@ function queueWatchCall(
   workspaceId: string,
   rel: string,
   method: "watch" | "unwatch",
+  panel?: true,
 ): ReturnType<typeof ipcCallResult<"fs", "watch">> {
   const key = `${workspaceId}\0${rel}`;
   const previous = _watchChains.get(key);
+  const send = () =>
+    ipcCallResult("fs", method, { workspaceId, relPath: rel, ...(panel && { panel }) });
   // Nothing in flight for this path → send now (keeps the common case
   // synchronous); otherwise wait for the previous call's response.
-  const call = previous
-    ? previous.then(() => ipcCallResult("fs", method, { workspaceId, relPath: rel }))
-    : ipcCallResult("fs", method, { workspaceId, relPath: rel });
+  const call = previous ? previous.then(send) : send();
   const tail = call.catch(() => {});
   _watchChains.set(key, tail);
   void tail.then(() => {
     if (_watchChains.get(key) === tail) _watchChains.delete(key);
   });
   return call;
+}
+
+/** Keeps a directory watched while at least one visible panel in this window uses it. */
+export function retainPanelDirectoryWatch(workspaceId: string, relPath: string) {
+  const key = `${workspaceId}\0${relPath}`;
+  let watch = panelWatches.get(key);
+  if (!watch) {
+    const ready = queueWatchCall(workspaceId, relPath, "watch", true).then(
+      (result) => result.ok,
+      () => false,
+    );
+    watch = { count: 0, ready };
+    panelWatches.set(key, watch);
+  }
+  const lease = watch;
+  lease.count++;
+  return {
+    ready: lease.ready,
+    release() {
+      lease.count--;
+      if (lease.count > 0) return;
+      panelWatches.delete(key);
+      void queueWatchCall(workspaceId, relPath, "unwatch", true).catch((error: unknown) => {
+        log.warn(`unwatch panel directory failed: ${String(error)}`);
+      });
+    },
+  };
 }
 
 function scheduleSave(workspaceId: string): void {

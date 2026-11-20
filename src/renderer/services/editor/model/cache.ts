@@ -364,6 +364,14 @@ export function getEntryLspVersion(cacheUri: string): number | null {
   return entries.get(cacheUri)?.version ?? null;
 }
 
+/** Rechecks a model for writes that landed before its directory watch started. */
+export async function reconcileWatchedModel(input: EditorInput): Promise<void> {
+  const entry = entries.get(cacheUriForInput(input));
+  if (entry?.origin !== "workspace") return;
+  await entry.loadPromise;
+  await reconcileIfStatChanged(entry);
+}
+
 /**
  * Ask to revert a buffer to disk, or reopen a clean buffer in `encoding`.
  * Returns true only when the requested disk result was applied.

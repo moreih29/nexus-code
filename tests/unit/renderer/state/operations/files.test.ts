@@ -33,6 +33,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 import {
   __cancelPendingSavesForTests,
   ensureRoot,
+  retainPanelDirectoryWatch,
   reveal,
   toggleExpand,
 } from "../../../../../src/renderer/state/operations/files";
@@ -212,6 +213,32 @@ function callsOf(method: string) {
 async function flush(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
+
+describe("panel directory watches", () => {
+  beforeEach(resetStore);
+
+  it("watches a collapsed directory once for multiple panels without expanding the tree", async () => {
+    setupReaddir({ "": [dirEntry("collapsed", "dir")] });
+    await ensureRoot(WS_ID, ROOT);
+    mockIpcCallResult.mockClear();
+    const args = { workspaceId: WS_ID, relPath: "collapsed", panel: true };
+
+    const first = retainPanelDirectoryWatch(WS_ID, "collapsed");
+    const second = retainPanelDirectoryWatch(WS_ID, "collapsed");
+    expect(await first.ready).toBe(true);
+    expect(await second.ready).toBe(true);
+    expect(mockIpcCallResult.mock.calls).toEqual([["fs", "watch", args]]);
+    expect(useFilesStore.getState().trees.get(WS_ID)?.expanded.has(`${ROOT}/collapsed`)).toBe(
+      false,
+    );
+
+    first.release();
+    expect(callsOf("unwatch")).toEqual([]);
+    second.release();
+    await flush();
+    expect(callsOf("unwatch")).toEqual([["fs", "unwatch", args]]);
+  });
+});
 
 describe("reveal: auto-expanded ancestors are watched like a manual expand", () => {
   beforeEach(resetStore);

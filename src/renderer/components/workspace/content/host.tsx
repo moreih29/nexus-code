@@ -6,6 +6,7 @@ import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { sessionKey } from "@/services/agent-sessions/model";
 import { leafShowing } from "@/services/agent-view/layout";
+import { reconcileWatchedModel } from "@/services/editor/model/cache";
 import { isDocxFile } from "@/services/editor/preview/docx";
 import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
@@ -13,8 +14,11 @@ import { isPdfFile } from "@/services/editor/preview/pdf";
 import { isPresentationFile } from "@/services/editor/preview/pptx";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
+import { retainPanelDirectoryWatch } from "@/state/operations/files";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import type { Tab } from "@/state/stores/tabs";
+import { useWorkspacesStore } from "@/state/stores/workspaces";
+import { relPath } from "@/utils/path";
 import { NoteEditor } from "../../notes/note-editor";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
@@ -106,6 +110,29 @@ export function ContentHost({
   const parkEl = useViewPark();
   const isVisible = inAgentView ? agentLeafId !== null : isActiveTab && isWorkspaceActive;
   const currentParent = isVisible ? (slotEl ?? parkEl) : parkEl;
+
+  const panelFilePath =
+    agentLeafId && tab.type === "editor" && tab.props.origin !== "external"
+      ? tab.props.filePath
+      : null;
+  const workspaceRoot = useWorkspacesStore((s) =>
+    panelFilePath ? s.workspaces.find((w) => w.id === workspaceId)?.rootPath : undefined,
+  );
+  useEffect(() => {
+    if (!panelFilePath || !workspaceRoot) return;
+    const file = relPath(panelFilePath, workspaceRoot);
+    if (!file || file === panelFilePath) return;
+    const dir = file.slice(0, Math.max(0, file.lastIndexOf("/")));
+    const watch = retainPanelDirectoryWatch(workspaceId, dir);
+    let live = true;
+    void watch.ready.then((ready) => {
+      if (live && ready) return reconcileWatchedModel({ workspaceId, filePath: panelFilePath });
+    });
+    return () => {
+      live = false;
+      watch.release();
+    };
+  }, [panelFilePath, workspaceId, workspaceRoot]);
 
   // A viewer is built the first time its tab shows: one restored behind
   // others costs nothing until it is looked at. Set while rendering, as a

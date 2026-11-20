@@ -1609,8 +1609,14 @@ export const ipcContract = {
         z.array(DirEntrySchema),
       ),
       stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
-      watch: call(workspaceScoped({ relPath: z.string() }), z.void()),
-      unwatch: call(workspaceScoped({ relPath: z.string() }), z.void()),
+      watch: call(
+        workspaceScoped({ relPath: z.string(), panel: z.literal(true).optional() }),
+        z.void(),
+      ),
+      unwatch: call(
+        workspaceScoped({ relPath: z.string(), panel: z.literal(true).optional() }),
+        z.void(),
+      ),
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
