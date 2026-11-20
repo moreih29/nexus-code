@@ -7,6 +7,10 @@ import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { chatAgentContext } from "../../../../src/main/features/cli/commands/agent-context";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
+import {
+  type SetupCliFeatureOptions,
+  setupCliFeature,
+} from "../../../../src/main/features/cli/index";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { agentSenderOf, askDevice, resolveDevice } from "../../../../src/main/features/cli/remote";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
@@ -409,4 +413,45 @@ describe("nexus agent-context", () => {
     app.peers.inRoom = false;
     expect((await nexus(app, ["agent-context"])).stdout).not.toContain("--device");
   });
+});
+
+test("device alias and clear use the active Remote service", async () => {
+  const app = fakeApp();
+  const changes: [string, string | null][] = [];
+  const peer = {
+    id: "9b1e44d2-0000-4000-8000-000000000002",
+    name: "Mac mini",
+    platform: "macos",
+    self: false,
+    online: true,
+    serves: [],
+  };
+  const feature = setupCliFeature({
+    agentHost: { on: () => () => {} },
+    workspaceManager: {},
+    getWindow: () => null,
+    remote: () => ({
+      ...app.services.remote,
+      devices: async () => [peer],
+      alias: async (id: string, alias: string | null) => {
+        changes.push([id, alias]);
+      },
+    }),
+  } as unknown as SetupCliFeatureOptions);
+  try {
+    for (const args of [["Build Mac"], ["--clear"]]) {
+      const ctx = contextFor(app, ["device", "alias", "9b1e", ...args]);
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        services: { ...ctx.services, remote: feature.services.remote },
+      });
+      expect(result.exitCode).toBe(0);
+    }
+    expect(changes).toEqual([
+      [peer.id, "Build Mac"],
+      [peer.id, null],
+    ]);
+  } finally {
+    feature.dispose();
+  }
 });

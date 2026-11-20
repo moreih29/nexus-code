@@ -54,7 +54,9 @@ export async function sendChat(
         "Remote Control is a setting change; omit --after",
       );
     const target = { workspaceId, tabId };
-    return { remoteControl: await applyRemoteControl(services, target).catch(chatFailure) };
+    return {
+      remoteControl: await applyRemoteControl(services, target).catch(chatExecutionFailure),
+    };
   }
   const held =
     attached && ids.length > 0
@@ -244,7 +246,14 @@ export async function answerChat(
       ...(decision === "allow" && always?.length ? { always } : {}),
       ...(decision === "allow" && planMode ? { planMode } : {}),
     })
-    .catch(unavailable);
+    .catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        error.message === "that request is for the user to answer in the app"
+      )
+        throw new RpcFailure(RpcErrorCode.Forbidden, error.message);
+      return unavailable(error);
+    });
   return {};
 }
 
@@ -361,7 +370,9 @@ export async function runChatCommand(
   const lower = bare.toLowerCase();
   if (from && tab.type === "claude" && remoteControlCommand(`/${bare}`)) {
     const target = { workspaceId, tabId };
-    return { remoteControl: await applyRemoteControl(services, target).catch(chatFailure) };
+    return {
+      remoteControl: await applyRemoteControl(services, target).catch(chatExecutionFailure),
+    };
   }
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
@@ -400,7 +411,7 @@ export async function runChatCommand(
       { workspaceId, tabId, name: command.name, ...(args ? { args } : {}) },
       SETTINGS_TIMEOUT_MS,
     )
-    .catch(unavailable);
+    .catch(chatExecutionFailure);
 }
 
 /** The folder /add-dir names, as the composer reads it: from the chat's folder, or the home's. */
@@ -589,6 +600,14 @@ export async function stopChatTask(
 }
 
 /** A tab's failure as another device is told it: an item or a call it does not have is not found. */
+function chatExecutionFailure(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "NexusCode's window did not answer" || message.endsWith(" got no answer")) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, `${message} in time`, { outcome: "unknown" });
+  }
+  return chatFailure(error);
+}
+
 export function chatFailure(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
   if (/^no (item|tool call|message|held message) /.test(message)) {
@@ -635,7 +654,7 @@ export async function setChatRemoteControl(
   { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
 ): Promise<RpcResult<"chat.remoteControl">> {
   await tabOf(services, workspaceId, tabId, ["claude"]);
-  return applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatFailure);
+  return applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatExecutionFailure);
 }
 
 /**

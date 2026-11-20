@@ -600,3 +600,19 @@ test("a peer slash command still has its execution budget after approval", async
     ).toBeGreaterThanOrEqual(150_000);
   }
 });
+
+test("a timed-out peer mutation reports that application is unknown", async () => {
+  const app = withPeer({
+    "chat.command": () => {
+      throw Object.assign(new Error("chat.command: no answer in time"), {
+        code: 1003,
+        data: { outcome: "unknown" },
+      });
+    },
+  });
+  enablePeerCli(app);
+  const result = await nexus(app, ["chat", "command", "Review", "rc", "--device", MINI, "--json"]);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain("the change may have been applied");
+  expect(JSON.parse(result.stdout)).toMatchObject({ error: "timeout", outcome: "unknown" });
+});

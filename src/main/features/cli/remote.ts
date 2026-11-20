@@ -156,7 +156,7 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
       // This computer left its room, or the other one did.
       if (message === "not in the room" || message === "left the room") return notInRoom();
       if (message.includes("device is not in the room")) return offline(device, now);
-      if (/no answer in time/.test(message)) {
+      if (/(?:no answer|did not answer) in time/.test(message)) {
         const outcome = (error as { data?: { outcome?: "unknown" | "rejected" } }).data?.outcome;
         const uncertainty = outcome === "unknown" ? "; the change may have been applied" : "";
         return new CliError(

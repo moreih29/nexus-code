@@ -342,8 +342,19 @@ async function applySettings(
   expectedMode?: string,
 ): Promise<void> {
   await whenReady(workspaceId, tabId, agent);
-  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  if (!chat) throw new UiRequestError("that tab is gone");
+  const currentTab = () => {
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    if (
+      wanted.mode !== undefined &&
+      expectedMode !== undefined &&
+      chatChoicesOf(agent, chat.model).mode !== expectedMode
+    ) {
+      throw new UiRequestError("the tab's permission mode changed; run the command again");
+    }
+    return chat;
+  };
+  const chat = currentTab();
   let plan: ChatSettingsPlan;
   try {
     plan = planChatSettings(
@@ -359,13 +370,10 @@ async function applySettings(
   // The model first: the effort is the new model's.
   if (plan.model !== undefined) await controller.setModel(plan.model);
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
-  if (wanted.mode !== undefined && expectedMode !== undefined) {
-    const current = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-    if (!current || chatChoicesOf(agent, current.model).mode !== expectedMode) {
-      throw new UiRequestError("the tab's permission mode changed; run the command again");
-    }
+  if (plan.mode !== undefined) {
+    currentTab();
+    await controller.setPermissionMode(plan.mode);
   }
-  if (plan.mode !== undefined) await controller.setPermissionMode(plan.mode);
   await whenShown(workspaceId, tabId, agent, plan);
 }
 

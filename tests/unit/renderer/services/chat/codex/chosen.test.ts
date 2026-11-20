@@ -979,3 +979,69 @@ describe("Codex collaboration modes", () => {
     expect(c.model.collaborationMode).toBe("default");
   });
 });
+
+test("CLI mode changes refuse a stale approval baseline at application", async () => {
+  const workspaceId = "ws-codex-mode-approval";
+  const tabRecord = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "codex", props: { cwd: "/p" } });
+  const ref = { workspaceId, tabId: tabRecord.id };
+  const c = tab(undefined, undefined, undefined, ref);
+  try {
+    await c.prepareSend();
+    useChatStore.getState().update(c.key, (state) => ({
+      ...state,
+      model: {
+        ...state.model,
+        process: "running",
+        model: "gpt-5.5",
+        init: { commands: [], models: [], remoteControl: false },
+      },
+    }));
+    await c.setPermissionMode("auto");
+    const { mode } = await chatHandlers["chat.settings"]({ ...ref, settings: {} });
+    await c.setPermissionMode("readOnly");
+    await expect(
+      chatHandlers["chat.settings"]({
+        ...ref,
+        settings: { mode: "auto" },
+        expectedMode: mode,
+      }),
+    ).rejects.toThrow("permission mode changed");
+    expect(c.model.permissionMode).toBe("readOnly");
+  } finally {
+    closeCodexTab(workspaceId, tabRecord.id);
+  }
+});
+
+test.each([
+  "AskUserQuestion",
+  "ExitPlanMode",
+])("chat answer protects the user's %s request", async (toolName) => {
+  const workspaceId = "ws-codex-agent-only-answer";
+  const tabRecord = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "codex", props: { cwd: "/p" } });
+  const ref = { workspaceId, tabId: tabRecord.id };
+  const c = tab(undefined, undefined, undefined, ref);
+  try {
+    await c.prepareSend();
+    useChatStore.getState().update(c.key, (state) => ({
+      ...state,
+      model: {
+        ...state.model,
+        permissions: [{ requestId: "user", toolName, input: {}, suggestions: [] }],
+      },
+    }));
+    await expect(
+      chatHandlers["chat.answer"]({
+        ...ref,
+        byAgent: true,
+        decision: "allow",
+        expect: "user",
+      }),
+    ).rejects.toThrow("for the user to answer");
+  } finally {
+    closeCodexTab(workspaceId, tabRecord.id);
+  }
+});

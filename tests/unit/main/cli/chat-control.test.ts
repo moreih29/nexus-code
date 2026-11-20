@@ -6,6 +6,9 @@
  * panel; and a terminal's Claude Code answered.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { panelText } from "../../../../src/main/features/cli/commands/chat-control";
@@ -532,4 +535,20 @@ test("chat profiles exposes selectable names and the workspace default, with por
   });
   expect(calls(app, "chat.profiles")).toEqual([{ workspaceId: API, agent: "codex" }]);
   expect(app.asked).toEqual([]);
+});
+
+test("an image save collision does not print its destination path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cli-image-"));
+  try {
+    const out = join(dir, "private-destination.png");
+    await writeFile(out, "existing");
+    const app = withChat();
+    app.uiAnswers.set("chat.image", { mediaType: "image/png", data: "YQ==" });
+    const result = await nexus(app, ["chat", "image", "eeee", "--tool", "t1", "--out", out]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("image output already exists");
+    expect(result.stderr).not.toContain(out);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
