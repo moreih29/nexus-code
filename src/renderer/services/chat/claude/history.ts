@@ -52,6 +52,18 @@ export function transcriptLines(
       origin !== undefined && (SENDER_KINDS.has(origin) || origin === "task-notification");
     if (entry.isMeta === true && !told) continue;
     if (entry.type === "user" && entry.promptSource === "system" && !told) continue;
+    // The summary Claude Code writes when it compacts is for the model; the
+    // tab shows the compaction as a notice, as it does live.
+    if (entry.type === "user" && entry.isCompactSummary === true) continue;
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      lines.push({
+        seq,
+        dir: "out",
+        replay: true,
+        message: { type: "system", subtype: "compact_boundary", timestamp: entry.timestamp },
+      });
+      continue;
+    }
     const goal = goalLine(entry, seq);
     if (goal) {
       lines.push(goal);

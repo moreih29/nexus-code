@@ -16,7 +16,10 @@ import {
   uuidBefore,
   withSubagentLog,
 } from "../../../../../../src/renderer/services/chat/claude/history";
-import { applyLines } from "../../../../../../src/renderer/services/chat/claude/stream-model";
+import {
+  applyLines,
+  applyTranscriptLines,
+} from "../../../../../../src/renderer/services/chat/claude/stream-model";
 import { TranscriptPages } from "../../../../../../src/renderer/services/chat/claude/transcript-pages";
 import { emptyModel } from "../../../../../../src/renderer/services/chat/model";
 
@@ -196,6 +199,33 @@ describe("chat history cuts", () => {
       "user:two",
       "assistant:second",
     ]);
+  });
+
+  test("a compaction reads as a notice, and its summary is not the user's message", () => {
+    const entries = [
+      { type: "user", uuid: "u1", message: { role: "user", content: "one" } },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "b1",
+        timestamp: "2026-01-01T00:00:00Z",
+      },
+      {
+        type: "user",
+        uuid: "s1",
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        message: {
+          role: "user",
+          content:
+            "This session is being continued from a previous conversation that ran out of context.",
+        },
+      },
+      { type: "user", uuid: "u2", message: { role: "user", content: "two" } },
+    ];
+    const items = applyTranscriptLines(transcriptLines(entries)).items;
+    expect(items.map((i) => i.kind)).toEqual(["user", "notice", "user"]);
+    expect(JSON.stringify(items)).not.toContain("being continued");
   });
 
   test("no cut keeps it all", () => {
