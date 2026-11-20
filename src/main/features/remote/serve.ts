@@ -74,7 +74,7 @@ import {
   readChat,
   readEvents,
 } from "./serving/chat-details";
-import { tabOf, unavailable, workspaceOf } from "./serving/common";
+import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common";
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
 import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
@@ -181,6 +181,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
+  "browser.permissions",
 ]);
 
 /** A single deadline for reads that can cross both the renderer and the file system. */
@@ -203,6 +204,7 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "notes.voiceSuggestions.list": 5 * 60_000,
   "layout.get": 12_000,
   "agentView.get": 12_000,
+  "browser.permissions": 12_000,
 };
 
 /** Answers another device's request with this device's services. */
@@ -319,6 +321,23 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         await s.ui("note.voiceNames", { action: { op: "delete", name } }).catch(unavailable);
         return {};
+      }
+      case "browser.permissions": {
+        const { workspaceId } = params as RpcParams<"browser.permissions">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const reply = await s.ui("browser.permissions", { workspaceId }).catch(unavailable);
+        if (!fitsAsResult(reply))
+          throw new RpcFailure(
+            RpcErrorCode.Unavailable,
+            "browser permission settings exceed one frame",
+          );
+        return reply;
+      }
+      case "browser.devtools": {
+        const { workspaceId, tabId } = params as RpcParams<"browser.devtools">;
+        await tabOf(s, workspaceId, tabId, ["browser"]);
+        return s.ui("browser.devtools", { workspaceId, tabId }).catch(unavailable);
       }
       case "layout.get":
         return readLayout(s, (params as RpcParams<"layout.get">).workspaceId);

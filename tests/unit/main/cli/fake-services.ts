@@ -568,6 +568,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
     if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
     if (op === "chat.fileSuggestions") return { paths: [] } as CliUiOps[K]["result"];
+    if (op === "browser.permissions") return { global: {}, sites: [] } as CliUiOps[K]["result"];
     if (op === "chat.image")
       return { data: "YA==", mediaType: "image/png" } as CliUiOps[K]["result"];
     if (op === "chat.export") return { markdown: "## Claude\n" } as CliUiOps[K]["result"];

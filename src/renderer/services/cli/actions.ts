@@ -9,11 +9,12 @@
 
 import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
-import { ipcCallResult } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { holdsUnsavedChanges, openNewUntitledTab } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
 import { useAgentProfilesStore } from "@/state/stores/agent-profiles";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
+import { useBrowserPermissionsStore } from "@/state/stores/browser-permissions";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useClaudeStatusStore } from "@/state/stores/claude-status";
 import { useGitStore } from "@/state/stores/git";
@@ -356,6 +357,19 @@ export const actionHandlers: {
     if (!hasUnsavedChanges(workspaceId, tab)) return { filePath: input.filePath, reverted: false };
     const applied = await reloadModelFromDisk(input);
     return { filePath: input.filePath, reverted: applied && !hasUnsavedChanges(workspaceId, tab) };
+  },
+
+  "browser.permissions": async ({ workspaceId }) => ({
+    global: useBrowserPermissionsStore.getState().grants,
+    sites: unwrapIpcResult(
+      await ipcCallResult("browserPermission", "listRemembered", { workspaceId }),
+    ).map(({ origin, permission, decision }) => ({ origin, permission, decision })),
+  }),
+  "browser.devtools": async ({ workspaceId, tabId }) => {
+    if (tabRecord(workspaceId, tabId).type !== "browser")
+      throw new UiRequestError("choose a browser tab");
+    await callOrFail(ipcCallResult("browser", "openDevTools", { tabId }));
+    return {};
   },
 
   "browser.open": async ({ workspaceId, url, placement }) => {

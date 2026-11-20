@@ -208,6 +208,7 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
+  "browser.permissions",
 ]);
 
 /**

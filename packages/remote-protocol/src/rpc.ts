@@ -2103,6 +2103,25 @@ export const RPC_METHODS = {
       ),
     }),
   },
+  "browser.permissions": {
+    capability: "chat.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
+    result: z.object({
+      global: z.record(z.boolean()),
+      sites: z.array(
+        z.object({
+          origin: z.string(),
+          permission: z.string(),
+          decision: z.enum(["allow", "block"]),
+        }),
+      ),
+    }),
+  },
+  "browser.devtools": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, ...ReadBy }),
+    result: Ok,
+  },
   "settings.instructions.set": {
     capability: "chat.control",
     params: z.object({

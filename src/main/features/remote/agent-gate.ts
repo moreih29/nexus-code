@@ -429,6 +429,12 @@ async function changeOf(
         detail: String(params.name ?? "all remembered names"),
         ...(eachTime ? { eachTime: true } : {}),
       };
+    case "browser.devtools":
+      return {
+        kind: "browserControl",
+        detail: await title(),
+        body: "Toggle browser developer tools",
+      };
     case "layout.change":
     case "agentView.change": {
       const action = params.change as {

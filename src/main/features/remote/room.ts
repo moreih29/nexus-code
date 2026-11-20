@@ -155,6 +155,7 @@ const LARGE_READ_REPLIES = new Set([
   "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
+  "browser.permissions",
 ]);
 const RATE_LIMITED = "the relay is rate limiting this connection";
 
@@ -196,6 +197,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "notes.voiceNames.list",
   "layout.get",
   "agentView.get",
+  "browser.permissions",
 ]);
 
 function readsWholeImage(params: unknown): boolean {

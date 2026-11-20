@@ -373,6 +373,8 @@ nexus browser network 12          # 요청 12 의 헤더 · 보낸 내용 · 응
 nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
 nexus browser back                # 뒤로 (browser forward 로 앞으로, browser reload 로 새로고침)
+nexus browser permissions --workspace site --device Mini --json
+nexus browser devtools
 nexus browser list                # 이 워크스페이스의 브라우저 탭
 ```
 

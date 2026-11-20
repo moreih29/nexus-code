@@ -605,6 +605,17 @@ export interface CliUiOps {
     /** Where "goto" went. */
     result: { url?: string };
   };
+  "browser.permissions": {
+    args: { workspaceId: string };
+    result: {
+      global: Record<string, boolean>;
+      sites: { origin: string; permission: string; decision: "allow" | "block" }[];
+    };
+  };
+  "browser.devtools": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
   /** A workspace's editor area and its active group. */
   "layout.get": {
     args: { workspaceId: string };

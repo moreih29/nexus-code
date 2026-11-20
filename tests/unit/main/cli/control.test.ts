@@ -144,7 +144,7 @@ describe("changing another workspace", () => {
     chat instructions eeee --clear
     open main.go | tab new-editor | tab encoding main.go --save-as utf8 | settings instructions set workspace --clear | layout focus 1 | view open-file main.go | diff main.go | show | port forward 3000 | port unforward 3000
     agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
-    browser back | browser forward | browser reload | browser click e1 | browser hover e1
+    browser devtools | browser back | browser forward | browser reload | browser click e1 | browser hover e1
     browser drag e1 e2 | browser scroll down | browser fill e1 x | browser type x
     browser press Enter | browser upload e1 index.ts | browser eval 1
     chat unsend eeee r7 | chat edit eeee r7 x | chat rewind eeee 0 | chat fork eeee
@@ -158,7 +158,7 @@ describe("changing another workspace", () => {
     view open codex | view split codex right | view move codex p1 | view remove codex
     panel list | panel show files | panel hide files | agent list --tab codex
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
-    browser snapshot | browser inspect e1 | browser dialog | browser screenshot
+    browser permissions | browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
     note list | note voice suggestions list nmhz00cc | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee | chat files eeee
     settings lsp status | chat history | chat profiles | chat instructions eeee --show | settings instructions show`;
@@ -168,7 +168,7 @@ describe("changing another workspace", () => {
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
     panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
     page.pick page.network chat.entryItem chat.rewindPreview chat.panel chat.commands
-    chat.history chat.image chat.export chat.profiles chat.fileSuggestions terminal.shells settings.instructions settings.lspStatus note.voiceSuggestions`.split(
+    chat.history chat.image browser.permissions chat.export chat.profiles chat.fileSuggestions terminal.shells settings.instructions settings.lspStatus note.voiceSuggestions`.split(
       /\s+/,
     ),
   );
