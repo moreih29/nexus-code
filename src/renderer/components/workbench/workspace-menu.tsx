@@ -4,8 +4,14 @@
 import { useTranslation } from "react-i18next";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
-import { ContextMenuContent, ContextMenuItems, ContextMenuSeparator } from "../ui/context-menu";
+import {
+  ContextMenuAction,
+  ContextMenuContent,
+  ContextMenuItems,
+  ContextMenuSeparator,
+} from "../ui/context-menu";
 import type { ContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { WorkspaceColorMenu } from "./workspace-color-menu";
 
@@ -44,6 +50,15 @@ export function WorkspaceMenuContent({
       />
       <WorkspaceColorMenu color={workspace.color} onSelect={onColor} />
       <WorkspaceProfileMenu workspace={workspace} />
+      <ContextMenuAction
+        onSelect={() =>
+          handoff.defer(() =>
+            useSettingsUIStore.getState().openInstructions({ kind: "workspace", id: workspace.id }),
+          )
+        }
+      >
+        {t("settings:instructions.workspaceMenu")}
+      </ContextMenuAction>
       {dismiss && (
         <>
           <ContextMenuSeparator />

@@ -4,6 +4,7 @@
  * whole or a piece at a time, and wait on one or several tabs.
  */
 import path from "node:path";
+import { INSTRUCTION_LIMIT, InstructionTextSchema } from "../../../../shared/chat/instructions";
 import type {
   CliChatEntry,
   CliChatInfo,
@@ -311,6 +312,25 @@ async function mayLoosen(
   });
 }
 
+async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
+  const where = callerPath(ctx, file);
+  const data = await ctx.services.readFile(ctx.caller.workspaceId, where);
+  if (data === null) throw new CliError(`no file ${where}`);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(data, "base64"));
+  } catch {
+    throw new CliUsageError("the instructions file must be UTF-8 text");
+  }
+  if (text.length > INSTRUCTION_LIMIT)
+    throw new CliUsageError(
+      `instructions are limited to ${INSTRUCTION_LIMIT} characters per layer`,
+    );
+  if (!InstructionTextSchema.safeParse(text).success)
+    throw new CliUsageError("the instructions file contains a null character");
+  return text.trim() ? text : "";
+}
+
 const chatNew: CliCommand = {
   path: ["chat", "new"],
   summary: "Open a Claude or Codex tab, sending it a prompt if given",
@@ -319,10 +339,16 @@ const chatNew: CliCommand = {
     "--prompt its program starts at once, shown or not, and is sent the prompt as its composer\n" +
     "sends it. Its id is printed for chat wait/read/send. --model, --effort and --mode are\n" +
     "set before the prompt, as its composer's menus set them; a mode that lets more run\n" +
-    "without asking than the default is the user's to allow.",
+    "without asking than the default is the user's to allow. --instructions-file reads the\n" +
+    "new tab's session instructions from a UTF-8 file on this computer.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
     prompt: { type: "string", value: "TEXT", description: "The first message" },
+    "instructions-file": {
+      type: "string",
+      value: "FILE",
+      description: "Set the new tab's session instructions from FILE",
+    },
     cwd: { type: "string", value: "DIR", description: "Run it in DIR (default: this directory)" },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     profile: {
@@ -336,6 +362,10 @@ const chatNew: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const instructionFile = flags["instructions-file"] as string | undefined;
+    if (instructionFile !== undefined && deviceFlag(flags) !== undefined) {
+      throw new CliUsageError("--instructions-file goes to this computer's tabs; omit --device");
+    }
     const agent = chatAgentFlag(flags.agent, "claude");
     const prompt = ((flags.prompt as string | undefined) ?? "").trim();
     const settings = settingsFlags(agent, flags);
@@ -357,10 +387,13 @@ const chatNew: CliCommand = {
         : workspace.id === ctx.caller.workspaceId
           ? ctx.invocation.cwd
           : workspace.rootPath;
+    const instructions =
+      instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
+    const body = [prompt, instructions].filter(Boolean).join("\n\n");
     await mayChange(ctx, workspace, {
       kind: "chatNew",
       detail: AGENT_NAMES[agent],
-      ...(prompt !== "" ? { body: prompt } : {}),
+      ...(body ? { body } : {}),
     });
     if (settings.mode !== undefined) {
       // A new tab's title is its agent's name until its first message.
@@ -376,6 +409,7 @@ const chatNew: CliCommand = {
         agent,
         cwd,
         prompt,
+        ...(instructions === undefined ? {} : { instructions }),
         ...(from ? { from } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
@@ -1037,8 +1071,62 @@ const chatAnswer: CliCommand = {
   },
 };
 
+const chatInstructions: CliCommand = {
+  path: ["chat", "instructions"],
+  summary: "View or edit a local chat tab's instructions",
+  args: "<tab>",
+  details:
+    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message.",
+  flags: {
+    show: { type: "boolean", description: "Print the combined instructions for the tab" },
+    "set-file": {
+      type: "string",
+      value: "FILE",
+      description: "Replace the session layer with UTF-8 text from FILE",
+    },
+    clear: { type: "boolean", description: "Clear the session layer" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    if (deviceFlag(flags) !== undefined) {
+      throw new CliUsageError("chat instructions goes to this computer's tabs; omit --device");
+    }
+    const show = flags.show === true;
+    const file = flags["set-file"] as string | undefined;
+    const clear = flags.clear === true;
+    if ([show, file !== undefined, clear].filter(Boolean).length !== 1) {
+      throw new CliUsageError("use exactly one of --show, --set-file FILE, or --clear");
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    const text = file === undefined ? "" : await readInstructionsFile(ctx, file);
+    if (!show) {
+      await mayChange(ctx, workspace, {
+        kind: "chatSettings",
+        detail: tab.title,
+        ...(text ? { body: text } : {}),
+      });
+    }
+    const { instructions } = await ctx.services.ui(
+      "chat.instructions",
+      show ? target : { ...target, text },
+    );
+    return output(
+      show ? instructions : `Updated session instructions for ${tab.title} (${shortId(tab.id)}).`,
+      {
+        ...target,
+        instructions,
+      },
+    );
+  },
+};
+
 export const chatCommands: CliCommand[] = [
   chatNew,
+  chatInstructions,
   chatRead,
   chatTool,
   chatSend,

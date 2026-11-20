@@ -43,6 +43,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           resetLog,
           connectionChanged,
           profileId,
+          instructions,
         } = validateArgs(c.start.args, args);
         return ipcOk(
           await host.start(
@@ -51,6 +52,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
             cwd,
             { resume, fork, resumeAt, resetLog, connectionChanged },
             profileId,
+            instructions,
           ),
         );
       },
@@ -68,9 +70,9 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         );
       },
       send: async (args: unknown) => {
-        const { workspaceId, tabId, message } = validateArgs(c.send.args, args);
+        const { workspaceId, tabId, message, ...layer } = validateArgs(c.send.args, args);
         try {
-          await host.send(workspaceId, tabId, message);
+          await host.send(workspaceId, tabId, message, layer);
           return ipcOk(undefined);
         } catch (error) {
           const code = (error as { code?: unknown } | null)?.code;

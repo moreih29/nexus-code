@@ -111,8 +111,8 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
 {
   "preferredNotifChannel": "notifications_disabled",
   "hooks": {
-    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context","timeout":10}]}],
-    "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true}]}],
+    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context --launch=\"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" --profile=\"${NEXUS_TERMINAL_PROFILE_ID}\" -","timeout":10}]}],
+    "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true},{"type":"command","command":"if [ -n \"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" ]; then \"${NEXUS_AGENT_BIN}\" cli agent-context --launch=\"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" -; fi","timeout":10}]}],
     "PreToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook pre-tool-use","timeout":5,"async":true}]},{"matcher":"SendMessage","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook send-message","timeout":5}]}],
     "PostToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use","timeout":5,"async":true}]}],
     "PostToolUseFailure": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use-failure","timeout":5,"async":true}]}],

@@ -62,7 +62,6 @@ const DISABLED: CliResult = {
   stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agents)\n",
   exitCode: 1,
 };
-const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
 
 export interface SetupCliFeatureOptions {
   /**
@@ -129,6 +128,8 @@ export interface SetupCliFeatureOptions {
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
   /** The SSH workspaces' ports forwarded to this machine. */
   forwards: CliForwards;
+  claudeInstructions?: CliServices["claudeInstructions"];
+  terminalClaudeInstructions?: CliServices["terminalClaudeInstructions"];
   /** The workspaces' notes. */
   notes: CliNotes;
 }
@@ -337,7 +338,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
-    agentContextEnabled: () => options.settings().agentContext,
+    agentContextEnabled: () => options.settings().enabled && options.settings().agentContext,
+    claudeInstructions: options.claudeInstructions,
+    terminalClaudeInstructions: options.terminalClaudeInstructions,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
     forwards: options.forwards,
@@ -351,9 +354,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   };
 
   const run = (caller: CliCaller, request: CliInvocation, signal: AbortSignal) => {
-    if (!options.settings().enabled) {
-      // The SessionStart hook asks for the agent note in every session; it gets none.
-      if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
+    if (!options.settings().enabled && request.argv[0] !== "agent-context") {
       return Promise.resolve(DISABLED);
     }
     return runCli(CLI_COMMANDS, { caller, invocation: request, services, signal });

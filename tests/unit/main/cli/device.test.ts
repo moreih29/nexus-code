@@ -353,6 +353,50 @@ describe("nexus agent-context", () => {
     ).toBeUndefined();
   });
 
+  test("delivers a terminal's instruction layers independently of CLI guidance", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    app.services.terminalClaudeInstructions = (workspaceId, profileId) =>
+      `instructions for ${workspaceId}/${profileId}`;
+    const ctx = contextFor(app, ["agent-context", "--profile=personal", "-"]);
+    const result = await runCli(CLI_COMMANDS, {
+      ...ctx,
+      invocation: { ...ctx.invocation, stdin: JSON.stringify({ hook_event_name: "SessionStart" }) },
+    });
+    expect(result.stdout).toBe(`instructions for ${APP}/personal\n`);
+  });
+
+  test("passes the Claude session id and hook phase to instruction tracking", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    const phases: unknown[] = [];
+    app.services.claudeInstructions = (_workspaceId, _tabId, _launch, hook) => {
+      phases.push(hook);
+      return hook.phase === "start" ? "" : `${hook.phase} instructions`;
+    };
+    const ctx = contextFor(app, ["agent-context", "--launch=test", "-"]);
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    for (const [event, source, phase] of [
+      ["SessionStart", "resume", "start"],
+      ["UserPromptSubmit", undefined, "prompt"],
+      ["SessionStart", "compact", "restore"],
+    ] as const) {
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        invocation: {
+          ...ctx.invocation,
+          stdin: JSON.stringify({ hook_event_name: event, source, session_id: sessionId }),
+        },
+      });
+      expect(phases.at(-1)).toEqual({ sessionId, phase });
+      if (phase === "start") expect(result.stdout).toBe("");
+      else
+        expect(JSON.parse(result.stdout)).toEqual({
+          hookSpecificOutput: { hookEventName: event, additionalContext: `${phase} instructions` },
+        });
+    }
+  });
+
   test("tells a session that the user's notes are the app's", async () => {
     const app = withDevices();
     app.settings.agentContext = true;

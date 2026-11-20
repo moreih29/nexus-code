@@ -1,8 +1,14 @@
+import { EMPTY_AGENT_PROFILES, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import {
+  chatInstructionHistoryKey,
+  EMPTY_INSTRUCTIONS,
+  withInstruction,
+} from "../../../shared/chat/instructions";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AppState } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { register, validateArgs } from "../../infra/ipc-router";
+import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
 
 import { restoreLayoutOrigins } from "./layout-origins";
@@ -73,7 +79,40 @@ export function registerAppStateChannel(
         return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
-        const patch = validateArgs(c.set.args, args);
+        const { instructionEdits, ...patch } = validateArgs(c.set.args, args);
+        const state = stateService.getState();
+        const workspaceIds =
+          patch.layoutByWorkspace ||
+          instructionEdits?.some(({ scope }) => scope.kind === "workspace")
+            ? opts.listWorkspaces?.().map(({ id }) => id)
+            : undefined;
+        const profiles = (patch.agentProfiles ?? state.agentProfiles ?? EMPTY_AGENT_PROFILES)
+          .profiles;
+        const hasProfile = (id: string) =>
+          isDefaultProfileId(id) || profiles.some((profile) => profile.id === id);
+        if (
+          instructionEdits?.some(
+            ({ scope }) =>
+              (scope.kind === "profile" && !hasProfile(scope.id)) ||
+              (scope.kind === "workspace" && workspaceIds && !workspaceIds.includes(scope.id)),
+          )
+        )
+          return ipcErr("not-found", "The instruction layer was removed.", { category: "failed" });
+        if (
+          instructionEdits?.length ||
+          (patch.agentProfiles && state.agentInstructions?.profiles)
+        ) {
+          let config = state.agentInstructions ?? EMPTY_INSTRUCTIONS;
+          if (patch.agentProfiles && config.profiles) {
+            config = {
+              ...config,
+              profiles: Object.fromEntries(
+                Object.entries(config.profiles).filter(([id]) => hasProfile(id)),
+              ),
+            };
+          }
+          patch.agentInstructions = instructionEdits?.reduce(withInstruction, config) ?? config;
+        }
         if (patch.layoutByWorkspace) {
           // A window sends only changed workspaces. Merge into the latest state
           // so closing it cannot replace another window's unrelated layouts.
@@ -81,7 +120,9 @@ export function registerAppStateChannel(
             ...stateService.getState().layoutByWorkspace,
             ...patch.layoutByWorkspace,
           };
-          const workspaceIds = opts.listWorkspaces?.().map(({ id }) => id);
+          // Archive a conversation's saved session layer for opening it again from history.
+          const history = rememberChatInstructions(state, patch.layoutByWorkspace, workspaceIds);
+          if (history) patch.chatInstructionHistory = history;
           patch.layoutByWorkspace = workspaceIds
             ? Object.fromEntries(
                 workspaceIds.flatMap((id) => (latest[id] ? [[id, latest[id]]] : [])),
@@ -122,6 +163,12 @@ export function registerAppStateChannel(
         }
 
         if ("agentProfiles" in patch) opts.onAgentProfilesChanged?.();
+        if (patch.agentInstructions) {
+          broadcast("appState", "agentInstructionsChanged", { config: patch.agentInstructions });
+        }
+        if (patch.chatInstructionHistory) {
+          broadcast("appState", "chatInstructionHistoryChanged", patch.chatInstructionHistory);
+        }
 
         if (patch.themePreference !== undefined) {
           opts.onThemeChanged?.(patch.themePreference);
@@ -131,4 +178,40 @@ export function registerAppStateChannel(
     },
     listen: {},
   });
+}
+
+function rememberChatInstructions(
+  state: AppState,
+  changed: NonNullable<AppState["layoutByWorkspace"]>,
+  workspaceIds: readonly string[] | undefined,
+): AppState["chatInstructionHistory"] {
+  const history = { ...state.chatInstructionHistory };
+  let dirty = false;
+  for (const [id, layout] of Object.entries(changed)) {
+    if (workspaceIds && !workspaceIds.includes(id)) continue;
+    const previous = new Map(state.layoutByWorkspace?.[id]?.tabs.map((tab) => [tab.id, tab]));
+    let remembered = history[id];
+    for (const tab of layout.tabs) {
+      if (tab.type !== "claude" && tab.type !== "codex") continue;
+      const conversationId = tab.type === "claude" ? tab.props.sessionId : tab.props.threadId;
+      const text = tab.props.instructions;
+      if (!conversationId || text === undefined) continue;
+      const old = previous.get(tab.id);
+      if (
+        old?.type === tab.type &&
+        old.props.instructions === text &&
+        (old.type === "claude" ? old.props.sessionId : old.props.threadId) === conversationId
+      )
+        continue;
+      const key = chatInstructionHistoryKey(tab.type, conversationId);
+      if ((remembered?.[key] ?? "") === text) continue;
+      remembered = { ...remembered };
+      if (text.trim()) remembered[key] = text;
+      else delete remembered[key];
+      dirty = true;
+    }
+    if (remembered && Object.keys(remembered).length > 0) history[id] = remembered;
+    else delete history[id];
+  }
+  return dirty ? history : undefined;
 }

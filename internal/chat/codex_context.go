@@ -14,11 +14,14 @@ import (
 )
 
 const (
-	codexFileLinks = "nexus-file-links"
-	codexCLI       = "nexus-cli"
-	codexCommands  = "nexus-cli-commands"
-	refreshSuffix  = "\n\nNexusCode context refresh after compaction: "
-	cliDisabled    = "NexusCode's CLI guidance is disabled for this tab. Disregard earlier NexusCode CLI guidance for this conversation."
+	codexFileLinks       = "nexus-file-links"
+	codexInstructions    = "nexus-agent-instructions"
+	instructionsCleared  = "NexusCode instructions were cleared. Disregard all earlier NexusCode instructions for this conversation."
+	instructionsReplaced = "Follow the current NexusCode instructions below in place of any earlier NexusCode instructions.\n\n"
+	codexCLI             = "nexus-cli"
+	codexCommands        = "nexus-cli-commands"
+	refreshSuffix        = "\n\nNexusCode context refresh after compaction: "
+	cliDisabled          = "NexusCode's CLI guidance is disabled for this tab. Disregard earlier NexusCode CLI guidance for this conversation."
 )
 
 // maxInitializeBytes bounds the lines checked for initialize: it is small, and
@@ -26,8 +29,9 @@ const (
 const maxInitializeBytes = 16 * 1024
 
 type codexContext struct {
-	Files string           `json:"files"`
-	CLI   *codexCLIContext `json:"cli"`
+	Files        string           `json:"files"`
+	CLI          *codexCLIContext `json:"cli"`
+	Instructions string           `json:"instructions"`
 }
 
 type codexCLIContext struct {
@@ -39,10 +43,11 @@ type codexGuidance struct {
 	// Codex deduplicates additionalContext within an app-server process. On
 	// resume or fork we can skip a fragment already carried by the rollout
 	// until its current value changes.
-	inherited   map[string]string
-	hadCLI      bool
-	cliEnabled  bool
-	compactions uint64
+	inherited       map[string]string
+	hadCLI          bool
+	hadInstructions bool
+	cliEnabled      bool
+	compactions     uint64
 }
 
 // noteCodexInitialize records whether the program's initialize request asked
@@ -93,10 +98,19 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 	if state == nil || state.compactions != compactions || (cliEnabled && !state.cliEnabled) {
 		inherited := make(map[string]string)
 		readCodexGuidance(p.codexHome(), threadID, inherited)
+		if state != nil && state.compactions == compactions {
+			// Re-enabling CLI guidance must not resend unchanged independent fragments.
+			for _, key := range []string{codexFileLinks, codexInstructions} {
+				if value := state.inherited[key]; value != "" {
+					inherited[key] = value
+				}
+			}
+		}
 		state = &codexGuidance{
-			inherited:   inherited,
-			hadCLI:      inherited[codexCLI] != "" || (state != nil && state.hadCLI),
-			compactions: compactions,
+			inherited:       inherited,
+			hadCLI:          inherited[codexCLI] != "" || (state != nil && state.hadCLI),
+			hadInstructions: inherited[codexInstructions] != "" || (state != nil && state.hadInstructions),
+			compactions:     compactions,
 		}
 	} else {
 		copy := *state
@@ -114,6 +128,13 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 
 	state.cliEnabled = cliEnabled
 	values := map[string]string{codexFileLinks: context.Files}
+	replacingInstructions := state.hadInstructions
+	if context.Instructions != "" {
+		state.hadInstructions = true
+		values[codexInstructions] = context.Instructions
+	} else if state.hadInstructions {
+		values[codexInstructions] = instructionsCleared
+	}
 	if cliEnabled {
 		state.hadCLI = true
 		values[codexCLI] = context.CLI.Status
@@ -126,7 +147,15 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 		if value == "" || value == state.inherited[key] {
 			continue
 		}
-		delete(state.inherited, key)
+		if key == codexFileLinks || key == codexInstructions {
+			state.inherited[key] = value
+		} else {
+			delete(state.inherited, key)
+		}
+		// The rollout keeps older application fragments as developer messages.
+		if key == codexInstructions && replacingInstructions && context.Instructions != "" {
+			value = instructionsReplaced + value
+		}
 		// If compaction removed the fragment, Codex's live deduplication
 		// can still remember its previous value.
 		if compactions != 0 {
@@ -225,7 +254,7 @@ func readCodexGuidance(home, threadID string, latest map[string]string) {
 				latest[key] = value
 			}
 		}
-		if latest[codexFileLinks] != "" && latest[codexCLI] != "" && latest[codexCommands] != "" {
+		if latest[codexFileLinks] != "" && latest[codexCLI] != "" && latest[codexCommands] != "" && latest[codexInstructions] != "" {
 			return
 		}
 		if !sessionIDPattern.MatchString(parent) || parentEnd <= 0 {
@@ -267,7 +296,8 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 		if bytes.Contains(line, []byte("session_meta")) ||
 			bytes.Contains(line, []byte("compacted")) ||
 			bytes.Contains(line, []byte("thread_rolled_back")) ||
-			bytes.Contains(line, []byte(codexFileLinks)) || bytes.Contains(line, []byte(codexCLI)) {
+			bytes.Contains(line, []byte(codexFileLinks)) || bytes.Contains(line, []byte(codexCLI)) ||
+			bytes.Contains(line, []byte(codexInstructions)) {
 			var record codexGuidanceRecord
 			if json.Unmarshal(line, &record) == nil {
 				switch record.Type {
@@ -300,9 +330,12 @@ func (item codexGuidanceItem) readFragments(latest map[string]string) {
 		return
 	}
 	for _, content := range item.Content {
-		for _, key := range []string{codexFileLinks, codexCLI, codexCommands} {
+		for _, key := range []string{codexFileLinks, codexCLI, codexCommands, codexInstructions} {
 			if value, ok := strings.CutPrefix(content.Text, "<"+key+">"); ok {
 				if value, ok := strings.CutSuffix(value, "</"+key+">"); ok {
+					if key == codexInstructions {
+						value = strings.TrimPrefix(value, instructionsReplaced)
+					}
 					latest[key], _, _ = strings.Cut(value, refreshSuffix)
 				}
 			}

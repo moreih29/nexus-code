@@ -124,6 +124,7 @@ interface CodexTabViewProps {
 const SPLIT_FROM_PX = 900;
 
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
+  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -584,6 +585,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         fork,
         profileId,
         chosen: controller.inheritedChoice(),
+        ...controller.inheritedInstructions(),
       });
       if (item.kind === "user") {
         const draft = { text: item.text, images: item.images, nonce: Date.now() };
@@ -766,6 +768,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             </div>
           )}
           <Composer
+            instructionsTab={instructionsTab}
             controller={controller}
             state={state}
             relayed={props.relayed}

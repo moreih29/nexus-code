@@ -12,6 +12,7 @@ import {
   profileForkSettings,
 } from "../../../../../src/renderer/services/chat/codex/profile-fork";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
+import { ClaudeTabPropsSchema, CodexTabPropsSchema } from "../../../../../src/shared/types/layout";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -24,6 +25,7 @@ let stopFails = false;
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
 let claudeSeq = 500;
+let initializeRequest: Record<string, unknown> | undefined;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -31,8 +33,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
-    const input = args.message as { type?: string; request_id?: string } | undefined;
+    const input = args.message as
+      | {
+          type?: string;
+          request_id?: string;
+          request?: Record<string, unknown>;
+        }
+      | undefined;
     if (method === "send" && input?.type === "control_request") {
+      if (input.request?.subtype === "initialize") initializeRequest = input.request;
       const controller = live.find((c) => c.key === `${args.workspaceId}:${args.tabId}`);
       controller?.receive({
         seq: ++claudeSeq,
@@ -73,6 +82,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: { found: false, lines: [], truncated: false } });
     }
     if (method === "start") {
+      if (args.workspaceId === "ws-instructions") {
+        live
+          .find((c) => c.key === `${args.workspaceId}:${args.tabId}`)
+          ?.receive({
+            seq: ++claudeSeq,
+            dir: "sys",
+            message: { event: "start" },
+          });
+      }
       return Promise.resolve({
         ok: true,
         value: { ok: true, pid: 1, attached: false, version: null },
@@ -110,6 +128,7 @@ afterEach(() => {
   onStop = undefined;
   onStart = undefined;
   stopFails = false;
+  initializeRequest = undefined;
   codex = undefined;
 });
 
@@ -539,6 +558,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     const start = calls.find((call) => call.method === "start")?.args ?? {};
     expect(start.resume).toBeUndefined();
     expect(c.profileId).toBe("work");
+    expect(initializeRequest?.systemPromptSnapshot).toBeUndefined();
   });
 
   test("a session another profile keeps, taken up from the list, is copied into the tab's", async () => {
@@ -576,6 +596,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     expect(start.resume).toBe("mine");
     expect(start.fork).toBeUndefined();
     expect(c.currentSession()).toBe("mine");
+    expect(initializeRequest?.systemPromptSnapshot).toBe(false);
   });
 });
 
@@ -887,4 +908,48 @@ describe("the tab's profile in the store", () => {
       profileId: "work",
     });
   });
+});
+
+test("an initialized Claude tab restarts with edited instructions before its first prompt", async () => {
+  const base = { workspaceId: "ws-instructions", tabId: `t${++seq}`, cwd: "/p" };
+  let instructions = "";
+  const c = new ChatController(base, {
+    instructions: () => instructions,
+    mergedInstructions: (_profile, text) => text,
+  });
+  live.push(c);
+  await c.prepareSend();
+  instructions = "First-prompt rules";
+  await c.send("Review the diff.");
+  instructions = "Later rules";
+  await c.send("Review the tests.");
+  expect(
+    calls.filter(({ method }) => method === "start").map(({ args }) => args.instructions),
+  ).toEqual(["", "First-prompt rules"]);
+  expect(
+    calls.filter(({ method }) => method === "send").map(({ args }) => args.instructions),
+  ).toContain("Later rules");
+});
+
+test("Claude and Codex forks copy the session layer into the new tab's persisted props", () => {
+  const base = { workspaceId: "ws-instructions-fork", cwd: "/tmp/project" };
+  let instructions = "Review only";
+  const hooks = { instructions: () => instructions };
+  const claude = new ChatController({ ...base, tabId: "claude" }, hooks);
+  const codex = new CodexController({ ...base, tabId: "codex" }, hooks);
+  try {
+    const claudeFork = ClaudeTabPropsSchema.parse({ cwd: base.cwd, ...claude.inherited() });
+    const codexFork = CodexTabPropsSchema.parse({
+      cwd: base.cwd,
+      ...codex.inheritedInstructions(),
+    });
+    instructions = "Write tests";
+    expect(claudeFork.instructions).toBe("Review only");
+    expect(codexFork.instructions).toBe("Review only");
+    expect(claude.inherited().instructions).toBe("Write tests");
+    expect(codex.inheritedInstructions().instructions).toBe("Write tests");
+  } finally {
+    claude.dispose();
+    codex.dispose();
+  }
 });

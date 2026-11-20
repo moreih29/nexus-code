@@ -9,6 +9,7 @@ import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
+import { AgentInstructionsPanel } from "./components/settings/panels/agent-instructions-panel";
 import { AgentPanel } from "./components/settings/panels/agent-panel";
 import { AgentProfilesPanel } from "./components/settings/panels/agent-profiles-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
@@ -252,6 +253,7 @@ export function App() {
             if (activeId === "claude") return <AgentProfilesPanel agent="claude" onNavigate={go} />;
             if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;
             if (activeId === "profile-rules") return <ProfileRulesPanel />;
+            if (activeId === "instructions") return <AgentInstructionsPanel />;
             if (activeId === "remote") return <RemotePanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;

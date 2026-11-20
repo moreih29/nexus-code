@@ -220,7 +220,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
     const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;
     expect(sessionStart[1]).toEqual({
       type: "command",
-      command: `"\${NEXUS_AGENT_BIN}" cli agent-context`,
+      command: `"\${NEXUS_AGENT_BIN}" cli agent-context --launch="\${NEXUS_CHAT_INSTRUCTION_LAUNCH}" --profile="\${NEXUS_TERMINAL_PROFILE_ID}" -`,
       timeout: 10,
     });
 

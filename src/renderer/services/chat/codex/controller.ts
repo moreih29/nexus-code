@@ -169,6 +169,7 @@ export interface CodexTabTarget {
 }
 
 export interface CodexTabHooks {
+  instructions?: (threadId?: string) => string;
   /** The thread the tab now has, to keep with the tab. */
   onThread?: (threadId: string) => void;
   /** The first message of the conversation, for the tab's title. */
@@ -1876,6 +1877,11 @@ export class CodexController {
    * The model and effort a tab made from this one (/fork) starts with: the
    * ones the chips show, picked or the thread's.
    */
+  inheritedInstructions(): { instructions?: string } {
+    const instructions = this.hooks.instructions?.(this.currentThread());
+    return instructions ? { instructions } : {};
+  }
+
   inheritedChoice(): ChatChosen | undefined {
     const { model, effort } = { ...picksOf(this.model), ...this.next };
     return model || effort
@@ -2057,7 +2063,18 @@ export class CodexController {
   private async write(message: Record<string, unknown>): Promise<void> {
     if (this.disposed) throw new Error("the tab closed");
     const { workspaceId, tabId } = this.target;
-    unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
+    const turn = message.method === "turn/start";
+    unwrapIpcResult(
+      await ipcCallResult("chat", "send", {
+        workspaceId,
+        tabId,
+        message,
+        ...(turn && this.target.profileId ? { profileId: this.target.profileId } : {}),
+        ...(turn && this.hooks.instructions
+          ? { instructions: this.hooks.instructions(this.currentThread()) }
+          : {}),
+      }),
+    );
   }
 
   /**

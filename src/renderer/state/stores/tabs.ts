@@ -57,6 +57,7 @@ export type { NoteTabProps };
 
 export interface ClaudeTabProps {
   cwd: string;
+  instructions?: string;
   /** The session the tab last had, to go on with once its program is gone. */
   sessionId?: string;
   /**
@@ -78,6 +79,7 @@ export interface ClaudeTabProps {
 
 export interface CodexTabProps {
   cwd: string;
+  instructions?: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
   /**
@@ -312,6 +314,12 @@ interface TabsState {
    * profile; none drops them. No-op on other tab types.
    */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
+  /** The instruction layer that belongs to the tab itself. */
+  setChatInstructions: (
+    workspaceId: string,
+    tabId: string,
+    instructions: string | undefined,
+  ) => void;
   /**
    * Keep the model or effort the user picked in a Claude or Codex tab, over
    * what it had picked before; an empty pick forgets them (a Codex turn
@@ -728,6 +736,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
           // tab takes the new profile's own, as its controller does.
           const props = {
             cwd: tab.props.cwd,
+            ...(tab.props.instructions !== undefined
+              ? { instructions: tab.props.instructions }
+              : {}),
             ...(profileId ? { profileId } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
             ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
@@ -772,6 +783,16 @@ export const useTabsStore = create<TabsState>((set, get) => {
           const props =
             moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
           return { ...tab, props } as Tab;
+        }),
+      );
+    },
+
+    setChatInstructions(workspaceId, tabId, instructions) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.instructions === instructions) return tab;
+          return { ...tab, props: { ...tab.props, instructions } } as Tab;
         }),
       );
     },

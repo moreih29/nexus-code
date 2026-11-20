@@ -38,6 +38,14 @@ import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
 import { tabHookToken } from "../workspace/tab-token";
 import {
+  type ClaudeInstructionHook,
+  claudeInstructionLaunch,
+  claudeInstructionLaunchState,
+  claudeInstructionUpdate,
+  claudeResumeId,
+  instructionSessionId,
+} from "./instructions";
+import {
   CLAUDE_TAB_PROMPT,
   type ClaudeCommand,
   claudeCommandArgs,
@@ -99,6 +107,15 @@ export interface ChatHostOptions {
   connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
   agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
+  instructions?: (workspaceId: string, profile: AgentProfile, session?: string) => string;
+  claudeInstructionDigests?: {
+    get(workspaceId: string, sessionId: string): string | null | undefined;
+    save(workspaceId: string, sessionId: string, digest: string | null): void;
+  };
+  savedClaudeInstructions?: (
+    workspaceId: string,
+    tabId: string,
+  ) => { profileId?: string; instructions?: string } | undefined;
 }
 
 export type StartResult =
@@ -131,6 +148,14 @@ export class ChatHost {
   readonly oauth = new OAuthCallbacks();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly tabIntents = new Map<string, TabIntent>();
+  private readonly claudeInstructions = new Map<
+    string,
+    { profileId?: string; instructions?: string }
+  >();
+  private readonly claudeInstructionUpdates = new Map<
+    string,
+    { launch: string; sessionId?: string; digest: string | null }
+  >();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
@@ -164,6 +189,7 @@ export class ChatHost {
     cwd: string,
     resume: ResumeOptions,
     profileId?: string,
+    instructions?: string,
   ): Promise<StartResult> {
     let profile: AgentProfile;
     try {
@@ -241,6 +267,18 @@ export class ChatHost {
         ...(gitBash ? { gitBash } : {}),
       });
       if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
+      const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
+      const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
+      const sourceDigest = sourceId
+        ? this.options.claudeInstructionDigests?.get(workspaceId, sourceId)
+        : undefined;
+      env.NEXUS_CHAT_INSTRUCTION_LAUNCH = claudeInstructionLaunch(
+        combined,
+        sourceId && sourceDigest !== undefined
+          ? { sessionId: sourceId, digest: resume.resumeAt === undefined ? sourceDigest : null }
+          : undefined,
+      );
+      this.claudeInstructions.set(key, { profileId, instructions });
       const modelPicker = claudeModelPicker(profile.connection);
       let settings = hooksSettings;
       if (modelPicker) {
@@ -252,7 +290,7 @@ export class ChatHost {
           settings = JSON.stringify({ ...hooks, modelPicker });
         }
       }
-      const args = claudeTabArgs(resume, settings, version);
+      const args = claudeTabArgs(resume, settings, version, combined);
       const defaultModel = connectionDefaultModel(profile);
       if (defaultModel) args.push(`--model=${defaultModel}`);
       const result = await this.spawn(key, intent, channel, {
@@ -410,6 +448,8 @@ export class ChatHost {
     const previous = this.closingTabs.get(key);
     if (previous && !intent && !removal) return previous;
     this.tabIntents.delete(key);
+    this.claudeInstructions.delete(key);
+    this.claudeInstructionUpdates.delete(key);
     const close = async () => {
       if (removal?.channel === null) return;
       if (previous) {
@@ -446,18 +486,89 @@ export class ChatHost {
     }
   }
 
-  async send(workspaceId: string, tabId: string, message: Record<string, unknown>): Promise<void> {
+  async send(
+    workspaceId: string,
+    tabId: string,
+    message: Record<string, unknown>,
+    layer: { profileId?: string; instructions?: string } = {},
+  ): Promise<void> {
     const channel = await this.channelFor(workspaceId);
-    const note =
-      message.method === "turn/start" ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    if (message.type === "user" && layer.instructions !== undefined) {
+      this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
+    }
+    const turn = message.method === "turn/start";
+    const note = turn ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    const instructions =
+      turn && this.options.instructions
+        ? this.options.instructions(
+            workspaceId,
+            this.instructionProfile("codex", layer.profileId),
+            layer.instructions,
+          )
+        : undefined;
     await channel.call("chat.send", {
       workspaceId,
       tabId,
       message,
-      ...(message.method === "turn/start"
-        ? { codexContext: { files: CLAUDE_TAB_PROMPT, cli: note } }
+      ...(turn
+        ? {
+            codexContext: {
+              files: CLAUDE_TAB_PROMPT,
+              cli: note,
+              ...(instructions ? { instructions } : {}),
+            },
+          }
         : {}),
     });
+  }
+
+  /** The hook reports changes against conversation history and restores them after compaction. */
+  claudeHookInstructions(
+    workspaceId: string,
+    tabId: string,
+    launch: string,
+    hook: ClaudeInstructionHook,
+  ): string {
+    const launchState = claudeInstructionLaunchState(launch);
+    if (!launchState) return "";
+    const key = `${workspaceId}:${tabId}`;
+    const saved = this.options.savedClaudeInstructions?.(workspaceId, tabId);
+    const layer = this.claudeInstructions.get(key) ?? saved;
+    if (!layer || !this.options.instructions) return "";
+
+    const sessionId = instructionSessionId(hook.sessionId);
+    const stored = sessionId
+      ? this.options.claudeInstructionDigests?.get(workspaceId, sessionId)
+      : undefined;
+    const prior = this.claudeInstructionUpdates.get(key);
+    const previous =
+      prior?.launch === launch && prior.sessionId === sessionId ? prior.digest : stored;
+    const remember = (digest: string | null) => {
+      this.claudeInstructionUpdates.set(key, { launch, sessionId, digest });
+      if (!sessionId || digest === stored) return;
+      try {
+        this.options.claudeInstructionDigests?.save(workspaceId, sessionId, digest);
+      } catch (error) {
+        log.warn(`Could not save Claude's instruction digest: ${(error as Error).message}`);
+      }
+    };
+
+    if (hook.phase === "start") {
+      const fork = launchState.fork;
+      // A full fork inherits the source digest. A fork at a message may have
+      // omitted that block, so remember that its digest is unknown.
+      if (sessionId && fork && sessionId !== fork.sessionId && previous === undefined)
+        remember(fork.digest);
+      return "";
+    }
+    const restoring = hook.phase === "restore";
+    const profile = this.instructionProfile("claude", layer.profileId);
+    const session = (restoring ? saved?.instructions : undefined) ?? layer.instructions;
+    const text = this.options.instructions(workspaceId, profile, session);
+    const update = claudeInstructionUpdate(launchState.systemDigest, previous, text, restoring);
+    if (!update) return "";
+    remember(update.digest);
+    return update.text;
   }
 
   async call(
@@ -663,6 +774,13 @@ export class ChatHost {
     );
     log.warn(error.message);
     throw error;
+  }
+
+  /** A running tab can outlive its profile. Deleted profiles have no layer. */
+  private instructionProfile(agent: ChatAgent, profileId: string | undefined): AgentProfile {
+    const id = profileId ?? defaultProfileId(agent);
+    const profile = this.options.profile?.(id);
+    return profile?.agent === agent ? profile : { id, agent, dir: "", name: "", color: "" };
   }
 
   /** Selects the same folder when reading history as when starting a profile. */

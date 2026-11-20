@@ -747,6 +747,7 @@ export interface CliUiOps {
       settings?: CliChatSettings;
       /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
+      instructions?: string;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
       /**
@@ -756,6 +757,10 @@ export interface CliUiOps {
       user?: boolean;
     };
     result: { tabId: string; error?: string };
+  };
+  "chat.instructions": {
+    args: { workspaceId: string; tabId: string; text?: string };
+    result: { instructions: string };
   };
   /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {

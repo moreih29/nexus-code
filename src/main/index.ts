@@ -1,6 +1,8 @@
+import os from "node:os";
 import path from "node:path";
 import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "electron";
-import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
+import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
+import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
@@ -29,6 +31,7 @@ import {
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import type { ChatHost } from "./features/chat/host";
+import { instructionsFor } from "./features/chat/instructions";
 import { registerChatChannel } from "./features/chat/ipc";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
@@ -266,6 +269,24 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
+    const { agentInstructions, chatInstructionHistory, claudeInstructionDigests } = currentState;
+    if (agentInstructions?.workspaces?.[removedWorkspaceId] !== undefined) {
+      const config = withInstruction(agentInstructions, {
+        scope: { kind: "workspace", id: removedWorkspaceId },
+        text: "",
+      });
+      stateService.setState({ agentInstructions: config });
+      forwardBroadcast("appState", "agentInstructionsChanged", { config });
+    }
+    if (chatInstructionHistory?.[removedWorkspaceId]) {
+      const { [removedWorkspaceId]: _removed, ...history } = chatInstructionHistory;
+      stateService.setState({ chatInstructionHistory: history });
+      forwardBroadcast("appState", "chatInstructionHistoryChanged", history);
+    }
+    if (claudeInstructionDigests?.[removedWorkspaceId]) {
+      const { [removedWorkspaceId]: _removed, ...digests } = claudeInstructionDigests;
+      stateService.setState({ claudeInstructionDigests: digests });
+    }
     const currentLspMap = currentState.lspDisabledLanguagesByWorkspace ?? {};
     if (currentLspMap[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
@@ -733,6 +754,26 @@ app.whenReady().then(async () => {
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    claudeInstructions: (workspaceId, tabId, launch, hook) =>
+      chatHost?.claudeHookInstructions(workspaceId, tabId, launch, hook) ?? "",
+    terminalClaudeInstructions: (workspaceId, profileId) => {
+      const workspaces = workspaceManager.list();
+      const workspace = workspaces.find(({ id }) => id === workspaceId);
+      if (!workspace) return "";
+      const state = stateService.getState();
+      const configured = profileId ? findProfile(stateService, profileId) : null;
+      const parent = workspaces.find(({ id }) => id === workspace.task?.parentId);
+      const profile =
+        configured?.agent === "claude"
+          ? configured
+          : resolveProfile(
+              state.agentProfiles ?? EMPTY_AGENT_PROFILES,
+              "claude",
+              { ...workspace, parent },
+              { home: os.homedir(), windows: isWindows() },
+            ).profile;
+      return instructionsFor(state.agentInstructions ?? EMPTY_INSTRUCTIONS, profile, workspace);
+    },
     settings: () => {
       const state = stateService.getState();
       return {
@@ -809,6 +850,32 @@ app.whenReady().then(async () => {
         .filter((tab) => tab.type === "claude" || tab.type === "codex")
         .map((tab) => tab.id),
     agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
+    instructions: (workspaceId, profile, session) =>
+      instructionsFor(
+        stateService.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,
+        profile,
+        workspaceManager.list().find(({ id }) => id === workspaceId),
+        session,
+      ),
+    claudeInstructionDigests: {
+      get: (workspaceId, sessionId) =>
+        stateService.getState().claudeInstructionDigests?.[workspaceId]?.[sessionId],
+      save: (workspaceId, sessionId, digest) => {
+        const saved = stateService.getState().claudeInstructionDigests;
+        stateService.setState({
+          claudeInstructionDigests: {
+            ...saved,
+            [workspaceId]: { ...saved?.[workspaceId], [sessionId]: digest },
+          },
+        });
+      },
+    },
+    savedClaudeInstructions: (workspaceId, tabId) => {
+      const tab = stateService
+        .getState()
+        .layoutByWorkspace?.[workspaceId]?.tabs.find(({ id }) => id === tabId);
+      return tab?.type === "claude" ? tab.props : undefined;
+    },
     profile: (id) => findProfile(stateService, id),
     connectionKey: async (id, target) => profileConnectionKeys?.get(id, target),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),

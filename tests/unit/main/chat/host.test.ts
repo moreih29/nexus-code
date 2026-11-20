@@ -4,6 +4,7 @@ import {
   type ChatHostOptions,
   type ChatWorkspaceManager,
 } from "../../../../src/main/features/chat/host";
+import { claudeInstructionLaunchState } from "../../../../src/main/features/chat/instructions";
 import {
   CLAUDE_TAB_ARGS,
   CLAUDE_TAB_PROMPT,
@@ -89,7 +90,7 @@ function setup(
   agentContext?: ChatHostOptions["agentContext"],
   onTaskEvent?: ChatHostOptions["onTaskEvent"],
   profile?: ChatHostOptions["profile"],
-  connectionKey?: ChatHostOptions["connectionKey"],
+  options: Partial<ChatHostOptions> = {},
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -114,10 +115,10 @@ function setup(
     agentContext,
     onTaskEvent,
     profile,
-    connectionKey,
     broadcast: (event, args) => events.push({ event, args }),
     onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
+    ...options,
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
 }
@@ -143,6 +144,171 @@ test.each([
   }
 });
 
+describe("Claude instruction history", () => {
+  const parent = "11111111-aaaa-4aaa-8aaa-111111111111";
+  const child = "22222222-bbbb-4bbb-8bbb-222222222222";
+  const childTab = "33333333-cccc-4ccc-8ccc-333333333333";
+
+  function instructionsFixture() {
+    const digests = new Map<string, string | null>();
+    const open = () =>
+      setup({}, undefined, undefined, undefined, {
+        instructions: (_workspaceId, _profile, session) => session ?? "",
+        claudeInstructionDigests: {
+          get: (workspaceId, sessionId) => digests.get(`${workspaceId}:${sessionId}`),
+          save: (workspaceId, sessionId, digest) => {
+            digests.set(`${workspaceId}:${sessionId}`, digest);
+          },
+        },
+      });
+
+    async function sendOriginalReplacement(...later: string[]) {
+      const { host, channel } = open();
+      await host.start(WS, TAB, "/repo", {}, undefined, "BASE");
+      const launch = launchOf(channel);
+      expect(
+        host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+      ).toBe("");
+      for (const instructions of ["ECHO", ...later]) {
+        await host.send(WS, TAB, { type: "user" }, { instructions });
+        expect(
+          host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+        ).toEndWith(instructions);
+      }
+      await host.call("close", { workspaceId: WS, tabId: TAB });
+    }
+
+    return { open, digests, sendOriginalReplacement };
+  }
+
+  function launchOf(channel: FakeChannel): string {
+    const params = channel.calls.findLast(({ method }) => method === "chat.start")?.params as {
+      env: Record<string, string>;
+    };
+    return params.env.NEXUS_CHAT_INSTRUCTION_LAUNCH ?? "";
+  }
+
+  test("a restarted app replaces a stale block on the first prompt of a resumed chat", async () => {
+    const { open, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, TAB, "/repo", { resume: parent }, undefined, "KILO");
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "restore" }),
+    ).toBe("");
+  });
+
+  test("a fork replaces its inherited block on the first prompt without changing the source", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const original = digests.get(`${WS}:${parent}`);
+    const { host, channel } = open();
+    await host.start(
+      WS,
+      childTab,
+      "/repo",
+      { resume: `/profile/${parent}.jsonl`, fork: true },
+      undefined,
+      "KILO",
+    );
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${child}`)).toBe(original);
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${parent}`)).toBe(original);
+    expect(digests.get(`${WS}:${child}`)).toBe(claudeInstructionLaunchState(launch)?.systemDigest);
+  });
+
+  test("a fork keeps a matching inherited block without repeating it and passes it to later resumes", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, childTab, "/repo", { resume: parent, fork: true }, undefined, "ECHO");
+    const launch = launchOf(channel);
+    host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" });
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${child}`)).toBe(digests.get(`${WS}:${parent}`));
+
+    const resumed = open();
+    await resumed.host.start(WS, childTab, "/repo", { resume: child }, undefined, "KILO");
+    expect(
+      resumed.host.claudeHookInstructions(WS, childTab, launchOf(resumed.channel), {
+        sessionId: child,
+        phase: "prompt",
+      }),
+    ).toEndWith("KILO");
+  });
+
+  test("a fork from an earlier message refreshes instructions once even when the source matches", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement("KILO");
+    const source = digests.get(`${WS}:${parent}`);
+    const { host, channel } = open();
+    await host.start(
+      WS,
+      childTab,
+      "/repo",
+      { resume: parent, fork: true, resumeAt: "earlier-message" },
+      undefined,
+      "KILO",
+    );
+    const launch = launchOf(channel);
+
+    expect(source).toBe(claudeInstructionLaunchState(launch)?.systemDigest);
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${parent}`)).toBe(source);
+    expect(digests.get(`${WS}:${child}`)).toBe(source);
+  });
+
+  test.each([
+    false,
+    true,
+  ])("resuming skips a replacement when the history had a matching block: %s", async (hadBlock) => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    if (hadBlock) await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, TAB, "/repo", { resume: parent }, undefined, "ECHO");
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.has(`${WS}:${parent}`)).toBe(hadBlock);
+  });
+});
+
 describe("chat launch", () => {
   test("resume and fork add their flags after the stream-json ones", () => {
     expect(claudeTabArgs({})).toEqual([
@@ -161,6 +327,15 @@ describe("chat launch", () => {
     // resumeAt means nothing without fork.
     expect(claudeTabArgs({ resume: "s1", resumeAt: "u9" })).not.toContain("--resume-session-at");
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
+  });
+
+  test("adds the merged instructions to the existing system prompt argument", () => {
+    const instructions = "# Instructions set in NexusCode\n\n## This session\nUse Korean.";
+    const args = claudeTabArgs({ resume: "s1" }, undefined, null, instructions);
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+      `${CLAUDE_TAB_PROMPT}\n\n${instructions}`,
+    );
+    expect(args.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
   });
 
   test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
@@ -404,7 +579,7 @@ describe("ChatHost", () => {
       undefined,
       undefined,
       (id) => (id === profile.id ? profile : null),
-      async () => "sealed-key",
+      { connectionKey: async () => "sealed-key" },
     );
     expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
     expect(await host.terminalProfileEnv(WS, profile.id)).toMatchObject({
@@ -441,7 +616,7 @@ describe("ChatHost", () => {
       undefined,
       undefined,
       (id) => (id === profile.id ? profile : null),
-      async () => "sealed-key",
+      { connectionKey: async () => "sealed-key" },
     );
     channel.found = { path: "/remote/bin/codex" };
     expect(await host.startCodex(WS, TAB, "/repo", {})).toMatchObject({ ok: true });

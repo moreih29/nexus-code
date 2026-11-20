@@ -121,6 +121,7 @@ interface ClaudeTabViewProps {
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
+  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -796,6 +797,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           <RateLimitBanner limit={state.model.rateLimit} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
+            instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
             relayed={props.relayed}

@@ -141,6 +141,7 @@ describe("changing another workspace", () => {
     tab move codex 2 | tab rename codex x | tab pin codex | tab unpin codex
     layout split codex right | layout resize 1 50 | layout even | layout close 1
     chat new | chat send eeee hi | chat interrupt eeee | chat set eeee --effort high
+    chat instructions eeee --clear
     open main.go | diff main.go | show | port forward 3000 | port unforward 3000
     agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
     browser back | browser forward | browser reload | browser click e1 | browser hover e1
@@ -160,7 +161,7 @@ describe("changing another workspace", () => {
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
     note list | note read nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
-    chat history`;
+    chat history | chat instructions eeee --show`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
@@ -187,13 +188,19 @@ describe("changing another workspace", () => {
       ...lines(READS).map((line) => ({ line, changes: false })),
     ];
     // chat answer is refused to a terminal outright; manager.test.ts covers who may answer.
-    expect([...runs.map((r) => commandOf(r.line)), "chat answer"].sort()).toEqual(paths.sort());
+    expect([...new Set([...runs.map((r) => commandOf(r.line)), "chat answer"])].sort()).toEqual(
+      paths.sort(),
+    );
     for (const { line, changes } of runs) {
       const app = apiAtWork();
       const forwards = JSON.stringify(app.forwarding.forwards);
       const result = await nexus(app, [...line.split(" "), "--workspace", "api"]);
       const made = [
-        ...app.uiCalls.map((c) => c.op),
+        ...app.uiCalls
+          .filter(
+            ({ op, args }) => op !== "chat.instructions" || Object.hasOwn(args as object, "text"),
+          )
+          .map(({ op }) => op),
         ...app.browser.calls.map((c) => `page.${c.op}`),
         ...app.stops.map(() => "agent.stop"),
         ...(JSON.stringify(app.forwarding.forwards) === forwards ? [] : ["forwards"]),

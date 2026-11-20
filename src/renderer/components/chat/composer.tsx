@@ -72,6 +72,7 @@ import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsTab, SessionInstructionsChip } from "./session-instructions-chip";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -145,6 +146,7 @@ export interface ComposerController {
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
+  instructionsTab?: InstructionsTab;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
   /** The program runs on this machine, where an attached file's path can be read. */
@@ -220,6 +222,7 @@ function parked(area: HTMLElement): boolean {
 export const Composer = memo(function Composer({
   controller,
   state,
+  instructionsTab,
   relayed,
   local,
   placeholder,
@@ -877,6 +880,9 @@ export const Composer = memo(function Composer({
             )}
             {(fit < FIT.NO_EFFORT || kept("effort")) && (
               <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+            )}
+            {instructionsTab && (
+              <SessionInstructionsChip {...instructionsTab} compact={fit >= FIT.TRUNCATE_MODE} />
             )}
             <div className="flex-1" />
             {fit < FIT.NO_ADD && (

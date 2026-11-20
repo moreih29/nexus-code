@@ -45,6 +45,20 @@ describe("resources", () => {
     }
   });
 
+  test("each instruction layer and the session actions have both translations", () => {
+    for (const locale of ["en", "ko"] as const) {
+      const { instructions, nav } = resources[locale].settings;
+      expect(nav.instructions).not.toBe("");
+      for (const layer of ["all", "claude", "codex", "profile", "workspace"] as const) {
+        expect(instructions.scope[layer]).not.toBe("");
+      }
+      expect(instructions.session.edit).not.toBe("");
+      expect(instructions.session.add).not.toBe("");
+      expect(instructions.session.preview).not.toBe("");
+      expect(instructions.session.apply).not.toBe("");
+    }
+  });
+
   test("every theme has a description in en and ko", () => {
     const ids = THEME_SOURCES.map((source) => source.id).sort();
     expect(Object.keys(resources.en.settings.appearance.themeDescription).sort()).toEqual(ids);

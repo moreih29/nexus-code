@@ -106,6 +106,12 @@ export function settingsNav(
     { id: "claude", label: t("nav.claude"), parent: "agent", keywords: PROFILE_KEYWORDS },
     { id: "codex", label: t("nav.codex"), parent: "agent", keywords: PROFILE_KEYWORDS },
     {
+      id: "instructions",
+      label: t("nav.instructions"),
+      parent: "agent",
+      keywords: ["instructions", "prompt", "rules", "지시", "프롬프트", "규칙"],
+    },
+    {
       id: "profile-rules",
       label: t("nav.profileRules"),
       parent: "agent",

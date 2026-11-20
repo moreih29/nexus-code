@@ -16,6 +16,7 @@ import {
   profilesOf,
   withProfile,
 } from "../../../shared/agent-profiles/profiles";
+import { EMPTY_INSTRUCTIONS, withInstruction } from "../../../shared/chat/instructions";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -100,7 +101,7 @@ export function registerAgentProfilesChannel(
         return ipcOk(await keys.status(profileId, target));
       },
       connectionSave: async (args: unknown) => {
-        const { profile: next, key } = validateArgs(c.connectionSave.args, args);
+        const { profile: next, key, instructions } = validateArgs(c.connectionSave.args, args);
         const connection = next.connection;
         if (isDefaultProfileId(next.id) && next.id !== defaultProfileId(next.agent)) {
           throw new Error("Profile does not belong to this agent");
@@ -117,13 +118,26 @@ export function registerAgentProfilesChannel(
         }
         let connectionChanged = false;
         const keyChanged = await keys.saveProfile(next, key, () => {
-          const current = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
+          const current = state.getState();
           const existing = findProfile(state, next.id);
           if (existing && existing.agent !== next.agent)
             throw new Error("Profile does not belong to this agent");
           connectionChanged = !sameLaunchConnection(existing, next);
-          state.setState({ agentProfiles: withProfile(current, next) });
+          const agentProfiles = withProfile(current.agentProfiles ?? EMPTY_AGENT_PROFILES, next);
+          const agentInstructions =
+            instructions === undefined
+              ? undefined
+              : withInstruction(current.agentInstructions ?? EMPTY_INSTRUCTIONS, {
+                  scope: { kind: "profile", id: next.id },
+                  text: instructions,
+                });
+          state.setState({ agentProfiles, ...(agentInstructions ? { agentInstructions } : {}) });
         });
+        if (instructions !== undefined) {
+          broadcast("appState", "agentInstructionsChanged", {
+            config: state.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,
+          });
+        }
         onChanged(connectionChanged || keyChanged ? next.id : undefined);
         return ipcOk(state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES);
       },

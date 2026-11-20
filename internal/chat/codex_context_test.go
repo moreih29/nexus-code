@@ -159,8 +159,8 @@ func TestCodexContextAfterCompaction(t *testing.T) {
 	if got := testCodexContext(t, result)[codexFileLinks].Value; got != filePrompt+refreshSuffix+"1" {
 		t.Fatalf("did not refresh removed guidance: %q", got)
 	}
-	if got := applyTestCodexContext(proc, []byte(turn), context); !bytes.Equal(result, got) {
-		t.Fatalf("subsequent turns require the same value for Codex deduplication: %s", got)
+	if got := applyTestCodexContext(proc, []byte(turn), context); string(got) != turn {
+		t.Fatalf("subsequent turns repeated refreshed guidance: %s", got)
 	}
 
 	retained := previous + `{"type":"compacted","payload":{"replacement_history":[` +
@@ -237,4 +237,37 @@ func applyTestCodexContext(p *process, data []byte, guidance codexContext) []byt
 		commit()
 	}
 	return edited
+}
+
+func TestCodexInstructionsChangeIndependently(t *testing.T) {
+	proc := testCodexContextProcess(t.TempDir())
+	turn := []byte(`{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`)
+	context := codexContext{Files: "File links"}
+	check := func(want map[string]string) {
+		t.Helper()
+		got := testCodexContext(t, applyTestCodexContext(proc, turn, context))
+		if len(got) != len(want) {
+			t.Fatalf("unexpected fragments: %#v", got)
+		}
+		for key, value := range want {
+			if got[key].Value != value || got[key].Kind != "application" {
+				t.Fatalf("fragment %s = %#v, want %q", key, got[key], value)
+			}
+		}
+	}
+	check(map[string]string{codexFileLinks: context.Files})
+	context.Instructions = "First instructions"
+	check(map[string]string{codexInstructions: context.Instructions})
+	check(nil)
+	context.Instructions = "Updated instructions"
+	check(map[string]string{codexInstructions: instructionsReplaced + context.Instructions})
+	proc.codexCompactions.Add(1)
+	check(map[string]string{
+		codexFileLinks:    context.Files + refreshSuffix + "1",
+		codexInstructions: instructionsReplaced + context.Instructions + refreshSuffix + "1",
+	})
+	check(nil)
+	context.Instructions = ""
+	check(map[string]string{codexInstructions: instructionsCleared + refreshSuffix + "1"})
+	check(nil)
 }

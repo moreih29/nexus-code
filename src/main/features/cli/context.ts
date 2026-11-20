@@ -20,6 +20,7 @@ import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import type { ClaudeInstructionHook } from "../chat/instructions";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
@@ -187,6 +188,13 @@ export interface CliServices {
   askUser(request: ChangeRequest): Promise<void>;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
+  claudeInstructions?(
+    workspaceId: string,
+    tabId: string,
+    launch: string,
+    hook: ClaudeInstructionHook,
+  ): string;
+  terminalClaudeInstructions?(workspaceId: string, profileId: string): string;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
   /**

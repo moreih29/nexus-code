@@ -15,6 +15,7 @@
     "claude": "Claude",
     "codex": "Codex",
     "profileRules": "Profiles by workspace",
+    "instructions": "Instructions",
     "remote": "Remote"
   },
   "dialog": {
@@ -935,7 +936,7 @@
       "testHint": "Send one short request to the default model. This can use a few tokens.",
       "tested": "{{model}} replied in {{ms}} ms",
       "createAndSignIn": "Create and sign in",
-      "saveError": "Could not save the profile connection.",
+      "saveError": "Could not save the profile.",
       "errors": {
         "auth": "Check the API key and how it is sent.",
         "model": "Could not find model {{model}}.",
@@ -949,6 +950,48 @@
       "behaviorModel": "Connection default model ({{model}})",
       "behaviorModelPending": "Choose a default model in Connection",
       "behaviorWebSearch": "Disabled for this API address"
+    }
+  },
+  "instructions": {
+    "workspaceMenu": "Instructions…",
+    "description": "Instructions NexusCode adds for the agents it opens, alongside CLAUDE.md and AGENTS.md.",
+    "all": "All agents",
+    "agentsAndProfiles": "Agents and profiles",
+    "workspaces": "Workspaces",
+    "sessionHint": "Edit session instructions in the chat tab.",
+    "scope": {
+      "all": "Applies to Claude and Codex opened by NexusCode.",
+      "claude": "Applies to all Claude tabs and Claude in app terminals.",
+      "codex": "Applies to all Codex tabs.",
+      "profile": "Applies when NexusCode opens this agent with this profile.",
+      "workspace": "Applies to agents opened in this workspace. Saved in the app."
+    },
+    "preview": "Preview combined instructions",
+    "agent": "Agent",
+    "profile": "Profile",
+    "workspace": "Workspace",
+    "count": "{{chars}} characters · about {{tokens}} tokens",
+    "tooLong": "Limit of {{max}} characters per layer.",
+    "invalidText": "Instructions must be plain text without null characters.",
+    "empty": "No instructions",
+    "hasText": "Has instructions",
+    "applies": "Applies immediately to new tabs and from the next message in open tabs.",
+    "saveFailed": "Could not save the instructions.",
+    "session": {
+      "chip": "Instructions",
+      "chipCount": "Instructions {{count}}",
+      "title": "Instructions for this tab",
+      "profile": "Profile · {{name}}",
+      "workspace": "Workspace · {{name}}",
+      "emptyLayer": "None",
+      "lines_one": "{{count}} line",
+      "lines_other": "{{count}} lines",
+      "edit": "Edit in Settings ↗",
+      "add": "Add ↗",
+      "label": "This session",
+      "preview": "View combined instructions",
+      "apply": "Apply",
+      "applies": "Applies from the next message."
     }
   },
   "profileRules": {
