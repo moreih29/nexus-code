@@ -7,6 +7,7 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { opaqueTag } from "../../../../shared/log/limit";
 import type { AgentChannel } from "../channel";
 import {
   type AgentReconnectOptions,
@@ -130,7 +131,7 @@ export function createWslBootstrapRunner(
 function bootstrapOptions(options: WslAgentOptions) {
   return {
     // Keys the bootstrap's per-host upload lock and nothing else.
-    host: `wsl:${options.distro}`,
+    host: `wsl:${opaqueTag(options.distro)}`,
     authMode: "key-only" as const,
     remotePath: options.remotePath,
     signal: options.signal,
@@ -193,7 +194,7 @@ export function createWslChannel(
     spawn: () => spawnImpl(options.distro, ["sh", "-c", options.remoteCommand]),
     // wsl.exe asks nothing, so stderr carries no prompt to recognize.
     classifyStderr: () => null,
-    logLabel: `wsl:${options.distro}`,
+    logLabel: `wsl:${opaqueTag(options.distro)}`,
     closeError: (_wasReady, context) =>
       createSshError("transport.unknown", formatCloseDiagnostic(context)),
     requestTimeoutMs: dependencies.requestTimeoutMs,

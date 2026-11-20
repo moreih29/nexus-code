@@ -18,6 +18,7 @@ import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
+import { heartbeatHistogramLine } from "./heartbeat-histogram";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 /** Match the Go agent's per-line limit, measured before UTF-8 decoding. */
@@ -454,19 +455,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         }
         heartbeatWatchdogTimer = timer;
 
-        // Heartbeat inter-arrival histogram: log one summary line per minute.
+        // Heartbeat inter-arrival histogram: one summary line per minute, only
+        // for a minute with a late beat.
         // Buckets: [0..1×) = on-time, [1×..2×) = 1 slot late, …, 10× = overflow.
         histogramIntervalMs = intervalMs;
         const logTimer = setInterval(() => {
           if (disposed || terminalError) return;
-          const total = heartbeatHistogram.reduce((a, b) => a + b, 0);
-          if (total === 0) return;
-          const bucketStr = heartbeatHistogram
-            .map((n, i) => `[${i === HISTOGRAM_BUCKETS - 1 ? `${i}+` : `${i}-${i + 1}`}x]:${n}`)
-            .join(" ");
-          getMalformedStdoutLogger().info(
-            `heartbeat histogram (interval=${intervalMs}ms, total=${total}): ${bucketStr}`,
-          );
+          const line = heartbeatHistogramLine(intervalMs, heartbeatHistogram);
+          if (line !== null) getMalformedStdoutLogger().info(line);
           heartbeatHistogram.fill(0);
         }, 60_000);
         if (typeof (logTimer as NodeJS.Timeout).unref === "function") {

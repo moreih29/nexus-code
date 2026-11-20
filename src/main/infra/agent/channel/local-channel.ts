@@ -14,10 +14,12 @@
  * hard-kill fallback. Transport failures and clean closes surface through the
  * shared channel lifecycle.
  */
+
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../../../../shared/agent/envelope";
+import { opaqueTag } from "../../../../shared/log/limit";
 import { createSshError } from "../pipe";
 import type { AgentChannel } from "./index";
 import {
@@ -109,7 +111,7 @@ export function createLocalChannel(
     // Local stderr is not classified — the binary writes only human-readable
     // hints (e.g. usage), and terminal failures surface via exit code below.
     classifyStderr: () => null,
-    logLabel: `local:${options.rootPath}`,
+    logLabel: `local:${opaqueTag(options.rootPath)}`,
     closeError: (wasReady) =>
       createSshError(wasReady ? "transport.unknown" : "server.spawn-failed"),
     requestTimeoutMs: options.requestTimeoutMs,

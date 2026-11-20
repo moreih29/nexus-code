@@ -14,6 +14,8 @@ import {
 } from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import type { TranscriptPageResult } from "../../../../shared/ipc/contract";
+import { safeText } from "../../../../shared/log/limit";
+import { redactLogSecrets } from "../../../../shared/log/redact-secrets";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
@@ -996,7 +998,7 @@ export class ChatController {
   /** Records the failure and keeps the tab available for a fresh startup. */
   private async rejectStartup(message: string): Promise<false> {
     if (this.disposed) return false;
-    log.warn(`Claude startup failed: ${message}`);
+    log.warn(`Claude startup failed: ${safeText(message, 200, redactLogSecrets)}`);
     try {
       await this.startup.reject();
     } catch (error) {

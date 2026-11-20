@@ -4,12 +4,15 @@ import {
   GIT_UNWATCH_METHOD,
   GIT_WATCH_METHOD,
 } from "../../../../shared/git/protocol";
+import { limitLog } from "../../../../shared/log/limit";
 import { createLogger } from "../../../../shared/log/main";
 import { type AgentBackedProvider, isAgentBackedProvider } from "../../fs/bridge/provider";
+import { reportWatchFailure } from "../../fs/bridge/watch-failure-log";
 import { enqueueWatchOperation, subscribeAgentWatch } from "../../fs/bridge/watch-lifecycle";
 import type { WorkspaceManager } from "../../workspace/manager";
 
 const log = createLogger("git");
+const failures = limitLog(log);
 
 export type GitDirtyCallback = (workspaceId: string) => void;
 
@@ -41,9 +44,7 @@ export class AgentGitWatcher {
           if (this.entries.get(workspaceId) === next) this.onDirty(workspaceId);
         },
         (error: unknown) => {
-          log.warn(
-            `git.watch rebind failed (workspace=${workspaceId}, gitDir=${entry.gitDir}): ${(error as Error).message}`,
-          );
+          reportWatchFailure(failures, "git.watch rebind", workspaceId, error);
         },
       );
     });
@@ -71,9 +72,7 @@ export class AgentGitWatcher {
   /** Drops a workspace without blocking its removal broadcast. */
   disposeWorkspace(workspaceId: string): void {
     void this.unwatch(workspaceId).catch((error: unknown) => {
-      log.warn(
-        `git.unwatch cleanup failed (workspace=${workspaceId}): ${(error as Error).message}`,
-      );
+      reportWatchFailure(failures, "git.unwatch cleanup", workspaceId, error);
     });
   }
 
@@ -113,9 +112,7 @@ export class AgentGitWatcher {
             }
           }
         }).catch((error: unknown) => {
-          log.warn(
-            `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
-          );
+          reportWatchFailure(failures, "git.watch replay", workspaceId, error);
         });
         // Refresh status for changes the disconnected agent did not see.
         this.onDirty(workspaceId);

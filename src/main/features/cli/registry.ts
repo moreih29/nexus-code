@@ -107,6 +107,23 @@ function findCommand(
   return best ? { command: best, rest: argv.slice(best.path.length) } : null;
 }
 
+/**
+ * The name of the command an invocation runs, such as "chat send", for a log
+ * line. Only the command's own words: its arguments may be a user's text.
+ */
+export function commandName(commands: readonly CliCommand[], argv: readonly string[]): string {
+  const found = findCommand(commands, argv);
+  return found ? found.command.path.join(" ") : "unknown";
+}
+
+/** Whether the command waits for something by design, so its time says nothing of a stall. */
+export function commandWaits(commands: readonly CliCommand[], argv: readonly string[]): boolean {
+  const found = findCommand(commands, argv);
+  if (!found) return false;
+  const last = found.command.path[found.command.path.length - 1];
+  return last === "wait" || argv.includes("--wait") || argv.includes("--follow");
+}
+
 function result(stdout: string, stderr = "", exitCode = 0, files?: readonly CliFile[]): CliResult {
   return { stdout, stderr, exitCode, ...(files && files.length > 0 ? { files } : {}) };
 }

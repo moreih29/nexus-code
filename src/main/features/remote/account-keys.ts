@@ -23,6 +23,7 @@ import {
   KeyEnvelopesResponseSchema,
   type KeyRotation,
 } from "../../../../packages/remote-protocol/src";
+import { shortId } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import type {
   AccountKeyState,
@@ -370,7 +371,7 @@ export class AccountKeys {
       // A device with an older key, or none, asks for the password, as before v2.
       if (!device.key || device.key.kid !== k) continue;
       if (!certChecks(opened.key, userId, device.id, device.key)) {
-        log.warn(`device ${device.id}'s key does not check; the key was not rotated`);
+        log.warn(`device ${shortId(device.id)}'s key does not check; the key was not rotated`);
         throw new KeyError("device-key");
       }
       envelopes.push({

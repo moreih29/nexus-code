@@ -35,7 +35,7 @@
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
-import { type ReactNode, useCallback } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
@@ -43,6 +43,7 @@ import { installUpdate } from "../../../services/updates/operations";
 import { updateCheckFailedMessage } from "../../../services/updates/update-check-failure";
 import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { useUpdatesStore } from "../../../state/stores/updates";
+import { copyTextViaIpc } from "../../../utils/clipboard";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
 import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
@@ -121,6 +122,10 @@ export function AboutPanel() {
         )}
       </SettingsGroup>
 
+      <SettingsGroup title={t("about.logs.title")} description={t("about.logs.description")}>
+        <LogActions />
+      </SettingsGroup>
+
       {!storeManaged && (
         <SettingsGroup>
           <SettingsSwitch
@@ -132,6 +137,56 @@ export function AboutPanel() {
         </SettingsGroup>
       )}
     </SettingsPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Log files
+// ---------------------------------------------------------------------------
+
+/** How long "Copied" stays on the copy button. */
+const COPIED_MS = 2000;
+
+/** Opens the log folder and copies its path: what a user sends along with a report. */
+function LogActions() {
+  const { t } = useTranslation("settings");
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const copyPath = useCallback(async () => {
+    const result = await ipcCallResult("system", "logsPath", undefined);
+    if (!result.ok) return;
+    if (!(await copyTextViaIpc(result.value.path))) return;
+    setCopied(true);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  }, []);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void ipcCallResult("system", "openLogsFolder", undefined)}
+        data-testid="about-open-logs"
+      >
+        {t("about.logs.open")}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void copyPath()}
+        data-testid="about-copy-logs-path"
+      >
+        {copied ? t("about.logs.copied") : t("about.logs.copyPath")}
+      </Button>
+    </div>
   );
 }
 

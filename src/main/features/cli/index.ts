@@ -17,6 +17,7 @@ import { FS_READ_ABSOLUTE_BINARY_METHOD } from "../../../shared/fs/protocol";
 import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { limitLog, safeText } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
@@ -47,12 +48,14 @@ import {
 } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
-import { runCli } from "./registry";
+import { commandName, commandWaits, runCli } from "./registry";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { noteSlowRequest } from "./slow-log";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
+const slowRequests = limitLog(log);
 
 /** How long a pick started from a browser tab's button waits for the click. */
 const BUTTON_PICK_MS = 10 * 60_000;
@@ -244,7 +247,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     options.focusWindow();
     workspaceManager.connect(workspaceId).catch((error: unknown) => {
       log.warn(
-        `connecting ${workspaceId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+        `connecting ${shortId(workspaceId)} failed: ${safeText(error instanceof Error ? error.message : String(error), 200, redactLogSecrets)}`,
       );
     });
     options.broadcast("pty", "notificationClick", { workspaceId, tabId });
@@ -366,7 +369,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {
     const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
     if (!channel) {
-      log.warn(`cli.respond: no agent for workspace ${workspaceId}`);
+      log.warn(`cli.respond: no agent for workspace ${shortId(workspaceId)}`);
       return;
     }
     await channel.call("cli.respond", { requestId, response });
@@ -381,6 +384,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     const { requestId, workspaceId, tabId, request, verified } = parsed.data;
     const controller = new AbortController();
     running.set(requestId, controller);
+    const name = commandName(CLI_COMMANDS, request.argv);
+    const waits = commandWaits(CLI_COMMANDS, request.argv);
+    const startedAt = Date.now();
     run(
       { workspaceId, tabId, ...(verified !== undefined ? { verified } : {}) },
       request,
@@ -391,10 +397,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       })
       .catch((error: unknown) => {
         log.warn(
-          `cli request ${requestId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+          `cli request ${requestId} failed: command=${name} ms=${Date.now() - startedAt} ${safeText(error instanceof Error ? error.message : String(error), 200, redactLogSecrets)}`,
         );
       })
-      .finally(() => running.delete(requestId));
+      .finally(() => {
+        running.delete(requestId);
+        noteSlowRequest(slowRequests, name, waits, Date.now() - startedAt);
+      });
   });
   const offCancel = agentHost.on("cli.cancel", (payload) => {
     const parsed = CliCancelSchema.safeParse(payload);

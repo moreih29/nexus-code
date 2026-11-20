@@ -4,6 +4,7 @@ import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "ele
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
+import { limitLog } from "../shared/log/limit";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -54,6 +55,7 @@ import {
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
+import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
@@ -121,11 +123,13 @@ import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cac
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { installErrorSafetyNet } from "./infra/error-safety-net";
+import { startEventLoopMonitor } from "./infra/event-loop-monitor";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/platform/shell-path";
+import { beginRun, startLine } from "./infra/run-log";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
@@ -134,6 +138,7 @@ import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 initMainLogger();
 
 const logger = createLogger("main");
+const gitWatcherFailures = limitLog(logger);
 
 // One app at a time on a profile. A second one, on the same files, ran its own
 // terminals and agents, resumed the same chats again, and undid the first's
@@ -201,6 +206,11 @@ const userData = app.getPath("userData");
 const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
 const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"));
 const stateService = new StateService(path.join(userData, "state.json"));
+// Set once the app is ready (after the single-instance lock, so a second launch
+// does not take the first one's marker): notes a run that ended without a quit
+// line, and writes the quit line of this one.
+let currentRun: ReturnType<typeof beginRun> | null = null;
+let stopLoopMonitor: (() => void) | null = null;
 
 // Per-domain disposers wired into the workspace:removed interception below.
 // Each subsystem (fileWatcher, git*, lsp) owns its own per-workspace cleanup
@@ -489,6 +499,21 @@ registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
+/**
+ * The restart that installs an update may end the app before its will-quit
+ * cleanup runs, which would leave the run marker behind and read as a crash at
+ * the next start. So the quit line is written, and the marker removed, first.
+ */
+function withQuitNote<T extends { quitAndInstall(): void }>(backend: T): T {
+  return {
+    ...backend,
+    quitAndInstall() {
+      currentRun?.quit(logger, "restart to install an update");
+      backend.quitAndInstall();
+    },
+  };
+}
+
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
@@ -499,11 +524,25 @@ updatesHandle = installUpdatesDomain({
   // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
-      ? createElectronUpdateBackend(createLogger("updates"))
+      ? withQuitNote(createElectronUpdateBackend(createLogger("updates")))
       : undefined,
 });
 
 app.whenReady().then(async () => {
+  currentRun = beginRun(path.join(userData, "running.json"), app.getVersion(), logger);
+  stopLoopMonitor = startEventLoopMonitor(logger, { power: powerMonitor });
+  logger.info(
+    startLine({
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      platform: process.platform,
+      osRelease: os.release(),
+      arch: process.arch,
+      locale: app.getLocale(),
+      electron: process.versions.electron ?? "",
+      readyMs: process.uptime() * 1000,
+    }),
+  );
   installAppSessionPermissions(session.defaultSession);
   // The app window's Content-Security-Policy. NEXUS_CSP_REPORT_ONLY=1 makes
   // an unpackaged run only report what it would block, in the console.
@@ -592,7 +631,7 @@ app.whenReady().then(async () => {
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
         void gitWatcher?.watch(workspaceId, info.gitDir).catch((error) => {
-          logger.warn(`git agent watcher failed: ${(error as Error).message}`);
+          reportWatchFailure(gitWatcherFailures, "git agent watcher", workspaceId, error);
         });
       } else {
         gitWatcher?.disposeWorkspace(workspaceId);
@@ -1007,6 +1046,8 @@ app.on("will-quit", (event) => {
   void shutDownMain()
     .catch((error) => logger.error("App shutdown failed", error))
     .finally(() => {
+      stopLoopMonitor?.();
+      currentRun?.quit(logger);
       quitReady = true;
       app.quit();
     });

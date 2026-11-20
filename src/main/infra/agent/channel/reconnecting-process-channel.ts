@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { safeText } from "../../../../shared/log/limit";
 import { createLogger } from "../../../../shared/log/main";
 import type { StderrClassifier } from "../pipe";
 import { AgentLineTooLongError, createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
@@ -210,7 +211,7 @@ export function createReconnectingProcessChannel(
       child = options.spawn();
     } catch (error) {
       getChannelLogger().warn(
-        `[${label}] spawn threw (phase=${phase}): ${error instanceof Error ? error.message : String(error)}`,
+        `[${label}] spawn threw (phase=${phase}): ${safeText(error instanceof Error ? error.message : String(error), 300)}`,
       );
       const wrapped = createAgentReconnectError("agent.reconnect-unavailable", error);
       if (phase === "connecting") {
@@ -307,7 +308,7 @@ export function createReconnectingProcessChannel(
       .catch((error) => {
         if (state === "disposed" || active !== attempt) return;
         getChannelLogger().warn(
-          `[${label}] agent handshake failed (phase=${phase}, pid=${attempt.child.pid}): ${error instanceof Error ? error.message : String(error)}`,
+          `[${label}] agent handshake failed (phase=${phase}, pid=${attempt.child.pid}): ${safeText(error instanceof Error ? error.message : String(error), 300)}`,
         );
         if (phase === "reconnecting") {
           scheduleReconnect();
@@ -331,7 +332,7 @@ export function createReconnectingProcessChannel(
   ): void {
     if (state === "disposed" || active !== attempt) return;
     getChannelLogger().warn(
-      `[${label}] agent pipe failure (phase=${phase}, pid=${attempt.child.pid}, code=${error.code}): ${error.message}`,
+      `[${label}] agent pipe failure (phase=${phase}, pid=${attempt.child.pid}, code=${error.code}): ${safeText(error.message, 300)}`,
     );
     if (wasReady && error.cause instanceof AgentLineTooLongError) {
       attempt.reconnectAfterClose = error;
@@ -386,7 +387,7 @@ export function createReconnectingProcessChannel(
   ): void {
     if (state === "disposed" || active !== attempt) return;
     getChannelLogger().warn(
-      `[${label}] agent spawn error (phase=${phase}, pid=${attempt.child.pid}): ${error instanceof Error ? error.message : String(error)}`,
+      `[${label}] agent spawn error (phase=${phase}, pid=${attempt.child.pid}): ${safeText(error instanceof Error ? error.message : String(error), 300)}`,
     );
     const wrapped =
       phase === "connecting"
@@ -417,7 +418,7 @@ export function createReconnectingProcessChannel(
     clearForceKillTimer(attempt);
     const { wasReady, stderrTail } = attempt.pipe.notifyClose();
     const closeContext: ChannelCloseContext = { code, signal, stderrTail };
-    const tail = stderrTail.trim().slice(0, CLOSE_LOG_STDERR_TAIL_CHARS);
+    const tail = safeText(stderrTail.trim(), CLOSE_LOG_STDERR_TAIL_CHARS);
     getChannelLogger().warn(
       `[${label}] agent child closed (phase=${phase}, pid=${attempt.child.pid}, code=${code}, signal=${signal}, wasReady=${wasReady}, state=${state})${tail ? ` stderr=${tail}` : ""}`,
     );

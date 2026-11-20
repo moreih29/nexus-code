@@ -5,7 +5,11 @@
  */
 import type { CliUiOp, CliUiOps, CliUiRespondArgs } from "../../../shared/cli/ui";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
+import { limitLog } from "../../../shared/log/limit";
+import { createLogger } from "../../../shared/log/main";
 import { CliError } from "./context";
+
+const timeouts = limitLog(createLogger("cli-bridge"));
 
 /** How long the renderer has to answer. */
 const UI_TIMEOUT_MS = 15_000;
@@ -31,7 +35,14 @@ export class RendererBridge {
     const answer = this.pending.register({
       key: requestId,
       timeoutMs,
-      onTimeout: () => new CliError("NexusCode's window did not answer"),
+      onTimeout: () => {
+        timeouts.log(
+          "warn",
+          `ui:${op}`,
+          `the window did not answer a cli request: op=${op} waited=${timeoutMs}ms`,
+        );
+        return new CliError("NexusCode's window did not answer");
+      },
     });
     try {
       win.webContents.send("ipc:event", "cli", "uiRequest", { requestId, op, args });

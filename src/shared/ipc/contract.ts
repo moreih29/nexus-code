@@ -1846,6 +1846,10 @@ const coreIpcContract = {
     call: {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
+      /** The folder the app's log files are in (main.log and its old file). */
+      logsPath: call(z.void(), z.object({ path: z.string() })),
+      /** Shows that folder in the OS file manager. */
+      openLogsFolder: call(z.void(), SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
       /**
        * How busy the workspace's host is (an SSH or WSL one's, from its
