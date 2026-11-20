@@ -23,7 +23,10 @@ function setup() {
   let now = listOf("first");
   const sent: { to: string; update: SessionsUpdate }[] = [];
   const watches = new SessionWatches({
-    list: async () => now,
+    snapshot: async () => {
+      const list = now;
+      return async () => list;
+    },
     notify: async (to, update) => {
       sent.push({ to, update });
       return true;
@@ -58,8 +61,7 @@ describe("watching the sessions' list", () => {
       answerable: answerable && to === "phone",
     });
     const watches = new SessionWatches({
-      list: async () => listOf("first"),
-      consents: async (to) => [consent(to)],
+      snapshot: async () => async (to) => ({ ...listOf("first"), consents: [consent(to)] }),
       notify: async (to, update) => {
         sent.push({ to, update });
         return true;

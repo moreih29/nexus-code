@@ -49,13 +49,15 @@ export async function tabOf(
   workspaceId: string,
   tabId: string,
   kinds: readonly string[],
+  reader: Pick<CliServices, "ui"> = services,
 ): Promise<{ id: string; type: string; title: string }> {
   if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
-  const { tabs } = await services
-    .ui("tabs.list", { workspaceId })
-    .catch(() => ({ tabs: [] as { id: string; type: string; title: string }[] }));
+  const { tabs } = await reader.ui("tabs.list", { workspaceId }).catch((error: unknown) => {
+    if (error instanceof RpcFailure) throw error;
+    return { tabs: [] };
+  });
   const tab = tabs.find((t) => t.id === tabId);
   if (!tab || !kinds.includes(tab.type)) {
     throw new RpcFailure(RpcErrorCode.NotFound, `no such ${kinds.join(" or ")} tab`);

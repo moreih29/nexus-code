@@ -14,6 +14,7 @@ import type { CliServices } from "../../cli/context";
 import { MAX_MESSAGE_BYTES, RpcFailure } from "../room";
 import { chatFailure } from "./chat";
 import { fitsAsResult, oneLine, tabOf, unavailable, workspaceOf } from "./common";
+import { ReadBudget } from "./read-budget";
 
 /** How many items a chat read gives when it does not say (the renderer's default too). */
 export const DEFAULT_READ_ITEMS = 200;
@@ -25,27 +26,35 @@ export const DEFAULT_READ_ITEMS = 200;
 export async function readChat(
   services: CliServices,
   { workspaceId, tabId, before, limit }: RpcParams<"chat.read">,
+  from?: string,
 ): Promise<RpcResult<"chat.read">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  let count = limit ?? DEFAULT_READ_ITEMS;
-  for (;;) {
-    const page = await services
-      .ui("chat.page", {
-        workspaceId,
-        tabId,
-        ...(before !== undefined ? { before } : {}),
-        limit: count,
-      })
-      .catch(unavailable);
-    if (fitsAsResult(page)) return page;
-    const fittedChildren = fitOversizeCodexChildren(page);
-    if (fittedChildren) return fittedChildren;
-    if (page.items.length <= 1) {
-      const fitted = fitPage(page);
-      if (fitted) return fitted;
-      throw new RpcFailure(RpcErrorCode.Unavailable, "that part of the chat is too large to send");
+  const budget = new ReadBudget(services, "chat.read", from, 12_000);
+  try {
+    await tabOf(services, workspaceId, tabId, ["claude", "codex"], budget);
+    let count = limit ?? DEFAULT_READ_ITEMS;
+    for (;;) {
+      const page = await budget
+        .ui(
+          "chat.page",
+          { workspaceId, tabId, ...(before !== undefined ? { before } : {}), limit: count },
+          budget.remaining(),
+        )
+        .catch(unavailable);
+      if (fitsAsResult(page)) return page;
+      const fittedChildren = fitOversizeCodexChildren(page);
+      if (fittedChildren) return fittedChildren;
+      if (page.items.length <= 1) {
+        const fitted = fitPage(page);
+        if (fitted) return fitted;
+        throw new RpcFailure(
+          RpcErrorCode.Unavailable,
+          "that part of the chat is too large to send",
+        );
+      }
+      count = Math.max(1, Math.floor(page.items.length / 2));
     }
-    count = Math.max(1, Math.floor(page.items.length / 2));
+  } finally {
+    budget.report();
   }
 }
 

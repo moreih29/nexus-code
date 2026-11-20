@@ -1,8 +1,9 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setImmediate as flush } from "node:timers/promises";
 import {
   MAX_AGENT_DESCRIPTION,
   MAX_LISTED_NOTES,
@@ -100,6 +101,97 @@ function agentRun(over: Partial<AgentRun>): AgentRun {
     ...over,
   };
 }
+
+describe("the sessions list's renderer deadline", () => {
+  test("a stuck tab list or chat leaves the other rows and the consent prompt usable", async () => {
+    const pending: PendingConsent[] = [
+      {
+        id: "consent",
+        at: 0,
+        expiresAt: Date.now() + 60_000,
+        request: {
+          id: "consent",
+          timeoutMs: 60_000,
+          fromWorkspaceId: "w3",
+          fromTabId: "gone",
+          toWorkspaceId: "w1",
+          change: { kind: "terminalNew" },
+        },
+      },
+    ];
+    const base = services(pending);
+    const tabLists: string[] = [];
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
+        if (op === "tabs.list") {
+          tabLists.push(args.workspaceId);
+          if (args.workspaceId === "w3") return new Promise(() => {});
+          return base.ui("tabs.list", args);
+        }
+        if (args.tabId === "t1") return new Promise(() => {});
+        return base.ui("chat.state", { workspaceId: args.workspaceId, tabId: args.tabId! });
+      },
+    } as CliServices;
+    jest.useFakeTimers();
+    try {
+      const response = serveWith(() => s)({ method: "sessions.list", params: {}, from: "phone" });
+      await flush();
+      expect(tabLists).toEqual(["w1", "w2", "w3"]);
+      jest.advanceTimersByTime(2_000);
+      await flush();
+      jest.advanceTimersByTime(2_000);
+      await flush();
+      expect(await response).toMatchObject({
+        workspaces: [{ id: "w1" }, { id: "w2" }, { id: "w3" }],
+        sessions: [{ tabId: "t2" }, { tabId: "t5" }, { tabId: "t4" }],
+        consents: [{ id: "consent", from: { workspaceName: "closed", tabId: "gone" } }],
+      });
+      expect(tabLists).toEqual(["w1", "w2", "w3"]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("many chats use bounded concurrency and stop at the overall deadline", async () => {
+    const base = services();
+    const tabs = Array.from({ length: 96 }, (_, i) => ({
+      id: `chat-${i}`,
+      type: "codex",
+      title: "Chat",
+    }));
+    const calls: { tabId: string; timeoutMs: number }[] = [];
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; tabId?: string }, timeoutMs: number) => {
+        if (op === "tabs.list") return { tabs: args.workspaceId === "w1" ? tabs : [] };
+        calls.push({ tabId: args.tabId!, timeoutMs });
+        if (args.tabId === "chat-1" || args.tabId === "chat-2") return { state: "idle" };
+        return new Promise(() => {});
+      },
+    } as unknown as CliServices;
+    jest.useFakeTimers();
+    try {
+      let ids: string[] | undefined;
+      const list = listSessions(s).then((value) => {
+        ids = value.sessions.map((row) => row.tabId);
+      });
+      await flush();
+      expect(calls).toHaveLength(10);
+      expect(ids).toBeUndefined();
+      for (let i = 0; i < 4; i++) {
+        jest.advanceTimersByTime(2_000);
+        await flush();
+      }
+      expect(ids).toEqual(["chat-1", "chat-2"]);
+      await list;
+      expect(calls).toHaveLength(34);
+      expect(calls.every(({ timeoutMs }) => timeoutMs <= 2_000)).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
 
 describe("a session's agents, as its row lists them", () => {
   test("only those that still run, each on a line", () => {
