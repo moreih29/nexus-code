@@ -388,4 +388,42 @@ describe("events --device", () => {
     expect(asked(app, "events.read").at(-1)).toMatchObject({ since: 3 });
     expect((await nexus(app, ["events", "--device", "all", "--since", "3"])).exitCode).toBe(2);
   });
+
+  test("all refreshes offline peers without losing their cursors", async () => {
+    const app = withPeer({
+      "events.read": () => ({ events: [event(12, SITE)], cursor: 12, more: false }),
+    });
+    const devices = app.peers.devices;
+    let lists = 0;
+    app.services.remote.devices = async () =>
+      devices.map((d) => (d.id === MINI ? { ...d, online: lists++ > 0 } : d));
+    const result = await nexus(app, [
+      "events",
+      "--device",
+      "all",
+      "--cursors",
+      JSON.stringify({ [MINI]: 11 }),
+      "--wait",
+      "10s",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ cursors: { [MINI]: 12 }, offline: [] });
+    expect(asked(app, "events.read")).toEqual([expect.objectContaining({ since: 11 })]);
+  });
+
+  test("a silent peer cannot overrun a short all-device wait", async () => {
+    const app = withPeer();
+    let signal: AbortSignal | undefined;
+    app.peers.answer = async (_device, _method, _params, given) => {
+      signal = given;
+      return new Promise(() => {});
+    };
+    const result = await nexus(app, ["events", "--device", "all", "--wait", "30ms", "--json"]);
+    expect(result.exitCode).toBe(124);
+    expect(signal?.aborted).toBe(true);
+    expect(JSON.parse(result.stdout).errors).toEqual([
+      expect.objectContaining({ device: { id: MINI, name: "Mac mini" } }),
+    ]);
+  });
 });

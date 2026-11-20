@@ -36,6 +36,11 @@ const SESSIONS: RemoteSession[] = [
   },
 ];
 
+function enablePeerCli(app: FakeApp) {
+  app.peers.devices = app.peers.devices.map((peer) =>
+    peer.id === MINI ? { ...peer, serves: [...peer.serves, "agents.cli"] } : peer,
+  );
+}
 const STATUS = {
   agent: "claude",
   title: "Review",
@@ -332,6 +337,19 @@ describe("chat read --device", () => {
 describe("chat new --device", () => {
   test("opens a tab in a workspace there, sending the prompt as the agent's", async () => {
     const app = withPeer({ "chat.new": () => ({ tabId: "77777777-0000-4000-8000-000000000077" }) });
+    const older = await nexus(app, [
+      "chat",
+      "new",
+      "--device",
+      MINI,
+      "--workspace",
+      "site",
+      "--mode",
+      "plan",
+    ]);
+    expect(older.stderr).toContain("Update NexusCode");
+    expect(asked(app, "chat.new")).toEqual([]);
+    enablePeerCli(app);
     const result = await nexus(
       app,
       [
@@ -484,11 +502,12 @@ describe("chat interrupt, set and tab close --device", () => {
     });
     const listed = await nexus(app, ["chat", "set", "Review", "--device", "Mac mini"]);
     expect(listed.stdout).toStartWith('Claude in Review on "Mac mini":\n  model   haiku\n');
-    const set = await nexus(
-      app,
-      ["chat", "set", "Review", "--device", "Mac mini", "--mode", "plan"],
-      AGENT,
-    );
+    const args = ["chat", "set", "Review", "--device", "Mac mini", "--mode", "plan"];
+    const old = await nexus(app, args, AGENT);
+    expect(old.stderr).toContain("Update NexusCode");
+    expect(asked(app, "chat.configure")).toEqual([]);
+    enablePeerCli(app);
+    const set = await nexus(app, args, AGENT);
     expect(set.stdout).toBe(
       'Review (1a2b3c4d) on "Mac mini" now runs with model haiku, effort (the model\'s default), mode plan.\n',
     );
@@ -496,10 +515,6 @@ describe("chat interrupt, set and tab close --device", () => {
       permissionMode: "plan",
       from: expect.objectContaining({ kind: "terminal" }),
     });
-    expect(
-      (await nexus(app, ["chat", "set", "Review", "--device", "Mac mini", "--profile", "Work"]))
-        .stderr,
-    ).toContain("Update NexusCode");
   });
 
   test("tab close closes a terminal there, a running one with --force", async () => {
@@ -525,7 +540,7 @@ describe("expanded peer CLI reads", () => {
   test("requires a compatible peer before discovery and forwards reads as the caller", async () => {
     const app = withPeer({
       "chat.instructions": () => ({ instructions: "Run the suite first." }),
-      "notes.transcript": () => ({ id: "note-1", title: "Planning", recordings: [] }),
+      "notes.transcript": () => ({ id: "note-1", title: "화자 기록", recordings: [] }),
       "files.list": () => ({ path: "/w/site", entries: [{ name: "src", kind: "dir" }] }),
     });
     const command = ["chat", "instructions", "Review", "--show", "--device", MINI];
@@ -548,6 +563,7 @@ describe("expanded peer CLI reads", () => {
       "--json",
     ]);
     expect(JSON.parse(note.stdout)).toMatchObject({ id: "note-1", recordings: [] });
+    expect(note.stdout).toContain("화자 기록");
     const folder = await nexus(app, [
       "file",
       "list",
@@ -564,4 +580,23 @@ describe("expanded peer CLI reads", () => {
       ]);
     }
   });
+});
+
+test("a peer slash command still has its execution budget after approval", async () => {
+  const app = withPeer({
+    "chat.command": () => ({
+      remoteControl: { enabled: true, url: "https://claude.ai/code/example" },
+    }),
+    "chat.send": () => ({ remoteControl: { enabled: false } }),
+  });
+  enablePeerCli(app);
+  const command = await nexus(app, ["chat", "command", "Review", "rc", "--device", MINI]);
+  const send = await nexus(app, ["chat", "send", "Review", "/remote-control", "--device", MINI]);
+  expect(command.stdout).toContain("Turned Remote Control on");
+  expect(send.stdout).toContain("Turned Remote Control off");
+  for (const method of ["chat.command", "chat.send"]) {
+    expect(
+      app.peers.requests.find((item) => item.method === method)?.timeoutMs,
+    ).toBeGreaterThanOrEqual(150_000);
+  }
 });
