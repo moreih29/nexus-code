@@ -48,6 +48,14 @@ export function isRemoteKey(key: string): boolean {
   return key.startsWith(REMOTE_KEY_PREFIX);
 }
 
+/** The device, workspace and tab a remote session key names. */
+export function parseRemoteSessionKey(key: string) {
+  if (!isRemoteKey(key)) return null;
+  const [deviceId, workspaceId, tabId, ...rest] = key.slice(REMOTE_KEY_PREFIX.length).split("/");
+  if (!deviceId || !workspaceId || !tabId || rest.length > 0) return null;
+  return { deviceId, workspaceId, tabId };
+}
+
 /**
  * The workspace and tab of this computer a session key names; null for one
  * that names neither, and for another computer's session.

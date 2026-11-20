@@ -473,6 +473,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
     grouping: "status",
+    held: [],
     activePanelId: "p1",
     root: {
       kind: "split",

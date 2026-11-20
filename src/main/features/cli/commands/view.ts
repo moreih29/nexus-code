@@ -1,8 +1,7 @@
 /**
  * nexus view: which of its two views the window shows, the agent view or
- * the workspaces, and the agent view's panels: the sessions (Claude and
- * Codex tabs, terminals) of any workspace each shows, split as a
- * workspace's editor area is (nexus layout).
+ * the workspaces, and the agent view's panels: the sessions and files each
+ * shows, split as a workspace's editor area is (nexus layout).
  *
  * A panel is named by its number in `view layout` (1, 2, ...), by its id,
  * by "." for the panel holding this terminal (else the active one), or by
@@ -17,6 +16,7 @@ import type {
   CliSplitSide,
   CliView,
   CliViewAgent,
+  CliViewHeldTab,
 } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, CliError, pick, resolveWorkspace, shortId } from "../context";
@@ -25,7 +25,7 @@ import { WORKSPACE_FLAG } from "./flags";
 import { evenRatios, type GroupInfo, groupsOf, SIDES, share } from "./layout";
 import { resolveAnyTab } from "./terminal";
 
-/** The tabs a panel of the agent view can show. */
+/** Local sessions the CLI can place in the agent view. */
 const VIEW_TAB_TYPES = new Set(["claude", "codex", "terminal"]);
 
 const VIEWS: Record<string, CliView> = {
@@ -179,10 +179,11 @@ const VIEW_NAME: Record<CliView, string> = {
   workspaces: "the workspaces",
 };
 
-/** The panels drawn as layout show draws groups, each session with its workspace. */
-function describeView(ctx: CliContext, view: View): string[] {
+type ViewTabs = ReadonlyMap<string, CliViewAgent | CliViewHeldTab>;
+
+/** The panels drawn as layout show draws groups, with each tab's workspace or device. */
+function describeView(ctx: CliContext, view: View, tabs: ViewTabs): string[] {
   const workspaces = new Map(ctx.services.listWorkspaces().map((w) => [w.id, w.name]));
-  const agents = new Map(view.agents.map((a) => [a.key, a]));
   const numbers = new Map(view.panels.map((p) => [p.id, p.number]));
   const lines = [
     `shown: ${VIEW_NAME[view.view]}${view.view === "agents" ? "" : " (the agent view is hidden)"}`,
@@ -190,19 +191,21 @@ function describeView(ctx: CliContext, view: View): string[] {
   const walk = (node: CliLayoutNode, depth: number) => {
     const pad = "  ".repeat(depth);
     if (node.kind === "group") {
-      const sessions = node.tabIds
+      const labels = node.tabIds
         .map((key) => {
-          const agent = agents.get(key);
-          const title = agent ? agent.title : shortId(key.split(":")[1] ?? key);
-          const where = agent
-            ? ` [${workspaces.get(agent.workspaceId) ?? shortId(agent.workspaceId)}]`
-            : "";
-          return `${key === node.shownTabId ? "*" : ""}${title}${where}`;
+          const tab = tabs.get(key);
+          const selected = key === node.shownTabId ? "*" : "";
+          if (!tab) return `${selected}${shortId(key.split(":")[1] ?? key)}`;
+          const source =
+            "device" in tab
+              ? tab.device
+              : (workspaces.get(tab.workspaceId) ?? shortId(tab.workspaceId));
+          return `${selected}${tab.title} [${source}]`;
         })
         .join(", ");
       const active = node.id === view.activePanelId ? ", active" : "";
       lines.push(
-        `${pad}panel ${numbers.get(node.id)} (${shortId(node.id)})${active}: ${sessions || "(empty)"}`,
+        `${pad}panel ${numbers.get(node.id)} (${shortId(node.id)})${active}: ${labels || "(empty)"}`,
       );
       return;
     }
@@ -218,7 +221,7 @@ function describeView(ctx: CliContext, view: View): string[] {
   return lines;
 }
 
-function viewJson(view: View) {
+function viewJson(view: View, tabs: ViewTabs) {
   return {
     view: view.view,
     activePanelId: view.activePanelId,
@@ -227,10 +230,10 @@ function viewJson(view: View) {
       number: p.number,
       id: p.id,
       sessions: p.tabIds.map((key) => {
-        const agent = view.agents.find((a) => a.key === key);
-        return agent
-          ? { workspaceId: agent.workspaceId, tabId: agent.tabId, title: agent.title }
-          : { key };
+        const tab = tabs.get(key);
+        if (!tab) return { key };
+        if ("kind" in tab) return tab;
+        return { workspaceId: tab.workspaceId, tabId: tab.tabId, title: tab.title };
       }),
       shownTabId: p.shownTabId?.split(":")[1] ?? null,
     })),
@@ -260,14 +263,15 @@ const viewShow: CliCommand = {
 
 const viewLayout: CliCommand = {
   path: ["view", "layout"],
-  summary: "Show the agent view's panels and the sessions each holds",
+  summary: "Show the agent view's panels and the tabs each holds",
   details:
-    'Panels are numbered as other view commands take them; "*" marks the session each\n' +
-    "shows, and each session's workspace follows it.",
+    'Panels are numbered as other view commands take them. "*" marks the tab each panel\n' +
+    "shows. The workspace follows each local tab, and the device follows each remote tab.",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const view = await viewOf(ctx);
-    return output(describeView(ctx, view).join("\n"), viewJson(view));
+    const tabs = new Map([...view.agents, ...view.held].map((tab) => [tab.key, tab]));
+    return output(describeView(ctx, view, tabs).join("\n"), viewJson(view, tabs));
   },
 };
 
