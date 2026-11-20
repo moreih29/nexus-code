@@ -610,6 +610,39 @@ describe("what the relay keeps and sends again", () => {
     }
   });
 
+  test("a late outbox watchdog lets queued requests survive a blocked event loop", async () => {
+    const { a, b } = await pair();
+    jest.useFakeTimers();
+    const now = performance.now.bind(performance);
+    let slipMs = 0;
+    const clock = jest.spyOn(performance, "now").mockImplementation(() => now() + slipMs);
+    try {
+      const seal = Promise.withResolvers<{ nonce: string; box: string }>();
+      const pairing = b.room.sendPair("a", () => seal.promise);
+      await flushRelay();
+      const waiting = b.room
+        .request("a", "sessions.list", {}, 20_000)
+        .catch((error: unknown) => error);
+
+      slipMs = 2_000;
+      jest.advanceTimersByTime(5_000);
+      await flushRelay();
+      expect(b.recoveries()).toBe(0);
+      expect(a.served).toHaveLength(0);
+
+      seal.resolve({ nonce: "", box: "" });
+      expect(await pairing).toBe(true);
+      expect(await waiting).toMatchObject({ workspaces: [{ id: "w1" }] });
+      jest.advanceTimersByTime(5_000);
+      expect(b.recoveries()).toBe(0);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      clock.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   test("a live socket with two silent online peers reconnects after its hello probes", async () => {
     const { relay, key, a, b } = await pair();
     const c = device(relay, "c", key);

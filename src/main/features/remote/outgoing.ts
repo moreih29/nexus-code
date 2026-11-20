@@ -1,9 +1,9 @@
 import type { RpcMethod, RpcNotificationMethod } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
+import { frameStallDeadline } from "./frame-stall";
 
 const log = createLogger("remote-outgoing");
 const RATE_LIMIT_COOLDOWN_MS = 1_000;
-const FRAME_STALL_MS = 5_000;
 const QUEUE_LIMIT = 150;
 const BUFFER_CHECK_MS = 25;
 const FLOOD_WINDOW_MS = 3_000;
@@ -204,15 +204,10 @@ export class OutgoingFrames {
   }
 
   private async send(frame: QueuedFrame): Promise<void> {
-    const started = performance.now();
     let expired = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expiry = new Promise<null>((resolve) => {
-      timer = setTimeout(() => {
-        expired = true;
-        if (!this.closed) this.onStall(performance.now() - started);
-        resolve(null);
-      }, FRAME_STALL_MS);
+    const { expiry, cancel } = frameStallDeadline((elapsed) => {
+      expired = true;
+      if (!this.closed) this.onStall(elapsed);
     });
     try {
       const current = () => !this.closed && !expired && frame.wanted?.() !== false;
@@ -222,7 +217,7 @@ export class OutgoingFrames {
     } catch (error) {
       frame.reject(error);
     } finally {
-      clearTimeout(timer);
+      cancel();
     }
   }
 }

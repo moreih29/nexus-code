@@ -37,6 +37,7 @@ import {
 import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
 import { isFileTransferMethod } from "./file-io";
+import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
@@ -47,7 +48,6 @@ const log = createLogger("remote-room");
 export const REQUEST_TIMEOUT_MS = 15_000;
 const HELLO_RETRY_INTERVAL_MS = 5_000;
 const WARNING_INTERVAL_MS = 30_000;
-const INBOX_STALL_MS = 5_000;
 const RECENT_REPLY_LIMIT = 200;
 const PEER_PROBE_MS = 5_000;
 const MAX_PROBE_PEERS = 3;
@@ -706,16 +706,11 @@ export class RemoteRoom {
       if (frame.to === this.deps.self.id) this.deps.onPairFrame?.(frame);
       return;
     }
-    const started = performance.now();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expiry = new Promise<null>((resolve) => {
-      timer = setTimeout(() => {
-        if (inbox === this.inbox) this.stalled("inbox", performance.now() - started, inbox.pending);
-        resolve(null);
-      }, INBOX_STALL_MS);
+    const { expiry, cancel } = frameStallDeadline((elapsed) => {
+      if (inbox === this.inbox) this.stalled("inbox", elapsed, inbox.pending);
     });
-    const envelope = await Promise.race([expiry, openMessage(this.deps.room, frame)]).finally(() =>
-      clearTimeout(timer),
+    const envelope = await Promise.race([expiry, openMessage(this.deps.room, frame)]).finally(
+      cancel,
     );
     if (inbox !== this.inbox) return;
     if (!envelope) {
