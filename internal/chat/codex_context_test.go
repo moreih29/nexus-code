@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const notesThread = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -270,4 +273,63 @@ func TestCodexInstructionsChangeIndependently(t *testing.T) {
 	context.Instructions = ""
 	check(map[string]string{codexInstructions: instructionsCleared + refreshSuffix + "1"})
 	check(nil)
+}
+
+func TestCodexLongInstructionsSurviveResumeAndRefresh(t *testing.T) {
+	profile := t.TempDir()
+	turn := []byte(`{"method":"turn/start","params":{"threadId":"` + notesThread + `"}}`)
+	guidance := codexContext{Instructions: "# Instructions\n" + strings.Repeat("한🧪", 1600) + "\nlast rule"}
+	proc := testCodexContextProcess(profile)
+	fragments := testCodexContext(t, applyTestCodexContext(proc, turn, guidance))
+	if len(fragments) < 3 {
+		t.Fatalf("instructions did not split: %d fragments", len(fragments))
+	}
+	keys := make([]string, 0, len(fragments))
+	for key := range fragments {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	var text strings.Builder
+	var rollout strings.Builder
+	dir := filepath.Join(profile, "sessions", "2026", "11", "19")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "rollout-time-"+notesThread+".jsonl")
+	for i, key := range keys {
+		part := fragments[key]
+		if len(part.Value) > 4000 || !utf8.ValidString(part.Value) || part.Kind != "application" {
+			t.Fatalf("invalid additionalContext part %s", key)
+		}
+		text.WriteString(part.Value)
+		item := map[string]any{"type": "message", "role": "developer", "content": []map[string]string{
+			{"text": "<" + key + ">" + part.Value + "</" + key + ">"},
+		}}
+		record, _ := json.Marshal(map[string]any{"type": "response_item", "payload": item})
+		rollout.Write(record)
+		rollout.WriteByte('\n')
+		if i == 0 {
+			if err := os.WriteFile(file, record, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if text.String() != guidance.Instructions {
+		t.Fatal("splitting changed the instructions")
+	}
+	if bytes.Equal(applyTestCodexContext(testCodexContextProcess(profile), turn, guidance), turn) {
+		t.Fatal("a partial rollout suppressed the rest of the instructions")
+	}
+	if err := os.WriteFile(file, []byte(rollout.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resumed := testCodexContextProcess(profile)
+	if !bytes.Equal(applyTestCodexContext(resumed, turn, guidance), turn) {
+		t.Fatal("resume repeated instructions already in the rollout")
+	}
+	guidance.Instructions = ""
+	got := testCodexContext(t, applyTestCodexContext(resumed, turn, guidance))
+	if len(got) != 1 || got[codexInstructions].Value != instructionsCleared {
+		t.Fatal("clearing a split update should revoke all its instructions")
+	}
 }
