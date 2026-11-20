@@ -90,6 +90,45 @@ describe("nexus note", () => {
       ],
     };
     expect((await nexus(app, ["note", "list"])).stdout).toContain("recording 2:05");
+    const structured = await nexus(app, [
+      "note",
+      "transcript",
+      "nmhz00dd",
+      "--recording",
+      "rmhz00cc",
+      "--json",
+    ]);
+    expect(JSON.parse(structured.stdout)).toEqual({
+      id: "nmhz00dd0004",
+      title: "주간 회의",
+      recordings: [
+        {
+          id: "rmhz00cc0abcd",
+          startedAt: app.transcripts[`${APP}/nmhz00dd0004`]?.recordings[0]?.startedAt,
+          participants: "auto",
+          lines: [
+            {
+              id: "1000:2000:1",
+              startMs: 1000,
+              endMs: 2000,
+              speaker: "1",
+              speakerLabel: "Speaker 1",
+              speakerName: "지현",
+              text: "시작할게요",
+            },
+            {
+              id: "3000:4000:1",
+              startMs: 3000,
+              endMs: 4000,
+              speaker: "2",
+              speakerLabel: "Speaker 2",
+              speakerName: null,
+              text: "네",
+            },
+          ],
+        },
+      ],
+    });
     const out = await nexus(app, ["note", "read", "nmhz00dd"]);
     expect(out.stdout).toBe(
       "# 주간 회의\n\n안건\n\n---\n\n# Transcript: 주간 회의\n\n" +
@@ -140,4 +179,27 @@ describe("nexus note", () => {
     expect(contentsOf({ counts })).toBe("text");
     expect(contentsOf({ counts: { ...counts, files: 2, images: 1 } })).toBe("2 files, 1 image");
   });
+});
+
+test("note record passes the participant count only after the user agrees", async () => {
+  const app = withNotes();
+  const argv = ["note", "record", "nmhz00aa", "--participants"];
+  expect((await nexus(app, [...argv, "0"])).exitCode).toBe(2);
+  expect(app.asked).toEqual([]);
+  expect((await nexus(app, [...argv, "3"])).exitCode).toBe(1);
+  expect(app.uiCalls.filter(({ op }) => op === "note.recorder")).toEqual([]);
+  app.answers.push("once");
+  app.uiAnswers.set("note.recorder", {
+    phase: "recording",
+    workspaceId: APP,
+    noteId: "nmhz00aa0001",
+    voice: "ready",
+  });
+  expect((await nexus(app, [...argv, "3"])).exitCode).toBe(0);
+  expect(app.uiCalls.filter(({ op }) => op === "note.recorder")).toEqual([
+    {
+      op: "note.recorder",
+      args: { action: "start", workspaceId: APP, noteId: "nmhz00aa0001", participants: 3 },
+    },
+  ]);
 });

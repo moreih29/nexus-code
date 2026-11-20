@@ -44,7 +44,7 @@ export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "note.recorder": async ({ action, workspaceId, noteId }) => {
+  "note.recorder": async ({ action, workspaceId, noteId, participants }) => {
     const voice = await voiceAvailabilityNow();
     const phase = useRecorderStore.getState().phase;
     switch (action) {
@@ -79,7 +79,7 @@ export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
         const said: ToastInput[] = [];
         const stopWatching = watchToasts((toast) => said.push(toast));
         try {
-          await startRecording(workspaceId, noteId, voiceLanguage());
+          await startRecording(workspaceId, noteId, voiceLanguage(), participants);
         } finally {
           stopWatching();
         }

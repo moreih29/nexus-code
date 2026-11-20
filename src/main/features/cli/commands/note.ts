@@ -5,7 +5,12 @@ import type { CliRecorder } from "../../../../shared/cli/ui";
 import { imagesOf, markdownToBlocks } from "../../../../shared/notes/from-markdown";
 import { insertionIndex } from "../../../../shared/notes/insert";
 import type { DocNode } from "../../../../shared/notes/markdown";
-import { clockOf, transcriptMarkdown } from "../../../../shared/notes/transcript";
+import {
+  clockOf,
+  type ParticipantCount,
+  transcriptLinesForCli,
+  transcriptMarkdown,
+} from "../../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
@@ -127,6 +132,61 @@ const read: CliCommand = {
       ...(transcript ? { transcript } : {}),
       ...(local ? { dir: note.dir } : {}),
     });
+  },
+};
+
+const noteTranscript: CliCommand = {
+  path: ["note", "transcript"],
+  summary: "List the lines and speakers of a note's recordings",
+  args: "<note>",
+  details: `${NOTE_ARG_HELP} Times are milliseconds from the start of each recording.`,
+  flags: {
+    recording: { type: "string", value: "ID", description: "Only this recording (id or prefix)" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "note") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const note = await findNote(ctx, workspace.id, selector);
+    const { recordings } = await ctx.services.notes.transcript(workspace.id, note.id);
+    const wanted =
+      typeof flags.recording === "string"
+        ? [
+            pick(
+              recordings,
+              flags.recording,
+              (r) => r.id,
+              (r) => r.id,
+              "recording",
+            ),
+          ]
+        : recordings;
+    const shown = wanted.map((recording) => ({
+      id: recording.id,
+      startedAt: recording.startedAt,
+      participants: recording.participantCount ?? "auto",
+      lines: transcriptLinesForCli(recording),
+    }));
+    const text = shown
+      .map((recording) =>
+        [
+          `Recording ${recording.id}`,
+          ...recording.lines.map(
+            (line) =>
+              `  ${line.id} [${clockOf(line.startMs)}] ${line.speakerName ?? line.speakerLabel}: ${line.text}`,
+          ),
+        ].join("\n"),
+      )
+      .join("\n\n");
+    return output(
+      text || `${named(note)} has no recordings.`,
+      {
+        id: note.id,
+        title: note.title,
+        recordings: shown,
+      },
+      { records: shown },
+    );
   },
 };
 
@@ -376,6 +436,11 @@ const noteRecord: CliCommand = {
     pause: { type: "boolean", description: "Pause the recording" },
     resume: { type: "boolean", description: "Go on with the paused recording" },
     stop: { type: "boolean", description: "Stop the recording" },
+    participants: {
+      type: "string",
+      value: "N|auto",
+      description: "The expected participant count when starting",
+    },
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
@@ -384,6 +449,16 @@ const noteRecord: CliCommand = {
     const acts = (["pause", "resume", "stop"] as const).filter((a) => flags[a] === true);
     if (acts.length > 1) throw new CliUsageError("--pause, --resume or --stop: one of them");
     const [act] = acts;
+    const count = flags.participants as string | undefined;
+    let participants: ParticipantCount | undefined;
+    if (count !== undefined) {
+      if (!selector || act)
+        throw new CliUsageError("--participants goes with a note when starting");
+      if (count === "auto") participants = count;
+      else if (/^[1-9]\d*$/.test(count) && Number.isSafeInteger(Number(count)))
+        participants = Number(count);
+      else throw new CliUsageError("--participants takes a positive whole number or auto");
+    }
     if (act && selector !== undefined) {
       throw new CliUsageError(`--${act} goes to the recording there is; leave out <note>`);
     }
@@ -419,11 +494,20 @@ const noteRecord: CliCommand = {
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,
       toWorkspaceId: workspace.id,
-      change: { kind: "noteRecord", detail: note.title || note.id },
+      change: {
+        kind: "noteRecord",
+        detail: note.title || note.id,
+        ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+      },
     });
     const recorder = await ctx.services.ui(
       "note.recorder",
-      { action: "start", workspaceId: workspace.id, noteId: note.id },
+      {
+        action: "start",
+        workspaceId: workspace.id,
+        noteId: note.id,
+        ...(participants !== undefined ? { participants } : {}),
+      },
       RECORD_START_MS,
     );
     return output(await recorderText(ctx, recorder), recorder);
@@ -436,6 +520,7 @@ const RECORD_START_MS = 90_000;
 export const noteCommands: CliCommand[] = [
   list,
   read,
+  noteTranscript,
   notePath,
   noteNew,
   noteShow,

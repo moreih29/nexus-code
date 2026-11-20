@@ -3,6 +3,7 @@
  * and the terminals' screens. Main sends "cli.uiRequest" to the active
  * window and the renderer answers with "cli.uiRespond".
  */
+
 import { z } from "zod";
 import type {
   ChatCommand,
@@ -12,6 +13,7 @@ import type {
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
+import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
 
@@ -1223,6 +1225,7 @@ export interface CliUiOps {
       action: "status" | "start" | "pause" | "resume" | "stop";
       workspaceId?: string;
       noteId?: string;
+      participants?: ParticipantCount;
     };
     result: CliRecorder;
   };

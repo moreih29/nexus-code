@@ -160,7 +160,7 @@ describe("changing another workspace", () => {
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
-    note list | note read nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
+    note list | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
     chat history | chat profiles | chat instructions eeee --show`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
