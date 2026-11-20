@@ -49,6 +49,19 @@ describe("run log", () => {
     expect(files.has("m")).toBe(false);
   });
 
+  test("the quit line is written once, and says why for an update restart", () => {
+    const { files, fs } = memoryFs();
+    const run = beginRun("m", "1.0.0", { warn: mock() }, () => 1000, fs);
+    const info = mock();
+    run.quit({ info }, "restart to install an update");
+    run.quit({ info });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info.mock.calls[0]?.[0]).toBe(
+      "NexusCode quit: uptime=0s (restart to install an update)",
+    );
+    expect(files.has("m")).toBe(false);
+  });
+
   test("a marker left behind is reported once, without the path", () => {
     const { files, fs } = memoryFs(JSON.stringify({ startedAt: 0, version: "0.9.0" }));
     const warn = mock();

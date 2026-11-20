@@ -27,6 +27,14 @@ export interface LoopMonitorDeps {
   setInterval?: (run: () => void, ms: number) => unknown;
   clearInterval?: (timer: unknown) => void;
   now?: () => number;
+  /** Electron's powerMonitor: a check across a suspend or resume is skipped. */
+  power?: PowerEvents;
+}
+
+/** The part of Electron's powerMonitor the monitor listens to. */
+export interface PowerEvents {
+  on(event: "suspend" | "resume", listener: () => void): unknown;
+  removeListener(event: "suspend" | "resume", listener: () => void): unknown;
 }
 
 /**
@@ -34,8 +42,9 @@ export interface LoopMonitorDeps {
  * loop was busy. The sampler costs a timer every 20 ms and an array-free
  * histogram; it is read every 10 s and a line is written only when p99 or the
  * longest delay is over its limit, so a healthy app writes nothing.
- * A check that itself came much later than 10 s (the machine slept) is skipped,
- * as the sleep would read as a stall.
+ * A check that came late is itself a stall (the same blocked loop delays the
+ * check), so its lateness counts as a delay too. Only a check across a suspend
+ * or resume (from powerMonitor) is skipped, as the sleep would read as a stall.
  */
 export function startEventLoopMonitor(logger: Logger, deps: LoopMonitorDeps = {}): () => void {
   const sampler: DelaySampler =
@@ -51,16 +60,26 @@ export function startEventLoopMonitor(logger: Logger, deps: LoopMonitorDeps = {}
   const stop = deps.clearInterval ?? ((timer) => clearInterval(timer as NodeJS.Timeout));
   const limited = limitLog(logger, { intervalMs: LOOP_LINE_INTERVAL_MS, now });
 
+  let slept = false;
+  const markSlept = () => {
+    slept = true;
+  };
+  deps.power?.on("suspend", markSlept);
+  deps.power?.on("resume", markSlept);
+
   sampler.enable();
   let lastCheck = now();
   const timer = every(() => {
     const at = now();
-    const slept = at - lastCheck > LOOP_CHECK_MS * 3;
+    const late = Math.max(0, at - lastCheck - LOOP_CHECK_MS);
     lastCheck = at;
     const p99 = sampler.percentile(99) / 1e6;
-    const max = sampler.max / 1e6;
+    const max = Math.max(sampler.max / 1e6, late);
     sampler.reset();
-    if (slept) return;
+    if (slept) {
+      slept = false;
+      return;
+    }
     if (p99 > LOOP_P99_WARN_MS || max > LOOP_MAX_WARN_MS) {
       limited.log(
         "warn",
@@ -73,5 +92,7 @@ export function startEventLoopMonitor(logger: Logger, deps: LoopMonitorDeps = {}
   return () => {
     stop(timer);
     sampler.disable();
+    deps.power?.removeListener("suspend", markSlept);
+    deps.power?.removeListener("resume", markSlept);
   };
 }

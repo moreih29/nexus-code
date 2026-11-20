@@ -499,6 +499,21 @@ registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
+/**
+ * The restart that installs an update may end the app before its will-quit
+ * cleanup runs, which would leave the run marker behind and read as a crash at
+ * the next start. So the quit line is written, and the marker removed, first.
+ */
+function withQuitNote<T extends { quitAndInstall(): void }>(backend: T): T {
+  return {
+    ...backend,
+    quitAndInstall() {
+      currentRun?.quit(logger, "restart to install an update");
+      backend.quitAndInstall();
+    },
+  };
+}
+
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
@@ -509,13 +524,13 @@ updatesHandle = installUpdatesDomain({
   // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
-      ? createElectronUpdateBackend(createLogger("updates"))
+      ? withQuitNote(createElectronUpdateBackend(createLogger("updates")))
       : undefined,
 });
 
 app.whenReady().then(async () => {
   currentRun = beginRun(path.join(userData, "running.json"), app.getVersion(), logger);
-  stopLoopMonitor = startEventLoopMonitor(logger);
+  stopLoopMonitor = startEventLoopMonitor(logger, { power: powerMonitor });
   logger.info(
     startLine({
       version: app.getVersion(),

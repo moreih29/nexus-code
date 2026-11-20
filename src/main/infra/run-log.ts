@@ -23,8 +23,8 @@ export function startLine(info: StartInfo): string {
   );
 }
 
-export function quitLine(uptimeMs: number): string {
-  return `NexusCode quit: uptime=${Math.round(uptimeMs / 1000)}s`;
+export function quitLine(uptimeMs: number, reason?: string): string {
+  return `NexusCode quit: uptime=${Math.round(uptimeMs / 1000)}s${reason ? ` (${reason})` : ""}`;
 }
 
 /** The file system the run marker needs; tests stand in a fake. */
@@ -64,7 +64,7 @@ export function beginRun(
   logger: Pick<Logger, "warn">,
   now: () => number = Date.now,
   markerFs: MarkerFs = realMarkerFs,
-): { quit(logger: Pick<Logger, "info">): void } {
+): { quit(logger: Pick<Logger, "info">, reason?: string): void } {
   const startedAt = now();
   const before = markerFs.read(markerFile);
   if (before !== null) {
@@ -85,9 +85,13 @@ export function beginRun(
   } catch {
     // A profile that cannot be written to loses only this check.
   }
+  let quit = false;
   return {
-    quit(out) {
-      out.info(quitLine(now() - startedAt));
+    quit(out, reason) {
+      // The restart that installs an update calls this before the quit does.
+      if (quit) return;
+      quit = true;
+      out.info(quitLine(now() - startedAt, reason));
       try {
         markerFs.remove(markerFile);
       } catch {
