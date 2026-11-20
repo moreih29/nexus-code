@@ -311,7 +311,11 @@ describe("chat model from a recorded conversation", () => {
         (m.response as { request_id?: string }).request_id === "app-3"
       );
     });
-    expect(run(lines).permissionMode).toBe("acceptEdits");
+    expect(run(lines.slice(0, -1)).confirmedPermissionMode).toBe("default");
+    expect(run(lines)).toMatchObject({
+      permissionMode: "acceptEdits",
+      confirmedPermissionMode: "acceptEdits",
+    });
   });
 
   test("a sent message shows before the CLI takes it", () => {

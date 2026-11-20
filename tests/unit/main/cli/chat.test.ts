@@ -4,10 +4,12 @@
  */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import type { CliCaller } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { senderOf } from "../../../../src/main/features/cli/sender";
 import { INSTRUCTION_LIMIT } from "../../../../src/shared/chat/instructions";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
+import type { ChatAgent } from "../../../../src/shared/sessions/task-agent";
 import {
   API,
   APP,
@@ -22,11 +24,12 @@ import {
 
 const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
 const DOCS_TAB = "ffffffff-0000-4000-8000-000000000009";
+const CALLER_TAB = "13131313-0000-4000-8000-000000000010";
 
 async function nexus(
   app: FakeApp,
   argv: string[],
-  caller = { workspaceId: APP, tabId: SHELL_TAB },
+  caller: CliCaller = { workspaceId: APP, tabId: SHELL_TAB },
   stdin?: string,
 ) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
@@ -41,7 +44,7 @@ function withChat(info: Partial<CliChatInfo> = {}): FakeApp {
   const app = fakeApp();
   const chat: CliTabInfo = {
     id: CHAT_TAB,
-    type: "claude",
+    type: info.agent ?? "claude",
     title: "Fix the login",
     groupId: "g1",
     shown: false,
@@ -173,6 +176,32 @@ function withChoices(info: Partial<CliChatInfo> = {}): FakeApp {
   return app;
 }
 
+function addCaller(
+  app: FakeApp,
+  agent: ChatAgent,
+  mode: string | undefined,
+  verified?: boolean,
+): CliCaller {
+  app.tabs[APP]?.push({
+    id: CALLER_TAB,
+    type: agent,
+    title: "Caller",
+    groupId: "g1",
+    shown: false,
+  });
+  if (mode !== undefined) {
+    app.chatChoices.set(CALLER_TAB, {
+      agent,
+      mode,
+      model: null,
+      effort: null,
+      models: [],
+      efforts: [],
+    });
+  }
+  return { workspaceId: APP, tabId: CALLER_TAB, ...(verified === undefined ? {} : { verified }) };
+}
+
 describe("chat set", () => {
   test("sets the model and effort, and a mode that lets less run, without asking", async () => {
     const app = withChoices();
@@ -269,6 +298,259 @@ describe("chat new with settings", () => {
     expect(result.stdout).toBe(
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
+  });
+});
+
+describe("delegating a chat mode", () => {
+  type Outcome = "grant" | "ask" | "refuse" | "unchanged consent";
+  const rows: [
+    ChatAgent,
+    string | undefined,
+    ChatAgent,
+    string,
+    boolean | undefined,
+    Outcome,
+    Outcome,
+  ][] = [
+    // Caller, mode, target, requested mode, verified, chat new, chat set.
+    ["claude", "auto", "claude", "acceptEdits", true, "grant", "grant"],
+    ["claude", "acceptEdits", "claude", "auto", true, "ask", "ask"],
+    ["codex", "auto", "claude", "auto", true, "grant", "grant"],
+    ["claude", "acceptEdits", "codex", "auto", true, "unchanged consent", "grant"],
+    ["codex", "readOnly", "codex", "auto", true, "unchanged consent", "ask"],
+    ["claude", "bypassPermissions", "codex", "fullAccess", true, "grant", "grant"],
+    ["codex", "fullAccess", "claude", "bypassPermissions", true, "grant", "grant"],
+    ["claude", "bypassPermissions", "claude", "bypassPermissions", true, "grant", "grant"],
+    ["codex", "fullAccess", "codex", "fullAccess", true, "grant", "grant"],
+    ["codex", "auto", "codex", "fullAccess", true, "refuse", "refuse"],
+    ["claude", "bypassPermissions", "claude", "bypassPermissions", false, "refuse", "refuse"],
+    ["codex", "fullAccess", "codex", "fullAccess", undefined, "refuse", "refuse"],
+    ["claude", "auto", "claude", "acceptEdits", false, "ask", "ask"],
+    ["claude", "auto", "claude", "acceptEdits", undefined, "ask", "ask"],
+    ["codex", "future", "claude", "auto", true, "ask", "ask"],
+    ["codex", undefined, "claude", "bypassPermissions", true, "refuse", "refuse"],
+    ["codex", undefined, "claude", "default", true, "unchanged consent", "grant"],
+  ];
+
+  test.each(
+    rows,
+  )("%s %s requesting %s %s with verification %s gives new=%s and set=%s", async (agent, mode, target, wanted, verified, onNew, onSet) => {
+    for (const [command, expected] of [
+      ["new", onNew],
+      ["set", onSet],
+    ] as const) {
+      const app = withChoices({ agent: target });
+      const caller = addCaller(app, agent, mode, verified);
+      const from = target === "claude" ? "plan" : "readOnly";
+      app.chatChoices.set(CHAT_TAB, {
+        agent: target,
+        mode: from,
+        model: null,
+        effort: null,
+        models: [],
+        efforts: [],
+      });
+      app.answers.push("once");
+      const selector = command === "new" ? ["--agent", target] : ["eeee"];
+      const result = await nexus(app, ["chat", command, ...selector, "--mode", wanted], caller);
+      const mutation = app.uiCalls.find(
+        (c) =>
+          c.op === "chat.open" ||
+          (c.op === "chat.settings" &&
+            Object.keys((c.args as { settings: object }).settings).length > 0),
+      );
+      expect(app.asked.map((ask) => ask.change.kind)).toEqual(
+        expected === "ask" ? ["chatMode"] : [],
+      );
+      if (expected === "refuse") {
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("only the user picks it");
+        expect(mutation).toBeUndefined();
+      } else {
+        expect(result.exitCode).toBe(0);
+        expect(mutation?.args).toMatchObject({ settings: { mode: wanted } });
+        if (wanted === "fullAccess" || wanted === "bypassPermissions") {
+          expect(mutation?.args).toMatchObject({ allowDangerousMode: true });
+        }
+      }
+    }
+  });
+
+  test("checks the cross-workspace policy before reading the caller's mode", async () => {
+    const denied = withChoices();
+    const caller = addCaller(denied, "codex", "fullAccess", true);
+    denied.settings.crossWorkspace = "deny";
+    const result = await nexus(
+      denied,
+      ["chat", "new", "--workspace", "api", "--mode", "bypassPermissions"],
+      caller,
+    );
+    expect(result.stderr).toContain("changing other workspaces is turned off");
+    expect(denied.uiCalls).toEqual([]);
+
+    const asked = withChoices();
+    addCaller(asked, "codex", "fullAccess", true);
+    asked.answers.push("once");
+    expect(
+      (
+        await nexus(
+          asked,
+          ["chat", "new", "--workspace", "api", "--mode", "bypassPermissions"],
+          caller,
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(asked.asked.map((request) => request.change.kind)).toEqual(["chatNew"]);
+  });
+
+  test("retains consent if the mode read fails or the caller runs over SSH", async () => {
+    const app = withChoices();
+    const caller = addCaller(app, "claude", "bypassPermissions", true);
+    app.uiAnswers.set("chat.mode", () => {
+      throw new Error("renderer closed");
+    });
+    app.answers.push("once");
+    expect((await nexus(app, ["chat", "new", "--mode", "auto"], caller)).exitCode).toBe(0);
+    expect(app.asked.map((request) => request.change.kind)).toEqual(["chatMode"]);
+
+    const ssh = withChoices();
+    const workspace = ssh.workspaces.find((w) => w.id === APP);
+    if (workspace) workspace.location = { kind: "ssh", host: "test", remotePath: "/w/app" };
+    addCaller(ssh, "claude", "bypassPermissions", true);
+    const result = await nexus(ssh, ["chat", "new", "--mode", "bypassPermissions"], caller);
+    expect(result.stderr).toContain("only the user picks it");
+    expect(ssh.uiCalls).toEqual([]);
+  });
+});
+
+describe("delegating a chat answer", () => {
+  const rows: [ChatAgent, string | undefined, boolean | undefined, boolean][] = [
+    ["claude", "bypassPermissions", true, false],
+    ["codex", "fullAccess", true, false],
+    ["claude", "bypassPermissions", false, true],
+    ["codex", "fullAccess", undefined, true],
+    ["claude", "auto", true, true],
+    ["codex", "auto", true, true],
+    ["claude", "plan", true, true],
+    ["codex", "readOnly", true, true],
+    ["codex", "future", true, true],
+    ["claude", undefined, true, true],
+  ];
+  const request = { id: "req-1", tool: "Bash", input: "make test" };
+
+  test.each(
+    rows,
+  )("%s %s, verified %s, needs a user prompt = %s", async (agent, mode, verified, asks) => {
+    for (const target of ["claude", "codex"] as const) {
+      for (const decision of ["allow", "deny"] as const) {
+        const app = withChat({
+          agent: target,
+          state: "asking",
+          message: "asks to run Bash",
+          request,
+        });
+        const caller = addCaller(app, agent, mode, verified);
+        app.answers.push("once");
+        const result = await nexus(app, ["chat", "answer", "eeee", decision], caller);
+        expect(result.exitCode).toBe(0);
+        expect(app.asked.map((ask) => ask.change)).toEqual(
+          asks
+            ? [
+                {
+                  kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+                  detail: "Bash (Fix the login)",
+                  body: request.input,
+                },
+              ]
+            : [],
+        );
+        expect(app.chatAnswered).toEqual([
+          { workspaceId: APP, tabId: CHAT_TAB, decision, expect: request.id },
+        ]);
+      }
+    }
+  });
+
+  test.each([
+    "AskUserQuestion",
+    "ExitPlanMode",
+  ])("leaves %s to the user even for full access", async (tool) => {
+    const app = withChat({
+      state: "asking",
+      message: `asks to run ${tool}`,
+      request: { ...request, tool },
+    });
+    const caller = addCaller(app, "codex", "fullAccess", true);
+    for (const decision of ["allow", "deny"]) {
+      const result = await nexus(app, ["chat", "answer", "eeee", decision], caller);
+      expect(result.stderr).toContain("the user's to answer in the app");
+    }
+    expect(app.chatAnswered).toEqual([]);
+    expect(app.asked).toEqual([]);
+  });
+
+  test.each([
+    "always",
+    "updatedInput",
+    "planMode",
+  ])("does not take a %s answer option", async (option) => {
+    const app = withChat({ state: "asking", message: "asks to run Bash", request });
+    const caller = addCaller(app, "codex", "fullAccess", true);
+    const result = await nexus(app, ["chat", "answer", "eeee", "allow", `--${option}`], caller);
+    expect(result.exitCode).toBe(2);
+    expect(app.chatAnswered).toEqual([]);
+  });
+
+  test("answers the terminal's original request once with a verified unrestricted caller", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "claude", "bypassPermissions", true);
+    app.terminalAsks.set(CLAUDE_TAB, [
+      {
+        id: "hook",
+        tool: "Bash",
+        target: "make test",
+        since: 5,
+        always: [{ kind: "rule", rule: "Bash(make *)" }],
+      },
+    ]);
+    expect((await nexus(app, ["chat", "answer", "✳ Claude Code", "allow"], caller)).exitCode).toBe(
+      0,
+    );
+    expect(app.asked).toEqual([]);
+    expect(app.terminalAnswered).toEqual([{ tabId: CLAUDE_TAB, askId: "hook", answer: "allow" }]);
+  });
+
+  test.each([
+    ["allow", false, 0, 0],
+    ["ask", false, 1, 0],
+    ["deny", false, 0, 1],
+    ["ask", true, 2, 1],
+  ] as const)("honors workspace policy %s when caller is downgraded = %s", async (policy, downgrade, prompts, exitCode) => {
+    const app = withChat({ state: "asking", message: "asks to run Bash", request });
+    const caller = addCaller(app, "codex", "fullAccess", true);
+    const tab = app.tabs[APP]?.find((t) => t.id === CHAT_TAB);
+    if (tab) {
+      app.tabs[APP] = app.tabs[APP]?.filter((t) => t !== tab) ?? [];
+      app.tabs[API]?.push(tab);
+    }
+    app.settings.crossWorkspace = policy;
+    app.answers.push("once");
+    if (downgrade) {
+      const allowChange = app.services.allowChange;
+      app.services.allowChange = async (change) => {
+        await allowChange(change);
+        const choices = app.chatChoices.get(CALLER_TAB);
+        if (choices) app.chatChoices.set(CALLER_TAB, { ...choices, mode: "auto" });
+      };
+    }
+    const result = await nexus(
+      app,
+      ["chat", "answer", "eeee", "allow", "--workspace", "api"],
+      caller,
+    );
+    expect(result.exitCode).toBe(exitCode);
+    expect(app.asked.map((ask) => ask.change.kind)).toEqual(Array(prompts).fill("permissionAllow"));
+    expect(app.chatAnswered).toHaveLength(exitCode === 0 ? 1 : 0);
   });
 });
 

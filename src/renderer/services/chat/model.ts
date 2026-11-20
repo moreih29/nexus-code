@@ -427,6 +427,8 @@ export interface ChatModel {
    */
   chosenModel?: string;
   permissionMode?: string;
+  /** The mode confirmed by the program, before any pending selections. */
+  confirmedPermissionMode?: string;
   effort?: string;
   cwd?: string;
   version?: string;
@@ -572,6 +574,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       } else if (m.process === "exited")
         draft.push({ kind: "notice", key: `n${seq}`, code: "restarted", at });
       m.process = "running";
+      m.confirmedPermissionMode = undefined;
       m.processCostUsd = 0;
       m.exit = undefined;
       m.outgoing = {};
@@ -588,6 +591,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       const stderr = str(message.stderrTail);
       const stderrTail = stderr === undefined ? undefined : terminalText(stderr);
       m.process = "exited";
+      m.confirmedPermissionMode = undefined;
       finishSubmittedTurn(draft, m.turn?.id, "the program exited");
       m.exit = { code, ...(signal ? { signal } : {}), ...(stderrTail ? { stderrTail } : {}) };
       m.running = false;
@@ -602,6 +606,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       return;
     }
     case "dropped":
+      m.confirmedPermissionMode = undefined;
       draft.push({ kind: "notice", key: `n${seq}`, code: "dropped", at });
       return;
   }

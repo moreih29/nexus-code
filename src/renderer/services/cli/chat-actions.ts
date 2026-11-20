@@ -326,7 +326,7 @@ async function applySettings(
   tabId: string,
   { agent, controller }: AgentTabController,
   wanted: CliChatSettings,
-  user = false,
+  allowDangerousMode = false,
 ): Promise<void> {
   await whenReady(workspaceId, tabId, agent);
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
@@ -338,7 +338,7 @@ async function applySettings(
       chat.model,
       wanted,
       controller.supports("apply_flag_settings"),
-      user,
+      allowDangerousMode,
     );
   } catch (err) {
     throw new UiRequestError((err as Error).message);
@@ -396,6 +396,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     instructions,
     from,
     user,
+    allowDangerousMode,
   }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
@@ -416,7 +417,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
       await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, user);
+      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
       if (prompt.trim() !== "") {
         await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
       }
@@ -711,9 +712,26 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.settings": async ({ workspaceId, tabId, settings, user }) => {
+  "chat.mode": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex") return null;
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    const model = chat?.model;
+    // A pending pick can already be shown in the composer. Require the program
+    // and the composer to agree before using a mode for delegation.
+    const mode =
+      chat?.phase === "ready" &&
+      model?.process === "running" &&
+      model.permissionMode === model.confirmedPermissionMode
+        ? model.confirmedPermissionMode
+        : undefined;
+    return { agent: tab.type, ...(mode === undefined ? {} : { mode }) };
+  },
+
+  "chat.settings": async ({ workspaceId, tabId, settings, user, allowDangerousMode }) => {
     const target = await openedTab(workspaceId, tabId);
-    if (hasSettings(settings)) await applySettings(workspaceId, tabId, target, settings, user);
+    if (hasSettings(settings))
+      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
     else await whenReady(workspaceId, tabId, target.agent);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");

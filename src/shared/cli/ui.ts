@@ -755,6 +755,8 @@ export interface CliUiOps {
        * take the mode that lets everything run, unless a policy keeps it off.
        */
       user?: boolean;
+      /** Main verified that a local caller may grant the unrestricted mode. */
+      allowDangerousMode?: boolean;
     };
     result: { tabId: string; error?: string };
   };
@@ -788,6 +790,11 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string };
     result: { signedOut: boolean };
   };
+  /** The caller's confirmed live permission mode, without starting its program. */
+  "chat.mode": {
+    args: { workspaceId: string; tabId: string };
+    result: { agent: ChatAgent; mode?: string } | null;
+  };
   /**
    * The files outside the workspace that its Claude and Codex tabs name,
    * absolute: what their tools took or wrote, what their replies link, and
@@ -810,9 +817,11 @@ export interface CliUiOps {
       settings: CliChatSettings;
       /**
        * The user sets them, from another device (the remote): the mode that
-       * lets everything run too, unless a policy keeps it off. An agent never.
+       * lets everything run too, unless a policy keeps it off.
        */
       user?: boolean;
+      /** Main verified that a local caller may grant the unrestricted mode. */
+      allowDangerousMode?: boolean;
     };
     result: CliChatChoices;
   };
