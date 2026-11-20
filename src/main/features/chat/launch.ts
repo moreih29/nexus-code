@@ -54,6 +54,7 @@ export interface ResumeOptions {
   readonly resumeAt?: string;
   /** Drop the tab's log before starting (a rewind). */
   readonly resetLog?: boolean;
+  readonly connectionChanged?: boolean;
 }
 
 /**

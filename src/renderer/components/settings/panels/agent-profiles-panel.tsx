@@ -55,10 +55,13 @@ export function AgentProfilesPanel({
   const [editing, setEditing] = useState<AgentProfile | "new" | null>(null);
   const [loggingIn, setLoggingIn] = useState<{ id: string; again: boolean } | null>(null);
 
-  const ids = profiles.map((p) => p.id).join(",");
+  const accountIds = profiles
+    .filter((profile) => !profile.connection || profile.connection.method === "account")
+    .map((profile) => profile.id)
+    .join(",");
   useEffect(() => {
-    for (const id of ids.split(",")) void refresh(id);
-  }, [ids, refresh]);
+    if (accountIds) for (const id of accountIds.split(",")) void refresh(id);
+  }, [accountIds, refresh]);
 
   const remove = async (profile: AgentProfile) => {
     const name = profileName(profile, t);
@@ -173,7 +176,8 @@ export function ProfileRow({
   const name = profileName(profile, t);
   const isDefault = isDefaultProfileId(profile.id);
   const entry = statuses[profile.id];
-  const signedIn = entry?.status?.state === "signed-in";
+  const account = !profile.connection || profile.connection.method === "account";
+  const signedIn = account && entry?.status?.state === "signed-in";
   const shared = profile.shared?.length ?? 0;
   const defaultFolder = useAgentProfilesStore((s) => defaultFolderLabel(agent, s));
   const folder = isDefault ? defaultFolder : tildePath(profile.dir);
@@ -211,8 +215,8 @@ export function ProfileRow({
           aria-label={t("profiles.refresh")}
           title={t("profiles.refresh")}
           onClick={onRefresh}
-          disabled={entry?.loading === true}
-          className={iconButtonClass}
+          disabled={!account || entry?.loading === true}
+          className={cn(iconButtonClass, !account && "invisible")}
         >
           <RefreshCw
             className={cn("size-3.5", entry?.loading && "animate-spin")}
@@ -275,6 +279,16 @@ export function ProfileStatusText({
   onLogin: () => void;
 }) {
   const { t } = useTranslation("settings");
+  if (profile.connection && profile.connection.method !== "account") {
+    return (
+      <span
+        className="shrink-0 text-app-ui-sm text-muted-foreground"
+        title={profile.connection.method === "custom" ? profile.connection.baseUrl : undefined}
+      >
+        {t(`profiles.connection.methods.${profile.connection.method}.${agent}.label`)}
+      </span>
+    );
+  }
   const status = statuses[profile.id]?.status;
   if (!status) {
     return (

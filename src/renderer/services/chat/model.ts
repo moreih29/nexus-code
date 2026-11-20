@@ -103,6 +103,7 @@ export type NoticeCode =
   | "interrupted"
   | "exited"
   | "restarted"
+  | "connection_restarted"
   | "compacted"
   | "cleared"
   | "error"
@@ -543,7 +544,14 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
   switch (message.event) {
     case "start":
       if (m.process === "none" && m.items.length === 0) m.resumed = message.resumed === true;
-      if (m.process === "exited")
+      if (message.connectionChanged === true) {
+        draft.push({ kind: "notice", key: `n${seq}`, code: "connection_restarted", at });
+        m.init = undefined;
+        m.model = undefined;
+        m.chosenModel = undefined;
+        m.effort = undefined;
+        m.contextUsage = undefined;
+      } else if (m.process === "exited")
         draft.push({ kind: "notice", key: `n${seq}`, code: "restarted", at });
       m.process = "running";
       m.processCostUsd = 0;

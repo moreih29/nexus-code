@@ -44,6 +44,7 @@ import {
   currentModelInfo,
   type ImageBlock,
   isWaiting,
+  type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
 import { withRelayed } from "../../services/chat/relayed";
@@ -75,6 +76,7 @@ import { surfaceChatSendError } from "./send-error";
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
   readonly key: string;
+  readonly claudeProfileDefaultModel?: string;
   /** The permission modes the mode chip offers; Claude Code's when left out. */
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
@@ -1323,6 +1325,19 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
+export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean) {
+  return models
+    .filter(({ value }) => !custom || value !== "default")
+    .map((model) => ({
+      model,
+      label: model.displayName ?? model.value,
+      detail:
+        custom && model.description === `Custom model (${model.value})`
+          ? undefined
+          : model.description,
+    }));
+}
+
 function ModelChip({
   controller,
   state,
@@ -1331,9 +1346,14 @@ function ModelChip({
 }: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
-  const current = currentModelInfo(models, state.model.model, state.model.chosenModel);
-  const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
-  const ready = state.model.process === "running" && models.length > 0;
+  const profileDefault = controller.claudeProfileDefaultModel;
+  const options = modelPickerOptions(models, profileDefault !== undefined);
+  let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
+  if (profileDefault && (!current || current.value === "default"))
+    current = models.find(({ value }) => value === profileDefault);
+  const label =
+    current?.displayName ?? state.model.model ?? profileDefault ?? t("chat.model.default");
+  const ready = state.model.process === "running" && options.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
     state,
@@ -1356,15 +1376,15 @@ function ModelChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.model.label")}</DropdownMenuLabel>
-        {models.map((m) => (
+        {options.map(({ model, label, detail }) => (
           <DropdownMenuItem
-            key={m.value}
-            onSelect={() => controller.setModel(m.value).catch((err: Error) => showError(err))}
+            key={model.value}
+            onSelect={() => controller.setModel(model.value).catch((err: Error) => showError(err))}
           >
-            <span className={cn(m === current && "font-medium")}>{m.displayName ?? m.value}</span>
-            {m.description && (
+            <span className={cn(model === current && "font-medium")}>{label}</span>
+            {detail && (
               <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
-                {m.description}
+                {detail}
               </span>
             )}
           </DropdownMenuItem>

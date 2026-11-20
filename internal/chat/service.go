@@ -140,6 +140,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.attach", service.Attach)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 	d.Register("chat.profileDir", service.ProfileDir)
+	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
 
 // connectionSink binds a sink to the host that installed it.
@@ -285,6 +286,9 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	}
 	if p.Resumed {
 		start["resumed"] = true
+	}
+	if p.ConnectionChanged {
+		start["connectionChanged"] = true
 	}
 	sess.addSysLocked(start)
 

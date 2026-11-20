@@ -8,6 +8,7 @@
 import { z } from "zod";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { WorkspaceLocation } from "../types/workspace";
+import { ProfileConnectionSchema } from "./connection";
 
 export const PROFILE_AGENTS = ["claude", "codex"] as const satisfies readonly ChatAgent[];
 
@@ -59,7 +60,7 @@ const EnvKeySchema = z
   .max(128)
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
-export const AgentProfileSchema = z.object({
+const agentProfileSchema = z.object({
   id: ProfileIdSchema,
   agent: z.enum(PROFILE_AGENTS),
   /** The user's name for it; "" on the default profile = its usual name. */
@@ -70,10 +71,13 @@ export const AgentProfileSchema = z.object({
   dir: z.string().max(1024),
   /** What the folder links from the default folder (SHAREABLE names). */
   shared: z.array(z.string().max(64)).max(32).optional(),
+  /** Runtime connection metadata. The API key is stored separately. */
+  connection: ProfileConnectionSchema.optional(),
   /** More variables the agent runs with. */
   env: z.record(EnvKeySchema, z.string().max(4096)).optional(),
 });
-export type AgentProfile = z.infer<typeof AgentProfileSchema>;
+export type AgentProfile = z.infer<typeof agentProfileSchema>;
+export const AgentProfileSchema: z.ZodType<AgentProfile> = agentProfileSchema;
 
 export const ProfileTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("workspace"), workspaceId: z.string().uuid() }),
@@ -105,13 +109,15 @@ function lenientArray<T extends z.ZodTypeAny>(item: T, max: number) {
   );
 }
 
-export const AgentProfilesSchema = z.object({
+const agentProfilesSchema = z.object({
   profiles: lenientArray(AgentProfileSchema, 64),
   rules: lenientArray(ProfileRuleSchema, 512),
   /** Each agent's profile where no rule says; absent = the default profile. */
   defaults: z.object({ claude: ProfileIdSchema.optional(), codex: ProfileIdSchema.optional() }),
 });
-export type AgentProfiles = z.infer<typeof AgentProfilesSchema>;
+export type AgentProfiles = z.infer<typeof agentProfilesSchema>;
+export const AgentProfilesSchema: z.ZodType<AgentProfiles, z.ZodTypeDef, unknown> =
+  agentProfilesSchema;
 
 export const EMPTY_AGENT_PROFILES: AgentProfiles = { profiles: [], rules: [], defaults: {} };
 
@@ -128,6 +134,7 @@ export function profilesOf(config: AgentProfiles, agent: ChatAgent): AgentProfil
     color: stored?.color ?? DEFAULT_COLORS[agent],
     dir: "",
     ...(stored?.env ? { env: stored.env } : {}),
+    ...(stored?.connection ? { connection: stored.connection } : {}),
   };
   return [first, ...config.profiles.filter((p) => p.agent === agent && p.id !== id)];
 }

@@ -2,6 +2,12 @@
 // the workspace's agent and relays its chat.* events to the renderer.
 
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { gte } from "semver";
+import {
+  connectionDefaultModel,
+  connectionKeyTarget,
+} from "../../../shared/agent-profiles/connection";
 import {
   agentEnvValue,
   mergeAgentEnv,
@@ -18,7 +24,15 @@ import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/
 import type { TranscriptPageResult } from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { tryGetMainT } from "../../i18n";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
+import {
+  claudeConnectionEnv,
+  claudeModelPicker,
+  codexConnectionArgs,
+  codexConnectionCatalog,
+  codexConnectionEnv,
+} from "../agent-profiles/connection-launch";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
@@ -40,6 +54,15 @@ const log = createLogger("chat-host");
 
 /** How long `claude --version` may take: a first run can unpack itself. */
 const VERSION_TIMEOUT_MS = 20_000;
+/** The first Claude Code release with modelPicker in --settings. */
+const CUSTOM_CLAUDE_FROM = "2.1.242";
+
+function missingApiKeyMessage(): string {
+  return (
+    tryGetMainT()?.("settings:profiles.connection.errors.missingKey") ??
+    "Set the profile API key in Settings."
+  );
+}
 /** How long workspace removal waits for its chats, including queued requests. */
 const WORKSPACE_CHAT_CLOSE_MS = 5000;
 /** How long a `claude` command may take: an install fetches the plugin. */
@@ -73,6 +96,7 @@ export interface ChatHostOptions {
   knownChatTabs?: (workspaceId: string) => readonly string[];
   /** The agent profile of that id, as the app state has it; null when gone. */
   profile?: (id: string) => AgentProfile | null;
+  connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
   agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
 }
@@ -156,7 +180,7 @@ export class ChatHost {
 
     let profileEnv: Record<string, string>;
     try {
-      profileEnv = await this.profileEnv(channel, profile, windows);
+      profileEnv = await this.profileEnv(channel, profile, windows, true);
     } catch (error) {
       return { ok: false, reason: "failed", message: (error as Error).message };
     }
@@ -174,6 +198,16 @@ export class ChatHost {
       mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
     );
 
+    if (profile.connection?.method === "custom" && version && !gte(version, CUSTOM_CLAUDE_FROM)) {
+      return {
+        ok: false,
+        reason: "failed",
+        message:
+          tryGetMainT()?.("settings:profiles.connection.errors.claudeVersion", {
+            version: CUSTOM_CLAUDE_FROM,
+          }) ?? `Custom API addresses require Claude Code ${CUSTOM_CLAUDE_FROM} or later.`,
+      };
+    }
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = found.path;
@@ -207,14 +241,29 @@ export class ChatHost {
         ...(gitBash ? { gitBash } : {}),
       });
       if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
+      const modelPicker = claudeModelPicker(profile.connection);
+      let settings = hooksSettings;
+      if (modelPicker) {
+        if (program !== found.path) {
+          // The shell wrapper adds its hooks to this JSON before passing --settings.
+          env.NEXUS_CLAUDE_MODEL_PICKER = JSON.stringify(modelPicker);
+        } else {
+          const hooks = hooksSettings ? JSON.parse(await readFile(hooksSettings, "utf8")) : {};
+          settings = JSON.stringify({ ...hooks, modelPicker });
+        }
+      }
+      const args = claudeTabArgs(resume, settings, version);
+      const defaultModel = connectionDefaultModel(profile);
+      if (defaultModel) args.push(`--model=${defaultModel}`);
       const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
         program,
-        args: claudeTabArgs(resume, hooksSettings, version),
+        args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(resume.resetLog ? { resetLog: true } : {}),
+        ...(resume.connectionChanged ? { connectionChanged: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),
       });
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
@@ -234,7 +283,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     cwd: string,
-    options: { resetLog?: boolean; profileId?: string },
+    options: { resetLog?: boolean; connectionChanged?: boolean; profileId?: string },
   ): Promise<StartResult> {
     let profile: AgentProfile;
     try {
@@ -247,8 +296,17 @@ export class ChatHost {
     const channel = await this.channelForStart(workspaceId, key, intent);
     const windows = this.windowsHost(workspaceId);
     let profileEnv: Record<string, string>;
+    let apiKey: string | undefined;
     try {
       profileEnv = await this.profileEnv(channel, profile, windows);
+      apiKey = await this.profileConnectionKey(profile);
+      if (profile.connection?.method === "api-key" && !apiKey)
+        throw new Error(missingApiKeyMessage());
+      profileEnv = mergeAgentEnv(
+        windows,
+        profileEnv,
+        codexConnectionEnv(profile.connection, apiKey),
+      );
     } catch (error) {
       return { ok: false, reason: "failed", message: (error as Error).message };
     }
@@ -279,14 +337,23 @@ export class ChatHost {
         hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
         shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
       });
+      const connection = profile.connection;
+      const catalogPath =
+        connection?.method === "custom"
+          ? await channel.call<string>("chat.writeCodexCatalog", {
+              catalog: codexConnectionCatalog(connection),
+            })
+          : undefined;
+      const args = ["app-server", ...codexConnectionArgs(connection, apiKey, catalogPath)];
       const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
         program: found.path,
-        args: ["app-server"],
+        args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
+        ...(options.connectionChanged ? { connectionChanged: true } : {}),
       });
       return {
         ok: true,
@@ -633,10 +700,22 @@ export class ChatHost {
     channel: AgentChannel,
     profile: AgentProfile,
     windows: boolean,
+    requireApiKey = false,
   ): Promise<Record<string, string>> {
     const { agent } = profile;
     const key = PROFILE_DIR_ENV[agent];
-    const env = profileVariables(profile.env, windows);
+    const connection = agent === "claude" ? profile.connection : undefined;
+    const apiKey =
+      connection && connection.method !== "account"
+        ? await this.profileConnectionKey(profile)
+        : undefined;
+    if (requireApiKey && connection?.method === "api-key" && !apiKey)
+      throw new Error(missingApiKeyMessage());
+    const env = mergeAgentEnv(
+      windows,
+      profileVariables(profile.env, windows),
+      claudeConnectionEnv(connection, apiKey),
+    );
     let dir = profileDirectory(profile, windows);
     if (profile.dir.trim() !== "") {
       const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
@@ -656,6 +735,14 @@ export class ChatHost {
       );
     }
     return mergeAgentEnv(windows, env, { [key]: dir });
+  }
+
+  private profileConnectionKey(profile: AgentProfile): Promise<string | undefined> | undefined {
+    if (!profile.connection || profile.connection.method === "account") return;
+    return this.options.connectionKey?.(
+      profile.id,
+      connectionKeyTarget(profile.agent, profile.connection),
+    );
   }
 
   /** Closes tracked and restored chats before the workspace's agent is torn down. */

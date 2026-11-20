@@ -69,6 +69,8 @@ type StartParams struct {
 	// Resumed marks a program that goes on with an earlier session, so a
 	// client replaying the log reads what came before from its transcript.
 	Resumed bool `json:"resumed,omitempty"`
+	// ConnectionChanged marks a restart that keeps the conversation and its log.
+	ConnectionChanged bool `json:"connectionChanged,omitempty"`
 }
 
 // StartResult is returned by chat.start.

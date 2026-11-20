@@ -6,12 +6,18 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
-import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-profiles/profiles";
+import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
+import {
+  defaultProfileId,
+  isDefaultProfileId,
+  profileOf,
+} from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import type { TranscriptPageResult } from "../../../../shared/ipc/contract";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import {
   type ChatLine,
@@ -31,6 +37,7 @@ import {
   emptyTabState,
   useChatStore,
 } from "../store";
+import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
@@ -209,6 +216,7 @@ interface StartArgs {
   resumeAt?: string;
   /** Drop the tab's log first: a rewind starts the conversation over. */
   resetLog?: boolean;
+  connectionChanged?: boolean;
 }
 
 export type PermissionAnswer =
@@ -249,6 +257,7 @@ export class ChatController {
   private flags: Record<string, unknown> = {};
   /** The model picked in the tab, which a program started again for it takes too. */
   private chosenModel: string | undefined;
+  private connection: ProfileConnection | undefined;
   /**
    * The permission mode the tab's program last had, which one started
    * again for it (a rewind, a restart, another profile) goes on in: the
@@ -264,6 +273,36 @@ export class ChatController {
   private initializing: Promise<void> = Promise.resolve();
   private readonly startup = new ProgramStartup(() =>
     stopChatProgram(this.target.workspaceId, this.target.tabId),
+  );
+  private writingUserMessage = 0;
+  private readonly connectionRestart = new ConnectionRestart(
+    (profileId) => {
+      if (this.disposed || this.profileId !== profileId) return "skip";
+      const { model, phase, queue } = this.state;
+      if (
+        this.opening ||
+        this.startup.pending ||
+        this.changingSession ||
+        this.writingUserMessage ||
+        this.buffered.length ||
+        phase === "held" ||
+        model.running ||
+        model.streaming !== null ||
+        Object.values(model.tasks).some((task) => task.status === "running") ||
+        queue.some((item) => item.status === "sending")
+      )
+        return "wait";
+      return model.process === "running" ||
+        ((phase === "ended" || phase === "failed") && this.sessionId)
+        ? "ready"
+        : "skip";
+    },
+    () => this.restartProgram(true),
+    () => {
+      this.refreshContext();
+      this.sendNextQueued();
+    },
+    (error) => log.warn(`Claude could not restart after a profile edit: ${String(error)}`),
   );
   /** How many times this run of the program said it had no MCP servers, and was asked again. */
   private mcpEmptyAsks = 0;
@@ -316,6 +355,12 @@ export class ChatController {
     return this.target.profileId ?? defaultProfileId("claude");
   }
 
+  /** The custom picker default, as configured when the program was launched. */
+  get claudeProfileDefaultModel(): string | undefined {
+    const connection = this.connection;
+    return connection?.method === "custom" ? connection.defaultModel : undefined;
+  }
+
   /**
    * What a tab made from this one (a fork, /branch) starts with: its
    * profile, and the model and effort picked in it.
@@ -339,6 +384,7 @@ export class ChatController {
   ) {
     this.target = target;
     this.hooks = hooks;
+    this.connection = savedProfileConnection(target.profileId);
     this.key = chatKey(target.workspaceId, target.tabId);
     if (receiveAgentEvents) this.removeReceiver = addLineReceiver(this, true);
     this.sessionId = target.sessionId;
@@ -800,7 +846,8 @@ export class ChatController {
   /** Spawns Claude and applies the tab's settings after its required initialize. */
   private async startProgram(resume: StartArgs): Promise<boolean> {
     if (this.disposed) return false;
-    const { workspaceId, tabId, cwd } = this.target;
+    const { workspaceId, tabId, cwd, profileId } = this.target;
+    const connection = savedProfileConnection(profileId);
     // Before the new program's initialize tells the mode it starts in.
     const mode = this.lastMode;
     const picks = this.modePicks;
@@ -835,10 +882,12 @@ export class ChatController {
       return this.rejectStartup("old-version");
     }
     this.update((prev) => ({ ...prev, version: result.version }));
-    if (resume.resetLog && result.attached) {
+    if ((resume.resetLog || resume.connectionChanged) && result.attached) {
       return this.rejectStartup("Claude attached to the previous program");
     }
     if (!result.attached) {
+      const previousConnection = this.connection;
+      this.connection = connection;
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
       let started: unknown;
@@ -863,8 +912,25 @@ export class ChatController {
           );
         })
         .then(() => {
-          if (!this.chosenModel) return;
-          return this.request("set_model", { model: this.chosenModel }).then(
+          const picked = this.chosenModel;
+          if (!picked) return;
+          // A moved or restarted tab can still hold a model from an old provider.
+          const replacedCustomConnection =
+            resume.connectionChanged &&
+            previousConnection?.method === "custom" &&
+            connection?.method !== "custom";
+          if (
+            picked !== "default" &&
+            (replacedCustomConnection ||
+              (connection?.method === "custom" &&
+                !connection.models.some(({ id }) => id === picked)))
+          ) {
+            this.chosenModel = undefined;
+            const effort = this.flags.effortLevel;
+            this.hooks.onChosen?.(typeof effort === "string" ? { model: undefined, effort } : {});
+            return;
+          }
+          return this.requestModel(picked).then(
             () => {},
             (err: Error) => log.warn(`picked model not applied: ${err.message}`),
           );
@@ -958,12 +1024,20 @@ export class ChatController {
   /** Starts the program again, going on with the session. */
   async restart(): Promise<void> {
     if (this.changingSession) throw new Error("Claude is changing the conversation");
+    await (this.connectionRestart.whenIdle() ?? this.restartProgram());
+  }
+
+  profileConnectionChanged(profileId: string): void {
+    if (this.profileId === profileId) this.connectionRestart.request(profileId);
+  }
+
+  private async restartProgram(connectionChanged = false): Promise<boolean> {
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+      await stopChatProgram(workspaceId, tabId);
     }
     this.flushNow();
-    await this.start(this.startArgs());
+    return this.start({ ...this.startArgs(), ...(connectionChanged ? { connectionChanged } : {}) });
   }
 
   /** The session the tab goes on with, once it has its own. */
@@ -1114,6 +1188,7 @@ export class ChatController {
     if (
       this.disposed ||
       this.changingSession ||
+      this.connectionRestart.active ||
       this.startup.pending ||
       this.state.queue.some((item) => item.status === "sending")
     ) {
@@ -1452,6 +1527,9 @@ export class ChatController {
     // A program just started takes the tab's flags and pick first, so its
     // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
+    const restart = this.connectionRestart.whenIdle();
+    if (restart && !(await this.connectionRestart.wait(restart)))
+      throw new Error(this.state.error ?? "Claude is not running");
     if (this.changingSession) throw new Error("Claude is changing the conversation");
     if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
       throw new Error("The conversation changed while delivering a queued message");
@@ -1463,8 +1541,13 @@ export class ChatController {
     const message = userMessageOf(from ? relayedText(from, text) : text, images, now, id);
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
-    await this.write(message);
-    this.flushNow();
+    this.writingUserMessage += 1;
+    try {
+      await this.write(message);
+      this.flushNow();
+    } finally {
+      this.writingUserMessage -= 1;
+    }
     if (id) this.hooks.onPeerWritten?.(id);
     // A session the user named, or the tab, keeps that name; Claude makes it none.
     if (first && !this.named && !this.ownName) void this.nameSession(first);
@@ -1538,7 +1621,7 @@ export class ChatController {
   }
 
   private sendNextQueued(): void {
-    if (this.changingSession) return;
+    if (this.changingSession || this.connectionRestart.whenIdle()) return;
     dispatchQueuedMessage(
       this.state.queue,
       (update) => this.update(update),
@@ -1584,16 +1667,20 @@ export class ChatController {
     );
   }
 
+  private requestModel(model: string): Promise<Record<string, unknown>> {
+    // Claude can add a 1M context override to its default alias on a custom endpoint.
+    const selected = model === "default" ? (this.claudeProfileDefaultModel ?? model) : model;
+    return this.request("set_model", { model: selected });
+  }
+
   // A pick Claude Code takes holds for the tab: a program started again for
   // it takes it too. One it refuses is not kept, so no start gives it again.
   setModel(model: string): Promise<unknown> {
-    return this.shownAtOnce("model", model, () => this.request("set_model", { model })).then(
-      (answer) => {
-        this.chosenModel = model;
-        this.hooks.onChosen?.({ model });
-        return answer;
-      },
-    );
+    return this.shownAtOnce("model", model, () => this.requestModel(model)).then((answer) => {
+      this.chosenModel = model;
+      this.hooks.onChosen?.({ model });
+      return answer;
+    });
   }
 
   setEffort(level: string): Promise<unknown> {
@@ -2250,6 +2337,9 @@ export class ChatController {
       await this.opening;
       if (this.state.phase === "failed") return false;
     }
+    this.flushNow();
+    const restart = this.connectionRestart.whenIdle();
+    if (restart) return this.connectionRestart.wait(restart);
     if (this.startup.pending) return this.startup.pending;
     const { phase, model } = this.state;
     if (phase === "ready" && model.process === "running") return true;
@@ -2391,11 +2481,16 @@ export class ChatController {
     this.rejectPending("the tab closed");
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
+    this.connectionRestart.dispose();
     this.removeReceiver?.();
     this.leavePlanUsage();
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }
+}
+
+function savedProfileConnection(profileId: string | undefined): ProfileConnection | undefined {
+  return profileOf(useAgentProfilesStore.getState().config, "claude", profileId).connection;
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabState["phase"] {
@@ -2506,6 +2601,10 @@ export function chatController(target: ChatTabTarget, hooks?: ChatTabHooks): Cha
 
 export function findChatController(workspaceId: string, tabId: string): ChatController | undefined {
   return controllers.get(chatKey(workspaceId, tabId));
+}
+
+export function refreshClaudeProfileConnection(profileId: string): void {
+  for (const controller of controllers.values()) controller.profileConnectionChanged(profileId);
 }
 
 /** Ends a closed tab's program, whether or not its view was ever shown. */

@@ -5,7 +5,8 @@
  * is written: what would be kept lasts until the app quits.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { z } from "zod";
 
@@ -66,7 +67,13 @@ export class SealedFile<T> implements Kept<T> {
     }
     const sealed = await this.box.encrypt(JSON.stringify(value));
     mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, sealed, { mode: 0o600 });
+    const temp = `${this.file}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temp, sealed, { mode: 0o600, flag: "wx" });
+      renameSync(temp, this.file);
+    } finally {
+      rmSync(temp, { force: true });
+    }
   }
 
   clear(): void {

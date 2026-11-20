@@ -26,6 +26,7 @@ import type {
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
+import type { CustomConnection } from "../../../../src/shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -52,6 +53,8 @@ class FakeChannel implements AgentChannel {
       return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
     }
     if (method === "chat.start") return { pid: 42 } as T;
+    if (method === "chat.writeCodexCatalog")
+      return "/home/u/.nexus-code/run/codex-catalogs/catalog.json" as T;
     if (method === "chat.transcriptPage" && this.transcriptPageError) {
       throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
     }
@@ -86,6 +89,7 @@ function setup(
   agentContext?: ChatHostOptions["agentContext"],
   onTaskEvent?: ChatHostOptions["onTaskEvent"],
   profile?: ChatHostOptions["profile"],
+  connectionKey?: ChatHostOptions["connectionKey"],
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -110,6 +114,7 @@ function setup(
     agentContext,
     onTaskEvent,
     profile,
+    connectionKey,
     broadcast: (event, args) => events.push({ event, args }),
     onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
@@ -375,6 +380,91 @@ describe("ChatHost", () => {
         params: { sessionId: "session", cwd: "/repo", configDir: "/profiles/default" },
       },
     ]);
+  });
+
+  test("passes a custom Claude profile to the wrapper and terminal on the workspace host", async () => {
+    const connection: CustomConnection = {
+      method: "custom",
+      baseUrl: "http://127.0.0.1:8080",
+      auth: "bearer",
+      defaultModel: "custom-model",
+      models: [{ id: "custom-model", label: "Custom" }],
+    };
+    const profile: AgentProfile = {
+      id: "claude-default",
+      agent: "claude",
+      name: "",
+      color: "blue",
+      dir: "",
+      connection,
+      env: { ANTHROPIC_AUTH_TOKEN: "older key" },
+    };
+    const { host, channel } = setup(
+      {},
+      undefined,
+      undefined,
+      (id) => (id === profile.id ? profile : null),
+      async () => "sealed-key",
+    );
+    expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    expect(await host.terminalProfileEnv(WS, profile.id)).toMatchObject({
+      ANTHROPIC_AUTH_TOKEN: "sealed-key",
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:8080",
+    });
+    const launch = channel.calls.find(({ method }) => method === "chat.start")?.params;
+    expect(launch).toMatchObject({
+      args: expect.arrayContaining(["--model=custom-model"]),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: "sealed-key",
+        NEXUS_CLAUDE_MODEL_PICKER:
+          '{"replaceBuiltInOptions":true,"options":[{"model":"custom-model","label":"Custom"}]}',
+      },
+    });
+  });
+
+  test("puts Codex's catalog on the workspace agent before launching Codex", async () => {
+    const profile: AgentProfile = {
+      id: "codex-default",
+      agent: "codex",
+      name: "",
+      color: "cyan",
+      dir: "",
+      connection: {
+        method: "custom",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        defaultModel: "custom-model",
+        models: [{ id: "custom-model" }],
+      },
+    };
+    const { host, channel } = setup(
+      {},
+      undefined,
+      undefined,
+      (id) => (id === profile.id ? profile : null),
+      async () => "sealed-key",
+    );
+    channel.found = { path: "/remote/bin/codex" };
+    expect(await host.startCodex(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    const calls = channel.calls.filter(({ method }) =>
+      ["chat.writeCodexCatalog", "chat.start"].includes(method),
+    );
+    expect(calls).toMatchObject([
+      {
+        method: "chat.writeCodexCatalog",
+        params: { catalog: { models: [{ slug: "custom-model" }] } },
+      },
+      {
+        method: "chat.start",
+        params: {
+          program: "/remote/bin/codex",
+          args: expect.arrayContaining([
+            'model_catalog_json="/home/u/.nexus-code/run/codex-catalogs/catalog.json"',
+          ]),
+          env: { NEXUS_PROFILE_CODEX_API_KEY: "sealed-key" },
+        },
+      },
+    ]);
+    expect(await host.terminalProfileEnv(WS, profile.id)).toEqual({});
   });
 
   test("a missing or wrong-agent profile cannot spawn or read, delete, or stage default history", async () => {

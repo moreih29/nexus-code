@@ -13,7 +13,12 @@ import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
+import {
+  findProfile,
+  profileKeyIds,
+  registerAgentProfilesChannel,
+} from "./features/agent-profiles";
+import { type ConnectionKeys, openConnectionKeys } from "./features/agent-profiles/connection-keys";
 import { registerAppStateChannel } from "./features/app-state";
 import {
   getBrowserRegistry,
@@ -200,6 +205,8 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
+let profileConnectionKeys: ConnectionKeys | undefined;
+
 let remote: {
   themeChanged(): void;
   forgetWorkspace(workspaceId: string): void;
@@ -402,12 +409,7 @@ registerAppStateChannel(stateService, {
     });
   },
 
-  /** The agent profiles changed in one window: every window takes them. */
-  onAgentProfilesChanged() {
-    broadcast("appState", "agentProfilesChanged", {
-      config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
-    });
-  },
+  onAgentProfilesChanged: agentProfilesChanged,
 
   /** The theme changed: the window controls Electron draws follow it. */
   onThemeChanged(theme) {
@@ -416,6 +418,21 @@ registerAppStateChannel(stateService, {
     remote?.themeChanged();
   },
 });
+
+/** The agent profiles changed in one window: every window takes them. */
+function agentProfilesChanged(connectionChangedProfileId?: string): void {
+  broadcast("appState", "agentProfilesChanged", {
+    config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
+    ...(connectionChangedProfileId ? { connectionChangedProfileId } : {}),
+  });
+  pruneProfileKeys();
+}
+
+function pruneProfileKeys(): void {
+  void profileConnectionKeys
+    ?.prune(() => profileKeyIds(stateService))
+    .catch((error) => logger.warn(`Could not remove deleted profile keys: ${String(error)}`));
+}
 
 // Seed the browser-view key interceptor with persisted overrides so the
 // in-page browser shortcuts (⌘R, ⌘[, …) reflect any customization from the
@@ -646,7 +663,13 @@ app.whenReady().then(async () => {
   });
 
   // Settings' view of the Claude and Codex profiles on this machine.
-  agentProfiles = registerAgentProfilesChannel(stateService);
+  profileConnectionKeys = await openConnectionKeys();
+  agentProfiles = registerAgentProfilesChannel(
+    stateService,
+    profileConnectionKeys,
+    agentProfilesChanged,
+  );
+  pruneProfileKeys();
 
   // The NexusCode account the remote runs on. A failure there leaves the
   // app without the remote, never without its window.
@@ -787,6 +810,7 @@ app.whenReady().then(async () => {
         .map((tab) => tab.id),
     agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
     profile: (id) => findProfile(stateService, id),
+    connectionKey: async (id, target) => profileConnectionKeys?.get(id, target),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnResult: claudeSetup.noteTurnResult,
     onTaskEvent: (workspaceId, tabId, message) =>

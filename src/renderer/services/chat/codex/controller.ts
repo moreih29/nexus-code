@@ -8,12 +8,18 @@
 // picks (model, effort, approvals) go with the next turn, as the server
 // takes them: they hold for the thread from that turn on.
 
-import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-profiles/profiles";
+import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
+import {
+  defaultProfileId,
+  isDefaultProfileId,
+  profileOf,
+} from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import { createLogger } from "../../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../../shared/sessions/chat-modes";
 import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
@@ -33,6 +39,7 @@ import {
   emptyTabState,
   useChatStore,
 } from "../store";
+import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
@@ -226,6 +233,34 @@ export class CodexController {
   private readonly startup = new ProgramStartup(() =>
     stopChatProgram(this.target.workspaceId, this.target.tabId),
   );
+  private readonly connectionRestart = new ConnectionRestart(
+    (profileId) => {
+      if (this.disposed || this.profileId !== profileId) return "skip";
+      const { phase, queue } = this.state;
+      const model = this.model;
+      if (
+        this.opening ||
+        this.startup.pending ||
+        this.rewinding ||
+        this.resumingSelection ||
+        this.startingTurn ||
+        this.collaborationChange ||
+        this.buffered.length ||
+        phase === "held" ||
+        model.running ||
+        Object.values(model.tasks).some((task) => task.status === "running") ||
+        queue.some((item) => item.status === "sending")
+      )
+        return "wait";
+      return model.process === "running" ||
+        ((phase === "ended" || phase === "failed") && this.currentThread())
+        ? "ready"
+        : "skip";
+    },
+    () => this.restartProgram(true),
+    () => this.sendNextQueued(),
+    (error) => log.warn(`Codex could not restart after a profile edit: ${String(error)}`),
+  );
   /** A started program's handshake and thread, which a message waits for. */
   private ready: Promise<boolean> = Promise.resolve(false);
   /** The handshake of the program this controller started, until it settles. */
@@ -247,6 +282,8 @@ export class CodexController {
   /** A thread started here that has yet to see any turn. */
   private emptyThread?: string;
   private canonicalCwd: string | undefined;
+  /** The launch's connection stays in effect until the program restarts. */
+  private connection: ProfileConnection | undefined;
   private agentRefresh: ReturnType<typeof setTimeout> | undefined;
   private readonly readingAgents = new Map<string, Promise<void>>();
   private readonly readAgentAt = new Map<string, number>();
@@ -270,6 +307,7 @@ export class CodexController {
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
+    this.connection = savedProfileConnection(target.profileId);
     this.key = chatKey(target.workspaceId, target.tabId);
     // What the user picked before and no turn has sent yet: the next turn
     // takes it, as one picked now would.
@@ -358,7 +396,7 @@ export class CodexController {
 
   /** Shares the startup through initialization and thread acquisition. */
   private start(
-    options: { resetLog?: boolean },
+    options: { resetLog?: boolean; connectionChanged?: boolean },
     catalogOnly = false,
     forkSettings?: ReturnType<typeof profileForkSettings>,
   ): Promise<boolean> {
@@ -367,12 +405,13 @@ export class CodexController {
 
   /** Spawns Codex, getting the required protocol acknowledgements before marking it ready. */
   private async startProgram(
-    options: { resetLog?: boolean },
+    options: { resetLog?: boolean; connectionChanged?: boolean },
     catalogOnly = false,
     forkSettings?: ReturnType<typeof profileForkSettings>,
   ): Promise<boolean> {
     if (this.disposed) return false;
     const { workspaceId, tabId, cwd, profileId } = this.target;
+    const connection = savedProfileConnection(profileId);
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
     try {
@@ -405,7 +444,8 @@ export class CodexController {
     this.canonicalCwd = result.canonicalCwd;
     this.update((prev) => ({ ...prev, version: result.version }));
     if (result.attached) {
-      if (options.resetLog) return this.rejectStartup("Codex attached to the previous program");
+      if (options.resetLog || options.connectionChanged)
+        return this.rejectStartup("Codex attached to the previous program");
       // A program this controller started a moment ago, whose start line has
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
@@ -416,13 +456,27 @@ export class CodexController {
       this.showPicks();
       return true;
     }
+    if (options.connectionChanged) {
+      const replacedCustomConnection =
+        this.connection?.method === "custom" && connection?.method !== "custom";
+      const picked = this.next.model;
+      const validPick =
+        connection?.method === "custom" && connection.models.some(({ id }) => id === picked);
+      if (replacedCustomConnection || (picked && connection?.method === "custom" && !validPick)) {
+        this.next = { mode: this.next.mode };
+        this.hooks.onChosen?.({ model: undefined, effort: undefined });
+      }
+    }
+    this.connection = connection;
     this.collaborationProbe = undefined;
     const introduced = this.introduce();
     this.introduced = introduced.then(
       () => true,
       () => false,
     );
-    const handshake = (catalogOnly ? introduced : this.handshake(introduced, forkSettings))
+    const handshake = (
+      catalogOnly ? introduced : this.handshake(introduced, forkSettings, options.connectionChanged)
+    )
       .then(
         async (threadId) => {
           if (this.disposed) return false;
@@ -476,6 +530,7 @@ export class CodexController {
   private async handshake(
     introduced: Promise<void>,
     forkSettings?: ReturnType<typeof profileForkSettings>,
+    connectionChanged?: boolean,
   ): Promise<string> {
     await introduced;
     void this.request("account/read", {}).catch(() => {});
@@ -516,11 +571,30 @@ export class CodexController {
     if (threadId) {
       let resumed: Record<string, unknown> | undefined;
       try {
+        const settings = connectionChanged ? await this.changedThreadSettings(threadId) : undefined;
+        if (settings?.providerChanged) {
+          const name = this.model.threadName;
+          const choices = {
+            model: this.next.model,
+            effort: this.next.effort,
+            readOnly: this.pickedPermissionMode === "readOnly",
+          };
+          const defaults = await this.resolveForkSettings(choices);
+          const forked = await this.forkThread({ threadId }, defaults, {
+            modelProvider: settings.modelProvider,
+            excludeTurns: this.model.items.some((item) => item.kind !== "notice"),
+          });
+          const id = requireThreadId(forked);
+          if (name) void this.request("thread/name/set", { threadId: id, name }).catch(() => {});
+          this.readGoal(id);
+          return id;
+        }
         // The log shows what came before already; a new log asks for it.
         resumed = await this.request("thread/resume", {
           threadId,
           cwd,
-          excludeTurns: this.model.items.length > 0,
+          excludeTurns: this.model.items.some((item) => item.kind !== "notice"),
+          ...(settings?.model ? { model: settings.model } : {}),
         });
       } catch (err) {
         if (!this.canReplaceEmptyThread(threadId, err)) throw err;
@@ -539,6 +613,25 @@ export class CodexController {
     return this.emptyThread;
   }
 
+  /** Codex only resumes a saved thread with the provider recorded in its rollout. */
+  private async changedThreadSettings(threadId: string) {
+    const { config } = await this.request("config/read", { cwd: this.target.cwd });
+    const newConfig = config as { model_provider?: string; model?: string } | undefined;
+    const modelProvider = newConfig?.model_provider ?? "openai";
+    const model =
+      this.next.model ??
+      newConfig?.model ??
+      codexModelsOf((await this.request("model/list", {})).data).find((option) => option.isDefault)
+        ?.value;
+    if (this.emptyThread === threadId) return { model, modelProvider, providerChanged: false };
+    const source = await this.request("thread/read", { threadId, includeTurns: false });
+    const thread = source.thread as { id?: string; modelProvider?: string } | undefined;
+    if (thread?.id !== threadId || !thread.modelProvider) {
+      throw new Error("Codex did not report the saved thread's model provider");
+    }
+    return { model, modelProvider, providerChanged: thread.modelProvider !== modelProvider };
+  }
+
   /** A missing rollout is safe to replace only when this tab knows the thread was empty. */
   private canReplaceEmptyThread(threadId: string, error: unknown): boolean {
     return (
@@ -553,6 +646,7 @@ export class CodexController {
   private async forkThread(
     fork: CodexFork,
     settings?: ReturnType<typeof profileForkSettings>,
+    connection?: { modelProvider: string; excludeTurns: boolean },
   ): Promise<Record<string, unknown>> {
     const { threadId, beforeTurnId, lastTurnId } = fork;
     if (
@@ -573,20 +667,24 @@ export class CodexController {
       threadId,
       cwd: this.target.cwd,
       ...settings,
+      ...connection,
       ...(beforeTurnId ? { beforeTurnId, deferGoalContinuation: true } : {}),
       ...(lastTurnId ? { lastTurnId, deferGoalContinuation: true } : {}),
     };
     const result = await this.request("thread/fork", params);
     const permissionsMatch = matchesProfileForkSettings(params, result);
-    if (!permissionsMatch || !validCodexFork(fork, result, expected)) {
+    const providerMatches = !connection || result.modelProvider === connection.modelProvider;
+    if (!permissionsMatch || !providerMatches || !validCodexFork(fork, result, expected)) {
       const copy = result.thread as { id?: unknown; forkedFromId?: unknown } | undefined;
       if (typeof copy?.id === "string" && copy.id !== threadId && copy.forkedFromId === threadId) {
         await this.request("thread/delete", { threadId: copy.id }).catch(() => {});
       }
       throw new Error(
-        permissionsMatch
-          ? "Codex returned an unexpected fork history"
-          : "Codex did not apply the destination profile's permissions",
+        !permissionsMatch
+          ? "Codex did not apply the destination profile's permissions"
+          : !providerMatches
+            ? "Codex did not apply the destination profile's model provider"
+            : "Codex returned an unexpected fork history",
       );
     }
     return result;
@@ -738,12 +836,20 @@ export class CodexController {
   async restart(): Promise<void> {
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
+    await (this.connectionRestart.whenIdle() ?? this.restartProgram());
+  }
+
+  profileConnectionChanged(profileId: string): void {
+    if (this.profileId === profileId) this.connectionRestart.request(profileId);
+  }
+
+  private async restartProgram(connectionChanged = false): Promise<boolean> {
     const { workspaceId, tabId } = this.target;
     if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+      await stopChatProgram(workspaceId, tabId);
     }
     this.flushNow();
-    await this.start({});
+    return this.start(connectionChanged ? { connectionChanged } : {});
   }
 
   /** Resolve the destination before closing the source tab's app-server. */
@@ -965,6 +1071,7 @@ export class CodexController {
       this.disposed ||
       this.rewinding ||
       this.resumingSelection ||
+      this.connectionRestart.active ||
       this.startup.pending ||
       this.startingTurn ||
       this.state.queue.some((item) => item.status === "sending")
@@ -1382,6 +1489,40 @@ export class CodexController {
       ?.heldId;
   }
 
+  /** A gateway model can need an explicit reset of another model's reasoning effort. */
+  private turnModelSettings(model: string | undefined, effort: string | undefined) {
+    const connection = this.connection;
+    if (connection?.method !== "custom") {
+      return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+    }
+    const selected = model ?? this.model.model;
+    const choice =
+      connection.models.find(({ id }) => id === selected) ??
+      connection.models.find(({ id }) => id === connection.defaultModel);
+    if (!choice) return {};
+    if (!choice.reasoning || choice.reasoning === "none") {
+      const mode = this.model.collaborationMode ?? "default";
+      return {
+        collaborationMode: {
+          mode,
+          settings: {
+            model: choice.id,
+            reasoning_effort: null,
+            developer_instructions:
+              this.model.collaborationSettings?.[mode]?.developer_instructions ?? null,
+          },
+        },
+      };
+    }
+    const chosenEffort = effort ?? this.model.effort;
+    const allowed =
+      choice.reasoning === "xhigh" ? ["low", "medium", "high", "xhigh"] : ["low", "medium", "high"];
+    return {
+      model: choice.id,
+      effort: chosenEffort && allowed.includes(chosenEffort) ? chosenEffort : "low",
+    };
+  }
+
   private async sendMessage(
     text: string,
     images: ImageBlock[],
@@ -1416,6 +1557,9 @@ export class CodexController {
     if (now && !this.model.turnId && this.startingTurn) {
       await this.startingTurn.catch(() => {});
     }
+    const restart = this.connectionRestart.whenIdle();
+    if (restart && !(await this.connectionRestart.wait(restart)))
+      throw new Error(this.state.error ?? "Codex is not running");
     if (this.rewinding || this.resumingSelection)
       throw new Error("Codex is changing the conversation");
     if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
@@ -1505,8 +1649,7 @@ export class CodexController {
       threadId,
       clientUserMessageId,
       input,
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
+      ...this.turnModelSettings(model, effort),
       ...(mode ? MODE_SETTINGS[mode] : {}),
     });
     const start = reply
@@ -1629,7 +1772,7 @@ export class CodexController {
   }
 
   private sendNextQueued(): void {
-    if (this.resumingSelection) return;
+    if (this.resumingSelection || this.connectionRestart.whenIdle()) return;
     dispatchQueuedMessage(
       this.state.queue,
       (update) => this.update(update),
@@ -1932,6 +2075,8 @@ export class CodexController {
     // The program's start line may wait for the next frame: a message sent as
     // the tab opens (a new task's, the CLI's) would start it again.
     this.flushNow();
+    const restart = this.connectionRestart.whenIdle();
+    if (restart) return this.connectionRestart.wait(restart);
     const { phase } = this.state;
     if (phase === "ready" && this.model.process === "running") return this.introduced;
     if (phase === "held" || phase === "not-found") return false;
@@ -2224,6 +2369,7 @@ export class CodexController {
     this.rejectPending("the tab closed");
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
+    this.connectionRestart.dispose();
     clearTimeout(this.agentRefresh);
     this.removeReceiver();
     this.leavePlanUsage();
@@ -2252,6 +2398,10 @@ export interface CodexPicks {
   model?: string;
   effort?: string;
   mode?: CodexMode;
+}
+
+function savedProfileConnection(profileId: string | undefined): ProfileConnection | undefined {
+  return profileOf(useAgentProfilesStore.getState().config, "codex", profileId).connection;
 }
 
 /** A tab's kept model and effort as picks for its next turn. */
@@ -2374,6 +2524,7 @@ function startCodex(args: {
   tabId: string;
   cwd: string;
   resetLog?: boolean;
+  connectionChanged?: boolean;
   profileId?: string;
 }) {
   return ipcCallResult("chat", "codexStart", args).then(unwrapIpcResult);
@@ -2414,6 +2565,10 @@ export function existingCodexController(
   tabId: string,
 ): CodexController | undefined {
   return controllers.get(chatKey(workspaceId, tabId));
+}
+
+export function refreshCodexProfileConnection(profileId: string): void {
+  for (const controller of controllers.values()) controller.profileConnectionChanged(profileId);
 }
 
 /** Ends a closed tab's program, whether or not its view was ever shown. */
