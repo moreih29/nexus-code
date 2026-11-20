@@ -323,7 +323,7 @@ const worktreeNew: CliCommand = {
         ...(start ? { start } : {}),
         show: flags.show === true,
       });
-      const reach = `--workspace ${created.workspaceId} --device ${JSON.stringify(device.name)}`;
+      const reach = `--workspace ${created.workspaceId} --device ${device.id}`;
       const wait = created.tabId
         ? `nexus ${"agent" in created.start ? "chat" : "terminal"} wait ${created.tabId} ${reach}`
         : undefined;

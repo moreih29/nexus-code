@@ -239,7 +239,7 @@ export type CliSpeakerChange =
   | { op: "rename"; speaker: string; name: string }
   | { op: "merge"; from: string; into: string }
   | { op: "move"; first: string; last: string; into: string }
-  | { op: "regroup"; participants: number };
+  | { op: "regroup"; participants: number | "auto" };
 
 export type CliVoiceSuggestionAction =
   | { op: "list" }

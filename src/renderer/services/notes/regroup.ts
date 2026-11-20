@@ -32,7 +32,7 @@ export async function regroupRecording(
   workspaceId: string,
   noteId: string,
   recordingId: string,
-  target: number,
+  target: number | "auto",
   reportFailure = false,
 ): Promise<void> {
   const key = regroupKey(workspaceId, noteId, recordingId);
@@ -77,7 +77,7 @@ export async function regroupRecording(
         key: l.speaker,
         ...(l.pinned ? { pinned: true } : {}),
       })),
-      target,
+      target: target === "auto" ? undefined : target,
     });
     const after = numberSpeakers({
       ...before,

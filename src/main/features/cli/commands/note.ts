@@ -588,7 +588,7 @@ const noteRecord: CliCommand = {
           fromWorkspaceId: ctx.caller.workspaceId,
           fromTabId: ctx.caller.tabId,
           toWorkspaceId: workspace.id,
-          change: { kind: "noteRecord", ...change },
+          change: { kind: "noteRecord", ...change, eachTime: true },
         });
       } else {
         await mayChange(ctx, workspace, { kind: "noteRecordStop", ...change });
@@ -651,9 +651,9 @@ function speakerCommand(
       ...(verb === "regroup"
         ? {
             participants: {
-              type: "number",
-              value: "N",
-              description: "Target number of voices",
+              type: "string",
+              value: "N|auto",
+              description: "Target number of voices or automatic grouping",
             } as const,
           }
         : {}),
@@ -869,18 +869,14 @@ export const noteCommands: CliCommand[] = [
   ),
   speakerCommand(
     "regroup",
-    "--participants N",
-    "Regroup recording voices with an explicit speaker count",
+    "--participants N|auto",
+    "Regroup recording voices using a speaker count or automatic grouping",
     (words, flags) => {
       exactArgs(words);
-      const participants = flags.participants;
-      if (
-        typeof participants !== "number" ||
-        !Number.isInteger(participants) ||
-        participants < 1 ||
-        participants > 50
-      )
-        throw new CliUsageError("--participants takes a whole number from 1 to 50");
+      if (flags.participants === "auto") return { op: "regroup", participants: "auto" };
+      const participants = Number(flags.participants);
+      if (!Number.isInteger(participants) || participants < 1 || participants > 50)
+        throw new CliUsageError("--participants takes auto or a whole number from 1 to 50");
       return { op: "regroup", participants };
     },
   ),

@@ -2155,7 +2155,10 @@ export const RPC_METHODS = {
           last: z.string().min(1).max(100),
           into: z.string().min(1).max(100),
         }),
-        z.object({ op: z.literal("regroup"), participants: z.number().int().min(1).max(50) }),
+        z.object({
+          op: z.literal("regroup"),
+          participants: z.union([z.literal("auto"), z.number().int().min(1).max(50)]),
+        }),
       ]),
       ...ReadBy,
     }),
