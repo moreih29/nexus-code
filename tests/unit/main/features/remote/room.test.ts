@@ -1,5 +1,5 @@
 /** Devices of one account in a room, through an in-memory relay. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,9 +30,10 @@ import {
   type RemoteRoomDeps,
   RpcFailure,
 } from "../../../../../src/main/features/remote/room";
-import type { RoomKey } from "../../../../../src/main/features/remote/seal";
+import { openMessage, type RoomKey } from "../../../../../src/main/features/remote/seal";
 
 import { servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import { mainWarnMock } from "../../../../log-test-spies";
 import { fakeApp } from "../../cli/fake-services";
 
 type Handlers = Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">;
@@ -43,12 +44,16 @@ class MockRelay {
   private readonly online = new Map<string, Handlers>();
   /** Changes a frame on its way, as a relay that cheats would. */
   tamper: ((frame: ServerFrame) => ServerFrame) | null = null;
+  drop:
+    | ((from: string, frame: ClientFrame) => "silent" | "rate-limited" | "legacy-limit" | undefined)
+    | null = null;
   /** Every message it passed on, as it delivered it: a relay that cheats may send one again. */
   readonly kept: { to: string; frame: Delivered }[] = [];
 
   connection(device: Omit<RoomDevice, "online">, handlers: Handlers) {
     if (!this.devices.some((d) => d.id === device.id))
       this.devices.push({ ...device, online: false });
+    let recoveries = 0;
     return {
       start: () => {
         handlers.onStatus("connecting");
@@ -70,6 +75,14 @@ class MockRelay {
         handlers.onStatus("online");
         this.presence();
       },
+      recover: () => {
+        recoveries++;
+        handlers.onStatus("waiting");
+        handlers.onOpen();
+        handlers.onStatus("online");
+        this.presence();
+      },
+      recoveries: () => recoveries,
       send: (frame: ClientFrame) => {
         queueMicrotask(() => this.route(device.id, frame));
         return true;
@@ -78,6 +91,17 @@ class MockRelay {
   }
 
   private route(from: string, frame: ClientFrame) {
+    const dropped = this.drop?.(from, frame);
+    if (dropped) {
+      if (dropped !== "silent")
+        this.online.get(from)?.onFrame({
+          t: "error",
+          code: "rate-limited",
+          message: "",
+          ...(dropped === "rate-limited" ? { seq: frame.seq } : {}),
+        });
+      return;
+    }
     const targets =
       frame.to === "*"
         ? [...this.online.keys()].filter((id) => id !== from)
@@ -146,7 +170,12 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
     requestTimeoutMs: 300,
     ...extra,
   });
-  return { room, served, reopen: () => connection?.reopen() };
+  return {
+    room,
+    served,
+    reopen: () => connection?.reopen(),
+    recoveries: () => connection?.recoveries(),
+  };
 }
 
 describe("the room", () => {
@@ -437,6 +466,175 @@ describe("what the relay keeps and sends again", () => {
     for (const frame of relay.between("b", "a")) relay.deliver("a", frame);
     await flushRelay();
     expect(a.served).toHaveLength(1);
+  });
+
+  test("a stale request repairs the peer epoch and repeated stale requests share one hello", async () => {
+    const { relay, key, a, b } = await pair();
+    relay.drop = (from) => (from === "a" ? "silent" : undefined);
+    a.reopen();
+    await flushRelay();
+    relay.drop = null;
+    jest.useFakeTimers();
+    try {
+      const first = b.room.request("a", "sessions.list", {}).catch((e: unknown) => e);
+      const second = b.room.request("a", "sessions.list", {}).catch((e: unknown) => e);
+      await flushRelay();
+      expect(a.served).toHaveLength(0);
+      const targeted = relay.between("a", "b").filter((frame) => frame.to === "b");
+      const recent = await openMessage(key, targeted.at(-1)!);
+      expect(recent?.message).toMatchObject({ type: "hello", reply: true });
+      const heard = await Promise.all(targeted.map((frame) => openMessage(key, frame)));
+      expect(heard.filter((item) => item?.epoch === recent?.epoch)).toHaveLength(1);
+      expect(b.room.state().peers[0]?.rejoins).toBe(1);
+      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
+      jest.advanceTimersByTime(300);
+      expect(await first).toBeInstanceOf(RpcFailure);
+      expect(await second).toBeInstanceOf(RpcFailure);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("request timeouts send one recovery hello without counting a rejoin", async () => {
+    const { relay, key, a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      relay.drop = (from) => (from === "b" ? "silent" : undefined);
+      const requests = Array.from({ length: 2 }, () =>
+        b.room.request("a", "sessions.list", {}).catch((e: unknown) => e),
+      );
+      await flushRelay();
+      const before = relay.between("b", "a").length;
+      relay.drop = null;
+      jest.advanceTimersByTime(300);
+      await flushRelay();
+      const sent = relay.between("b", "a").slice(before);
+      expect(sent).toHaveLength(1);
+      expect((await openMessage(key, sent[0]!))?.message).toMatchObject({
+        type: "hello",
+        reply: true,
+      });
+      expect(a.room.state().peers[0]?.rejoins).toBeUndefined();
+      expect(b.room.state().peers[0]?.rejoins).toBeUndefined();
+      expect(await Promise.all(requests)).toEqual([expect.any(RpcFailure), expect.any(RpcFailure)]);
+      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test.each([
+    "b",
+    "a",
+  ])("a rate-limited frame from %s fails the affected request", async (sender) => {
+    const { relay, a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      relay.drop = (from) => {
+        if (from !== sender) return;
+        relay.drop = null;
+        return "rate-limited";
+      };
+      const warningsBefore = mainWarnMock.mock.calls.length;
+      const failed = b.room.request("a", "sessions.list", {}, 10_000).catch((e: unknown) => e);
+      await flushRelay();
+      if (sender === "a") {
+        jest.advanceTimersByTime(1_100);
+        await flushRelay();
+      }
+      expect(await failed).toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: expect.stringContaining("rate limiting"),
+      });
+      expect(
+        mainWarnMock.mock.calls.slice(warningsBefore).map(([message]) => message),
+      ).toContainEqual(expect.stringContaining("Relay rejected frame code=rate-limited"));
+      expect(a.served).toHaveLength(sender === "a" ? 1 : 0);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("a rate limit without a sequence pauses sending without rejecting another request", async () => {
+    const { relay, a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      relay.drop = (from) => {
+        if (from !== "b") return;
+        relay.drop = null;
+        return "legacy-limit";
+      };
+      const first = b.room.request("a", "sessions.list", {}, 10_000).catch((e: unknown) => e);
+      await flushRelay();
+      const second = b.room.request("a", "sessions.list", {}, 10_000);
+      jest.advanceTimersByTime(999);
+      await flushRelay();
+      expect(a.served).toHaveLength(0);
+      jest.advanceTimersByTime(100);
+      await flushRelay();
+      expect((await second).workspaces).toHaveLength(1);
+      expect(a.served).toHaveLength(1);
+      b.room.stop();
+      expect(await first).toBeInstanceOf(RpcFailure);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("an outgoing seal stall reconnects and clears requests queued on the old socket", async () => {
+    const { a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      const pairing = b.room.sendPair("a", () => new Promise(() => {}));
+      await flushRelay();
+      const waiting = b.room.request("a", "sessions.list", {}, 10_000).catch((e: unknown) => e);
+      jest.advanceTimersByTime(5_000);
+      await flushRelay();
+      expect(b.recoveries()).toBe(1);
+      expect(await pairing).toBe(false);
+      expect(await waiting).toMatchObject({ code: RpcErrorCode.Unavailable });
+      expect(a.served).toHaveLength(0);
+      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("a live socket with two silent online peers reconnects after its hello probes", async () => {
+    const { relay, key, a, b } = await pair();
+    const c = device(relay, "c", key);
+    c.room.start();
+    await flushRelay();
+    jest.useFakeTimers();
+    try {
+      relay.drop = (from) => (from === "b" ? "silent" : undefined);
+      const waiting = b.room.request("a", "sessions.list", {}).catch((e: unknown) => e);
+      await flushRelay();
+      jest.advanceTimersByTime(300);
+      await flushRelay();
+      expect(await waiting).toBeInstanceOf(RpcFailure);
+      expect(b.room.state().status).toBe("online");
+      relay.drop = null;
+      jest.advanceTimersByTime(5_000);
+      await flushRelay();
+      expect(b.recoveries()).toBe(1);
+      expect((await b.room.request("c", "sessions.list", {})).workspaces).toHaveLength(1);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      c.room.stop();
+      jest.useRealTimers();
+    }
   });
 
   test("a message of an earlier connection is not taken in a new one", async () => {

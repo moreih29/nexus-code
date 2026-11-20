@@ -20,6 +20,7 @@ import {
   MAX_FRAME_BYTES,
   PAIR_KID,
   PROTOCOL_VERSION,
+  type RelayError,
   RPC_METHODS,
   RPC_NOTIFICATIONS,
   type RpcError,
@@ -36,6 +37,7 @@ import {
 import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
 import { isFileTransferMethod } from "./file-io";
+import { FramePriority, OutgoingFrames } from "./outgoing";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
@@ -43,6 +45,20 @@ const log = createLogger("remote-room");
 
 /** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
+const HELLO_RETRY_INTERVAL_MS = 5_000;
+const WARNING_INTERVAL_MS = 30_000;
+const INBOX_STALL_MS = 5_000;
+const RECENT_REPLY_LIMIT = 200;
+const PEER_PROBE_MS = 5_000;
+const MAX_PROBE_PEERS = 3;
+
+type RoomWarning =
+  | "stale-epoch"
+  | "request-timeout"
+  | "slow-serving"
+  | "relay-error"
+  | "queue-drop"
+  | "queue-stall";
 
 /** The platforms of phones, as the relay names a device's: no agent runs on one. */
 const PHONE_PLATFORMS = new Set(["ios", "android", "web"]);
@@ -108,6 +124,16 @@ class FileReadBudget {
 }
 
 const FILE_READ_SOCKET_HIGH_WATER = 4 * MAX_FRAME_BYTES;
+const FILE_READ_SOCKET_WAIT_MS = 8_000;
+
+const BULK_FRAMES = new Set([
+  "files.read",
+  "files.write.chunk",
+  "chat.image",
+  "chat.attach",
+  "notes.attach",
+]);
+const RATE_LIMITED = "the relay is rate limiting this connection";
 
 function readsWholeImage(params: unknown): boolean {
   const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
@@ -138,6 +164,7 @@ export interface RoomConnection {
   send(frame: ClientFrame): boolean;
   readonly bufferedAmount?: number;
   healthy(): void;
+  recover(): void;
 }
 
 export interface RemoteRoomDeps {
@@ -184,6 +211,14 @@ interface Pending {
   seq?: number;
 }
 
+interface SentReply {
+  from: string;
+  epoch: string;
+  id: number | string;
+  method: string;
+  sentAt: number;
+}
+
 export class RemoteRoom {
   private readonly connection: RoomConnection;
   private readonly imageReadBudget = new FileReadBudget(2, 16);
@@ -200,10 +235,15 @@ export class RemoteRoom {
   private readonly heard = new Map<string, { epoch: string; seq: number }>();
   /** Others' epochs it took a newer one of, as "device|epoch": none of their messages is taken. */
   private readonly past = new Set<string>();
-  /** Messages go out one after another, so their seqs are in the order they go. */
-  private outbox: Promise<unknown> = Promise.resolve();
+  private outbox = this.makeOutbox();
+  private readonly sentReplies = new Map<number, SentReply>();
   /** Messages are taken one after another, so their seqs are checked in the order they came. */
-  private inbox: Promise<unknown> = Promise.resolve();
+  private inbox = { tail: Promise.resolve(), pending: 0 };
+  private readonly helloRetryAt = new Map<string, number>();
+  private readonly warnedAt = new Map<RoomWarning, number>();
+  private droppedFrames = 0;
+  private rateLimitedFrames = 0;
+  private probe: { peers: Set<string>; timer: ReturnType<typeof setTimeout> } | undefined;
   private foreignAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly deps: RemoteRoomDeps) {
@@ -231,6 +271,7 @@ export class RemoteRoom {
     this.failPending("left the room");
     this.deps.onDisconnect?.();
     this.status = "off";
+    this.resetQueues();
     this.cancelQueuedReads();
     this.changed();
   }
@@ -249,6 +290,8 @@ export class RemoteRoom {
     this.epoch = newEpoch();
     this.heard.clear();
     this.past.clear();
+    this.helloRetryAt.clear();
+    this.resetQueues();
     this.cancelQueuedReads();
     this.failPending(why);
   }
@@ -296,11 +339,20 @@ export class RemoteRoom {
           : "that device is not in the room",
       );
     }
+    const started = performance.now();
     const answer = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () => {
+          const sent = this.pending.get(key)?.seq !== undefined;
           this.pending.delete(key);
           reject(new RpcFailure(RpcErrorCode.Unavailable, `${method}: no answer in time`));
+          const elapsed = Math.round(performance.now() - started);
+          this.warnOccasionally(
+            "request-timeout",
+            `Remote request timed out method=${method} peer=${to.slice(0, 8)} elapsedMs=${elapsed}`,
+          );
+          this.retryHello(to, this.heard.get(to)?.epoch ?? peer);
+          if (sent) this.probePeerPath(to);
         },
         timeoutMs ?? this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
       );
@@ -315,12 +367,21 @@ export class RemoteRoom {
     };
     const abort = () => rejectPending(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });
-    void this.post(to, peer, message, signal).then((seq) => {
+    void this.post(to, peer, message, {
+      priority:
+        method === "files.read"
+          ? FramePriority.Request
+          : this.bulkPriority(method, FramePriority.Request),
+      wanted: () => !signal?.aborted && this.pending.has(key),
+      onSending: (seq) => {
+        const pending = this.pending.get(key);
+        if (pending) pending.seq = seq;
+      },
+    }).then((seq) => {
       if (seq === null) {
-        rejectPending(new RpcFailure(RpcErrorCode.Unavailable, "not in the room"));
-      } else {
-        const p = this.pending.get(key);
-        if (p) p.seq = seq;
+        const why = this.status === "online" ? "the relay send queue is busy" : "not in the room";
+        const data = method === "chat.send" ? { outcome: "rejected" } : undefined;
+        rejectPending(new RpcFailure(RpcErrorCode.Unavailable, why, data));
       }
     }, rejectPending);
     try {
@@ -342,28 +403,38 @@ export class RemoteRoom {
     const message: SealedMessage = { jsonrpc: "2.0", method, params };
     const peer = this.heard.get(to)?.epoch;
     if (!peer || !fitsInFrame(message)) return false;
-    return (await this.post(to, peer, message)) !== null;
+    return (
+      (await this.post(to, peer, message, {
+        priority: FramePriority.Watch,
+        watch: `${to}|${method}|${params.watchId}`,
+      })) !== null
+    );
   }
 
   /**
    * Sends one device a pairing frame (kid PAIR_KID), which `seal` seals for
    * its routing; whether it went.
    */
-  sendPair(
+  async sendPair(
     to: string,
     seal: (routing: { from: string; to: string; seq: number }) => Promise<{
       nonce: string;
       box: string;
     }>,
   ): Promise<boolean> {
-    const sent = this.outbox.then(async () => {
-      this.seq += 1;
-      const seq = this.seq;
-      const sealed = await seal({ from: this.deps.self.id, to, seq });
-      return this.connection.send({ t: "send", to, seq, kid: PAIR_KID, ...sealed });
+    const epoch = this.epoch;
+    const sent = await this.outbox.push({
+      priority: FramePriority.Hello,
+      wanted: () => this.epoch === epoch && this.status === "online",
+      send: async (current) => {
+        const seq = ++this.seq;
+        const sealed = await seal({ from: this.deps.self.id, to, seq });
+        return current() && this.connection.send({ t: "send", to, seq, kid: PAIR_KID, ...sealed })
+          ? seq
+          : null;
+      },
     });
-    this.outbox = sent.catch(() => null);
-    return sent;
+    return sent !== null;
   }
 
   /**
@@ -374,26 +445,107 @@ export class RemoteRoom {
     to: string,
     peer: string | null,
     message: SealedMessage,
-    signal?: AbortSignal,
-    shouldSend?: () => boolean,
+    options: {
+      priority: FramePriority;
+      wanted?: () => boolean;
+      watch?: string;
+      onSending?: (seq: number) => void;
+    } = { priority: FramePriority.Hello },
   ): Promise<number | null> {
-    const sent = this.outbox.then(async () => {
-      if (signal?.aborted || shouldSend?.() === false) return null;
-      this.seq += 1;
-      const seq = this.seq;
-      const frame = await sealMessage({
-        room: this.deps.room,
-        from: this.deps.self.id,
-        to,
-        seq,
-        envelope: { epoch: this.epoch, peer, message },
-      });
-      return !signal?.aborted && shouldSend?.() !== false && this.connection.send(frame)
-        ? seq
-        : null;
+    const epoch = this.epoch;
+    const sent = this.outbox.push({
+      priority: options.priority,
+      ...(options.watch ? { watch: options.watch } : {}),
+      wanted: () => this.status === "online" && options.wanted?.() !== false,
+      send: async (current) => {
+        const seq = ++this.seq;
+        const frame = await sealMessage({
+          room: this.deps.room,
+          from: this.deps.self.id,
+          to,
+          seq,
+          envelope: { epoch, peer, message },
+        });
+        if (!current()) return null;
+        options.onSending?.(seq);
+        return this.connection.send(frame) ? seq : null;
+      },
     });
-    this.outbox = sent.catch(() => null);
+    void sent.catch(() => {});
     return sent;
+  }
+
+  private bulkPriority(method: string, otherwise: FramePriority): FramePriority {
+    return BULK_FRAMES.has(method) ? FramePriority.Data : otherwise;
+  }
+
+  private makeOutbox(): OutgoingFrames {
+    return new OutgoingFrames(
+      () => {
+        this.droppedFrames++;
+        if (
+          this.warnOccasionally(
+            "queue-drop",
+            `Relay send queue dropped frames count=${this.droppedFrames} queuedFrames=${this.outbox.size}`,
+          )
+        ) {
+          this.droppedFrames = 0;
+        }
+      },
+      (elapsed) => this.stalled("outbox", elapsed, this.outbox.size + 1),
+      () => this.canSendData(),
+    );
+  }
+
+  private resetQueues(): void {
+    this.inbox = { tail: Promise.resolve(), pending: 0 };
+    this.outbox.close();
+    this.outbox = this.makeOutbox();
+    this.sentReplies.clear();
+    this.clearProbe();
+  }
+
+  private stalled(queue: "inbox" | "outbox", elapsed: number, frames: number): void {
+    this.warnOccasionally(
+      "queue-stall",
+      `Relay reconnect reason=${queue}-stalled elapsedMs=${Math.round(elapsed)} queuedFrames=${frames} pendingRequests=${this.pending.size}`,
+    );
+    this.connection.recover();
+  }
+
+  /** Pongs prove the socket reaches the relay. A hello round trip checks forwarding. */
+  private probePeerPath(to: string): void {
+    if (this.probe || this.status !== "online") return;
+    const peers = new Set<string>();
+    for (const id of [to, ...this.heard.keys()]) {
+      if (this.peers.get(id)?.online) peers.add(id);
+      if (peers.size === MAX_PROBE_PEERS) break;
+    }
+    // One silent peer can be a fault on its own device.
+    if (peers.size < 2) return;
+    const started = performance.now();
+    this.probe = {
+      peers,
+      timer: setTimeout(() => {
+        this.clearProbe();
+        const stillOnline = [...peers].filter((id) => this.peers.get(id)?.online).length;
+        if (stillOnline < 2) return;
+        this.warnOccasionally(
+          "queue-stall",
+          `Relay reconnect reason=peer-probes-unanswered elapsedMs=${Math.round(performance.now() - started)} peers=${stillOnline} queuedFrames=${this.outbox.size} pendingRequests=${this.pending.size}`,
+        );
+        this.connection.recover();
+      }, PEER_PROBE_MS),
+    };
+    for (const id of peers) {
+      const epoch = this.heard.get(id)?.epoch;
+      if (epoch) this.retryHello(id, epoch);
+    }
+  }
+
+  private clearProbe(): void {
+    if (this.probe) clearTimeout(this.probe.timer);
+    this.probe = undefined;
   }
 
   private themeNow(): { theme?: string } {
@@ -413,9 +565,32 @@ export class RemoteRoom {
     };
   }
 
+  private retryHello(to: string, epoch: string): void {
+    if (this.status !== "online" || this.peers.get(to)?.online !== true) return;
+    const now = performance.now();
+    if (now - (this.helloRetryAt.get(to) ?? -Infinity) < HELLO_RETRY_INTERVAL_MS) return;
+    this.helloRetryAt.set(to, now);
+    void this.post(to, epoch, this.hello(true));
+  }
+
+  private warnOccasionally(kind: RoomWarning, message: string): boolean {
+    const now = performance.now();
+    if (now - (this.warnedAt.get(kind) ?? -Infinity) < WARNING_INTERVAL_MS) return false;
+    this.warnedAt.set(kind, now);
+    log.warn(message);
+    return true;
+  }
+
   private onStatus(status: RelayStatus): void {
+    const wasOnline = this.status === "online";
     this.status = status;
     if (status !== "online") {
+      if (wasOnline) {
+        this.failPending(
+          status === "stopped" ? "left the room" : "the connection to the room was lost",
+        );
+        this.resetQueues();
+      }
       this.deps.onDisconnect?.();
       // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
@@ -447,6 +622,7 @@ export class RemoteRoom {
         if (peer.online && !next.get(peer.id)?.online) this.deps.onDisconnect?.(peer.id);
       }
       this.peers = next;
+      for (const id of this.helloRetryAt.keys()) if (!next.has(id)) this.helloRetryAt.delete(id);
       this.cancelQueuedReads();
       if (!this.greeted) {
         this.greeted = true;
@@ -456,24 +632,58 @@ export class RemoteRoom {
       return;
     }
     if (frame.t === "message") {
-      this.inbox = this.inbox
-        .then(() => this.take(frame))
-        .catch((error) => log.warn(`Could not process a relay message: ${String(error)}`));
+      const inbox = this.inbox;
+      inbox.pending++;
+      inbox.tail = inbox.tail
+        .then(() => this.take(frame, inbox))
+        .catch(() => log.warn("Could not process a relay message"))
+        .finally(() => {
+          inbox.pending--;
+        });
       return;
     }
     if (frame.t === "account") {
       this.deps.onAccountEvent?.(frame);
       return;
     }
-    if (frame.code === "no-such-device" && frame.seq !== undefined) {
-      for (const [key, p] of this.pending) {
-        if (p.seq !== frame.seq) continue;
-        clearTimeout(p.timer);
-        this.pending.delete(key);
-        p.reject(new RpcFailure(RpcErrorCode.Unavailable, "that device is not in the room"));
-      }
-    } else if (frame.code !== "unauthorized") {
-      log.warn(`relay: ${frame.code} ${frame.message}`);
+    this.relayError(frame);
+  }
+
+  private relayError({ code, seq }: RelayError): void {
+    if (code === "unauthorized") return;
+    const limited = code === "rate-limited";
+    if (limited) {
+      this.rateLimitedFrames++;
+      this.outbox.rateLimited();
+      this.clearProbe();
+    }
+    if (
+      code !== "no-such-device" &&
+      this.warnOccasionally(
+        "relay-error",
+        `Relay rejected frame code=${code} rateLimited=${this.rateLimitedFrames} queuedFrames=${this.outbox.size} pendingRequests=${this.pending.size}`,
+      )
+    )
+      this.rateLimitedFrames = 0;
+    if (seq === undefined) return;
+
+    for (const [key, p] of this.pending) {
+      if (p.seq !== seq) continue;
+      clearTimeout(p.timer);
+      this.pending.delete(key);
+      const why = limited
+        ? RATE_LIMITED
+        : code === "no-such-device"
+          ? "that device is not in the room"
+          : "the relay rejected the request frame";
+      const data = p.method === "chat.send" ? { outcome: "rejected" } : undefined;
+      p.reject(new RpcFailure(RpcErrorCode.Unavailable, why, data));
+      return;
+    }
+    const reply = this.sentReplies.get(seq);
+    this.sentReplies.delete(seq);
+    if (limited && reply && performance.now() - reply.sentAt < REQUEST_TIMEOUT_MS) {
+      this.rejectReply(reply.from, reply.epoch, reply, RATE_LIMITED);
     }
   }
 
@@ -482,7 +692,8 @@ export class RemoteRoom {
    * this epoch, and not taken before. Messages are taken in the order they
    * came; what they ask is served apart, so one that waits holds up none.
    */
-  private async take(frame: Delivered): Promise<void> {
+  private async take(frame: Delivered, inbox: RemoteRoom["inbox"]): Promise<void> {
+    if (inbox !== this.inbox || this.status !== "online") return;
     // Sent to another device of the account, and passed on here: not for this one.
     if (frame.to !== this.deps.self.id && frame.to !== ALL_DEVICES) return;
     // Sealed with a pairing code's key: the pairing opens it, if one is under way.
@@ -490,7 +701,18 @@ export class RemoteRoom {
       if (frame.to === this.deps.self.id) this.deps.onPairFrame?.(frame);
       return;
     }
-    const envelope = await openMessage(this.deps.room, frame);
+    const started = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        if (inbox === this.inbox) this.stalled("inbox", performance.now() - started, inbox.pending);
+        resolve(null);
+      }, INBOX_STALL_MS);
+    });
+    const envelope = await Promise.race([expiry, openMessage(this.deps.room, frame)]).finally(() =>
+      clearTimeout(timer),
+    );
+    if (inbox !== this.inbox) return;
     if (!envelope) {
       if (frame.kid > this.deps.room.kid) this.foreignKey(frame.kid);
       return;
@@ -500,13 +722,25 @@ export class RemoteRoom {
     // The relay vouches for who sent it; a hello for another device is not taken.
     if (hello && hello.device.id !== frame.from) return;
     if (frame.to === ALL_DEVICES || envelope.peer !== this.epoch) {
-      // Not sealed for this epoch: it may be an old one sent again. A hello asks for this
-      // device's, which says the epoch it is for, so its answer can be taken; nothing else is.
+      // Answer hellos as before. A directed request with an old receiver epoch
+      // can also prompt an introduction, but its contents are never served.
       if (hello) void this.post(frame.from, envelope.epoch, this.hello(true));
+      else if (frame.to === this.deps.self.id && "method" in message && "id" in message) {
+        const method = isRpcMethod(message.method) ? message.method : "unknown";
+        this.warnOccasionally(
+          "stale-epoch",
+          `Dropped request for stale epoch method=${method} peer=${frame.from.slice(0, 8)}`,
+        );
+        if (!this.past.has(`${frame.from}|${envelope.epoch}`)) {
+          this.retryHello(frame.from, envelope.epoch);
+        }
+      }
       return;
     }
     if (!this.fresh(frame.from, envelope.epoch, frame.seq)) return;
-    void this.handle(frame.from, envelope.epoch, message);
+    void this.handle(frame.from, envelope.epoch, message, this.epoch).catch(() => {
+      this.warnOccasionally("relay-error", "Could not handle a remote room message");
+    });
   }
 
   /**
@@ -556,8 +790,14 @@ export class RemoteRoom {
   }
 
   /** A message taken: from `from`, in its epoch `epoch`, which an answer goes in. */
-  private async handle(from: string, epoch: string, message: SealedMessage): Promise<void> {
+  private async handle(
+    from: string,
+    epoch: string,
+    message: SealedMessage,
+    localEpoch: string,
+  ): Promise<void> {
     if ("type" in message) {
+      if (!message.reply && this.probe?.peers.has(from)) this.clearProbe();
       const peer = this.peers.get(from) ?? {
         id: from,
         name: message.device.name,
@@ -577,6 +817,7 @@ export class RemoteRoom {
     if ("method" in message && "id" in message) {
       const current = () =>
         this.status === "online" &&
+        this.epoch === localEpoch &&
         this.heard.get(from)?.epoch === epoch &&
         this.peers.get(from)?.online === true;
       if (message.method === "files.read") {
@@ -601,8 +842,12 @@ export class RemoteRoom {
           return;
         }
         try {
-          await this.waitForFileReadSocket(current);
+          const writable = await this.waitForFileReadSocket(current);
           if (!current()) return;
+          if (!writable) {
+            this.rejectReply(from, epoch, message, "the relay send buffer is busy");
+            return;
+          }
           const answer = await this.answer(from, message.method, message.params, current);
           if (current()) await this.reply(from, epoch, message, answer, current);
         } finally {
@@ -618,7 +863,7 @@ export class RemoteRoom {
         message.params,
         transfer ? current : undefined,
       );
-      void this.reply(from, epoch, message, answer);
+      if (current()) await this.reply(from, epoch, message, answer, current);
       return;
     }
     if ("method" in message) {
@@ -631,6 +876,7 @@ export class RemoteRoom {
     const key = `${from}|${message.id}`;
     const p = this.pending.get(key);
     if (!p) return;
+    if (this.probe?.peers.has(from)) this.clearProbe();
     clearTimeout(p.timer);
     this.pending.delete(key);
     if ("error" in message) {
@@ -645,13 +891,20 @@ export class RemoteRoom {
       );
   }
 
-  private async waitForFileReadSocket(current: () => boolean): Promise<void> {
-    while (current() && (this.connection.bufferedAmount ?? 0) > FILE_READ_SOCKET_HIGH_WATER) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 20));
-    }
+  private canSendData(): boolean {
+    return (this.connection.bufferedAmount ?? 0) <= FILE_READ_SOCKET_HIGH_WATER;
   }
 
-  private reply(
+  private async waitForFileReadSocket(current: () => boolean): Promise<boolean> {
+    const started = performance.now();
+    while (current() && !this.canSendData()) {
+      if (performance.now() - started >= FILE_READ_SOCKET_WAIT_MS) return false;
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    }
+    return current();
+  }
+
+  private async reply(
     from: string,
     epoch: string,
     request: { id: number | string; method: string },
@@ -659,10 +912,16 @@ export class RemoteRoom {
     current?: () => boolean,
   ): Promise<number | null> {
     const reply: SealedMessage = { jsonrpc: "2.0", id: request.id, ...answer };
-    return this.post(
+    const fits = fitsInFrame(reply);
+    const priority =
+      fits && "result" in answer
+        ? this.bulkPriority(request.method, FramePriority.Reply)
+        : FramePriority.Reply;
+    const localEpoch = this.epoch;
+    const sent = await this.post(
       from,
       epoch,
-      fitsInFrame(reply)
+      fits
         ? reply
         : {
             jsonrpc: "2.0",
@@ -672,8 +931,55 @@ export class RemoteRoom {
               message: `${request.method}: the answer is too large to send`,
             },
           },
-      undefined,
-      current,
+      {
+        priority,
+        ...(current ? { wanted: current } : {}),
+        onSending: (seq) => {
+          if (this.sentReplies.size >= RECENT_REPLY_LIMIT) {
+            const oldest = this.sentReplies.keys().next().value;
+            if (oldest !== undefined) this.sentReplies.delete(oldest);
+          }
+          this.sentReplies.set(seq, {
+            from,
+            epoch,
+            id: request.id,
+            method: request.method,
+            sentAt: performance.now(),
+          });
+        },
+      },
+    );
+    if (
+      sent === null &&
+      priority === FramePriority.Data &&
+      this.epoch === localEpoch &&
+      current?.() !== false
+    ) {
+      this.rejectReply(from, epoch, request, "the relay send queue is busy");
+    }
+    return sent;
+  }
+
+  private rejectReply(
+    from: string,
+    epoch: string,
+    { id, method }: { id: number | string; method: string },
+    message: string,
+  ): void {
+    if (this.status !== "online" || this.heard.get(from)?.epoch !== epoch) return;
+    void this.post(
+      from,
+      epoch,
+      {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: RpcErrorCode.Unavailable,
+          message,
+          ...(method === "chat.send" ? { data: { outcome: "unknown" } } : {}),
+        },
+      },
+      { priority: FramePriority.Reply },
     );
   }
 
@@ -747,6 +1053,15 @@ export class RemoteRoom {
     if (!parsed.success) {
       return { error: { code: RpcErrorCode.InvalidParams, message: parsed.error.message } };
     }
+    const started = performance.now();
+    const slow = setTimeout(() => {
+      const elapsed = Math.round(performance.now() - started);
+      this.warnOccasionally(
+        "slow-serving",
+        `Still serving remote request method=${method} peer=${from.slice(0, 8)} elapsedMs=${elapsed}`,
+      );
+    }, REQUEST_TIMEOUT_MS);
+    slow.unref?.();
     try {
       return {
         result: await this.deps.serve({
@@ -772,6 +1087,8 @@ export class RemoteRoom {
       return {
         error: { code: RpcErrorCode.InternalError, message: "the device could not answer" },
       };
+    } finally {
+      clearTimeout(slow);
     }
   }
 
