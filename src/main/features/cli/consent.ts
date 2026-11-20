@@ -63,7 +63,7 @@ export class CrossWorkspaceConsent {
     if (!request.change.eachTime && this.allowed.has(pair)) return;
     const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
     if (answer === "session" && !request.change.eachTime) this.allowed.add(pair);
-    if (answer === "once" || answer === "session") return;
+    if (answer === "once" || (answer === "session" && !request.change.eachTime)) return;
     throw refusal(answer);
   }
 }

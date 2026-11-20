@@ -224,6 +224,7 @@ describe("chat set", () => {
       workspaceId: APP,
       tabId: CHAT_TAB,
       settings: { model: "default", effort: "high", mode: "plan" },
+      expectedMode: "default",
     });
   });
 

@@ -23,12 +23,19 @@ function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
   let now = 0;
   const asked: Record<string, unknown>[] = [];
   const services = {
+    listWorkspaces: () => [{ id: "w1", name: "Work" }],
+    notes: {
+      list: async () => [{ id: "nqaspeaker02", title: "Design review" }],
+      read: async () => ({ id: "nqaspeaker02", title: "Design review" }),
+    },
     ui: async (op: string, args: Record<string, unknown>) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Review" }] };
       if (op === "consent.ask") {
         asked.push(args);
         return { answer: answers.shift() ?? "deny" };
       }
+      if (op === "chat.settings") return { agent: "claude", mode: "plan" };
+      if (op === "chat.profile") return { from: "Personal", to: "Work" };
       if (op === "chat.state")
         return {
           agent: "claude",
@@ -402,4 +409,36 @@ test("persistent global layers and voice deletion require fresh peer approval", 
     expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
     expect.objectContaining({ kind: "voiceNamesDelete", eachTime: true }),
   ]);
+});
+
+test("a profile approval covers mode increases for the same pair", async () => {
+  const { g, services, asked } = gate("allow", ["session"]);
+  await g.check(services, {
+    ...send(),
+    method: "chat.profile",
+    params: { ...send().params, profile: "Work" },
+  });
+  const expectedMode = await g.check(services, {
+    ...send(),
+    method: "chat.configure",
+    params: { ...send().params, permissionMode: "acceptEdits" },
+  });
+  expect(expectedMode).toBe("plan");
+  expect(asked.map((prompt) => prompt.change)).toEqual([
+    { kind: "chatProfile", detail: '"Review" (Personal → Work)' },
+  ]);
+});
+
+test("the note speaker prompt uses the title instead of the note id", async () => {
+  const { g, services, asked } = gate("ask", ["once"]);
+  await g.check(services, {
+    ...send(),
+    method: "notes.speakers",
+    params: {
+      ...send().params,
+      note: "nqaspeaker02",
+      change: { op: "regroup", participants: "auto" },
+    },
+  });
+  expect(asked[0]?.change).toMatchObject({ kind: "noteSpeakers", detail: "Design review" });
 });

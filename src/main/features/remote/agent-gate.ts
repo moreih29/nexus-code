@@ -119,7 +119,8 @@ export class AgentGate {
       "too many messages from that agent",
     );
     refuseBeyondAsked(request);
-    this.checkRead();
+    if (this.deps.policy() === "deny")
+      throw forbidden("control by agents is off there (Settings › Remote)");
     const { approval, expectedMode } = await operationApproval(services, request);
     await this.consent(services, request, undefined, approval);
     return expectedMode;
@@ -222,9 +223,9 @@ export class AgentGate {
         if (left > 0) this.prompting.set(device.id, left);
         else this.prompting.delete(device.id);
       });
-    if (answer === "once" || answer === "session") {
+    if (answer === "once" || (answer === "session" && !eachTime)) {
       this.checkRead();
-      if (answer === "session" && !eachTime) this.allowed.add(pair);
+      if (answer === "session") this.allowed.add(pair);
       return answer;
     }
     throw forbidden(
@@ -443,7 +444,8 @@ async function changeOf(
       return {
         kind: "noteSpeakers",
         detail:
-          (await findNote(services, workspaceId, String(params.note))).title || "Untitled note",
+          (await findNote(services, workspaceId, String(params.note))).title.trim() ||
+          "Untitled note",
         body: Object.values(action).join(" "),
       };
     }
@@ -452,7 +454,8 @@ async function changeOf(
       return {
         kind: "noteSpeakers",
         detail:
-          (await findNote(services, workspaceId, String(params.note))).title || "Untitled note",
+          (await findNote(services, workspaceId, String(params.note))).title.trim() ||
+          "Untitled note",
         body: [action.op, action.speaker, action.name].join(" "),
       };
     }
@@ -470,12 +473,7 @@ async function changeOf(
       };
     case "layout.change":
     case "agentView.change": {
-      const action = params.change as {
-        op: string;
-        path?: string;
-        groupId?: string;
-        panelId?: string;
-      };
+      const action = params.change as { op: string; path?: string };
       return {
         kind: method === "layout.change" && action.op === "close" ? "groupClose" : "layout",
         detail: action.path ?? services.listWorkspaces().find((w) => w.id === workspaceId)?.name,

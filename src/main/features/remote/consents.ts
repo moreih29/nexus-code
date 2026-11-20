@@ -134,6 +134,9 @@ export async function answerConsent(
   }
   const refusal = refusalFor(pending, device.id, controls);
   if (refusal) throw new RpcFailure(RpcErrorCode.Forbidden, refusal);
+  if (answer === "session" && pending.request.change.eachTime) {
+    throw new RpcFailure(RpcErrorCode.Forbidden, "this request can only be allowed once");
+  }
   if (!(await services.consents.answer(id, answer, device.name))) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such prompt: answered, or run out, since");
   }

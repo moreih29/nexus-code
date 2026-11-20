@@ -218,7 +218,14 @@ const settingsInstructionsSet: CliCommand = {
           : { kind: "agent", agent: layer };
     const change: CliChange = {
       kind: "instructionsEdit",
-      detail: layer === "workspace" ? workspace.name : layer,
+      detail:
+        layer === "workspace"
+          ? workspace.name
+          : layer === "all"
+            ? "Shared"
+            : layer === "claude"
+              ? "Claude"
+              : "Codex",
       body: text || "Clear this layer",
     };
     if (layer === "workspace") await mayChange(ctx, workspace, change);
