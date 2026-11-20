@@ -15,6 +15,7 @@
     "claude": "Claude",
     "codex": "Codex",
     "profileRules": "워크스페이스별 프로필",
+    "instructions": "지시사항",
     "remote": "원격"
   },
   "dialog": {
@@ -934,7 +935,7 @@
       "testHint": "기본 모델에 짧은 요청을 한 번 보냅니다. 토큰이 조금 듭니다",
       "tested": "{{ms}}ms · {{model}} 모델이 답했습니다",
       "createAndSignIn": "만들고 로그인",
-      "saveError": "프로필 연결 설정을 저장하지 못했습니다",
+      "saveError": "프로필을 저장하지 못했습니다",
       "errors": {
         "auth": "키와 보내는 방식을 확인하세요",
         "model": "{{model}} 모델을 찾지 못했습니다",
@@ -949,6 +950,48 @@
       "behaviorModel": "연결의 기본 모델 ({{model}})",
       "behaviorModelPending": "연결 설정에서 기본 모델을 선택하세요",
       "behaviorWebSearch": "다른 API 주소에서는 웹 검색을 사용하지 않습니다"
+    }
+  },
+  "instructions": {
+    "workspaceMenu": "지시사항…",
+    "description": "CLAUDE.md·AGENTS.md와 따로, 앱이 띄우는 에이전트에 붙이는 지시입니다",
+    "all": "모든 에이전트",
+    "agentsAndProfiles": "에이전트와 프로필",
+    "workspaces": "워크스페이스",
+    "sessionHint": "세션 지시는 채팅 탭에서 고칩니다",
+    "scope": {
+      "all": "앱이 띄우는 Claude와 Codex에 붙습니다",
+      "claude": "모든 Claude 탭과 앱 터미널의 claude에 붙습니다",
+      "codex": "모든 Codex 탭에 붙습니다",
+      "profile": "이 프로필로 띄운 에이전트에 붙습니다",
+      "workspace": "이 워크스페이스에서 띄운 에이전트에 붙습니다. 앱에 저장됩니다"
+    },
+    "preview": "합쳐진 내용 미리보기",
+    "agent": "에이전트",
+    "profile": "프로필",
+    "workspace": "워크스페이스",
+    "count": "{{chars}}자 · 약 {{tokens}}토큰",
+    "tooLong": "층마다 {{max}}자까지 쓸 수 있습니다",
+    "invalidText": "널 문자가 없는 일반 텍스트를 입력해 주세요",
+    "empty": "지시사항 없음",
+    "hasText": "내용이 있는 곳",
+    "applies": "새 탭은 바로, 열린 탭은 다음 메시지부터 적용됩니다",
+    "saveFailed": "지시사항을 저장하지 못했습니다",
+    "session": {
+      "chip": "지시",
+      "chipCount": "지시 {{count}}",
+      "title": "이 탭에 붙는 지시",
+      "profile": "프로필 · {{name}}",
+      "workspace": "워크스페이스 · {{name}}",
+      "emptyLayer": "없음",
+      "lines_one": "{{count}}줄",
+      "lines_other": "{{count}}줄",
+      "edit": "설정에서 편집 ↗",
+      "add": "추가 ↗",
+      "label": "이 세션",
+      "preview": "합쳐진 내용 보기",
+      "apply": "적용",
+      "applies": "다음 메시지부터 들어갑니다"
     }
   },
   "profileRules": {

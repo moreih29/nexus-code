@@ -96,6 +96,7 @@ export const SETTINGS_PAGES = [
   "notifications",
   "notes",
   "agent",
+  "instructions",
   "browser-permissions",
   "keybindings",
   "remote",

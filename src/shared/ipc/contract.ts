@@ -2509,7 +2509,11 @@ export const ipcContract = {
         ConnectionKeyStatusSchema,
       ),
       connectionSave: call(
-        z.object({ profile: AgentProfileSchema, key: ConnectionKeyChangeSchema.optional() }),
+        z.object({
+          profile: AgentProfileSchema,
+          key: ConnectionKeyChangeSchema.optional(),
+          instructions: InstructionTextSchema.optional(),
+        }),
         AgentProfilesSchema,
       ),
       connectionDiscover: call(ConnectionProbeSchema, ConnectionModelsResultSchema),

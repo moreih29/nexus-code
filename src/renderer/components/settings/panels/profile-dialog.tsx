@@ -6,7 +6,7 @@
  * and shows its output, with a field for a code the browser gives.
  */
 
-import { Check, CircleAlert, Loader2 } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -24,9 +24,11 @@ import {
   suggestedProfileDir,
 } from "../../../../shared/agent-profiles/profiles";
 import type { AgentProfileStatus } from "../../../../shared/agent-profiles/status";
+import { InstructionTextSchema, instructionText } from "../../../../shared/chat/instructions";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { statusSummary, useProfileStatusStore } from "../../../services/agent-profiles/status";
+import { useAgentInstructionsStore } from "../../../state/stores/agent-instructions";
 import {
   matchOptions,
   tildePath,
@@ -38,6 +40,7 @@ import { Button } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
 import { Dialog } from "../../ui/dialog";
 import { DialogHeader } from "../../ui/dialog-header";
+import { InstructionField } from "../instruction-field";
 import { twinOf } from "./agent-profiles-panel";
 import {
   type BehaviorConnection,
@@ -153,6 +156,11 @@ export function ProfileDialog({
     profile?.shared ?? SHARED_BY_DEFAULT[agent],
   );
   const [env, setEnv] = useState(envText(profile?.env));
+  const savedInstructions = useAgentInstructionsStore((state) =>
+    profile ? instructionText(state.config, { kind: "profile", id: profile.id }) : "",
+  );
+  const [draftInstructions, setDraftInstructions] = useState<string>();
+  const instructions = draftInstructions ?? savedInstructions;
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const behaviorRef = useRef<BehaviorSectionHandle>(null);
@@ -202,7 +210,8 @@ export function ProfileDialog({
     !dirError &&
     parsedEnv !== null &&
     !hasReservedEnv &&
-    connection.valid;
+    connection.valid &&
+    InstructionTextSchema.safeParse(instructions).success;
 
   /** The profile's file is its own now (copied in the link's place): it is no longer in what the profile shares. */
   const unshared = async (file: string) => {
@@ -253,6 +262,7 @@ export function ProfileDialog({
     const result = await ipcCallResult("agentProfiles", "connectionSave", {
       profile: next,
       key: connection.method === "account" ? undefined : connection.key,
+      ...(instructions === savedInstructions ? {} : { instructions }),
     });
     if (!result.ok) {
       setSaveError(t("profiles.connection.saveError"));
@@ -419,6 +429,25 @@ export function ProfileDialog({
               handleRef={behaviorRef}
             />
           )}
+          <details className="group border-t border-border pt-3">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-app-body font-semibold">
+              <ChevronRight
+                className="size-3.5 transition-transform group-open:rotate-90"
+                aria-hidden="true"
+              />
+              {t("nav.instructions")}
+            </summary>
+            <div className="mt-3 flex flex-col gap-2">
+              <p className="text-app-ui-sm text-muted-foreground">
+                {t("instructions.scope.profile")}
+              </p>
+              <InstructionField
+                label={t("nav.instructions")}
+                text={instructions}
+                onChange={setDraftInstructions}
+              />
+            </div>
+          </details>
         </div>
 
         {saveError && (
