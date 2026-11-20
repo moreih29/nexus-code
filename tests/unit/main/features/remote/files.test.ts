@@ -42,7 +42,21 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
         isSymlink: n.type === "symlink",
       };
     },
-    readdir: async (rel: string) => {
+    readdirNoLinks: async (target: { relPath: string } | { absolutePath: string }) => {
+      if ("absolutePath" in target) {
+        return Promise.all(
+          (await nodeFs.readdir(target.absolutePath, { withFileTypes: true })).map(
+            async (entry) => ({
+              name: entry.name,
+              type: entry.isDirectory() ? "dir" : entry.isSymbolicLink() ? "symlink" : "file",
+              ...(entry.isFile()
+                ? { size: (await nodeFs.stat(path.join(target.absolutePath, entry.name))).size }
+                : {}),
+            }),
+          ),
+        );
+      }
+      const rel = target.relPath;
       node(rel);
       const prefix = rel ? `${rel}/` : "";
       return Object.entries(tree)

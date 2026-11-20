@@ -1,7 +1,9 @@
 import { RpcErrorCode, type RpcParams } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../cli/context";
 import { rendererRoot } from "../../cli/paths";
-import { placeOf } from "../files";
+import type { FsProvider } from "../../fs/bridge/provider";
+import { guardPeerViewFile } from "../../fs/read-guard";
+import { placeOf, validatePathParts } from "../files";
 import { RpcFailure } from "../room";
 import { fitsAsResult, unavailable, workspaceOf } from "./common";
 
@@ -83,6 +85,7 @@ export async function readAgentView(services: CliServices) {
 export async function changeAgentView(
   services: CliServices,
   { workspaceId, change }: RpcParams<"agentView.change">,
+  fs?: (workspaceId: string) => Promise<FsProvider>,
 ) {
   const workspace = checkedWorkspace(services, workspaceId);
   switch (change.op) {
@@ -105,8 +108,15 @@ export async function changeAgentView(
       const file = placeOf(workspace.rootPath, [], change.path);
       if (file.kind !== "workspace" || !file.rel)
         throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a file inside the workspace");
-      const kind = await services.stat(workspaceId, file.rel).catch(unavailable);
-      if (!kind || kind === "dir") throw new RpcFailure(RpcErrorCode.NotFound, "no such file");
+      validatePathParts(workspace.rootPath, file.rel);
+      const provider = await fs?.(workspaceId).catch(unavailable);
+      if (!provider?.readRangeNoLinks)
+        throw new RpcFailure(RpcErrorCode.Unavailable, "secure file reads are unavailable");
+      const verified = await provider.readRangeNoLinks(file.rel, 0, 0).catch(unavailable);
+      if (verified.kind !== "ok") throw new RpcFailure(RpcErrorCode.NotFound, "no such file");
+      if (checkedWorkspace(services, workspaceId).rootPath !== workspace.rootPath)
+        throw new RpcFailure(RpcErrorCode.NotFound, "the workspace moved");
+      guardPeerViewFile(workspaceId, workspace.rootPath, file.rel);
       return services
         .ui("agentView.openFile", {
           workspaceId,

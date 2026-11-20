@@ -361,7 +361,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "agentView.get":
         return readAgentView(s);
       case "agentView.change":
-        return changeAgentView(s, params as RpcParams<"agentView.change">);
+        return changeAgentView(s, params as RpcParams<"agentView.change">, watches.files?.fs);
       case "worktree.new": {
         const { workspaceId, name, prompt, show, start } =
           request.params as RpcParams<"worktree.new">;

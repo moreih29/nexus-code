@@ -21,6 +21,7 @@ import { type FsIpcErrorResult, fsCallError } from "../../../infra/ipc-router/fs
 import type { WorkspaceManager } from "../../workspace/manager";
 import type { FsProvider } from "../bridge/provider";
 import { isOutsideGranted, resolveOutsideGrant, setOutsideGrant } from "../outside-grants";
+import { isGuardedPeerViewFile } from "../read-guard";
 
 const c = ipcContract.fs.call;
 
@@ -62,6 +63,10 @@ export function readFileHandler(
   return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, relPath } = validateArgs(c.readFile.args, args);
     const fs = await manager.getFs(workspaceId);
+    if (isGuardedPeerViewFile(workspaceId, relPath)) {
+      if (!fs.readFileNoLinks) throw new Error("secure file reads are unavailable");
+      return fs.readFileNoLinks(relPath);
+    }
     return fs.readFile(relPath);
   };
 }
@@ -90,6 +95,10 @@ export function readBinaryHandler(
       if (!path) return { kind: "missing", reason: "not-found" };
       return fs.readAbsoluteBinary(path);
     }
+    if (isGuardedPeerViewFile(workspaceId, relPath)) {
+      if (!fs.readBinaryNoLinks) throw new Error("secure file reads are unavailable");
+      return fs.readBinaryNoLinks(relPath);
+    }
     return fs.readBinary(relPath);
   };
 }
@@ -104,6 +113,10 @@ export function readRangeHandler(
       const path = await grantedOutsidePath(fs, workspaceId, relPath);
       if (!path) return { kind: "missing", reason: "not-found" };
       return fs.readAbsoluteRange(path, offset, length);
+    }
+    if (isGuardedPeerViewFile(workspaceId, relPath)) {
+      if (!fs.readRangeNoLinks) throw new Error("secure file reads are unavailable");
+      return fs.readRangeNoLinks(relPath, offset, length);
     }
     return fs.readRange(relPath, offset, length);
   };

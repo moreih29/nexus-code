@@ -219,8 +219,11 @@ export async function serveFileRead(
         .catch(() => []),
   };
   if (request.method === "files.list") {
-    const result = await listFiles(files, workspace.rootPath, read, approvedPath);
+    const result = await listFiles(files, rootPath, read, approvedPath);
     authorizeAnywhere();
+    if (by) watches.agents?.checkRead();
+    checkCurrent();
+    checkWorkspace();
     return result;
   }
   const result = await readFile(

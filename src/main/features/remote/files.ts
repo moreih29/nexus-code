@@ -46,9 +46,6 @@ const IMAGE_TYPES: Readonly<
   ".webp": "image/webp",
 };
 
-/** The entries the agent leaves out of a folder's listing, as the explorer does. */
-const HIDDEN = new Set([".git", ".DS_Store"]);
-
 export interface RemoteFiles {
   /** The workspace's file system, once its agent is ready. */
   fs: (workspaceId: string) => Promise<FsProvider>;
@@ -338,35 +335,12 @@ function entryOf(entry: DirEntry): Entry {
   };
 }
 
-/** A folder outside the workspace's, listed on this computer: the agent lists only its workspace's. */
-async function listHere(absolute: string): Promise<Entry[]> {
-  const dirents = await nodeFs
-    .readdir(absolute, { withFileTypes: true })
-    .catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") {
-        throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
-      }
-      if (error.code === "ENOTDIR") {
-        throw new RpcFailure(
-          RpcErrorCode.InvalidParams,
-          `${absolute} is a file: files.read reads it`,
-        );
-      }
-      throw new RpcFailure(RpcErrorCode.Unavailable, error.message);
-    });
-  return Promise.all(
-    dirents
-      .filter((d) => !HIDDEN.has(d.name))
-      .map(async (d): Promise<Entry> => {
-        if (d.isSymbolicLink()) return { name: d.name, kind: "link" };
-        if (d.isDirectory()) return { name: d.name, kind: "dir" };
-        const size = await nodeFs
-          .stat(path.join(absolute, d.name))
-          .then((s) => s.size)
-          .catch(() => undefined);
-        return { name: d.name, kind: "file", ...(size !== undefined ? { size } : {}) };
-      }),
-  );
+/** Reject Windows device names, alternate streams, and reserved path components. */
+export function validatePathParts(root: string, relative: string): void {
+  const style = styleOf(root);
+  if (relative && !relative.split("/").every((part) => validFileName(part, style.path))) {
+    throw forbidden("that path contains an invalid name");
+  }
 }
 
 export async function listFiles(
@@ -381,16 +355,21 @@ export async function listFiles(
     : placeOf(root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
+  if (!fs.readdirNoLinks)
+    throw new RpcFailure(RpcErrorCode.Unavailable, "secure folder listing is unavailable");
   let entries: Entry[];
   let absolute: string;
   if (place.kind === "workspace") {
+    validatePathParts(root, place.rel);
     const stat = await throughNoLink(fs, place.rel, asked);
     if (stat.type !== "dir") {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a file: files.read reads it`);
     }
-    entries = (await fs.readdir(place.rel).catch((error: unknown) => notFound(error, asked))).map(
-      entryOf,
-    );
+    entries = (
+      await fs
+        .readdirNoLinks({ relPath: place.rel })
+        .catch((error: unknown) => notFound(error, asked))
+    ).map(entryOf);
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
     if (fs.kind !== "local") {
@@ -399,11 +378,19 @@ export async function listFiles(
         "a folder outside the workspace's is listed only on this computer, not on its host",
       );
     }
-    if (!anywhere) await realWithin(fs, style, folders, place.absolute);
-    entries = await listHere(approvedPath ?? place.absolute);
-    if (approvedPath && (await outsideFileSource(asked)) !== approvedPath) {
-      throw fileChanged(false);
-    }
+    if (style.windows) absoluteFilePath(place.absolute);
+    const resolved = anywhere
+      ? (approvedPath ?? (await outsideFileSource(place.absolute)))
+      : await realWithin(fs, style, folders, place.absolute);
+    entries = (
+      await fs
+        .readdirNoLinks({ absolutePath: resolved })
+        .catch((error: unknown) => notFound(error, asked))
+    ).map(entryOf);
+    const stillAllowed = anywhere
+      ? await outsideFileSource(place.absolute)
+      : await realWithin(fs, style, await files.folders(workspaceId), place.absolute);
+    if (stillAllowed !== resolved) throw fileChanged(false);
     absolute = place.absolute;
   }
   entries.sort((a, b) =>

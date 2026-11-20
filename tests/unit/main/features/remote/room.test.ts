@@ -1266,6 +1266,10 @@ test("serves file transfers by scope and cleans pending uploads when the sending
   Object.assign(workspace, { rootPath: root, location });
   const fs = {
     kind: "local",
+    readdirNoLinks: async ({ absolutePath }: { absolutePath: string }) => {
+      expect(absolutePath).toBe(tmp);
+      return [];
+    },
     readPreview: async ({ absolutePath }: { absolutePath: string }) => {
       expect(absolutePath).toBe(outside);
       const bytes = await readFile(absolutePath);
