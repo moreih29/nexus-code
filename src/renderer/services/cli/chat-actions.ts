@@ -1197,6 +1197,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     decision,
     message,
     expect,
+    byAgent,
     updatedInput,
     stop,
     always,
@@ -1211,6 +1212,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const request = asked.find((r) => r.requestId === expect);
     if (!request) {
       throw new UiRequestError("its request changed or was answered; read it again");
+    }
+    if (
+      byAgent &&
+      (request.toolName === "AskUserQuestion" || request.toolName === "ExitPlanMode")
+    ) {
+      throw new UiRequestError("that request is for the user to answer in the app");
     }
     if (decision === "allow" && always && always.length > 0) {
       // By the index chat.read words them: the same wording, so the same list.

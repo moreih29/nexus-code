@@ -229,6 +229,7 @@ export async function answerChat(
     stop,
     always,
     planMode,
+    from,
   }: RpcParams<"chat.answer">,
 ): Promise<RpcResult<"chat.answer">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -238,6 +239,7 @@ export async function answerChat(
       tabId,
       decision,
       expect: requestId,
+      ...(from ? { byAgent: true } : {}),
       ...(message !== undefined ? { message } : {}),
       ...(updatedInput ? { updatedInput } : {}),
       ...(stop ? { stop } : {}),

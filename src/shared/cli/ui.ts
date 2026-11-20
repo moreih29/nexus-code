@@ -1404,6 +1404,8 @@ export interface CliUiOps {
       message?: string;
       /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
+      /** Only tool permission requests may be answered by an agent. */
+      byAgent?: true;
       /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
       updatedInput?: Record<string, unknown>;
       /** With deny: stop the turn too. */
