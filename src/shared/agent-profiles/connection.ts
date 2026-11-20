@@ -106,7 +106,7 @@ export function connectionPreset(agent: ChatAgent, preset: ConnectionPreset) {
     deepseek: "https://api.deepseek.com/anthropic",
     kimi: "https://api.kimi.ai/coding",
     minimax: "https://api.minimax.io/anthropic",
-    litellm: agent === "codex" ? "https://llm.example.com/v1" : "https://llm.example.com",
+    litellm: agent === "codex" ? "http://localhost:4000/v1" : "http://localhost:4000",
   } as const;
   return {
     baseUrl: urls[preset],

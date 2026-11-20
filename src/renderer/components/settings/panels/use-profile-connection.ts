@@ -132,8 +132,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     const probe = discoveryProbe;
     setDiscovery(undefined);
     setLooking(false);
-    if (!probe || (preset === "litellm" && new URL(probe.baseUrl).hostname === "llm.example.com"))
-      return;
+    if (!probe) return;
     let active = true;
     const timer = setTimeout(() => {
       setLooking(true);
@@ -161,7 +160,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
       active = false;
       clearTimeout(timer);
     };
-  }, [discoveryProbe, attempt, agent, isLocal, preset]);
+  }, [discoveryProbe, attempt, agent, isLocal]);
 
   const chosen = rows.find(({ rowId }) => rowId === defaultRowId) ?? rows[0];
   const defaultModel = chosen?.id.trim() || undefined;
@@ -244,7 +243,9 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     }
     const selected = connectionPreset(agent, value);
     setBaseUrl(selected.baseUrl);
-    setDiscoveryAddress(normalizedAddress(agent, selected.baseUrl));
+    setDiscoveryAddress(
+      value === "litellm" ? undefined : normalizedAddress(agent, selected.baseUrl),
+    );
     setAuth(selected.auth);
     if (value !== preset || address !== selected.baseUrl) {
       setRows([blankModel()]);
@@ -329,6 +330,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
         ? testResult?.value
         : undefined,
     defaultModel,
+    defaultModelLabel: defaultModel ? chosen?.label?.trim() || defaultModel : undefined,
     findModels: () => {
       setDiscoveryAddress(address);
       setAttempt((n) => n + 1);

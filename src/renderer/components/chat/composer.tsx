@@ -44,6 +44,7 @@ import {
   currentModelInfo,
   type ImageBlock,
   isWaiting,
+  type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
 import { withRelayed } from "../../services/chat/relayed";
@@ -75,6 +76,7 @@ import { surfaceChatSendError } from "./send-error";
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
   readonly key: string;
+  readonly claudeProfileDefaultModel?: string;
   /** The permission modes the mode chip offers; Claude Code's when left out. */
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
@@ -1323,6 +1325,24 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
+export function modelPickerLabel(
+  model: ModelInfo,
+  models: readonly ModelInfo[],
+  claudeProfileDefaultModel: string | undefined,
+  defaultLabel: string,
+): { label: string; detail?: string } {
+  const label = model.displayName ?? model.value;
+  if (!claudeProfileDefaultModel) return { label, detail: model.description };
+  if (model.value === "default") {
+    const configured = models.find((option) => option.value === claudeProfileDefaultModel);
+    const name = configured?.displayName || configured?.value || claudeProfileDefaultModel;
+    return { label: `${defaultLabel} · ${name.replace(/\[1m\]$/i, "")}` };
+  }
+  // Claude repeats the ID in a generic description on entries supplied by the app.
+  const generic = model.description === `Custom model (${model.value})`;
+  return { label, detail: generic ? undefined : model.description };
+}
+
 function ModelChip({
   controller,
   state,
@@ -1332,7 +1352,13 @@ function ModelChip({
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model, state.model.chosenModel);
-  const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
+  const defaultLabel = t("settings:profiles.connection.default");
+  const display = (model: ModelInfo) =>
+    modelPickerLabel(model, models, controller.claudeProfileDefaultModel, defaultLabel);
+  const label =
+    current && (current.displayName || controller.claudeProfileDefaultModel)
+      ? display(current).label
+      : (state.model.model ?? t("chat.model.default"));
   const ready = state.model.process === "running" && models.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
@@ -1356,19 +1382,22 @@ function ModelChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.model.label")}</DropdownMenuLabel>
-        {models.map((m) => (
-          <DropdownMenuItem
-            key={m.value}
-            onSelect={() => controller.setModel(m.value).catch((err: Error) => showError(err))}
-          >
-            <span className={cn(m === current && "font-medium")}>{m.displayName ?? m.value}</span>
-            {m.description && (
-              <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
-                {m.description}
-              </span>
-            )}
-          </DropdownMenuItem>
-        ))}
+        {models.map((m) => {
+          const row = display(m);
+          return (
+            <DropdownMenuItem
+              key={m.value}
+              onSelect={() => controller.setModel(m.value).catch((err: Error) => showError(err))}
+            >
+              <span className={cn(m === current && "font-medium")}>{row.label}</span>
+              {row.detail && (
+                <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
+                  {row.detail}
+                </span>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );

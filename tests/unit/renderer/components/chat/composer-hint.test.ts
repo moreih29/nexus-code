@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import i18next from "i18next";
 
-const { composerHint, composerKeys } = await import(
+const { composerHint, composerKeys, modelPickerLabel } = await import(
   "../../../../../src/renderer/components/chat/composer"
 );
 
@@ -31,4 +31,28 @@ describe("the composer's hint", () => {
       `${send} after tool · ${nowKey} now (discards current response) · ${queueKey} after turn`,
     );
   });
+});
+
+test("labels a custom Claude picker with the configured model's name", () => {
+  const defaultModel = {
+    value: "default",
+    displayName: "Default (recommended)",
+    description: "Use the default model (currently glm-5-plus[1m])",
+    resolvedModel: "glm-5-plus[1m]",
+  };
+  const custom = {
+    value: "glm-5-plus",
+    displayName: "GLM 5 Plus",
+    description: "Custom model (glm-5-plus)",
+  };
+  const models = [defaultModel, custom];
+  expect(modelPickerLabel(defaultModel, models, custom.value, "기본")).toEqual({
+    label: "기본 · GLM 5 Plus",
+  });
+  expect(modelPickerLabel(custom, models, custom.value, "기본")).toEqual({ label: "GLM 5 Plus" });
+  expect(modelPickerLabel(defaultModel, models, undefined, "기본")).toEqual({
+    label: defaultModel.displayName,
+    detail: defaultModel.description,
+  });
+  expect(defaultModel.resolvedModel).toBe("glm-5-plus[1m]");
 });

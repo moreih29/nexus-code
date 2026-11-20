@@ -6,6 +6,7 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
+import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
 import {
   defaultProfileId,
   isDefaultProfileId,
@@ -254,6 +255,7 @@ export class ChatController {
   private flags: Record<string, unknown> = {};
   /** The model picked in the tab, which a program started again for it takes too. */
   private chosenModel: string | undefined;
+  private connection: ProfileConnection | undefined;
   /**
    * The permission mode the tab's program last had, which one started
    * again for it (a rewind, a restart, another profile) goes on in: the
@@ -321,6 +323,12 @@ export class ChatController {
     return this.target.profileId ?? defaultProfileId("claude");
   }
 
+  /** The custom picker default, as configured when the program was launched. */
+  get claudeProfileDefaultModel(): string | undefined {
+    const connection = this.connection;
+    return connection?.method === "custom" ? connection.defaultModel : undefined;
+  }
+
   /**
    * What a tab made from this one (a fork, /branch) starts with: its
    * profile, and the model and effort picked in it.
@@ -344,6 +352,7 @@ export class ChatController {
   ) {
     this.target = target;
     this.hooks = hooks;
+    this.connection = savedProfileConnection(target.profileId);
     this.key = chatKey(target.workspaceId, target.tabId);
     if (receiveAgentEvents) this.removeReceiver = addLineReceiver(this, true);
     this.sessionId = target.sessionId;
@@ -805,7 +814,8 @@ export class ChatController {
   /** Spawns Claude and applies the tab's settings after its required initialize. */
   private async startProgram(resume: StartArgs): Promise<boolean> {
     if (this.disposed) return false;
-    const { workspaceId, tabId, cwd } = this.target;
+    const { workspaceId, tabId, cwd, profileId } = this.target;
+    const connection = savedProfileConnection(profileId);
     // Before the new program's initialize tells the mode it starts in.
     const mode = this.lastMode;
     const picks = this.modePicks;
@@ -844,6 +854,7 @@ export class ChatController {
       return this.rejectStartup("Claude attached to the previous program");
     }
     if (!result.attached) {
+      this.connection = connection;
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
       let started: unknown;
@@ -870,8 +881,6 @@ export class ChatController {
         .then(() => {
           const picked = this.chosenModel;
           if (!picked) return;
-          const { config } = useAgentProfilesStore.getState();
-          const { connection } = profileOf(config, "claude", this.profileId);
           // A moved or restarted tab can still hold a model from an old provider.
           if (
             connection?.method === "custom" &&
@@ -883,7 +892,7 @@ export class ChatController {
             this.hooks.onChosen?.(typeof effort === "string" ? { model: undefined, effort } : {});
             return;
           }
-          return this.request("set_model", { model: picked }).then(
+          return this.requestModel(picked).then(
             () => {},
             (err: Error) => log.warn(`picked model not applied: ${err.message}`),
           );
@@ -1603,16 +1612,20 @@ export class ChatController {
     );
   }
 
+  private requestModel(model: string): Promise<Record<string, unknown>> {
+    // Claude can add a 1M context override to its default alias on a custom endpoint.
+    const selected = model === "default" ? (this.claudeProfileDefaultModel ?? model) : model;
+    return this.request("set_model", { model: selected });
+  }
+
   // A pick Claude Code takes holds for the tab: a program started again for
   // it takes it too. One it refuses is not kept, so no start gives it again.
   setModel(model: string): Promise<unknown> {
-    return this.shownAtOnce("model", model, () => this.request("set_model", { model })).then(
-      (answer) => {
-        this.chosenModel = model;
-        this.hooks.onChosen?.({ model });
-        return answer;
-      },
-    );
+    return this.shownAtOnce("model", model, () => this.requestModel(model)).then((answer) => {
+      this.chosenModel = model;
+      this.hooks.onChosen?.({ model });
+      return answer;
+    });
   }
 
   setEffort(level: string): Promise<unknown> {
@@ -2415,6 +2428,10 @@ export class ChatController {
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }
+}
+
+function savedProfileConnection(profileId: string | undefined): ProfileConnection | undefined {
+  return profileOf(useAgentProfilesStore.getState().config, "claude", profileId).connection;
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabState["phase"] {

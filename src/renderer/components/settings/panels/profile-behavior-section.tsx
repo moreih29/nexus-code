@@ -31,9 +31,9 @@ const SMALL_BUTTON = "h-7 px-2 text-app-ui-sm";
 /** Radix Select takes no empty item value: the default option is this. */
 const DEFAULT_VALUE = "__default";
 
-/** What the connection the dialog edits makes of the fields; the dialog passes it once connections exist. */
+/** The connection overrides these fields for the running agent. */
 export interface BehaviorConnection {
-  /** Claude's starting model is locked (another API address): the text shown in its place. */
+  /** The starting model is locked: the text shown in its place. */
   modelLocked?: string;
   /** Codex's web search is locked: the text shown in its place. */
   webSearchLocked?: string;
@@ -47,6 +47,12 @@ export interface BehaviorSectionHandle {
 }
 
 type Draft = Record<string, BehaviorValue | null>;
+
+function lockedField(id: string, connection: BehaviorConnection | undefined): string | undefined {
+  if (id === "model" || id === "codexModel") return connection?.modelLocked;
+  if (id === "webSearch") return connection?.webSearchLocked;
+  return undefined;
+}
 
 const inputClass = cn(
   "w-48 rounded-(--radius-control) border border-border bg-background px-2 py-1",
@@ -151,7 +157,13 @@ export function ProfileBehaviorSection({
     () => ({
       async save() {
         const current = fileRef.current;
-        const changes = draftRef.current;
+        const changes = Object.fromEntries(
+          Object.entries(draftRef.current).filter(
+            ([id]) =>
+              lockedField(id, connection) === undefined &&
+              (id !== "verbosity" || !connection?.hideVerbosity),
+          ),
+        );
         if (!current || Object.keys(changes).length === 0) return true;
         if (current.broken) return false;
         const result = await ipcCallResult("agentProfiles", "writeBehavior", {
@@ -182,7 +194,7 @@ export function ProfileBehaviorSection({
         return false;
       },
     }),
-    [profile.id, read, t],
+    [profile.id, read, t, connection],
   );
 
   const reload = () => {
@@ -241,8 +253,16 @@ export function ProfileBehaviorSection({
   const reset = (id: string) =>
     id in draft ? () => edit(id, file?.values[id] ?? null) : undefined;
 
+  const lockedRow = (id: string, text: string) => (
+    <SettingsRow label={fieldLabel(id)} code={fieldOf(id).path.join(".")}>
+      <span className="text-right text-app-ui-sm text-muted-foreground">{text}</span>
+    </SettingsRow>
+  );
+
   /** A dropdown of the field's options and "default"; a value the file has that is not one is kept as an option. */
-  const choice = (id: string, extra: readonly string[] = [], locked?: string) => {
+  const choice = (id: string, extra: readonly string[] = []) => {
+    const locked = lockedField(id, connection);
+    if (locked !== undefined) return lockedRow(id, locked);
     const field = fieldOf(id);
     const current = shownValue(id);
     const options = [...(field.options ?? []), ...extra];
@@ -260,15 +280,13 @@ export function ProfileBehaviorSection({
       <SettingsRow
         label={fieldLabel(id)}
         code={field.path.join(".")}
-        description={
-          unsupported(id) ? t("profiles.behavior.unsupported") : (locked ?? fieldHint(id))
-        }
+        description={unsupported(id) ? t("profiles.behavior.unsupported") : fieldHint(id)}
         dirty={dirty(id)}
         onReset={reset(id)}
       >
         <Select
           value={effective}
-          disabled={locked !== undefined || unsupported(id)}
+          disabled={unsupported(id)}
           onValueChange={(v) => edit(id, v === DEFAULT_VALUE ? null : v)}
         >
           <SelectTrigger className="w-48" ariaLabel={fieldLabel(id)}>
@@ -303,6 +321,8 @@ export function ProfileBehaviorSection({
   );
 
   const text = (id: string, numeric = false) => {
+    const locked = lockedField(id, connection);
+    if (locked !== undefined) return lockedRow(id, locked);
     const current = shownValue(id);
     return (
       <SettingsRow
@@ -403,7 +423,7 @@ export function ProfileBehaviorSection({
         ) : agent === "claude" ? (
           <>
             <Group title={t("profiles.behavior.groups.model")} />
-            {choice("model", [], connection?.modelLocked)}
+            {choice("model")}
             {toggle("thinking")}
             <Group title={t("profiles.behavior.groups.work")} />
             {choice("permissionMode")}
@@ -422,7 +442,7 @@ export function ProfileBehaviorSection({
             {toggle("sandboxNetwork")}
             <Group title={t("profiles.behavior.groups.model")} />
             {text("codexModel")}
-            {choice("webSearch", [], connection?.webSearchLocked)}
+            {choice("webSearch")}
             {choice("reasoningSummary")}
             {text("autoCompactLimit", true)}
             {!connection?.hideVerbosity && segmented("verbosity", ["low", "medium", "high"])}

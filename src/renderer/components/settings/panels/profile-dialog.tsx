@@ -39,7 +39,11 @@ import { Checkbox } from "../../ui/checkbox";
 import { Dialog } from "../../ui/dialog";
 import { DialogHeader } from "../../ui/dialog-header";
 import { twinOf } from "./agent-profiles-panel";
-import { type BehaviorSectionHandle, ProfileBehaviorSection } from "./profile-behavior-section";
+import {
+  type BehaviorConnection,
+  type BehaviorSectionHandle,
+  ProfileBehaviorSection,
+} from "./profile-behavior-section";
 import {
   ProfileConnectionAdvanced,
   ProfileConnectionSection,
@@ -121,6 +125,17 @@ export function ProfileDialog({
   const hydrate = useAgentProfilesStore((s) => s.hydrate);
   const saveProfile = useAgentProfilesStore((s) => s.saveProfile);
   const connection = useProfileConnection(agent, profile);
+  const behaviorConnection: BehaviorConnection | undefined =
+    connection.method === "custom"
+      ? {
+          modelLocked: connection.defaultModelLabel
+            ? t("profiles.connection.behaviorModel", { model: connection.defaultModelLabel })
+            : t("profiles.connection.behaviorModelPending"),
+          ...(agent === "codex"
+            ? { webSearchLocked: t("profiles.connection.behaviorWebSearch"), hideVerbosity: true }
+            : {}),
+        }
+      : undefined;
   const others = useMemo(
     () => profilesOf(config, agent).filter((p) => p.id !== profile?.id),
     [config, agent, profile],
@@ -399,6 +414,7 @@ export function ProfileDialog({
           {profile !== null && (
             <ProfileBehaviorSection
               profile={profile}
+              connection={behaviorConnection}
               onUnshared={unshared}
               handleRef={behaviorRef}
             />

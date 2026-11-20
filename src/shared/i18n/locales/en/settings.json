@@ -945,7 +945,10 @@
         "response": "The server returned an unexpected response.",
         "missingKey": "Set the profile API key in Settings.",
         "claudeVersion": "Custom API addresses require Claude Code {{version}} or later."
-      }
+      },
+      "behaviorModel": "Connection default model ({{model}})",
+      "behaviorModelPending": "Choose a default model in Connection",
+      "behaviorWebSearch": "Disabled for this API address"
     }
   },
   "profileRules": {

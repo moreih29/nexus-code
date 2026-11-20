@@ -19,6 +19,7 @@ import {
   type CustomConnection,
   connectionDefaultModel,
   connectionKeyTarget,
+  connectionPreset,
   normalizeConnectionUrl,
 } from "../../../../../src/shared/agent-profiles/connection";
 import { mergeAgentEnv } from "../../../../../src/shared/agent-profiles/env";
@@ -62,6 +63,21 @@ const profile: AgentProfile = {
 };
 
 describe("profile connections", () => {
+  test("uses Kimi Code's API-key header and LiteLLM's documented self-hosted addresses", () => {
+    expect(connectionPreset("claude", "kimi")).toEqual({
+      baseUrl: "https://api.kimi.ai/coding",
+      auth: "x-api-key",
+    });
+    expect(connectionPreset("claude", "litellm")).toEqual({
+      baseUrl: "http://localhost:4000",
+      auth: "bearer",
+    });
+    expect(connectionPreset("codex", "litellm")).toEqual({
+      baseUrl: "http://localhost:4000/v1",
+      auth: "bearer",
+    });
+  });
+
   test("retains old profiles and never puts the API key field into profile state", () => {
     const { connection: _connection, ...old } = profile;
     expect(AgentProfileSchema.parse(old)).toEqual(old);

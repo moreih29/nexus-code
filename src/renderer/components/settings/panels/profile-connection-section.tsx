@@ -220,7 +220,11 @@ export function ProfileConnectionSection({
                   }
                   autoComplete="off"
                   spellCheck={false}
-                  className={cn(inputClass, "font-mono")}
+                  className={cn(
+                    inputClass,
+                    "font-mono",
+                    !draft.keyPlaceholder && "placeholder:font-sans",
+                  )}
                   onChange={(event) =>
                     draft.setKey(
                       event.target.value || (draft.keyStatus?.present ? null : undefined),
