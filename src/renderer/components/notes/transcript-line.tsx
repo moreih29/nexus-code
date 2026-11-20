@@ -52,6 +52,7 @@ export const LineRow = memo(function LineRow({
   recordingId,
   line,
   name,
+  suggested = false,
   color,
   marks,
   narrowed,
@@ -64,6 +65,7 @@ export const LineRow = memo(function LineRow({
   recordingId: string;
   line: TranscriptLine;
   name: string;
+  suggested?: boolean;
   color: string;
   marks: readonly number[];
   /** The transcript leaves lines out: the time shows this one among them all. */
@@ -103,8 +105,11 @@ export const LineRow = memo(function LineRow({
       <button
         type="button"
         aria-haspopup="menu"
-        className="mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]"
-        style={{ color }}
+        className={cn(
+          "mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]",
+          suggested && "text-muted-foreground",
+        )}
+        style={suggested ? undefined : { color }}
         title={t("transcript.moveLine")}
         onClick={(e) => {
           const box = e.currentTarget.getBoundingClientRect();
@@ -131,18 +136,20 @@ export const LineRow = memo(function LineRow({
 /** The words being said now, before they are final. */
 export function PartialRow({
   name,
+  suggested = false,
   color,
   text,
   marks,
 }: {
   name: string;
+  suggested?: boolean;
   color: string;
   text: string;
   marks: readonly number[];
 }) {
   return (
     <div className="text-app-ui-sm leading-5 text-muted-foreground italic">
-      <span className="mr-1.5 font-medium not-italic" style={{ color }}>
+      <span className="mr-1.5 font-medium not-italic" style={suggested ? undefined : { color }}>
         {name}
       </span>
       <Marked text={text} marks={marks} />

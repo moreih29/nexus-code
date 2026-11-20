@@ -142,6 +142,16 @@ export function clearVoiceSuggestions(ref: RecordingRef): void {
   putSuggestions(key, []);
 }
 
+export function dismissVoiceSuggestions(ref: RecordingRef, keys: readonly string[]): void {
+  const key = voiceSuggestionKey(ref);
+  const previous = useVoiceMemory.getState().byRecording[key];
+  if (previous)
+    putSuggestions(
+      key,
+      previous.filter((s) => !keys.includes(s.key)),
+    );
+}
+
 type SearchResult = "found" | "empty" | "unavailable" | "changed" | "failed";
 
 async function findSuggestions(

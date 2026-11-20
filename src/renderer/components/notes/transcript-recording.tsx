@@ -7,6 +7,8 @@
  * it stays as the recording scrolls away.
  */
 import {
+  Check,
+  Ear,
   Eye,
   Layers2,
   Loader2,
@@ -18,7 +20,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { memo, useId, useState } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { dateTimeFormat } from "@/utils/intl-format";
@@ -31,9 +33,18 @@ import {
   speakerName,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
+import type { VoiceNameSuggestion } from "../../../shared/notes/voice-names";
 import { regroupKey, regroupRecording, useRegroupStore } from "../../services/notes/regroup";
 import { canSecondPass, runSecondPass, useSecondPassStore } from "../../services/notes/second-pass";
 import { removeRecording, updateRecording } from "../../services/notes/transcripts";
+import {
+  canSuggestNames,
+  clearVoiceSuggestions,
+  rejectVoiceSuggestion,
+  searchVoiceSuggestions,
+  useVoiceMemory,
+  voiceSuggestionKey,
+} from "../../services/notes/voice-memory";
 import { useVoicePrintAvailable } from "../../services/notes/voice-print";
 import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -47,6 +58,7 @@ import {
   DropdownMenuText,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { showToast } from "../ui/toast";
 import { RegroupDialog } from "./regroup-dialog";
 import type { LineTarget } from "./transcript-line";
 import { type Cast, isNamed, speakerColor } from "./transcript-rows";
@@ -59,9 +71,10 @@ export const RecordingHeading = memo(function RecordingHeading({
   live,
   first,
   picked,
-  names,
+  suggestions,
   onPick,
-  onName,
+  onRename,
+  onAccept,
   onMerge,
 }: {
   workspaceId: string;
@@ -73,15 +86,17 @@ export const RecordingHeading = memo(function RecordingHeading({
   first: boolean;
   /** The person of this recording whose lines alone are shown, if one is. */
   picked: string | null;
-  /** Names used in this note, offered when naming a person. */
-  names: readonly string[];
+  suggestions: readonly VoiceNameSuggestion[];
   /** Shows only `person`'s lines, or everyone's again when they already are. */
   onPick: (recordingId: string, person: string) => void;
-  /** Names a person: each of their voices. */
-  onName: (recordingId: string, keys: readonly string[], name: string) => void;
+  onRename: (recordingId: string, keys: readonly string[]) => void;
+  onAccept: (recordingId: string, suggestions: readonly VoiceNameSuggestion[]) => void;
   onMerge: (recordingId: string, from: string, to: string) => void;
 }) {
   const { t, i18n } = useTranslation("notes");
+  const ref = { workspaceId, noteId, recordingId: recording.id };
+  const memoryStatus = useVoiceMemory((s) => s.status);
+  const searching = useVoiceMemory((s) => s.searching[voiceSuggestionKey(ref)]);
   const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
   const progress = useRegroupStore(
     (s) => s.progress[regroupKey(workspaceId, noteId, recording.id)],
@@ -117,6 +132,19 @@ export const RecordingHeading = memo(function RecordingHeading({
     void regroupRecording(workspaceId, noteId, recording.id, count);
   };
 
+  const findNames = async () => {
+    const result = await searchVoiceSuggestions(ref);
+    if (result === "empty") showToast({ kind: "info", message: t("voiceMemory.noMatch") });
+    if (result === "failed" || result === "unavailable") {
+      showToast({ kind: "error", message: t("voiceMemory.findFailed") });
+    }
+  };
+
+  const remove = async (text: boolean) => {
+    clearVoiceSuggestions(ref);
+    await removeRecording(workspaceId, noteId, recording.id, text);
+  };
+
   const removeAll = async () => {
     const ok = await showConfirmDialog({
       title: t("transcript.removeConfirm.title"),
@@ -124,7 +152,7 @@ export const RecordingHeading = memo(function RecordingHeading({
       confirmLabel: t("transcript.removeConfirm.confirm"),
       variant: "destructive",
     });
-    if (ok) await removeRecording(workspaceId, noteId, recording.id, true);
+    if (ok) await remove(true);
   };
 
   return (
@@ -141,6 +169,11 @@ export const RecordingHeading = memo(function RecordingHeading({
           <span className="flex shrink-0 items-center gap-1 whitespace-nowrap" role="status">
             <Loader2 className="size-3 animate-spin" aria-hidden="true" />
             {t("transcript.regroup.progress", { percent: progress })}
+          </span>
+        ) : searching ? (
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap" role="status">
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            {t("voiceMemory.finding")}
           </span>
         ) : refining ? (
           <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
@@ -190,11 +223,22 @@ export const RecordingHeading = memo(function RecordingHeading({
                   {t("transcript.regroup.menu")}
                 </span>
               </DropdownMenuItem>
+              {memoryStatus?.available && memoryStatus.suggest && (
+                <DropdownMenuItem
+                  disabled={Boolean(regroupReason || searching) || !canSuggestNames(memoryStatus)}
+                  onSelect={() => void findNames()}
+                >
+                  <span className="flex items-center gap-2">
+                    <Ear className="size-3.5" aria-hidden="true" />
+                    {t("voiceMemory.find")}
+                  </span>
+                </DropdownMenuItem>
+              )}
               {regroupReason && <DropdownMenuText muted>{regroupReason}</DropdownMenuText>}
               {!recording.audioRemoved && (
                 <DropdownMenuItem
                   disabled={progress !== undefined}
-                  onSelect={() => void removeRecording(workspaceId, noteId, recording.id, false)}
+                  onSelect={() => void remove(false)}
                 >
                   <span className="flex items-center gap-2">
                     <Trash2 className="size-3.5" aria-hidden="true" />
@@ -267,20 +311,28 @@ export const RecordingHeading = memo(function RecordingHeading({
       )}
       {cast.people.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {cast.people.map(({ person, keys, color }) => (
-            <SpeakerChip
-              key={person}
-              name={speakerName(recording, keys[0] as string, unnamed)}
-              named={isNamed(person)}
-              color={speakerColor(color)}
-              picked={picked === person}
-              names={names}
-              mergeTargets={choices.filter((choice) => choice.key !== keys[0])}
-              onPick={() => onPick(recording.id, person)}
-              onName={(name) => onName(recording.id, keys, name)}
-              onMerge={(to) => onMerge(recording.id, keys[0] as string, to)}
-            />
-          ))}
+          {cast.people.map(({ person, keys, color }) => {
+            const key = keys[0] as string;
+            const suggestion = suggestions.find((s) => s.key === key);
+            return (
+              <SpeakerChip
+                key={person}
+                name={speakerName(recording, key, unnamed)}
+                named={isNamed(person)}
+                color={speakerColor(color)}
+                picked={picked === person}
+                suggestion={suggestion?.name}
+                mergeTargets={choices.filter((choice) => choice.key !== key)}
+                onPick={() => onPick(recording.id, person)}
+                onRename={() => onRename(recording.id, keys)}
+                onAccept={suggestion ? () => onAccept(recording.id, [suggestion]) : undefined}
+                onReject={
+                  suggestion ? () => void rejectVoiceSuggestion(ref, suggestion) : undefined
+                }
+                onMerge={(to) => onMerge(recording.id, key, to)}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -292,66 +344,28 @@ function SpeakerChip({
   named,
   color,
   picked,
-  names,
+  suggestion,
   mergeTargets,
   onPick,
-  onName,
+  onRename,
+  onAccept,
+  onReject,
   onMerge,
 }: {
   name: string;
   named: boolean;
   color: string;
   picked: boolean;
-  names: readonly string[];
+  suggestion?: string;
   mergeTargets: readonly LineTarget[];
   onPick: () => void;
-  onName: (name: string) => void;
+  onRename: () => void;
+  onAccept?: () => void;
+  onReject?: () => void;
   onMerge: (to: string) => void;
 }) {
   const { t } = useTranslation("notes");
   const ViewIcon = picked ? Users : Eye;
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const listId = useId();
-  const edit = () => {
-    setValue(named ? name : "");
-    setEditing(true);
-  };
-  if (editing) {
-    const done = (save: boolean) => {
-      if (save) onName(value);
-      setEditing(false);
-    };
-    return (
-      <>
-        <input
-          // biome-ignore lint/a11y/noAutofocus: it opens to be typed in
-          autoFocus
-          value={value}
-          list={listId}
-          placeholder={t("transcript.namePlaceholder")}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={() => done(true)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
-            if (e.key === "Enter") done(true);
-            else if (e.key === "Escape") {
-              // Cancels the name only; the transcript keeps what it shows.
-              e.stopPropagation();
-              done(false);
-            }
-          }}
-          className="h-6 w-28 rounded-(--radius-pill) border border-ring bg-transparent px-2 text-app-micro text-foreground outline-none"
-          data-testid="speaker-name-input"
-        />
-        <datalist id={listId}>
-          {names.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
-      </>
-    );
-  }
   return (
     <span
       className={cn(
@@ -373,12 +387,39 @@ function SpeakerChip({
       >
         <span className="size-1.5 rounded-full" style={{ background: color }} aria-hidden="true" />
         {name}
+        {suggestion && (
+          <span className="text-muted-foreground">
+            · {t("voiceMemory.suggestion", { name: suggestion })}
+          </span>
+        )}
       </button>
+      {suggestion && (
+        <>
+          <button
+            type="button"
+            className="inline-flex size-5 items-center justify-center rounded-(--radius-pill) text-[var(--state-success-fg)] hover:bg-[var(--state-hover-bg)]"
+            aria-label={t("voiceMemory.accept", { name: suggestion })}
+            title={t("voiceMemory.accept", { name: suggestion })}
+            onClick={onAccept}
+          >
+            <Check className="size-3" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex size-5 items-center justify-center rounded-(--radius-pill) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+            aria-label={t("voiceMemory.reject", { name: suggestion })}
+            title={t("voiceMemory.reject", { name: suggestion })}
+            onClick={onReject}
+          >
+            <X className="size-3" aria-hidden="true" />
+          </button>
+        </>
+      )}
       {picked && (
         <button
           type="button"
           className="mr-0.5 inline-flex size-5 items-center justify-center rounded-(--radius-pill) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-          onClick={edit}
+          onClick={onRename}
           aria-label={t("transcript.rename")}
           title={t("transcript.rename")}
           data-testid="speaker-chip-rename"
@@ -398,7 +439,7 @@ function SpeakerChip({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem onSelect={edit}>
+          <DropdownMenuItem onSelect={onRename}>
             <span className="flex items-center gap-2">
               <Pencil className="size-3.5" aria-hidden="true" />
               {t("transcript.rename")}

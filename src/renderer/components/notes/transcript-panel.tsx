@@ -35,7 +35,8 @@ import {
   type TranscriptLine,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
-import { moveLine, useRecorderStore } from "../../services/notes/recorder";
+import type { VoiceNameSuggestion } from "../../../shared/notes/voice-names";
+import { liveVoiceNameSamples, moveLine, useRecorderStore } from "../../services/notes/recorder";
 import { resumeSecondPasses } from "../../services/notes/second-pass";
 import {
   loadTranscript,
@@ -43,8 +44,22 @@ import {
   transcriptKey,
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
+import {
+  currentVoiceSuggestions,
+  dismissVoiceSuggestions,
+  hasVoiceAudio,
+  loadVoiceMemory,
+  NO_VOICE_SUGGESTIONS,
+  rememberNamedVoice,
+  useVoiceMemory,
+  visibleVoiceSuggestions,
+  voiceSuggestionKey,
+} from "../../services/notes/voice-memory";
 import { useUIStore } from "../../state/stores/ui";
+import { Button } from "../ui/button";
 import type { DropdownMenuPoint } from "../ui/dropdown-menu";
+import { showToast } from "../ui/toast";
+import { consentToVoiceMemory, SpeakerNameDialog } from "./speaker-name-dialog";
 import { LineMoveMenu, LineRow, type LineTarget, PartialRow } from "./transcript-line";
 import { PickedSpeaker, RecordingHeading } from "./transcript-recording";
 import {
@@ -107,11 +122,35 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   const share = useUIStore((s) => s.noteTranscriptShare);
 
   useEffect(() => {
+    void loadVoiceMemory();
     void loadTranscript(workspaceId, noteId).then(() => resumeSecondPasses(workspaceId, noteId));
   }, [workspaceId, noteId]);
 
   const recordings = file?.recordings ?? NO_RECORDINGS;
   const read = useMemo(() => readRecordings(recordings), [recordings]);
+  const offered = useVoiceMemory((s) => s.byRecording);
+  const suggestions = useMemo(
+    () =>
+      new Map(
+        recordings.map((recording) => [
+          recording.id,
+          visibleVoiceSuggestions(
+            recording,
+            offered[voiceSuggestionKey({ workspaceId, noteId, recordingId: recording.id })],
+          ),
+        ]),
+      ),
+    [workspaceId, noteId, recordings, offered],
+  );
+  const bulkSuggestions = useMemo(
+    () =>
+      new Set(
+        Array.from(suggestions)
+          .filter(([, list]) => list.length > 1)
+          .map(([id]) => id),
+      ),
+    [suggestions],
+  );
   const partialSpeaker = partial?.speaker ?? null;
   const casts = useMemo(
     () =>
@@ -130,6 +169,11 @@ export const TranscriptPanel = memo(function TranscriptPanel({
 
   // What the transcript is narrowed to.
   const [speaker, setSpeaker] = useState<SpeakerFilter | null>(null);
+  const [naming, setNaming] = useState<{ recordingId: string; keys: readonly string[] } | null>(
+    null,
+  );
+  const namingRecording = naming ? recordings.find((r) => r.id === naming.recordingId) : undefined;
+  const namingKey = naming?.keys[0];
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -137,8 +181,8 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   const view = useMemo(() => ({ speaker, query }), [speaker, query]);
   const narrowed = isNarrowed(view);
   const { rows, matches } = useMemo(
-    () => transcriptRows(read, view, { recordingId: liveId, partial }),
-    [read, view, liveId, partial],
+    () => transcriptRows(read, view, { recordingId: liveId, partial }, bulkSuggestions),
+    [read, view, liveId, partial, bulkSuggestions],
   );
 
   useEffect(() => {
@@ -173,7 +217,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   }, []);
 
   const name = useCallback(
-    (recordingId: string, keys: readonly string[], value: string) => {
+    (recordingId: string, keys: readonly string[], value: string, remember: boolean) => {
       const recordingNow = () =>
         useTranscriptsStore
           .getState()
@@ -182,14 +226,42 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       const before = recordingNow();
       if (!before || first === undefined) return;
       const was = personOf(before, first);
-      for (const key of keys) nameSpeaker(workspaceId, noteId, recordingId, key, value);
+      const ref = { workspaceId, noteId, recordingId };
+      const confirmed = value.trim().slice(0, 80);
+      if (confirmed) dismissVoiceSuggestions(ref, keys);
+      for (const key of keys) nameSpeaker(workspaceId, noteId, recordingId, key, confirmed);
       // The person picked, named, stays picked under their name.
       const after = recordingNow();
       if (!after) return;
       const is = personOf(after, first);
       setSpeaker((now) => (isPicked(now, recordingId, was) ? { recordingId, person: is } : now));
+      if (remember && confirmed && hasVoiceAudio(after)) {
+        void consentToVoiceMemory()
+          .then(
+            (status) =>
+              status &&
+              rememberNamedVoice(ref, keys, confirmed, status, () => liveVoiceNameSamples(ref)),
+          )
+          .catch(() => showToast({ kind: "error", message: t("voiceMemory.saveFailed") }));
+      }
     },
-    [workspaceId, noteId],
+    [workspaceId, noteId, t],
+  );
+
+  const rename = useCallback((recordingId: string, keys: readonly string[]) => {
+    setNaming({ recordingId, keys });
+  }, []);
+
+  const accept = useCallback(
+    (recordingId: string, offered: readonly VoiceNameSuggestion[]) => {
+      const current = currentVoiceSuggestions({ workspaceId, noteId, recordingId });
+      for (const suggestion of offered) {
+        if (current.some((s) => s.key === suggestion.key && s.name === suggestion.name)) {
+          name(recordingId, [suggestion.key], suggestion.name, true);
+        }
+      }
+    },
+    [workspaceId, noteId, name],
   );
 
   // Scrolling: only the rows in sight are drawn.
@@ -491,12 +563,13 @@ export const TranscriptPanel = memo(function TranscriptPanel({
                     live={row.recording.id === liveId}
                     first={item.index === 0}
                     picked={speaker}
-                    names={names}
+                    suggestions={suggestions.get(row.recording.id) ?? NO_VOICE_SUGGESTIONS}
                     narrowed={narrowed}
                     lit={lit === row.key}
                     unnamed={unnamed}
                     onPick={pick}
-                    onName={name}
+                    onRename={rename}
+                    onAccept={accept}
                     onMerge={merge}
                     onSpeaker={openMove}
                     onQuote={quote}
@@ -508,6 +581,19 @@ export const TranscriptPanel = memo(function TranscriptPanel({
           </div>
         )}
       </div>
+      {naming && namingRecording && namingKey && (
+        <SpeakerNameDialog
+          speaker={speakerName(namingRecording, namingKey, unnamed)}
+          initial={namingRecording.speakers[namingKey] ?? ""}
+          names={names}
+          audio={hasVoiceAudio(namingRecording)}
+          onSave={(value, remember) => {
+            setNaming(null);
+            name(naming.recordingId, naming.keys, value, remember);
+          }}
+          onClose={() => setNaming(null)}
+        />
+      )}
       <LineMoveMenu
         point={moving?.point ?? null}
         targets={moveTargets}
@@ -527,12 +613,13 @@ function Row({
   live,
   first,
   picked,
-  names,
+  suggestions,
   narrowed,
   lit,
   unnamed,
   onPick,
-  onName,
+  onRename,
+  onAccept,
   onMerge,
   onSpeaker,
   onQuote,
@@ -545,12 +632,13 @@ function Row({
   live: boolean;
   first: boolean;
   picked: SpeakerFilter | null;
-  names: readonly string[];
+  suggestions: readonly VoiceNameSuggestion[];
   narrowed: boolean;
   lit: boolean;
   unnamed: (key: string) => string;
   onPick: (recordingId: string, person: string) => void;
-  onName: (recordingId: string, keys: readonly string[], name: string) => void;
+  onRename: (recordingId: string, keys: readonly string[]) => void;
+  onAccept: (recordingId: string, suggestions: readonly VoiceNameSuggestion[]) => void;
   onMerge: (recordingId: string, from: string, to: string) => void;
   onSpeaker: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
   onQuote: (recordingId: string, line: TranscriptLine) => void;
@@ -571,20 +659,27 @@ function Row({
           live={live}
           first={first}
           picked={person || null}
-          names={names}
+          suggestions={suggestions}
           onPick={onPick}
-          onName={onName}
+          onRename={onRename}
+          onAccept={onAccept}
           onMerge={onMerge}
         />
       );
     }
-    case "line":
+    case "line": {
+      const suggestion = suggestions.find((s) => s.key === row.line.speaker);
       return (
         <LineRow
           rowKey={row.key}
           recordingId={recording.id}
           line={row.line}
-          name={speakerName(recording, row.line.speaker, unnamed)}
+          name={
+            suggestion
+              ? t("voiceMemory.suggestion", { name: suggestion.name })
+              : speakerName(recording, row.line.speaker, unnamed)
+          }
+          suggested={suggestion !== undefined}
           color={speakerColor(cast.colorOf(row.line.speaker))}
           marks={row.marks}
           narrowed={narrowed}
@@ -594,14 +689,33 @@ function Row({
           onShowInWhole={onShowInWhole}
         />
       );
-    case "partial":
+    }
+    case "partial": {
+      const suggestion = suggestions.find((s) => s.key === row.speaker);
       return (
         <PartialRow
-          name={speakerName(recording, row.speaker, unnamed)}
+          name={
+            suggestion
+              ? t("voiceMemory.suggestion", { name: suggestion.name })
+              : speakerName(recording, row.speaker, unnamed)
+          }
+          suggested={suggestion !== undefined}
           color={speakerColor(cast.colorOf(row.speaker))}
           text={row.text}
           marks={row.marks}
         />
+      );
+    }
+    case "accept-suggestions":
+      return (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onAccept(recording.id, suggestions)}
+        >
+          {t("voiceMemory.acceptAll")}
+        </Button>
       );
     case "quiet":
       return (
