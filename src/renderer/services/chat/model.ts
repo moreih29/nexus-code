@@ -338,6 +338,8 @@ export interface CommandInfo {
   description?: string;
   argumentHint?: string;
   aliases?: string[];
+  /** The CLI's own command, or one of the app's; not a skill. */
+  builtin?: boolean;
 }
 
 export interface InitializeInfo {

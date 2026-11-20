@@ -97,6 +97,25 @@ describe("a chat's commands for another device", () => {
     }
   });
 
+  test("built-in commands and the app's come before skills", () => {
+    const model = {
+      ...emptyModel(),
+      init: {
+        commands: [
+          { name: "plug:skill" },
+          { name: "compact", builtin: true },
+          { name: "model", builtin: true },
+          { name: "insights", builtin: true },
+        ],
+      },
+    } as unknown as ReturnType<typeof emptyModel>;
+    const names = chatCommandsOf("claude", model).map((c) => c.name);
+    expect(names.slice(0, 2)).toEqual(["compact", "model"]);
+    expect(names.indexOf("btw")).toBeLessThan(names.indexOf("plug:skill"));
+    expect(names.at(-1)).toBe("plug:skill");
+    expect(names).not.toContain("insights");
+  });
+
   test("advertises native Plan and Default as host commands only when supported", () => {
     for (const name of ["plan", "default"]) {
       expect(chatCommandsOf("codex", emptyModel()).some((command) => command.name === name)).toBe(
