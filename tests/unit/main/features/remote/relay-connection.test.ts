@@ -33,11 +33,13 @@ class FakeSocket {
     for (const listener of this.listeners.get(type) ?? []) listener(event as never);
   }
   readonly sent: string[] = [];
+  readonly closes: [number | undefined, string | undefined][] = [];
   closed = false;
   send(text: string) {
     this.sent.push(text);
   }
-  close() {
+  close(code?: number, reason?: string) {
+    this.closes.push([code, reason]);
     this.closed = true;
     this.readyState = 2;
   }
@@ -427,7 +429,7 @@ test("a proxy probe completing during automatic reconnect leaves the pending tic
 });
 
 describe("the heartbeat", () => {
-  const heartbeat = { every: 10, wait: 15 };
+  const heartbeat = { every: 25, wait: 15 };
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
@@ -472,7 +474,7 @@ describe("the heartbeat", () => {
     }
   });
 
-  test("one not answered lets the socket go and joins the room again at once", async () => {
+  test("two consecutive misses reopen the socket with a diagnostic close reason", async () => {
     const { relay, sockets, statuses, socket } = await open();
     try {
       jest.advanceTimersByTime(heartbeat.every);
@@ -481,8 +483,11 @@ describe("the heartbeat", () => {
       expect(socket.closed).toBe(false);
 
       jest.advanceTimersByTime(1);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
       await Promise.resolve();
       expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
       expect(sockets).toHaveLength(2);
       expect(statuses).not.toContain("waiting");
 
@@ -492,6 +497,44 @@ describe("the heartbeat", () => {
       await Promise.resolve();
       expect(sockets).toHaveLength(2);
     } finally {
+      relay.stop();
+    }
+  });
+
+  test("a pong received between misses clears the miss count", async () => {
+    const { relay, socket } = await open();
+    try {
+      jest.advanceTimersByTime(heartbeat.every + heartbeat.wait);
+      jest.advanceTimersByTime(heartbeat.every - heartbeat.wait);
+      socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(heartbeat.every + heartbeat.wait);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a late pong timer leaves the socket open and gives a queued pong time to arrive", async () => {
+    const { relay, socket } = await open();
+    const now = performance.now.bind(performance);
+    let slipMs = 0;
+    const clock = jest.spyOn(performance, "now").mockImplementation(() => now() + slipMs);
+    try {
+      const warnings = mainWarnMock.mock.calls.length;
+      jest.advanceTimersByTime(heartbeat.every);
+      slipMs = 2_000;
+      jest.advanceTimersByTime(heartbeat.wait);
+      expect(mainWarnMock.mock.calls.slice(warnings)).toEqual([]);
+      socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(heartbeat.every);
+      expect(socket.closed).toBe(false);
+      expect(mainWarnMock.mock.calls.slice(warnings).map(([message]) => message)).toEqual([
+        expect.stringContaining("consecutive=1 reconnect=false"),
+      ]);
+    } finally {
+      clock.mockRestore();
       relay.stop();
     }
   });
@@ -549,8 +592,11 @@ describe("the heartbeat", () => {
       socket.emit("message", { data: '{"t":"presence","self":"a","devices":[]}' });
       expect(frames).toHaveLength(1);
       jest.advanceTimersByTime(heartbeat.wait);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
       await Promise.resolve();
       expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
       expect(sockets).toHaveLength(2);
     } finally {
       relay.stop();
@@ -575,6 +621,7 @@ describe("the heartbeat", () => {
       beat();
       await Promise.resolve();
       expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "send-buffer-stalled"]]);
       expect(sockets).toHaveLength(2);
     } finally {
       relay.stop();

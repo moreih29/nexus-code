@@ -39,7 +39,7 @@ import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/roo
 import { isFileTransferMethod } from "./file-io";
 import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
-import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
+import type { RelayConnectionDeps, RelayRecoveryReason, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
 const log = createLogger("remote-room");
@@ -164,7 +164,7 @@ export interface RoomConnection {
   send(frame: ClientFrame): boolean;
   readonly bufferedAmount?: number;
   healthy(): void;
-  recover(): void;
+  recover(reason: RelayRecoveryReason): void;
 }
 
 export interface RemoteRoomDeps {
@@ -515,7 +515,7 @@ export class RemoteRoom {
       "queue-stall",
       `Relay reconnect reason=${queue}-stalled elapsedMs=${Math.round(elapsed)} queuedFrames=${frames} pendingRequests=${this.pending.size}`,
     );
-    this.connection.recover();
+    this.connection.recover(`${queue}-stalled`);
   }
 
   /** Pongs prove the socket reaches the relay. A hello round trip checks forwarding. */
@@ -539,7 +539,7 @@ export class RemoteRoom {
           "queue-stall",
           `Relay reconnect reason=peer-probes-unanswered elapsedMs=${Math.round(performance.now() - started)} peers=${stillOnline} queuedFrames=${this.outbox.size} pendingRequests=${this.pending.size}`,
         );
-        this.connection.recover();
+        this.connection.recover("peer-probes-unanswered");
       }, PEER_PROBE_MS),
     };
     for (const id of peers) {
