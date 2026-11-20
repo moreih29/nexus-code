@@ -236,6 +236,7 @@ function viewJson(view: View, tabs: ViewTabs) {
         return { workspaceId: tab.workspaceId, tabId: tab.tabId, title: tab.title };
       }),
       shownTabId: p.shownTabId?.split(":")[1] ?? null,
+      shownTabKey: p.shownTabId ?? null,
     })),
   };
 }

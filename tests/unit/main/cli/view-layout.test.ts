@@ -92,6 +92,7 @@ test("view layout --json adds held tab details alongside existing session fields
           { key: `${APP}:missing-tab` },
         ],
         shownTabId: root.shownTabId.split(":")[1],
+        shownTabKey: root.shownTabId,
       },
     ],
   });
