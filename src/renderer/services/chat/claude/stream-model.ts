@@ -242,6 +242,12 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
       m.permissionMode = str(message.permissionMode) ?? m.permissionMode;
       m.cwd = str(message.cwd) ?? m.cwd;
       m.version = str(message.claude_code_version) ?? m.version;
+      if (Array.isArray(message.slash_commands)) {
+        m.slashCommands = message.slash_commands.flatMap((raw) => {
+          const name = str(raw);
+          return name ? [{ name }] : [];
+        });
+      }
       return;
     }
     case "status": {

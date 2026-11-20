@@ -19,6 +19,10 @@ import {
   pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { historyForDisplay } from "../../services/chat/claude/history";
+import {
+  borrowedClaudeModels,
+  useClaudeModelCatalog,
+} from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
@@ -154,6 +158,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
   const steady = useStateBesideStream(state);
+  const modelCatalogKey = isVisible && !steady.model.init ? controller.modelCatalogKey : undefined;
+  const fallbackModels = useClaudeModelCatalog((catalog) =>
+    modelCatalogKey ? borrowedClaudeModels(catalog, modelCatalogKey, controller.key) : undefined,
+  );
   const goal = useTabGoal(workspaceId, tabId);
 
   // The line under the composer: the context and the plan's usage when the
@@ -555,7 +563,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       revealPart(controller.key, part);
       return true;
     }
-    const command = parseAppCommand(text, state.model.init?.commands ?? []);
+    const command = parseAppCommand(
+      text,
+      state.model.init?.commands ?? state.model.slashCommands ?? [],
+    );
     if (!command) return false;
     if (command.name === "resume") {
       if (state.model.running) {
@@ -715,6 +726,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
+              historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
                   ? {
@@ -800,6 +812,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
+            fallbackModels={fallbackModels}
             relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -998,9 +1011,6 @@ function PhaseBanner({ controller, state }: { controller: ChatController; state:
         ),
       );
       break;
-  }
-  if (state.truncated) {
-    banners.push(<Banner key="truncated" variant="info" message={t("chat.phase.truncated")} />);
   }
   if (banners.length === 0) return null;
   return <div className="shrink-0 pt-1">{banners}</div>;

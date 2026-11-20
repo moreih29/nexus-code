@@ -698,6 +698,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               reveal={callReveal ?? undefined}
               moves={props.moves}
               relayed={props.relayed}
+              historyTruncated={!shown && state.truncated}
               empty={
                 !shown && (state.phase === "ready" || state.phase === "ended") ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -983,11 +984,5 @@ function PhaseBanner({ controller, state }: { controller: CodexController; state
         );
       break;
   }
-  if (!banner && !state.truncated) return null;
-  return (
-    <div className="shrink-0 pt-1">
-      {banner}
-      {state.truncated && <Banner variant="info" message={t("chat.phase.truncated")} />}
-    </div>
-  );
+  return banner ? <div className="shrink-0 pt-1">{banner}</div> : null;
 }

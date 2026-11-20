@@ -18,6 +18,14 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
+/** A standard Claude model ID's label when the CLI's model list is unavailable. */
+export function claudeModelLabel(id: string): string {
+  const match = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8})?(?:\[1m\])?$/.exec(id);
+  if (!match) return id;
+  const [, family, major, minor] = match;
+  return `${family[0].toUpperCase()}${family.slice(1)} ${major}.${minor}`;
+}
+
 /**
  * The model the user set, as the program runs it ("claude-opus-5-5[1m]");
  * none when no setting names one, and the default runs.

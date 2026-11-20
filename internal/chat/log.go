@@ -19,9 +19,9 @@ type entry struct {
 	// transient marks a stream event: a token of a message still being
 	// written. The complete message follows it, and then it is dropped.
 	transient bool
-	// pinned marks a line the cap does not drop, nor count: a file's
-	// original, which a client needs however long the conversation runs.
-	pinned bool
+	// A file original or replay state is kept outside the rolling cap.
+	pins      int
+	requestID string
 }
 
 func (e *entry) size() int {
@@ -40,18 +40,28 @@ type lineLog struct {
 	// last complete message, or -1.
 	transientFrom int
 	cap           int
+	replayPins    map[string][2]*entry
+	requests      map[string]replayRequest
+	// A response can arrive before its input write returns. Commit it to
+	// replay state only once the input is confirmed.
+	input         *entry
+	inputResponse *entry
 }
 
 func newLineLog() *lineLog {
-	return &lineLog{nextSeq: 1, transientFrom: -1, cap: logCapBytes}
+	return &lineLog{
+		nextSeq: 1, transientFrom: -1, cap: logCapBytes,
+		replayPins: make(map[string][2]*entry), requests: make(map[string]replayRequest),
+	}
 }
 
 // add appends one line and returns it with its sequence number.
 func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	e := &entry{seq: l.nextSeq, dir: dir, message: message, text: text, at: time.Now().UnixMilli()}
 	l.nextSeq++
+	var kind string
 	if dir == DirOut && message != nil {
-		kind := messageType(message)
+		kind = messageType(message)
 		if kind == "stream_event" {
 			e.transient = true
 		} else if completesStream(kind) {
@@ -63,27 +73,55 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	}
 	l.entries = append(l.entries, e)
 	l.bytes += e.size()
+	l.keepReplayState(e, kind)
 	l.trim()
 	return e
+}
+
+func (l *lineLog) reserveInput(message json.RawMessage) *entry {
+	slot := l.add(DirSys, nil, "")
+	// Avoid decoding ordinary input and Codex requests, which can carry images.
+	if bytes.Contains(message, []byte(`"control_request"`)) &&
+		messageType(message) == "control_request" && l.trackReplayRequest(slot, message) {
+		l.input = slot
+		l.changePins(slot, 1)
+	}
+	return slot
 }
 
 // finishInput fills a reserved slot, if the log still includes it.
 func (l *lineLog) finishInput(slot *entry, dir string, message json.RawMessage) {
 	for _, e := range l.since(slot.seq - 1) {
 		if e == slot {
-			l.bytes += len(message)
+			if e.pins == 0 {
+				l.bytes += len(message)
+			}
 			break
 		}
 	}
 	slot.dir = dir
 	slot.message = message
+	if l.input == slot {
+		response := l.inputResponse
+		l.input, l.inputResponse = nil, nil
+		l.changePins(slot, -1)
+		if dir != DirIn {
+			l.forgetReplayRequest(slot.requestID)
+		}
+		if response != nil {
+			l.changePins(response, -1)
+			if dir == DirIn {
+				l.keepReplayResponse(response)
+			}
+		}
+	}
 	l.trim()
 }
 
 // addPinned appends a line the cap keeps. What it holds is bounded by
 // whoever adds it.
 func (l *lineLog) addPinned(dir string, message json.RawMessage) *entry {
-	e := &entry{seq: l.nextSeq, dir: dir, message: message, at: time.Now().UnixMilli(), pinned: true}
+	e := &entry{seq: l.nextSeq, dir: dir, message: message, at: time.Now().UnixMilli(), pins: 1}
 	l.nextSeq++
 	l.entries = append(l.entries, e)
 	return e
@@ -96,6 +134,9 @@ func (l *lineLog) reset() {
 	l.bytes = 0
 	l.truncated = false
 	l.transientFrom = -1
+	clear(l.replayPins)
+	clear(l.requests)
+	l.input, l.inputResponse = nil, nil
 }
 
 // lastSeq is the sequence number of the newest line, 0 when there is none.
@@ -145,8 +186,11 @@ func (l *lineLog) trim() {
 	// dropped counts the lines dropped before the first transient one.
 	dropped := 0
 	for i, e := range l.entries {
-		if l.bytes > l.cap && i < last && !e.pinned {
+		if l.bytes > l.cap && i < last && e.pins == 0 {
 			l.bytes -= e.size()
+			if l.requests[e.requestID].line == e {
+				delete(l.requests, e.requestID)
+			}
 			if i < l.transientFrom {
 				dropped++
 			}

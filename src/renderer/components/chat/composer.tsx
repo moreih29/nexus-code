@@ -30,6 +30,7 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
+import { claudeModelLabel } from "../../services/chat/claude/settings-defaults";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
@@ -148,6 +149,8 @@ export interface ComposerController {
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
+  /** A local Claude tab can borrow its profile's options while its own list is missing. */
+  fallbackModels?: readonly ModelInfo[];
   instructionsTab?: InstructionsTab;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
@@ -224,6 +227,7 @@ function parked(area: HTMLElement): boolean {
 export const Composer = memo(function Composer({
   controller,
   state,
+  fallbackModels,
   instructionsTab,
   relayed,
   local,
@@ -255,6 +259,7 @@ export const Composer = memo(function Composer({
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
+  const models = model.init?.models ?? fallbackModels ?? [];
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
@@ -292,7 +297,7 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
+    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
     FIT.NO_ADD,
   );
 
@@ -327,19 +332,20 @@ export const Composer = memo(function Composer({
     if (completionKey === null) setDismissed(null);
   }, [completionKey]);
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
+  const cliCommands = model.init?.commands ?? model.slashCommands;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
     if (ownCommands) return matchCommands([...ownCommands], completion.query);
-    const cli = model.init?.commands ?? [];
+    const cli = cliCommands ?? [];
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
     return matchCommands([...listedCommands(cli), ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
+  }, [menuOpen, completion?.kind, completion?.query, cliCommands, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   // The program has not listed its commands yet: the list waits, rather
   // than say that none match.
-  const listing = !ownCommands && !model.init;
+  const listing = !ownCommands && !cliCommands;
   // The command box shows "no matching commands" when it has none to offer.
   const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
@@ -888,12 +894,18 @@ export const Composer = memo(function Composer({
               <ModelChip
                 controller={controller}
                 state={state}
+                models={models}
                 short={fit >= FIT.SHORT_MODEL}
                 onMenu={onMenu("model")}
               />
             )}
             {(fit < FIT.NO_EFFORT || kept("effort")) && (
-              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+              <EffortChip
+                controller={controller}
+                state={state}
+                models={models}
+                onMenu={onMenu("effort")}
+              />
             )}
             {instructionsTab && (
               <SessionInstructionsChip {...instructionsTab} compact={fit >= FIT.TRUNCATE_MODE} />
@@ -908,7 +920,7 @@ export const Composer = memo(function Composer({
                     : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
                 }
                 onCommand={
-                  (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
+                  (ownCommands?.length ?? cliCommands?.length ?? 0) > 0
                     ? () => insertTrigger("/")
                     : undefined
                 }
@@ -1369,18 +1381,22 @@ export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean
 function ModelChip({
   controller,
   state,
+  models,
   short,
   onMenu,
-}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
+}: ChipProps & {
+  models: readonly ModelInfo[];
+  short: boolean;
+  onMenu: (open: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
   const profileDefault = controller.claudeProfileDefaultModel;
   const options = modelPickerOptions(models, profileDefault !== undefined);
   let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
   if (profileDefault && (!current || current.value === "default"))
     current = models.find(({ value }) => value === profileDefault);
-  const label =
-    current?.displayName ?? state.model.model ?? profileDefault ?? t("chat.model.default");
+  const id = state.model.model ?? profileDefault;
+  const label = current?.displayName ?? (id ? claudeModelLabel(id) : t("chat.model.default"));
   const ready = state.model.process === "running" && options.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
@@ -1425,10 +1441,10 @@ function ModelChip({
 function EffortChip({
   controller,
   state,
+  models,
   onMenu,
-}: ChipProps & { onMenu: (open: boolean) => void }) {
+}: ChipProps & { models: readonly ModelInfo[]; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
   const levels =
     currentModelInfo(models, state.model.model, state.model.chosenModel)?.supportedEffortLevels ??
     [];

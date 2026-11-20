@@ -844,6 +844,7 @@
     "jump_to_bottom": "Scroll to the latest message",
     "show_earlier": "Show earlier messages ({{count}})",
     "show_earlier_unknown": "Show earlier messages",
+    "history_truncated": "The earliest messages in this conversation are unavailable.",
     "thinking": "Thinking",
     "thinking_live": "Thinking…",
     "received": {
@@ -1059,8 +1060,7 @@
       "not_found": "Claude Code was not found where this workspace runs. Install it and try again.",
       "failed": "Claude could not be started.",
       "old_version": "Claude Code {{version}} is too old for this tab. {{min}} or later is needed.",
-      "retry": "Try again",
-      "truncated": "The oldest part of this conversation is no longer kept."
+      "retry": "Try again"
     },
     "queue": {
       "aria": "Messages waiting to be read",

@@ -431,6 +431,8 @@ export interface ChatModel {
   cwd?: string;
   version?: string;
   init?: InitializeInfo;
+  /** Names from a system/init line, available even if an old log lost initialize. */
+  slashCommands?: CommandInfo[];
   running: boolean;
   turn: TurnState | null;
   process: "none" | "running" | "exited";
@@ -562,6 +564,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       if (message.connectionChanged === true) {
         draft.push({ kind: "notice", key: `n${seq}`, code: "connection_restarted", at });
         m.init = undefined;
+        m.slashCommands = undefined;
         m.model = undefined;
         m.chosenModel = undefined;
         m.effort = undefined;
