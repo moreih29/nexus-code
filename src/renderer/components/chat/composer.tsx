@@ -287,18 +287,19 @@ export const Composer = memo(function Composer({
   const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());
 
-  // The row under the box leaves out what it must to stay on one line.
+  // The footer drops optional controls before wrapping the ones that stay.
   const footerRef = useRef<HTMLDivElement>(null);
   // A chip whose menu is open, or asked for by a bare /model or /effort,
   // stays in the row however narrow it is.
-  const [menuOf, setMenuOf] = useState<RevealPart | null>(null);
-  const kept = (part: RevealPart) => state.reveal?.part === part || menuOf === part;
-  const onMenu = (part: RevealPart) => (open: boolean) =>
+  type FooterMenu = RevealPart | "instructions";
+  const [menuOf, setMenuOf] = useState<FooterMenu | null>(null);
+  const kept = (part: FooterMenu) => state.reveal?.part === part || menuOf === part;
+  const onMenu = (part: FooterMenu) => (open: boolean) =>
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
-    FIT.NO_ADD,
+    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructionsTab}`,
+    FIT.WRAP,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -733,13 +734,13 @@ export const Composer = memo(function Composer({
   return (
     <div
       ref={rootRef}
-      className="shrink-0 border-t border-border px-4 pt-2 pb-3"
+      className="@container/composer shrink-0 border-t border-border pt-2 pb-3"
       data-testid="chat-composer"
       // Toasts rise above it rather than cover what is typed (see ToastRoot).
       data-toast-avoid
     >
       {dropping && dropArea && createPortal(<DropCue />, dropArea)}
-      <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+      <div className="mx-auto flex w-[calc(100%-2rem)] max-w-[860px] flex-col gap-2 @max-[120px]/composer:w-[calc(100%-0.5rem)]">
         {above}
         {(waiting.length > 0 || state.queue.length > 0) && (
           <ul className="flex flex-col gap-1" aria-label={t("chat.queue.aria")}>
@@ -886,7 +887,13 @@ export const Composer = memo(function Composer({
               />
             )}
           </div>
-          <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
+          <div
+            ref={footerRef}
+            className={cn(
+              "flex items-center gap-1 overflow-hidden px-1.5 pb-1.5 @max-[64px]/composer:px-0.5",
+              fit >= FIT.WRAP && "flex-wrap justify-end",
+            )}
+          >
             {fit < FIT.NO_MODE && (
               <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
             )}
@@ -907,10 +914,14 @@ export const Composer = memo(function Composer({
                 onMenu={onMenu("effort")}
               />
             )}
-            {instructionsTab && (
-              <SessionInstructionsChip {...instructionsTab} compact={fit >= FIT.TRUNCATE_MODE} />
+            {instructionsTab && (fit < FIT.NO_INSTRUCTIONS || kept("instructions")) && (
+              <SessionInstructionsChip
+                {...instructionsTab}
+                compact={fit >= FIT.TRUNCATE_MODE}
+                onMenu={onMenu("instructions")}
+              />
             )}
-            <div className="flex-1" />
+            {fit < FIT.WRAP && <div className="flex-1" />}
             {fit < FIT.NO_ADD && (
               <AddMenu
                 onAttach={() => fileRef.current?.click()}
@@ -978,8 +989,8 @@ function showError(err: Error): void {
  * What the row under the box leaves out, step by step, when it is too
  * narrow for all of it: the model's name loses its note, the send button
  * its key, then the effort goes, then the model, the mode's name is cut, and
- * then the mode, the mic and the + menu go. Send (stop during a turn) always
- * stays; the mic stays while dictating.
+ * then the mode, instructions, mic and + menu go. Send, Stop and an active
+ * mic can wrap onto their own lines in the narrowest groups.
  */
 const FIT = {
   SHORT_MODEL: 1,
@@ -988,8 +999,10 @@ const FIT = {
   NO_MODEL: 4,
   TRUNCATE_MODE: 5,
   NO_MODE: 6,
-  NO_MIC: 7,
-  NO_ADD: 8,
+  NO_INSTRUCTIONS: 7,
+  NO_MIC: 8,
+  NO_ADD: 9,
+  WRAP: 10,
 } as const;
 
 /**
