@@ -1,9 +1,9 @@
 /**
  * The images a chat shows, as quick look opens them: all of the
  * conversation's images, in the order they came, each a step from the next.
- * An image file shows as the file; one with no file (a screenshot a tool
- * took, an image the user pasted) from its data, as does a file that is
- * gone, from the data a tool read it as. Pure.
+ * An image with its data (as a tool read it, a screenshot it took, one the
+ * user pasted) shows from it, each read of a file as it was; one with none
+ * shows as the file. Pure.
  */
 
 import { fileKind } from "./links";
@@ -17,11 +17,16 @@ export interface ShownImage {
   image?: ImageBlock;
 }
 
-/** Quick look over images: each by its path, or by a key, which no path is, and its data. */
+/**
+ * Quick look over images: each by its path, or by a key, which no path is,
+ * and its data. `paths` names the file an image held by a key was read
+ * from, which the file's own actions (open as a tab, reveal) still use.
+ */
 export interface ImageLook {
   files: string[];
   index: number;
   images: Record<string, ImageBlock>;
+  paths?: Record<string, string>;
 }
 
 /** The key quick look holds the image at `index` by: no path starts so. */
@@ -40,26 +45,46 @@ export function imageLook(images: readonly ImageBlock[], index: number): ImageLo
   };
 }
 
+/** Whether an image has its bytes, or can have them fetched (another computer's). */
+function hasData(image: ImageBlock | undefined): image is ImageBlock {
+  return image !== undefined && (image.data !== "" || image.remote !== undefined);
+}
+
 /**
- * Where among `shown` an image is: an image file by its path, one with no
- * file by its data (the same block, or one with the same bytes); -1 when it
- * is not among them.
+ * Whether two blocks are the one image: the same block, or, for another
+ * computer's (whose blocks are made anew as its chat syncs), the same
+ * reference. Never by bytes: two images can have the same ones.
+ */
+export function sameImage(a: ImageBlock, b: ImageBlock): boolean {
+  if (a === b) return true;
+  const x = a.remote;
+  const y = b.remote;
+  if (!x || !y || x.kind !== y.kind || x.index !== y.index) return false;
+  if (x.kind === "user" && y.kind === "user") return x.itemKey === y.itemKey;
+  if (x.kind === "tool" && y.kind === "tool") return x.toolUseId === y.toolUseId;
+  if (x.kind === "held" && y.kind === "held") return x.id === y.id;
+  return false;
+}
+
+/**
+ * Where among `shown` an image is: the one that is the target's image (see
+ * sameImage), so one of several reads of the same file is the one clicked;
+ * or, a file with no image, the entry that has the file and no data, else
+ * the last one with it. -1 when it is not among them.
  */
 export function shownIndex(shown: readonly ShownImage[], target: ShownImage): number {
   const { file, image } = target;
-  if (file) return shown.findIndex((entry) => entry.file === file);
-  if (!image) return -1;
-  const at = shown.findIndex((entry) => entry.image === image);
-  if (at >= 0) return at;
-  return shown.findIndex(
-    (entry) => entry.image?.data === image.data && entry.image.mediaType === image.mediaType,
-  );
+  if (image) return shown.findIndex((entry) => entry.image && sameImage(entry.image, image));
+  if (!file) return -1;
+  const bare = shown.findIndex((entry) => entry.file === file && !entry.image);
+  return bare >= 0 ? bare : shown.findLastIndex((entry) => entry.file === file);
 }
 
 /**
  * Quick look over a conversation's images (`shown`), at the one at `at`.
- * An image file shows as the file when `there` finds it, from its data
- * otherwise; one gone with no data is left out, unless it is the one opened.
+ * An image with its data shows from it, as it was read, and keeps its file
+ * for the file's actions; one with none shows as the file when `there` finds
+ * it; one gone with no data is left out, unless it is the one opened.
  */
 export function conversationLook(
   shown: readonly ShownImage[],
@@ -68,26 +93,30 @@ export function conversationLook(
 ): ImageLook {
   const files: string[] = [];
   const images: Record<string, ImageBlock> = {};
+  const paths: Record<string, string> = {};
   let keys = 0;
   let index = 0;
   shown.forEach(({ file, image }, i) => {
     if (i === at) index = files.length;
-    if (file && (there(file) || (i === at && !image))) {
-      files.push(file);
-    } else if (image) {
+    const asFile = file !== undefined && (there(file) || (i === at && !image));
+    if (hasData(image) || (image && !asFile)) {
       const key = imageKey(keys++);
       images[key] = image;
+      if (file) paths[key] = file;
       files.push(key);
+    } else if (asFile) {
+      files.push(file);
     }
   });
-  return { files, index, images };
+  return { files, index, images, ...(Object.keys(paths).length > 0 ? { paths } : {}) };
 }
 
 /**
- * Quick look over a conversation's images, at `target`: the image file
- * opened, by its path, or an image with no file, by its data. An image file
- * not among them comes first; an image with no file not among them gives
- * null. `filesThere` answers which image files are there.
+ * Quick look over a conversation's images, at `target`: the image opened
+ * (by the block, as another computer's ref, or the file, which shows as the
+ * file as it is now). An image file not among them comes first; an image
+ * with no file not among them gives null. `filesThere` answers which image
+ * files are there.
  */
 export async function lookAtImage(
   shown: readonly ShownImage[],
@@ -97,9 +126,12 @@ export async function lookAtImage(
   let list = shown;
   let at = shownIndex(shown, target);
   if (at < 0) {
-    if (!target.file) return null;
+    if (!target.file || target.image) return null;
     list = [{ file: target.file }, ...shown];
     at = 0;
+  } else if (!target.image && target.file && list[at].image) {
+    // A link to the file shows the file, not what a read of it once gave.
+    list = list.map((entry, i) => (i === at ? { file: target.file } : entry));
   }
   const found = await filesThere(list.flatMap(({ file }) => (file ? [file] : [])));
   return conversationLook(list, at, (file) => found.has(file));

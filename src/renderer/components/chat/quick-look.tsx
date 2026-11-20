@@ -64,6 +64,8 @@ export interface QuickLookList {
    * (services/chat/image-look): shown from their data.
    */
   images?: Readonly<Record<string, ImageBlock>>;
+  /** The file an image was read from, by its key: the file's own actions use it. */
+  paths?: Readonly<Record<string, string>>;
 }
 
 /** Overlays that open from quick look, as the revert confirmation, and keep it open. */
@@ -113,6 +115,7 @@ export function QuickLook({
   const before = list.changes?.[path];
   const line = list.at?.path === path ? list.at : undefined;
   const image = list.images?.[path];
+  const imageFile = image ? list.paths?.[path] : undefined;
   // Another computer's image comes without its bytes, which are fetched.
   const shownImage = useImageBytes(image);
   const name = image ? t("chat.look.image", { number: index + 1 }) : baseName(path);
@@ -282,30 +285,35 @@ export function QuickLook({
             <Copy className="size-3.5" />
           </IconButton>
         )}
-        {local && !image && (
+        {local && (!image || imageFile) && (
           <IconButton
             label={revealInOSLabel()}
-            onClick={() => void ipcCallResult("system", "revealInOS", { absPath: path })}
+            onClick={() =>
+              void ipcCallResult("system", "revealInOS", { absPath: imageFile ?? path })
+            }
           >
             <FolderOpen className="size-3.5" />
           </IconButton>
         )}
-        {path && !image && view === "agents" && onOpenBeside && (
+        {(imageFile ?? (image ? "" : path)) && view === "agents" && onOpenBeside && (
           <IconButton
             label={t("chat.look.open_beside")}
             onClick={() => {
               restoreFocus.current = false;
-              onOpenBeside(path, { at: line, before, mode: fileView.mode, compare: showDiff });
+              onOpenBeside(
+                imageFile ?? path,
+                imageFile ? {} : { at: line, before, mode: fileView.mode, compare: showDiff },
+              );
             }}
             data-testid="chat-quick-look-open-beside"
           >
             <Columns2 className="size-3.5" />
           </IconButton>
         )}
-        {!image && onOpenTab && (
+        {(!image || imageFile) && onOpenTab && (
           <IconButton
             label={t("chat.look.open_tab")}
-            onClick={() => onOpenTab(path, line)}
+            onClick={() => onOpenTab(imageFile ?? path, imageFile ? undefined : line)}
             data-testid="chat-quick-look-open"
           >
             <SquareArrowOutUpRight className="size-3.5" />
