@@ -13,7 +13,10 @@ import type { ChatPanel } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { panelText } from "../../../../src/main/features/cli/commands/chat-control";
 import { runCli } from "../../../../src/main/features/cli/registry";
-import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
+import { existingChatController } from "../../../../src/renderer/services/chat/claude/controller";
+import { chatKey, emptyTabState, useChatStore } from "../../../../src/renderer/services/chat/store";
+import { useTabsStore } from "../../../../src/renderer/state/stores/tabs";
+import type { CliChatInfo, CliTabInfo, CliUiOps } from "../../../../src/shared/cli/ui";
 import {
   API,
   APP,
@@ -284,6 +287,80 @@ describe("chat background, stop-task and remote-control", () => {
     expect(calls(app, "chat.background")).toEqual([{ ...TARGET, toolUseId: "toolu_1" }]);
     await nexus(app, ["chat", "stop-task", "eeee", "b12"]);
     expect(calls(app, "chat.stopTask")).toEqual([{ ...TARGET, taskId: "b12" }]);
+  });
+
+  test.each([
+    [
+      "off succeeds without an eligible account",
+      "off",
+      false,
+      {
+        exitCode: 0,
+        stdout: "Turned Remote Control off for Fix the login (eeeeeeee).\n",
+      },
+    ],
+    [
+      "on requires an eligible account",
+      "on",
+      false,
+      {
+        exitCode: 1,
+        stderr: "nexus: its account cannot turn on Remote Control\n",
+      },
+    ],
+    [
+      "off requires initialization to check availability",
+      "off",
+      undefined,
+      {
+        exitCode: 1,
+        stderr: "nexus: its program is not ready\n",
+      },
+    ],
+  ] as const)("%s", async (_name, turn, available, expected) => {
+    const app = withChat();
+    const tabs = useTabsStore.getState().byWorkspace;
+    const chats = useChatStore.getState().tabs;
+    const globals = globalThis as Record<string, unknown>;
+    const savedWindow = globals.window;
+    globals.window = { ...(savedWindow as object), ipc: { listen: () => () => {} } };
+    const tab = emptyTabState();
+    if (available !== undefined) {
+      tab.phase = "ready";
+      tab.model.process = "running";
+      tab.model.init = { commands: [], models: [], remoteControl: available };
+    }
+    useChatStore.setState({ tabs: { ...chats, [chatKey(APP, CHAT_TAB)]: tab } });
+    useTabsStore.setState({
+      byWorkspace: {
+        ...tabs,
+        [APP]: {
+          ...tabs[APP],
+          [CHAT_TAB]: {
+            id: CHAT_TAB,
+            type: "claude",
+            title: "Fix the login",
+            defaultTitle: "Fix the login",
+            isPreview: false,
+            isPinned: false,
+            props: { cwd: "/w/app" },
+          },
+        },
+      },
+    });
+    try {
+      const { chatHandlers } = await import("../../../../src/renderer/services/cli/chat-actions");
+      app.uiAnswers.set("chat.remoteControl", (args) =>
+        chatHandlers["chat.remoteControl"](args as CliUiOps["chat.remoteControl"]["args"]),
+      );
+      expect(await nexus(app, ["chat", "remote-control", "eeee", turn])).toMatchObject(expected);
+      expect(app.asked).toHaveLength(0);
+    } finally {
+      existingChatController(APP, CHAT_TAB)?.dispose();
+      useChatStore.setState({ tabs: chats });
+      useTabsStore.setState({ byWorkspace: tabs });
+      globals.window = savedWindow;
+    }
   });
 
   test.each([
