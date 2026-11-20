@@ -16,7 +16,11 @@ import {
   SEND_BUFFER_STALL_MS,
   SOCKET_OPEN_TIMEOUT_MS,
 } from "../../../../../src/main/features/remote/relay-connection";
-import { returnToProxy, ServerRoute } from "../../../../../src/main/features/remote/route";
+import {
+  RETURN_CHECK_MS,
+  returnToProxy,
+  ServerRoute,
+} from "../../../../../src/main/features/remote/route";
 import { mainInfoMock, mainWarnMock } from "../../../../log-test-spies";
 
 class FakeSocket {
@@ -332,7 +336,9 @@ describe("relay ticket ownership", () => {
       const logsBefore = mainInfoMock.mock.calls.length;
       sockets[0]?.emit("close", { code });
       const logs = mainInfoMock.mock.calls.slice(logsBefore).map(([message]) => message);
-      expect(logs).toContain(`Relay socket closed code=${code} opened=true`);
+      expect(logs).toContain(
+        `Relay socket closed code=${code} opened=true reason=${code === CLOSE_REPLACED ? "replaced" : "signed-out"}`,
+      );
       expect(logs).toContain(`Relay state changed from=online to=${status}`);
 
       relay.reconnect();
@@ -340,6 +346,29 @@ describe("relay ticket ownership", () => {
       expect(statuses).toEqual(["connecting", "online", status]);
       expect(url).toHaveBeenCalledTimes(1);
       expect(signedOut).toHaveBeenCalledTimes(called);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a retry queued before an explicit reconnect cannot open another socket", async () => {
+    jest.useFakeTimers();
+    const { relay, first, next, sockets, statuses, url } = harness();
+    try {
+      first.resolve(firstUrl);
+      await Promise.resolve();
+      sockets[0]?.emit("close", { code: 1006 });
+      expect(statuses.at(-1)).toBe("waiting");
+      relay.reconnect();
+      next.resolve(nextUrl);
+      await Promise.resolve();
+      sockets[1]?.emit("open");
+
+      jest.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      expect(url).toHaveBeenCalledTimes(2);
+      expect(sockets).toHaveLength(2);
+      expect(statuses.at(-1)).toBe("online");
     } finally {
       relay.stop();
     }
@@ -402,6 +431,7 @@ test("a proxy probe completing during automatic reconnect leaves the pending tic
   const probe = returnToProxy({
     route: new ServerRoute("https://nexus.example", "https://proxy.example", () => 0),
     via: () => relay.onlineRoute(),
+    now: () => performance.now() + RETURN_CHECK_MS,
     reconnect: () => relay.reconnect(),
     fetch: (() => response.promise) as typeof fetch,
   });
@@ -477,6 +507,7 @@ describe("the heartbeat", () => {
   test("two consecutive misses reopen the socket with a diagnostic close reason", async () => {
     const { relay, sockets, statuses, socket } = await open();
     try {
+      const logsBefore = mainInfoMock.mock.calls.length;
       jest.advanceTimersByTime(heartbeat.every);
       expect(socket.sent).toEqual([RELAY_PING]);
       jest.advanceTimersByTime(heartbeat.wait - 1);
@@ -488,6 +519,9 @@ describe("the heartbeat", () => {
       await Promise.resolve();
       expect(socket.closed).toBe(true);
       expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
+      const logs = mainInfoMock.mock.calls.slice(logsBefore).map(([message]) => message);
+      expect(logs).toContain("Relay closing socket code=1000 reason=pong-timeout");
+      expect(logs).toContain("Relay connecting reason=pong-timeout");
       expect(sockets).toHaveLength(2);
       expect(statuses).not.toContain("waiting");
 

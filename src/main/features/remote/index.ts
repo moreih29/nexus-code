@@ -342,7 +342,7 @@ export async function registerRemoteChannel(options: {
       ? JSON.stringify([want.signedIn.user.id, want.signedIn.device.id, want.key.kid])
       : "";
     if (room && id !== roomFor) {
-      room.stop();
+      room.stop("room-changed");
       room = null;
       relay = null;
       setRoomState({ status: "off", peers: [] });
@@ -983,7 +983,7 @@ export async function registerRemoteChannel(options: {
       account.cancelSignIn();
       voice.cancel();
       noteVoice.cancel();
-      room?.stop();
+      room?.stop("shutdown");
     },
   };
 }

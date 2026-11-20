@@ -40,7 +40,12 @@ import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/roo
 import { isFileTransferMethod } from "./file-io";
 import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
-import type { RelayConnectionDeps, RelayRecoveryReason, RelayStatus } from "./relay-connection";
+import type {
+  RelayConnectionDeps,
+  RelayRecoveryReason,
+  RelayStatus,
+  RelayStopReason,
+} from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
 const log = createLogger("remote-room");
@@ -196,7 +201,7 @@ export class RpcFailure extends Error {
 /** What the room needs of the socket (RelayConnection). */
 export interface RoomConnection {
   start(): void;
-  stop(): void;
+  stop(reason?: RelayStopReason): void;
   send(frame: ClientFrame): boolean;
   readonly bufferedAmount?: number;
   healthy(): void;
@@ -314,8 +319,8 @@ export class RemoteRoom {
     this.connection.start();
   }
 
-  stop(): void {
-    this.connection.stop();
+  stop(reason?: RelayStopReason): void {
+    this.connection.stop(reason);
     this.interruptRequests("left the room");
     this.deps.onDisconnect?.();
     this.status = "off";

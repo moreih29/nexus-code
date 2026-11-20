@@ -70,6 +70,26 @@ export type RelayRecoveryReason =
   | "outbox-stalled"
   | "peer-probes-unanswered";
 type RelayWarning = RelayRecoveryReason | "open-timeout" | `pong-miss-${number}`;
+export type RelayStopReason = "user" | "room-changed" | "pairing-ended" | "shutdown";
+type LocalCloseReason =
+  | RelayRecoveryReason
+  | RelayStopReason
+  | "open-timeout"
+  | "route-change"
+  | "superseded";
+type ConnectReason =
+  | RelayRecoveryReason
+  | "open-timeout"
+  | "start"
+  | "route-change"
+  | "socket-closed"
+  | "ticket-failed"
+  | "flooding";
+const SERVER_CLOSE_REASONS: ReadonlyMap<number, string> = new Map([
+  [CLOSE_REPLACED, "replaced"],
+  [CLOSE_SIGNED_OUT, "signed-out"],
+  [CLOSE_FLOODING, "flooding"],
+]);
 
 /**
  * - connecting: asking for a ticket, or opening the socket;
@@ -112,6 +132,7 @@ export interface RelayConnectionDeps {
 interface ActiveSocket {
   readonly socket: Socket;
   readonly origin: string;
+  openedAt: number;
 }
 
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
@@ -152,13 +173,13 @@ export class RelayConnection {
     this.running = true;
     this.attempt = 0;
     this.floodBackoffMs = 0;
-    void this.connect();
+    void this.connect("start");
   }
 
-  stop(): void {
+  stop(reason: RelayStopReason = "user"): void {
     this.running = false;
     this.clearTimer();
-    this.drop();
+    this.drop(reason);
     this.set("stopped");
   }
 
@@ -168,7 +189,7 @@ export class RelayConnection {
     this.clearTimer();
     this.drop("route-change");
     this.attempt = 0;
-    void this.connect();
+    void this.connect("route-change");
   }
 
   /** Reopens a stalled connection with the same backoff as other socket losses. */
@@ -176,8 +197,8 @@ export class RelayConnection {
     const { connection, owner } = this;
     if (!connection || !owner || this.status !== "online") return;
     this.closeCurrent(connection, reason);
-    if (this.quickRetry()) void this.connect();
-    else this.retry(owner);
+    if (this.quickRetry()) void this.connect(reason);
+    else this.retry(owner, reason);
   }
 
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
@@ -194,7 +215,7 @@ export class RelayConnection {
   }
 
   /** The route of the actual open socket, with identity stable across probes. */
-  onlineRoute(): { readonly origin: string } | null {
+  onlineRoute(): { readonly origin: string; readonly openedAt: number } | null {
     const connection = this.connection;
     return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
@@ -266,12 +287,14 @@ export class RelayConnection {
   }
 
   /** Gets a ticket and opens a socket only while this attempt owns the relay. */
-  private async connect(): Promise<void> {
+  private async connect(reason: ConnectReason): Promise<void> {
     if (!this.running) return;
+    this.clearTimer();
     const owner = new AbortController();
     this.owner = owner;
     this.set("connecting");
     if (!this.owns(owner)) return;
+    log.info(`Relay connecting reason=${reason}`);
 
     let url: string;
     let connection: ActiveSocket;
@@ -281,37 +304,38 @@ export class RelayConnection {
       const origin = new URL(url).origin;
       const socket = (this.deps.socket ?? ((address) => new WebSocket(address) as Socket))(url);
       if (!this.owns(owner)) {
-        if (socket.readyState <= 1) socket.close(1000, "bye");
+        this.closeSocket(socket, "superseded");
         return;
       }
-      connection = { origin, socket };
+      connection = { origin, socket, openedAt: Infinity };
     } catch (error) {
       if (!this.owns(owner)) return;
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
       } else if (error instanceof OutdatedError) this.giveUp("outdated");
-      else this.retry(owner);
+      else this.retry(owner, "ticket-failed");
       return;
     }
 
     const { socket } = connection;
     this.connection = connection;
-    let openedAt: number | undefined;
     const started = performance.now();
     this.openTimer = setTimeout(() => {
       if (this.connection !== connection) return;
       this.warnRecovery("open-timeout", performance.now() - started);
       this.closeCurrent(connection, "open-timeout");
       this.deps.unreachable?.(url);
-      this.retry(owner);
+      this.retry(owner, "open-timeout");
     }, SOCKET_OPEN_TIMEOUT_MS);
     this.openTimer.unref?.();
     socket.addEventListener("open", () => {
       if (this.connection !== connection) return;
-      openedAt = performance.now();
+      connection.openedAt = performance.now();
       this.clearOpenTimer();
-      log.debug(`Relay socket opened elapsedMs=${Math.round(openedAt - started)}`);
+      log.debug(
+        `Relay socket opened elapsedMs=${Math.round(connection.openedAt - started)} reason=${reason}`,
+      );
       this.set("online");
       if (this.connection !== connection) return;
       this.startHeartbeat(connection);
@@ -350,13 +374,14 @@ export class RelayConnection {
     });
     socket.addEventListener("close", (event: { code: number }) => {
       if (this.connection !== connection) return;
-      const opened = openedAt !== undefined;
-      log.info(`Relay socket closed code=${event.code} opened=${opened}`);
+      const opened = Number.isFinite(connection.openedAt);
+      const reason = SERVER_CLOSE_REASONS.get(event.code) ?? "socket-closed";
+      log.info(`Relay socket closed code=${event.code} opened=${opened} reason=${reason}`);
       this.connection = null;
       this.stopHeartbeat();
       this.clearOpenTimer();
       this.stopWriteMonitor();
-      if (openedAt !== undefined && performance.now() - openedAt >= FLOOD_RETRY_RESET_MS) {
+      if (performance.now() - connection.openedAt >= FLOOD_RETRY_RESET_MS) {
         this.floodBackoffMs = 0;
       }
       if (event.code === CLOSE_REPLACED) this.giveUp("replaced");
@@ -371,12 +396,12 @@ export class RelayConnection {
         log.warn(
           `Relay closed a flooding connection code=${CLOSE_FLOODING} retryMs=${this.floodBackoffMs}`,
         );
-        this.retry(owner, this.floodBackoffMs);
+        this.retry(owner, "flooding", this.floodBackoffMs);
       } else if (opened && this.quickRetry()) {
-        void this.connect();
+        void this.connect("socket-closed");
       } else {
         if (!opened) this.deps.unreachable?.(url);
-        this.retry(owner);
+        this.retry(owner, "socket-closed");
       }
     });
     // An error is followed by a close, which decides what comes next.
@@ -438,15 +463,16 @@ export class RelayConnection {
   }
 
   /** Schedules backoff only for the attempt that reported the loss. */
-  private retry(owner: AbortController, floodDelay?: number): void {
+  private retry(owner: AbortController, reason: ConnectReason, floodDelay?: number): void {
     if (!this.owns(owner)) return;
     this.set("waiting");
     if (!this.owns(owner)) return;
     const delay = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
+    log.info(`Relay retry scheduled reason=${reason} delayMs=${delay}`);
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.owns(owner)) void this.connect();
+      if (this.owns(owner)) void this.connect(reason);
     }, delay);
   }
 
@@ -458,20 +484,26 @@ export class RelayConnection {
   }
 
   /** Invalidates the attempt and detaches its socket before closing it. */
-  private drop(reason = "bye"): void {
+  private drop(reason: LocalCloseReason = "user"): void {
     const owner = this.owner;
     this.owner = null;
     if (this.connection) this.closeCurrent(this.connection, reason);
     owner?.abort();
   }
 
-  private closeCurrent({ socket }: ActiveSocket, reason: string): void {
+  private closeCurrent({ socket }: ActiveSocket, reason: LocalCloseReason): void {
     this.connection = null;
     this.stopHeartbeat();
     this.clearOpenTimer();
     this.stopWriteMonitor();
+    this.closeSocket(socket, reason);
+  }
+
+  private closeSocket(socket: Socket, reason: LocalCloseReason): void {
+    if (socket.readyState > 1) return;
+    log.info(`Relay closing socket code=1000 reason=${reason}`);
     try {
-      if (socket.readyState <= 1) socket.close(1000, reason);
+      socket.close(1000, reason);
     } catch {
       // The socket may have closed while being detached.
     }

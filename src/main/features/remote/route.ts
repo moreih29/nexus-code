@@ -58,17 +58,19 @@ export class ServerRoute {
 }
 
 /**
- * Checks whether a socket that went straight can return through the proxy.
+ * Checks whether a socket that went straight can return through the proxy after a full interval.
  * The result belongs to the open socket and route that initiated the probe.
  */
 export function returnToProxy(options: {
   route: ServerRoute;
-  via: () => { readonly origin: string } | null;
+  via: () => { readonly origin: string; readonly openedAt: number } | null;
   reconnect: () => void;
   fetch?: typeof fetch;
+  now?: () => number;
 }): { check(): Promise<void>; stop(): void } {
   const { route } = options;
   const fetchFn = options.fetch ?? fetch;
+  const now = options.now ?? (() => performance.now());
   const lifetime = new AbortController();
   let asking = false;
 
@@ -79,6 +81,7 @@ export function returnToProxy(options: {
     const connection = options.via();
     if (
       connection === null ||
+      now() - connection.openedAt < RETURN_CHECK_MS ||
       sameHost(connection.origin, proxy) ||
       !sameHost(connection.origin, route.server)
     ) {
