@@ -68,7 +68,10 @@ export function NavControls({
 
   return (
     <div
-      className={cn("flex items-center gap-0.5", disabled && "pointer-events-none opacity-40")}
+      className={cn(
+        "flex shrink-0 items-center gap-0.5",
+        disabled && "pointer-events-none opacity-40",
+      )}
       role="toolbar"
       aria-label={t("browser.nav_controls")}
     >

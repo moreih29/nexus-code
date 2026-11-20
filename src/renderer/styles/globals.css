@@ -1109,3 +1109,9 @@
 .note-doc .ProseMirror-gapcursor::after {
   border-top-color: var(--surface-island-fg);
 }
+
+/* While an in-app drag (tab, file, agent) is in flight, an iframe would take dragenter/dragover into its own document and hide the group's
+   drop zones beneath it. See utils/drag-in-flight.ts. */
+html[data-dnd-active] iframe {
+  pointer-events: none;
+}

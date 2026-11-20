@@ -169,13 +169,16 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   const meta = (
     <span className="flex shrink-0 items-center gap-2.5 text-app-micro text-muted-foreground">
       {status !== "active" && (
-        <span className="whitespace-nowrap" style={{ color: STATUS_COLOR[status] }}>
+        <span
+          className="whitespace-nowrap @max-[240px]:hidden"
+          style={{ color: STATUS_COLOR[status] }}
+        >
           {t(`chat.goal.status.${status}`)}
         </span>
       )}
       {seconds !== null && (
         <span
-          className="flex items-center gap-1 font-mono text-foreground tabular-nums"
+          className="flex items-center gap-1 whitespace-nowrap font-mono text-foreground tabular-nums"
           title={timeTitle}
         >
           <Clock aria-hidden className="size-3" />
@@ -465,12 +468,12 @@ export function GoalRowLine({ workspaceId, tabId }: { workspaceId: string; tabId
       className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro text-muted-foreground"
       data-testid="agent-goal-line"
     >
-      <StatusIcon status={status} className="size-3" />
+      <StatusIcon status={status} className="size-3 shrink-0" />
       <span className="min-w-0 flex-1 truncate" title={tab.goal.objective}>
         {firstLineOf(tab.goal.objective).line}
       </span>
       {seconds !== null && (
-        <span className="shrink-0 font-mono text-foreground tabular-nums">
+        <span className="shrink-0 whitespace-nowrap font-mono text-foreground tabular-nums">
           {clockLabel(seconds)}
         </span>
       )}

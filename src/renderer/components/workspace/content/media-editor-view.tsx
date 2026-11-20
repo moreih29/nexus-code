@@ -23,10 +23,10 @@ export function MediaEditorView({ filePath, workspaceId, kind }: MediaEditorView
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {label && (
-          <span className="text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none">
+          <span className="shrink-0 whitespace-nowrap text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none">
             {label}
           </span>
         )}

@@ -476,7 +476,7 @@ function LoadedNote({
           {!showTranscript && (recordings > 0 || recordingHere) && (
             <button
               type="button"
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
+              className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
               onClick={() => setTranscriptOpen(true)}
               data-testid="note-show-transcript"
             >
@@ -500,7 +500,7 @@ function LoadedNote({
             trigger={
               <button
                 type="button"
-                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
                 data-testid="note-to-agent"
               >
                 <Bot className="size-3.5" aria-hidden="true" />

@@ -368,7 +368,7 @@ function WorkspaceRow({
                       </>
                     )}
                     {taskIds.length > 0 && (
-                      <span className="shrink-0">
+                      <span className="shrink-0 whitespace-nowrap">
                         {branchName && "· "}
                         {t("sidebar.task_count", { count: taskIds.length })}
                       </span>
@@ -655,9 +655,9 @@ export const Sidebar = memo(function Sidebar({
             )}
             aria-label={t("sidebar.add_workspace")}
           >
-            <span className="inline-flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               <span aria-hidden="true">+</span>
-              <span>{t("sidebar.add_workspace")}</span>
+              <span className="truncate">{t("sidebar.add_workspace")}</span>
             </span>
           </button>
         </div>

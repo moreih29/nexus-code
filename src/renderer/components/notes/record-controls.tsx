@@ -20,7 +20,7 @@ import { useVoiceAvailability, voiceLanguage } from "../../services/voice/availa
 import { tellFailure } from "../../services/voice/dictation";
 
 const BUTTON =
-  "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] disabled:pointer-events-none disabled:opacity-50";
 const ICON_BUTTON =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
 
@@ -86,7 +86,7 @@ export function RecordControls({
   const busy = phase === "starting" || phase === "pausing" || phase === "stopping";
   return (
     <div
-      className="flex h-7 shrink-0 items-center gap-0.5 rounded-(--radius-control) border border-border pr-0.5 pl-2"
+      className="flex h-7 shrink-0 items-center gap-0.5 whitespace-nowrap rounded-(--radius-control) border border-border pr-0.5 pl-2"
       data-testid="note-recorder"
       data-phase={phase}
     >

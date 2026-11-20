@@ -133,7 +133,7 @@ export function FirstFew({
           type="button"
           onClick={() => setAll((v) => !v)}
           aria-expanded={all}
-          className="self-start rounded-(--radius-control) px-1 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          className="self-start whitespace-nowrap rounded-(--radius-control) px-1 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           data-testid="panel-first-few"
         >
           {all ? t("chat.panel.less") : t("chat.panel.more", { count: rest })}
@@ -220,12 +220,14 @@ export function Section({
         data-empty={empty || undefined}
       >
         {shown ? (
-          <ChevronDown className="size-3.5" />
+          <ChevronDown className="size-3.5 shrink-0" />
         ) : (
-          <ChevronRight className={cn("size-3.5", empty && "opacity-40")} />
+          <ChevronRight className={cn("size-3.5 shrink-0", empty && "opacity-40")} />
         )}
-        <span className={cn(!empty && "font-medium")}>{title}</span>
-        {count !== undefined && <span className="ml-auto tabular-nums">{count}</span>}
+        <span className={cn("min-w-0 truncate", !empty && "font-medium")}>{title}</span>
+        {count !== undefined && (
+          <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums">{count}</span>
+        )}
       </button>
       {shown && <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>}
     </section>

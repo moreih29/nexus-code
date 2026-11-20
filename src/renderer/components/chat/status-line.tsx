@@ -32,7 +32,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
 
   return (
     <div
-      className="flex items-center gap-2 text-app-micro text-muted-foreground"
+      className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-app-micro text-muted-foreground"
       role="status"
       aria-live="polite"
       data-testid="chat-status"
@@ -46,10 +46,12 @@ export function StatusLine({ model }: { model: ChatModel }) {
           <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
         )}
       </span>
-      <span className="text-foreground">{activity}</span>
-      {elapsed !== undefined && <span>{elapsedLabel(elapsed)}</span>}
-      {tokens > 0 && <span>{t("chat.status.tokens", { count: formatTokens(tokens) })}</span>}
-      {agents > 0 && <span>{t("chat.status.agents", { count: agents })}</span>}
+      <span className="min-w-0 truncate text-foreground">{activity}</span>
+      {elapsed !== undefined && <span className="shrink-0">{elapsedLabel(elapsed)}</span>}
+      {tokens > 0 && (
+        <span className="shrink-0">{t("chat.status.tokens", { count: formatTokens(tokens) })}</span>
+      )}
+      {agents > 0 && <span className="shrink-0">{t("chat.status.agents", { count: agents })}</span>}
     </div>
   );
 }

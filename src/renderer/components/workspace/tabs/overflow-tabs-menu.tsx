@@ -42,7 +42,7 @@ export function OverflowTabsMenu({
           aria-label={label}
           {...tooltipProps(label)}
           className={cn(
-            "flex h-6 shrink-0 items-center gap-0.5 rounded-(--radius-control) px-1.5",
+            "flex h-6 shrink-0 items-center gap-0.5 whitespace-nowrap rounded-(--radius-control) px-1.5",
             "text-app-ui-sm text-muted-foreground tabular-nums transition-colors",
             "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
             "data-[state=open]:bg-[var(--state-active-bg)] data-[state=open]:text-foreground",

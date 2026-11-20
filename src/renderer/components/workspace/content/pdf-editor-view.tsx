@@ -24,7 +24,7 @@ export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {controls && <PdfToolbar controls={controls} />}
       </div>
@@ -39,13 +39,15 @@ function PdfToolbar({ controls }: { controls: PdfControls }) {
   const { t } = useTranslation();
   return (
     <div className="flex shrink-0 items-center gap-1 text-app-ui-sm tabular-nums text-muted-foreground select-none">
-      <span className="px-1">
+      <span className="whitespace-nowrap px-1">
         {controls.page} / {controls.pages}
       </span>
       <IconButton label={t("pdfPreview.zoom_out")} onClick={() => controls.zoom(-1)}>
         <Minus className="size-3.5" />
       </IconButton>
-      <span className="w-10 text-center">{Math.round(controls.scale * 100)}%</span>
+      <span className="w-10 whitespace-nowrap text-center">
+        {Math.round(controls.scale * 100)}%
+      </span>
       <IconButton label={t("pdfPreview.zoom_in")} onClick={() => controls.zoom(1)}>
         <Plus className="size-3.5" />
       </IconButton>

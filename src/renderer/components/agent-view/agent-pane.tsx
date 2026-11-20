@@ -37,6 +37,7 @@ import {
   useWorkspacesStore,
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { beginDragInFlight } from "@/utils/drag-in-flight";
 import { basename } from "@/utils/path";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
@@ -251,7 +252,7 @@ export const AgentPane = memo(function AgentPane({
       data-testid="agent-pane"
       data-leaf-id={leaf.id}
     >
-      <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 px-1.5">
+      <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 overflow-hidden px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
         <div
@@ -393,7 +394,7 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   return (
     <span
       className={cn(
-        "flex max-w-24 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground",
+        "flex max-w-24 min-w-0 items-center gap-1 overflow-hidden rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-muted-foreground",
         className,
       )}
     >
@@ -465,7 +466,7 @@ function AgentTabLabel({
       <AgentMark session={mark} />
       <span className="min-w-0 truncate">{title}</span>
       {session && session.phase !== "idle" && (
-        <span role="img" aria-label={stateLabel(session)} className="inline-flex">
+        <span role="img" aria-label={stateLabel(session)} className="inline-flex shrink-0">
           <StateGlyph state={session.state} />
         </span>
       )}
@@ -659,7 +660,10 @@ function PanelTab({
         onAuxClick={(e) => {
           if (e.button === 1) onRemove();
         }}
-        onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
+        onDragStart={(e) => {
+          setAgentDrag(e.dataTransfer, key);
+          beginDragInFlight();
+        }}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {children}

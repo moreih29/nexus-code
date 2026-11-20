@@ -92,7 +92,7 @@ export function SummaryLine({
       aria-expanded={open}
       aria-label={label}
       title={label}
-      className="flex h-7 shrink-0 items-center gap-3 border-b border-border px-3 text-left text-app-micro text-muted-foreground tabular-nums hover:text-foreground"
+      className="flex h-7 shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-b border-border px-3 text-left text-app-micro text-muted-foreground tabular-nums hover:text-foreground"
       data-testid="chat-summary-line"
     >
       {facts.length > 0 ? (

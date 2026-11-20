@@ -356,7 +356,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       <TranscriptSash beside panel={panel} />
       <TranscriptSash beside={false} panel={panel} />
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-3">
-        <span className="shrink-0 text-app-ui-sm font-medium text-foreground">
+        <span className="shrink-0 whitespace-nowrap text-app-ui-sm font-medium text-foreground">
           {t("transcript.title")}
         </span>
         <div className="mr-auto flex min-w-0 pl-1">
@@ -376,7 +376,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
           <button
             ref={searchToggleRef}
             type="button"
-            className="inline-flex size-6 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground aria-pressed:bg-[var(--state-active-bg)] aria-pressed:text-foreground"
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground aria-pressed:bg-[var(--state-active-bg)] aria-pressed:text-foreground"
             onClick={() => (searching ? closeSearch() : setSearching(true))}
             aria-label={t("transcript.search")}
             aria-pressed={searching}
@@ -388,7 +388,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
         )}
         <button
           type="button"
-          className="inline-flex size-6 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           onClick={onClose}
           aria-label={t("transcript.hide")}
           title={t("transcript.hide")}

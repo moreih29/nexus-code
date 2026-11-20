@@ -286,7 +286,7 @@ export const Composer = memo(function Composer({
   const fit = useFitStep(
     footerRef,
     `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
-    FIT.TRUNCATE_MODE,
+    FIT.NO_ADD,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -862,7 +862,9 @@ export const Composer = memo(function Composer({
             )}
           </div>
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
-            <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            {fit < FIT.NO_MODE && (
+              <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            )}
             {(fit < FIT.NO_MODEL || kept("model")) && (
               <ModelChip
                 controller={controller}
@@ -875,20 +877,22 @@ export const Composer = memo(function Composer({
               <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
             )}
             <div className="flex-1" />
-            <AddMenu
-              onAttach={() => fileRef.current?.click()}
-              onMention={
-                controller.supports("file_suggestions")
-                  ? () => insertTrigger("@")
-                  : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
-              }
-              onCommand={
-                (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
-                  ? () => insertTrigger("/")
-                  : undefined
-              }
-              returnFocus={() => areaRef.current?.focus()}
-            />
+            {fit < FIT.NO_ADD && (
+              <AddMenu
+                onAttach={() => fileRef.current?.click()}
+                onMention={
+                  controller.supports("file_suggestions")
+                    ? () => insertTrigger("@")
+                    : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
+                }
+                onCommand={
+                  (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
+                    ? () => insertTrigger("/")
+                    : undefined
+                }
+                returnFocus={() => areaRef.current?.focus()}
+              />
+            )}
             <input
               ref={fileRef}
               type="file"
@@ -899,7 +903,9 @@ export const Composer = memo(function Composer({
                 e.target.value = "";
               }}
             />
-            <MicButton dictation={dictation} compact={fit >= FIT.NO_MODEL} />
+            {(fit < FIT.NO_MIC || dictation.phase !== "idle") && (
+              <MicButton dictation={dictation} compact={fit >= FIT.NO_MODEL} />
+            )}
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}
@@ -937,8 +943,9 @@ function showError(err: Error): void {
 /**
  * What the row under the box leaves out, step by step, when it is too
  * narrow for all of it: the model's name loses its note, the send button
- * its key, then the effort goes, then the model, and last the mode's name
- * is cut. The mode, the + menu and send always stay.
+ * its key, then the effort goes, then the model, the mode's name is cut, and
+ * then the mode, the mic and the + menu go. Send (stop during a turn) always
+ * stays; the mic stays while dictating.
  */
 const FIT = {
   SHORT_MODEL: 1,
@@ -946,6 +953,9 @@ const FIT = {
   NO_EFFORT: 3,
   NO_MODEL: 4,
   TRUNCATE_MODE: 5,
+  NO_MODE: 6,
+  NO_MIC: 7,
+  NO_ADD: 8,
 } as const;
 
 /**
