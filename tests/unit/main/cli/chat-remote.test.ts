@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
-import type { CliDevice } from "../../../../src/main/features/cli/context";
+import type { CliCaller, CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
@@ -87,7 +87,15 @@ const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
 const FROM_SHELL = { kind: "terminal", ...USER };
 
-async function nexus(app: FakeApp, argv: string[], caller = USER, stdin?: string) {
+function unrestrictedCaller(app: FakeApp): CliCaller {
+  app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+    tab.id === CLAUDE_TAB ? { ...tab, type: "claude" } : tab,
+  );
+  app.uiAnswers.set("chat.mode", { agent: "claude", mode: "bypassPermissions" });
+  return { ...AGENT, verified: true };
+}
+
+async function nexus(app: FakeApp, argv: string[], caller: CliCaller = USER, stdin?: string) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
 }
 
@@ -351,10 +359,26 @@ describe("chat new --device", () => {
         .stderr,
     ).toContain("--show is for this computer's tabs");
   });
+
+  test.each([
+    ["new", "--workspace", "site"],
+    ["set", "Review"],
+  ])("refuses an unrestricted mode for remote chat %s even from an unrestricted local tab", async (...args) => {
+    const app = withPeer();
+    const result = await nexus(
+      app,
+      ["chat", ...args, "--device", "Mac mini", "--mode", "bypassPermissions"],
+      unrestrictedCaller(app),
+    );
+    expect(result.stderr).toContain("only the user picks it");
+    expect(asked(app, "chat.new")).toEqual([]);
+    expect(asked(app, "chat.configure")).toEqual([]);
+    expect(app.uiCalls.some((call) => call.op === "chat.mode")).toBe(false);
+  });
 });
 
 describe("chat answer --device", () => {
-  test("answers the request a chat waits on there, by its id", async () => {
+  test("sends a verified unrestricted tab's answer to the other device as an agent request", async () => {
     const app = withPeer({
       "chat.read": () => ({
         status: { ...STATUS, permissions: [{ requestId: "req-9", toolName: "Bash", input: {} }] },
@@ -370,15 +394,16 @@ describe("chat answer --device", () => {
     const result = await nexus(
       app,
       ["chat", "answer", "Review", "deny", "--device", "Mac mini", "--message", "not now"],
-      AGENT,
+      unrestrictedCaller(app),
     );
     expect(result.stdout).toBe('Denied Bash in Review (1a2b3c4d) on "Mac mini".\n');
     expect(asked(app, "chat.answer")[0]).toMatchObject({
       requestId: "req-9",
       decision: "deny",
       message: "not now",
-      from: { kind: "terminal" },
+      from: { kind: "tab", agent: "claude" },
     });
+    expect(app.uiCalls.some((call) => call.op === "chat.mode")).toBe(false);
   });
 
   test("a terminal's Claude Code there is answered by its request's id", async () => {

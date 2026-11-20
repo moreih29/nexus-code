@@ -46,15 +46,15 @@ function modelNamed(models: readonly ModelInfo[], name: string): ModelInfo | und
  * What setting `wanted` asks of the tab, in the names its program takes.
  * Throws an Error saying what is wrong: a model it does not offer, an
  * effort the model does not take, an unknown mode, or the mode that lets
- * everything run, which is the user's to pick.
+ * everything run when the request lacks permission to set it.
  */
 export function planChatSettings(
   agent: ChatAgent,
   model: ChatModel,
   wanted: CliChatSettings,
   effortSettable: boolean,
-  /** The user asks, from another device: the dangerous mode too, unless a policy keeps it off. */
-  user = false,
+  /** Main authorized the dangerous mode, subject to the program's policy. */
+  allowDangerousMode = false,
 ): ChatSettingsPlan {
   const models = model.init?.models ?? [];
   const now = chatChoicesOf(agent, model);
@@ -86,7 +86,7 @@ export function planChatSettings(
     const set = CHAT_MODES[agent];
     mode = chatModeNamed(agent, wanted.mode);
     if (!mode) throw new Error(`no mode "${wanted.mode}"; the modes are ${listed(set.modes)}`);
-    if (mode === set.dangerous && !user) {
+    if (mode === set.dangerous && !allowDangerousMode) {
       throw new Error(`${mode} lets every tool run unasked; that is the user's to pick in the app`);
     }
     if (mode === set.dangerous && model.bypassBlocked) {

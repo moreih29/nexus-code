@@ -19,6 +19,7 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import {
+  type CliCaller,
   type CliContext,
   type CliDevice,
   CliError,
@@ -655,6 +656,14 @@ export function fakeApp(now = Date.now()): FakeApp {
       if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
       return { from: "default", to: profile } as CliUiOps[K]["result"];
     }
+    if (op === "chat.mode") {
+      const { workspaceId, tabId } = args as CliUiOps["chat.mode"]["args"];
+      const agent = tabs[workspaceId]?.find((tab) => tab.id === tabId)?.type;
+      const mode = chatChoices.get(tabId)?.mode;
+      return (
+        agent === "claude" || agent === "codex" ? { agent, ...(mode ? { mode } : {}) } : null
+      ) as CliUiOps[K]["result"];
+    }
     if (op === "chat.settings") {
       const { tabId, settings: wanted } = args as CliUiOps["chat.settings"]["args"];
       const now = chatChoices.get(tabId);
@@ -955,7 +964,7 @@ export function fakeApp(now = Date.now()): FakeApp {
 export function contextFor(
   app: FakeApp,
   argv: string[],
-  caller = { workspaceId: APP, tabId: SHELL_TAB },
+  caller: CliCaller = { workspaceId: APP, tabId: SHELL_TAB },
   invocation: { cwd?: string; tempDir?: string; stdin?: string; msysRoot?: string } = {},
 ): CliContext {
   return {

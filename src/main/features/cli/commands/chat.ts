@@ -11,10 +11,12 @@ import type {
   CliChatSettings,
   CliTabInfo,
 } from "../../../../shared/cli/ui";
-import { CHAT_MODES, chatModeNamed, loosens } from "../../../../shared/sessions/chat-modes";
+import { createLogger } from "../../../../shared/log/main";
+import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
+import type { ChangeRequest } from "../consent";
 import {
   type CliContext,
   type CliDevice,
@@ -43,6 +45,8 @@ import {
 import { AGENT_NAMES, chatStateText, choicesText } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
+
+const log = createLogger("cli");
 
 /** The agent an --agent flag names: claude or codex. */
 export function chatAgentFlag(value: unknown, fallback: ChatAgent): ChatAgent {
@@ -252,12 +256,16 @@ const SETTING_FLAGS = {
     type: "string",
     value: "MODE",
     description:
-      "The permission mode: Claude's default, acceptEdits, plan or auto; Codex's readOnly or auto",
+      "Use plan, default, acceptEdits, auto or bypassPermissions for Claude, and readOnly, auto or fullAccess for Codex",
   },
 } as const;
 
 /** What --model, --effort and --mode ask, the mode checked against the agent's. */
-function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSettings {
+function settingsFlags(
+  agent: ChatAgent,
+  flags: ParsedArgs["flags"],
+  local = false,
+): CliChatSettings {
   const given = (name: string): string | undefined => {
     const value = flags[name] as string | undefined;
     if (value === undefined) return undefined;
@@ -273,15 +281,12 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
     const set = CHAT_MODES[agent];
     mode = chatModeNamed(agent, name);
     if (!mode) {
+      const modes = local ? set.modes : set.modes.filter((m) => m !== set.dangerous);
       throw new CliUsageError(
-        `${AGENT_NAMES[agent]} has no mode "${name}"; it has ${set.modes.filter((m) => m !== set.dangerous).join(", ")}`,
+        `${AGENT_NAMES[agent]} has no mode "${name}"; it has ${modes.join(", ")}`,
       );
     }
-    if (mode === set.dangerous) {
-      throw new CliError(
-        `${mode} lets every tool run without asking; only the user picks it, in the tab's mode menu`,
-      );
-    }
+    if (!local && mode === set.dangerous) throw dangerousModeError(mode);
   }
   return {
     ...(model !== undefined ? { model } : {}),
@@ -290,25 +295,57 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
   };
 }
 
+function dangerousModeError(mode: string): CliError {
+  return new CliError(
+    `${mode} lets every tool run without asking; only the user picks it, in the tab's mode menu`,
+  );
+}
+
+interface CallerMode {
+  readonly agent: ChatAgent;
+  readonly mode?: string;
+}
+
+async function verifiedChatMode(ctx: CliContext): Promise<CallerMode | null> {
+  const { workspaceId, tabId, verified } = ctx.caller;
+  if (verified !== true) return null;
+  const workspace = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
+  if (!workspace || workspace.location.kind === "ssh") return null;
+  return ctx.services.ui("chat.mode", { workspaceId, tabId }).catch(() => null);
+}
+
+function logDelegation(ctx: CliContext, tabId: string, caller: CallerMode, mode?: string): void {
+  const current =
+    caller.mode && CHAT_MODES[caller.agent].modes.includes(caller.mode) ? ` (${caller.mode})` : "";
+  const granted = mode === undefined ? "" : ` (${mode})`;
+  log.info(
+    `Delegated chat permission ${shortId(ctx.caller.tabId)}${current} → ${shortId(tabId)}${granted}`,
+  );
+}
+
 /**
- * Resolves when the user lets a tab go from mode `from` to `to`, a mode that
- * lets more run without asking: asked as an answer to a permission request
- * is, whatever the setting.
+ * Authorizes a mode change after the workspace policy. Returns the caller's
+ * mode when it delegated the new mode. The unrestricted mode always needs
+ * a grant, so its caller can omit the target's current mode.
  */
 async function mayLoosen(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   agent: ChatAgent,
-  tab: { readonly what: string; readonly name: string },
-  from: string,
+  name: string,
   to: string,
-): Promise<void> {
-  if (!loosens(agent, from, to)) return;
+  from?: string,
+): Promise<CallerMode | undefined> {
+  const dangerous = to === CHAT_MODES[agent].dangerous;
+  if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
+  const caller = await verifiedChatMode(ctx);
+  if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
+  if (dangerous) throw dangerousModeError(to);
   await ctx.services.askUser({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,
     toWorkspaceId: workspace.id,
-    change: { kind: "chatMode", detail: `${tab.name} (${from} → ${to})` },
+    change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
   });
 }
 
@@ -338,8 +375,9 @@ const chatNew: CliCommand = {
     "The tab opens behind this terminal unless --show, in this directory unless --cwd. With\n" +
     "--prompt its program starts at once, shown or not, and is sent the prompt as its composer\n" +
     "sends it. Its id is printed for chat wait/read/send. --model, --effort and --mode are\n" +
-    "set before the prompt, as its composer's menus set them; a mode that lets more run\n" +
-    "without asking than the default is the user's to allow. --instructions-file reads the\n" +
+    "set before the prompt. A verified local chat tab can grant a mode up to its current\n" +
+    "permission level. Other local increases require user approval, and unrestricted modes\n" +
+    "require a grant from an unrestricted tab. --instructions-file reads the\n" +
     "new tab's session instructions from a UTF-8 file on this computer.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
@@ -368,8 +406,9 @@ const chatNew: CliCommand = {
     }
     const agent = chatAgentFlag(flags.agent, "claude");
     const prompt = ((flags.prompt as string | undefined) ?? "").trim();
-    const settings = settingsFlags(agent, flags);
-    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const deviceSelector = deviceFlag(flags);
+    const settings = settingsFlags(agent, flags, deviceSelector === undefined);
+    const device = await resolveDevice(ctx, deviceSelector);
     if (device) {
       const folder = typeof flags.cwd === "string" ? flags.cwd : undefined;
       return newPeerChat(ctx, device, flags, {
@@ -395,11 +434,18 @@ const chatNew: CliCommand = {
       detail: AGENT_NAMES[agent],
       ...(body ? { body } : {}),
     });
-    if (settings.mode !== undefined) {
-      // A new tab's title is its agent's name until its first message.
-      const tab = { what: `a new ${AGENT_NAMES[agent]} tab`, name: `"${AGENT_NAMES[agent]}"` };
-      await mayLoosen(ctx, workspace, agent, tab, CHAT_MODES[agent].fallback, settings.mode);
-    }
+    const delegated =
+      settings.mode === undefined
+        ? undefined
+        : await mayLoosen(
+            ctx,
+            workspace,
+            agent,
+            `"${AGENT_NAMES[agent]}"`,
+            settings.mode,
+            CHAT_MODES[agent].fallback,
+          );
+    const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
     const { tabId, error } = await ctx.services.ui(
@@ -413,6 +459,7 @@ const chatNew: CliCommand = {
         ...(from ? { from } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
+        ...(allowDangerousMode ? { allowDangerousMode } : {}),
         ...(typeof flags.profile === "string" && flags.profile.trim() !== ""
           ? { profile: flags.profile.trim() }
           : {}),
@@ -430,6 +477,7 @@ const chatNew: CliCommand = {
         { exitCode: 1 },
       );
     }
+    if (delegated) logDelegation(ctx, tabId, delegated, settings.mode);
     const text =
       prompt === ""
         ? `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}.`
@@ -476,9 +524,10 @@ const chatSet: CliCommand = {
   details:
     "As its composer's menus set them, for its next turn on. With no flag, prints what it runs\n" +
     "with and what it takes: the models its program lists, its model's efforts, the modes.\n" +
-    "Its program must run: a tab whose program ended starts it again with a message. A mode\n" +
-    "that lets more run without asking is the user's to allow; the one that lets\n" +
-    "everything run, only the user picks.\n" +
+    "Its program must run: a tab whose program ended starts it again with a message. A\n" +
+    "verified local chat tab can grant a mode up to its current permission level. Other\n" +
+    "local increases require user approval, and unrestricted modes require a grant from an\n" +
+    "unrestricted tab.\n" +
     "--profile runs it with another agent profile (another account or settings), as its\n" +
     "profile chip does: its conversation goes on there, or a new one starts with --new. The\n" +
     "user allows it; not while it works or asks the user.",
@@ -498,7 +547,7 @@ const chatSet: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     const agent: ChatAgent = tab.type === "codex" ? "codex" : "claude";
-    const settings = settingsFlags(agent, flags);
+    const settings = settingsFlags(agent, flags, true);
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const profile = typeof flags.profile === "string" ? flags.profile.trim() : undefined;
     if (flags.new === true && profile === undefined) {
@@ -523,20 +572,23 @@ const chatSet: CliCommand = {
       throw new CliError("that is this tab; its settings are the user's to change");
     }
     await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
+    let delegated: CallerMode | undefined;
+    const dangerous = settings.mode === CHAT_MODES[agent].dangerous;
     if (settings.mode !== undefined) {
-      const now = await ctx.services.ui(
-        "chat.settings",
-        { ...target, settings: {} },
-        SEND_TIMEOUT_MS,
-      );
-      const named = { what: `"${tab.title}"`, name: `"${tab.title}"` };
-      await mayLoosen(ctx, workspace, agent, named, now.mode, settings.mode);
+      const from = dangerous
+        ? undefined
+        : (await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS))
+            .mode;
+      delegated = await mayLoosen(ctx, workspace, agent, `"${tab.title}"`, settings.mode, from);
     }
     const choices = await ctx.services.ui(
       "chat.settings",
-      { ...target, settings },
+      { ...target, settings, ...(dangerous ? { allowDangerousMode: true } : {}) },
       SEND_TIMEOUT_MS,
     );
+    if (delegated && choices.mode === settings.mode) {
+      logDelegation(ctx, tab.id, delegated, settings.mode);
+    }
     const set = [
       `model ${choices.model ?? "(its default)"}`,
       `effort ${choices.effort ?? "(the model's default)"}`,
@@ -919,6 +971,32 @@ const ASKS_TO_RUN = "asks to run ";
 /** The tools whose requests are a question or a plan for the user, not a tool to allow. */
 const USERS_TO_ANSWER = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
+async function unrestrictedCaller(ctx: CliContext): Promise<CallerMode | undefined> {
+  const caller = await verifiedChatMode(ctx);
+  if (caller?.mode && caller.mode === CHAT_MODES[caller.agent].dangerous) return caller;
+}
+
+/** Authorizes one answer to the request as it was asked. */
+async function mayAnswer(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  change: ChangeRequest["change"],
+): Promise<CallerMode | undefined> {
+  let caller = await unrestrictedCaller(ctx);
+  if (caller && workspace.id !== ctx.caller.workspaceId) {
+    await mayChange(ctx, workspace, change);
+    // The workspace policy can wait for a user decision. Read the mode again.
+    caller = await unrestrictedCaller(ctx);
+  }
+  if (caller) return caller;
+  await ctx.services.askUser({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change,
+  });
+}
+
 /**
  * The tab chat answer answers in: a Claude or Codex tab, or else a
  * terminal whose Claude Code asks (a chat tab is named first).
@@ -966,15 +1044,10 @@ async function answerTerminal(
     throw new CliError(`${tab.title} asks the user; that is the user's to answer in the app`);
   }
   const what = [ask.tool, ask.target].filter(Boolean).join(" ");
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: {
-      kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
-      detail: `${ask.tool} (${tab.title})`,
-      body: what,
-    },
+  const delegated = await mayAnswer(ctx, workspace, {
+    kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+    detail: `${ask.tool} (${tab.title})`,
+    body: what,
   });
   const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
   if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
@@ -984,6 +1057,7 @@ async function answerTerminal(
         : "that request no longer waits for an answer",
     );
   }
+  if (delegated) logDelegation(ctx, tab.id, delegated);
   const target = { workspaceId: workspace.id, tabId: tab.id };
   return output(`${decision === "allow" ? "Allowed" : "Denied"} ${what} in ${tab.title}.`, {
     ...target,
@@ -1000,7 +1074,8 @@ const chatAnswer: CliCommand = {
     "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
     "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
     "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
-    "to answer in the app. An agent answers with the user's leave.",
+    "to answer in the app. A verified local chat tab in an unrestricted mode can approve\n" +
+    "or deny a tool as requested, once. Other callers need the user's approval.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     stop: { type: "boolean", description: "With deny: stop the turn too" },
@@ -1034,7 +1109,7 @@ const chatAnswer: CliCommand = {
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const info = await ctx.services.ui("chat.state", target);
     const asked = info.state === "asking" ? (info.message ?? "") : "";
-    if (!asked.startsWith(ASKS_TO_RUN) || !info.request) {
+    if (!asked.startsWith(ASKS_TO_RUN) || !info.request || USERS_TO_ANSWER.has(info.request.tool)) {
       throw new CliError(
         asked === ""
           ? `${tab.title} waits on no permission request`
@@ -1044,18 +1119,12 @@ const chatAnswer: CliCommand = {
     const tool = asked.slice(ASKS_TO_RUN.length);
     // What is answered is the request whole: a command's first line, as the
     // tab's row shows it, can hide what its next lines run.
-    const whole = info.request.input;
-    const request = {
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: workspace.id,
-      change: {
-        kind: decision === "allow" ? ("permissionAllow" as const) : ("permissionDeny" as const),
-        detail: `${info.request.tool} (${tab.title})`,
-        body: whole,
-      },
-    };
-    await ctx.services.askUser(request);
+    // The CLI only allows this answer once and sends the request's original input.
+    const delegated = await mayAnswer(ctx, workspace, {
+      kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+      detail: `${info.request.tool} (${tab.title})`,
+      body: info.request.input,
+    });
     await ctx.services.ui("chat.answer", {
       ...target,
       decision,
@@ -1063,6 +1132,7 @@ const chatAnswer: CliCommand = {
       ...(stop ? { stop } : {}),
       expect: info.request.id,
     });
+    if (delegated) logDelegation(ctx, tab.id, delegated);
     return output(`${decision === "allow" ? "Allowed" : "Denied"} ${tool} in ${tab.title}.`, {
       ...target,
       decision,
