@@ -51,12 +51,16 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  claudeTabPrompt,
   codexTabEnv,
   hostJoin,
   parseClaudeVersion,
   type ResumeOptions,
+  takesAppendPromptFile,
+  windowsCommandLineTooLong,
 } from "./launch";
 import { OAuthCallbacks } from "./oauth-callback";
+import type { PromptFiles } from "./prompt-files";
 
 const log = createLogger("chat-host");
 
@@ -94,6 +98,11 @@ export interface ChatHostOptions {
   broadcast: (event: string, args: unknown) => void;
   /** On Windows, where local claude runs without the bash wrapper. */
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
+  /**
+   * On Windows, where a tab's instructions go to claude in a file: the
+   * command line has no room for them once escaped.
+   */
+  promptFiles?: PromptFiles;
   /** The result a Claude chat reported on its stream. */
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** The lifecycle messages for a Claude chat's background tasks. */
@@ -156,6 +165,10 @@ export class ChatHost {
     string,
     { launch: string; sessionId?: string; digest: string | null }
   >();
+  /** The prompt file of each Claude tab's current program. */
+  private readonly promptFiles = new Map<string, string>();
+  /** Tabs whose new prompt file is not yet taken by a started program. */
+  private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
@@ -290,24 +303,67 @@ export class ChatHost {
           settings = JSON.stringify({ ...hooks, modelPicker });
         }
       }
-      const args = claudeTabArgs(resume, settings, version, combined);
+      let promptFile: string | undefined;
+      const files = this.options.promptFiles;
+      if (windows && files && combined !== "" && takesAppendPromptFile(version)) {
+        this.promptStarting.add(key);
+        await this.removePromptFile(key);
+        try {
+          promptFile = await files.write(tabId, claudeTabPrompt(combined));
+          this.promptFiles.set(key, promptFile);
+        } catch {
+          // Not the error's text: it may name the file.
+          log.warn("instructions file could not be written");
+          this.promptStarting.delete(key);
+        }
+      }
+      const args = claudeTabArgs(resume, settings, version, combined, promptFile);
       const defaultModel = connectionDefaultModel(profile);
       if (defaultModel) args.push(`--model=${defaultModel}`);
-      const result = await this.spawn(key, intent, channel, {
-        workspaceId,
-        tabId,
-        cwd,
-        program,
-        args,
-        env: mergeAgentEnv(windows, profileEnv, env),
-        ...(resume.resetLog ? { resetLog: true } : {}),
-        ...(resume.connectionChanged ? { connectionChanged: true } : {}),
-        ...(resume.resume !== undefined ? { resumed: true } : {}),
-      });
+      if (windows && windowsCommandLineTooLong(program, args)) {
+        this.promptStarting.delete(key);
+        await this.removePromptFile(key);
+        return {
+          ok: false,
+          reason: "failed",
+          message:
+            tryGetMainT()?.("errors:chat.commandLineTooLong") ??
+            "The instructions are too long for Windows to start Claude Code. Shorten them and try again.",
+        };
+      }
+      let result: { pid: number; attached?: boolean };
+      try {
+        result = await this.spawn(key, intent, channel, {
+          workspaceId,
+          tabId,
+          cwd,
+          program,
+          args,
+          env: mergeAgentEnv(windows, profileEnv, env),
+          ...(resume.resetLog ? { resetLog: true } : {}),
+          ...(resume.connectionChanged ? { connectionChanged: true } : {}),
+          ...(resume.resume !== undefined ? { resumed: true } : {}),
+        });
+      } catch (err) {
+        await this.removePromptFile(key);
+        throw err;
+      } finally {
+        this.promptStarting.delete(key);
+      }
+      // A program the agent still ran took no new prompt.
+      if (result.attached === true) await this.removePromptFile(key);
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
     } catch (err) {
       return { ok: false, reason: "failed", message: (err as Error).message };
     }
+  }
+
+  /** Removes the tab's prompt file, once its program has read it or is gone. */
+  private async removePromptFile(key: string): Promise<void> {
+    const file = this.promptFiles.get(key);
+    if (file === undefined) return;
+    this.promptFiles.delete(key);
+    await this.options.promptFiles?.remove(file);
   }
 
   /**
@@ -451,6 +507,8 @@ export class ChatHost {
     this.claudeInstructions.delete(key);
     this.claudeInstructionUpdates.delete(key);
     const close = async () => {
+      // Whatever follows, the closed tab's file has no use.
+      await this.removePromptFile(key);
       if (removal?.channel === null) return;
       if (previous) {
         if (!intent) return previous;
@@ -962,6 +1020,9 @@ export class ChatHost {
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
     if (!tabId) return;
     if (event === "exit") {
+      // A restart's new file is not the exited program's.
+      const key = `${workspaceId}:${tabId}`;
+      if (!this.promptStarting.has(key)) void this.removePromptFile(key);
       this.options.onProgramExit?.(workspaceId, tabId);
       return;
     }
