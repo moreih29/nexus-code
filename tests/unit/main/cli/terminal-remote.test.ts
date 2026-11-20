@@ -351,7 +351,7 @@ describe("events --device", () => {
     ]);
   });
 
-  test("--wait asks again until a change comes; --device all is refused", async () => {
+  test("--wait asks again until a change comes and all preserves separate cursors", async () => {
     let reads = 0;
     const app = withPeer({
       "events.read": () =>
@@ -371,6 +371,21 @@ describe("events --device", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("#4");
     expect(reads).toBe(3);
-    expect((await nexus(app, ["events", "--device", "all"])).exitCode).toBe(2);
+    const all = await nexus(app, [
+      "events",
+      "--device",
+      "all",
+      "--cursors",
+      JSON.stringify({ [MINI]: 3, offline: 9 }),
+      "--json",
+    ]);
+    expect(all.exitCode).toBe(0);
+    const resultOfAll = JSON.parse(all.stdout);
+    expect(resultOfAll.cursors).toMatchObject({ [MINI]: 4, offline: 9 });
+    expect(resultOfAll.events).toEqual([
+      expect.objectContaining({ seq: 4, device: { id: MINI, name: "Mac mini" } }),
+    ]);
+    expect(asked(app, "events.read").at(-1)).toMatchObject({ since: 3 });
+    expect((await nexus(app, ["events", "--device", "all", "--since", "3"])).exitCode).toBe(2);
   });
 });

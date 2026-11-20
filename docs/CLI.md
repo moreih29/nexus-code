@@ -183,6 +183,8 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 nexus events                                 # 최근 변화 (기본 100개)
 nexus events --since 57 --wait 10m --jsonl   # #57 다음 변화. 없으면 올 때까지 기다림
 nexus events --workspace api --limit 20
+nexus events --device all --json
+nexus events --device all --cursors '{"DEVICE_ID":57}' --wait 10m --jsonl
 ```
 
 - 변화는 시작(일을 하며 나타남), 상태 바뀜(working, asking, idle, completed, error, ...), 닫힘이고, 마지막 답변이나 질문이 함께 나옵니다. 자기 세션의 변화에는 `(you)` 가 붙습니다.

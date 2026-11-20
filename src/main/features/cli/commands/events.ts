@@ -14,6 +14,7 @@ import {
   DEVICE_FLAG,
   deviceFlag,
   deviceRef,
+  listDevices,
   peerSessions,
   pickPeerWorkspace,
   resolveDevice,
@@ -125,6 +126,123 @@ async function readPeerEvents(
   }
 }
 
+function eventCursors(value: unknown): Record<string, number> {
+  if (value === undefined) return Object.create(null);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(value));
+  } catch {
+    throw new CliUsageError("--cursors takes a JSON object of device ids and sequence numbers");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new CliUsageError("--cursors takes a JSON object");
+  const entries = Object.entries(parsed);
+  if (
+    entries.some(
+      ([id, seq]) => !id || typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 0,
+    )
+  )
+    throw new CliUsageError("--cursors requires a nonnegative integer sequence per device");
+  return Object.assign(Object.create(null), parsed);
+}
+
+async function allDeviceEvents(
+  ctx: CliContext,
+  flags: Record<string, unknown>,
+  limit: number,
+  waitMs: number,
+) {
+  if (flags.since !== undefined || flags.workspace !== undefined)
+    throw new CliUsageError("--device all takes --cursors and covers every workspace");
+  const cursors = eventCursors(flags.cursors);
+  const devices = await listDevices(ctx);
+  const self = devices.find((device) => device.self);
+  const local = self ? deviceRef(self) : { id: "local", name: "This computer" };
+  const sources = [
+    {
+      device: local,
+      read: (since: number | undefined) => readEvents(ctx, since, limit, undefined),
+    },
+    ...devices
+      .filter((device) => !device.self && device.online)
+      .map((device) => ({
+        device: deviceRef(device),
+        read: (since: number | undefined) => readPeerEvents(ctx, device, since, limit, undefined),
+      })),
+  ];
+  const offline = devices.filter((device) => !device.self && !device.online).map(deviceRef);
+  const clock = ctx.services.clock;
+  const started = clock.now();
+  async function batch() {
+    const errors: { device: { id: string; name: string }; error: string }[] = [];
+    const more: string[] = [];
+    const reads = await Promise.allSettled(
+      sources.map((source) => source.read(cursors[source.device.id])),
+    );
+    const events = reads.flatMap((read, index) => {
+      const source = sources[index];
+      if (!source) return [];
+      if (read.status === "rejected") {
+        errors.push({
+          device: source.device,
+          error: read.reason instanceof Error ? read.reason.message : String(read.reason),
+        });
+        return [];
+      }
+      const page = read.value;
+      cursors[source.device.id] = page.more
+        ? (page.events.at(-1)?.seq ?? cursors[source.device.id] ?? 0)
+        : page.cursor;
+      if (page.more) more.push(source.device.id);
+      return page.events.map((event) => ({ ...event, device: source.device }));
+    });
+    events.sort((a, b) => a.at - b.at || a.device.id.localeCompare(b.device.id) || a.seq - b.seq);
+    return { events, errors, more };
+  }
+  let result = await batch();
+  while (
+    !result.events.length &&
+    !result.more.length &&
+    !ctx.signal?.aborted &&
+    clock.now() - started < waitMs
+  ) {
+    await clock.sleep(Math.min(PEER_POLL_MS, waitMs - (clock.now() - started)));
+    if (ctx.signal?.aborted) break;
+    result = await batch();
+  }
+  const text = table(
+    ["DEVICE", "SEQ", "TIME", "TAB", "CHANGE"],
+    result.events.map((event) => [
+      event.device.name,
+      `#${event.seq}`,
+      clockTime(event.at),
+      event.title,
+      changeText(event),
+    ]),
+  );
+  const cursorText = `Cursors: ${JSON.stringify(cursors)}`;
+  const details = [
+    text || "No changes.",
+    ...result.errors.map(({ device, error }) => `${device.name}: ${error}`),
+    ...(offline.length ? [`${offline.length} device(s) offline.`] : []),
+    cursorText,
+    ...(result.more.length
+      ? ["More changes are available. Run again with the returned cursors."]
+      : []),
+  ];
+  return output(
+    details.join("\n"),
+    { ...result, cursors, offline },
+    {
+      records: [
+        ...result.events,
+        { type: "cursors", cursors, more: result.more, errors: result.errors, offline },
+      ],
+      ...(waitMs > 0 && !result.events.length ? { exitCode: 124 } : {}),
+    },
+  );
+}
+
 const events: CliCommand = {
   path: ["events"],
   summary: "Print the agent sessions' state changes in every workspace",
@@ -140,6 +258,11 @@ const events: CliCommand = {
     "--since past the latest reads from the start. When the wait runs out, nexus exits with 124.",
   flags: {
     since: { type: "number", value: "N", description: "Only the changes after #N" },
+    cursors: {
+      type: "string",
+      value: "JSON",
+      description: "Resume each device at its own cursor with --device all",
+    },
     wait: {
       type: "string",
       value: "DURATION",
@@ -157,7 +280,7 @@ const events: CliCommand = {
     },
     device: {
       ...DEVICE_FLAG,
-      description: "Another computer's changes (id, id prefix or name); --since is its #",
+      description: "A computer (id, prefix or name), or all computers with separate cursors",
     },
   },
   async run(ctx, { positionals, flags }) {
@@ -173,8 +296,9 @@ const events: CliCommand = {
     const waitMs = flags.wait === undefined ? 0 : parseDuration(flags.wait as string, "wait");
     if (waitMs > MAX_WAIT_MS) throw new CliUsageError("--wait is at most 30m");
     if (flags.device === "all") {
-      throw new CliUsageError("--device takes one computer: each counts its changes on its own");
+      return allDeviceEvents(ctx, flags, limit, waitMs);
     }
+    if (flags.cursors !== undefined) throw new CliUsageError("--cursors goes with --device all");
     const device = await resolveDevice(ctx, deviceFlag(flags));
     let workspaceId: string | undefined;
     let names: Map<string, string>;
