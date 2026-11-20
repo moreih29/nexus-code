@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { TranscriptRecording } from "../../../../src/shared/notes/transcript";
+import {
+  movedLines,
+  TranscriptFileSchema,
+  type TranscriptRecording,
+  withRejectedVoiceName,
+} from "../../../../src/shared/notes/transcript";
 import {
   type RememberedVoice,
   suggestVoiceNames,
@@ -111,4 +116,40 @@ describe("learning remembered voices", () => {
     expect(profile?.average[1]).toBeCloseTo(Math.sqrt(1 - 0.9 ** 2));
     expect(learn(profile, 0, 0.9)?.recordings.map((r) => r.recordedAt)).toEqual([5, 4, 3, 2, 1]);
   });
+});
+
+test("a declined name survives a transcript round trip and a merge", () => {
+  const lines = Array.from({ length: 3 }, (_, i) => ({
+    startMs: i * 4000,
+    endMs: i * 4000 + 3000,
+    speaker: "1",
+    text: "",
+  }));
+  const recording: TranscriptRecording = {
+    id: "r0000000000",
+    lines,
+    speakers: {},
+    takes: [],
+    language: "en",
+    startedAt: 0,
+  };
+  const original = withRejectedVoiceName(recording, "1", "A");
+  const serialized = JSON.stringify(
+    TranscriptFileSchema.parse({
+      version: 1,
+      recordings: [{ ...original, suggestions: [{ name: "A" }], vector: [1, 0] }],
+    }),
+  );
+  expect(serialized).not.toContain("vector");
+  expect(serialized).not.toContain("suggestions");
+  const restored = TranscriptFileSchema.parse(JSON.parse(serialized)).recordings[0];
+  if (!restored) throw new Error("Expected a recording");
+  const prints = lines.map((l) => ({ at: l.startMs, ms: 3000, key: "1", vector: [1, 0] }));
+  expect(restored.rejectedVoiceNames).toEqual({ "1": ["A"] });
+  expect(suggestVoiceNames(profiles, voiceNameCandidates(restored, prints))).toEqual([]);
+  const first = lines[0];
+  if (!first) throw new Error("Expected a line");
+  const merged = movedLines(restored, first, "2", "all");
+  expect(merged.rejectedVoiceNames).toEqual({ "2": ["A"] });
+  expect(suggestVoiceNames(profiles, voiceNameCandidates(merged, prints))).toEqual([]);
 });

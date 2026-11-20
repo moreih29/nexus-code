@@ -421,6 +421,7 @@ export function movedLines(
     return { ...l, speaker: to, pinned: true };
   });
   let speakers = recording.speakers;
+  let rejected = recording.rejectedVoiceNames;
   if (scope === "all") {
     speakers = { ...recording.speakers };
     for (const key of Object.keys(speakers)) {
@@ -428,9 +429,40 @@ export function movedLines(
     }
     const sourceName = recording.speakers[shown.speaker]?.trim();
     if (sourceName && !speakers[to]?.trim()) speakers[to] = sourceName;
+    if (rejected) {
+      rejected = { ...rejected };
+      const toNames = new Set(Object.hasOwn(rejected, to) ? rejected[to] : []);
+      for (const [key, names] of Object.entries(rejected)) {
+        if (voicePerson(recording.speakers, key) !== from) continue;
+        for (const name of names) toNames.add(name);
+        delete rejected[key];
+      }
+      if (toNames.size) rejected = { ...rejected, [to]: [...toNames] };
+    }
   }
-  const next = { ...recording, lines, speakers };
+  const next = {
+    ...recording,
+    lines,
+    speakers,
+    ...(rejected ? { rejectedVoiceNames: rejected } : {}),
+  };
   return recording.speakerNumbers ? numberSpeakers(next) : next;
+}
+
+/** A declined name belongs to this speaker within this recording. */
+export function withRejectedVoiceName(
+  recording: TranscriptRecording,
+  key: string,
+  name: string,
+): TranscriptRecording {
+  const rejected = Object.hasOwn(recording.rejectedVoiceNames ?? {}, key)
+    ? (recording.rejectedVoiceNames?.[key] ?? [])
+    : [];
+  if (rejected.includes(name)) return recording;
+  return {
+    ...recording,
+    rejectedVoiceNames: { ...recording.rejectedVoiceNames, [key]: [...rejected, name] },
+  };
 }
 
 /** A key for a new voice of the recording: the next number not taken. */
