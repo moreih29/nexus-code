@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   conversationLook,
   imageLookSize,
+  latestReadFile,
   lookAtImage,
   sameImage,
   shownIndex,
@@ -141,5 +142,48 @@ describe("looking at an image", () => {
     const fresh = await lookAtImage(shown, { file: "/tmp/new.png" }, all);
     expect(fresh?.files[0]).toBe("/tmp/new.png");
     expect(fresh?.index).toBe(0);
+  });
+});
+
+describe("the read a held file stands for", () => {
+  it("is the last read of a file, not an earlier one", () => {
+    const [a, b] = [block("a"), block("b")];
+    const shown = [
+      { file: "/tmp/x.png", image: a },
+      { file: "/tmp/y.png", image: block("y") },
+      { file: "/tmp/x.png", image: b },
+    ];
+    expect(latestReadFile(shown, { image: b })).toBe("/tmp/x.png");
+    expect(latestReadFile(shown, { image: a })).toBeUndefined();
+  });
+
+  it("is the last read by another computer's ref too", () => {
+    const shown = [
+      { file: "/tmp/x.png", image: ref("t1") },
+      { file: "/tmp/x.png", image: ref("t2") },
+    ];
+    expect(latestReadFile(shown, { image: ref("t2") })).toBe("/tmp/x.png");
+    expect(latestReadFile(shown, { image: ref("t1") })).toBeUndefined();
+  });
+
+  it("is none for an image with no file or not among them", () => {
+    expect(latestReadFile([{ image: block("p") }], { image: block("p") })).toBeUndefined();
+    expect(latestReadFile([], { image: block("p") })).toBeUndefined();
+  });
+});
+
+describe("the files a look opens by path", () => {
+  it("names a file for each image shown from its data, which the file actions use", () => {
+    const look = conversationLook(
+      [
+        { file: "/out/side.png", image: block("a") },
+        { image: block("pasted") },
+        { file: "/out/side.png" },
+      ],
+      0,
+      () => true,
+    );
+    expect(look.files).toEqual(["image:1", "image:2", "/out/side.png"]);
+    expect(look.paths).toEqual({ "image:1": "/out/side.png" });
   });
 });

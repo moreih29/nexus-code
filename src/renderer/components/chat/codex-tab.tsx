@@ -30,7 +30,12 @@ import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
 import { runCodexCommand } from "../../services/chat/codex/run-command";
 import { filesThere } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
@@ -320,9 +325,15 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
       const current = latest.current.state.model as CodexModel;
       const shown = imagesOf(current.items, current.tools, cwd, current.agentItems);
+      const held = target.image ? latestReadFile(shown, target) : undefined;
+      if (held && showHeldLocalFile(workspaceId, held)) {
+        setLook(null);
+        return;
+      }
       void lookAtImage(shown, target, (files) =>
         filesThere(workspaceId, latest.current.rootPath, files),
       ).then((look) => {
+        for (const path of Object.values(look?.paths ?? {})) grant(path);
         const list = look ?? alone?.();
         if (list) setLook(list);
       });

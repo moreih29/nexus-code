@@ -81,6 +81,23 @@ export function shownIndex(shown: readonly ShownImage[], target: ShownImage): nu
 }
 
 /**
+ * The file of the image `target` is, when it is the last read of that file
+ * among `shown`: the one the file as it is now shows, which a panel holding
+ * the file stands for. undefined for an earlier read, or a target with no
+ * file or not among them.
+ */
+export function latestReadFile(
+  shown: readonly ShownImage[],
+  target: ShownImage,
+): string | undefined {
+  const at = shownIndex(shown, target);
+  const file = at >= 0 ? shown[at].file : undefined;
+  return file !== undefined && shown.findLastIndex((entry) => entry.file === file) === at
+    ? file
+    : undefined;
+}
+
+/**
  * Quick look over a conversation's images (`shown`), at the one at `at`.
  * An image with its data shows from it, as it was read, and keeps its file
  * for the file's actions; one with none shows as the file when `there` finds

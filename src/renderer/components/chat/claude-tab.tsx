@@ -22,7 +22,12 @@ import { historyForDisplay } from "../../services/chat/claude/history";
 import { runAppCommand } from "../../services/chat/claude/run-command";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
@@ -455,8 +460,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       const items = history ? [...history.items, ...model.items] : model.items;
       const tools = history ? { ...history.tools, ...model.tools } : model.tools;
       const shown = imagesOf(items, tools, cwd, model.agentItems);
+      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
+      const held = target.image ? latestReadFile(shown, target) : undefined;
+      if (held && showHeldLocalFile(workspaceId, held)) {
+        setLook(null);
+        return;
+      }
       void lookAtImage(shown, target, (files) => filesThere(workspaceId, rootPath, files)).then(
         (look) => {
+          // What shows from its data opens its file by path (as a tab, beside, in Finder): let that read it.
+          for (const path of Object.values(look?.paths ?? {})) grant(path);
           const list = look ?? alone?.();
           if (list) setLook(list);
         },
