@@ -16,7 +16,10 @@ import {
   uuidBefore,
   withSubagentLog,
 } from "../../../../../../src/renderer/services/chat/claude/history";
-import { applyLines } from "../../../../../../src/renderer/services/chat/claude/stream-model";
+import {
+  applyLines,
+  applyTranscriptLines,
+} from "../../../../../../src/renderer/services/chat/claude/stream-model";
 import { TranscriptPages } from "../../../../../../src/renderer/services/chat/claude/transcript-pages";
 import { emptyModel } from "../../../../../../src/renderer/services/chat/model";
 
@@ -196,6 +199,79 @@ describe("chat history cuts", () => {
       "user:two",
       "assistant:second",
     ]);
+  });
+
+  test("a compaction reads as a notice, and its summary is not the user's message", () => {
+    const entries = [
+      { type: "user", uuid: "u1", message: { role: "user", content: "one" } },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "b1",
+        timestamp: "2026-01-01T00:00:00Z",
+      },
+      {
+        type: "user",
+        uuid: "s1",
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        message: {
+          role: "user",
+          content:
+            "This session is being continued from a previous conversation that ran out of context.",
+        },
+      },
+      { type: "user", uuid: "u2", message: { role: "user", content: "two" } },
+    ];
+    const items = applyTranscriptLines(transcriptLines(entries)).items;
+    expect(items.map((i) => i.kind)).toEqual(["user", "notice", "user"]);
+    expect(JSON.stringify(items)).not.toContain("being continued");
+  });
+
+  test("a compaction the user ran shows its command first, then the notice, as live", () => {
+    const entries = [
+      { type: "user", uuid: "u1", message: { role: "user", content: "one" } },
+      { type: "system", subtype: "compact_boundary", uuid: "b1" },
+      {
+        type: "user",
+        uuid: "s1",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued from a previous one." },
+      },
+      {
+        type: "user",
+        uuid: "c0",
+        isMeta: true,
+        message: { role: "user", content: "<local-command-caveat>Caveat</local-command-caveat>" },
+      },
+      {
+        type: "user",
+        uuid: "c1",
+        message: {
+          role: "user",
+          content:
+            "<command-name>/compact</command-name><command-message>compact</command-message><command-args>keep tests</command-args>",
+        },
+      },
+      {
+        type: "user",
+        uuid: "c2",
+        message: {
+          role: "user",
+          content: "<local-command-stdout>Compacted </local-command-stdout>",
+        },
+      },
+      { type: "attachment", uuid: "x1" },
+      { type: "user", uuid: "u2", message: { role: "user", content: "two" } },
+    ];
+    const items = applyTranscriptLines(
+      transcriptLines(
+        entries,
+        entries.map((_, i) => i * 100),
+      ),
+    ).items;
+    expect(items.map((i) => i.kind)).toEqual(["user", "user", "notice", "user"]);
+    expect((items[1] as { text?: string }).text).toBe("/compact keep tests");
   });
 
   test("no cut keeps it all", () => {
@@ -432,5 +508,55 @@ test("a bounded row split at a UTF-8 boundary is rebuilt before projecting its t
     name: "Read",
     status: "stopped",
     input: { file_path: "한글" },
+  });
+});
+
+describe("a compaction the live log shows", () => {
+  const user = (uuid: string, content: string, extra: object = {}) => ({
+    type: "user",
+    uuid,
+    message: { role: "user", content },
+    ...extra,
+  });
+  const boundary = (uuid: string) => ({ type: "system", subtype: "compact_boundary", uuid });
+  const summary = (uuid: string) => user(uuid, "summary", { isCompactSummary: true });
+  const caveat = (uuid: string) =>
+    user(uuid, "<local-command-caveat>x</local-command-caveat>", { isMeta: true });
+  const command = (uuid: string) =>
+    user(uuid, "<command-name>/compact</command-name><command-args></command-args>");
+  const stdout = (uuid: string) =>
+    user(uuid, "<local-command-stdout>Compacted</local-command-stdout>");
+  const notices = (entries: unknown[], cut: HistoryCut | undefined, live: boolean) =>
+    historyModel(entries, cut, undefined, live).items.filter(
+      (i) => i.kind === "notice" && i.code === "compacted",
+    ).length;
+  const cut = { before: new Set(["live"]) };
+
+  test("a cut after an earlier compaction keeps its notice and drops the live one", () => {
+    const entries = [
+      user("a", "hi"),
+      boundary("b1"),
+      summary("s1"),
+      caveat("c1"),
+      command("m1"),
+      stdout("o1"),
+      user("a2", "more"),
+      boundary("b2"),
+      summary("s2"),
+      caveat("c2"),
+      user("live", "/compact"),
+    ];
+    expect(notices(entries, cut, true)).toBe(1);
+    expect(notices(entries, cut, false)).toBe(2);
+  });
+
+  test("an automatic compaction the live log shows is not shown twice", () => {
+    const entries = [user("a", "hi"), boundary("b"), summary("s"), user("live", "next")];
+    expect(notices(entries, cut, true)).toBe(0);
+  });
+
+  test("a reopened transcript ending in a compaction keeps its notice", () => {
+    const entries = [user("a", "hi"), boundary("b"), summary("s")];
+    expect(notices(entries, undefined, false)).toBe(1);
   });
 });

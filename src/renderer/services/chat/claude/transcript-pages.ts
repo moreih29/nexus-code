@@ -108,8 +108,8 @@ export class TranscriptPages {
     if (!partial) this.beforeAnchor = page.beforeAnchor;
   }
 
-  project() {
-    const history = historyModel(this.entries, undefined, this.positions);
+  project(liveCompacted = false) {
+    const history = historyModel(this.entries, undefined, this.positions, liveCompacted);
     return {
       ...history,
       items: history.items.map((item) =>
