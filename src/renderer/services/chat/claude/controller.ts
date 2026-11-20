@@ -907,7 +907,13 @@ export class ChatController {
       let remote = false;
       let started: unknown;
       this.initPending = true;
-      const initialized = this.request("initialize", { hooks: null, forwardSubagentText: true })
+      const initialized = this.request("initialize", {
+        hooks: null,
+        forwardSubagentText: true,
+        // On resume or fork Claude can reuse the original system prompt. Let
+        // this launch's --append-system-prompt supply the current NexusCode layers.
+        ...(resume.resume ? { systemPromptSnapshot: false } : {}),
+      })
         .then((init) => {
           remote = remoteAtStartup(init);
           started = init.current_permission_mode;

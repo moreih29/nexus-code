@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
-import { type AgentInstructions, mergeAgentInstructions } from "../../../shared/chat/instructions";
+import {
+  type AgentInstructions,
+  ClaudeInstructionDigestSchema,
+  mergeAgentInstructions,
+} from "../../../shared/chat/instructions";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 
 export function instructionsFor(
@@ -26,22 +31,57 @@ function digest(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-/** Identify a Claude launch and its system prompt, even if the desktop reconnects. */
-export function claudeInstructionLaunch(text: string): string {
-  return `${randomUUID()}:${digest(text)}`;
+const claudeSessionId = z.string().uuid();
+
+export interface ClaudeInstructionHook {
+  sessionId?: string;
+  phase: "start" | "prompt" | "restore";
+}
+
+interface ForkInstructions {
+  sessionId: string;
+  digest: string;
+}
+
+/** The id Claude uses for a resume, including when a profile supplies a transcript path. */
+export function claudeResumeId(resume: string | undefined): string | undefined {
+  return instructionSessionId(
+    resume
+      ?.split(/[\\/]/)
+      .at(-1)
+      ?.replace(/\.jsonl$/, ""),
+  );
+}
+
+export function instructionSessionId(value: unknown): string | undefined {
+  return claudeSessionId.safeParse(value).data;
+}
+
+/** Carry the startup baseline and any fork snapshot across a desktop reconnect. */
+export function claudeInstructionLaunch(text: string, fork?: ForkInstructions): string {
+  return [randomUUID(), digest(text), ...(fork ? [fork.sessionId, fork.digest] : [])].join(":");
+}
+
+export function claudeInstructionLaunchState(launch: string) {
+  const [, baseline, parentSessionId, parentDigest] = launch.split(":");
+  const systemDigest = ClaudeInstructionDigestSchema.safeParse(baseline).data;
+  if (!systemDigest) return undefined;
+
+  const sessionId = instructionSessionId(parentSessionId);
+  const digest = ClaudeInstructionDigestSchema.safeParse(parentDigest).data;
+  const fork = sessionId && digest ? { sessionId, digest } : undefined;
+  return { systemDigest, fork };
 }
 
 export function claudeInstructionUpdate(
-  launch: string,
+  systemDigest: string,
   previous: string | undefined,
   current: string,
-  compacting: boolean,
+  restoring: boolean,
 ): { text: string; digest: string } | undefined {
-  const baseline = launch.split(":")[1];
-  if (!baseline || !/^[a-f0-9]{64}$/.test(baseline)) return undefined;
   const next = digest(current);
-  const last = previous ?? baseline;
-  if (next === last && (!compacting || next === baseline)) return undefined;
+  const last = previous ?? systemDigest;
+  if (next === last && (!restoring || next === systemDigest)) return undefined;
   return {
     text: current ? `${replacement}\n\n${current}` : cleared,
     digest: next,

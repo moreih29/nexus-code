@@ -366,26 +366,34 @@ describe("nexus agent-context", () => {
     expect(result.stdout).toBe(`instructions for ${APP}/personal\n`);
   });
 
-  test("returns structured additional context for a tab's updates and compaction", async () => {
+  test("passes the Claude session id and hook phase to instruction tracking", async () => {
     const app = withDevices();
     app.settings.agentContext = false;
-    app.services.claudeInstructions = (_workspaceId, _tabId, _launch, compacting) =>
-      compacting ? "restore updates" : "updated instructions";
+    const phases: unknown[] = [];
+    app.services.claudeInstructions = (_workspaceId, _tabId, _launch, hook) => {
+      phases.push(hook);
+      return hook.phase === "start" ? "" : `${hook.phase} instructions`;
+    };
     const ctx = contextFor(app, ["agent-context", "--launch=test", "-"]);
-    for (const [event, source, text] of [
-      ["UserPromptSubmit", undefined, "updated instructions"],
-      ["SessionStart", "compact", "restore updates"],
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    for (const [event, source, phase] of [
+      ["SessionStart", "resume", "start"],
+      ["UserPromptSubmit", undefined, "prompt"],
+      ["SessionStart", "compact", "restore"],
     ] as const) {
       const result = await runCli(CLI_COMMANDS, {
         ...ctx,
         invocation: {
           ...ctx.invocation,
-          stdin: JSON.stringify({ hook_event_name: event, source }),
+          stdin: JSON.stringify({ hook_event_name: event, source, session_id: sessionId }),
         },
       });
-      expect(JSON.parse(result.stdout)).toEqual({
-        hookSpecificOutput: { hookEventName: event, additionalContext: text },
-      });
+      expect(phases.at(-1)).toEqual({ sessionId, phase });
+      if (phase === "start") expect(result.stdout).toBe("");
+      else
+        expect(JSON.parse(result.stdout)).toEqual({
+          hookSpecificOutput: { hookEventName: event, additionalContext: `${phase} instructions` },
+        });
     }
   });
 

@@ -37,7 +37,14 @@ import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
 import { tabHookToken } from "../workspace/tab-token";
-import { claudeInstructionLaunch, claudeInstructionUpdate } from "./instructions";
+import {
+  type ClaudeInstructionHook,
+  claudeInstructionLaunch,
+  claudeInstructionLaunchState,
+  claudeInstructionUpdate,
+  claudeResumeId,
+  instructionSessionId,
+} from "./instructions";
 import {
   CLAUDE_TAB_PROMPT,
   type ClaudeCommand,
@@ -101,6 +108,10 @@ export interface ChatHostOptions {
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
   agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
   instructions?: (workspaceId: string, profile: AgentProfile, session?: string) => string;
+  claudeInstructionDigests?: {
+    get(workspaceId: string, sessionId: string): string | undefined;
+    save(workspaceId: string, sessionId: string, digest: string): void;
+  };
   savedClaudeInstructions?: (
     workspaceId: string,
     tabId: string,
@@ -141,7 +152,10 @@ export class ChatHost {
     string,
     { profileId?: string; instructions?: string }
   >();
-  private readonly claudeInstructionUpdates = new Map<string, { launch: string; digest: string }>();
+  private readonly claudeInstructionUpdates = new Map<
+    string,
+    { launch: string; sessionId?: string; digest: string }
+  >();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
@@ -254,7 +268,13 @@ export class ChatHost {
       });
       if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
       const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
-      env.NEXUS_CHAT_INSTRUCTION_LAUNCH = claudeInstructionLaunch(combined);
+      const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
+      const sourceDigest =
+        sourceId && this.options.claudeInstructionDigests?.get(workspaceId, sourceId);
+      env.NEXUS_CHAT_INSTRUCTION_LAUNCH = claudeInstructionLaunch(
+        combined,
+        sourceId && sourceDigest ? { sessionId: sourceId, digest: sourceDigest } : undefined,
+      );
       this.claudeInstructions.set(key, { profileId, instructions });
       const modelPicker = claudeModelPicker(profile.connection);
       let settings = hooksSettings;
@@ -499,29 +519,52 @@ export class ChatHost {
     });
   }
 
-  /** The synchronous CLI hook reports only changes, and restores them after compaction. */
+  /** The hook reports changes against conversation history and restores them after compaction. */
   claudeHookInstructions(
     workspaceId: string,
     tabId: string,
     launch: string,
-    compacting: boolean,
+    hook: ClaudeInstructionHook,
   ): string {
+    const launchState = claudeInstructionLaunchState(launch);
+    if (!launchState) return "";
     const key = `${workspaceId}:${tabId}`;
     const saved = this.options.savedClaudeInstructions?.(workspaceId, tabId);
     const layer = this.claudeInstructions.get(key) ?? saved;
     if (!layer || !this.options.instructions) return "";
+
+    const sessionId = instructionSessionId(hook.sessionId);
+    const stored = sessionId
+      ? this.options.claudeInstructionDigests?.get(workspaceId, sessionId)
+      : undefined;
     const prior = this.claudeInstructionUpdates.get(key);
+    const previous =
+      prior?.launch === launch && prior.sessionId === sessionId ? prior.digest : stored;
+    const remember = (digest: string) => {
+      this.claudeInstructionUpdates.set(key, { launch, sessionId, digest });
+      if (!sessionId || digest === stored) return;
+      try {
+        this.options.claudeInstructionDigests?.save(workspaceId, sessionId, digest);
+      } catch (error) {
+        log.warn(`Could not save Claude's instruction digest: ${(error as Error).message}`);
+      }
+    };
+
+    if (hook.phase === "start") {
+      const fork = launchState.fork;
+      // A fork can inherit a block that already matches its settings. Retain its
+      // digest even if the child never needs to send a replacement of its own.
+      if (sessionId && fork && sessionId !== fork.sessionId && previous === undefined)
+        remember(fork.digest);
+      return "";
+    }
+    const restoring = hook.phase === "restore";
     const profile = this.instructionProfile("claude", layer.profileId);
-    const session = (compacting ? saved?.instructions : undefined) ?? layer.instructions;
+    const session = (restoring ? saved?.instructions : undefined) ?? layer.instructions;
     const text = this.options.instructions(workspaceId, profile, session);
-    const update = claudeInstructionUpdate(
-      launch,
-      prior?.launch === launch ? prior.digest : undefined,
-      text,
-      compacting,
-    );
+    const update = claudeInstructionUpdate(launchState.systemDigest, previous, text, restoring);
     if (!update) return "";
-    this.claudeInstructionUpdates.set(key, { launch, digest: update.digest });
+    remember(update.digest);
     return update.text;
   }
 

@@ -269,7 +269,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
-    const { agentInstructions, chatInstructionHistory } = currentState;
+    const { agentInstructions, chatInstructionHistory, claudeInstructionDigests } = currentState;
     if (agentInstructions?.workspaces?.[removedWorkspaceId] !== undefined) {
       const config = withInstruction(agentInstructions, {
         scope: { kind: "workspace", id: removedWorkspaceId },
@@ -282,6 +282,10 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removed, ...history } = chatInstructionHistory;
       stateService.setState({ chatInstructionHistory: history });
       forwardBroadcast("appState", "chatInstructionHistoryChanged", history);
+    }
+    if (claudeInstructionDigests?.[removedWorkspaceId]) {
+      const { [removedWorkspaceId]: _removed, ...digests } = claudeInstructionDigests;
+      stateService.setState({ claudeInstructionDigests: digests });
     }
     const currentLspMap = currentState.lspDisabledLanguagesByWorkspace ?? {};
     if (currentLspMap[removedWorkspaceId] !== undefined) {
@@ -750,8 +754,8 @@ app.whenReady().then(async () => {
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
-    claudeInstructions: (workspaceId, tabId, launch, compacting) =>
-      chatHost?.claudeHookInstructions(workspaceId, tabId, launch, compacting) ?? "",
+    claudeInstructions: (workspaceId, tabId, launch, hook) =>
+      chatHost?.claudeHookInstructions(workspaceId, tabId, launch, hook) ?? "",
     terminalClaudeInstructions: (workspaceId, profileId) => {
       const workspaces = workspaceManager.list();
       const workspace = workspaces.find(({ id }) => id === workspaceId);
@@ -853,6 +857,19 @@ app.whenReady().then(async () => {
         workspaceManager.list().find(({ id }) => id === workspaceId),
         session,
       ),
+    claudeInstructionDigests: {
+      get: (workspaceId, sessionId) =>
+        stateService.getState().claudeInstructionDigests?.[workspaceId]?.[sessionId],
+      save: (workspaceId, sessionId, digest) => {
+        const saved = stateService.getState().claudeInstructionDigests;
+        stateService.setState({
+          claudeInstructionDigests: {
+            ...saved,
+            [workspaceId]: { ...saved?.[workspaceId], [sessionId]: digest },
+          },
+        });
+      },
+    },
     savedClaudeInstructions: (workspaceId, tabId) => {
       const tab = stateService
         .getState()

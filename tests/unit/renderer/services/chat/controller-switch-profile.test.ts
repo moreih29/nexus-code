@@ -25,6 +25,7 @@ let stopFails = false;
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
 let claudeSeq = 500;
+let initializeRequest: Record<string, unknown> | undefined;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -32,8 +33,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
-    const input = args.message as { type?: string; request_id?: string } | undefined;
+    const input = args.message as
+      | {
+          type?: string;
+          request_id?: string;
+          request?: Record<string, unknown>;
+        }
+      | undefined;
     if (method === "send" && input?.type === "control_request") {
+      if (input.request?.subtype === "initialize") initializeRequest = input.request;
       const controller = live.find((c) => c.key === `${args.workspaceId}:${args.tabId}`);
       controller?.receive({
         seq: ++claudeSeq,
@@ -120,6 +128,7 @@ afterEach(() => {
   onStop = undefined;
   onStart = undefined;
   stopFails = false;
+  initializeRequest = undefined;
   codex = undefined;
 });
 
@@ -549,6 +558,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     const start = calls.find((call) => call.method === "start")?.args ?? {};
     expect(start.resume).toBeUndefined();
     expect(c.profileId).toBe("work");
+    expect(initializeRequest?.systemPromptSnapshot).toBeUndefined();
   });
 
   test("a session another profile keeps, taken up from the list, is copied into the tab's", async () => {
@@ -586,6 +596,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     expect(start.resume).toBe("mine");
     expect(start.fork).toBeUndefined();
     expect(c.currentSession()).toBe("mine");
+    expect(initializeRequest?.systemPromptSnapshot).toBe(false);
   });
 });
 

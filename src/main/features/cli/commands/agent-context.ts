@@ -3,6 +3,7 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import { instructionSessionId } from "../../chat/instructions";
 import { type CliServices, resolveWorkspace, shortId } from "../context";
 import { type CliCommand, output } from "../registry";
 
@@ -21,26 +22,25 @@ const agentContext: CliCommand = {
     const launch = typeof flags.launch === "string" ? flags.launch : "";
     if (launch && ctx.caller.verified === false) return output("", { note: null });
     const profile = typeof flags.profile === "string" ? flags.profile : "";
-    const restoresContext =
-      event.hook_event_name === "SessionStart" &&
-      (event.source === "compact" || event.source === "clear");
+    const prompt = event.hook_event_name === "UserPromptSubmit";
+    const start = event.hook_event_name === "SessionStart";
+    const restoresContext = start && (event.source === "compact" || event.source === "clear");
     const note =
-      ctx.services.agentContextEnabled() && event.hook_event_name !== "UserPromptSubmit"
+      ctx.services.agentContextEnabled() && !prompt
         ? agentContextNote(
             locationOf(workspace.name, ctx.caller.tabId, launch ? "Claude chat tab" : "terminal"),
             ctx.services.remote.inRoom(),
           )
         : "";
     const instructions =
-      event.hook_event_name === "UserPromptSubmit"
-        ? launch && ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, false)
-        : launch
-          ? restoresContext &&
-            ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, true)
-          : event.hook_event_name === "SessionStart" &&
-            ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
+      launch && (prompt || start)
+        ? ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, {
+            sessionId: instructionSessionId(event.session_id),
+            phase: prompt ? "prompt" : restoresContext ? "restore" : "start",
+          })
+        : !launch && start && ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
     const text = [note, instructions].filter(Boolean).join("\n\n");
-    if (text && launch && (event.hook_event_name === "UserPromptSubmit" || restoresContext)) {
+    if (text && launch && (prompt || restoresContext)) {
       const result = {
         hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text },
       };
@@ -50,7 +50,11 @@ const agentContext: CliCommand = {
   },
 };
 
-function hookEvent(input: string | undefined): { hook_event_name?: string; source?: string } {
+function hookEvent(input: string | undefined): {
+  hook_event_name?: string;
+  source?: string;
+  session_id?: string;
+} {
   try {
     const payload: unknown = JSON.parse(input ?? "{}");
     return payload && typeof payload === "object" ? payload : {};

@@ -179,9 +179,16 @@ export function AgentInstructionsPanel() {
           {workspaces.map((workspace) =>
             row({ kind: "workspace", id: workspace.id }, workspace.name),
           )}
-          <p className="mt-3 border-t border-border px-2 pt-2 text-app-ui-sm text-muted-foreground">
-            {t("instructions.sessionHint")}
-          </p>
+          <div className="mt-3 flex flex-col gap-1 border-t border-border px-2 pt-2 text-app-ui-sm text-muted-foreground">
+            <p className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-[var(--state-success-fg)]"
+              />
+              {t("instructions.hasText")}
+            </p>
+            <p>{t("instructions.sessionHint")}</p>
+          </div>
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           <div>
