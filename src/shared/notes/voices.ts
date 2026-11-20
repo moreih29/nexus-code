@@ -57,12 +57,10 @@ function addInto(into: Float64Array, v: ArrayLike<number>): void {
 
 /** The next key not taken: "1", "2", … */
 export function nextVoiceKey(taken: Iterable<string>): string {
-  let most = 0;
-  for (const key of taken) {
-    const n = Number(key);
-    if (Number.isInteger(n) && n > most) most = n;
-  }
-  return String(most + 1);
+  const keys = new Set(taken);
+  let n = 1;
+  while (keys.has(String(n))) n++;
+  return String(n);
 }
 
 /** A voice's person: its name, or the voice itself when it has none. */
@@ -116,6 +114,7 @@ export function liveVoice(
 ): string {
   const near = sample.vector ? nearestVoice(sums, sample.vector) : null;
   if (near && near.similarity >= LIVE_MATCH) return near.key;
+  if (!near && fallback) return fallback;
   if (sample.vector && sample.ms >= NEW_VOICE_MS) return nextVoiceKey(taken);
   if (near && near.similarity >= SHORT_MATCH) return near.key;
   return fallback ?? nextVoiceKey(taken);
@@ -305,7 +304,7 @@ export function regroupVoices(input: {
     used.add(v.key);
   }
   // A group left without one goes with the person its moved lines were moved to, or is new.
-  const taken = new Set<string>(samples.map((s) => s.key));
+  const taken = new Set([...samples.map((s) => s.key), ...Object.keys(names)]);
   groups.forEach((g, gi) => {
     if (keyOfGroup.has(gi)) return;
     const moved = new Map<string, number>();

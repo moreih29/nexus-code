@@ -13,6 +13,7 @@ import i18next from "i18next";
 import { create } from "zustand";
 import {
   movedLines,
+  numberSpeakers,
   peopleIn,
   speakerKey,
   type TranscriptLine,
@@ -511,6 +512,7 @@ async function finishTake(a: Active): Promise<void> {
 }
 
 async function finishRecording(a: Active): Promise<void> {
+  updateRecording(a.workspaceId, a.noteId, a.recordingId, numberSpeakers);
   active = null;
   set(IDLE);
   await flushTranscript(a.workspaceId, a.noteId, true);

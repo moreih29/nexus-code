@@ -5,9 +5,11 @@ import {
   joinedLines,
   movedLines,
   newSpeakerKey,
+  numberSpeakers,
   peopleIn,
   recordingMs,
   speakerKey,
+  speakerName,
   speakersOf,
   TAKE_FILE_RE,
   TranscriptFileSchema,
@@ -37,6 +39,26 @@ function recording(over: Partial<TranscriptRecording> = {}): TranscriptRecording
 }
 
 describe("a note's transcript", () => {
+  test("compacts display numbers by first speech while keeping names and pinned keys", () => {
+    const old = recording({
+      speakers: { "7": "Alex" },
+      lines: [
+        line("5", 0, 1000, "a"),
+        { ...line("7", 1000, 2000, "b"), pinned: true },
+        line("1", 2000, 3000, "c"),
+      ],
+    });
+    const next = numberSpeakers(old);
+    expect(next.speakerNumbers).toEqual({ "5": "1", "7": "2", "1": "3" });
+    expect(next.lines).toBe(old.lines);
+    expect(next.speakers).toBe(old.speakers);
+    expect(["5", "7", "1"].map((key) => speakerName(next, key))).toEqual([
+      "Speaker 1",
+      "Alex",
+      "Speaker 3",
+    ]);
+  });
+
   test("keys a voice by its take, and names a take's file", () => {
     expect(speakerKey(0, "1")).toBe("1");
     expect(speakerKey(1, "1")).toBe("2.1");

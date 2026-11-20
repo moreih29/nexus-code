@@ -82,6 +82,12 @@ describe("VoiceTracker", () => {
     expect(await say(2, 4)).toBe("2");
   });
 
+  test("keeps the first number when its first usable voice print comes after a short line", async () => {
+    expect(await say(1, 0.1)).toBe("1");
+    expect(await say(1, 4)).toBe("1");
+    expect(await say(2, 4)).toBe("2");
+  });
+
   test("asks the model for at most 10 seconds of a line, and none for a short one", async () => {
     await say(1, 12);
     expect(asked).toEqual([VOICE_PRINT_RATE * 10]);

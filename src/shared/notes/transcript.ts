@@ -16,6 +16,7 @@
  * Pure: no IO here.
  */
 import { z } from "zod";
+import { nextVoiceKey } from "./voices";
 
 export const TRANSCRIPT_VERSION = 1;
 
@@ -69,6 +70,8 @@ export const TranscriptRecordingSchema = z.object({
   audioRemoved: z.boolean().optional(),
   /** Its voices were told apart by voice print: keyed for the whole recording. */
   voicePrint: z.boolean().optional(),
+  /** Display numbers once the recording ends. Keys still identify the original voices. */
+  speakerNumbers: z.record(z.string(), z.string()).optional(),
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
 
@@ -92,9 +95,22 @@ export function takeFile(recordingId: string, take: number): string {
 
 /** The voices of a recording, in the order they first spoke. */
 export function speakersOf(recording: Pick<TranscriptRecording, "lines">): string[] {
-  const seen: string[] = [];
-  for (const line of recording.lines) if (!seen.includes(line.speaker)) seen.push(line.speaker);
-  return seen;
+  return [...new Set(recording.lines.map((line) => line.speaker))];
+}
+
+/** Compact speaker numbers in order of first speech, without changing voice identities. */
+export function numberSpeakers(recording: TranscriptRecording): TranscriptRecording {
+  const numbers = new Map<string, string>();
+  const speakerNumbers = Object.fromEntries(
+    speakersOf({ lines: [...recording.lines].sort((a, b) => a.startMs - b.startMs) }).map((key) => {
+      const name = recording.speakers[key]?.trim();
+      const person = name ? `name:${name}` : `voice:${key}`;
+      const number = numbers.get(person) ?? String(numbers.size + 1);
+      numbers.set(person, number);
+      return [key, number];
+    }),
+  );
+  return { ...recording, speakerNumbers };
 }
 
 /** How many people spoke: voices given one name count once. */
@@ -183,7 +199,7 @@ export function withSecondPass(
 ): TranscriptRecording {
   const t = recording.takes[take];
   if (!t) return recording;
-  if (recording.voicePrint) return withSecondPassByVoice(recording, take, segments);
+  if (recording.voicePrint) return numberSpeakers(withSecondPassByVoice(recording, take, segments));
   const inTake = (key: string) =>
     take === 0 ? !key.includes(".") : key.startsWith(`${take + 1}.`);
   const old = recording.lines.filter((l) => inTake(l.speaker));
@@ -202,11 +218,11 @@ export function withSecondPass(
   const speakers: Record<string, string> = {};
   for (const [k, v] of Object.entries(recording.speakers)) if (!inTake(k)) speakers[k] = v;
   Object.assign(speakers, carried);
-  return {
+  return numberSpeakers({
     ...recording,
     speakers,
     lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs),
-  };
+  });
 }
 
 function withSecondPassByVoice(
@@ -225,9 +241,7 @@ function withSecondPassByVoice(
   const keyOfLabel = (label: string) => {
     let key = byLabel.get(label);
     if (!key) {
-      let n = 1;
-      while (taken.has(String(n))) n++;
-      key = String(n);
+      key = nextVoiceKey(taken);
       taken.add(key);
       byLabel.set(label, key);
     }
@@ -292,13 +306,10 @@ export function movedLines(
 
 /** A key for a new voice of the recording: the next number not taken. */
 export function newSpeakerKey(recording: Pick<TranscriptRecording, "lines" | "speakers">): string {
-  const taken = new Set([
+  return nextVoiceKey([
     ...recording.lines.map((l) => l.speaker),
     ...Object.keys(recording.speakers),
   ]);
-  let n = 1;
-  while (taken.has(String(n))) n++;
-  return String(n);
 }
 
 /** "3:07", or "1:03:07" past an hour. */
@@ -313,11 +324,11 @@ export function clockOf(ms: number): string {
 
 /** A voice's name, or "Speaker 2" (its label, with its take: "Speaker 2.1"). */
 export function speakerName(
-  recording: Pick<TranscriptRecording, "speakers">,
+  recording: Pick<TranscriptRecording, "speakers" | "speakerNumbers">,
   key: string,
   unnamed: (label: string) => string = (label) => `Speaker ${label}`,
 ): string {
-  return recording.speakers[key]?.trim() || unnamed(key);
+  return recording.speakers[key]?.trim() || unnamed(recording.speakerNumbers?.[key] ?? key);
 }
 
 /** Adjacent lines of one voice, run together: how a transcript reads. */

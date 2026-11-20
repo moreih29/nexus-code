@@ -26,7 +26,7 @@ function sample(axis: number, key: string, extra: Partial<VoiceSample> = {}): Vo
 describe("voices", () => {
   test("takes the next number as a new voice's key", () => {
     expect(nextVoiceKey([])).toBe("1");
-    expect(nextVoiceKey(["1", "3", "2.1"])).toBe("4");
+    expect(nextVoiceKey(["1", "3", "2.1"])).toBe("2");
   });
 
   test("gives a line as it comes the nearest voice, a new one, or the fallback", () => {
