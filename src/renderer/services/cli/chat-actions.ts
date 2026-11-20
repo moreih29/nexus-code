@@ -1045,9 +1045,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             cwd,
             profilesOf(config, "codex").map((p) => p.id),
           );
-    const session = listed.find((s) => s.sessionId === sessionId);
+    const exact = listed.find((s) => s.sessionId === sessionId);
+    const matches = exact ? [exact] : listed.filter((s) => s.sessionId.startsWith(sessionId));
+    if (matches.length > 1) throw new UiRequestError("give more of the conversation id");
+    const session = matches[0];
     if (!session)
       throw new UiRequestError(`no conversation ${sessionId} in that workspace's folder`);
+    sessionId = session.sessionId;
     if (tabId) {
       // In that tab, as its /resume and its empty conversation's list go on with one.
       const target = await openedTab(workspaceId, tabId);

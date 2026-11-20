@@ -249,6 +249,43 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "worktree.new": {
+        const { workspaceId, name, prompt, show, start } =
+          request.params as RpcParams<"worktree.new">;
+        const base = workspaceOf(s, workspaceId);
+        if (!base || base.task)
+          throw new RpcFailure(
+            RpcErrorCode.InvalidParams,
+            "choose the worktree's parent workspace",
+          );
+        if (start && "command" in start && start.command && !controls.terminal)
+          throw new RpcFailure(
+            RpcErrorCode.Forbidden,
+            "a worktree command requires terminal control",
+          );
+        return s
+          .ui(
+            "task.create",
+            {
+              parentId: workspaceId,
+              name,
+              prompt,
+              show,
+              ...(start ? { start } : {}),
+              ...(relay && prompt.trim() ? { from: relay } : {}),
+            },
+            5 * 60_000,
+          )
+          .catch(unavailable);
+      }
+      case "worktree.remove": {
+        const { workspaceId, force, deleteBranch } = request.params as RpcParams<"worktree.remove">;
+        if (!workspaceOf(s, workspaceId)?.task)
+          throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a worktree");
+        return s
+          .ui("task.remove", { taskId: workspaceId, force, deleteBranch }, 5 * 60_000)
+          .catch(unavailable);
+      }
       case "chat.entryItem": {
         const entry = request.params as RpcParams<"chat.entryItem">;
         const { workspaceId, tabId, i } = entry;

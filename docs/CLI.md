@@ -207,7 +207,7 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 - 받는 쪽 에이전트에게는 보낸 컴퓨터와 탭, 답장할 명령(`nexus chat send ... --device ...`)이 함께 갑니다. 에이전트끼리 주고받은 메시지가 8개를 넘으면 루프로 보고 거절합니다.
 - 종료 코드: 오프라인(`"Mac mini" is offline (last seen 12m ago)`), 이 컴퓨터가 원격에 없음, 구버전, 응답 없음은 3, 그 컴퓨터가 거절하면(`"Mac mini" refused: ...`) 1 입니다. `--json` 이면 `{error, device, ...}` 도 출력합니다.
 - `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
-- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
+- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
 
 다른 컴퓨터에서도 채팅 상세와 작업 패널, 슬래시 명령, 대화 기록, 프로필,
 노트와 녹음 전사, 터미널과 셸을 조회할 수 있습니다.
@@ -314,6 +314,7 @@ nexus worktree new 환불 --agent codex --prompt "환불 API 추가해줘"      
 nexus worktree new 실험 --command "gemini" --prompt "벤치마크 돌려줘"                 # 터미널에서 다른 명령으로
 nexus worktree switch 환불                                                          # 사용자 화면을 그 작업으로
 nexus worktree remove "로그인 수정" --delete-branch
+nexus worktree new review --agent codex --workspace site --device "Mac mini"
 ```
 
 - `worktree new` 는 앱의 **새 작업…** 과 같습니다.

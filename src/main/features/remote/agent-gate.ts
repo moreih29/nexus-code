@@ -395,6 +395,23 @@ async function changeOf(
         eachTime: true,
       };
     }
+    case "worktree.new": {
+      const start = params.start as { command?: string } | undefined;
+      return {
+        kind: "worktreeNew",
+        detail: String(params.name),
+        body: [start?.command, params.prompt].filter(Boolean).join("\n\n"),
+        ...(start?.command ? { terminal: true } : {}),
+      };
+    }
+    case "worktree.remove":
+      return {
+        kind: params.deleteBranch === true ? "worktreeRemoveBranch" : "worktreeRemove",
+        detail:
+          services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name ??
+          workspaceId,
+        ...(params.force === true ? { body: "Discard uncommitted changes" } : {}),
+      };
     case "chat.new":
       return {
         kind: "chatNew",

@@ -244,14 +244,16 @@ export async function askDevice<M extends RpcMethod>(
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : from && (method === "chat.rewind" || method === "chat.profile")
-          ? PEER_APPROVAL_MS
-          : from &&
-              !reads &&
-              (!isFileTransferMethod(method) ||
-                needsFileConsent(method, params as { anywhere?: true }))
-            ? AGENT_REQUEST_MS
-            : undefined;
+        : method === "worktree.new" || method === "worktree.remove"
+          ? AGENT_REQUEST_MS + 5 * 60_000
+          : from && (method === "chat.rewind" || method === "chat.profile")
+            ? PEER_APPROVAL_MS
+            : from &&
+                !reads &&
+                (!isFileTransferMethod(method) ||
+                  needsFileConsent(method, params as { anywhere?: true }))
+              ? AGENT_REQUEST_MS
+              : undefined;
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {

@@ -729,8 +729,9 @@ export interface CliUiOps {
       prompt: string;
       start?: CliTaskStart;
       show: boolean;
+      allowTerminal?: boolean;
       /** The terminal whose agent asks for the task. */
-      createdBy: { workspaceId: string; tabId: string };
+      createdBy?: { workspaceId: string; tabId: string };
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
     };

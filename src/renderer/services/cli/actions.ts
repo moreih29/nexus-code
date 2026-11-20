@@ -398,8 +398,19 @@ export const actionHandlers: {
     return {};
   },
 
-  "task.create": async ({ parentId, name, prompt, start, show, createdBy, from }) => {
+  "task.create": async ({
+    parentId,
+    name,
+    prompt,
+    start,
+    show,
+    createdBy,
+    from,
+    allowTerminal,
+  }) => {
     const how = start ?? taskStartOf(resolvedTaskAgent());
+    if (allowTerminal === false && "command" in how && how.command)
+      throw new UiRequestError("a worktree command requires terminal control");
     const started = await startTask(parentId, name, prompt, how, createdBy, from);
     if (!("task" in started)) throw new UiRequestError(started.message);
     if (started.tabId === null) {
@@ -410,7 +421,7 @@ export const actionHandlers: {
     // A terminal starts once its panel is mounted, shown or not. Shown while
     // the agent view is up, its agent shows there, beside the one asking.
     const tab = useTabsStore.getState().byWorkspace[started.task.id]?.[started.tabId];
-    if (show && isAgentViewShown() && tab && holdsInAgentView(tab.type)) {
+    if (show && createdBy && isAgentViewShown() && tab && holdsInAgentView(tab.type)) {
       showBesideCaller(started.task.id, started.tabId, createdBy);
     } else if (show) activateWorkspace(started.task.id);
     else useMountedWorkspacesStore.getState().mount(started.task.id);

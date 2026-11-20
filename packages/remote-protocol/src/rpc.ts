@@ -830,6 +830,11 @@ const Ok = z.object({});
  * Each method's params and result, and the capability (see ./sealed.ts)
  * the serving device lists for it.
  */
+const TaskStartSchema = z.union([
+  z.object({ agent: z.enum(["claude", "codex"]) }),
+  z.object({ command: z.string().max(10000) }),
+]);
+
 export const RPC_METHODS = {
   "sessions.list": {
     capability: "sessions",
@@ -2080,6 +2085,32 @@ export const RPC_METHODS = {
         }),
       ),
     }),
+  },
+  "worktree.new": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      name: z.string().trim().min(1).max(200),
+      prompt: z.string().max(50000),
+      start: TaskStartSchema.optional(),
+      show: z.boolean(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      workspaceId: z.string(),
+      tabId: z.string().optional(),
+      start: TaskStartSchema,
+    }),
+  },
+  "worktree.remove": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      force: z.boolean(),
+      deleteBranch: z.boolean(),
+      ...ReadBy,
+    }),
+    result: Ok,
   },
   "chat.entryItem": {
     capability: "chat.read",

@@ -23,7 +23,16 @@ import {
 import { table } from "../format";
 import { absolutePath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
-import { DEVICE_FLAG, deviceFlag, deviceRef, peerSessions, resolveDevice } from "../remote";
+import {
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerSessions,
+  pickPeerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
@@ -288,6 +297,7 @@ const worktreeNew: CliCommand = {
     },
     show: { type: "boolean", description: "Switch the user to it" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [name] = exactArgs(positionals, "name") as [string];
@@ -301,6 +311,27 @@ const worktreeNew: CliCommand = {
         : flags.agent !== undefined
           ? { agent: chatAgentFlag(flags.agent, "claude") }
           : undefined;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const selected = pickPeerWorkspace(device, workspaces, flags.workspace as string | undefined);
+      const created = await changePeerCli(ctx, device, "worktree.new", {
+        workspaceId: selected.parentId ?? selected.id,
+        name,
+        prompt,
+        ...(start ? { start } : {}),
+        show: flags.show === true,
+      });
+      const reach = `--workspace ${created.workspaceId} --device ${JSON.stringify(device.name)}`;
+      const wait = created.tabId
+        ? `nexus ${"agent" in created.start ? "chat" : "terminal"} wait ${created.tabId} ${reach}`
+        : undefined;
+      return output(
+        `Made worktree ${name} (${shortId(created.workspaceId)}) on "${device.name}".${wait ? `\n  ${wait}` : ""}`,
+        { ...created, device: deviceRef(device), ...(wait ? { wait } : {}) },
+      );
+    }
     // A worktree of a worktree branches off the workspace they belong to.
     const [parent] = worktreeFamily(
       ctx,
@@ -491,9 +522,38 @@ const worktreeRemove: CliCommand = {
     },
     "delete-branch": { type: "boolean", description: "Delete its branch too" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "worktree") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const parent =
+        flags.workspace === undefined
+          ? undefined
+          : pickPeerWorkspace(device, workspaces, flags.workspace as string);
+      const familyId = parent?.parentId ?? parent?.id;
+      const target = pickPeerWorkspace(
+        device,
+        workspaces.filter(
+          (workspace) => workspace.parentId && (!familyId || workspace.parentId === familyId),
+        ),
+        selector,
+      );
+      const branchDeleted = flags["delete-branch"] === true;
+      await changePeerCli(ctx, device, "worktree.remove", {
+        workspaceId: target.id,
+        force: flags.force === true,
+        deleteBranch: branchDeleted,
+      });
+      return output(`Removed worktree ${target.name} on "${device.name}".`, {
+        ...target,
+        branchDeleted,
+        device: deviceRef(device),
+      });
+    }
     const target = pickWorktree(
       worktreeFamily(ctx, resolveWorkspace(ctx, flags.workspace as string | undefined)),
       selector,
