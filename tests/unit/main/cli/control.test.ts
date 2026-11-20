@@ -142,7 +142,7 @@ describe("changing another workspace", () => {
     layout split codex right | layout resize 1 50 | layout even | layout close 1
     chat new | chat send eeee hi | chat interrupt eeee | chat set eeee --effort high
     chat instructions eeee --clear
-    open main.go | diff main.go | show | port forward 3000 | port unforward 3000
+    open main.go | view open-file main.go | diff main.go | show | port forward 3000 | port unforward 3000
     agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
     browser back | browser forward | browser reload | browser click e1 | browser hover e1
     browser drag e1 e2 | browser scroll down | browser fill e1 x | browser type x

@@ -19,7 +19,8 @@ import type {
   CliViewHeldTab,
 } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError, pick, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, pick, resolveWorkspace, shortId } from "../context";
+import { workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";
 import { evenRatios, type GroupInfo, groupsOf, SIDES, share } from "./layout";
@@ -58,7 +59,14 @@ const PANEL_HELP =
 
 const SESSION_HELP =
   "A session is a Claude or Codex tab or a terminal, named as a tab is: among those the\n" +
-  "agent view holds, then among the tabs of this terminal's workspace (or --workspace).";
+  "agent view holds, then among the tabs of this terminal's workspace (or --workspace).\n" +
+  "Use --key instead of a session to name a held tab by its full key from view layout --json.";
+
+const KEY_FLAG = {
+  type: "string",
+  value: "KEY",
+  description: "The full key of a tab held in the agent view",
+} as const;
 
 interface View extends CliAgentView {
   readonly panels: readonly GroupInfo[];
@@ -138,6 +146,48 @@ function sessionOf(tab: { id: string; title: string; type: string }, workspaceId
     );
   }
   return { workspaceId, tabId: tab.id, title: tab.title, type: tab.type };
+}
+
+function tabArgs(
+  positionals: readonly string[],
+  flags: Record<string, unknown>,
+  ...rest: string[]
+) {
+  if (typeof flags.key === "string") {
+    if (flags.workspace !== undefined) throw new CliUsageError("--key already names the workspace");
+    return [flags.key, ...exactArgs(positionals, ...rest)] as [string, ...string[]];
+  }
+  return exactArgs(positionals, "session", ...rest) as [string, ...string[]];
+}
+
+async function viewTarget(
+  ctx: CliContext,
+  view: View,
+  selector: string,
+  flags: Record<string, unknown>,
+) {
+  if (flags.key !== undefined) {
+    const tab = [...view.agents, ...view.held].find((tab) => tab.key === selector);
+    if (!tab) throw new CliError("no held tab with that key; see nexus view layout --json");
+    return {
+      key: tab.key,
+      title: tab.title,
+      ref: { key: tab.key },
+      json: { key: tab.key, workspaceId: tab.workspaceId },
+    };
+  }
+  const { workspaceId, tabId, title } = await resolveSession(
+    ctx,
+    view,
+    selector,
+    flags.workspace as string | undefined,
+  );
+  return {
+    key: keyOf({ workspaceId, tabId }),
+    title,
+    ref: { workspaceId, tabId },
+    json: { workspaceId, tabId },
+  };
 }
 
 function resolvePanel(ctx: CliContext, view: View, selector: string): GroupInfo {
@@ -279,35 +329,63 @@ const viewLayout: CliCommand = {
 const viewOpen: CliCommand = {
   path: ["view", "open"],
   summary: "Show a session in the agent view, and the agent view",
-  args: "<session>",
+  args: "<session|--key KEY>",
   details:
     "Brings it to the front of the panel holding it, else adds it to --panel or the active\n" +
     `panel, which becomes the active one.\n${SESSION_HELP}\n${PANEL_HELP}`,
   flags: {
     panel: { type: "string", value: "PANEL", description: "Add it to this panel" },
     workspace: WORKSPACE_FLAG,
+    key: KEY_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const [selector] = exactArgs(positionals, "session") as [string];
+    const [selector] = tabArgs(positionals, flags);
     const view = await viewOf(ctx);
-    const session = await resolveSession(
-      ctx,
-      view,
-      selector,
-      flags.workspace as string | undefined,
-    );
+    const tab = await viewTarget(ctx, view, selector, flags);
     const panel =
       flags.panel === undefined ? undefined : resolvePanel(ctx, view, flags.panel as string);
     const { panelId } = await ctx.services.ui("agentView.place", {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+      ...tab.ref,
       ...(panel ? { panelId: panel.id } : {}),
       show: true,
     });
-    return output(`Showing ${session.title} in the agent view.`, {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+    return output(`Showing ${tab.title} in the agent view.`, {
+      ...tab.json,
       panelId,
+    });
+  },
+};
+
+const viewOpenFile: CliCommand = {
+  path: ["view", "open-file"],
+  summary: "Open a workspace file in an agent view panel",
+  args: "<file>",
+  details: `Uses the same path rules as nexus open. Opens in the active panel unless --panel is given.\n${PANEL_HELP}`,
+  flags: {
+    panel: { type: "string", value: "PANEL", description: "Open the file in this panel" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [input] = exactArgs(positionals, "file") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const { relPath, filePath } = workspaceFile(ctx, workspace, input);
+    const kind = await ctx.services.stat(workspace.id, relPath);
+    if (kind === null) throw new CliError(`no such file: ${relPath}`);
+    if (kind === "dir") throw new CliError(`${relPath} is a folder`);
+    const panelId =
+      typeof flags.panel === "string"
+        ? resolvePanel(ctx, await viewOf(ctx), flags.panel).id
+        : undefined;
+    await mayChange(ctx, workspace, { kind: "open", detail: relPath });
+    const opened = await ctx.services.ui("agentView.openFile", {
+      workspaceId: workspace.id,
+      filePath,
+      ...(panelId !== undefined ? { panelId } : {}),
+    });
+    return output(`Opened ${relPath} in the agent view.`, {
+      workspaceId: workspace.id,
+      path: relPath,
+      ...opened,
     });
   },
 };
@@ -322,7 +400,7 @@ const WHERE: Record<CliSplitSide, string> = {
 const viewSplit: CliCommand = {
   path: ["view", "split"],
   summary: "Move a session into a new panel beside its panel, or beside another",
-  args: "<session> <left|right|up|down>",
+  args: "<session|--key KEY> <left|right|up|down>",
   details:
     "Splits the panel holding the session, or the active one if none does, unless --of\n" +
     "names another. The active panel stays as it was.\n" +
@@ -330,33 +408,27 @@ const viewSplit: CliCommand = {
   flags: {
     of: { type: "string", value: "PANEL", description: "Split this panel instead" },
     workspace: WORKSPACE_FLAG,
+    key: KEY_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const [selector, sideWord] = exactArgs(positionals, "session", "side") as [string, string];
+    const [selector, sideWord] = tabArgs(positionals, flags, "side") as [string, string];
     const side = SIDES[sideWord.toLowerCase()];
     if (!side) throw new CliUsageError(`the side is left, right, up or down, not "${sideWord}"`);
     const view = await viewOf(ctx);
-    const session = await resolveSession(
-      ctx,
-      view,
-      selector,
-      flags.workspace as string | undefined,
-    );
+    const tab = await viewTarget(ctx, view, selector, flags);
     const of =
       flags.of !== undefined
         ? resolvePanel(ctx, view, flags.of as string)
-        : (view.panels.find((p) => p.tabIds.includes(keyOf(session))) ??
+        : (view.panels.find((p) => p.tabIds.includes(tab.key)) ??
           (view.panels.find((p) => p.id === view.activePanelId) as GroupInfo));
     const { panelId } = await ctx.services.ui("agentView.place", {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+      ...tab.ref,
       panelId: of.id,
       side,
       show: false,
     });
-    return output(`Moved ${session.title} into a new panel ${WHERE[side]} panel ${of.number}.`, {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+    return output(`Moved ${tab.title} into a new panel ${WHERE[side]} panel ${of.number}.`, {
+      ...tab.json,
       panelId,
     });
   },
@@ -365,38 +437,30 @@ const viewSplit: CliCommand = {
 const viewMove: CliCommand = {
   path: ["view", "move"],
   summary: "Move a session into another panel, or to another place in its own",
-  args: "<session> <panel>",
+  args: "<session|--key KEY> <panel>",
   details:
     "--at puts it at that place among the panel's sessions, counting from 1. The active\n" +
     `panel stays as it was.\n${SESSION_HELP}\n${PANEL_HELP}`,
   flags: {
     at: { type: "number", value: "N", description: "Put it at place N of the panel's sessions" },
     workspace: WORKSPACE_FLAG,
+    key: KEY_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const [selector, panelSelector] = exactArgs(positionals, "session", "panel") as [
-      string,
-      string,
-    ];
+    const [selector, panelSelector] = tabArgs(positionals, flags, "panel") as [string, string];
     const at = flags.at as number | undefined;
     if (at !== undefined && at < 1) throw new CliUsageError("--at counts from 1");
     const view = await viewOf(ctx);
-    const session = await resolveSession(
-      ctx,
-      view,
-      selector,
-      flags.workspace as string | undefined,
-    );
+    const tab = await viewTarget(ctx, view, selector, flags);
     const panel = resolvePanel(ctx, view, panelSelector);
-    const key = keyOf(session);
+    const key = tab.key;
     if (panel.tabIds.includes(key) && at === undefined) {
       throw new CliError(
-        `${session.title} is already in panel ${panel.number}; --at moves it within it`,
+        `${tab.title} is already in panel ${panel.number}; --at moves it within it`,
       );
     }
     await ctx.services.ui("agentView.place", {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+      ...tab.ref,
       panelId: panel.id,
       // Its place among the panel's other sessions: the view takes it out
       // of its own panel before putting it back.
@@ -404,8 +468,8 @@ const viewMove: CliCommand = {
       show: false,
     });
     return output(
-      `Moved ${session.title} to panel ${panel.number}${at === undefined ? "" : `, place ${at}`}.`,
-      { workspaceId: session.workspaceId, tabId: session.tabId, panelId: panel.id },
+      `Moved ${tab.title} to panel ${panel.number}${at === undefined ? "" : `, place ${at}`}.`,
+      { ...tab.json, panelId: panel.id },
     );
   },
 };
@@ -413,28 +477,19 @@ const viewMove: CliCommand = {
 const viewRemove: CliCommand = {
   path: ["view", "remove"],
   summary: "Take a session out of the agent view; its tab stays in its workspace",
-  args: "<session>",
+  args: "<session|--key KEY>",
   details: `A panel left empty closes, unless it is the only one.\n${SESSION_HELP}`,
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, key: KEY_FLAG },
   async run(ctx, { positionals, flags }) {
-    const [selector] = exactArgs(positionals, "session") as [string];
+    const [selector] = tabArgs(positionals, flags);
     const view = await viewOf(ctx);
-    const session = await resolveSession(
-      ctx,
-      view,
-      selector,
-      flags.workspace as string | undefined,
-    );
-    if (!view.agents.some((a) => a.key === keyOf(session))) {
-      throw new CliError(`${session.title} is not in the agent view`);
+    const tab = await viewTarget(ctx, view, selector, flags);
+    if (!view.panels.some((p) => p.tabIds.includes(tab.key))) {
+      throw new CliError(`${tab.title} is not in the agent view`);
     }
-    await ctx.services.ui("agentView.remove", {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
-    });
-    return output(`Took ${session.title} out of the agent view.`, {
-      workspaceId: session.workspaceId,
-      tabId: session.tabId,
+    await ctx.services.ui("agentView.remove", tab.ref);
+    return output(`Took ${tab.title} out of the agent view.`, {
+      ...tab.json,
     });
   },
 };
@@ -557,6 +612,7 @@ export const viewCommands: CliCommand[] = [
   viewShow,
   viewLayout,
   viewOpen,
+  viewOpenFile,
   viewSplit,
   viewMove,
   viewRemove,

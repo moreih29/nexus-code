@@ -662,9 +662,7 @@ export interface CliUiOps {
    * the active one; otherwise the active panel stays.
    */
   "agentView.place": {
-    args: {
-      workspaceId: string;
-      tabId: string;
+    args: ({ workspaceId: string; tabId: string } | { key: string }) & {
       panelId?: string;
       side?: CliSplitSide;
       index?: number;
@@ -672,9 +670,14 @@ export interface CliUiOps {
     };
     result: { panelId: string };
   };
-  /** Takes a session out of the agent view; its tab goes on in its workspace. */
+  /** Opens a workspace file in an agent panel. */
+  "agentView.openFile": {
+    args: { workspaceId: string; filePath: string; panelId?: string };
+    result: { key: string; tabId: string; panelId: string };
+  };
+  /** Takes a tab out of the agent view; local tabs go on in their workspace. */
   "agentView.remove": {
-    args: { workspaceId: string; tabId: string };
+    args: { workspaceId: string; tabId: string } | { key: string };
     result: Record<string, never>;
   };
   /** Closes a panel, taking its sessions out of the view; the only one is emptied. */
