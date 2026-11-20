@@ -395,6 +395,21 @@ async function changeOf(
         eachTime: true,
       };
     }
+    case "layout.change":
+    case "agentView.change": {
+      const action = params.change as {
+        op: string;
+        path?: string;
+        groupId?: string;
+        panelId?: string;
+      };
+      return {
+        kind: method === "layout.change" && action.op === "close" ? "groupClose" : "layout",
+        detail: [action.op, action.path ?? action.groupId ?? action.panelId]
+          .filter(Boolean)
+          .join(" "),
+      };
+    }
     case "worktree.new": {
       const start = params.start as { command?: string } | undefined;
       return {

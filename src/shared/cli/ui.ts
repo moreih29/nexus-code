@@ -591,6 +591,10 @@ export interface CliUiOps {
     args: { workspaceId: string };
     result: { root: CliLayoutNode; activeGroupId: string };
   };
+  "layout.focus": {
+    args: { workspaceId: string; groupId: string };
+    result: Record<string, never>;
+  };
   /** Moves a tab into a new group on a side of `groupId`, its own group or another. */
   "layout.split": {
     args: { workspaceId: string; tabId: string; groupId: string; side: CliSplitSide };

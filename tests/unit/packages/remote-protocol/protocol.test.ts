@@ -661,3 +661,21 @@ test("expanded CLI peers share the v2 envelope and strip private transcript data
   });
   expect(result.recordings[0]?.lines).toEqual([line]);
 });
+
+test("peer view changes take a declared action and validated arguments", () => {
+  const params = RPC_METHODS["agentView.change"].params;
+  expect(
+    params.parse({
+      workspaceId: "w",
+      change: { op: "place", tab: { key: "peer:d:t" }, show: true },
+      from: { kind: "tab", workspaceId: "source", tabId: "t" },
+    }).change,
+  ).toEqual({ op: "place", tab: { key: "peer:d:t" }, show: true });
+  for (const change of [
+    { op: "settings.set", key: "cliCrossWorkspace", value: "allow" },
+    { op: "place", tab: { key: "peer:d:t" }, show: true, index: -1 },
+    { op: "ratios", ratios: [{ splitId: "s", ratio: 2 }] },
+  ]) {
+    expect(params.safeParse({ workspaceId: "w", change }).success).toBe(false);
+  }
+});

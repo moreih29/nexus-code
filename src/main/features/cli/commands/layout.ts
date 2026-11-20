@@ -6,7 +6,8 @@
  * A group is named by its number in `layout show` (1, 2, ...), by its id,
  * by "." for this terminal's group, or by one of its tabs.
  */
-import type { CliLayoutNode, CliSplitSide, CliTabInfo } from "../../../../shared/cli/ui";
+import type { RpcParams } from "../../../../../packages/remote-protocol/src";
+import type { CliChange, CliLayoutNode, CliSplitSide, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -19,10 +20,12 @@ import {
 } from "../context";
 import { type CliCommand, output } from "../registry";
 import {
+  askPeerCli,
   changePeerCli,
   DEVICE_FLAG,
   deviceFlag,
   deviceRef,
+  peerWorkspace,
   requirePeerCli,
   resolveDevice,
   resolvePeerTab,
@@ -69,6 +72,60 @@ export function groupsOf(root: CliLayoutNode): GroupInfo[] {
   return groups;
 }
 
+async function layoutTarget(ctx: CliContext, flags: Record<string, unknown>) {
+  const device = await resolveDevice(ctx, deviceFlag(flags));
+  if (device) {
+    requirePeerCli(ctx, device);
+    const workspace = await peerWorkspace(ctx, device, flags.workspace);
+    const layout = await askPeerCli(ctx, device, "layout.get", { workspaceId: workspace.id });
+    return {
+      workspace,
+      layout: { ...layout, groups: groupsOf(layout.root) },
+      write: (change: RpcParams<"layout.change">["change"], _approval: CliChange) =>
+        changePeerCli(ctx, device, "layout.change", { workspaceId: workspace.id, change }),
+    };
+  }
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const layout = await layoutOf(ctx, workspace);
+  const workspaceId = workspace.id;
+  return {
+    workspace,
+    layout,
+    async write(
+      change: RpcParams<"layout.change">["change"],
+      approval: CliChange,
+    ): Promise<{ groupId?: string; closed?: number }> {
+      await mayChange(ctx, workspace, approval);
+      switch (change.op) {
+        case "split":
+          return ctx.services.ui("layout.split", {
+            workspaceId,
+            tabId: change.tabId,
+            groupId: change.groupId,
+            side: change.side,
+          });
+        case "move":
+          return ctx.services.ui("tab.move", {
+            workspaceId,
+            tabId: change.tabId,
+            groupId: change.groupId,
+            ...(change.index === undefined ? {} : { index: change.index }),
+          });
+        case "ratios":
+          return ctx.services.ui("layout.ratios", { workspaceId, ratios: change.ratios });
+        case "close":
+          return ctx.services.ui("group.close", {
+            workspaceId,
+            groupId: change.groupId,
+            force: change.force,
+          });
+        case "focus":
+          return ctx.services.ui("layout.focus", { workspaceId, groupId: change.groupId });
+      }
+    },
+  };
+}
+
 async function layoutOf(ctx: CliContext, workspace: WorkspaceMeta): Promise<Layout> {
   const { root, activeGroupId } = await ctx.services.ui("layout.get", {
     workspaceId: workspace.id,
@@ -83,7 +140,7 @@ async function layoutOf(ctx: CliContext, workspace: WorkspaceMeta): Promise<Layo
 
 function resolveGroup(
   ctx: CliContext,
-  workspace: WorkspaceMeta,
+  workspace: { id: string; name: string },
   layout: Layout,
   selector: string,
 ): GroupInfo {
@@ -146,11 +203,10 @@ const layoutShow: CliCommand = {
   path: ["layout", "show"],
   summary: "Show how a workspace's editor area is split into groups of tabs",
   details: 'Groups are numbered as other layout commands take them; "*" marks the tab each shows.',
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout } = await layoutTarget(ctx, flags);
     return output(describeLayout(layout).join("\n"), {
       workspaceId: workspace.id,
       activeGroupId: layout.activeGroupId,
@@ -195,25 +251,28 @@ const layoutSplit: CliCommand = {
   flags: {
     of: { type: "string", value: "GROUP", description: "Split this group instead" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, sideWord] = exactArgs(positionals, "tab", "side") as [string, string];
     const side = SIDES[sideWord.toLowerCase()];
     if (!side) throw new CliUsageError(`the side is left, right, up or down, not "${sideWord}"`);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
     const tab = resolveTab(ctx, layout.tabs, selector, `tab in ${workspace.name}`);
     const of =
       flags.of === undefined
         ? (layout.groups.find((g) => g.id === tab.groupId) as GroupInfo)
         : resolveGroup(ctx, workspace, layout, flags.of as string);
-    await mayChange(ctx, workspace, { kind: "layout", detail: tab.title });
-    const { groupId } = await ctx.services.ui("layout.split", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      groupId: of.id,
-      side,
-    });
+    const reply = await write(
+      {
+        op: "split",
+        tabId: tab.id,
+        groupId: of.id,
+        side,
+      },
+      { kind: "layout", detail: tab.title },
+    );
+    const groupId = "groupId" in reply ? reply.groupId : undefined;
     return output(`Moved ${tab.title} into a new group ${WHERE[side]} group ${of.number}.`, {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -243,6 +302,7 @@ const layoutResize: CliCommand = {
     width: { type: "boolean", description: "The split it shares the width in" },
     height: { type: "boolean", description: "The split it shares the height in" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, size] = exactArgs(positionals, "group", "percent") as [string, string];
@@ -251,8 +311,7 @@ const layoutResize: CliCommand = {
       throw new CliUsageError("give --width or --height, not both");
     }
     const direction = flags.width === true ? "columns" : flags.height === true ? "rows" : undefined;
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
     const group = resolveGroup(ctx, workspace, layout, selector);
     const place = [...group.ancestors]
       .reverse()
@@ -266,11 +325,13 @@ const layoutResize: CliCommand = {
             : "beside";
       throw new CliError(`group ${group.number} is not ${where} another group`);
     }
-    await mayChange(ctx, workspace, { kind: "layout", detail: `group ${group.number}` });
-    await ctx.services.ui("layout.ratios", {
-      workspaceId: workspace.id,
-      ratios: [{ splitId: place.split.id, ratio: place.side === "first" ? ratio : 1 - ratio }],
-    });
+    await write(
+      {
+        op: "ratios",
+        ratios: [{ splitId: place.split.id, ratio: place.side === "first" ? ratio : 1 - ratio }],
+      },
+      { kind: "layout", detail: `group ${group.number}` },
+    );
     const dimension = place.split.direction === "columns" ? "width" : "height";
     return output(
       `Group ${group.number} now takes ${percent(ratio)} of the ${dimension} it shares.`,
@@ -307,15 +368,13 @@ export function evenRatios(root: CliLayoutNode): { splitId: string; ratio: numbe
 const layoutEven: CliCommand = {
   path: ["layout", "even"],
   summary: "Give every group the same share of its row or column",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
     const ratios = evenRatios(layout.root);
     if (ratios.length > 0) {
-      await mayChange(ctx, workspace, { kind: "layout", detail: "even" });
-      await ctx.services.ui("layout.ratios", { workspaceId: workspace.id, ratios });
+      await write({ op: "ratios", ratios }, { kind: "layout", detail: "even" });
     }
     return output(
       ratios.length > 0
@@ -336,25 +395,49 @@ const layoutClose: CliCommand = {
   flags: {
     force: { type: "boolean", description: "Close terminals even while a program runs in them" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "group") as [string];
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
     const group = resolveGroup(ctx, workspace, layout, selector);
-    if (group.tabIds.includes(ctx.caller.tabId)) {
+    if (!flags.device && group.tabIds.includes(ctx.caller.tabId)) {
       throw new CliError(`group ${group.number} holds this terminal; nexus does not close it`);
     }
-    await mayChange(ctx, workspace, { kind: "groupClose", detail: `${group.number}` });
-    const { closed } = await ctx.services.ui("group.close", {
-      workspaceId: workspace.id,
-      groupId: group.id,
-      force: flags.force === true,
-    });
+    const reply = await write(
+      {
+        op: "close",
+        groupId: group.id,
+        force: flags.force === true,
+      },
+      { kind: "groupClose", detail: `${group.number}` },
+    );
+    const closed = "closed" in reply ? (reply.closed ?? 0) : 0;
     return output(`Closed group ${group.number} and its ${closed} tab${closed === 1 ? "" : "s"}.`, {
       workspaceId: workspace.id,
       groupId: group.id,
       closed,
+    });
+  },
+};
+
+const layoutFocus: CliCommand = {
+  path: ["layout", "focus"],
+  summary: "Focus a group of workspace tabs",
+  args: "<group>",
+  details: GROUP_HELP,
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "group") as [string];
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
+    const group = resolveGroup(ctx, workspace, layout, selector);
+    await write(
+      { op: "focus", groupId: group.id },
+      { kind: "layout", detail: `group ${group.number}` },
+    );
+    return output(`Group ${group.number} is active.`, {
+      workspaceId: workspace.id,
+      groupId: group.id,
     });
   },
 };
@@ -367,13 +450,13 @@ const tabMove: CliCommand = {
   flags: {
     at: { type: "number", value: "N", description: "Put it at place N of the group's tabs" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [tabSelector, groupSelector] = exactArgs(positionals, "tab", "group") as [string, string];
     const at = flags.at as number | undefined;
     if (at !== undefined && at < 1) throw new CliUsageError("--at counts from 1");
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const layout = await layoutOf(ctx, workspace);
+    const { workspace, layout, write } = await layoutTarget(ctx, flags);
     const tab = resolveTab(ctx, layout.tabs, tabSelector, `tab in ${workspace.name}`);
     const group = resolveGroup(ctx, workspace, layout, groupSelector);
     if (group.id === tab.groupId && at === undefined) {
@@ -381,19 +464,22 @@ const tabMove: CliCommand = {
         `${tab.title} is already in group ${group.number}; --at moves it within it`,
       );
     }
-    await mayChange(ctx, workspace, { kind: "layout", detail: tab.title });
-    await ctx.services.ui("tab.move", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      groupId: group.id,
-      // An insertion slot: before the tab now at that place. Moving right within
-      // its own group, the tab's own slot is freed first, so one further.
-      ...(at === undefined
-        ? {}
-        : {
-            index: group.id === tab.groupId && group.tabIds.indexOf(tab.id) < at - 1 ? at : at - 1,
-          }),
-    });
+    await write(
+      {
+        op: "move",
+        tabId: tab.id,
+        groupId: group.id,
+        // An insertion slot: before the tab now at that place. Moving right within
+        // its own group, the tab's own slot is freed first, so one further.
+        ...(at === undefined
+          ? {}
+          : {
+              index:
+                group.id === tab.groupId && group.tabIds.indexOf(tab.id) < at - 1 ? at : at - 1,
+            }),
+      },
+      { kind: "layout", detail: tab.title },
+    );
     return output(
       `Moved ${tab.title} to group ${group.number}${at === undefined ? "" : `, place ${at}`}.`,
       {
@@ -493,5 +579,6 @@ export const layoutCommands: CliCommand[] = [
   layoutSplit,
   layoutResize,
   layoutEven,
+  layoutFocus,
   layoutClose,
 ];

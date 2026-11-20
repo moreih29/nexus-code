@@ -9,6 +9,7 @@
  * agent view holds first, then among the tabs of this terminal's
  * workspace, or of --workspace.
  */
+import type { RpcParams, RpcResult } from "../../../../../packages/remote-protocol/src";
 import type {
   CliAgentGrouping,
   CliAgentView,
@@ -19,9 +20,29 @@ import type {
   CliViewHeldTab,
 } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError, mayChange, pick, resolveWorkspace, shortId } from "../context";
+import {
+  type CliContext,
+  type CliDevice,
+  CliError,
+  mayChange,
+  pick,
+  resolveWorkspace,
+  shortId,
+} from "../context";
 import { workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerSessions,
+  pickPeerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+  resolvePeerTab,
+} from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
 import { evenRatios, type GroupInfo, groupsOf, SIDES, share } from "./layout";
 import { resolveAnyTab } from "./terminal";
@@ -70,11 +91,58 @@ const KEY_FLAG = {
 
 interface View extends CliAgentView {
   readonly panels: readonly GroupInfo[];
+  readonly device?: CliDevice;
 }
 
-async function viewOf(ctx: CliContext): Promise<View> {
-  const view = await ctx.services.ui("agentView.get", {});
-  return { ...view, panels: groupsOf(view.root) };
+async function viewOf(ctx: CliContext, flags: Record<string, unknown> = {}): Promise<View> {
+  const device = await resolveDevice(ctx, deviceFlag(flags));
+  const view = device
+    ? await askPeerCli(ctx, device, "agentView.get", {})
+    : await ctx.services.ui("agentView.get", {});
+  return { ...view, panels: groupsOf(view.root), ...(device ? { device } : {}) };
+}
+
+async function writeView(
+  ctx: CliContext,
+  flags: Record<string, unknown>,
+  device: CliDevice | null | undefined,
+  change: RpcParams<"agentView.change">["change"],
+  workspaceId?: string,
+): Promise<RpcResult<"agentView.change">> {
+  if (device) {
+    requirePeerCli(ctx, device);
+    const selector = typeof flags.workspace === "string" ? flags.workspace : undefined;
+    let target = workspaceId;
+    if (!target || selector !== undefined) {
+      const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+      target =
+        selector !== undefined
+          ? pickPeerWorkspace(device, workspaces, selector).id
+          : workspaces[0]?.id;
+    }
+    if (!target) throw new CliError(`no workspace on "${device.name}"`);
+    return changePeerCli(ctx, device, "agentView.change", { workspaceId: target, change });
+  }
+  switch (change.op) {
+    case "show":
+      return ctx.services.ui("agentView.show", { view: change.view });
+    case "group":
+      return ctx.services.ui("agentView.group", { grouping: change.grouping });
+    case "place": {
+      const { op: _, tab, ...placement } = change;
+      return ctx.services.ui("agentView.place", { ...tab, ...placement });
+    }
+    case "remove":
+      return ctx.services.ui("agentView.remove", change.tab);
+    case "openFile":
+      throw new CliError("use a workspace path to open a file");
+    case "close":
+      return ctx.services.ui("agentView.close", { panelId: change.panelId });
+    case "focus":
+      return ctx.services.ui("agentView.focus", { panelId: change.panelId });
+    case "ratios":
+      return ctx.services.ui("agentView.ratios", { ratios: change.ratios });
+  }
 }
 
 /** A session as the agent view knows it: by its workspace and tab. */
@@ -113,6 +181,15 @@ async function resolveSession(
   selector: string,
   workspaceFlag: string | undefined,
 ): Promise<Session> {
+  if (view.device) {
+    const session = await resolvePeerTab(ctx, view.device, workspaceFlag, selector);
+    return {
+      workspaceId: session.workspace.id,
+      tabId: session.session.tabId,
+      title: session.session.title,
+      type: session.session.kind,
+    };
+  }
   const workspace = workspaceFlag === undefined ? undefined : resolveWorkspace(ctx, workspaceFlag);
   if (selector === ".") {
     const own = resolveWorkspace(ctx, undefined);
@@ -154,7 +231,8 @@ function tabArgs(
   ...rest: string[]
 ) {
   if (typeof flags.key === "string") {
-    if (flags.workspace !== undefined) throw new CliUsageError("--key already names the workspace");
+    if (flags.workspace !== undefined && !flags.device)
+      throw new CliUsageError("--key already names the workspace");
     return [flags.key, ...exactArgs(positionals, ...rest)] as [string, ...string[]];
   }
   return exactArgs(positionals, "session", ...rest) as [string, ...string[]];
@@ -193,7 +271,9 @@ async function viewTarget(
 function resolvePanel(ctx: CliContext, view: View, selector: string): GroupInfo {
   const { panels } = view;
   if (selector === ".") {
-    const own = keyOf({ workspaceId: ctx.caller.workspaceId, tabId: ctx.caller.tabId });
+    const own = view.device
+      ? ""
+      : keyOf({ workspaceId: ctx.caller.workspaceId, tabId: ctx.caller.tabId });
     return (
       panels.find((p) => p.tabIds.includes(own)) ??
       panels.find((p) => p.id === view.activePanelId) ??
@@ -274,6 +354,7 @@ function describeView(ctx: CliContext, view: View, tabs: ViewTabs): string[] {
 function viewJson(view: View, tabs: ViewTabs) {
   return {
     view: view.view,
+    ...(view.device ? { device: deviceRef(view.device) } : {}),
     activePanelId: view.activePanelId,
     root: view.root,
     panels: view.panels.map((p) => ({
@@ -298,16 +379,20 @@ const viewShow: CliCommand = {
   details:
     "With no argument, tells the view shown. With one, shows that view, as the title bar's\n" +
     "toggle does; the keyboard goes to what is in front there.",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     const [word, ...rest] = positionals;
     if (rest.length > 0) throw new CliUsageError("give agents or workspaces");
     if (word === undefined) {
-      const view = await viewOf(ctx);
+      const view = await viewOf(ctx, flags);
       return output(`The window shows ${VIEW_NAME[view.view]}.`, { view: view.view });
     }
     const target = ownValue(VIEWS, word.toLowerCase());
     if (!target) throw new CliUsageError(`the view is agents or workspaces, not "${word}"`);
-    await ctx.services.ui("agentView.show", { view: target });
+    await writeView(ctx, flags, await resolveDevice(ctx, deviceFlag(flags)), {
+      op: "show",
+      view: target,
+    });
     return output(`Showing ${VIEW_NAME[target]}.`, { view: target });
   },
 };
@@ -318,9 +403,10 @@ const viewLayout: CliCommand = {
   details:
     'Panels are numbered as other view commands take them. "*" marks the tab each panel\n' +
     "shows. The workspace follows each local tab, and the device follows each remote tab.",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const tabs = new Map([...view.agents, ...view.held].map((tab) => [tab.key, tab]));
     return output(describeView(ctx, view, tabs).join("\n"), viewJson(view, tabs));
   },
@@ -334,21 +420,29 @@ const viewOpen: CliCommand = {
     "Brings it to the front of the panel holding it, else adds it to --panel or the active\n" +
     `panel, which becomes the active one.\n${SESSION_HELP}\n${PANEL_HELP}`,
   flags: {
+    device: DEVICE_FLAG,
     panel: { type: "string", value: "PANEL", description: "Add it to this panel" },
     workspace: WORKSPACE_FLAG,
     key: KEY_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = tabArgs(positionals, flags);
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const tab = await viewTarget(ctx, view, selector, flags);
     const panel =
       flags.panel === undefined ? undefined : resolvePanel(ctx, view, flags.panel as string);
-    const { panelId } = await ctx.services.ui("agentView.place", {
-      ...tab.ref,
-      ...(panel ? { panelId: panel.id } : {}),
-      show: true,
-    });
+    const { panelId } = await writeView(
+      ctx,
+      flags,
+      view.device,
+      {
+        op: "place",
+        tab: tab.ref,
+        ...(panel ? { panelId: panel.id } : {}),
+        show: true,
+      },
+      "workspaceId" in tab.ref ? tab.ref.workspaceId : undefined,
+    );
     return output(`Showing ${tab.title} in the agent view.`, {
       ...tab.json,
       panelId,
@@ -362,11 +456,29 @@ const viewOpenFile: CliCommand = {
   args: "<file>",
   details: `Uses the same path rules as nexus open. Opens in the active panel unless --panel is given.\n${PANEL_HELP}`,
   flags: {
+    device: DEVICE_FLAG,
     panel: { type: "string", value: "PANEL", description: "Open the file in this panel" },
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [input] = exactArgs(positionals, "file") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const panelId =
+        typeof flags.panel === "string"
+          ? resolvePanel(ctx, await viewOf(ctx, flags), flags.panel).id
+          : undefined;
+      const opened = await writeView(ctx, flags, device, {
+        op: "openFile",
+        path: input,
+        ...(panelId ? { panelId } : {}),
+      });
+      return output(`Opened ${input} in the agent view on "${device.name}".`, {
+        path: input,
+        device: deviceRef(device),
+        ...opened,
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const { relPath, filePath } = workspaceFile(ctx, workspace, input);
     const kind = await ctx.services.stat(workspace.id, relPath);
@@ -374,7 +486,7 @@ const viewOpenFile: CliCommand = {
     if (kind === "dir") throw new CliError(`${relPath} is a folder`);
     const panelId =
       typeof flags.panel === "string"
-        ? resolvePanel(ctx, await viewOf(ctx), flags.panel).id
+        ? resolvePanel(ctx, await viewOf(ctx, flags), flags.panel).id
         : undefined;
     await mayChange(ctx, workspace, { kind: "open", detail: relPath });
     const opened = await ctx.services.ui("agentView.openFile", {
@@ -406,6 +518,7 @@ const viewSplit: CliCommand = {
     "names another. The active panel stays as it was.\n" +
     `${SESSION_HELP}\n${PANEL_HELP}`,
   flags: {
+    device: DEVICE_FLAG,
     of: { type: "string", value: "PANEL", description: "Split this panel instead" },
     workspace: WORKSPACE_FLAG,
     key: KEY_FLAG,
@@ -414,19 +527,26 @@ const viewSplit: CliCommand = {
     const [selector, sideWord] = tabArgs(positionals, flags, "side") as [string, string];
     const side = SIDES[sideWord.toLowerCase()];
     if (!side) throw new CliUsageError(`the side is left, right, up or down, not "${sideWord}"`);
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const tab = await viewTarget(ctx, view, selector, flags);
     const of =
       flags.of !== undefined
         ? resolvePanel(ctx, view, flags.of as string)
         : (view.panels.find((p) => p.tabIds.includes(tab.key)) ??
           (view.panels.find((p) => p.id === view.activePanelId) as GroupInfo));
-    const { panelId } = await ctx.services.ui("agentView.place", {
-      ...tab.ref,
-      panelId: of.id,
-      side,
-      show: false,
-    });
+    const { panelId } = await writeView(
+      ctx,
+      flags,
+      view.device,
+      {
+        op: "place",
+        tab: tab.ref,
+        panelId: of.id,
+        side,
+        show: false,
+      },
+      "workspaceId" in tab.ref ? tab.ref.workspaceId : undefined,
+    );
     return output(`Moved ${tab.title} into a new panel ${WHERE[side]} panel ${of.number}.`, {
       ...tab.json,
       panelId,
@@ -442,6 +562,7 @@ const viewMove: CliCommand = {
     "--at puts it at that place among the panel's sessions, counting from 1. The active\n" +
     `panel stays as it was.\n${SESSION_HELP}\n${PANEL_HELP}`,
   flags: {
+    device: DEVICE_FLAG,
     at: { type: "number", value: "N", description: "Put it at place N of the panel's sessions" },
     workspace: WORKSPACE_FLAG,
     key: KEY_FLAG,
@@ -450,7 +571,7 @@ const viewMove: CliCommand = {
     const [selector, panelSelector] = tabArgs(positionals, flags, "panel") as [string, string];
     const at = flags.at as number | undefined;
     if (at !== undefined && at < 1) throw new CliUsageError("--at counts from 1");
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const tab = await viewTarget(ctx, view, selector, flags);
     const panel = resolvePanel(ctx, view, panelSelector);
     const key = tab.key;
@@ -459,14 +580,21 @@ const viewMove: CliCommand = {
         `${tab.title} is already in panel ${panel.number}; --at moves it within it`,
       );
     }
-    await ctx.services.ui("agentView.place", {
-      ...tab.ref,
-      panelId: panel.id,
-      // Its place among the panel's other sessions: the view takes it out
-      // of its own panel before putting it back.
-      ...(at === undefined ? {} : { index: at - 1 }),
-      show: false,
-    });
+    await writeView(
+      ctx,
+      flags,
+      view.device,
+      {
+        op: "place",
+        tab: tab.ref,
+        panelId: panel.id,
+        // Its place among the panel's other sessions: the view takes it out
+        // of its own panel before putting it back.
+        ...(at === undefined ? {} : { index: at - 1 }),
+        show: false,
+      },
+      "workspaceId" in tab.ref ? tab.ref.workspaceId : undefined,
+    );
     return output(
       `Moved ${tab.title} to panel ${panel.number}${at === undefined ? "" : `, place ${at}`}.`,
       { ...tab.json, panelId: panel.id },
@@ -479,15 +607,25 @@ const viewRemove: CliCommand = {
   summary: "Take a session out of the agent view; its tab stays in its workspace",
   args: "<session|--key KEY>",
   details: `A panel left empty closes, unless it is the only one.\n${SESSION_HELP}`,
-  flags: { workspace: WORKSPACE_FLAG, key: KEY_FLAG },
+  flags: {
+    device: DEVICE_FLAG,
+    workspace: WORKSPACE_FLAG,
+    key: KEY_FLAG,
+  },
   async run(ctx, { positionals, flags }) {
     const [selector] = tabArgs(positionals, flags);
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const tab = await viewTarget(ctx, view, selector, flags);
     if (!view.panels.some((p) => p.tabIds.includes(tab.key))) {
       throw new CliError(`${tab.title} is not in the agent view`);
     }
-    await ctx.services.ui("agentView.remove", tab.ref);
+    await writeView(
+      ctx,
+      flags,
+      view.device,
+      { op: "remove", tab: tab.ref },
+      "workspaceId" in tab.ref ? tab.ref.workspaceId : undefined,
+    );
     return output(`Took ${tab.title} out of the agent view.`, {
       ...tab.json,
     });
@@ -499,11 +637,15 @@ const viewClose: CliCommand = {
   summary: "Close a panel of the agent view; its sessions' tabs stay in their workspaces",
   args: "<panel>",
   details: `The only panel left is emptied instead.\n${PANEL_HELP}`,
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "panel") as [string];
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const panel = resolvePanel(ctx, view, selector);
-    const { removed } = await ctx.services.ui("agentView.close", { panelId: panel.id });
+    const { removed = 0 } = await writeView(ctx, flags, view.device, {
+      op: "close",
+      panelId: panel.id,
+    });
     return output(
       `Closed panel ${panel.number}; ${removed} session${removed === 1 ? "" : "s"} left the agent view.`,
       { panelId: panel.id, removed },
@@ -519,6 +661,7 @@ const viewResize: CliCommand = {
     "Sets the panel's share of the split it is in, the innermost one by default; --width\n" +
     `or --height picks the innermost split side by side, or one above the other.\n${PANEL_HELP}`,
   flags: {
+    device: DEVICE_FLAG,
     width: { type: "boolean", description: "The split it shares the width in" },
     height: { type: "boolean", description: "The split it shares the height in" },
   },
@@ -529,7 +672,7 @@ const viewResize: CliCommand = {
       throw new CliUsageError("give --width or --height, not both");
     }
     const direction = flags.width === true ? "columns" : flags.height === true ? "rows" : undefined;
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const panel = resolvePanel(ctx, view, selector);
     const place = [...panel.ancestors]
       .reverse()
@@ -543,7 +686,8 @@ const viewResize: CliCommand = {
             : "beside";
       throw new CliError(`panel ${panel.number} is not ${where} another panel`);
     }
-    await ctx.services.ui("agentView.ratios", {
+    await writeView(ctx, flags, view.device, {
+      op: "ratios",
       ratios: [{ splitId: place.split.id, ratio: place.side === "first" ? ratio : 1 - ratio }],
     });
     const dimension = place.split.direction === "columns" ? "width" : "height";
@@ -557,11 +701,12 @@ const viewResize: CliCommand = {
 const viewEven: CliCommand = {
   path: ["view", "even"],
   summary: "Give every panel of the agent view the same share of its row or column",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const ratios = evenRatios(view.root);
-    if (ratios.length > 0) await ctx.services.ui("agentView.ratios", { ratios });
+    if (ratios.length > 0) await writeView(ctx, flags, view.device, { op: "ratios", ratios });
     return output(
       ratios.length > 0
         ? `Evened out ${view.panels.length} panels.`
@@ -576,11 +721,12 @@ const viewFocus: CliCommand = {
   summary: "Make a panel the active one, with the keyboard in it while the agent view shows",
   args: "<panel>",
   details: PANEL_HELP,
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "panel") as [string];
-    const view = await viewOf(ctx);
+    const view = await viewOf(ctx, flags);
     const panel = resolvePanel(ctx, view, selector);
-    await ctx.services.ui("agentView.focus", { panelId: panel.id });
+    await writeView(ctx, flags, view.device, { op: "focus", panelId: panel.id });
     return output(`Panel ${panel.number} is the active one.`, { panelId: panel.id });
   },
 };
@@ -592,18 +738,22 @@ const viewGroup: CliCommand = {
   details:
     "With no argument, tells the grouping. With one, groups the list that way, as the\n" +
     "switch above it does; the app keeps it across restarts.",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     const [word, ...rest] = positionals;
     if (rest.length > 0) throw new CliUsageError("give status or workspace");
     if (word === undefined) {
-      const view = await viewOf(ctx);
+      const view = await viewOf(ctx, flags);
       return output(`The agent view lists its agents ${GROUPING_NAME[view.grouping]}.`, {
         grouping: view.grouping,
       });
     }
     const grouping = ownValue(GROUPINGS, word.toLowerCase());
     if (!grouping) throw new CliUsageError(`the grouping is status or workspace, not "${word}"`);
-    await ctx.services.ui("agentView.group", { grouping });
+    await writeView(ctx, flags, await resolveDevice(ctx, deviceFlag(flags)), {
+      op: "group",
+      grouping,
+    });
     return output(`The agent view lists its agents ${GROUPING_NAME[grouping]}.`, { grouping });
   },
 };

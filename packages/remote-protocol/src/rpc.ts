@@ -8,6 +8,12 @@
  */
 import { z } from "zod";
 import {
+  AgentViewChangeSchema,
+  AgentViewSchema,
+  LayoutChangeSchema,
+  WorkspaceLayoutSchema,
+} from "./layout.js";
+import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
@@ -2084,6 +2090,34 @@ export const RPC_METHODS = {
           ),
         }),
       ),
+    }),
+  },
+  "layout.get": {
+    capability: "chat.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
+    result: WorkspaceLayoutSchema,
+  },
+  "layout.change": {
+    capability: "chat.control",
+    params: z.object({ workspaceId: z.string(), change: LayoutChangeSchema, ...ReadBy }),
+    result: z.object({
+      groupId: z.string().optional(),
+      closed: z.number().int().nonnegative().optional(),
+    }),
+  },
+  "agentView.get": {
+    capability: "chat.read",
+    params: z.object({ ...ReadBy }),
+    result: AgentViewSchema,
+  },
+  "agentView.change": {
+    capability: "chat.control",
+    params: z.object({ workspaceId: z.string(), change: AgentViewChangeSchema, ...ReadBy }),
+    result: z.object({
+      panelId: z.string().optional(),
+      removed: z.number().int().nonnegative().optional(),
+      key: z.string().optional(),
+      tabId: z.string().optional(),
     }),
   },
   "worktree.new": {

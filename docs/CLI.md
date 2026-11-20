@@ -207,7 +207,7 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 - 받는 쪽 에이전트에게는 보낸 컴퓨터와 탭, 답장할 명령(`nexus chat send ... --device ...`)이 함께 갑니다. 에이전트끼리 주고받은 메시지가 8개를 넘으면 루프로 보고 거절합니다.
 - 종료 코드: 오프라인(`"Mac mini" is offline (last seen 12m ago)`), 이 컴퓨터가 원격에 없음, 구버전, 응답 없음은 3, 그 컴퓨터가 거절하면(`"Mac mini" refused: ...`) 1 입니다. `--json` 이면 `{error, device, ...}` 도 출력합니다.
 - `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
-- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
+- 서브에이전트(`agent`), 브라우저, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
 
 다른 컴퓨터에서도 채팅 상세와 작업 패널, 슬래시 명령, 대화 기록, 프로필,
 노트와 녹음 전사, 터미널과 셸을 조회할 수 있습니다.
@@ -400,6 +400,8 @@ nexus browser list                # 이 워크스페이스의 브라우저 탭
 에디터 영역의 그룹(분할된 칸)과 탭, 왼쪽 패널을 다룹니다.
 
 ```bash
+nexus layout focus 2
+nexus layout show --workspace site --device "Mac mini" --json
 nexus layout show                    # 분할 구조와 그룹 번호
 nexus layout split "QA Form" right   # 탭을 오른쪽 새 그룹으로 (left · right · up · down)
 nexus layout resize 2 30%            # 그룹 2 가 30% 차지 (--width · --height 로 방향 지정)
@@ -437,6 +439,7 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 nexus view                           # 지금 보이는 화면 (agents · workspaces)
 nexus view agents                    # 에이전트 뷰로 (view workspaces 로 워크스페이스 화면)
 nexus view layout --json
+nexus view focus 1 --device "Mac mini"
 nexus view layout                    # 패널 분할 구조와 번호, 패널마다 든 탭과 워크스페이스 또는 기기
 nexus view open codex                # 세션을 에이전트 뷰에 보여주기 (--panel 2 로 그 패널에)
 nexus view open-file README.md --panel 1

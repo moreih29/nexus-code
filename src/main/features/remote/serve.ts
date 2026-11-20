@@ -68,6 +68,7 @@ import {
 } from "./serving/chat-details";
 import { tabOf, unavailable, workspaceOf } from "./serving/common";
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
+import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
 import { serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
@@ -168,6 +169,8 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "layout.get",
+  "agentView.get",
 ]);
 
 /** A single deadline for reads that can cross both the renderer and the file system. */
@@ -186,6 +189,8 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "notes.list": 12_000,
   "notes.read": 12_000,
   "notes.transcript": 12_000,
+  "layout.get": 12_000,
+  "agentView.get": 12_000,
 };
 
 /** Answers another device's request with this device's services. */
@@ -249,6 +254,14 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "layout.get":
+        return readLayout(s, (params as RpcParams<"layout.get">).workspaceId);
+      case "layout.change":
+        return changeLayout(s, params as RpcParams<"layout.change">, controls.terminal);
+      case "agentView.get":
+        return readAgentView(s);
+      case "agentView.change":
+        return changeAgentView(s, params as RpcParams<"agentView.change">);
       case "worktree.new": {
         const { workspaceId, name, prompt, show, start } =
           request.params as RpcParams<"worktree.new">;

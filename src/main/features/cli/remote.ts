@@ -204,6 +204,8 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "layout.get",
+  "agentView.get",
 ]);
 
 /**
