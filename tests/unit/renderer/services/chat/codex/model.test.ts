@@ -386,8 +386,42 @@ describe("codex model", () => {
     expect(m.model).toBe("gpt-5.5-codex");
     expect(m.effort).toBe("medium");
     expect(m.permissionMode).toBe("auto");
+    expect(m.confirmedPermissionMode).toBe("auto");
     expect(m.version).toBe("0.166.0");
     expect(Object.keys(m.outgoing)).toEqual([]);
+  });
+
+  test("delegatable mode follows the accepted turn and clears on restart", () => {
+    const pending = run([
+      ...started(),
+      inn({
+        id: "app-turn",
+        method: "turn/start",
+        params: {
+          threadId: T,
+          sandboxPolicy: { type: "dangerFullAccess" },
+          approvalPolicy: "never",
+        },
+      }),
+    ]);
+    expect(pending.permissionMode).toBe("fullAccess");
+    expect(pending.confirmedPermissionMode).toBe("auto");
+    const running = run([out({ id: "app-turn", result: { turn: { id: "t1" } } })], pending);
+    expect(running.confirmedPermissionMode).toBe("fullAccess");
+    expect(run([sys({ event: "start", pid: 2 })], running).confirmedPermissionMode).toBeUndefined();
+    const stillAsks = run(
+      [
+        note("thread/settings/updated", {
+          threadId: T,
+          threadSettings: {
+            sandboxPolicy: { type: "dangerFullAccess" },
+            approvalPolicy: "on-request",
+          },
+        }),
+      ],
+      running,
+    );
+    expect(stillAsks.confirmedPermissionMode).toBeUndefined();
   });
 
   test("a turn: the message, streamed thinking and answer, a command", () => {
