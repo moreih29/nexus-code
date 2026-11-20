@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { remoteFileKey } from "../../../src/shared/fs/remote-file-key";
 import { AgentViewSnapshotSchema } from "../../../src/shared/types/agent-view";
 
 const LEAF = "00000000-0000-4000-8000-0000000000a1";
@@ -20,6 +21,20 @@ describe("AgentViewSnapshotSchema", () => {
       "ws:t2": { prompted: false },
     };
     expect(AgentViewSnapshotSchema.parse({ ...base, ended }).ended).toEqual(ended);
+  });
+
+  test("accepts an encoded peer path longer than an agent key", () => {
+    const key = remoteFileKey({
+      deviceId: "d",
+      workspaceId: "w",
+      path: `/w/${"가".repeat(60)}.md`,
+    });
+    const saved = {
+      ...base,
+      root: { ...base.root, tabIds: [key], activeTabId: key },
+      remoteFiles: { [key]: { deviceName: "Mac", workspaceRoot: "/w", at: { line: 7 } } },
+    };
+    expect(AgentViewSnapshotSchema.parse(saved)).toEqual(saved);
   });
 
   test("drops ended agents it cannot read, keeping the panels", () => {

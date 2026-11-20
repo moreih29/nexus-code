@@ -1322,6 +1322,8 @@
       "previous": "Previous image (←)",
       "next": "Next image (→)",
       "open_tab": "Open as a tab",
+      "open_beside": "Move to a panel beside this one",
+      "read_only": "Read-only",
       "close": "Close (esc)",
       "copy_image": "Copy image",
       "copied_image": "Image copied",
@@ -1892,6 +1894,8 @@
     "pane": {
       "close": "Close panel",
       "remove": "Remove from panel (the session goes on)",
+      "remove_file": "Remove file from panel",
+      "show_file_tab": "Go to the file tab",
       "empty": "Empty panel",
       "empty_hint": "Pick an agent from the list, or drag one here",
       "open_list": "Open list"

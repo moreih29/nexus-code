@@ -40,7 +40,7 @@ function agentsHeld(): CliViewAgent[] {
   return heldKeys(useAgentViewStore.getState().root).flatMap((key) => {
     const session = parseSessionKey(key);
     const tab = session ? tabs[session.workspaceId]?.[session.tabId] : undefined;
-    if (!session || !tab) return [];
+    if (!session || !tab || !holdsInAgentView(tab.type)) return [];
     return [{ key, ...session, title: tab.title, type: tab.type }];
   });
 }

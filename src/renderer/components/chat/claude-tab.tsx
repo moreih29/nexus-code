@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { useStableHandlers } from "../../hooks/use-stable-handlers";
+import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
@@ -465,6 +466,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
+          if (showHeldLocalFile(workspaceId, path, line)) {
+            setLook(null);
+            return;
+          }
           // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) === "image") {
             lookAt({ file: path });
@@ -482,6 +487,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         if (image) lookAt({ image }, () => imageLook(images, index));
       },
       openChange(path) {
+        if (showHeldLocalFile(workspaceId, path)) {
+          setLook(null);
+          return;
+        }
         const { history, model } = latest.current.state;
         const tools = history ? { ...history.tools, ...model.tools } : model.tools;
         const before = changedFilesOf(tools).find((file) => file.path === path)?.before;
@@ -862,6 +871,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
+          onOpenBeside={(path, { at }) => {
+            setLook(null);
+            placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+          }}
           onOpenTab={(path, at) => {
             setLook(null);
             links.openFileTab(path, at);

@@ -15,7 +15,7 @@ import {
   removeKey,
   splitLeaf,
 } from "../../services/agent-view/layout";
-import { focusActiveAgent } from "../../services/agent-view/show";
+import { activeLocalPanelTab, focusActiveAgent } from "../../services/agent-view/show";
 import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-view";
 import { type CommandHandler, setCommandInterceptor } from "../registry";
 
@@ -64,6 +64,7 @@ const BOTH_VIEWS = new Set<CommandId>([
 /** What `id` does while the agent view is shown; undefined while it is not. */
 export function routeAgentViewCommand(id: CommandId): CommandHandler | "skip" | undefined {
   if (!isAgentViewShown() || BOTH_VIEWS.has(id)) return undefined;
+  if (id === COMMANDS.fileSave && activeLocalPanelTab()?.tab.type === "editor") return undefined;
   return AGENT_VIEW_HANDLERS[id] ?? "skip";
 }
 

@@ -69,7 +69,7 @@ import {
   classifyLinkHref,
   type LinkClassifyContext,
 } from "../../../services/editor/preview/link-router";
-import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
+import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
 import { REMARK_PLUGINS } from "../../../utils/remark-plugins";
@@ -588,7 +588,9 @@ function resolveImageSrc(
     case "external":
       return classified.href;
     case "internal-file":
-      return buildWorkspaceUrl(workspaceId, classified.relPath);
+      return peerOf(workspaceId)
+        ? buildOutsideUrl(workspaceId, classified.absPath)
+        : buildWorkspaceUrl(workspaceId, classified.relPath);
     case "anchor":
     case "blocked":
       return null;
