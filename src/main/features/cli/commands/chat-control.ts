@@ -13,7 +13,7 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
-import { ago, oneLine } from "../format";
+import { ago, oneLine, table } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
@@ -686,6 +686,44 @@ const chatResume: CliCommand = {
   },
 };
 
+const chatProfiles: CliCommand = {
+  path: ["chat", "profiles"],
+  summary: "List the profiles a Claude or Codex tab can use",
+  details:
+    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.",
+  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const { profiles } = await ctx.services.ui("chat.profiles", {
+      workspaceId: workspace.id,
+      ...(agent ? { agent } : {}),
+    });
+    const rows = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
+      id,
+      name,
+      agent,
+      workspaceDefault: workspaceDefault === true,
+      ...(path !== undefined ? { path } : {}),
+    }));
+    return output(
+      table(
+        ["AGENT", "NAME", "ID", "WORKSPACE DEFAULT", "PATH"],
+        rows.map((row) => [
+          row.agent,
+          row.name,
+          row.id,
+          row.workspaceDefault ? "yes" : "",
+          row.path ?? "",
+        ]),
+      ),
+      { workspaceId: workspace.id, profiles: rows },
+      { records: rows },
+    );
+  },
+};
+
 export const chatControlCommands: CliCommand[] = [
   chatPanel,
   chatUnsend,
@@ -698,5 +736,6 @@ export const chatControlCommands: CliCommand[] = [
   chatCommandsList,
   chatCommandRun,
   chatHistory,
+  chatProfiles,
   chatResume,
 ];

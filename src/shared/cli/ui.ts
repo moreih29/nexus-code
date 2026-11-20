@@ -769,8 +769,17 @@ export interface CliUiOps {
   };
   /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {
-    args: { agent?: ChatAgent };
-    result: { profiles: { id: string; name: string; agent: ChatAgent; isDefault: boolean }[] };
+    args: { agent?: ChatAgent; workspaceId?: string };
+    result: {
+      profiles: {
+        id: string;
+        name: string;
+        agent: ChatAgent;
+        isDefault: boolean;
+        workspaceDefault?: boolean;
+        path?: string;
+      }[];
+    };
   };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {

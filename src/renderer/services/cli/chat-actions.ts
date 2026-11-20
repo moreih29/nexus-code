@@ -9,7 +9,12 @@
  */
 
 import i18next from "i18next";
-import { isDefaultProfileId, profileOf, profilesOf } from "../../../shared/agent-profiles/profiles";
+import {
+  isDefaultProfileId,
+  portableProfileDir,
+  profileOf,
+  profilesOf,
+} from "../../../shared/agent-profiles/profiles";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -19,7 +24,12 @@ import {
   currentSessionInstructions,
   saveSessionInstructions,
 } from "../../state/stores/agent-instructions";
-import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import {
+  defaultFolderLabel,
+  resolveWorkspaceProfile,
+  tildePath,
+  useAgentProfilesStore,
+} from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
@@ -370,18 +380,30 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.profiles": async ({ agent }) => {
+  "chat.profiles": async ({ agent, workspaceId }) => {
     const config = useAgentProfilesStore.getState().config;
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (workspaceId !== undefined && !workspace) throw new UiRequestError("that workspace is gone");
     const agents: ChatAgent[] = agent ? [agent] : ["claude", "codex"];
     return {
-      profiles: agents.flatMap((a) =>
-        profilesOf(config, a).map((p) => ({
-          id: p.id,
-          name: cliProfileName(p),
+      profiles: agents.flatMap((a) => {
+        const defaultId = workspace && resolveWorkspaceProfile(a, workspace, workspaces).profile.id;
+        return profilesOf(config, a).map((profile) => ({
+          id: profile.id,
+          name: cliProfileName(profile),
           agent: a,
-          isDefault: isDefaultProfileId(p.id),
-        })),
-      ),
+          isDefault: isDefaultProfileId(profile.id),
+          ...(workspace
+            ? {
+                workspaceDefault: defaultId === profile.id,
+                path: profile.dir
+                  ? portableProfileDir(tildePath(profile.dir))
+                  : defaultFolderLabel(a),
+              }
+            : {}),
+        }));
+      }),
     };
   },
 

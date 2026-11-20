@@ -491,3 +491,37 @@ describe("chat answer for a terminal's Claude Code", () => {
     expect(message.stderr).toContain("--message goes to a Claude or Codex tab");
   });
 });
+
+test("chat profiles exposes selectable names and the workspace default, with portable paths", async () => {
+  const app = withChat();
+  app.uiAnswers.set("chat.profiles", {
+    profiles: [
+      {
+        id: "work",
+        name: "Work",
+        agent: "codex",
+        workspaceDefault: true,
+        path: "~/.codex-work",
+        account: "hidden",
+        token: "hidden",
+      },
+    ],
+  });
+  const result = await nexus(app, [
+    "chat",
+    "profiles",
+    "--workspace",
+    API,
+    "--agent",
+    "codex",
+    "--json",
+  ]);
+  expect(JSON.parse(result.stdout)).toEqual({
+    workspaceId: API,
+    profiles: [
+      { id: "work", name: "Work", agent: "codex", workspaceDefault: true, path: "~/.codex-work" },
+    ],
+  });
+  expect(calls(app, "chat.profiles")).toEqual([{ workspaceId: API, agent: "codex" }]);
+  expect(app.asked).toEqual([]);
+});
