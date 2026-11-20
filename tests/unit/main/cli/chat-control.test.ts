@@ -544,10 +544,17 @@ test("an image save collision does not print its destination path", async () => 
     await writeFile(out, "existing");
     const app = withChat();
     app.uiAnswers.set("chat.image", { mediaType: "image/png", data: "YQ==" });
-    const result = await nexus(app, ["chat", "image", "eeee", "--tool", "t1", "--out", out]);
+    const ctx = contextFor(
+      app,
+      ["chat", "image", "eeee", "--tool", "t1", "--out", out],
+      undefined,
+      {
+        cwd: dir,
+      },
+    );
+    const result = await runCli(CLI_COMMANDS, ctx);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("image output already exists");
-    expect(result.stderr).not.toContain(out);
+    expect(result.stderr).toBe("nexus: image output already exists\n");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
