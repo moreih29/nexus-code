@@ -140,20 +140,28 @@ export interface CliViewAgent {
   readonly type: string;
 }
 
-/**
- * The agent view: whether the window shows it, and its panels, split as a
- * workspace's editor area is; a panel's tabIds are the keys of the
- * sessions it holds.
- */
+/** A file or a peer session held by an agent view panel. */
+export type CliViewHeldTab = {
+  readonly key: string;
+  readonly workspaceId: string;
+  readonly title: string;
+} & (
+  | { readonly kind: "file"; readonly path: string }
+  | { readonly kind: "remote-file"; readonly device: string; readonly path: string }
+  | { readonly kind: "remote-session"; readonly device: string; readonly path?: string }
+);
+
 /** How the agent view's list groups its agents: by their state, or by their workspace. */
 export type CliAgentGrouping = "status" | "workspace";
 
+/** The agent view and its panels. A panel's tabIds are keys in agents or held. */
 export interface CliAgentView {
   readonly view: CliView;
   readonly grouping: CliAgentGrouping;
   readonly root: CliLayoutNode;
   readonly activePanelId: string;
   readonly agents: readonly CliViewAgent[];
+  readonly held: readonly CliViewHeldTab[];
 }
 
 /** The columns left of the editor area: the workspace list, and the files panel. */

@@ -403,7 +403,7 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 ```bash
 nexus view                           # 지금 보이는 화면 (agents · workspaces)
 nexus view agents                    # 에이전트 뷰로 (view workspaces 로 워크스페이스 화면)
-nexus view layout                    # 패널 분할 구조와 번호, 패널마다 든 세션과 그 워크스페이스
+nexus view layout                    # 패널 분할 구조와 번호, 패널마다 든 탭과 워크스페이스 또는 기기
 nexus view open codex                # 세션을 에이전트 뷰에 보여주기 (--panel 2 로 그 패널에)
 nexus view split codex right         # 세션을 그 패널 오른쪽 새 패널로 (--of 로 나눌 패널 지정)
 nexus view move codex 1 --at 1       # 세션을 패널 1 의 첫 자리로
@@ -415,6 +415,7 @@ nexus view focus 2                   # 패널 2 를 활성 패널로 (에이전�
 nexus view group workspace           # 에이전트 뷰 목록을 워크스페이스별로 묶기 (status 로 상태별, 인자 없으면 지금 묶기)
 ```
 
+- `view layout` 은 로컬 탭에 워크스페이스 이름, 원격 탭에 기기 이름을 붙이고 각 패널에서 보이는 탭에 `*` 를 표시합니다.
 - 패널은 `view layout` 의 번호, id, `.`(이 세션이 든 패널, 없으면 활성 패널), 또는 그 안의 세션 이름으로 고릅니다.
 - 세션은 탭처럼 이름 · id 로 고릅니다. 에이전트 뷰에 든 세션을 먼저 찾고, 없으면 이 워크스페이스(또는 `--workspace`)의 탭에서 찾습니다.
 - `view open` 과 `view agents` 만 에이전트 뷰를 띄웁니다. 나머지는 보이는 화면과 활성 패널을 그대로 둡니다.

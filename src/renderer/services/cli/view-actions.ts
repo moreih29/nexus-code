@@ -1,6 +1,6 @@
 /**
  * What the nexus CLI reads and changes of the agent view: whether the
- * window shows it, and its panels and the sessions each holds.
+ * window shows it, and its panels and the tabs each holds.
  *
  * As with ./actions, nothing here takes keyboard focus, except for showing
  * a view or a panel, which is what the command asks for.
@@ -9,14 +9,20 @@
 import { Grid } from "@/engine";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
-import { useTabsStore } from "@/state/stores/tabs";
-import type { CliUiOp, CliViewAgent } from "../../../shared/cli/ui";
+import { type RemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
+import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import { basename } from "@/utils/path";
+import type { CliAgentView, CliUiOp, CliViewAgent, CliViewHeldTab } from "../../../shared/cli/ui";
+import { toSlashPath } from "../../../shared/fs/drive-path";
+import { parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
+import type { RemoteFileSnapshot } from "../../../shared/types/agent-view";
 import { sessionKey } from "../agent-sessions/model";
 import {
   type AgentLayout,
   closeLeaf,
   heldKeys,
   openKey,
+  parseRemoteSessionKey,
   parseSessionKey,
   placeKey,
   removeKey,
@@ -35,14 +41,60 @@ import { toCli } from "./layout-actions";
 
 type ViewOp = Extract<CliUiOp, `agentView.${string}`>;
 
-function agentsHeld(): CliViewAgent[] {
-  const tabs = useTabsStore.getState().byWorkspace;
-  return heldKeys(useAgentViewStore.getState().root).flatMap((key) => {
+function describeTabs(
+  keys: readonly string[],
+  tabs: Record<string, Record<string, Tab>>,
+  remoteFiles: ReadonlyMap<string, RemoteFileSnapshot>,
+  remoteTargets: ReadonlyMap<string, RemoteTarget>,
+): Pick<CliAgentView, "agents" | "held"> {
+  const agents: CliViewAgent[] = [];
+  const held: CliViewHeldTab[] = [];
+  for (const key of keys) {
     const session = parseSessionKey(key);
-    const tab = session ? tabs[session.workspaceId]?.[session.tabId] : undefined;
-    if (!session || !tab || !holdsInAgentView(tab.type)) return [];
-    return [{ key, ...session, title: tab.title, type: tab.type }];
-  });
+    if (session) {
+      const tab = tabs[session.workspaceId]?.[session.tabId];
+      if (tab?.type === "editor") {
+        const path = tab.props.filePath;
+        held.push({
+          key,
+          kind: "file",
+          workspaceId: session.workspaceId,
+          title: basename(path),
+          path,
+        });
+      } else if (tab && holdsInAgentView(tab.type)) {
+        agents.push({ key, ...session, title: tab.title, type: tab.type });
+      }
+      continue;
+    }
+
+    const file = parseRemoteFileKey(key);
+    if (file) {
+      held.push({
+        key,
+        kind: "remote-file",
+        workspaceId: file.workspaceId,
+        title: basename(toSlashPath(file.path)),
+        device: remoteFiles.get(key)?.deviceName || file.deviceId.slice(0, 8),
+        path: file.path,
+      });
+      continue;
+    }
+
+    const remote = parseRemoteSessionKey(key);
+    if (remote) {
+      const target = remoteTargets.get(key);
+      held.push({
+        key,
+        kind: "remote-session",
+        workspaceId: remote.workspaceId,
+        title: target?.title || remote.tabId.slice(0, 8),
+        device: target?.deviceName || remote.deviceId.slice(0, 8),
+        ...(target?.path ? { path: target.path } : {}),
+      });
+    }
+  }
+  return { agents, held };
 }
 
 function panelOf(panelId: string) {
@@ -53,13 +105,18 @@ function panelOf(panelId: string) {
 
 export const viewHandlers: { [K in ViewOp]: CliUiHandler<K> } = {
   "agentView.get": async () => {
-    const { mode, root, activeLeafId, grouping } = useAgentViewStore.getState();
+    const { mode, root, activeLeafId, grouping, remoteFiles } = useAgentViewStore.getState();
     return {
       view: mode === "agents" ? "agents" : "workspaces",
       grouping,
       root: toCli(root),
       activePanelId: activeLeafId,
-      agents: agentsHeld(),
+      ...describeTabs(
+        heldKeys(root),
+        useTabsStore.getState().byWorkspace,
+        remoteFiles,
+        useRemoteViewStore.getState().targets,
+      ),
     };
   },
 
