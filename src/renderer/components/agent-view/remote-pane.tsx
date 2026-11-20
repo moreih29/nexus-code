@@ -708,14 +708,14 @@ function RemoteChatView({
   );
 
   // Its images, files and changes are read from that computer, shown in this app's quick look.
-  const mediaAccess = usePeerChatAccess(deviceId, visible);
+  const mediaAccess = usePeerChatAccess(deviceId);
   const loadImage = useMemo(
-    () => peerImageLoader({ deviceId, workspaceId, tabId }, mediaAccess),
-    [deviceId, workspaceId, tabId, mediaAccess],
+    () => peerImageLoader({ deviceId, workspaceId, tabId }, mediaAccess, visible),
+    [deviceId, workspaceId, tabId, mediaAccess, visible],
   );
   const files = useMemo(
-    () => peerChatFiles({ deviceId, workspaceId }, mediaAccess),
-    [deviceId, workspaceId, mediaAccess],
+    () => peerChatFiles({ deviceId, workspaceId }, mediaAccess, visible),
+    [deviceId, workspaceId, mediaAccess, visible],
   );
   // That computer's workspace, as the previews read it, at its folder there.
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);

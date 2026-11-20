@@ -2,15 +2,23 @@
 // scopes both settled entries and requests that have yet to answer.
 
 import { useCallback, useSyncExternalStore } from "react";
+import type { RemoteAccountState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import { createKeyedListenerBus, createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import type { ChatFiles } from "../chat/chat-files";
-import type { ImageBlock, ImageLoader, RemoteImageRef } from "../chat/model";
+import {
+  type ChatMediaAccess,
+  type ImageBlock,
+  type ImageLoader,
+  type RemoteImageRef,
+  remoteImageKey,
+} from "../chat/model";
 
 interface Access {
   id: number;
   cacheId: number;
+  scopeId: number;
   signal: AbortSignal;
 }
 
@@ -177,23 +185,34 @@ const folderNames = peerReads<ReadonlySet<string>>({
 // The host limits concurrent whole-file image reads and queues only a few.
 const pictures = peerReads<ImageBlock>(undefined, 8);
 
-function imageKey(ref: RemoteImageRef): string {
-  const id = ref.kind === "user" ? ref.itemKey : ref.kind === "tool" ? ref.toolUseId : ref.id;
-  return JSON.stringify([ref.kind, id, ref.index]);
+function mediaAccess(
+  access: Access | null,
+  target: readonly string[],
+  visible: boolean,
+): ChatMediaAccess | null {
+  return (
+    access && {
+      scope: JSON.stringify([access.scopeId, ...target]),
+      signal: access.signal,
+      visible,
+    }
+  );
 }
 
 export function peerImageLoader(
   target: { deviceId: string; workspaceId: string; tabId: string },
   access: Access | null,
+  visible = true,
 ): ImageLoader {
-  const key = (ref: RemoteImageRef) =>
-    JSON.stringify([target.deviceId, target.workspaceId, target.tabId, IMAGE_EDGE, imageKey(ref)]);
+  const site = [target.deviceId, target.workspaceId, target.tabId];
+  const current = visible ? access : null;
+  const key = (ref: RemoteImageRef) => JSON.stringify([...site, IMAGE_EDGE, remoteImageKey(ref)]);
   return Object.assign(
     (image: ImageBlock) => {
       const ref = image.remote;
       if (!ref || image.data) return Promise.resolve(image);
       return attachments
-        .read(access, key(ref), async (signal, known) => {
+        .read(current, key(ref), async (signal, known) => {
           const result = await ipcCallResult(
             "remote",
             "peerChatImage",
@@ -223,8 +242,9 @@ export function peerImageLoader(
         .then(({ image }) => image);
     },
     {
+      access: mediaAccess(access, site, visible),
       subscribe: (ref: RemoteImageRef, listener: (image: ImageBlock | null) => void) =>
-        attachments.subscribe(access, key(ref), (next) => listener(next?.image ?? null)),
+        attachments.subscribe(current, key(ref), (next) => listener(next?.image ?? null)),
     },
   );
 }
@@ -240,20 +260,23 @@ function splitPath(path: string): { dir: string; name: string } | null {
 export function peerChatFiles(
   { deviceId, workspaceId }: { deviceId: string; workspaceId: string },
   access: Access | null,
+  visible = true,
 ): ChatFiles {
   const where = { deviceId, workspaceId };
+  const current = visible ? access : null;
   const key = (path: string) => JSON.stringify([deviceId, workspaceId, path]);
   const namesIn = (path: string) =>
-    folderNames.read(access, key(path), async (signal) => {
+    folderNames.read(current, key(path), async (signal) => {
       const result = await ipcCallResult("remote", "peerFilesList", { ...where, path }, { signal });
       if (!result.ok) throw new Error(result.message);
       return new Set(result.value.entries.filter((e) => e.kind !== "dir").map((e) => e.name));
     });
   return {
-    epoch: access?.id ?? null,
-    connection: access?.cacheId ?? null,
+    access: mediaAccess(access, [deviceId, workspaceId], visible),
+    epoch: current?.id ?? null,
+    connection: current?.cacheId ?? null,
     async there(paths) {
-      if (!access || access.signal.aborted) return new Set<string>();
+      if (!current || current.signal.aborted) return new Set<string>();
       const byDir = new Map<string, { path: string; name: string }[]>();
       for (const path of paths) {
         const parts = splitPath(path);
@@ -266,7 +289,7 @@ export function peerChatFiles(
       // starting an IPC for every directory at once.
       const dirs = [...byDir];
       const found = new Set<string>();
-      for (let i = 0; i < dirs.length && !access.signal.aborted; i += MAX_ACTIVE) {
+      for (let i = 0; i < dirs.length && !current.signal.aborted; i += MAX_ACTIVE) {
         await Promise.all(
           dirs.slice(i, i + MAX_ACTIVE).map(async ([dir, entries]) => {
             const names = await namesIn(dir).catch(() => null);
@@ -276,10 +299,10 @@ export function peerChatFiles(
           }),
         );
       }
-      return access.signal.aborted ? new Set() : new Set(paths.filter((path) => found.has(path)));
+      return current.signal.aborted ? new Set() : new Set(paths.filter((path) => found.has(path)));
     },
     picture(path) {
-      return pictures.read(access, key(path), async (signal) => {
+      return pictures.read(current, key(path), async (signal) => {
         // Main checks the current file and its access on every distinct read.
         const result = await ipcCallResult(
           "remote",
@@ -294,7 +317,7 @@ export function peerChatFiles(
       });
     },
     subscribePicture(path, listener) {
-      return pictures.subscribe(access, key(path), listener);
+      return pictures.subscribe(current, key(path), listener);
     },
   };
 }
@@ -302,6 +325,7 @@ export function peerChatFiles(
 interface WatchedPeer {
   listeners: ReturnType<typeof createListenerBus<void>>;
   connection: string | null;
+  reads: string | null;
   controller?: AbortController;
   access: Access | null;
 }
@@ -311,7 +335,7 @@ let room: RoomState | null = null;
 let nextAccess = 0;
 let stopWatching: (() => void) | undefined;
 
-function reset(peer: WatchedPeer, connection: string | null) {
+function reset(peer: WatchedPeer, connection: string | null, reads: string | null = null) {
   const previous = peer.access;
   const foreground = previous !== null && connection === peer.connection;
   if (previous) {
@@ -322,21 +346,24 @@ function reset(peer: WatchedPeer, connection: string | null) {
   }
   const controller = connection === null ? undefined : new AbortController();
   const id = ++nextAccess;
+  // Mounted views can keep their last result through a rejoin while read access lasts.
+  const scopeId = previous && peer.reads === reads ? previous.scopeId : id;
   peer.controller = controller;
   peer.connection = connection;
+  peer.reads = reads;
   peer.access = controller
-    ? { id, cacheId: foreground ? previous.cacheId : id, signal: controller.signal }
+    ? { id, cacheId: foreground ? previous.cacheId : id, scopeId, signal: controller.signal }
     : null;
   peer.listeners.notify(undefined);
 }
 
 function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
   const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
-  const connection = peer?.online
-    ? JSON.stringify([peer.rejoins ?? 0, peer.schema, peer.serves?.slice().sort()])
-    : null;
+  const serves = peer?.serves?.slice().sort();
+  const connection = peer?.online ? JSON.stringify([peer.rejoins ?? 0, peer.schema, serves]) : null;
   if (connection !== watcher.connection || (refresh && connection !== null)) {
-    reset(watcher, connection);
+    const reads = serves?.filter((method) => method === "chat.read" || method === "files");
+    reset(watcher, connection, JSON.stringify(reads ?? ["chat.read", "files"]));
   }
 }
 
@@ -351,15 +378,16 @@ function listenForAccess() {
   let live = true;
   let roomTold = false;
   let account: string | null | undefined;
+  const accountId = (state: RemoteAccountState) =>
+    state.status === "signed-in"
+      ? JSON.stringify([state.server, state.user.id, state.device.id])
+      : null;
   const offRoom = ipcListen("remote", "roomChanged", (next) => {
     roomTold = true;
     applyRoom(next);
   });
   const offAccount = ipcListen("remote", "accountChanged", (next) => {
-    const id =
-      next.status === "signed-in"
-        ? JSON.stringify([next.server, next.user.id, next.device.id])
-        : null;
+    const id = accountId(next);
     if (id === null || (account !== undefined && account !== id)) {
       roomTold = true;
       applyRoom(null);
@@ -371,6 +399,11 @@ function listenForAccess() {
   };
   window.addEventListener("focus", foreground);
   document.addEventListener("visibilitychange", foreground);
+  void ipcCallResult("remote", "account", undefined)
+    .then((result) => {
+      if (live && account === undefined && result.ok) account = accountId(result.value);
+    })
+    .catch(() => {});
   void ipcCallResult("remote", "room", undefined)
     .then((result) => {
       if (live && !roomTold && result.ok) applyRoom(result.value);
@@ -390,6 +423,7 @@ export function watchPeerChatAccess(deviceId: string, notify: () => void): () =>
   const peer = watched.get(deviceId) ?? {
     listeners: createListenerBus(),
     connection: null,
+    reads: null,
     access: null,
   };
   watched.set(deviceId, peer);
@@ -414,14 +448,11 @@ export function peerChatAccess(deviceId: string): Access | null {
   return watched.get(deviceId)?.access ?? null;
 }
 
-export function usePeerChatAccess(deviceId: string, visible: boolean): Access | null {
+export function usePeerChatAccess(deviceId: string): Access | null {
   const subscribe = useCallback(
     (notify: () => void) => watchPeerChatAccess(deviceId, notify),
     [deviceId],
   );
-  const snapshot = useCallback(
-    () => (visible ? peerChatAccess(deviceId) : null),
-    [deviceId, visible],
-  );
+  const snapshot = useCallback(() => peerChatAccess(deviceId), [deviceId]);
   return useSyncExternalStore(subscribe, snapshot);
 }

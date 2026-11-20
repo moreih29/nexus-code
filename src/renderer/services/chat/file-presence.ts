@@ -144,31 +144,31 @@ export function useFoundFiles(
   );
   // Another computer's chat finds them there.
   const files = useChatFiles();
-  const [found, setFound] = useState<{ files: typeof files; paths: ReadonlySet<string> }>(() => ({
-    files,
-    paths: files
-      ? new Set<string>()
-      : new Set(paths.filter((path) => presence.known(workspaceId, path))),
+  const scope = files ? (files.access?.scope ?? null) : undefined;
+  const [found, setFound] = useState<{ scope: typeof scope; paths: ReadonlySet<string> }>(() => ({
+    scope,
+    paths: files ? EMPTY_PATHS : new Set(paths.filter((path) => presence.known(workspaceId, path))),
   }));
+  if (found.scope !== scope) setFound({ scope, paths: EMPTY_PATHS });
   // `key` stands for `paths`, which is a new array each render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` and `outside` only say when to look again
   useEffect(() => {
+    if (files && !files.access?.visible) return;
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
     const looked = files ? files.there(wanted) : filesThere(workspaceId, root, wanted);
     void looked.then((next) => {
-      if (!live) return;
+      if (!live || files?.access?.signal.aborted) return;
       setFound((was) =>
-        was.files === files &&
-        was.paths.size === next.size &&
-        [...next].every((path) => was.paths.has(path))
+        was.scope !== scope ||
+        (was.paths.size === next.size && [...next].every((path) => was.paths.has(path)))
           ? was
-          : { files, paths: next },
+          : { scope, paths: next },
       );
     });
     return () => {
       live = false;
     };
-  }, [workspaceId, root, key, recheck, outside, files]);
-  return found.files === files ? found.paths : EMPTY_PATHS;
+  }, [workspaceId, root, key, recheck, outside, files, scope]);
+  return found.scope === scope ? found.paths : EMPTY_PATHS;
 }

@@ -18,7 +18,7 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
   const { at, before, compareFrom, mode, compare, workspaceRoot = "" } = details ?? {};
   const { directory, fileName } = workspacePathParts(path, workspaceRoot);
   const view = useFileLookView(path, { at, before, mode, compare });
-  const access = usePeerChatAccess(deviceId, true);
+  const access = usePeerChatAccess(deviceId);
   const files = useMemo(
     () => peerChatFiles({ deviceId, workspaceId }, access),
     [deviceId, workspaceId, access],

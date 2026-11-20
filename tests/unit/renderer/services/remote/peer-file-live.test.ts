@@ -158,7 +158,7 @@ describe("a file of another computer's, kept current", () => {
       if (epoch === undefined) return renderToStaticMarkup(image);
       const files = peerChatFiles(
         { deviceId: "d1", workspaceId: "w1" },
-        { id: epoch, cacheId: 1, signal: new AbortController().signal },
+        { id: epoch, cacheId: 1, scopeId: 1, signal: new AbortController().signal },
       );
       return renderToStaticMarkup(
         createElement(ChatFilesContext.Provider, { value: files }, image),

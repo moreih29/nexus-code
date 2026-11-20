@@ -35,8 +35,23 @@ export type RemoteImageRef =
   | { kind: "tool"; toolUseId: string; index: number }
   | { kind: "held"; id: string; index: number };
 
+export function remoteImageKey(ref: RemoteImageRef): string {
+  const id = ref.kind === "user" ? ref.itemKey : ref.kind === "tool" ? ref.toolUseId : ref.id;
+  return JSON.stringify([ref.kind, id, ref.index]);
+}
+
+export interface ChatMediaAccess {
+  /** Identifies what can stay on screen while the next read runs. */
+  scope: string;
+  /** The current read generation. Its replies are ignored after abort. */
+  signal: AbortSignal;
+  /** Hidden panels keep their last result and pause new reads. */
+  visible: boolean;
+}
+
 export interface ImageLoader {
   (image: ImageBlock): Promise<ImageBlock>;
+  access: ChatMediaAccess | null;
   subscribe(ref: RemoteImageRef, listener: (image: ImageBlock | null) => void): () => void;
 }
 
