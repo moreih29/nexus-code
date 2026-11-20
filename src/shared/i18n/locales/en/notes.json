@@ -111,7 +111,7 @@
     "rememberHint": "When the same voice is heard in a future recording, suggest ‘{{name}}?’. Stored on this computer only.",
     "declinedHint": "You can turn on name suggestions by voice in Settings › Notes.",
     "loading": "Checking remembered voices…",
-    "unavailable": "Secure storage unavailable on this computer",
+    "unavailable": "No secure storage on this computer, so voice memory is off",
     "audioMissing": "This voice can't be remembered because the recording audio is missing.",
     "modelUnavailable": "The voice print model is unavailable on this computer.",
     "saveFailed": "Couldn't remember this voice.",
