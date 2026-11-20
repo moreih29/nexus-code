@@ -34,10 +34,34 @@ export function transcriptLines(
   positions?: readonly number[],
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
+  // A compaction's notice, held while the /compact command's entries pass,
+  // which the log writes after the boundary but which happened before it.
+  let pending: { at: number; line: TranscriptLine; command: boolean } | undefined;
+  const settle = () => {
+    if (pending) lines.splice(pending.at, 0, pending.line);
+    pending = undefined;
+  };
   for (const [index, raw] of entries.entries()) {
-    const seq = positions ? positions[index] + 1 : lines.length + 1;
+    const seq = (positions ? positions[index] : index) + 1;
     const entry = rec(raw);
     if (!entry || entry.isSidechain === true) continue;
+    if (pending) {
+      const text = entry.type === "user" ? textOf(rec(entry.message)?.content) : "";
+      const output = entry.type === "user" && isCommandOutput(text);
+      if (output && pending.command) {
+        lines.push({ ...pending.line, seq });
+        pending = undefined;
+        continue;
+      }
+      if (entry.type === "user" && typedCommand(text) !== null) pending.command = true;
+      else if (
+        !output &&
+        !(entry.type === "user" && entry.isCompactSummary === true) &&
+        !(entry.isMeta === true && text.startsWith("<local-command-caveat>"))
+      ) {
+        settle();
+      }
+    }
     // A message that came while a turn ran is kept apart from the others.
     const queued = queuedLine(entry, seq);
     if (queued) {
@@ -56,12 +80,17 @@ export function transcriptLines(
     // tab shows the compaction as a notice, as it does live.
     if (entry.type === "user" && entry.isCompactSummary === true) continue;
     if (entry.type === "system" && entry.subtype === "compact_boundary") {
-      lines.push({
-        seq,
-        dir: "out",
-        replay: true,
-        message: { type: "system", subtype: "compact_boundary", timestamp: entry.timestamp },
-      });
+      settle();
+      pending = {
+        at: lines.length,
+        command: false,
+        line: {
+          seq,
+          dir: "out",
+          replay: true,
+          message: { type: "system", subtype: "compact_boundary", timestamp: entry.timestamp },
+        },
+      };
       continue;
     }
     const goal = goalLine(entry, seq);
@@ -117,6 +146,7 @@ export function transcriptLines(
       });
     }
   }
+  settle();
   return lines;
 }
 

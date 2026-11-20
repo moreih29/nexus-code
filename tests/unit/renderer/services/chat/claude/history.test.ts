@@ -228,6 +228,52 @@ describe("chat history cuts", () => {
     expect(JSON.stringify(items)).not.toContain("being continued");
   });
 
+  test("a compaction the user ran shows its command first, then the notice, as live", () => {
+    const entries = [
+      { type: "user", uuid: "u1", message: { role: "user", content: "one" } },
+      { type: "system", subtype: "compact_boundary", uuid: "b1" },
+      {
+        type: "user",
+        uuid: "s1",
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued from a previous one." },
+      },
+      {
+        type: "user",
+        uuid: "c0",
+        isMeta: true,
+        message: { role: "user", content: "<local-command-caveat>Caveat</local-command-caveat>" },
+      },
+      {
+        type: "user",
+        uuid: "c1",
+        message: {
+          role: "user",
+          content:
+            "<command-name>/compact</command-name><command-message>compact</command-message><command-args>keep tests</command-args>",
+        },
+      },
+      {
+        type: "user",
+        uuid: "c2",
+        message: {
+          role: "user",
+          content: "<local-command-stdout>Compacted </local-command-stdout>",
+        },
+      },
+      { type: "attachment", uuid: "x1" },
+      { type: "user", uuid: "u2", message: { role: "user", content: "two" } },
+    ];
+    const items = applyTranscriptLines(
+      transcriptLines(
+        entries,
+        entries.map((_, i) => i * 100),
+      ),
+    ).items;
+    expect(items.map((i) => i.kind)).toEqual(["user", "user", "notice", "user"]);
+    expect((items[1] as { text?: string }).text).toBe("/compact keep tests");
+  });
+
   test("no cut keeps it all", () => {
     expect(texts(historyModel(ENTRIES))).toEqual([
       "user:one",
