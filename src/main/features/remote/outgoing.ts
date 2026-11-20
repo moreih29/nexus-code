@@ -1,6 +1,6 @@
 /** Paces all sealed frames on one relay socket, before they get sequence numbers. */
-export const SEND_FRAMES_PER_SECOND = 40;
-export const SEND_FRAME_BURST = 150;
+export const SEND_FRAMES_PER_SECOND = 160;
+export const SEND_FRAME_BURST = 800;
 export const RATE_LIMIT_COOLDOWN_MS = 1_000;
 const FRAME_STALL_MS = 5_000;
 const QUEUE_LIMIT = 150;

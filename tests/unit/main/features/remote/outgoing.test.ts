@@ -1,21 +1,15 @@
 import { expect, jest, test } from "bun:test";
 import { setImmediate as flush } from "node:timers/promises";
-import {
-  FramePriority,
-  OutgoingFrames,
-  SEND_FRAME_BURST,
-  SEND_FRAMES_PER_SECOND,
-} from "../../../../../src/main/features/remote/outgoing";
+import { FramePriority, OutgoingFrames } from "../../../../../src/main/features/remote/outgoing";
 
-test("priority frames overtake a bulk backlog within the relay frame budget", async () => {
-  jest.useFakeTimers();
+test("priority frames overtake and displace bulk frames in a full queue", async () => {
   const dropped = jest.fn();
   const queue = new OutgoingFrames(dropped, () => {});
   const sent: string[] = [];
   const enqueue = (priority: FramePriority, label: string) =>
     queue.push({ priority, send: async () => sent.push(label) });
   try {
-    for (let i = 0; i < SEND_FRAME_BURST; i++) void enqueue(FramePriority.Data, "data");
+    for (let i = 0; i < 150; i++) void enqueue(FramePriority.Data, "data");
     void enqueue(FramePriority.Watch, "watch");
     void enqueue(FramePriority.Request, "request");
     void enqueue(FramePriority.Reply, "reply");
@@ -23,22 +17,44 @@ test("priority frames overtake a bulk backlog within the relay frame budget", as
     await flush();
     expect(sent.slice(0, 5)).toEqual(["hello", "reply", "request", "watch", "data"]);
     expect(dropped).toHaveBeenCalledTimes(4);
-    expect(sent.length).toBeLessThan(SEND_FRAME_BURST);
+    expect(sent).toHaveLength(150);
+  } finally {
+    queue.close();
+  }
+});
 
-    for (let i = 0; i < 90; i++) void enqueue(FramePriority.Data, "next");
-    const priority = enqueue(FramePriority.Reply, "new reply");
-    await flush();
-    expect(await priority).not.toBeNull();
-    expect(sent.at(-1)).toBe("new reply");
-    for (let elapsed = 100; elapsed <= 3_000; elapsed += 100) {
-      jest.advanceTimersByTime(100);
+test("the relay allows an 800-frame burst and then refills at 160 frames per second", async () => {
+  jest.useFakeTimers();
+  const dropped = jest.fn();
+  const queue = new OutgoingFrames(dropped, () => {});
+  let sent = 0;
+  const enqueue = (count: number) =>
+    Array.from({ length: count }, () =>
+      queue.push({ priority: FramePriority.Request, send: async () => ++sent }),
+    );
+  try {
+    // Drain between batches so that the pending queue never fills while spending the burst.
+    for (let batch = 1; batch <= 8; batch++) {
+      const frames = enqueue(100);
       await flush();
-      expect(sent.length).toBeLessThanOrEqual(
-        SEND_FRAME_BURST + (elapsed * SEND_FRAMES_PER_SECOND) / 1000,
-      );
+      expect(sent).toBe(batch * 100);
+      await Promise.all(frames);
     }
-    expect(queue.size).toBe(0);
-    expect(sent).toHaveLength(241);
+
+    const first = enqueue(100);
+    await flush();
+    expect(sent).toBe(800);
+
+    jest.advanceTimersByTime(500);
+    await flush();
+    expect(sent).toBe(880);
+
+    const second = enqueue(60);
+    jest.advanceTimersByTime(500);
+    await flush();
+    expect(sent).toBe(960);
+    expect(dropped).not.toHaveBeenCalled();
+    await Promise.all([...first, ...second]);
   } finally {
     queue.close();
     jest.useRealTimers();
