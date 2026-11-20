@@ -63,6 +63,8 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus note add <노트> <파일...> [--under 제목]` | 이 컴퓨터의 파일 넣기. 이미지(png, jpg, gif, webp)는 `screens/` 로 보이게, 그 밖은 `materials/` 로 첨부 |
 | `nexus note record [노트] [--pause\|--resume\|--stop]` | 노트에 녹음 시작, 또는 일시정지·재개·정지. 아무것도 없으면 지금 녹음 상태와 녹음할 수 있는지 |
 
+예를 들어 `nexus note transcript NOTE --recording RECORDING --json`은 `recordings[].lines[]`에 줄 id, 시작·끝 ms, 화자 키·라벨, 확정된 이름과 텍스트를 반환합니다. `nexus note record NOTE --participants 3`으로 참석자 수를 지정하고 `auto`로 자동 설정을 선택할 수 있습니다. 녹음 동의는 사용자에게 묻습니다.
+
 노트는 워크스페이스 폴더가 아니라 앱 데이터 폴더에 워크스페이스 위치별로 보관됩니다. 그림·이미지·파일은 노트 폴더 안의 `sketches/`·`screens/`·`materials/` 상대 경로로, 파일 트리에서 끌어 온 워크스페이스 파일은 `workspace:<경로>` 로 링크됩니다. 로컬 워크스페이스의 터미널에서는 `note read` 끝에 노트 폴더 경로가 함께 나옵니다. SSH·WSL 워크스페이스의 터미널에서는 그 폴더를 열 수 없으므로 `note read` 로 읽습니다. 녹음한 노트의 원문은 녹음마다 `[시각] 화자: 말` 한 줄씩이고, 화자는 사용자가 붙인 이름(없으면 `Speaker 1`)으로 나옵니다. 같은 내용이 노트 폴더의 `transcript.md` 에도 있습니다.
 
 쓰기는 덧붙이기만 합니다. 노트에 있던 내용을 고치거나 지우지 않습니다. `note write` 의 마크다운은 노트의 블록이 됩니다(제목은 3단계까지, 할 일 목록, 코드, 인용. 표는 노트에 표가 없어 그 마크다운 그대로 코드 블록으로). 그 안의 이 컴퓨터 이미지(`![설명](out/chart.png)`, 명령을 실행한 터미널 기준 경로)는 노트 폴더로 복사해 보여주고, 웹 이미지는 링크로 남깁니다. 노트가 편집기에 열려 있어도 같은 자리에 들어갑니다. 다른 워크스페이스의 노트를 만들고 쓰는 것은 **다른 워크스페이스 변경** 설정을 따릅니다.
@@ -119,6 +121,7 @@ nexus chat interrupt 3fa2                                # 진행 중인 턴 멈
 nexus chat set 3fa2                                      # 지금 모델 · 추론 강도 · 권한 모드와 고를 수 있는 값
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
+nexus chat profiles --agent codex --workspace WS --json
 nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
 nexus chat send 3fa2 --after "끝나면 PR 올려줘"           # 턴이 끝날 때까지 보류 (id 출력)
 nexus chat send 3fa2 --now "그거 말고 이거부터"           # 턴 중에 바로 넣기 (Claude)
@@ -127,6 +130,7 @@ nexus chat panel 3fa2                                    # 옆 패널: 할 일 �
 nexus chat unsend 3fa2 r7                                # 보류 메시지 회수 (#번호면 아직 안 읽은 메시지 회수)
 nexus chat edit 3fa2 r7 "PR 말고 커밋만"                  # 보류 메시지 고치기
 nexus chat rewind 3fa2 12 --files                        # #12 메시지 전으로 대화와 파일 되감기
+nexus chat rewind 3fa2 12 --preview                     # Claude와 Codex의 대화 되감기 확인
 nexus chat fork 3fa2 12                                  # 대화를 새 탭으로 복사 (#12 까지)
 nexus chat background 3fa2 15                            # 실행 중인 #15 명령 · 서브에이전트를 백그라운드로
 nexus chat stop-task 3fa2 b12                            # 백그라운드 작업 멈추기
@@ -152,15 +156,15 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - `chat panel` 은 탭 옆 패널의 내용입니다: 목표, 할 일, 작업(백그라운드 실행, `chat stop-task` 가 받는 id), 서브에이전트, 바뀐 파일, 컨텍스트 · 비용 · 플랜 사용량, MCP 서버, 원격 제어, 보류 메시지. 로그인한 계정은 보이지 않습니다.
 - 작업 패널의 백그라운드 명령은 현재 실행에서 수집하며, 앱을 재시작하면 대화 기록에서 복원되지 않습니다.
 - `chat unsend <탭> <id|번호>` 는 보류 메시지를 id 로 회수하고 그 내용을 출력합니다. 번호를 주면 턴 중에 보내 아직 읽지 않은 메시지(`chat read` 에 `(unread)` 로 표시)를 회수합니다(Claude 탭만). 이미 읽었으면 종료 코드 1 입니다.
-- `chat rewind <탭> <번호>` 는 되감기 버튼과 같습니다. 그 메시지 전으로 대화를, `--files` 면 그 뒤 Claude 가 바꾼 파일도 되돌립니다. `--preview` 는 되돌릴 파일만 보여줍니다. 턴 중에는 안 되고, 사용자에게 매번 묻습니다(Claude 탭만).
-- `chat fork <탭> [번호]` 는 대화를 새 탭(뒤쪽)으로 복사합니다. 번호가 없으면 전부, 답변 번호면 그 답변까지, 메시지 번호면 그 메시지 전까지입니다. 메시지에서 갈라내면 그 메시지는 보내지 않고 출력합니다(Claude 탭만).
+- `chat rewind <탭> <번호>` 는 되감기 버튼과 같습니다. 그 메시지 전으로 대화를, `--files` 면 그 뒤 Claude 가 바꾼 파일도 되돌립니다. `--preview`로 대상을 확인할 수 있습니다. 턴이 끝난 뒤 사용자 승인으로 되감습니다.
+- `chat fork <탭> [번호]` 는 대화를 새 탭(뒤쪽)으로 복사합니다. 번호가 없으면 전부, 답변 번호면 그 답변까지, 메시지 번호면 그 메시지 전까지입니다. 메시지에서 갈라내면 그 메시지는 보내지 않고 출력합니다.
 - `chat background` 는 실행 중인 명령 · 서브에이전트를 백그라운드로 보내고, `chat stop-task` 는 백그라운드 작업을 멈춥니다(Claude 탭만).
 - `chat remote-control <탭> on|off` 는 패널의 원격 제어 스위치입니다. Claude 탭을 claude.ai 와 Claude 앱에서 조작할 수 있게 켜거나 끕니다. 같은 워크스페이스는 바로, 다른 워크스페이스는 에이전트의 변경 정책을 따릅니다.
 - `chat commands` 는 다른 기기에서 쓸 수 있는 슬래시 명령 목록이고, `chat command <탭> <명령> [인자]` 로 실행합니다. 에이전트 자신의 명령은 메시지로 가고, 앱의 명령은 그 결과를 출력합니다. 모델 · 강도는 `chat set` 으로 바꿉니다.
 - `chat history [검색어]` 는 워크스페이스 폴더의 지난 대화를 최신순으로 보여주고(`--agent codex`, `--limit N`), `chat resume <id>` 는 그 대화를 새 탭(뒤쪽)에서 이어갑니다. id 는 앞부분만 줘도 됩니다. 이미 열린 탭이 있으면 그 탭을 알려주고, `--tab` 이면 대화가 없는 그 탭에서 이어갑니다.
 - 다른 컴퓨터(`--device`)에는 `chat send` 의 `--now` 까지만 됩니다. 그 컴퓨터는 에이전트가 보낸 메시지를 턴이 끝날 때까지 보류하지 않으므로, `--after` 는 보내기 전에 거절합니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
-- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. 두 명령은 세션 지시를 다룰 때 `--device` 를 받지 않습니다.
+- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. 두 명령에서 세션 지시 파일은 로컬 작업에 사용합니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 묻지 않고 더 많이 실행하게 바꾸는 모드(예: `plan` → `acceptEdits`)는 사용자에게 확인 창으로 묻습니다. 모두 허용하는 모드(`bypassPermissions`, `fullAccess`)는 사용자만 탭에서 고릅니다. 자기 탭의 설정은 바꾸지 않습니다.
@@ -168,6 +172,8 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - 다른 워크스페이스의 탭은 `--workspace` 로 고릅니다.
 
 Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책을 따릅니다. `chat command TAB remote-control`은 토글이고, `chat remote-control TAB on` 또는 `off`로 상태를 지정할 수 있습니다. 상대 기기의 에이전트는 `chat send TAB --device DEVICE /remote-control`로 토글하며, 받는 기기의 원격 에이전트 정책이 적용됩니다.
+
+`chat profiles`는 이름, id, 에이전트, 폴더 경로와 워크스페이스 기본 선택을 반환합니다. `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 
 ## 세션들의 변화 따라가기
 
@@ -182,6 +188,8 @@ nexus events --workspace api --limit 20
 - 변화는 시작(일을 하며 나타남), 상태 바뀜(working, asking, idle, completed, error, ...), 닫힘이고, 마지막 답변이나 질문이 함께 나옵니다. 자기 세션의 변화에는 `(you)` 가 붙습니다.
 - 번호는 앱을 켤 때 1부터 다시 셉니다. 앱은 최근 1000개를 갖고 있고, 최신보다 큰 `--since` 는 처음부터 읽습니다.
 - `--wait` 은 최대 30분입니다. 시간이 다 되도록 변화가 없으면 종료 코드 124 입니다. 다시 실행하면 이어서 기다립니다.
+
+`events --wait`는 한 배치씩 반환합니다. 같은 워크스페이스와 기기 옵션으로 마지막으로 처리한 번호 뒤부터 반복해서 조회합니다. 필터에 맞는 사건이 없다면 JSON의 `cursor`에서 이어서 조회할 수 있습니다.
 
 ## 다른 컴퓨터
 
@@ -410,8 +418,11 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 ```bash
 nexus view                           # 지금 보이는 화면 (agents · workspaces)
 nexus view agents                    # 에이전트 뷰로 (view workspaces 로 워크스페이스 화면)
+nexus view layout --json
 nexus view layout                    # 패널 분할 구조와 번호, 패널마다 든 탭과 워크스페이스 또는 기기
 nexus view open codex                # 세션을 에이전트 뷰에 보여주기 (--panel 2 로 그 패널에)
+nexus view open-file README.md --panel 1
+nexus view split right --key KEY
 nexus view split codex right         # 세션을 그 패널 오른쪽 새 패널로 (--of 로 나눌 패널 지정)
 nexus view move codex 1 --at 1       # 세션을 패널 1 의 첫 자리로
 nexus view remove codex              # 세션을 에이전트 뷰에서 빼기 (탭은 워크스페이스에 그대로)
@@ -425,7 +436,8 @@ nexus view group workspace           # 에이전트 뷰 목록을 워크스페�
 - `view layout` 은 로컬 탭에 워크스페이스 이름, 원격 탭에 기기 이름을 붙이고 각 패널에서 보이는 탭에 `*` 를 표시합니다.
 - 패널은 `view layout` 의 번호, id, `.`(이 세션이 든 패널, 없으면 활성 패널), 또는 그 안의 세션 이름으로 고릅니다.
 - 세션은 탭처럼 이름 · id 로 고릅니다. 에이전트 뷰에 든 세션을 먼저 찾고, 없으면 이 워크스페이스(또는 `--workspace`)의 탭에서 찾습니다.
-- `view open` 과 `view agents` 만 에이전트 뷰를 띄웁니다. 나머지는 보이는 화면과 활성 패널을 그대로 둡니다.
+- `view layout --json`의 `shownTabKey`와 탭 키로 파일·원격 탭을 지정할 수 있습니다. `view open/split/move/remove`에서 세션 인자 대신 `--key KEY`를 사용합니다.
+- `view open`, `view open-file`, `view agents`는 에이전트 뷰를 띄웁니다. `view open-file`에는 `open`과 같은 워크스페이스 경로 규칙을 적용합니다.
 
 ## 다른 워크스페이스 바꾸기
 
@@ -451,6 +463,7 @@ nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 �
 nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이면 시스템 기본)
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings reset editor.fontSize        # 기본값으로
+nexus settings instructions show --workspace WS --agent codex --json
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
 
@@ -463,7 +476,7 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
 - 앱 전체 설정이라 묻지 않습니다. 단, "다른 워크스페이스 변경" 과 "nexus 명령 허용" 은 사용자만 설정 창에서 바꿀 수 있습니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
-- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `agent` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

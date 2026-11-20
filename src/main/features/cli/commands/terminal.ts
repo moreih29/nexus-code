@@ -203,7 +203,7 @@ function stateText(row: TerminalRow): string {
 
 const tabList: CliCommand = {
   path: ["tab", "list"],
-  summary: "List a workspace's tabs: terminals, editors, diffs and browsers",
+  summary: "List a workspace's tabs, including chats, notes and terminals",
   details: 'An editor with changes not saved is marked "(unsaved)".',
   flags: {
     workspace: WORKSPACE_FLAG,

@@ -32,7 +32,9 @@ const NAMES_HELP =
 function panelNamed(word: string): { panel: CliPanel; mode?: CliFilesMode } {
   const named = NAMES[word.toLowerCase()];
   if (!named)
-    throw new CliUsageError(`no panel "${word}"; there are sidebar, files, search, git and agents`);
+    throw new CliUsageError(
+      `no panel "${word}"; there are sidebar, files, search, git, agents and notes`,
+    );
   return named;
 }
 

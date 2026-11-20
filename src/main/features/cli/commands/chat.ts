@@ -1156,13 +1156,9 @@ const chatInstructions: CliCommand = {
     },
     clear: { type: "boolean", description: "Clear the session layer" },
     workspace: WORKSPACE_FLAG,
-    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
-    if (deviceFlag(flags) !== undefined) {
-      throw new CliUsageError("chat instructions goes to this computer's tabs; omit --device");
-    }
     const show = flags.show === true;
     const file = flags["set-file"] as string | undefined;
     const clear = flags.clear === true;

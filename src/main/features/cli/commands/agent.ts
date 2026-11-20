@@ -17,15 +17,15 @@ const SESSION_FLAGS = {
   tab: {
     type: "string",
     value: "TAB",
-    description: "The terminal whose session it is (id, id prefix or title); this one by default",
+    description: "A terminal's id, id prefix or title. Omit for the calling terminal or chat tab.",
   },
   workspace: WORKSPACE_FLAG,
 } as const;
 
 const SESSION_DETAILS =
-  "The agents are those of the Claude Code session in this terminal, or in --tab: its\n" +
-  'subagents, and the "claude -p" and "codex exec" runs it starts. In a Codex tab, they are\n' +
-  "the runs its commands start. A run is named by its session id; claude -p --resume <id>\n" +
+  "Lists subagents and print-mode runs of the calling session. --tab selects another terminal;\n" +
+  "use chat panel to see another Claude or Codex tab's agents.\n" +
+  "A run is named by its session id; claude -p --resume <id>\n" +
   '"..." (codex exec resume <id> "...") goes on with it, and is listed as the same run going on.';
 
 const AGENT_DETAILS =

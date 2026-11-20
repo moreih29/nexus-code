@@ -780,7 +780,7 @@ describe("chat instructions", () => {
     expect(
       (await nexus(app, ["chat", "instructions", "eeee", "--show", "--device", "elsewhere"]))
         .stderr,
-    ).toContain("omit --device");
+    ).toContain("unknown flag --device");
     expect(
       (await nexus(app, ["chat", "new", "--instructions-file", "missing", "--device", "elsewhere"]))
         .stderr,
