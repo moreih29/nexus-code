@@ -12,6 +12,7 @@ import type {
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
+import type { InstructionScope } from "../chat/instructions";
 import type { RelaySender } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
@@ -1228,6 +1229,14 @@ export interface CliUiOps {
       participants?: ParticipantCount;
     };
     result: CliRecorder;
+  };
+  /** The persistent instruction layers that apply when starting a new chat. */
+  "settings.instructions": {
+    args: { workspaceId: string; agent: ChatAgent };
+    result: {
+      layers: { scope: InstructionScope; title: string; text: string }[];
+      instructions: string;
+    };
   };
   /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {

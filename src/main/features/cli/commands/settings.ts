@@ -12,9 +12,11 @@ import {
 } from "../../../../shared/cli/settings";
 import type { CliSettingInfo } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError } from "../context";
+import { type CliContext, CliError, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
+import { chatAgentFlag } from "./chat";
+import { WORKSPACE_FLAG } from "./flags";
 
 /** The settings, or the one `key` names (none when it names none). */
 async function listSettings(ctx: CliContext, key?: string): Promise<CliSettingInfo[]> {
@@ -123,10 +125,33 @@ const settingsOpen: CliCommand = {
   },
 };
 
+const settingsInstructions: CliCommand = {
+  path: ["settings", "instructions", "show"],
+  summary: "Show the instruction layers for a new chat and their combined text",
+  details: "The profile comes from the workspace's rules. The agent defaults to Claude.",
+  flags: {
+    workspace: WORKSPACE_FLAG,
+    agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const agent = chatAgentFlag(flags.agent, "claude");
+    const result = await ctx.services.ui("settings.instructions", {
+      workspaceId: workspace.id,
+      agent,
+    });
+    const sources = result.layers.map((layer) => `- ${layer.title}${layer.text ? "" : " (empty)"}`);
+    const text = ["Sources, in order:", ...sources, "", result.instructions || "(no instructions)"];
+    return output(text.join("\n"), { workspaceId: workspace.id, agent, ...result });
+  },
+};
+
 export const settingsCommands: CliCommand[] = [
   settingsList,
   settingsGet,
   settingsSet,
   settingsReset,
   settingsOpen,
+  settingsInstructions,
 ];

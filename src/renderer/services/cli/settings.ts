@@ -5,7 +5,9 @@
 
 import { ipcCallResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
+import { useAgentInstructionsStore } from "@/state/stores/agent-instructions";
 import { useAgentListViewStore } from "@/state/stores/agent-list-view";
+import { resolveWorkspaceProfile } from "@/state/stores/agent-profiles";
 import { useChatFontStore } from "@/state/stores/chat-font";
 import { useEditorFontStore } from "@/state/stores/editor-font";
 import { ICON_THEMES, useIconThemeStore } from "@/state/stores/icon-theme";
@@ -22,7 +24,9 @@ import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
+import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
+import { instructionLayers, mergeAgentInstructions } from "../../../shared/chat/instructions";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
@@ -526,9 +530,24 @@ const named = (key: string) => (setting: CliSetting) =>
   setting.key.toLowerCase() === key.toLowerCase();
 
 export const settingsHandlers: {
+  "settings.instructions": CliUiHandler<"settings.instructions">;
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
+  "settings.instructions": async ({ workspaceId, agent }) => {
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) throw new UiRequestError("that workspace is gone");
+    const { profile } = resolveWorkspaceProfile(agent, workspace, workspaces);
+    const config = useAgentInstructionsStore.getState().config;
+    const target = { agent, workspace, profile };
+    return {
+      layers: instructionLayers(config, target).flatMap(({ scope, title, text }) =>
+        scope ? [{ scope, title, text }] : [],
+      ),
+      instructions: mergeAgentInstructions(config, target),
+    };
+  },
   "settings.list": async ({ key }) => ({
     settings: await Promise.all(
       (key === undefined ? CLI_SETTINGS : CLI_SETTINGS.filter(named(key))).map(settingInfo),
