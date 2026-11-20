@@ -10,16 +10,54 @@ const agentContext: CliCommand = {
   path: ["agent-context"],
   summary: "Print the note on nexus a Claude Code session gets at its start",
   hidden: true,
-  async run(ctx) {
-    if (!ctx.services.agentContextEnabled()) return output("", { note: null });
+  args: "[-]",
+  flags: {
+    launch: { type: "string", value: "ID", description: "The tab's Claude launch" },
+    profile: { type: "string", value: "ID", description: "The terminal's Claude profile" },
+  },
+  async run(ctx, { flags }) {
     const workspace = resolveWorkspace(ctx, undefined);
-    const note = agentContextNote(
-      locationOf(workspace.name, ctx.caller.tabId, "terminal"),
-      ctx.services.remote.inRoom(),
-    );
-    return output(note, { note });
+    const event = hookEvent(ctx.invocation.stdin);
+    const launch = typeof flags.launch === "string" ? flags.launch : "";
+    if (launch && ctx.caller.verified === false) return output("", { note: null });
+    const profile = typeof flags.profile === "string" ? flags.profile : "";
+    const restoresContext =
+      event.hook_event_name === "SessionStart" &&
+      (event.source === "compact" || event.source === "clear");
+    const note =
+      ctx.services.agentContextEnabled() && event.hook_event_name !== "UserPromptSubmit"
+        ? agentContextNote(
+            locationOf(workspace.name, ctx.caller.tabId, launch ? "Claude chat tab" : "terminal"),
+            ctx.services.remote.inRoom(),
+          )
+        : "";
+    const instructions =
+      event.hook_event_name === "UserPromptSubmit"
+        ? launch && ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, false)
+        : launch
+          ? restoresContext &&
+            ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, true)
+          : event.hook_event_name === "SessionStart" &&
+            ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
+    const text = [note, instructions].filter(Boolean).join("\n\n");
+    if (text && launch && (event.hook_event_name === "UserPromptSubmit" || restoresContext)) {
+      const result = {
+        hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text },
+      };
+      return output(JSON.stringify(result), result);
+    }
+    return output(text, { note: text || null });
   },
 };
+
+function hookEvent(input: string | undefined): { hook_event_name?: string; source?: string } {
+  try {
+    const payload: unknown = JSON.parse(input ?? "{}");
+    return payload && typeof payload === "object" ? payload : {};
+  } catch {
+    return {};
+  }
+}
 
 export interface ChatAgentContext {
   status: string;
@@ -57,7 +95,7 @@ const remoteInstructions = [
 function locationOf(
   workspaceName: string,
   tabId: string,
-  kind: "terminal" | "Codex chat tab",
+  kind: "terminal" | "Claude chat tab" | "Codex chat tab",
 ): string {
   const label = JSON.stringify(workspaceName).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
   return `You are running in a ${kind} of NexusCode (workspace ${label}, ${kind} ${shortId(tabId)}).`;
@@ -73,6 +111,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
     "the user (nexus notify). The app's Claude and Codex tabs are agents too: nexus chat new",
     "--prompt TEXT (--agent codex) opens one, and chat read, send --wait and wait follow it.",
+    "Pass --instructions-file FILE to set the new tab's session instructions. Use nexus chat",
+    "instructions TAB --show, --set-file FILE, or --clear to view or edit a local tab's instructions.",
     "What you send a tab reaches its agent after a line that says you sent it, and the tab",
     "shows it as yours, not the user's. A message to you that starts \"[nexus] ... sent this,",
     "not the user\" is another agent's: answer it as that line says (here, or with the command",

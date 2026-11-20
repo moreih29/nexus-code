@@ -394,6 +394,7 @@ export const PICKED: PickedElement = {
 
 export function fakeApp(now = Date.now()): FakeApp {
   const uiCalls: FakeApp["uiCalls"] = [];
+  const chatInstructions = new Map<string, string>();
   const claude: FakeApp["claude"] = new Map([
     [
       `${APP}:${CLAUDE_TAB}`,
@@ -638,6 +639,11 @@ export function fakeApp(now = Date.now()): FakeApp {
         ...(plain ? {} : { tabId: NEW_TAB }),
         start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.instructions") {
+      const { tabId, text } = args as CliUiOps["chat.instructions"]["args"];
+      if (text !== undefined) chatInstructions.set(tabId, text);
+      return { instructions: chatInstructions.get(tabId) ?? "" } as CliUiOps[K]["result"];
     }
     if (op === "chat.open") {
       const error = chatOpenError.message;

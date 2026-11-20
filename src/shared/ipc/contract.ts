@@ -21,6 +21,12 @@ import {
 import { AgentProfileSchema, AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
+  AgentInstructionsSchema,
+  ChatInstructionHistorySchema,
+  InstructionEditSchema,
+  InstructionTextSchema,
+} from "../chat/instructions";
+import {
   ACTIVITY_TEXT_MAX_CHARS,
   PermissionAnswerSchema,
   SessionActivitySchema,
@@ -927,6 +933,7 @@ export const ipcContract = {
           fork: z.boolean().optional(),
           /** With fork: the message to copy the session up to (`--resume-session-at`). */
           resumeAt: z.string().max(128).optional(),
+          instructions: InstructionTextSchema.optional(),
           /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
           connectionChanged: z.boolean().optional(),
@@ -975,7 +982,14 @@ export const ipcContract = {
         ]),
       ),
       /** Writes one message to the program as a line. */
-      send: call(PtyWorkspaceTabSchema.extend({ message: z.record(z.unknown()) }), z.void()),
+      send: call(
+        PtyWorkspaceTabSchema.extend({
+          message: z.record(z.unknown()),
+          profileId: z.string().max(64).optional(),
+          instructions: InstructionTextSchema.optional(),
+        }),
+        z.void(),
+      ),
       /** Ends the tab's program; its log stays, to show and to start again on. */
       stop: call(PtyWorkspaceTabSchema, z.void()),
       /** Ends the tab's program and forgets its log: the tab was closed. */
@@ -1326,7 +1340,12 @@ export const ipcContract = {
   appState: {
     call: {
       get: call(z.void(), AppStateSchema),
-      set: call(AppStateSchema.partial(), z.void()),
+      set: call(
+        AppStateSchema.partial().extend({
+          instructionEdits: z.array(InstructionEditSchema).optional(),
+        }),
+        z.void(),
+      ),
     },
     listen: {
       /**
@@ -1376,6 +1395,8 @@ export const ipcContract = {
           connectionChangedProfileId: z.string().max(64).optional(),
         }),
       ),
+      agentInstructionsChanged: listen(z.object({ config: AgentInstructionsSchema })),
+      chatInstructionHistoryChanged: listen(ChatInstructionHistorySchema),
     },
   },
 

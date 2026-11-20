@@ -353,6 +353,42 @@ describe("nexus agent-context", () => {
     ).toBeUndefined();
   });
 
+  test("delivers a terminal's instruction layers independently of CLI guidance", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    app.services.terminalClaudeInstructions = (workspaceId, profileId) =>
+      `instructions for ${workspaceId}/${profileId}`;
+    const ctx = contextFor(app, ["agent-context", "--profile=personal", "-"]);
+    const result = await runCli(CLI_COMMANDS, {
+      ...ctx,
+      invocation: { ...ctx.invocation, stdin: JSON.stringify({ hook_event_name: "SessionStart" }) },
+    });
+    expect(result.stdout).toBe(`instructions for ${APP}/personal\n`);
+  });
+
+  test("returns structured additional context for a tab's updates and compaction", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    app.services.claudeInstructions = (_workspaceId, _tabId, _launch, compacting) =>
+      compacting ? "restore updates" : "updated instructions";
+    const ctx = contextFor(app, ["agent-context", "--launch=test", "-"]);
+    for (const [event, source, text] of [
+      ["UserPromptSubmit", undefined, "updated instructions"],
+      ["SessionStart", "compact", "restore updates"],
+    ] as const) {
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        invocation: {
+          ...ctx.invocation,
+          stdin: JSON.stringify({ hook_event_name: event, source }),
+        },
+      });
+      expect(JSON.parse(result.stdout)).toEqual({
+        hookSpecificOutput: { hookEventName: event, additionalContext: text },
+      });
+    }
+  });
+
   test("tells a session that the user's notes are the app's", async () => {
     const app = withDevices();
     app.settings.agentContext = true;

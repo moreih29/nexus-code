@@ -15,10 +15,19 @@ import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
+import {
+  currentSessionInstructions,
+  saveSessionInstructions,
+} from "../../state/stores/agent-instructions";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { type AgentTabController, agentTabController, startAgentTab } from "../chat/agent-tab";
+import {
+  type AgentTabController,
+  agentInstructionsOf,
+  agentTabController,
+  startAgentTab,
+} from "../chat/agent-tab";
 import type { ForkPoint } from "../chat/claude/controller";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
@@ -384,11 +393,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     placement,
     settings,
     profile,
+    instructions,
     from,
     user,
   }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
+      ...(instructions === undefined ? {} : { instructions }),
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
     });
     const tab =
@@ -413,6 +424,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       return { tabId, error: (err as Error).message };
     }
     return { tabId };
+  },
+
+  "chat.instructions": async ({ workspaceId, tabId, text }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex") {
+      throw new UiRequestError("that tab is not a Claude or Codex tab");
+    }
+    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
+    return {
+      instructions: agentInstructionsOf(
+        workspaceId,
+        tab.type,
+        tab.props.profileId,
+        currentSessionInstructions(workspaceId, tabId),
+      ),
+    };
   },
 
   "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
@@ -782,6 +809,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             fork,
             profileId: target.controller.profileId,
             chosen: target.controller.inheritedChoice(),
+            ...target.controller.inheritedInstructions(),
           }),
         },
         { background: true },

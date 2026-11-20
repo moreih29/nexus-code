@@ -104,6 +104,10 @@ nexus terminal wait build --exit                   # 터미널이 끝날 때까�
 ```bash
 nexus chat new --prompt "README 요약해줘"                 # 이 폴더에 Claude 탭(뒤쪽에)을 열고 프롬프트 전송
 nexus chat new --agent codex --prompt "테스트 고쳐줘" --show
+nexus chat new --instructions-file rules.md --prompt "PR 검토해 줘"
+nexus chat instructions TAB --show
+nexus chat instructions TAB --set-file rules.md
+nexus chat instructions TAB --clear
 nexus chat wait 3fa2                                     # 턴이 끝날 때까지 기다린 뒤 마지막 답변 출력
 nexus chat send 3fa2 "이어서 문서도 고쳐줘" --wait       # 보내고 끝날 때까지
 nexus chat read 3fa2 --messages 10                       # 최근 메시지 10개와 상태
@@ -156,6 +160,7 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - `chat history [검색어]` 는 워크스페이스 폴더의 지난 대화를 최신순으로 보여주고(`--agent codex`, `--limit N`), `chat resume <id>` 는 그 대화를 새 탭(뒤쪽)에서 이어갑니다. id 는 앞부분만 줘도 됩니다. 이미 열린 탭이 있으면 그 탭을 알려주고, `--tab` 이면 대화가 없는 그 탭에서 이어갑니다.
 - 다른 컴퓨터(`--device`)에는 `chat send` 의 `--now` 까지만 됩니다. 그 컴퓨터는 에이전트가 보낸 메시지를 턴이 끝날 때까지 보류하지 않으므로, `--after` 는 보내기 전에 거절합니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
+- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. 두 명령은 세션 지시를 다룰 때 `--device` 를 받지 않습니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 묻지 않고 더 많이 실행하게 바꾸는 모드(예: `plan` → `acceptEdits`)는 사용자에게 확인 창으로 묻습니다. 모두 허용하는 모드(`bypassPermissions`, `fullAccess`)는 사용자만 탭에서 고릅니다. 자기 탭의 설정은 바꾸지 않습니다.

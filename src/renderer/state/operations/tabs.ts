@@ -14,6 +14,7 @@ import { isDiffWorkingFileDirty } from "@/services/editor/tabs/diff-working-file
 import { requestTabFocus } from "@/services/tab-focus";
 import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { reopenedSessionInstructions } from "../stores/agent-instructions";
 import { resolveWorkspaceProfile } from "../stores/agent-profiles";
 import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
@@ -523,11 +524,14 @@ export function openCodexTab(
  * A new chat tab's props with the profile it keeps for good: the one given,
  * else the one the workspace's rules pick. The default profile is left out.
  */
-export function chatPropsWithProfile<P extends { profileId?: string }>(
-  workspaceId: string,
-  agent: ChatAgent,
-  props: P,
-): P {
+export function chatPropsWithProfile<
+  P extends {
+    profileId?: string;
+    instructions?: string;
+    sessionId?: string;
+    threadId?: string;
+  },
+>(workspaceId: string, agent: ChatAgent, props: P): P {
   const { profileId, ...rest } = props;
   let id = profileId;
   if (id === undefined) {
@@ -535,7 +539,16 @@ export function chatPropsWithProfile<P extends { profileId?: string }>(
     const workspace = workspaces.find((w) => w.id === workspaceId);
     if (workspace) id = resolveWorkspaceProfile(agent, workspace, workspaces).profile.id;
   }
-  return (id === undefined || isDefaultProfileId(id) ? rest : { ...rest, profileId: id }) as P;
+  const conversationId = agent === "claude" ? props.sessionId : props.threadId;
+  const instructions =
+    conversationId && props.instructions === undefined
+      ? reopenedSessionInstructions(workspaceId, agent, conversationId)
+      : undefined;
+  return {
+    ...rest,
+    ...(id === undefined || isDefaultProfileId(id) ? {} : { profileId: id }),
+    ...(instructions === undefined ? {} : { instructions }),
+  } as P;
 }
 
 /**

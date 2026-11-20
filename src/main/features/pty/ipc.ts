@@ -204,6 +204,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         windows,
         givenEnv ?? {},
         profileVariables(fromProfile ?? undefined, windows),
+        { NEXUS_TERMINAL_PROFILE_ID: profile ?? "" },
       );
     }
     recorder.start(workspaceId, tabId, cols, rows);

@@ -65,8 +65,10 @@ export function claudeTabArgs(
   options: ResumeOptions,
   hooksSettings?: string,
   version: string | null = null,
+  instructions = "",
 ): string[] {
-  const args = [...CLAUDE_TAB_ARGS, "--append-system-prompt", CLAUDE_TAB_PROMPT];
+  const prompt = [CLAUDE_TAB_PROMPT, instructions].filter(Boolean).join("\n\n");
+  const args = [...CLAUDE_TAB_ARGS, "--append-system-prompt", prompt];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
   if (takesThinkingDisplay(version)) args.push("--thinking-display", "summarized");
   if (options.resume !== undefined) {

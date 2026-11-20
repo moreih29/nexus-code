@@ -187,6 +187,13 @@ export interface CliServices {
   askUser(request: ChangeRequest): Promise<void>;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
+  claudeInstructions?(
+    workspaceId: string,
+    tabId: string,
+    launch: string,
+    compacting: boolean,
+  ): string;
+  terminalClaudeInstructions?(workspaceId: string, profileId: string): string;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
   /**

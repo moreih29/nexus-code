@@ -163,6 +163,15 @@ describe("chat launch", () => {
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
   });
 
+  test("adds the merged instructions to the existing system prompt argument", () => {
+    const instructions = "# Instructions set in NexusCode\n\n## This session\nUse Korean.";
+    const args = claudeTabArgs({ resume: "s1" }, undefined, null, instructions);
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+      `${CLAUDE_TAB_PROMPT}\n\n${instructions}`,
+    );
+    expect(args.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
+  });
+
   test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
     const flag = ["--thinking-display", "summarized"];
     const args = claudeTabArgs({ resume: "s1" }, undefined, "2.1.323");

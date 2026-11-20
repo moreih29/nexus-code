@@ -174,6 +174,8 @@ export interface ChatTabTarget {
 }
 
 export interface ChatTabHooks {
+  instructions?: (sessionId?: string) => string;
+  mergedInstructions?: (profileId: string | undefined, session: string) => string;
   /** The session id the tab now has, to keep with the tab. */
   onSession?: (sessionId: string) => void;
   /** A rewind moved the tab to a new start: a fork, or no session at all. */
@@ -253,6 +255,8 @@ export class ChatController {
   readonly key: string;
   private target: ChatTabTarget;
   private hooks: ChatTabHooks;
+  private launchInstructions: string | undefined;
+  private freshPromptSent = false;
   /** The flag settings the tab's commands set (/add-dir, /sandbox, the effort picked). */
   private flags: Record<string, unknown> = {};
   /** The model picked in the tab, which a program started again for it takes too. */
@@ -365,14 +369,16 @@ export class ChatController {
    * What a tab made from this one (a fork, /branch) starts with: its
    * profile, and the model and effort picked in it.
    */
-  inherited(): { profileId: string; chosen?: ChatChosen } {
+  inherited(): { profileId: string; chosen?: ChatChosen; instructions?: string } {
     const effort = typeof this.flags.effortLevel === "string" ? this.flags.effortLevel : undefined;
     const chosen: ChatChosen = {
       ...(this.chosenModel ? { model: this.chosenModel } : {}),
       ...(effort ? { effort } : {}),
     };
+    const instructions = this.hooks.instructions?.(this.sessionId);
     return {
       profileId: this.profileId,
+      ...(instructions ? { instructions } : {}),
       ...(chosen.model || chosen.effort ? { chosen } : {}),
     };
   }
@@ -853,16 +859,23 @@ export class ChatController {
     const picks = this.modePicks;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
+    let launchInstructions: string | undefined;
     try {
       await this.startup.prepare();
       const args = await this.fromAnotherProfile(resume);
       if (this.disposed) return false;
+      const instructions = this.hooks.instructions?.(resume.fork ? undefined : this.sessionId);
+      launchInstructions =
+        !resume.resume && instructions !== undefined
+          ? this.hooks.mergedInstructions?.(this.target.profileId, instructions)
+          : undefined;
       result = await startChat({
         workspaceId,
         tabId,
         cwd,
         ...args,
         ...profileArg(this.target.profileId),
+        ...(instructions === undefined ? {} : { instructions }),
       });
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
@@ -885,6 +898,8 @@ export class ChatController {
     if ((resume.resetLog || resume.connectionChanged) && result.attached) {
       return this.rejectStartup("Claude attached to the previous program");
     }
+    this.launchInstructions = result.attached ? undefined : launchInstructions;
+    this.freshPromptSent = false;
     if (!result.attached) {
       const previousConnection = this.connection;
       this.connection = connection;
@@ -1530,6 +1545,7 @@ export class ChatController {
     const restart = this.connectionRestart.whenIdle();
     if (restart && !(await this.connectionRestart.wait(restart)))
       throw new Error(this.state.error ?? "Claude is not running");
+    await this.refreshFreshInstructions();
     if (this.changingSession) throw new Error("Claude is changing the conversation");
     if (queued && !this.state.queue.some((entry) => entry.id === id && entry.status === "sending"))
       throw new Error("The conversation changed while delivering a queued message");
@@ -1544,6 +1560,7 @@ export class ChatController {
     this.writingUserMessage += 1;
     try {
       await this.write(message);
+      this.freshPromptSent = true;
       this.flushNow();
     } finally {
       this.writingUserMessage -= 1;
@@ -2122,6 +2139,8 @@ export class ChatController {
   async sendCommands(texts: readonly string[], waitForLast = false): Promise<void> {
     for (const [index, text] of texts.entries()) {
       if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+      await this.initializing;
+      await this.refreshFreshInstructions();
       const message = userMessageOf(text, []);
       await this.write(message);
       if (waitForLast || index < texts.length - 1) {
@@ -2327,7 +2346,37 @@ export class ChatController {
   private async write(message: Record<string, unknown>): Promise<void> {
     if (this.disposed) throw new Error("the tab closed");
     const { workspaceId, tabId } = this.target;
-    unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
+    const instructions =
+      message.type === "user" ? this.hooks.instructions?.(this.sessionId) : undefined;
+    unwrapIpcResult(
+      await ipcCallResult("chat", "send", {
+        workspaceId,
+        tabId,
+        message,
+        ...(instructions === undefined
+          ? {}
+          : { instructions, ...profileArg(this.target.profileId) }),
+      }),
+    );
+  }
+
+  /** An eagerly initialized empty tab can still start its first prompt with a new system prompt. */
+  private async refreshFreshInstructions(): Promise<void> {
+    const { running, items } = this.state.model;
+    if (
+      this.launchInstructions === undefined ||
+      this.freshPromptSent ||
+      running ||
+      items.some((item) => item.kind === "assistant")
+    )
+      return;
+    const session = this.hooks.instructions?.(this.sessionId) ?? "";
+    const latest = this.hooks.mergedInstructions?.(this.target.profileId, session);
+    if (latest === this.launchInstructions) return;
+    await this.changeSession(async () => {
+      await this.startChangedSession(this.startArgs());
+      await this.initializing;
+    });
   }
 
   /** Starts the program again when it is not running, for a message to go to. */
@@ -2505,7 +2554,13 @@ export function profileArg(profileId: string | undefined): { profileId?: string 
 }
 
 function startChat(
-  args: StartArgs & { workspaceId: string; tabId: string; cwd: string; profileId?: string },
+  args: StartArgs & {
+    workspaceId: string;
+    tabId: string;
+    cwd: string;
+    profileId?: string;
+    instructions?: string;
+  },
 ) {
   return ipcCallResult("chat", "start", args).then(unwrapIpcResult);
 }

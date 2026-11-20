@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
+import { AgentInstructionsSchema, ChatInstructionHistorySchema } from "../chat/instructions";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
@@ -147,6 +148,8 @@ export const AppStateSchema = z.object({
   // and the rules that pick a workspace's. Absent = each agent's default
   // folder everywhere.
   agentProfiles: AgentProfilesSchema.optional(),
+  agentInstructions: AgentInstructionsSchema.optional(),
+  chatInstructionHistory: ChatInstructionHistorySchema.optional(),
 
   // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
   // task's first prompt, or a plain terminal; absent = "claude". Kept as a

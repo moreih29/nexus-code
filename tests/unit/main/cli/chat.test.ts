@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { senderOf } from "../../../../src/main/features/cli/sender";
+import { INSTRUCTION_LIMIT } from "../../../../src/shared/chat/instructions";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
 import {
   API,
@@ -15,6 +16,7 @@ import {
   type FakeApp,
   fakeApp,
   NEW_TAB,
+  READABLE,
   SHELL_TAB,
 } from "./fake-services";
 
@@ -440,5 +442,75 @@ describe("a tab's profile and goal", () => {
     const row = list.stdout.split("\n").find((line) => line.includes("Fix the login")) ?? "";
     expect(row).toContain("claude-tab (Work)");
     expect(row).toContain("idle · goal met");
+  });
+});
+
+describe("chat instructions", () => {
+  test("reads the caller's UTF-8 file for chat new and leaves the prompt separate", async () => {
+    const app = fakeApp();
+    const file = "/w/app/test-new-rules.md";
+    READABLE[file] = "검토만 합니다.";
+    try {
+      const result = await nexus(app, [
+        "chat",
+        "new",
+        "--instructions-file",
+        "test-new-rules.md",
+        "--prompt",
+        "review",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(uiArgs(app, "chat.open")).toMatchObject({
+        instructions: "검토만 합니다.",
+        prompt: "review",
+      });
+    } finally {
+      delete READABLE[file];
+    }
+  });
+
+  test("shows, sets, and clears a tab without starting its agent", async () => {
+    const app = withChat();
+    const file = "/w/app/test-session-rules.md";
+    READABLE[file] = "session rule";
+    try {
+      expect(
+        (await nexus(app, ["chat", "instructions", "eeee", "--set-file", file])).exitCode,
+      ).toBe(0);
+      expect((await nexus(app, ["chat", "instructions", "eeee", "--show"])).stdout).toBe(
+        "session rule\n",
+      );
+      expect((await nexus(app, ["chat", "instructions", "eeee", "--clear"])).exitCode).toBe(0);
+      expect((await nexus(app, ["chat", "instructions", "eeee", "--show"])).stdout).toBe("");
+      expect(app.uiCalls.every(({ op }) => op === "tabs.list" || op === "chat.instructions")).toBe(
+        true,
+      );
+    } finally {
+      delete READABLE[file];
+    }
+  });
+
+  test("rejects invalid operations, oversized layers, and --device", async () => {
+    const app = withChat();
+    expect(
+      (await nexus(app, ["chat", "instructions", "eeee", "--show", "--clear"])).stderr,
+    ).toContain("exactly one");
+    expect(
+      (await nexus(app, ["chat", "instructions", "eeee", "--show", "--device", "elsewhere"]))
+        .stderr,
+    ).toContain("omit --device");
+    expect(
+      (await nexus(app, ["chat", "new", "--instructions-file", "missing", "--device", "elsewhere"]))
+        .stderr,
+    ).toContain("omit --device");
+    const file = "/w/app/test-large-rules.md";
+    READABLE[file] = "x".repeat(INSTRUCTION_LIMIT + 1);
+    try {
+      expect(
+        (await nexus(app, ["chat", "instructions", "eeee", "--set-file", file])).stderr,
+      ).toContain(String(INSTRUCTION_LIMIT));
+    } finally {
+      delete READABLE[file];
+    }
   });
 });

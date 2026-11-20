@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InstructionTextSchema } from "../chat/instructions";
 import { RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { NoteIdSchema } from "./notes";
@@ -88,6 +89,7 @@ const PeerSubmissionsSchema = z
 
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
+  instructions: InstructionTextSchema.optional(),
   sessionId: z.string().max(128).optional(),
   fork: z
     .object({
@@ -117,6 +119,7 @@ export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
  */
 export const CodexTabPropsSchema = z.object({
   cwd: z.string(),
+  instructions: InstructionTextSchema.optional(),
   threadId: z.string().max(128).optional(),
   /** The thread it copies until the copy has its own id (/fork). */
   fork: z

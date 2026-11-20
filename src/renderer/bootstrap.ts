@@ -5,6 +5,7 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { EMPTY_INSTRUCTIONS } from "../shared/chat/instructions";
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
@@ -31,6 +32,7 @@ import { focusWorkspace } from "./state/operations/workspace-selection";
 import { hydrateLayoutSnapshots, registerStatePersistence } from "./state/persistence";
 import { useActiveStore } from "./state/stores/active";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { useAgentInstructionsStore } from "./state/stores/agent-instructions";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
 import { useAgentViewStore } from "./state/stores/agent-view";
@@ -276,6 +278,16 @@ async function bootstrapAppState(): Promise<void> {
   // reflects persisted state on first render.
   useBrowserPermissionsStore.getState().hydrate(state.browserPermissionGrants);
 
+  useAgentInstructionsStore.setState({
+    config: state.agentInstructions ?? EMPTY_INSTRUCTIONS,
+    history: state.chatInstructionHistory ?? {},
+  });
+  ipcListen("appState", "agentInstructionsChanged", ({ config }) =>
+    useAgentInstructionsStore.setState({ config }),
+  );
+  ipcListen("appState", "chatInstructionHistoryChanged", (history) =>
+    useAgentInstructionsStore.setState({ history }),
+  );
   hydrateLayoutSnapshots(state.layoutByWorkspace);
 
   // The agent view's panels hold tabs, so they come back after the tabs,
