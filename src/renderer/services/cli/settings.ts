@@ -5,7 +5,7 @@
 
 import { ipcCallResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
-import { useAgentInstructionsStore } from "@/state/stores/agent-instructions";
+import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
 import { useAgentListViewStore } from "@/state/stores/agent-list-view";
 import { resolveWorkspaceProfile } from "@/state/stores/agent-profiles";
 import { useChatFontStore } from "@/state/stores/chat-font";
@@ -531,6 +531,7 @@ const named = (key: string) => (setting: CliSetting) =>
 
 export const settingsHandlers: {
   "settings.instructions": CliUiHandler<"settings.instructions">;
+  "settings.instructions.set": CliUiHandler<"settings.instructions.set">;
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
@@ -547,6 +548,15 @@ export const settingsHandlers: {
       ),
       instructions: mergeAgentInstructions(config, target),
     };
+  },
+  "settings.instructions.set": async ({ scope, text }) => {
+    if (
+      scope.kind === "workspace" &&
+      !useWorkspacesStore.getState().workspaces.some((workspace) => workspace.id === scope.id)
+    )
+      throw new UiRequestError("that workspace is gone");
+    await saveInstructionEdits([{ scope, text }]);
+    return {};
   },
   "settings.list": async ({ key }) => ({
     settings: await Promise.all(

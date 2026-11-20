@@ -364,7 +364,7 @@ async function mayLoosen(
   });
 }
 
-async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
+export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
   const where = callerPath(ctx, file);
   const data = await ctx.services.readFile(ctx.caller.workspaceId, where);
   if (data === null) throw new CliError(`no file ${where}`);
@@ -374,6 +374,10 @@ async function readInstructionsFile(ctx: CliContext, file: string): Promise<stri
   } catch {
     throw new CliUsageError("the instructions file must be UTF-8 text");
   }
+  return checkedInstructions(text);
+}
+
+export function checkedInstructions(text: string): string {
   if (text.length > INSTRUCTION_LIMIT)
     throw new CliUsageError(
       `instructions are limited to ${INSTRUCTION_LIMIT} characters per layer`,

@@ -4,18 +4,20 @@
  * workspace's, so changing one needs no leave; what nexus itself may do is
  * left to the user.
  */
+
+import type { InstructionScope } from "../../../../shared/chat/instructions";
 import {
   describeShape,
   formatSettingValue,
   SETTINGS_PAGES,
   settingsPageNamed,
 } from "../../../../shared/cli/settings";
-import type { CliSettingInfo } from "../../../../shared/cli/ui";
+import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError, resolveWorkspace } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
-import { chatAgentFlag } from "./chat";
+import { chatAgentFlag, checkedInstructions, readInstructionsFile } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
 /** The settings, or the one `key` names (none when it names none). */
@@ -147,6 +149,64 @@ const settingsInstructions: CliCommand = {
   },
 };
 
+const settingsInstructionsSet: CliCommand = {
+  path: ["settings", "instructions", "set"],
+  args: "<all|claude|codex|workspace>",
+  summary: "Replace or clear a persistent instruction layer",
+  details:
+    "All, Claude, and Codex changes need approval each time. Workspace changes follow the workspace policy.",
+  flags: {
+    file: {
+      type: "string",
+      value: "FILE",
+      description: "Read the new layer from UTF-8 FILE or - for stdin",
+    },
+    clear: { type: "boolean", description: "Clear the layer" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { flags, positionals }) {
+    const [layer] = exactArgs(positionals, "layer") as [string];
+    if (layer !== "all" && layer !== "claude" && layer !== "codex" && layer !== "workspace")
+      throw new CliUsageError("choose all, claude, codex, or workspace");
+    if (flags.workspace !== undefined && layer !== "workspace")
+      throw new CliUsageError("--workspace goes with the workspace layer");
+    const file = typeof flags.file === "string" ? flags.file : undefined;
+    if ((file !== undefined) === (flags.clear === true))
+      throw new CliUsageError("give --file or --clear");
+    const text =
+      file === "-"
+        ? checkedInstructions(ctx.invocation.stdin ?? "")
+        : file === undefined
+          ? ""
+          : await readInstructionsFile(ctx, file);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const scope: Exclude<InstructionScope, { kind: "profile" }> =
+      layer === "workspace"
+        ? { kind: "workspace", id: workspace.id }
+        : layer === "all"
+          ? { kind: "all" }
+          : { kind: "agent", agent: layer };
+    const change: CliChange = {
+      kind: "instructionsEdit",
+      detail: layer === "workspace" ? workspace.name : layer,
+      body: text || "Clear this layer",
+    };
+    if (layer === "workspace") await mayChange(ctx, workspace, change);
+    else
+      await ctx.services.askUser({
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change: { ...change, eachTime: true },
+      });
+    await ctx.services.ui("settings.instructions.set", { scope, text });
+    return output(
+      text ? `Updated the ${layer} instruction layer.` : `Cleared the ${layer} instruction layer.`,
+      { scope, text },
+    );
+  },
+};
+
 export const settingsCommands: CliCommand[] = [
   settingsList,
   settingsGet,
@@ -154,4 +214,5 @@ export const settingsCommands: CliCommand[] = [
   settingsReset,
   settingsOpen,
   settingsInstructions,
+  settingsInstructionsSet,
 ];

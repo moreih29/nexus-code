@@ -328,6 +328,7 @@
         "permissionDeny": "{{detail}} 거부를",
         "chatInterrupt": "탭 \"{{detail}}\"의 진행 중인 턴 중지를",
         "chatSettings": "탭 \"{{detail}}\"의 모델·강도·권한 모드 변경을",
+        "instructionsEdit": "{{detail}} 지시 레이어를 편집하기",
         "chatMode": "탭 {{detail}}의 권한 모드 변경을",
         "chatProfile": "탭 {{detail}}의 프로필 변경(대화 이어가기)을",
         "chatProfileNew": "탭 {{detail}}의 프로필 변경(새 대화로)을",

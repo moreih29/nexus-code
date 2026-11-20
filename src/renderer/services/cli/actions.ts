@@ -142,6 +142,7 @@ export const actionHandlers: {
     | "terminal.unwatch"
     | "events.read"
     | "settings.instructions"
+    | "settings.instructions.set"
     | "settings.list"
     | "settings.set"
     | "settings.open"

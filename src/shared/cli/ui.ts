@@ -249,6 +249,7 @@ export type CliChangeKind =
   | "chatInput"
   | "chatInterrupt"
   | "chatSettings"
+  | "instructionsEdit"
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
@@ -1251,6 +1252,10 @@ export interface CliUiOps {
       layers: { scope: InstructionScope; title: string; text: string }[];
       instructions: string;
     };
+  };
+  "settings.instructions.set": {
+    args: { scope: Exclude<InstructionScope, { kind: "profile" }>; text: string };
+    result: Record<string, never>;
   };
   /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {

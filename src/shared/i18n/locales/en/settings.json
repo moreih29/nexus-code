@@ -328,6 +328,7 @@
         "permissionDeny": "deny {{detail}}",
         "chatInterrupt": "stop the turn of the tab \"{{detail}}\"",
         "chatSettings": "change the model, effort or mode of the tab \"{{detail}}\"",
+        "instructionsEdit": "edit the persistent instructions for {{detail}}",
         "chatMode": "change the permission mode of the tab {{detail}}",
         "chatProfile": "change the profile of the tab {{detail}}, going on with its conversation",
         "chatProfileNew": "change the profile of the tab {{detail}}, starting a new conversation",

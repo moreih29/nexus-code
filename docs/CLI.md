@@ -485,6 +485,8 @@ nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이�
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings reset editor.fontSize        # 기본값으로
 nexus settings instructions show --workspace WS --agent codex --json
+nexus settings instructions set codex --file rules.md
+nexus settings instructions set workspace --workspace WS --clear
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
 
