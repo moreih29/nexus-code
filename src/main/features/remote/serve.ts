@@ -361,7 +361,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
             RpcErrorCode.Forbidden,
             "a worktree command requires terminal control",
           );
-        return s
+        const created = await s
           .ui(
             "task.create",
             {
@@ -375,6 +375,17 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
             5 * 60_000,
           )
           .catch(unavailable);
+        if (
+          created.tabId &&
+          "command" in created.start &&
+          created.start.command.trim() &&
+          prompt.trim()
+        )
+          s.startedAgents.mark(
+            { workspaceId: created.workspaceId, tabId: created.tabId },
+            s.clock.now(),
+          );
+        return created;
       }
       case "worktree.remove": {
         const { workspaceId, force, deleteBranch } = request.params as RpcParams<"worktree.remove">;

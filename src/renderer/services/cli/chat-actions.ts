@@ -1066,7 +1066,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const session = matches[0];
     if (!session)
       throw new UiRequestError(`no conversation ${sessionId} in that workspace's folder`);
-    sessionId = session.sessionId;
+    if (sessionId !== session.sessionId) {
+      const alreadyOpen = tabWithSession(workspaceId, agent, session.sessionId);
+      if (alreadyOpen) return { tabId: alreadyOpen };
+      sessionId = session.sessionId;
+    }
     if (tabId) {
       // In that tab, as its /resume and its empty conversation's list go on with one.
       const target = await openedTab(workspaceId, tabId);
