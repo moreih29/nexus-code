@@ -510,3 +510,53 @@ test("a bounded row split at a UTF-8 boundary is rebuilt before projecting its t
     input: { file_path: "한글" },
   });
 });
+
+describe("a compaction the live log shows", () => {
+  const user = (uuid: string, content: string, extra: object = {}) => ({
+    type: "user",
+    uuid,
+    message: { role: "user", content },
+    ...extra,
+  });
+  const boundary = (uuid: string) => ({ type: "system", subtype: "compact_boundary", uuid });
+  const summary = (uuid: string) => user(uuid, "summary", { isCompactSummary: true });
+  const caveat = (uuid: string) =>
+    user(uuid, "<local-command-caveat>x</local-command-caveat>", { isMeta: true });
+  const command = (uuid: string) =>
+    user(uuid, "<command-name>/compact</command-name><command-args></command-args>");
+  const stdout = (uuid: string) =>
+    user(uuid, "<local-command-stdout>Compacted</local-command-stdout>");
+  const notices = (entries: unknown[], cut: HistoryCut | undefined, live: boolean) =>
+    historyModel(entries, cut, undefined, live).items.filter(
+      (i) => i.kind === "notice" && i.code === "compacted",
+    ).length;
+  const cut = { before: new Set(["live"]) };
+
+  test("a cut after an earlier compaction keeps its notice and drops the live one", () => {
+    const entries = [
+      user("a", "hi"),
+      boundary("b1"),
+      summary("s1"),
+      caveat("c1"),
+      command("m1"),
+      stdout("o1"),
+      user("a2", "more"),
+      boundary("b2"),
+      summary("s2"),
+      caveat("c2"),
+      user("live", "/compact"),
+    ];
+    expect(notices(entries, cut, true)).toBe(1);
+    expect(notices(entries, cut, false)).toBe(2);
+  });
+
+  test("an automatic compaction the live log shows is not shown twice", () => {
+    const entries = [user("a", "hi"), boundary("b"), summary("s"), user("live", "next")];
+    expect(notices(entries, cut, true)).toBe(0);
+  });
+
+  test("a reopened transcript ending in a compaction keeps its notice", () => {
+    const entries = [user("a", "hi"), boundary("b"), summary("s")];
+    expect(notices(entries, undefined, false)).toBe(1);
+  });
+});

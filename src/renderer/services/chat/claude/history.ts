@@ -28,10 +28,15 @@ function rec(value: unknown): Rec | null {
     : null;
 }
 
-/** Turns transcript entries into stream-json lines. */
+/**
+ * Turns transcript entries into stream-json lines. `liveCompacted`: the tab
+ * shows the compaction the entries end with (a cut just before its /compact
+ * command or the next message), so its notice is left out here.
+ */
 export function transcriptLines(
   entries: readonly unknown[],
   positions?: readonly number[],
+  liveCompacted = false,
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
   // A compaction's notice, held while the /compact command's entries pass,
@@ -146,7 +151,8 @@ export function transcriptLines(
       });
     }
   }
-  settle();
+  if (liveCompacted) pending = undefined;
+  else settle();
   return lines;
 }
 
@@ -340,9 +346,12 @@ export function historyModel(
   entries: readonly unknown[],
   cut?: HistoryCut,
   positions?: readonly number[],
+  liveCompacted = false,
 ): ChatModel {
   const model = applyTranscriptLines(
-    cut ? transcriptLines(cutEntries(entries, cut)) : transcriptLines(entries, positions),
+    cut
+      ? transcriptLines(cutEntries(entries, cut), undefined, liveCompacted)
+      : transcriptLines(entries, positions, liveCompacted),
   );
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }

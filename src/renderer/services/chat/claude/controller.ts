@@ -515,7 +515,7 @@ export class ChatController {
           if (current()) {
             this.publishTranscript(
               source,
-              history ?? pages.project(),
+              history ?? pages.project(this.liveCompacted()),
               pages.lines,
               pages.truncated,
               true,
@@ -525,7 +525,7 @@ export class ChatController {
       } else {
         this.publishTranscript(
           source,
-          historyModel(page.lines, cut),
+          historyModel(page.lines, cut, undefined, this.liveCompacted()),
           page.lines,
           page.truncated,
           true,
@@ -534,6 +534,14 @@ export class ChatController {
     } catch (error) {
       log.warn(`transcript of ${sessionId} not read: ${(error as Error).message}`);
     }
+  }
+
+  /** Whether the tab's own log shows a compaction: the transcript's end of it is not shown twice. */
+  private liveCompacted(): boolean {
+    const model = this.state.model;
+    return [...model.items, ...(this.transcriptSource?.appended?.items ?? [])].some(
+      (item) => item.kind === "notice" && item.code === "compacted",
+    );
   }
 
   private async readFullTranscript(
@@ -557,6 +565,8 @@ export class ChatController {
     const history = historyModel(
       result.lines,
       source.cut ?? (before?.size ? { before } : undefined),
+      undefined,
+      this.liveCompacted(),
     );
     this.transcriptPages = undefined;
     this.publishTranscript(source, history, result.lines, result.truncated, true);
@@ -587,7 +597,7 @@ export class ChatController {
     while (current()) {
       const cursor = pages.cursor;
       if (!pages.hasPartialRow && pageRead) {
-        const read = pages.project();
+        const read = pages.project(this.liveCompacted());
         const first = read.items[0];
         const enough =
           action === "opening"
