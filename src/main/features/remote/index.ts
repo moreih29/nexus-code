@@ -239,7 +239,10 @@ export async function registerRemoteChannel(options: {
       const services = options.services();
       if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
       const snapshot = await snapshotSessions(services, git, options.notes, "sessions.watch", from);
-      return (to) => snapshot.forDevice(to, controls());
+      return {
+        ...snapshot,
+        forDevice: (to) => snapshot.forDevice(to, controls()),
+      };
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
   });

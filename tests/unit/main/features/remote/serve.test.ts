@@ -30,6 +30,7 @@ import {
   sessionAgents,
   stopChatRun,
 } from "../../../../../src/main/features/remote/serve";
+import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
 function services(pending: PendingConsent[] = []): CliServices {
@@ -187,6 +188,49 @@ describe("the sessions list's renderer deadline", () => {
       await list;
       expect(calls).toHaveLength(34);
       expect(calls.every(({ timeoutMs }) => timeoutMs <= 2_000)).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("marks failed and skipped tab reads and skipped chat reads as incomplete", async () => {
+    const workspaces = Array.from({ length: 40 }, (_, i) => ({
+      id: `w${i + 1}`,
+      name: "app",
+      rootPath: "/app",
+    }));
+    const tabReads: string[] = [];
+    const chatReads: string[] = [];
+    const s = {
+      ...services(),
+      listWorkspaces: () => workspaces,
+      ui: async (op: string, { workspaceId }: { workspaceId: string }) => {
+        if (op === "chat.state") {
+          chatReads.push(workspaceId);
+          return { state: "idle" };
+        }
+        tabReads.push(workspaceId);
+        if (workspaceId === "w1") return { tabs: [{ id: "chat", type: "codex", title: "Chat" }] };
+        if (workspaceId === "w2") throw new Error("window unavailable");
+        if (workspaceId === "w3") return { tabs: [] };
+        return new Promise(() => {});
+      },
+    } as unknown as CliServices;
+    jest.useFakeTimers();
+    try {
+      const snapshot = snapshotSessions(s, undefined);
+      await flush();
+      for (let i = 0; i < 4; i++) {
+        jest.advanceTimersByTime(2_000);
+        await flush();
+      }
+      const { incompleteWorkspaces } = await snapshot;
+      expect(tabReads).toContain("w2");
+      expect(tabReads).not.toContain("w40");
+      expect(chatReads).toEqual([]);
+      expect(incompleteWorkspaces).toEqual(
+        new Set(workspaces.filter(({ id }) => id !== "w3").map(({ id }) => id)),
+      );
     } finally {
       jest.useRealTimers();
     }

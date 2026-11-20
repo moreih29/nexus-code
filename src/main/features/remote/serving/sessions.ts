@@ -214,19 +214,22 @@ export async function snapshotSessions(
     };
   });
   const now = Date.now();
-  const tabs = await gather(workspaces, budget, async ({ id: workspaceId }) => {
-    const result = await budget.ui("tabs.list", { workspaceId }).catch(() => undefined);
-    return { workspaceId, tabs: result?.tabs ?? [] };
-  });
+  const tabs = await gather(workspaces, budget, ({ id: workspaceId }) =>
+    budget.ui("tabs.list", { workspaceId }).catch(() => undefined),
+  );
 
+  const incompleteWorkspaces = new Set<string>();
   const tabsByWorkspace = new Map<string, readonly CliTabInfo[]>();
   const sessions: (RemoteSession | undefined)[] = [];
   const chats: { index: number; workspaceId: string; tab: CliTabInfo }[] = [];
-  for (const entry of tabs.results) {
-    if (!entry) continue;
-    const { workspaceId, tabs } = entry;
-    tabsByWorkspace.set(workspaceId, tabs);
-    for (const tab of tabs) {
+  for (const [index, { id: workspaceId }] of workspaces.entries()) {
+    const entry = tabs.results[index];
+    if (!entry) {
+      incompleteWorkspaces.add(workspaceId);
+      continue;
+    }
+    tabsByWorkspace.set(workspaceId, entry.tabs);
+    for (const tab of entry.tabs) {
       if (tab.type === "claude" || tab.type === "codex") {
         chats.push({ index: sessions.length, workspaceId, tab });
         sessions.push(undefined);
@@ -238,6 +241,9 @@ export async function snapshotSessions(
   const chatReads = await gather(chats, budget, async ({ index, workspaceId, tab }) => {
     sessions[index] = await chatSession(services, budget, workspaceId, tab);
   });
+  for (const { index, workspaceId } of chats) {
+    if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
+  }
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
@@ -247,6 +253,7 @@ export async function snapshotSessions(
   budget.report(tabs.skipped + chatReads.skipped);
   return {
     list,
+    incompleteWorkspaces,
     async forDevice(
       deviceId: string,
       controls: ConsentControls,
