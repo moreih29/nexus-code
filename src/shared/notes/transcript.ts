@@ -429,6 +429,9 @@ export function movedLines(
     if (sourceName && !speakers[to]?.trim()) speakers[to] = sourceName;
   }
   const next = { ...recording, lines, speakers };
+  if (typeof next.participantCount === "number") {
+    next.participantCount = Math.min(next.participantCount, peopleIn(next));
+  }
   return recording.speakerNumbers ? numberSpeakers(next) : next;
 }
 

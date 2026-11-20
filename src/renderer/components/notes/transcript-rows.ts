@@ -26,7 +26,7 @@ const SPEAKER_COLORS = [
   "var(--state-info-fg)",
   "var(--state-success-fg)",
   "var(--state-warning-fg)",
-  "var(--primary)",
+  "var(--color-git-lane-6)",
   "var(--state-error-fg)",
   "var(--muted-foreground)",
 ];

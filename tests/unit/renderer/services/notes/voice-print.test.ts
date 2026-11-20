@@ -118,6 +118,20 @@ describe("VoiceTracker", () => {
     expect(new Set(tracker.regroup({}).values()).size).toBe(2);
   });
 
+  test("uses the reduced participant count for new lines after a manual merge", async () => {
+    tracker = new VoiceTracker(3);
+    tracker.startTake();
+    await say(1, 4);
+    await say(2, 4);
+    expect(await say(3, 4)).toBe("3");
+
+    tracker.setParticipantCount(2);
+    const keys = tracker.pin([8000], "2", {}, new Set(["3"]));
+    for (const [at, key] of keys) lines.set(at, key);
+    await say(4, 4);
+    expect(new Set(lines.values())).toEqual(new Set(["1", "2"]));
+  });
+
   test("moves only the line the user moved, and keeps it there", async () => {
     await say(1, 4);
     await say(2, 4);

@@ -576,7 +576,11 @@ export function moveLine(
   const partial = useRecorderStore.getState().partial;
   if (partial && merged.has(partial.speaker)) set({ partial: { ...partial, speaker: to } });
   if (a.voices) {
-    regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}, merged));
+    const recording = recordingOf(a);
+    if (typeof recording?.participantCount === "number") {
+      a.voices.setParticipantCount(recording.participantCount);
+    }
+    regrouped(a, a.voices.pin(moved, to, recording?.speakers ?? {}, merged));
   } else if (merged.size) {
     for (const [label, key] of a.serverMerges) if (merged.has(key)) a.serverMerges.set(label, to);
     for (const key of merged) if (!a.serverMerges.has(key)) a.serverMerges.set(key, to);

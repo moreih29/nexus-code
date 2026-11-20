@@ -6,6 +6,7 @@ import {
   movedLines,
   newSpeakerKey,
   numberSpeakers,
+  type ParticipantCount,
   peopleIn,
   recordingMs,
   type SpeakerMoveScope,
@@ -245,6 +246,31 @@ describe("a note's transcript", () => {
     ]);
     expect(newSpeakerKey(moved)).toBe("3");
     expect(newSpeakerKey(recording({ speakers: { "1": "지현" } }))).toBe("2");
+  });
+
+  test.each([
+    [3, "all", "2", 2, 2],
+    [3, "following", "2", 2, 2],
+    [3, "line", "2", 2, 2],
+    [3, "line", "4", 3, 3],
+    [2, "line", "4", 3, 2],
+    ["auto", "all", "2", 2, "auto"],
+    ["7+", "line", "2", 2, "7+"],
+  ] satisfies [
+    ParticipantCount,
+    SpeakerMoveScope,
+    string,
+    number,
+    ParticipantCount,
+  ][])("updates participant count %s after moving scope %s to speaker %s", (participantCount, scope, to, people, expectedCount) => {
+    const shown = line("3", 4000, 5000, "c");
+    const r = recording({
+      participantCount,
+      lines: [line("1", 0, 1000, "a"), line("2", 2000, 3000, "b"), shown],
+    });
+    const moved = movedLines(r, shown, to, scope);
+    expect(peopleIn(moved)).toBe(people);
+    expect(moved.participantCount).toBe(expectedCount);
   });
 
   test.each([

@@ -6,7 +6,18 @@
  * The person picked is also shown above the lines (`PickedSpeaker`), where
  * it stays as the recording scrolls away.
  */
-import { Layers2, Loader2, Merge, MoreHorizontal, Pencil, Sparkles, Trash2, X } from "lucide-react";
+import {
+  Eye,
+  Layers2,
+  Loader2,
+  Merge,
+  MoreHorizontal,
+  Pencil,
+  Sparkles,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { memo, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -298,6 +309,7 @@ function SpeakerChip({
   onMerge: (to: string) => void;
 }) {
   const { t } = useTranslation("notes");
+  const ViewIcon = picked ? Users : Eye;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const listId = useId();
@@ -415,7 +427,10 @@ function SpeakerChip({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem onSelect={onPick}>
-            {picked ? t("transcript.everyone") : t("transcript.only")}
+            <span className="flex items-center gap-2">
+              <ViewIcon className="size-3.5" aria-hidden="true" />
+              {picked ? t("transcript.everyone") : t("transcript.only")}
+            </span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenuRoot>
