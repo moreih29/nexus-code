@@ -879,9 +879,13 @@ func (p *process) readStderr(stderr io.Reader) {
 func (p *process) stderr() string {
 	p.stderrMu.Lock()
 	defer p.stderrMu.Unlock()
-	tail := strings.ToValidUTF8(string(p.stderrTail), "")
+	raw := p.stderrTail
 	if p.stderrTruncated {
-		_, tail, _ = strings.Cut(tail, "\n")
+		// The cut may have split a character; drop that first line before decoding.
+		_, raw, _ = bytes.Cut(raw, []byte("\n"))
+	}
+	tail := decodeOutput(raw)
+	if p.stderrTruncated {
 		return "[Chat stderr truncated]\n" + redact.Credentials(tail)
 	}
 	return redact.Credentials(tail)

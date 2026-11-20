@@ -91,5 +91,5 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *cappedBuffer) String() string {
-	return strings.ToValidUTF8(b.buf.String(), "")
+	return decodeOutput(b.buf.Bytes())
 }
