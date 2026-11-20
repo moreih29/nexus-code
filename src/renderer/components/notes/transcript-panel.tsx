@@ -30,6 +30,7 @@ import { cn } from "@/utils/cn";
 import {
   clockOf,
   newSpeakerKey,
+  type SpeakerMoveScope,
   speakerName,
   type TranscriptLine,
   type TranscriptRecording,
@@ -315,14 +316,39 @@ export const TranscriptPanel = memo(function TranscriptPanel({
         color: speakerColor(p.color),
       }));
   }, [moving, recordings, casts, unnamed]);
+  const applyMove = useCallback(
+    (recording: TranscriptRecording, line: TranscriptLine, to: string, scope: SpeakerMoveScope) => {
+      moveLine(workspaceId, noteId, recording.id, line, to, scope);
+      if (scope !== "all") return;
+      const updated = useTranscriptsStore
+        .getState()
+        .byNote[transcriptKey(workspaceId, noteId)]?.recordings.find((r) => r.id === recording.id);
+      if (!updated || updated === recording) return;
+      const source = personOf(recording, line.speaker);
+      const target = personOf(recording, to);
+      setSpeaker((now) =>
+        now?.recordingId === recording.id && (now.person === source || now.person === target)
+          ? { recordingId: recording.id, person: personOf(updated, to) }
+          : now,
+      );
+    },
+    [workspaceId, noteId],
+  );
   const move = useCallback(
-    (to: string | null) => {
+    (to: string | null, scope: SpeakerMoveScope) => {
       if (!moving) return;
       const recording = current.current.recordings.find((r) => r.id === moving.recordingId);
-      if (!recording) return;
-      moveLine(workspaceId, noteId, recording.id, moving.line, to ?? newSpeakerKey(recording));
+      if (recording) applyMove(recording, moving.line, to ?? newSpeakerKey(recording), scope);
     },
-    [moving, workspaceId, noteId],
+    [moving, applyMove],
+  );
+  const merge = useCallback(
+    (recordingId: string, from: string, to: string) => {
+      const recording = current.current.recordings.find((r) => r.id === recordingId);
+      const line = recording?.lines.find((l) => l.speaker === from);
+      if (recording && line) applyMove(recording, line, to, "all");
+    },
+    [applyMove],
   );
 
   // Escape takes back the narrowing: the person picked, then the search.
@@ -471,6 +497,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
                     unnamed={unnamed}
                     onPick={pick}
                     onName={name}
+                    onMerge={merge}
                     onSpeaker={openMove}
                     onQuote={quote}
                     onShowInWhole={showInWhole}
@@ -506,6 +533,7 @@ function Row({
   unnamed,
   onPick,
   onName,
+  onMerge,
   onSpeaker,
   onQuote,
   onShowInWhole,
@@ -523,6 +551,7 @@ function Row({
   unnamed: (key: string) => string;
   onPick: (recordingId: string, person: string) => void;
   onName: (recordingId: string, keys: readonly string[], name: string) => void;
+  onMerge: (recordingId: string, from: string, to: string) => void;
   onSpeaker: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
   onQuote: (recordingId: string, line: TranscriptLine) => void;
   onShowInWhole: (rowKey: string) => void;
@@ -545,6 +574,7 @@ function Row({
           names={names}
           onPick={onPick}
           onName={onName}
+          onMerge={onMerge}
         />
       );
     }

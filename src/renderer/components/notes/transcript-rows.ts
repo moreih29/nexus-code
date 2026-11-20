@@ -26,7 +26,7 @@ const SPEAKER_COLORS = [
   "var(--state-info-fg)",
   "var(--state-success-fg)",
   "var(--state-warning-fg)",
-  "var(--primary)",
+  "var(--color-git-lane-6)",
   "var(--state-error-fg)",
   "var(--muted-foreground)",
 ];
@@ -74,15 +74,16 @@ export interface Cast {
  * or goes.
  */
 export function castOf(
-  recording: Pick<TranscriptRecording, "lines" | "speakers">,
+  recording: Pick<TranscriptRecording, "lines" | "speakers" | "speakerNumbers">,
   extra?: string | null,
 ): Cast {
   const voices = speakersOf(recording);
   if (extra && !voices.includes(extra)) voices.push(extra);
   const ofKey = (key: string) => personOf(recording, key);
+  const numberOf = (key: string) => recording.speakerNumbers?.[key] ?? key;
   const grouped = [...new Set(voices.map(ofKey))]
     .map((person) => ({ person, keys: voices.filter((k) => ofKey(k) === person).sort(byKey) }))
-    .sort((a, b) => byKey(a.keys[0] as string, b.keys[0] as string));
+    .sort((a, b) => byKey(numberOf(a.keys[0] as string), numberOf(b.keys[0] as string)));
   const numbered = voices.every((k) => /^[1-9]\d*$/.test(k));
   const people = grouped.map((p, index) => ({
     ...p,

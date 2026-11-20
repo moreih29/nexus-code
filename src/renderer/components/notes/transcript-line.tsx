@@ -8,9 +8,20 @@ import { Plus } from "lucide-react";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { clockOf, type TranscriptLine } from "../../../shared/notes/transcript";
+import {
+  clockOf,
+  type SpeakerMoveScope,
+  type TranscriptLine,
+} from "../../../shared/notes/transcript";
 import { FIND_COLORS } from "../../services/editor/preview/find/dom-finder";
-import { DropdownMenuAtPoint, DropdownMenuItem, type DropdownMenuPoint } from "../ui/dropdown-menu";
+import {
+  DropdownMenuAtPoint,
+  DropdownMenuItem,
+  type DropdownMenuPoint,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "../ui/dropdown-menu";
 
 /** `text` with the [start, end] spans in `marks` marked. */
 function Marked({ text, marks }: { text: string; marks: readonly number[] }) {
@@ -161,30 +172,43 @@ export const LineMoveMenu = memo(function LineMoveMenu({
   /** The recording's other people. */
   targets: readonly LineTarget[];
   /** Moves the line to a voice, or to a new one (null). */
-  onMove: (to: string | null) => void;
+  onMove: (to: string | null, scope: SpeakerMoveScope) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("notes");
+  const scopes = [
+    ["line", t("transcript.moveScope.line")],
+    ["following", t("transcript.moveScope.following")],
+    ["all", t("transcript.moveScope.all")],
+  ] as const;
+  const choices = [...targets, { key: null, name: t("transcript.newSpeaker"), color: null }];
   return (
     <DropdownMenuAtPoint point={point} onClose={onClose}>
-      {targets.map((o) => (
-        <DropdownMenuItem
-          key={o.key}
-          className="justify-start gap-2"
-          onSelect={() => onMove(o.key)}
-        >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ background: o.color }}
-            aria-hidden="true"
-          />
-          {o.name}
-        </DropdownMenuItem>
+      {choices.map(({ key, name, color }) => (
+        <DropdownMenuSub key={key ?? "new"}>
+          <DropdownMenuSubTrigger>
+            <span className="flex items-center gap-2">
+              {color ? (
+                <span
+                  className="size-1.5 rounded-full"
+                  style={{ background: color }}
+                  aria-hidden="true"
+                />
+              ) : (
+                <Plus className="size-3.5" aria-hidden="true" />
+              )}
+              {name}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {scopes.map(([scope, label]) => (
+              <DropdownMenuItem key={scope} onSelect={() => onMove(key, scope)}>
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
       ))}
-      <DropdownMenuItem className="justify-start gap-2" onSelect={() => onMove(null)}>
-        <Plus className="size-3.5" aria-hidden="true" />
-        {t("transcript.newSpeaker")}
-      </DropdownMenuItem>
     </DropdownMenuAtPoint>
   );
 });

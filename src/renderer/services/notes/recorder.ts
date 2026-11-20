@@ -13,7 +13,10 @@ import i18next from "i18next";
 import { create } from "zustand";
 import {
   movedLines,
+  numberSpeakers,
+  type ParticipantCount,
   peopleIn,
+  type SpeakerMoveScope,
   speakerKey,
   type TranscriptLine,
   type TranscriptRecording,
@@ -85,6 +88,7 @@ interface Active {
   noteId: string;
   recordingId: string;
   language: string;
+  participantCount: ParticipantCount;
   /** The take being recorded (0-based); -1 before the first. */
   take: number;
   stream: MediaStream | null;
@@ -106,6 +110,8 @@ interface Active {
   voicePrint: Promise<boolean>;
   /** The voices told apart by voice print, when the app can. */
   voices: VoiceTracker | null;
+  /** Server speaker labels explicitly merged while recording without voice prints. */
+  serverMerges: Map<string, string>;
 }
 
 let active: Active | null = null;
@@ -165,7 +171,9 @@ function keysOf(a: Active): string[] {
 
 /** The voice of words under server label `label`: by voice print when the app can. */
 function voiceOfLabel(a: Active, label: string): string {
-  return a.voices ? a.voices.provisional(label, keysOf(a)) : speakerKey(a.take, label);
+  if (a.voices) return a.voices.provisional(label, keysOf(a));
+  const key = speakerKey(a.take, label);
+  return a.serverMerges.get(key) ?? key;
 }
 
 /** Lines' voices as grouped again (by start), except the ones the user moved. */
@@ -265,6 +273,7 @@ export async function startRecording(
   workspaceId: string,
   noteId: string,
   language: string,
+  participantCount: ParticipantCount = "auto",
 ): Promise<void> {
   const a = active;
   if (a) {
@@ -283,6 +292,7 @@ export async function startRecording(
     noteId,
     recordingId,
     language,
+    participantCount,
     take: -1,
     stream: null,
     capture: null,
@@ -296,6 +306,7 @@ export async function startRecording(
     // Asked now, while the microphone and the session open; it loads the model.
     voicePrint: voicePrintAvailable(),
     voices: null,
+    serverMerges: new Map(),
   };
   active = mine;
   set({ ...IDLE, phase: "starting", workspaceId, noteId, recordingId });
@@ -304,7 +315,15 @@ export async function startRecording(
     ...file,
     recordings: [
       ...file.recordings,
-      { id: recordingId, startedAt: Date.now(), language, takes: [], speakers: {}, lines: [] },
+      {
+        id: recordingId,
+        startedAt: Date.now(),
+        language,
+        participantCount: "auto",
+        takes: [],
+        speakers: {},
+        lines: [],
+      },
     ],
   }));
   if (!(await startTake(mine))) {
@@ -362,8 +381,9 @@ async function startTake(a: Active): Promise<boolean> {
   // The first take finds out whether the app can tell the voices apart; the recording keys its
   // voices so from its first line on.
   if (a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint) && active === a) {
-    a.voices = new VoiceTracker();
-    update((r) => ({ ...r, voicePrint: true }));
+    const count = a.participantCount;
+    a.voices = new VoiceTracker(typeof count === "number" ? count : undefined);
+    update((r) => ({ ...r, voicePrint: true, participantCount: count }));
   }
   const voices = a.voices;
   voices?.startTake();
@@ -511,6 +531,7 @@ async function finishTake(a: Active): Promise<void> {
 }
 
 async function finishRecording(a: Active): Promise<void> {
+  updateRecording(a.workspaceId, a.noteId, a.recordingId, numberSpeakers);
   active = null;
   set(IDLE);
   await flushTranscript(a.workspaceId, a.noteId, true);
@@ -532,16 +553,39 @@ export function moveLine(
   recordingId: string,
   shown: Pick<TranscriptLine, "speaker" | "startMs" | "endMs">,
   to: string,
+  scope: SpeakerMoveScope = "line",
 ): void {
+  const a =
+    active?.recordingId === recordingId &&
+    active.workspaceId === workspaceId &&
+    active.noteId === noteId
+      ? active
+      : null;
   let moved: number[] = [];
+  const merged = new Set<string>();
   updateRecording(workspaceId, noteId, recordingId, (r) => {
-    const next = movedLines(r, shown, to);
-    moved = next.lines.filter((l, i) => l !== r.lines[i]).map((l) => l.startMs);
+    const next = movedLines(r, shown, to, scope);
+    if (next === r) return r;
+    if (!a) {
+      const count = next.participantCount;
+      return typeof count === "number"
+        ? { ...next, participantCount: Math.min(count, peopleIn(next)) }
+        : next;
+    }
+    const changed = r.lines.filter((l, i) => l !== next.lines[i]);
+    moved = changed.map((l) => l.startMs);
+    if (scope === "all") for (const line of changed) merged.add(line.speaker);
     return next;
   });
-  const a = active;
-  if (!a?.voices || a.recordingId !== recordingId || !moved.length) return;
-  regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}));
+  if (!a || !moved.length) return;
+  const partial = useRecorderStore.getState().partial;
+  if (partial && merged.has(partial.speaker)) set({ partial: { ...partial, speaker: to } });
+  if (a.voices) {
+    regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}, merged));
+  } else if (merged.size) {
+    for (const [label, key] of a.serverMerges) if (merged.has(key)) a.serverMerges.set(label, to);
+    for (const key of merged) if (!a.serverMerges.has(key)) a.serverMerges.set(key, to);
+  }
 }
 
 /** Pauses the recording: the take ends, and the microphone goes off. */
