@@ -1,29 +1,32 @@
 package chat
 
 import (
+	"bytes"
 	"strings"
 	"unicode/utf8"
 )
 
-// decodeOutput turns program output into valid UTF-8. Valid UTF-8 is returned
-// unchanged. Otherwise the platform's legacy code page is tried (Windows
-// programs such as cmd.exe write OEM/ANSI text), and invalid bytes are
-// dropped when that is unavailable or fails.
+// decodeOutput turns program output into valid UTF-8, line by line. Valid
+// UTF-8 lines are kept as they are. Other lines are read with the platform's
+// legacy code page (Windows programs such as cmd.exe write OEM/ANSI text),
+// or have their invalid bytes dropped when that is unavailable. Line breaks
+// stay as written, so UTF-8 and legacy lines may be mixed.
 func decodeOutput(b []byte) string {
 	if utf8.Valid(b) {
 		return string(b)
 	}
-	if s, ok := decodeLegacyCodePage(b); ok {
-		return s
+	var out strings.Builder
+	for _, line := range bytes.SplitAfter(b, []byte("\n")) {
+		switch {
+		case utf8.Valid(line):
+			out.Write(line)
+		default:
+			if s, ok := decodeLegacyCodePage(line); ok {
+				out.WriteString(s)
+			} else {
+				out.WriteString(strings.ToValidUTF8(string(line), ""))
+			}
+		}
 	}
-	return strings.ToValidUTF8(string(b), "")
-}
-
-// trimLeadingPartialRune drops continuation bytes left at the start of a tail
-// cut from the middle of a multibyte character.
-func trimLeadingPartialRune(b []byte) []byte {
-	for len(b) > 0 && !utf8.RuneStart(b[0]) {
-		b = b[1:]
-	}
-	return b
+	return out.String()
 }

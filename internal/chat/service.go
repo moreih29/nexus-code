@@ -881,11 +881,11 @@ func (p *process) stderr() string {
 	defer p.stderrMu.Unlock()
 	raw := p.stderrTail
 	if p.stderrTruncated {
-		raw = trimLeadingPartialRune(raw)
+		// The cut may have split a character; drop that first line before decoding.
+		_, raw, _ = bytes.Cut(raw, []byte("\n"))
 	}
 	tail := decodeOutput(raw)
 	if p.stderrTruncated {
-		_, tail, _ = strings.Cut(tail, "\n")
 		return "[Chat stderr truncated]\n" + redact.Credentials(tail)
 	}
 	return redact.Credentials(tail)
