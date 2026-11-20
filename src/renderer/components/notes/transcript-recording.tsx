@@ -112,21 +112,27 @@ export const RecordingHeading = memo(function RecordingHeading({
                 <DropdownMenuItem
                   onSelect={() => void runSecondPass(workspaceId, noteId, recording.id)}
                 >
-                  <Sparkles className="size-3.5" aria-hidden="true" />
-                  {t("transcript.refine")}
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="size-3.5" aria-hidden="true" />
+                    {t("transcript.refine")}
+                  </span>
                 </DropdownMenuItem>
               )}
               {!recording.audioRemoved && (
                 <DropdownMenuItem
                   onSelect={() => void removeRecording(workspaceId, noteId, recording.id, false)}
                 >
-                  <Trash2 className="size-3.5" aria-hidden="true" />
-                  {t("transcript.removeAudio")}
+                  <span className="flex items-center gap-2">
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                    {t("transcript.removeAudio")}
+                  </span>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={() => void removeAll()}>
-                <Trash2 className="size-3.5" aria-hidden="true" />
-                {t("transcript.removeAll")}
+                <span className="flex items-center gap-2">
+                  <Trash2 className="size-3.5" aria-hidden="true" />
+                  {t("transcript.removeAll")}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuRoot>
