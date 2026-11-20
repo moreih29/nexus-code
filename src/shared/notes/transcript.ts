@@ -75,6 +75,8 @@ export const TranscriptRecordingSchema = z.object({
   /** Names given to voices, by key. */
   speakers: z.record(z.string(), z.string()),
   lines: z.array(TranscriptLineSchema),
+  /** Names the user declined for each voice. */
+  rejectedVoiceNames: z.record(z.string(), z.array(z.string().min(1).max(80))).optional(),
   /** The audio was deleted (the text stays). */
   audioRemoved: z.boolean().optional(),
   /** Its voices were told apart by voice print: keyed for the whole recording. */
