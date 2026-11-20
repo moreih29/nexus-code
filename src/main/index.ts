@@ -4,6 +4,7 @@ import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "ele
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
+import { limitLog } from "../shared/log/limit";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -54,6 +55,7 @@ import {
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
+import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
@@ -136,6 +138,7 @@ import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 initMainLogger();
 
 const logger = createLogger("main");
+const gitWatcherFailures = limitLog(logger);
 
 // One app at a time on a profile. A second one, on the same files, ran its own
 // terminals and agents, resumed the same chats again, and undid the first's
@@ -613,7 +616,7 @@ app.whenReady().then(async () => {
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
         void gitWatcher?.watch(workspaceId, info.gitDir).catch((error) => {
-          logger.warn(`git agent watcher failed: ${(error as Error).message}`);
+          reportWatchFailure(gitWatcherFailures, "git agent watcher", workspaceId, error);
         });
       } else {
         gitWatcher?.disposeWorkspace(workspaceId);

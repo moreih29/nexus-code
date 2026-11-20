@@ -1,12 +1,15 @@
 import type { WebContents } from "electron";
 import { z } from "zod";
 import { FsChangeSchema } from "../../../../shared/fs/types";
+import { limitLog } from "../../../../shared/log/limit";
 import { createLogger } from "../../../../shared/log/main";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { type AgentBackedProvider, isAgentBackedProvider } from "./provider";
+import { reportWatchFailure } from "./watch-failure-log";
 import { enqueueWatchOperation, subscribeAgentWatch } from "./watch-lifecycle";
 
 const log = createLogger("fs");
+const failures = limitLog(log);
 const AgentFsChangedPayloadSchema = z.object({ changes: z.array(FsChangeSchema) });
 
 interface WatchSubscription {
@@ -97,7 +100,7 @@ export class AgentFsWatcher {
       for (const [relPath, owners] of state.paths) {
         if (!owners.has(owner)) continue;
         void this.unwatch(workspaceId, relPath, owner).catch((error: unknown) => {
-          log.warn(`fs.unwatch panel cleanup failed: ${String(error)}`);
+          reportWatchFailure(failures, "fs.unwatch panel cleanup", workspaceId, error);
         });
       }
     }
@@ -201,9 +204,7 @@ export class AgentFsWatcher {
           await this.cleanup(workspaceId, subscription.provider, relPath);
         }
       }).catch((error: unknown) => {
-        log.warn(
-          `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
-        );
+        reportWatchFailure(failures, "fs.watch replay", workspaceId, error);
       });
     }
     if (state.paths.size > 0) {
@@ -223,9 +224,7 @@ export class AgentFsWatcher {
     try {
       await provider.callAgentMethod("fs.unwatch", { relPath });
     } catch (error) {
-      log.warn(
-        `fs.unwatch cleanup failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
-      );
+      reportWatchFailure(failures, "fs.unwatch cleanup", workspaceId, error);
     }
   }
 

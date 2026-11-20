@@ -126,3 +126,12 @@ export function opaqueTag(value: string): string {
   }
   return hash.toString(16).padStart(8, "0");
 }
+
+/** An error's message for a log line: no credentials, no paths, one line, cut to max. */
+export function errorText(
+  error: unknown,
+  max = 200,
+  redact: (text: string) => string = (t) => t,
+): string {
+  return safeText(error instanceof Error ? error.message : String(error), max, redact);
+}

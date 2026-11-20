@@ -26,6 +26,7 @@
  *   needs to change.
  */
 
+import { truncate } from "../../shared/log/limit";
 import { createLogger } from "../../shared/log/main";
 
 const log = createLogger("main");
@@ -54,11 +55,19 @@ const ERROR_SAFETY_NET_MODE: SafetyNetMode = "log-only";
  * Handles an error value that may be an Error instance or an arbitrary thrown
  * value and returns a plain string suitable for logging.
  */
-function describeError(value: unknown): string {
+/** The longest message a fault line keeps; the stack frames after it are kept whole. */
+export const FAULT_MESSAGE_MAX = 500;
+
+export function describeError(value: unknown): string {
   if (value instanceof Error) {
-    return value.stack ?? `${value.name}: ${value.message}`;
+    const head = `${value.name}: ${truncate(value.message, FAULT_MESSAGE_MAX)}`;
+    const stack = value.stack;
+    if (stack === undefined) return head;
+    // A stack starts with the message, which may be long; its frames follow.
+    const frames = stack.indexOf("\n    at ");
+    return frames === -1 ? head : `${head}${stack.slice(frames)}`;
   }
-  return String(value);
+  return truncate(String(value), FAULT_MESSAGE_MAX);
 }
 
 /**
