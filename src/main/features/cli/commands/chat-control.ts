@@ -912,7 +912,7 @@ const chatProfiles: CliCommand = {
       name,
       agent,
       workspaceDefault: workspaceDefault === true,
-      ...(path !== undefined ? { path } : {}),
+      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
     }));
     return output(
       table(

@@ -542,9 +542,18 @@ export async function listProfiles(
   if (workspaceId !== undefined && !workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
-  return services
+  const { profiles } = await services
     .ui("chat.profiles", { ...(agent ? { agent } : {}), ...(workspaceId ? { workspaceId } : {}) })
     .catch(unavailable);
+  return {
+    profiles: profiles.map(({ id, name, agent, isDefault, workspaceDefault }) => ({
+      id,
+      name,
+      agent,
+      isDefault,
+      workspaceDefault,
+    })),
+  };
 }
 
 /** Renames the chat, as its tab's rename does. */

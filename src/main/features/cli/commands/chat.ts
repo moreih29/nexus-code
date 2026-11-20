@@ -1344,7 +1344,12 @@ const chatImage: CliCommand = {
     const { data, ...metadata } = image;
     const out = typeof flags.out === "string" ? callerPath(ctx, flags.out) : undefined;
     if (out) {
-      await writeFile(out, Buffer.from(data, "base64"), { flag: "wx" });
+      await writeFile(out, Buffer.from(data, "base64"), { flag: "wx" }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EEXIST") throw new CliError("image output already exists");
+          throw new CliError(`could not save the image (${error.code ?? "write failed"})`);
+        },
+      );
       return output(`Wrote ${out}.`, { ...metadata, path: out });
     }
     return output(data, { ...metadata, data });
