@@ -277,12 +277,12 @@ const chatEdit: CliCommand = {
 
 const chatRewind: CliCommand = {
   path: ["chat", "rewind"],
-  summary: "Rewind a Claude tab to before one of the messages sent to it",
+  summary: "Rewind a Claude or Codex tab to before a user message",
   args: "<tab> <message>",
   details:
     "As its rewind button does: the conversation goes back to before the message (the number\n" +
-    "chat read shows by it), and with --files the files Claude changed since go back too.\n" +
-    "--preview only prints what --files would undo. The user allows it; not during a turn.",
+    "chat read shows by it). Claude's --files also restores files; Codex rewinds only the chat.\n" +
+    "--preview checks the target and shows what can be restored. Rewinding needs user approval.",
   flags: {
     files: { type: "boolean", description: "Undo Claude's changes to the files since, too" },
     preview: { type: "boolean", description: "Only print what would be undone in the files" },
@@ -292,7 +292,9 @@ const chatRewind: CliCommand = {
     const [selector, message] = exactArgs(positionals, "tab", "message") as [string, string];
     const i = placeArg(message);
     const target = await (flags.preview === true ? chatTarget : otherChat)(ctx, flags, selector);
-    claudeOnly(target, "rewind");
+    const codex = target.tab.type === "codex";
+    const withFiles = flags.files === true;
+    if (codex && withFiles) throw new CliError("Codex conversation rewind cannot restore files");
     const item = await ctx.services.ui("chat.entryItem", { ...target.ref, i });
     if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
     const preview = await ctx.services.ui("chat.rewindPreview", {
@@ -304,6 +306,16 @@ const chatRewind: CliCommand = {
         ? "no file changes to undo"
         : `${preview.filesChanged.length} file${preview.filesChanged.length === 1 ? "" : "s"} (+${preview.insertions} -${preview.deletions}):\n${preview.filesChanged.map((f) => `  ${f}`).join("\n")}`;
     if (flags.preview === true) {
+      if (codex) {
+        return output(
+          `Codex can rewind the conversation to before #${i}. It cannot restore files.`,
+          {
+            ...target.ref,
+            i,
+            ...preview,
+          },
+        );
+      }
       const why = preview.canRewind ? "" : `\nIts files cannot be rewound: ${preview.error ?? ""}`;
       return output(`Rewinding to before #${i} with --files undoes ${files}${why}`, {
         ...target.ref,
@@ -311,7 +323,6 @@ const chatRewind: CliCommand = {
         ...preview,
       });
     }
-    const withFiles = flags.files === true;
     if (withFiles && !preview.canRewind) {
       throw new CliError(`its files cannot be rewound${preview.error ? `: ${preview.error}` : ""}`);
     }
@@ -342,7 +353,7 @@ const chatRewind: CliCommand = {
 
 const chatFork: CliCommand = {
   path: ["chat", "fork"],
-  summary: "Fork a Claude tab's conversation into a new tab",
+  summary: "Fork a Claude or Codex conversation into a new tab",
   args: "<tab> [message]",
   details:
     "As its fork buttons do, the new tab opening behind what the window shows: with no\n" +
@@ -354,7 +365,6 @@ const chatFork: CliCommand = {
     const [selector, message] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     const target = await chatTarget(ctx, flags, selector);
-    claudeOnly(target, "fork");
     await mayChange(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
     const itemKey =
       message === undefined

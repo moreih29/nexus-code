@@ -232,16 +232,36 @@ describe("chat rewind", () => {
     expect(calls(app, "chat.rewind")).toEqual([]);
     const answer = await nexus(app, ["chat", "rewind", "eeee", "1"]);
     expect(answer.stderr).toContain("#1 is not a message sent to it");
-    const codex = withChat({}, "codex");
-    expect((await nexus(codex, ["chat", "rewind", "eeee", "0"])).stderr).toContain(
-      "only a Claude tab can rewind",
+  });
+
+  test("Codex previews and rewinds a turn with approval and refuses restoring files", async () => {
+    const app = withChat({ state: "idle" }, "codex");
+    app.uiAnswers.set("chat.rewindPreview", {
+      canRewind: false,
+      filesChanged: [],
+      insertions: 0,
+      deletions: 0,
+    });
+    const rewind = ["chat", "rewind", "eeee", "0"];
+    expect((await nexus(app, [...rewind, "--files"])).stderr).toContain(
+      "Codex conversation rewind cannot restore files",
     );
+    expect((await nexus(app, [...rewind, "--preview"])).stdout).toContain(
+      "Codex can rewind the conversation to before #0",
+    );
+    expect(app.asked).toEqual([]);
+    expect((await nexus(app, rewind)).exitCode).toBe(1);
+    expect(calls(app, "chat.rewind")).toEqual([]);
+    app.answers.push("once");
+    expect((await nexus(app, rewind)).exitCode).toBe(0);
+    expect(app.asked.map((request) => request.change.kind)).toEqual(["chatRewind", "chatRewind"]);
+    expect(calls(app, "chat.rewind")).toEqual([{ ...TARGET, itemKey: "u0", files: false }]);
   });
 });
 
 describe("chat fork", () => {
-  test("forks all of it, or from a message, printing the message to send again", async () => {
-    const app = withChat();
+  test.each(["claude", "codex"] as const)("%s forks all or from a message", async (agent) => {
+    const app = withChat({}, agent);
     app.uiAnswers.set("chat.fork", { tabId: NEW_TAB });
     const all = await nexus(app, ["chat", "fork", "eeee"]);
     expect(all.stdout).toBe("Forked Fix the login (eeeeeeee) into tab cccccccc.\n");
