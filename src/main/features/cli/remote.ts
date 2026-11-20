@@ -204,6 +204,8 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "notes.voiceNames.list",
+  "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
 ]);
@@ -246,9 +248,21 @@ export async function askDevice<M extends RpcMethod>(
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : method === "worktree.new" || method === "worktree.remove"
+        : [
+              "worktree.new",
+              "worktree.remove",
+              "notes.speakers",
+              "notes.voiceSuggestions.list",
+              "notes.voiceSuggestions.change",
+            ].includes(method)
           ? AGENT_REQUEST_MS + 5 * 60_000
-          : from && (method === "chat.rewind" || method === "chat.profile")
+          : from &&
+              [
+                "chat.rewind",
+                "chat.profile",
+                "settings.instructions.set",
+                "notes.voiceNames.delete",
+              ].includes(method)
             ? PEER_APPROVAL_MS
             : from &&
                 !reads &&

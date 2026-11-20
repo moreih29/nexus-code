@@ -151,12 +151,14 @@ const LARGE_READ_REPLIES = new Set([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "notes.voiceNames.list",
+  "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
 ]);
 const RATE_LIMITED = "the relay is rate limiting this connection";
 
-/** Reads that can be repeated after a connection loss. Watches create subscriptions. */
+/** Reads that can be repeated after a connection loss. Watches subscribe and voice suggestions can start analysis. */
 const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "sessions.list",
   "events.read",
@@ -191,6 +193,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "notes.voiceNames.list",
   "layout.get",
   "agentView.get",
 ]);

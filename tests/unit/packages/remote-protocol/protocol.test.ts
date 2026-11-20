@@ -679,3 +679,14 @@ test("peer view changes take a declared action and validated arguments", () => {
     expect(params.safeParse({ workspaceId: "w", change }).success).toBe(false);
   }
 });
+
+test("peer instruction writes exclude profile editing; remembered voice results expose names only", () => {
+  const set = RPC_METHODS["settings.instructions.set"].params;
+  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt" }).success).toBe(false);
+  const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
+    noteId: "note",
+    recordingId: "rec",
+    suggestions: [{ speaker: "s1", name: "Alex", embedding: [0.5], score: 0.98 }],
+  });
+  expect(suggestions.suggestions).toEqual([{ speaker: "s1", name: "Alex" }]);
+});

@@ -20,7 +20,15 @@ import { isFileTransferMethod } from "./file-io";
 import { FileWrites } from "./file-writes";
 import { listFolders } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus } from "./git";
-import { attachToNote, listNotes, noteTranscript, PhotoQuota, readNote } from "./notes";
+import {
+  attachToNote,
+  boundedNoteResult,
+  findNote,
+  listNotes,
+  noteTranscript,
+  PhotoQuota,
+  readNote,
+} from "./notes";
 import { RpcFailure } from "./room";
 import {
   answerChat,
@@ -169,6 +177,8 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "notes.list",
   "notes.read",
   "notes.transcript",
+  "notes.voiceNames.list",
+  "notes.voiceSuggestions.list",
   "layout.get",
   "agentView.get",
 ]);
@@ -189,6 +199,8 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "notes.list": 12_000,
   "notes.read": 12_000,
   "notes.transcript": 12_000,
+  "notes.voiceNames.list": 12_000,
+  "notes.voiceSuggestions.list": 5 * 60_000,
   "layout.get": 12_000,
   "agentView.get": 12_000,
 };
@@ -228,6 +240,16 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
     }
     // File controls ask in their handlers, after validating their scope.
+    const agentOnly =
+      method === "settings.instructions.set" || method === "notes.voiceNames.delete";
+    if (agentOnly && !by)
+      throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
+    if (
+      method === "settings.instructions.set" &&
+      !InstructionTextSchema.safeParse((params as RpcParams<"settings.instructions.set">).text)
+        .success
+    )
+      throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
     const checkInHandler = isFileTransferMethod(method);
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
@@ -254,6 +276,50 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "settings.instructions.set": {
+        const { workspaceId, layer, text } = params as RpcParams<"settings.instructions.set">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const scope =
+          layer === "all"
+            ? { kind: "all" as const }
+            : layer === "workspace"
+              ? { kind: "workspace" as const, id: workspaceId }
+              : { kind: "agent" as const, agent: layer };
+        return s.ui("settings.instructions.set", { scope, text }).catch(unavailable);
+      }
+      case "notes.speakers": {
+        const { workspaceId, note, recording, change } = params as RpcParams<"notes.speakers">;
+        const { id } = await findNote(s, workspaceId, note);
+        const result = await s
+          .ui("note.speakers", { workspaceId, noteId: id, recording, change }, 5 * 60_000)
+          .catch(unavailable);
+        return { noteId: id, ...result };
+      }
+      case "notes.voiceSuggestions.list":
+      case "notes.voiceSuggestions.change": {
+        const { workspaceId, note, recording } = params as RpcParams<"notes.voiceSuggestions.list">;
+        const { id } = await findNote(s, workspaceId, note);
+        const action =
+          method === "notes.voiceSuggestions.change"
+            ? (params as RpcParams<"notes.voiceSuggestions.change">).action
+            : { op: "list" as const };
+        const result = await s
+          .ui("note.voiceSuggestions", { workspaceId, noteId: id, recording, action }, 5 * 60_000)
+          .catch(unavailable);
+        return boundedNoteResult({ noteId: id, ...result });
+      }
+      case "notes.voiceNames.list":
+        return boundedNoteResult(
+          await s.ui("note.voiceNames", { action: { op: "list" } }).catch(unavailable),
+        );
+      case "notes.voiceNames.delete": {
+        const { workspaceId, name } = params as RpcParams<"notes.voiceNames.delete">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        await s.ui("note.voiceNames", { action: { op: "delete", name } }).catch(unavailable);
+        return {};
+      }
       case "layout.get":
         return readLayout(s, (params as RpcParams<"layout.get">).workspaceId);
       case "layout.change":

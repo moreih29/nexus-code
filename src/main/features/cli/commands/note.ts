@@ -26,9 +26,11 @@ import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
 import {
   askPeerCli,
+  changePeerCli,
   DEVICE_FLAG,
   deviceFlag,
   deviceRef,
+  peerSessions,
   peerWorkspace,
   requirePeerCli,
   resolveDevice,
@@ -600,6 +602,7 @@ function speakerCommand(
     flags: {
       recording: RECORDING_FLAG,
       workspace: WORKSPACE_FLAG,
+      device: DEVICE_FLAG,
       ...(verb === "regroup"
         ? {
             participants: {
@@ -613,6 +616,19 @@ function speakerCommand(
     async run(ctx, { positionals: [selector, ...words], flags }) {
       if (!selector) throw new CliUsageError("missing <note>");
       const change = changeOf(words, flags);
+      const peer = await notePeer(ctx, flags);
+      if (peer) {
+        const result = await changePeerCli(ctx, peer.device, "notes.speakers", {
+          workspaceId: peer.workspace.id,
+          note: selector,
+          recording: flags.recording as string | undefined,
+          change,
+        });
+        return output(`Updated the speakers in recording ${result.recordingId}.`, {
+          ...result,
+          device: deviceRef(peer.device),
+        });
+      }
       const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
       const note = await findNote(ctx, workspace.id, selector);
       await mayChange(ctx, workspace, {
@@ -646,32 +662,21 @@ function voiceSuggestions(op: "list" | "accept" | "reject"): CliCommand {
       op === "list"
         ? "List remembered-name suggestions for a recording"
         : `${op === "accept" ? "Accept" : "Reject"} a remembered-name suggestion`,
-    flags: { recording: RECORDING_FLAG, workspace: WORKSPACE_FLAG },
+    flags: { recording: RECORDING_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
     async run(ctx, { positionals, flags }) {
       const [selector, speaker, name] = exactArgs(
         positionals,
         ...(op === "list" ? ["note"] : ["note", "speaker", "name"]),
       );
-      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-      const note = await findNote(ctx, workspace.id, selector as string);
-      const action: CliVoiceSuggestionAction =
-        op === "list" ? { op } : { op, speaker: speaker as string, name: name as string };
-      if (op !== "list")
-        await mayChange(ctx, workspace, {
-          kind: "noteSpeakers",
-          detail: note.title || note.id,
-          body: `${op} ${name}`,
-        });
-      const result = await ctx.services.ui(
-        "note.voiceSuggestions",
-        {
-          workspaceId: workspace.id,
-          noteId: note.id,
-          recording: flags.recording as string | undefined,
-          action,
-        },
-        5 * 60_000,
-      );
+      const action =
+        op === "list"
+          ? ({ op } as const)
+          : { op, speaker: speaker as string, name: name as string };
+      const recording = flags.recording as string | undefined;
+      const peer = await notePeer(ctx, flags);
+      const result = peer
+        ? await peerSuggestions(ctx, peer, selector as string, recording, action)
+        : await localSuggestions(ctx, flags, selector as string, recording, action);
       const text =
         op !== "list"
           ? `${op === "accept" ? "Accepted" : "Rejected"} ${name}.`
@@ -679,21 +684,68 @@ function voiceSuggestions(op: "list" | "accept" | "reject"): CliCommand {
               ["SPEAKER", "NAME"],
               result.suggestions.map((suggestion) => [suggestion.speaker, suggestion.name]),
             );
-      return output(
-        text || "No suggestions.",
-        { noteId: note.id, ...result },
-        { records: result.suggestions },
-      );
+      return output(text || "No suggestions.", result, { records: result.suggestions });
     },
   };
+}
+
+async function peerSuggestions(
+  ctx: CliContext,
+  peer: NonNullable<Awaited<ReturnType<typeof notePeer>>>,
+  note: string,
+  recording: string | undefined,
+  action: CliVoiceSuggestionAction,
+) {
+  const target = { workspaceId: peer.workspace.id, note, recording };
+  const result =
+    action.op === "list"
+      ? await askPeerCli(ctx, peer.device, "notes.voiceSuggestions.list", target)
+      : await changePeerCli(ctx, peer.device, "notes.voiceSuggestions.change", {
+          ...target,
+          action,
+        });
+  return { ...result, device: deviceRef(peer.device) };
+}
+
+async function localSuggestions(
+  ctx: CliContext,
+  flags: ParsedArgs["flags"],
+  selector: string,
+  recording: string | undefined,
+  action: CliVoiceSuggestionAction,
+) {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const note = await findNote(ctx, workspace.id, selector);
+  if (action.op !== "list")
+    await mayChange(ctx, workspace, {
+      kind: "noteSpeakers",
+      detail: note.title || note.id,
+      body: `${action.op} ${action.name}`,
+    });
+  const result = await ctx.services.ui(
+    "note.voiceSuggestions",
+    {
+      workspaceId: workspace.id,
+      noteId: note.id,
+      recording,
+      action,
+    },
+    5 * 60_000,
+  );
+  return { noteId: note.id, ...result };
 }
 
 const voiceNamesList: CliCommand = {
   path: ["note", "voice", "list"],
   summary: "List remembered speaker names",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const { names } = await ctx.services.ui("note.voiceNames", { action: { op: "list" } });
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const result = device
+      ? await askPeerCli(ctx, device, "notes.voiceNames.list", {})
+      : await ctx.services.ui("note.voiceNames", { action: { op: "list" } });
+    const { names } = result;
     return output(names.join("\n") || "No remembered names.", { names });
   },
 };
@@ -702,11 +754,30 @@ const voiceNamesDelete: CliCommand = {
   path: ["note", "voice", "delete"],
   args: "[name]",
   summary: "Forget one remembered voice or all remembered voices with user approval",
-  flags: { all: { type: "boolean", description: "Forget all remembered voices" } },
+  flags: {
+    all: { type: "boolean", description: "Forget all remembered voices" },
+    device: DEVICE_FLAG,
+  },
   async run(ctx, { positionals, flags }) {
     const [name] = flags.all === true ? exactArgs(positionals) : exactArgs(positionals, "name");
     if (name !== undefined && (!name.trim() || name.trim().length > 80))
       throw new CliUsageError("give a remembered name");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
+      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      await changePeerCli(ctx, device, "notes.voiceNames.delete", {
+        workspaceId: workspace.id,
+        name,
+      });
+      return output(
+        name === undefined
+          ? "Deleted all remembered voices."
+          : `Deleted the remembered voice for ${name}.`,
+        { name: name ?? null, device: deviceRef(device) },
+      );
+    }
     await ctx.services.askUser({
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,

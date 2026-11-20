@@ -352,3 +352,25 @@ test.each([
     ...approvals,
   ]);
 });
+
+test("persistent global layers and voice deletion require fresh peer approval", async () => {
+  const { g, services, asked } = gate("allow", ["once", "deny", "once"]);
+  const request = {
+    ...send(),
+    method: "settings.instructions.set" as const,
+    params: { ...send().params, layer: "all", text: "Review test results." },
+  };
+  await g.check(services, request);
+  await expect(g.check(services, request)).rejects.toMatchObject({ code: 1002 });
+  await g.check(services, { ...request, params: { ...request.params, layer: "workspace" } });
+  await g.check(services, {
+    ...send(),
+    method: "notes.voiceNames.delete",
+    params: { ...send().params, name: "Alex" },
+  });
+  expect(asked.map((prompt) => prompt.change)).toEqual([
+    expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
+    expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
+    expect.objectContaining({ kind: "voiceNamesDelete", eachTime: true }),
+  ]);
+});

@@ -17,6 +17,16 @@ import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
+import {
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerSessions,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { chatAgentFlag, checkedInstructions, readInstructionsFile } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -163,6 +173,7 @@ const settingsInstructionsSet: CliCommand = {
     },
     clear: { type: "boolean", description: "Clear the layer" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { flags, positionals }) {
     const [layer] = exactArgs(positionals, "layer") as [string];
@@ -179,6 +190,25 @@ const settingsInstructionsSet: CliCommand = {
         : file === undefined
           ? ""
           : await readInstructionsFile(ctx, file);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace =
+        layer === "workspace"
+          ? await peerWorkspace(ctx, device, flags.workspace)
+          : (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
+      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      await changePeerCli(ctx, device, "settings.instructions.set", {
+        workspaceId: workspace.id,
+        layer,
+        text,
+      });
+      return output(`Updated the ${layer} instruction layer on "${device.name}".`, {
+        layer,
+        device: deviceRef(device),
+        text,
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const scope: Exclude<InstructionScope, { kind: "profile" }> =
       layer === "workspace"

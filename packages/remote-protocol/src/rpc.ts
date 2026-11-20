@@ -836,6 +836,17 @@ const Ok = z.object({});
  * Each method's params and result, and the capability (see ./sealed.ts)
  * the serving device lists for it.
  */
+const VoiceSuggestionTarget = z.object({
+  workspaceId: z.string(),
+  note: z.string().min(1).max(300),
+  recording: z.string().min(1).max(64).optional(),
+});
+const VoiceSuggestionsResult = z.object({
+  noteId: z.string(),
+  recordingId: z.string(),
+  suggestions: z.array(z.object({ speaker: z.string(), name: z.string().max(80) })),
+});
+
 const TaskStartSchema = z.union([
   z.object({ agent: z.enum(["claude", "codex"]) }),
   z.object({ command: z.string().max(10000) }),
@@ -2091,6 +2102,76 @@ export const RPC_METHODS = {
         }),
       ),
     }),
+  },
+  "settings.instructions.set": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      layer: z.enum(["all", "claude", "codex", "workspace"]),
+      text: z.string().max(5000),
+      ...ReadBy,
+    }),
+    result: Ok,
+  },
+  "notes.speakers": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      recording: z.string().min(1).max(64).optional(),
+      change: z.discriminatedUnion("op", [
+        z.object({
+          op: z.literal("rename"),
+          speaker: z.string().min(1).max(100),
+          name: z.string().max(80),
+        }),
+        z.object({
+          op: z.literal("merge"),
+          from: z.string().min(1).max(100),
+          into: z.string().min(1).max(100),
+        }),
+        z.object({
+          op: z.literal("move"),
+          first: z.string().min(1).max(100),
+          last: z.string().min(1).max(100),
+          into: z.string().min(1).max(100),
+        }),
+        z.object({ op: z.literal("regroup"), participants: z.number().int().min(1).max(50) }),
+      ]),
+      ...ReadBy,
+    }),
+    result: z.object({ noteId: z.string(), recordingId: z.string() }),
+  },
+  "notes.voiceSuggestions.list": {
+    capability: "notes",
+    params: VoiceSuggestionTarget.extend(ReadBy),
+    result: VoiceSuggestionsResult,
+  },
+  "notes.voiceSuggestions.change": {
+    capability: "chat.control",
+    params: VoiceSuggestionTarget.extend({
+      action: z.object({
+        op: z.enum(["accept", "reject"]),
+        speaker: z.string().min(1).max(100),
+        name: z.string().trim().min(1).max(80),
+      }),
+      ...ReadBy,
+    }),
+    result: VoiceSuggestionsResult,
+  },
+  "notes.voiceNames.list": {
+    capability: "notes",
+    params: z.object(ReadBy),
+    result: z.object({ names: z.array(z.string().max(80)) }),
+  },
+  "notes.voiceNames.delete": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      name: z.string().trim().min(1).max(80).optional(),
+      ...ReadBy,
+    }),
+    result: Ok,
   },
   "layout.get": {
     capability: "chat.read",

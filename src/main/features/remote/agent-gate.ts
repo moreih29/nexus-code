@@ -118,7 +118,7 @@ export class AgentGate {
     );
     refuseBeyondAsked(request);
     await this.consent(services, request);
-    if (methodNeedsApproval(request.method)) {
+    if (needsFreshApproval(request)) {
       await this.consent(services, request, undefined, true);
     }
   }
@@ -289,8 +289,13 @@ async function tabTitle(services: CliServices, workspaceId: string, tabId: strin
   return tabs.find((t) => t.id === tabId)?.title ?? tabId.slice(0, 8);
 }
 
-function methodNeedsApproval(method: RpcMethod): boolean {
-  return method === "chat.rewind" || method === "chat.profile";
+function needsFreshApproval({ method, params }: AgentRequest): boolean {
+  return (
+    method === "chat.rewind" ||
+    method === "chat.profile" ||
+    method === "notes.voiceNames.delete" ||
+    (method === "settings.instructions.set" && params.layer !== "workspace")
+  );
 }
 
 /** What the user is asked to let the agent do, as the consent prompt says it. */
@@ -395,6 +400,35 @@ async function changeOf(
         eachTime: true,
       };
     }
+    case "settings.instructions.set":
+      return {
+        kind: "instructionsEdit",
+        detail: String(params.layer),
+        body: String(params.text || "Clear this layer"),
+        ...(eachTime ? { eachTime: true } : {}),
+      };
+    case "notes.speakers": {
+      const action = params.change as Record<string, unknown>;
+      return {
+        kind: "noteSpeakers",
+        detail: String(params.note),
+        body: Object.values(action).join(" "),
+      };
+    }
+    case "notes.voiceSuggestions.change": {
+      const action = params.action as Record<string, unknown>;
+      return {
+        kind: "noteSpeakers",
+        detail: String(params.note),
+        body: [action.op, action.speaker, action.name].join(" "),
+      };
+    }
+    case "notes.voiceNames.delete":
+      return {
+        kind: "voiceNamesDelete",
+        detail: String(params.name ?? "all remembered names"),
+        ...(eachTime ? { eachTime: true } : {}),
+      };
     case "layout.change":
     case "agentView.change": {
       const action = params.change as {

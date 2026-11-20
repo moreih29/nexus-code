@@ -82,7 +82,7 @@ export async function listNotes(
   };
 }
 
-async function findNote(services: CliServices, workspaceId: string, selector: string) {
+export async function findNote(services: CliServices, workspaceId: string, selector: string) {
   if (!workspaceOf(services, workspaceId))
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   const notes = await services.notes.list(workspaceId).catch(failure);
@@ -102,7 +102,7 @@ async function findNote(services: CliServices, workspaceId: string, selector: st
   return services.notes.read(workspaceId, id).catch(failure);
 }
 
-function bounded<T>(result: T): T {
+export function boundedNoteResult<T>(result: T): T {
   if (!fitsAsResult(result)) {
     throw new RpcFailure(
       RpcErrorCode.Unavailable,
@@ -122,7 +122,7 @@ export async function readNote(
     transcriptOnly || note.recording
       ? transcriptMarkdown(await services.notes.transcript(workspaceId, id).catch(failure), title)
       : "";
-  return bounded({
+  return boundedNoteResult({
     id,
     title,
     updatedAt,
