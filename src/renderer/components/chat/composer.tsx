@@ -30,6 +30,7 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
+import { claudeModelLabel } from "../../services/chat/claude/settings-defaults";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
@@ -327,19 +328,20 @@ export const Composer = memo(function Composer({
     if (completionKey === null) setDismissed(null);
   }, [completionKey]);
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
+  const cliCommands = model.init?.commands ?? model.slashCommands;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
     if (ownCommands) return matchCommands([...ownCommands], completion.query);
-    const cli = model.init?.commands ?? [];
+    const cli = cliCommands ?? [];
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
     return matchCommands([...listedCommands(cli), ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
+  }, [menuOpen, completion?.kind, completion?.query, cliCommands, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   // The program has not listed its commands yet: the list waits, rather
   // than say that none match.
-  const listing = !ownCommands && !model.init;
+  const listing = !ownCommands && !cliCommands;
   // The command box shows "no matching commands" when it has none to offer.
   const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
@@ -908,7 +910,7 @@ export const Composer = memo(function Composer({
                     : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
                 }
                 onCommand={
-                  (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
+                  (ownCommands?.length ?? cliCommands?.length ?? 0) > 0
                     ? () => insertTrigger("/")
                     : undefined
                 }
@@ -1379,8 +1381,8 @@ function ModelChip({
   let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
   if (profileDefault && (!current || current.value === "default"))
     current = models.find(({ value }) => value === profileDefault);
-  const label =
-    current?.displayName ?? state.model.model ?? profileDefault ?? t("chat.model.default");
+  const id = state.model.model ?? profileDefault;
+  const label = current?.displayName ?? (id ? claudeModelLabel(id) : t("chat.model.default"));
   const ready = state.model.process === "running" && options.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,

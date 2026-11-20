@@ -1052,7 +1052,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const key = chatKey(workspaceId, tabId);
     // Claude lists its own when its program starts; a program that will not
     // start leaves the app's.
-    if (target.agent === "claude" && !useChatStore.getState().tabs[key]?.model.init) {
+    const model = useChatStore.getState().tabs[key]?.model;
+    if (target.agent === "claude" && !model?.init && !model?.slashCommands) {
       await whenReady(workspaceId, tabId, target.agent).catch(() => {});
     }
     const chat = useChatStore.getState().tabs[key];

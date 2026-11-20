@@ -38,7 +38,7 @@ export interface ChatTabState {
 
   /** `claude --version` where the program runs. */
   version: string | null;
-  /** The log dropped its oldest lines. */
+  /** The oldest part of the displayed conversation could not be recovered. */
   truncated: boolean;
   draft?: ComposerDraft;
   /** An MCP server's sign-in under way in the browser. */

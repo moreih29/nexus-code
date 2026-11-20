@@ -555,7 +555,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       revealPart(controller.key, part);
       return true;
     }
-    const command = parseAppCommand(text, state.model.init?.commands ?? []);
+    const command = parseAppCommand(
+      text,
+      state.model.init?.commands ?? state.model.slashCommands ?? [],
+    );
     if (!command) return false;
     if (command.name === "resume") {
       if (state.model.running) {
@@ -715,6 +718,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
+              historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
                   ? {
@@ -998,9 +1002,6 @@ function PhaseBanner({ controller, state }: { controller: ChatController; state:
         ),
       );
       break;
-  }
-  if (state.truncated) {
-    banners.push(<Banner key="truncated" variant="info" message={t("chat.phase.truncated")} />);
   }
   if (banners.length === 0) return null;
   return <div className="shrink-0 pt-1">{banners}</div>;

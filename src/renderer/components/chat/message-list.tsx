@@ -127,6 +127,8 @@ interface MessageListProps {
    * rendered ones are, once those all show.
    */
   older?: OlderMessages;
+  /** The conversation has a missing prefix before any messages that can be loaded. */
+  historyTruncated?: boolean;
 }
 
 export interface OlderMessages {
@@ -231,6 +233,7 @@ export function MessageList({
   moves,
   relayed,
   older,
+  historyTruncated,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -329,7 +332,11 @@ export function MessageList({
   );
   const streaming = items ? null : model.streaming;
   const nothing =
-    historyItems.length === 0 && liveItems.length === 0 && !streaming && !older?.hasEarlier;
+    historyItems.length === 0 &&
+    liveItems.length === 0 &&
+    !streaming &&
+    !older?.hasEarlier &&
+    !historyTruncated;
   emptyShown.current = nothing && empty !== undefined;
   const tools = useMemo(
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
@@ -534,6 +541,11 @@ export function MessageList({
           )}
         >
           {nothing && empty}
+          {historyTruncated && start + unread === 0 && !older?.hasEarlier && (
+            <p className="text-center text-app-micro text-muted-foreground">
+              {t("chat.history_truncated")}
+            </p>
+          )}
           {(start + unread > 0 || older?.hasEarlier) && (
             <button
               type="button"

@@ -346,7 +346,7 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 		sess.mu.Unlock()
 		return nil, notRunning(key)
 	}
-	slot := sess.log.add(DirSys, nil, "")
+	slot := sess.log.reserveInput(line.Bytes())
 	sess.pending = slot
 	sess.mu.Unlock()
 

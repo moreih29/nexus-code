@@ -76,7 +76,7 @@ export function chatCommandsOf(
       ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
     }));
   }
-  const cli = listedCommands(model.init?.commands ?? []);
+  const cli = listedCommands(model.init?.commands ?? model.slashCommands ?? []);
   // The composer's order: built-in commands, the app's own, then skills.
   const own: ChatCommand[] = [
     ...cli.filter((c) => c.builtin),

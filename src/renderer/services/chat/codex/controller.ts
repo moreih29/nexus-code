@@ -489,7 +489,11 @@ export class CodexController {
             this.rememberThread(threadId);
           }
           this.startup.failed = false;
-          this.update((prev) => ({ ...prev, phase: "ready" }));
+          this.update((prev) => ({
+            ...prev,
+            phase: "ready",
+            truncated: !options.resetLog && prev.truncated,
+          }));
           if (!catalogOnly) this.showPicks();
           return true;
         },

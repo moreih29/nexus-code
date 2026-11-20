@@ -626,6 +626,7 @@ const transcriptPageResult = z.object({
   cursor: z.string().optional(),
   beforeAnchor: z.string().optional(),
   anchored: z.boolean().optional(),
+  cutMatched: z.boolean().optional(),
   fragment: z
     .object({
       position: z.number().int().nonnegative(),

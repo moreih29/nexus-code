@@ -59,6 +59,7 @@ import {
   withListedKeys,
 } from "./config";
 import {
+  cutEntries,
   type HistoryCut,
   historyModel,
   joinHistory,
@@ -125,6 +126,8 @@ interface TranscriptSource {
   profileId?: string;
   cut?: HistoryCut;
   title?: string;
+  /** The live log lost its head, so a transcript must join it at a known message. */
+  logTruncated?: boolean;
   /** The live log kept after the agent that held it was replaced. */
   appended?: ChatModel;
 }
@@ -470,15 +473,20 @@ export class ChatController {
       return;
     }
     if (replay.found) {
+      const truncated = replay.truncated === true;
+      this.earlierHistoryUnknown = truncated;
       this.titled = this.titled || this.state.model.items.some((item) => item.kind === "user");
       this.update((prev) => ({
         ...prev,
         phase: replay.running ? "ready" : "ended",
-        truncated: replay.truncated,
+        truncated,
+        // Old logs could evict the start event that enables the composer controls.
+        model:
+          replay.running && prev.model.process !== "running"
+            ? { ...prev.model, process: "running" }
+            : prev.model,
       }));
-      // A program started on a session logs only what came after; the rest
-      // is in the transcript.
-      if (this.state.model.resumed) await this.loadResumedHistory();
+      if (truncated || this.state.model.resumed) await this.loadResumedHistory(truncated);
       // A goal met while no window looked on.
       if (!this.state.model.running) void this.syncGoal(!this.publicHistory);
       shown();
@@ -502,17 +510,19 @@ export class ChatController {
     return this.sessionId ? { resume: this.sessionId } : {};
   }
 
-  /** The history before a resumed program's log, from the transcript. */
-  private async loadResumedHistory(): Promise<void> {
+  /** Fill in the history before the live log from the transcript. */
+  private async loadResumedHistory(logTruncated: boolean): Promise<void> {
     const model = this.state.model;
-    if (model.sessionId) {
+    const fork = this.target.fork;
+    const sessionId = model.sessionId ?? (fork ? undefined : this.sessionId);
+    if (sessionId) {
       // A fork's transcript copies the messages it starts from, uuids and all.
-      await this.loadTranscript(model.sessionId, { before: modelUuids(model) });
-    } else if (this.target.fork) {
-      const fork = this.target.fork;
-      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
-    } else if (this.sessionId) {
-      await this.loadTranscript(this.sessionId);
+      const uuids = modelUuids(model);
+      const first = uuids.values().next().value;
+      const before = logTruncated && first ? new Set([first]) : uuids;
+      await this.loadTranscript(sessionId, { before }, undefined, logTruncated);
+    } else if (fork) {
+      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile(), logTruncated);
     }
   }
 
@@ -533,13 +543,15 @@ export class ChatController {
     sessionId: string,
     cut?: HistoryCut,
     profileId = this.target.profileId,
+    logTruncated = false,
   ): Promise<void> {
-    this.resetTranscript();
+    this.resetTranscript(logTruncated);
     const fork = this.target.fork;
     const source = {
       sessionId,
       profileId,
       cut,
+      logTruncated,
       title: fork?.sessionId === sessionId ? fork.title : undefined,
     };
     this.transcriptSource = source;
@@ -557,6 +569,8 @@ export class ChatController {
         }),
       );
       if (this.disposed || this.transcriptSource !== source || !page.found) return;
+      // An unverified join could put later transcript rows before the live log.
+      if (logTruncated && cut?.before?.size && page.cutMatched === false) return;
       if (page.snapshot) {
         const pages = new TranscriptPages(page, page.snapshot);
         this.transcriptPages = pages;
@@ -576,15 +590,7 @@ export class ChatController {
             );
           }
         }
-      } else {
-        this.publishTranscript(
-          source,
-          historyModel(page.lines, cut, undefined, this.liveCompacted()),
-          page.lines,
-          page.truncated,
-          true,
-        );
-      }
+      } else await this.readFullTranscript(source, page);
     } catch (error) {
       log.warn(`transcript of ${sessionId} not read: ${(error as Error).message}`);
     }
@@ -616,14 +622,16 @@ export class ChatController {
       (source.appended || live.sessionId === source.sessionId)
         ? modelUuids(live)
         : undefined;
-    const history = historyModel(
-      result.lines,
-      source.cut ?? (before?.size ? { before } : undefined),
-      undefined,
-      this.liveCompacted(),
-    );
+    const cut = source.cut ?? (before?.size ? { before } : undefined);
+    const entries = cut ? cutEntries(result.lines, cut) : result.lines;
+    const cutMatched = !!cut?.before?.size && entries.length < result.lines.length;
+    if (source.logTruncated && cut?.before?.size && !cutMatched) {
+      if (this.transcriptPages) throw new Error("The transcript no longer joins this conversation");
+      return;
+    }
+    const history = historyModel(entries, undefined, undefined, this.liveCompacted());
     this.transcriptPages = undefined;
-    this.publishTranscript(source, history, result.lines, result.truncated, true);
+    this.publishTranscript(source, history, result.lines, result.truncated, true, cutMatched);
   }
 
   private completeTranscript(): Promise<void> | undefined {
@@ -729,9 +737,11 @@ export class ChatController {
     lines: readonly unknown[],
     truncated: boolean,
     initial: boolean,
+    cutMatched = !!source.cut?.before?.size && this.transcriptPages?.cutMatched === true,
   ): void {
     const pages = this.transcriptPages;
-    this.earlierHistoryUnknown = truncated || pages?.hasEarlier === true;
+    const historyTruncated = truncated || (source.logTruncated === true && !cutMatched);
+    this.earlierHistoryUnknown = historyTruncated || pages?.hasEarlier === true;
     const read = source.appended
       ? { ...joinHistory(projected, source.appended), goal: projected.goal }
       : projected;
@@ -756,6 +766,7 @@ export class ChatController {
       const agentItems = { ...history.agentItems, ...prev.history?.agentItems };
       return {
         ...prev,
+        truncated: historyTruncated,
         history:
           history.items.length > 0 || Object.keys(agentItems).length > 0
             ? { ...history, agentItems }
@@ -773,13 +784,15 @@ export class ChatController {
     });
   }
 
-  private resetTranscript(): void {
+  private resetTranscript(truncated = false): void {
     this.transcriptSource = undefined;
     this.transcriptPages = undefined;
     this.fullTranscript = undefined;
-    this.earlierHistoryUnknown = false;
+    this.earlierHistoryUnknown = truncated;
     this.liveGoalChanged = false;
-    if (this.state.historyPage) this.update((prev) => ({ ...prev, historyPage: undefined }));
+    if (this.state.historyPage || this.state.truncated !== truncated) {
+      this.update((prev) => ({ ...prev, truncated, historyPage: undefined }));
+    }
   }
 
   /**
@@ -1470,7 +1483,7 @@ export class ChatController {
       pages.expireCursor();
     } else {
       const earlierHistoryUnknown = this.earlierHistoryUnknown;
-      this.resetTranscript();
+      this.resetTranscript(this.state.truncated);
       this.earlierHistoryUnknown = earlierHistoryUnknown;
     }
     this.update((prev) => ({

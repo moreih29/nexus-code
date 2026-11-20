@@ -5,6 +5,7 @@ import { historyModel } from "./history";
 export class TranscriptPages {
   readonly snapshot: string;
   readonly truncated: boolean;
+  readonly cutMatched: boolean;
   cursor: string | undefined;
   beforeAnchor: string | undefined;
   cursorExpired = false;
@@ -16,6 +17,7 @@ export class TranscriptPages {
   constructor(page: TranscriptPageResult, snapshot: string, retained?: TranscriptPages) {
     this.snapshot = snapshot;
     this.truncated = page.truncated;
+    this.cutMatched = retained?.cutMatched ?? page.cutMatched ?? false;
     this.keySnapshot = retained?.keySnapshot ?? snapshot;
     this.entries = retained?.entries ?? [];
     this.positions = retained?.positions ?? [];
