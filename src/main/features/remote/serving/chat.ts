@@ -48,6 +48,11 @@ export async function sendChat(
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   // The agent's chat.send was authorized by the receiving device's AgentGate.
   if (relay && tab.type === "claude" && ids.length === 0 && remoteControlCommand(text)) {
+    if (when === "after")
+      throw new RpcFailure(
+        RpcErrorCode.InvalidParams,
+        "Remote Control is a setting change; omit --after",
+      );
     const target = { workspaceId, tabId };
     const { remoteControl } = await services.ui("chat.panel", target).catch(unavailable);
     await applyRemoteControl(services, target, remoteControl?.enabled !== true).catch(chatFailure);

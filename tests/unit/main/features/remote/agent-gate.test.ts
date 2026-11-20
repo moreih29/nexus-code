@@ -34,10 +34,11 @@ function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
           agent: "claude",
           state: "asking",
           waiting: { kind: "permission", text: "Bash rm -rf dist" },
+          request: { id: "r1", tool: "Bash", input: "npm test" },
         };
       throw new Error(op);
     },
-    claudeAsks: () => [],
+    claudeAsks: () => [{ id: "a1", tool: "Bash", target: "npm test" }],
   } as unknown as CliServices;
   const g = new AgentGate({ policy: () => policy, now: () => now });
   return { g, services, asked, later: (ms: number) => (now += ms) };
@@ -55,7 +56,7 @@ describe("an agent's request from another computer", () => {
     });
   });
 
-  test("an answer to a permission request goes only as it was asked, and once, whatever the setting", async () => {
+  test("allow takes permission answers without prompting and refuses broader grants", async () => {
     const { g, services, asked } = gate("allow");
     const answer = (method: "chat.answer" | "terminal.answer", params: Record<string, unknown>) =>
       g.check(services, {
@@ -196,18 +197,47 @@ describe("an agent's request from another computer", () => {
     expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
 
-  test("until restart holds for an answer to a permission request too", async () => {
+  test("a workspace approval given for a chat message covers later permission answers", async () => {
     const { g, services, asked } = gate("ask", ["session"]);
     await g.check(services, send());
-    const answer = {
+    await g.check(services, {
+      device,
+      method: "chat.answer",
+      params: { workspaceId: "w1", tabId: "t1", requestId: "r1", decision: "allow", from },
+    });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
+  });
+
+  test("permission answers follow the same remote policy as other workspace changes", async () => {
+    const chatAnswer = {
       device,
       method: "chat.answer" as const,
-      params: { workspaceId: "w1", tabId: "t1", requestId: "r", decision: "allow", from },
+      params: { workspaceId: "w1", tabId: "t1", requestId: "r1", decision: "allow", from },
     };
-    await g.check(services, answer);
-    expect(asked).toHaveLength(1);
-    // What it sends is shown whole when asked.
-    expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
+    const terminalAnswer = {
+      ...chatAnswer,
+      method: "terminal.answer" as const,
+      params: { ...chatAnswer.params, requestId: "a1", decision: "deny" },
+    };
+
+    const ask = gate("ask", ["session"]);
+    await ask.g.check(ask.services, chatAnswer);
+    await ask.g.check(ask.services, terminalAnswer);
+    expect(ask.asked).toHaveLength(1);
+    expect(ask.asked[0]?.change).toEqual({
+      kind: "permissionAllow",
+      detail: "Bash rm -rf dist",
+    });
+
+    const deny = gate("deny");
+    for (const answer of [chatAnswer, terminalAnswer]) {
+      await expect(deny.g.check(deny.services, answer)).rejects.toMatchObject({
+        code: 1002,
+        message: expect.stringContaining("control by agents is off"),
+      });
+    }
+    expect(deny.asked).toEqual([]);
   });
 
   test("a new tab's prompt and a new terminal's command are shown when asked", async () => {

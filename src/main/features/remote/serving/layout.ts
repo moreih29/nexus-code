@@ -37,24 +37,42 @@ export async function changeLayout(
   checkedWorkspace(services, workspaceId);
   switch (change.op) {
     case "split":
-      return services.ui("layout.split", {
-        workspaceId, tabId: change.tabId, groupId: change.groupId, side: change.side,
-      }).catch(unavailable);
+      return services
+        .ui("layout.split", {
+          workspaceId,
+          tabId: change.tabId,
+          groupId: change.groupId,
+          side: change.side,
+        })
+        .catch(unavailable);
     case "move":
-      return services.ui("tab.move", {
-        workspaceId, tabId: change.tabId, groupId: change.groupId,
-        ...(change.index === undefined ? {} : { index: change.index }),
-      }).catch(unavailable);
+      return services
+        .ui("tab.move", {
+          workspaceId,
+          tabId: change.tabId,
+          groupId: change.groupId,
+          ...(change.index === undefined ? {} : { index: change.index }),
+        })
+        .catch(unavailable);
     case "ratios":
-      return services.ui("layout.ratios", { workspaceId, ratios: change.ratios }).catch(unavailable);
+      return services
+        .ui("layout.ratios", { workspaceId, ratios: change.ratios })
+        .catch(unavailable);
     case "close":
       // The group can contain terminals, regardless of their current state.
-      if (!terminal) throw new RpcFailure(RpcErrorCode.Forbidden, "closing groups requires terminal control");
-      return services.ui("group.close", {
-        workspaceId, groupId: change.groupId, force: change.force,
-      }).catch(unavailable);
+      if (!terminal)
+        throw new RpcFailure(RpcErrorCode.Forbidden, "closing groups requires terminal control");
+      return services
+        .ui("group.close", {
+          workspaceId,
+          groupId: change.groupId,
+          force: change.force,
+        })
+        .catch(unavailable);
     case "focus":
-      return services.ui("layout.focus", { workspaceId, groupId: change.groupId }).catch(unavailable);
+      return services
+        .ui("layout.focus", { workspaceId, groupId: change.groupId })
+        .catch(unavailable);
   }
 }
 
@@ -89,11 +107,13 @@ export async function changeAgentView(
         throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a file inside the workspace");
       const kind = await services.stat(workspaceId, file.rel).catch(unavailable);
       if (!kind || kind === "dir") throw new RpcFailure(RpcErrorCode.NotFound, "no such file");
-      return services.ui("agentView.openFile", {
-        workspaceId,
-        filePath: `${rendererRoot(workspace)}/${file.rel}`,
-        ...(change.panelId ? { panelId: change.panelId } : {}),
-      }).catch(unavailable);
+      return services
+        .ui("agentView.openFile", {
+          workspaceId,
+          filePath: `${rendererRoot(workspace)}/${file.rel}`,
+          ...(change.panelId ? { panelId: change.panelId } : {}),
+        })
+        .catch(unavailable);
     }
     case "close":
       return services.ui("agentView.close", { panelId: change.panelId }).catch(unavailable);

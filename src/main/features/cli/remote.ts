@@ -260,6 +260,8 @@ export async function askDevice<M extends RpcMethod>(
           : from &&
               [
                 "chat.rewind",
+                "chat.configure",
+                "chat.new",
                 "chat.profile",
                 "settings.instructions.set",
                 "notes.voiceNames.delete",

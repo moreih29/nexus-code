@@ -2733,7 +2733,11 @@ const coreIpcContract = {
       peerChatRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.rename"].params.omit({ from: true })),
+          .merge(
+            RPC_METHODS["chat.rename"].params
+              .omit({ from: true })
+              .extend({ title: z.string().min(1).max(200) }),
+          ),
         RPC_METHODS["chat.rename"].result,
       ),
       /** Asks another device's Codex chat's program again whether it is signed in. */
@@ -3049,7 +3053,11 @@ const coreIpcContract = {
       peerTerminalRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["terminal.rename"].params.omit({ from: true })),
+          .merge(
+            RPC_METHODS["terminal.rename"].params
+              .omit({ from: true })
+              .extend({ title: z.string().min(1).max(200) }),
+          ),
         RPC_METHODS["terminal.rename"].result,
       ),
       /** Closes another device's terminal; one running a program only with `force`. */

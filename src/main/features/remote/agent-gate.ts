@@ -19,6 +19,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliChange } from "../../../shared/cli/ui";
+import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/chat-modes";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
@@ -118,7 +119,7 @@ export class AgentGate {
     );
     refuseBeyondAsked(request);
     await this.consent(services, request);
-    if (needsFreshApproval(request)) {
+    if (await needsFreshApproval(services, request)) {
       await this.consent(services, request, undefined, true);
     }
   }
@@ -289,7 +290,26 @@ async function tabTitle(services: CliServices, workspaceId: string, tabId: strin
   return tabs.find((t) => t.id === tabId)?.title ?? tabId.slice(0, 8);
 }
 
-function needsFreshApproval({ method, params }: AgentRequest): boolean {
+async function needsFreshApproval(
+  services: CliServices,
+  { method, params }: AgentRequest,
+): Promise<boolean> {
+  if (typeof params.permissionMode === "string") {
+    if (method === "chat.new") {
+      const agent = params.agent === "codex" ? "codex" : "claude";
+      const next = chatModeNamed(agent, params.permissionMode);
+      return next !== undefined && loosens(agent, CHAT_MODES[agent].fallback, next);
+    }
+    if (method === "chat.configure" && params.tabId) {
+      const current = await services.ui("chat.settings", {
+        workspaceId: params.workspaceId,
+        tabId: params.tabId,
+        settings: {},
+      });
+      const next = chatModeNamed(current.agent, params.permissionMode);
+      return next !== undefined && loosens(current.agent, current.mode, next);
+    }
+  }
   return (
     method === "chat.rewind" ||
     method === "chat.profile" ||
@@ -468,6 +488,12 @@ async function changeOf(
         ...(params.force === true ? { body: "Discard uncommitted changes" } : {}),
       };
     case "chat.new":
+      if (eachTime)
+        return {
+          kind: "chatMode",
+          detail: `${AGENT_NAMES[String(params.agent)]} (${String(params.permissionMode)})`,
+          eachTime,
+        };
       return {
         kind: "chatNew",
         detail: AGENT_NAMES[String(params.agent)] ?? String(params.agent),
@@ -479,7 +505,11 @@ async function changeOf(
       return { kind: "chatInterrupt", detail: await title() };
     case "chat.configure":
       return typeof params.permissionMode === "string"
-        ? { kind: "chatMode", detail: `"${await title()}" (${params.permissionMode})` }
+        ? {
+            kind: "chatMode",
+            detail: `"${await title()}" (${params.permissionMode})`,
+            ...(eachTime ? { eachTime } : {}),
+          }
         : { kind: "chatSettings", detail: await title() };
     case "chat.close":
       return { kind: "tabClose", detail: await title() };

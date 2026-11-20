@@ -206,8 +206,13 @@ export async function sendToPeer(
     selector,
     CHATS,
   );
-  if (peer.session.kind === "claude" && remoteControlCommand(text) && timeoutMs !== null) {
-    throw new CliUsageError("Remote Control is a setting change; omit --wait");
+  if (
+    peer.session.kind === "claude" &&
+    remoteControlCommand(text) &&
+    !images.length &&
+    (timeoutMs !== null || when === "after")
+  ) {
+    throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
   }
   const attachments: string[] = [];
   for (const image of images) {
