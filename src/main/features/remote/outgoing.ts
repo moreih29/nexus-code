@@ -1,11 +1,17 @@
-/** Paces all sealed frames on one relay socket, before they get sequence numbers. */
-export const SEND_FRAMES_PER_SECOND = 160;
-export const SEND_FRAME_BURST = 800;
-export const RATE_LIMIT_COOLDOWN_MS = 1_000;
+import type { RpcMethod, RpcNotificationMethod } from "../../../../packages/remote-protocol/src";
+import { createLogger } from "../../../shared/log/main";
+
+const log = createLogger("remote-outgoing");
+const RATE_LIMIT_COOLDOWN_MS = 1_000;
 const FRAME_STALL_MS = 5_000;
 const QUEUE_LIMIT = 150;
-const RESERVED_TOKENS = 8;
 const BUFFER_CHECK_MS = 25;
+const FLOOD_WINDOW_MS = 3_000;
+const FLOOD_PAUSE_MS = 5_000;
+// A watch can send 15 updates/s and a peer can hold eight chat watches.
+const FLOOD_FRAME_COUNT = 1_800;
+const FILE_CHUNK_FLOOD_COUNT = 3_000;
+const FLOOD_WARNING_INTERVAL_MS = 30_000;
 
 export enum FramePriority {
   Hello,
@@ -15,7 +21,22 @@ export enum FramePriority {
   Data,
 }
 
+export type FrameKind =
+  | "hello"
+  | "pairing"
+  | `request:${RpcMethod}`
+  | `reply:${RpcMethod | "unknown"}`
+  | `notification:${RpcNotificationMethod}`;
+
+const FILE_CHUNK_KINDS = new Set<FrameKind>([
+  "request:files.read",
+  "reply:files.read",
+  "request:files.write.chunk",
+  "reply:files.write.chunk",
+]);
+
 interface OutgoingFrame {
+  kind: FrameKind;
   priority: FramePriority;
   watch?: string;
   wanted?(): boolean;
@@ -27,10 +48,17 @@ interface QueuedFrame extends OutgoingFrame {
   reject(error: unknown): void;
 }
 
+interface FrameActivity {
+  since: number;
+  count: number;
+  resumeAt: number;
+  warnedAt: number;
+}
+
+/** Schedules sealed frames before they get sequence numbers and watches for send loops. */
 export class OutgoingFrames {
   private readonly queue: QueuedFrame[] = [];
-  private tokens = SEND_FRAME_BURST;
-  private refilledAt = performance.now();
+  private readonly activity = new Map<FrameKind, FrameActivity>();
   private resumeAt = -Infinity;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private draining = false;
@@ -54,12 +82,18 @@ export class OutgoingFrames {
       if (superseded >= 0) this.drop(superseded);
     }
     if (this.queue.length >= QUEUE_LIMIT) {
+      const now = performance.now();
+      // A delayed kind cannot crowd out frames that can go now.
+      const priorityOf = (item: OutgoingFrame) =>
+        item.priority + (this.resumeTime(item.kind) > now ? FramePriority.Data + 1 : 0);
+      const incomingPriority = priorityOf(frame);
       let lowest = -1;
-      let lowestPriority = frame.priority;
+      let lowestPriority = incomingPriority;
       for (const [index, item] of this.queue.entries()) {
-        if (item.priority > frame.priority && item.priority >= lowestPriority) {
+        const priority = priorityOf(item);
+        if (priority > incomingPriority && priority >= lowestPriority) {
           lowest = index;
-          lowestPriority = item.priority;
+          lowestPriority = priority;
         }
       }
       if (lowest < 0) {
@@ -76,10 +110,8 @@ export class OutgoingFrames {
   }
 
   rateLimited(): void {
-    // Restart with no burst while the relay replenishes its own budget.
+    // Older relays can reject individual frames and keep the connection open.
     this.resumeAt = performance.now() + RATE_LIMIT_COOLDOWN_MS;
-    this.refilledAt = this.resumeAt;
-    this.tokens = 0;
     this.kick();
   }
 
@@ -101,49 +133,74 @@ export class OutgoingFrames {
     queueMicrotask(() => void this.drain());
   }
 
+  private resumeTime(kind: FrameKind): number {
+    return this.activity.get(kind)?.resumeAt ?? -Infinity;
+  }
+
+  private wait(ms: number): void {
+    this.timer = setTimeout(() => this.kick(), Math.ceil(ms));
+  }
+
   private async drain(): Promise<void> {
     try {
-      while (!this.closed) {
-        let frame = this.queue[0];
-        if (!frame) return;
-        let index = 0;
+      while (!this.closed && this.queue.length > 0) {
+        const now = performance.now();
+        if (now < this.resumeAt) return this.wait(this.resumeAt - now);
+
+        let frame: QueuedFrame | undefined;
+        let index = -1;
+        let nextReadyAt = Infinity;
         for (const [i, item] of this.queue.entries()) {
-          if (item.priority < frame.priority) {
+          const readyAt = this.resumeTime(item.kind);
+          if (readyAt > now) {
+            nextReadyAt = Math.min(nextReadyAt, readyAt);
+          } else if (!frame || item.priority < frame.priority) {
             index = i;
             frame = item;
           }
         }
+        if (!frame) return this.wait(nextReadyAt - now);
         if (frame.wanted?.() === false) {
           this.queue.splice(index, 1);
           frame.resolve(null);
           continue;
         }
-        const now = performance.now();
-        const refill = this.resumeAt >= now ? 0 : Math.max(0, now - this.refilledAt);
-        this.tokens = Math.min(
-          SEND_FRAME_BURST,
-          this.tokens + (refill * SEND_FRAMES_PER_SECOND) / 1000,
-        );
-        this.refilledAt = Math.max(this.resumeAt, now);
-        const needed = frame.priority >= FramePriority.Watch ? RESERVED_TOKENS + 1 : 1;
-        if (this.tokens < needed) {
-          const delay =
-            Math.max(0, this.resumeAt - now) +
-            ((needed - this.tokens) * 1000) / SEND_FRAMES_PER_SECOND;
-          this.timer = setTimeout(() => this.kick(), Math.ceil(delay));
-          return;
-        }
         if (frame.priority === FramePriority.Data && !this.dataWritable()) {
-          this.timer = setTimeout(() => this.kick(), BUFFER_CHECK_MS);
-          return;
+          return this.wait(BUFFER_CHECK_MS);
         }
         this.queue.splice(index, 1);
-        this.tokens--;
         await this.send(frame);
       }
     } finally {
       this.draining = false;
     }
+  }
+
+  private countSend(kind: FrameKind): void {
+    const now = performance.now();
+    let activity = this.activity.get(kind);
+    if (!activity) {
+      activity = { since: now, count: 0, resumeAt: -Infinity, warnedAt: -Infinity };
+      this.activity.set(kind, activity);
+    }
+    if (now - activity.since >= FLOOD_WINDOW_MS) {
+      activity.since = now;
+      activity.count = 0;
+    }
+    const fileChunk = FILE_CHUNK_KINDS.has(kind);
+    const limit = fileChunk ? FILE_CHUNK_FLOOD_COUNT : FLOOD_FRAME_COUNT;
+    activity.count++;
+    if (activity.count !== limit) return;
+
+    // Hellos and replies let peers make progress. Bulk transfers can legitimately burst.
+    const delay =
+      !fileChunk && kind !== "hello" && kind !== "pairing" && !kind.startsWith("reply:");
+    if (delay) activity.resumeAt = now + FLOOD_PAUSE_MS;
+    if (now - activity.warnedAt < FLOOD_WARNING_INTERVAL_MS) return;
+    activity.warnedAt = now;
+    log.warn(
+      `Relay frame burst kind=${kind} count=${activity.count} elapsedMs=${Math.round(now - activity.since)} action=${delay ? "delay" : "observe"}`,
+    );
   }
 
   private async send(frame: QueuedFrame): Promise<void> {
@@ -159,7 +216,9 @@ export class OutgoingFrames {
     });
     try {
       const current = () => !this.closed && !expired && frame.wanted?.() !== false;
-      frame.resolve(await Promise.race([expiry, frame.send(current)]));
+      const seq = await Promise.race([expiry, frame.send(current)]);
+      if (seq !== null && !this.closed) this.countSend(frame.kind);
+      frame.resolve(seq);
     } catch (error) {
       frame.reject(error);
     } finally {

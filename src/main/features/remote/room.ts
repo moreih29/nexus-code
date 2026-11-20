@@ -37,7 +37,7 @@ import {
 import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
 import { isFileTransferMethod } from "./file-io";
-import { FramePriority, OutgoingFrames } from "./outgoing";
+import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
 import type { RelayConnectionDeps, RelayStatus } from "./relay-connection";
 import { openMessage, type RoomKey, sealMessage } from "./seal";
 
@@ -368,6 +368,7 @@ export class RemoteRoom {
     const abort = () => rejectPending(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });
     void this.post(to, peer, message, {
+      kind: `request:${method}`,
       priority:
         method === "files.read"
           ? FramePriority.Request
@@ -405,6 +406,7 @@ export class RemoteRoom {
     if (!peer || !fitsInFrame(message)) return false;
     return (
       (await this.post(to, peer, message, {
+        kind: `notification:${method}`,
         priority: FramePriority.Watch,
         watch: `${to}|${method}|${params.watchId}`,
       })) !== null
@@ -424,6 +426,7 @@ export class RemoteRoom {
   ): Promise<boolean> {
     const epoch = this.epoch;
     const sent = await this.outbox.push({
+      kind: "pairing",
       priority: FramePriority.Hello,
       wanted: () => this.epoch === epoch && this.status === "online",
       send: async (current) => {
@@ -446,14 +449,16 @@ export class RemoteRoom {
     peer: string | null,
     message: SealedMessage,
     options: {
+      kind: FrameKind;
       priority: FramePriority;
       wanted?: () => boolean;
       watch?: string;
       onSending?: (seq: number) => void;
-    } = { priority: FramePriority.Hello },
+    } = { kind: "hello", priority: FramePriority.Hello },
   ): Promise<number | null> {
     const epoch = this.epoch;
     const sent = this.outbox.push({
+      kind: options.kind,
       priority: options.priority,
       ...(options.watch ? { watch: options.watch } : {}),
       wanted: () => this.status === "online" && options.wanted?.() !== false,
@@ -932,6 +937,7 @@ export class RemoteRoom {
             },
           },
       {
+        kind: `reply:${isRpcMethod(request.method) ? request.method : "unknown"}`,
         priority,
         ...(current ? { wanted: current } : {}),
         onSending: (seq) => {
@@ -979,7 +985,7 @@ export class RemoteRoom {
           ...(method === "chat.send" ? { data: { outcome: "unknown" } } : {}),
         },
       },
-      { priority: FramePriority.Reply },
+      { kind: `reply:${isRpcMethod(method) ? method : "unknown"}`, priority: FramePriority.Reply },
     );
   }
 
