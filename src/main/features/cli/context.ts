@@ -63,6 +63,7 @@ export interface CliRemote {
   inRoom(): boolean;
   /** The account's devices, as the server and the room know them; the room's alone without the server. */
   devices(): Promise<CliDevice[]>;
+  alias?(deviceId: string, alias: string | null): Promise<void>;
   /** Asks another device; a RpcFailure for its refusal or its silence. */
   request<M extends RpcMethod>(
     deviceId: string,

@@ -3,10 +3,12 @@
  * drives them. A tab's conversation is the renderer's; these ask it, read it
  * whole or a piece at a time, and wait on one or several tabs.
  */
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   ImageMediaTypeSchema,
   MAX_ATTACHMENT_BYTES,
+  type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
 import { INSTRUCTION_LIMIT, InstructionTextSchema } from "../../../../shared/chat/instructions";
 import type {
@@ -20,6 +22,7 @@ import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/s
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { looksLike } from "../../remote/attachments";
+import { MAX_MESSAGE_BYTES } from "../../remote/room";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import type { ChangeRequest } from "../consent";
 import {
@@ -33,7 +36,7 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
-import { absolutePath, callerPath } from "../paths";
+import { absolutePath, callerPath, onAppMachine } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
   askPeerCli,
@@ -706,6 +709,11 @@ const chatRead: CliCommand = {
       value: "N",
       description: "Only the last N (default 20, or all with --since)",
     },
+    answer: {
+      type: "number",
+      value: "N",
+      description: "Print only the answer at the displayed message number #N",
+    },
     since: { type: "number", value: "I", description: "Only those after message #I" },
     all: { type: "boolean", description: "The whole conversation" },
     subagents: { type: "boolean", description: "Subagents' tool calls too" },
@@ -715,6 +723,37 @@ const chatRead: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    if (flags.answer !== undefined) {
+      const index = Number(flags.answer);
+      if (!Number.isSafeInteger(index) || index < 0)
+        throw new CliUsageError("--answer takes the displayed # of an answer");
+      if (
+        flags.device !== undefined ||
+        flags.since !== undefined ||
+        flags.messages !== undefined ||
+        flags.all === true
+      )
+        throw new CliUsageError(
+          "--answer reads one local answer; omit --device, --since, --messages and --all",
+        );
+      const found = await readChat(
+        ctx,
+        flags,
+        selector,
+        undefined,
+        index > 0 ? index - 1 : undefined,
+      );
+      const answer = found.entries.find(
+        (entry) => entry.i === index && entry.role === "agent" && !entry.parentToolUseId,
+      );
+      if (!answer) throw new CliError(`#${index} is not an answer in that tab`);
+      const text = cut(answer.text, maxCharsFlag(flags));
+      return output(text, {
+        workspaceId: found.workspaceId,
+        tabId: found.tab.id,
+        answer: { ...answer, text },
+      });
+    }
     const since = flags.since as number | undefined;
     if (since !== undefined && (!Number.isInteger(since) || since < 0)) {
       throw new CliUsageError("--since takes the # of a message");
@@ -1242,10 +1281,98 @@ const chatInstructions: CliCommand = {
   },
 };
 
+const chatImage: CliCommand = {
+  path: ["chat", "image"],
+  args: "<tab> [index]",
+  summary: "Read an image from a chat message, tool result, or held message",
+  details:
+    "Image indexes count from 1. Output is base64 by default. --out creates a new file on the app's machine.",
+  flags: {
+    message: {
+      type: "number",
+      value: "N",
+      description: "The user message number shown by chat read",
+    },
+    tool: { type: "string", value: "ID", description: "A tool call's id" },
+    held: { type: "string", value: "ID", description: "A held message's id" },
+    out: { type: "string", value: "FILE", description: "Write image bytes to a new file" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals: [selector, given = "1", ...extra], flags }) {
+    const index = Number(given) - 1;
+    if (!selector || extra.length || !Number.isInteger(index) || index < 0)
+      throw new CliUsageError("give a tab and a positive image index");
+    const message = typeof flags.message === "number" ? flags.message : undefined;
+    const tool = typeof flags.tool === "string" ? flags.tool : undefined;
+    const held = typeof flags.held === "string" ? flags.held : undefined;
+    if ([message, tool, held].filter((value) => value !== undefined).length !== 1)
+      throw new CliUsageError("give one of --message N, --tool ID, or --held ID");
+    if (message !== undefined && (!Number.isInteger(message) || message < 0))
+      throw new CliUsageError("--message takes the displayed message number");
+    if (flags.out !== undefined && !onAppMachine(ctx))
+      throw new CliUsageError("--out needs a shell on the app's machine; omit it to read base64");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const target = device
+      ? (await peerCliChat(ctx, device, flags, selector)).ref
+      : await localChatRef(ctx, flags, selector);
+    let ref: RpcParams<"chat.image">["ref"];
+    if (message !== undefined) {
+      const request = { ...target, i: message };
+      const item = device
+        ? await askPeerCli(ctx, device, "chat.entryItem", request)
+        : await ctx.services.ui("chat.entryItem", request);
+      if (item.kind !== "user") throw new CliError("that is not a user message");
+      ref = { kind: "user", itemKey: item.itemKey, index };
+    } else if (tool !== undefined) {
+      ref = { kind: "tool", toolUseId: tool, index };
+    } else {
+      ref = { kind: "held", id: held as string, index };
+    }
+    const image = device
+      ? await askPeerCli(ctx, device, "chat.image", { ...target, ref })
+      : await ctx.services.ui("chat.image", { ...target, ref, maxChars: MAX_MESSAGE_BYTES - 1024 });
+    if (!image.data) throw new CliError("there are no image bytes for that entry");
+    const { data, ...metadata } = image;
+    const out = typeof flags.out === "string" ? callerPath(ctx, flags.out) : undefined;
+    if (out) {
+      await writeFile(out, Buffer.from(data, "base64"), { flag: "wx" });
+      return output(`Wrote ${out}.`, { ...metadata, path: out });
+    }
+    return output(data, { ...metadata, data });
+  },
+};
+
+async function localChatRef(ctx: CliContext, flags: ParsedArgs["flags"], selector: string) {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const tab = await resolveChat(ctx, workspace, selector);
+  return { workspaceId: workspace.id, tabId: tab.id };
+}
+
+const chatExport: CliCommand = {
+  path: ["chat", "export"],
+  args: "<tab>",
+  summary: "Print the conversation as Markdown",
+  flags: {
+    stdout: { type: "boolean", description: "Write the Markdown to standard output" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    const { markdown } = await ctx.services.ui("chat.export", ref);
+    return output(markdown, { ...ref, markdown });
+  },
+};
+
 export const chatCommands: CliCommand[] = [
   chatNew,
   chatInstructions,
   chatRead,
+  chatExport,
+  chatImage,
   chatTool,
   chatSend,
   chatAnswer,

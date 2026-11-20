@@ -237,6 +237,70 @@ const settingsInstructionsSet: CliCommand = {
   },
 };
 
+const settingsKeysList: CliCommand = {
+  path: ["settings", "keys", "list"],
+  summary: "List effective app and editor keybindings",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { bindings } = await ctx.services.ui("settings.keys", {});
+    return output(
+      table(
+        ["AREA", "COMMAND", "KEYS", "WHEN"],
+        bindings.map((binding) => [
+          binding.area,
+          binding.command,
+          [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
+          binding.when ?? "",
+        ]),
+      ),
+      { bindings },
+      { records: bindings },
+    );
+  },
+};
+
+const settingsLspStatus: CliCommand = {
+  path: ["settings", "lsp", "status"],
+  summary: "Show the current workspace's language server status",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const result = await ctx.services.ui("settings.lspStatus", { workspaceId: workspace.id });
+    const text = table(
+      ["LANGUAGE", "STATE"],
+      result.servers.map(({ language, state }) => [language, state]),
+    );
+    return output(
+      text ||
+        (result.enabled ? "No language servers have started." : "Language servers are disabled."),
+      result,
+    );
+  },
+};
+
+const settingsUpdateStatus: CliCommand = {
+  path: ["settings", "updates", "status"],
+  summary: "Show the last app update check and download progress",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.updateStatus", {});
+    const version =
+      result.status &&
+      ("version" in result.status
+        ? result.status.version
+        : "latest" in result.status
+          ? result.status.latest
+          : undefined);
+    return output(
+      result.status
+        ? [result.status.kind, version].filter(Boolean).join(" ")
+        : "No update check yet.",
+      result,
+    );
+  },
+};
+
 export const settingsCommands: CliCommand[] = [
   settingsList,
   settingsGet,
@@ -245,4 +309,7 @@ export const settingsCommands: CliCommand[] = [
   settingsOpen,
   settingsInstructions,
   settingsInstructionsSet,
+  settingsKeysList,
+  settingsLspStatus,
+  settingsUpdateStatus,
 ];

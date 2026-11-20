@@ -1,3 +1,5 @@
+import type { NoteStorageEntry } from "../notes/types";
+import type { UpdateProgress, UpdateStatus } from "../updates/status";
 /**
  * What the nexus CLI asks of the renderer, which owns the tabs, the layout
  * and the terminals' screens. Main sends "cli.uiRequest" to the active
@@ -559,6 +561,10 @@ export interface CliUiOps {
     result: { tabId: string };
   };
   /** The shells a terminal of a local workspace can run, as "New terminal with" lists them. */
+  "terminal.reopen": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
   "terminal.shells": {
     args: Record<string, never>;
     result: { shells: CliShellInfo[] };
@@ -1224,6 +1230,10 @@ export interface CliUiOps {
    * of, by the entry's i as chat.read numbers it: the item's key, which
    * chat.rewind, chat.fork and chat.withdraw take, and its kind.
    */
+  "chat.export": {
+    args: { workspaceId: string; tabId: string };
+    result: { markdown: string };
+  };
   "chat.entryItem": {
     args: { workspaceId: string; tabId: string; i: number };
     /** `text`: a message of the user's, its text. */
@@ -1257,6 +1267,43 @@ export interface CliUiOps {
     };
     result: CliRecorder;
   };
+  "editor.newUntitled": {
+    args: { workspaceId: string };
+    result: { tabId: string };
+  };
+  "editor.encoding": {
+    args: { workspaceId: string; tabId: string; reopen?: string; saveAs?: string };
+    result: {
+      encoding: string;
+      dirty: boolean;
+      readOnly: boolean;
+      choices: { id: string; name: string }[];
+    };
+  };
+  "workspace.dismissNotifications": {
+    args: { workspaceId: string };
+    result: Record<string, never>;
+  };
+  "settings.lspStatus": {
+    args: { workspaceId: string };
+    result: {
+      enabled: boolean;
+      maxActiveWorkspaces: number;
+      servers: { language: string; state: string }[];
+    };
+  };
+  "settings.updateStatus": {
+    args: Record<string, never>;
+    result: { status: UpdateStatus | null; progress: UpdateProgress | null };
+  };
+  "note.rename": {
+    args: { workspaceId: string; noteId: string; title: string };
+    result: { title: string };
+  };
+  "note.storage": {
+    args: Record<string, never>;
+    result: { entries: (NoteStorageEntry & { workspaceIds?: string[] })[] };
+  };
   "note.speakers": {
     args: { workspaceId: string; noteId: string; recording?: string; change: CliSpeakerChange };
     result: { recordingId: string };
@@ -1280,6 +1327,18 @@ export interface CliUiOps {
     result: {
       layers: { scope: InstructionScope; title: string; text: string }[];
       instructions: string;
+    };
+  };
+  "settings.keys": {
+    args: Record<string, never>;
+    result: {
+      bindings: {
+        command: string;
+        area: "app" | "editor";
+        primary: string | null;
+        chord?: readonly [string, string];
+        when?: string;
+      }[];
     };
   };
   "settings.instructions.set": {

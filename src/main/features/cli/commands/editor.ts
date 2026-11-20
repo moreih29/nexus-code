@@ -5,6 +5,7 @@ import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "..
 import { rendererRoot, splitLocation, workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
+import { resolveAnyTab } from "./terminal";
 
 const PLACEMENT_DETAILS =
   "It opens beside this terminal rather than over it, and the keyboard stays here.";
@@ -208,4 +209,61 @@ const problems: CliCommand = {
   },
 };
 
-export const editorCommands: CliCommand[] = [open, diff, show, reveal, problems];
+const newEditor: CliCommand = {
+  path: ["tab", "new-editor"],
+  summary: "Open an untitled editor buffer",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    await mayChange(ctx, workspace, { kind: "open", detail: "untitled editor" });
+    const { tabId } = await ctx.services.ui("editor.newUntitled", { workspaceId: workspace.id });
+    return output(`Opened untitled editor ${shortId(tabId)}.`, {
+      workspaceId: workspace.id,
+      tabId,
+    });
+  },
+};
+
+const tabEncoding: CliCommand = {
+  path: ["tab", "encoding"],
+  args: "<tab>",
+  summary: "Read a file tab's encoding, or reopen or save it in another encoding",
+  flags: {
+    reopen: { type: "string", value: "ID", description: "Reopen the file with that encoding" },
+    "save-as": { type: "string", value: "ID", description: "Write the file using that encoding" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const reopen = flags.reopen as string | undefined;
+    const saveAs = flags["save-as"] as string | undefined;
+    if (reopen !== undefined && saveAs !== undefined)
+      throw new CliUsageError("give --reopen or --save-as");
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveAnyTab(ctx, workspace, selector);
+    if (reopen !== undefined || saveAs !== undefined)
+      await mayChange(ctx, workspace, {
+        kind: reopen !== undefined ? "open" : "tabSave",
+        detail: tab.title,
+      });
+    const result = await ctx.services.ui("editor.encoding", {
+      workspaceId: workspace.id,
+      tabId: tab.id,
+      reopen,
+      saveAs,
+    });
+    const choices = result.choices.map(({ id, name }) => `${id}: ${name}`);
+    return output([`${tab.title}: ${result.encoding}`, ...choices].join("\n"), result);
+  },
+};
+
+export const editorCommands: CliCommand[] = [
+  open,
+  diff,
+  show,
+  reveal,
+  problems,
+  newEditor,
+  tabEncoding,
+];

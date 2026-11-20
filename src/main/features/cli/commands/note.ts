@@ -280,6 +280,51 @@ function named(note: { readonly id: string; readonly title: string }): string {
   return note.title ? `"${note.title}" (${note.id})` : note.id;
 }
 
+const noteRename: CliCommand = {
+  path: ["note", "rename"],
+  args: "<note> <title...>",
+  summary: "Change a note's title",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals: [selector, ...words], flags }) {
+    const title = words.join(" ").trim();
+    if (!selector || !title) throw new CliUsageError("give a note and a title");
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const note = await findNote(ctx, workspace.id, selector);
+    await mayChange(ctx, workspace, {
+      kind: "noteWrite",
+      detail: note.title || note.id,
+      body: title,
+    });
+    const result = await ctx.services.ui("note.rename", {
+      workspaceId: workspace.id,
+      noteId: note.id,
+      title,
+    });
+    return output(`Renamed ${note.id} to "${result.title}".`, { id: note.id, ...result });
+  },
+};
+
+const noteStorage: CliCommand = {
+  path: ["note", "storage"],
+  summary: "Show the notes and bytes stored at each workspace location",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { entries } = await ctx.services.ui("note.storage", {});
+    return output(
+      table(
+        ["LOCATION", "NOTES", "BYTES"],
+        entries.map((entry) => [
+          entry.location.label,
+          String(entry.notes),
+          String(Object.values(entry.bytes).reduce((total, size) => total + size, 0)),
+        ]),
+      ) || "No notes stored.",
+      { entries },
+      { records: entries },
+    );
+  },
+};
+
 const noteNew: CliCommand = {
   path: ["note", "new"],
   summary: "Make a note, and print its id",
@@ -846,6 +891,8 @@ export const noteCommands: CliCommand[] = [
   voiceNamesDelete,
   notePath,
   noteNew,
+  noteRename,
+  noteStorage,
   noteShow,
   noteWrite,
   noteAdd,

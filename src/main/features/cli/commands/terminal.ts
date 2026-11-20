@@ -343,12 +343,14 @@ const tabShow: CliCommand = {
   },
 };
 
-type BulkClose = "others" | "saved" | "all";
+type BulkClose = "others" | "right" | "saved" | "all";
 
 /** Which of --others, --saved and --all a tab close asks for; none for one tab. */
 function bulkCloseFlag(flags: ParsedArgs["flags"]): BulkClose | null {
-  const given = (["others", "saved", "all"] as const).filter((name) => flags[name] === true);
-  if (given.length > 1) throw new CliUsageError("give one of --others, --saved and --all");
+  const given = (["others", "right", "saved", "all"] as const).filter(
+    (name) => flags[name] === true,
+  );
+  if (given.length > 1) throw new CliUsageError("give one of --others, --right, --saved and --all");
   return given[0] ?? null;
 }
 
@@ -366,6 +368,10 @@ function bulkTargets(
   switch (bulk) {
     case "others":
       return scoped.filter((t) => t.id !== of?.id && t.pinned !== true);
+    case "right":
+      return scoped
+        .slice(scoped.findIndex((tab) => tab.id === of?.id) + 1)
+        .filter((tab) => !tab.pinned);
     case "saved":
       return scoped.filter((t) => t.type === "editor" && t.unsaved !== true);
     case "all":
@@ -416,12 +422,13 @@ const tabClose: CliCommand = {
   details:
     "A tab with unsaved changes is left open. So is a terminal running a program, unless --force.\n" +
     "--others closes the other tabs of TAB's group but the pinned ones; --saved, the editors\n" +
-    "with nothing unsaved; --all, every tab. --saved and --all without TAB close those of\n" +
+    "with nothing unsaved; --right, unpinned tabs to the right; --all, every tab. --saved and --all without TAB close those of\n" +
     "every group. This terminal is never closed; nexus exits 1 when it left another open.",
   flags: {
     workspace: WORKSPACE_FLAG,
     force: { type: "boolean", description: "Close a terminal even while a program runs in it" },
     others: { type: "boolean", description: "The other tabs of TAB's group, pinned ones aside" },
+    right: { type: "boolean", description: "The tabs to the right of TAB, pinned ones aside" },
     saved: { type: "boolean", description: "The editors with nothing unsaved" },
     all: { type: "boolean", description: "Every tab, pinned ones too" },
     device: DEVICE_FLAG,
@@ -440,8 +447,8 @@ const tabClose: CliCommand = {
         throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
       }
       const [selector] = positionals;
-      if (bulk === "others" && selector === undefined) {
-        throw new CliUsageError("missing <tab>: --others closes the other tabs of its group");
+      if ((bulk === "others" || bulk === "right") && selector === undefined) {
+        throw new CliUsageError(`missing <tab>: --${bulk} needs a tab in the group`);
       }
       const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
       const tabs = await workspaceTabs(ctx, workspace.id);
@@ -474,6 +481,23 @@ const tabClose: CliCommand = {
       tabId: tab.id,
       workspaceId: workspace.id,
     });
+  },
+};
+
+const terminalReopen: CliCommand = {
+  path: ["terminal", "reopen"],
+  args: "<tab>",
+  summary: "Reopen an exited terminal using its saved shell and directory",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, selector);
+    if (!tab.dead) throw new CliError("that terminal has not exited");
+    await mayChange(ctx, workspace, { kind: "terminalNew", detail: tab.title });
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    await ctx.services.ui("terminal.reopen", ref, 40_000);
+    return output(`Reopened ${tab.title} (${shortId(tab.id)}).`, ref);
   },
 };
 
@@ -1004,6 +1028,7 @@ export const terminalCommands: CliCommand[] = [
   tabSave,
   tabRevert,
   terminalList,
+  terminalReopen,
   terminalRead,
   terminalNew,
   terminalShells,

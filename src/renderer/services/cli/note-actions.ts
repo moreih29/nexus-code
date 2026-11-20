@@ -6,8 +6,10 @@
 
 import type { CliRecorder, CliUiOp } from "../../../shared/cli/ui";
 import { type ToastInput, watchToasts } from "../../components/ui/toast";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealNoteTab } from "../../state/operations/tabs";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
+import { notesApi } from "../notes/api";
 import {
   pauseRecording,
   recorderElapsedMs,
@@ -42,6 +44,13 @@ function showNote(workspaceId: string, noteId: string, title?: string): void {
 
 export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
   ...noteSpeakerHandlers,
+  "note.rename": async ({ workspaceId, noteId, title }) => {
+    const result = await notesApi.save(workspaceId, noteId, { title });
+    return { title: result.title };
+  },
+  "note.storage": async () => ({
+    entries: unwrapIpcResult(await ipcCallResult("notes", "storage", undefined)),
+  }),
   "note.show": async ({ workspaceId, noteId, title }) => {
     showNote(workspaceId, noteId, title);
     return {};

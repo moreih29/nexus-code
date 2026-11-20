@@ -83,7 +83,7 @@ export async function resolveDevice(
  * The device a selector names, by id, id prefix or name; then by the name it
  * signed in with, which its alias is shown in place of.
  */
-function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
+export function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
   try {
     return pick(
       devices,

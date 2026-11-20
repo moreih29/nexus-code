@@ -3,11 +3,12 @@
  * which --device names; and the sessions of the others, for session list.
  */
 import type { RemoteSession, RemoteWorkspace } from "../../../../../packages/remote-protocol/src";
-import { exactArgs } from "../args";
-import { type CliContext, type CliDevice, shortId } from "../context";
+import { MAX_DEVICE_ALIAS } from "../../../../shared/remote/account";
+import { CliUsageError, exactArgs } from "../args";
+import { type CliContext, type CliDevice, CliError, shortId } from "../context";
 import { ago, oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
-import { deviceRef, listDevices, offline, peerSessions } from "../remote";
+import { deviceRef, listDevices, offline, peerSessions, pickDevice } from "../remote";
 
 /** How long session list waits on the other computers for its closing hint. */
 const HINT_MS = 3_000;
@@ -20,7 +21,7 @@ const deviceList: CliCommand = {
     "--device with another's id, id prefix or name (an alias given in Settings, or the name\n" +
     "it signed in with) to read or drive its sessions as it does this computer's: workspace\n" +
     "list, session list, chat read/send/wait/new/answer/interrupt/set, tab close, terminal\n" +
-    "read/send/key/wait/new, and events. Reading is always allowed; a change goes as\n" +
+    "read/send/key/wait/new, and events. Reading is allowed when agents are enabled; a change goes as\n" +
     "an agent's, yours at a shell too, which that computer's user allows, asks about or turns\n" +
     "down (AGENTS yes: it takes requests from agents; -: it does not, or it is offline).",
   async run(ctx, { positionals }) {
@@ -63,7 +64,30 @@ const deviceList: CliCommand = {
   },
 };
 
-export const deviceCommands: CliCommand[] = [deviceList];
+const deviceAlias: CliCommand = {
+  path: ["device", "alias"],
+  args: "<device> [<name...>]",
+  summary: "Set an account device's alias or clear it",
+  flags: { clear: { type: "boolean", description: "Use the device's original name" } },
+  async run(ctx, { positionals: [selector, ...words], flags }) {
+    const alias = words.join(" ").trim();
+    if (!selector || (flags.clear === true ? alias !== "" : alias === ""))
+      throw new CliUsageError("give a device and an alias, or --clear");
+    if (alias.length > MAX_DEVICE_ALIAS)
+      throw new CliUsageError(`aliases take up to ${MAX_DEVICE_ALIAS} characters`);
+    const device = pickDevice(await listDevices(ctx), selector);
+    if (!ctx.services.remote.alias) throw new CliError("device aliases are unavailable");
+    await ctx.services.remote.alias(device.id, alias || null);
+    return output(
+      alias
+        ? `Set the alias for "${device.name}" to "${alias}".`
+        : `Cleared the alias for "${device.name}".`,
+      { id: device.id, alias: alias || null },
+    );
+  },
+};
+
+export const deviceCommands: CliCommand[] = [deviceList, deviceAlias];
 
 /** Whether a session of another device is an agent's, as session list lists them here. */
 function isAgentRow(session: RemoteSession): boolean {

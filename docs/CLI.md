@@ -129,6 +129,9 @@ nexus chat send 3fa2 "이거 봐줘" --file shot.png --file log.txt
 nexus chat panel 3fa2                                    # 옆 패널: 할 일 · 작업 · 바뀐 파일 · 사용량 · 보류 메시지
 nexus chat unsend 3fa2 r7                                # 보류 메시지 회수 (#번호면 아직 안 읽은 메시지 회수)
 nexus chat edit 3fa2 r7 "PR 말고 커밋만"                  # 보류 메시지 고치기
+nexus chat read 3fa2 --answer 12
+nexus chat export 3fa2 --stdout
+nexus chat image 3fa2 --message 12 --out attachment.png
 nexus chat rewind 3fa2 12 --files                        # #12 메시지 전으로 대화와 파일 되감기
 nexus chat rewind 3fa2 12 --preview                     # Claude와 Codex의 대화 되감기 확인
 nexus chat fork 3fa2 12                                  # 대화를 새 탭으로 복사 (#12 까지)
@@ -198,6 +201,7 @@ nexus events --device all --cursors '{"DEVICE_ID":57}' --wait 10m --jsonl
 같은 NexusCode 계정으로 원격(**설정 → 원격**)에 로그인한 다른 컴퓨터의 세션도 `--device` 로 읽고 조작합니다. 컴퓨터는 id, 4자 이상의 id 앞부분, 또는 이름으로 고릅니다. `--device` 가 없으면 이 컴퓨터입니다.
 
 ```bash
+nexus device alias 9b1e "Build Mac"
 nexus device list                                   # 내 컴퓨터들: 이 컴퓨터, 온라인, 오프라인
 nexus session list --device "Mac mini"              # 그 컴퓨터의 세션 (--device all 은 모든 컴퓨터)
 nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 보내고 끝날 때까지 기다림
@@ -231,6 +235,8 @@ nexus note speaker regroup meeting --participants 3 --recording REC
 nexus note voice suggestions list meeting --recording REC
 nexus note voice suggestions accept meeting voice-1 Alex --recording REC
 nexus note voice suggestions reject meeting voice-1 Alex --recording REC
+nexus note rename meeting "Weekly planning"
+nexus note storage --json
 nexus note voice list --json
 nexus note voice delete Alex
 nexus terminal shells --workspace site --device "Mac mini"
@@ -289,6 +295,7 @@ codex exec resume <세션 id> "이어서 문서도"            # codex 도 같�
 nexus workspace add ../lib --name 라이브러리 --show   # 이 터미널 위치 기준 폴더를 사이드바 끝에 추가
 nexus workspace remove 라이브러리                    # 앱 목록에서 제거(폴더는 그대로)
 nexus workspace edit lib --name 라이브러리 --color blue   # 이름 바꾸기 · 색 지정 (--color auto 는 앱이 고름)
+nexus workspace dismiss-notifications site
 nexus workspace pin lib                             # 사이드바 위쪽에 고정 (workspace unpin 으로 해제)
 nexus workspace move lib --before api               # api 바로 위로 (--after · --top · --bottom)
 ```
@@ -422,6 +429,10 @@ nexus tab move index.ts 1 --at 1     # 탭을 그룹 1 의 첫 자리로
 nexus tab rename <탭> "dev server"   # 탭 이름 바꾸기 (--reset 으로 원래대로)
 nexus tab pin <탭>                   # 탭 고정 (tab unpin 으로 해제)
 nexus tab close <탭>                 # 탭 닫기
+nexus tab new-editor
+nexus tab encoding index.ts --json
+nexus tab close index.ts --right
+nexus terminal reopen 3fa2
 nexus tab close index.ts --others    # 그 탭 그룹의 다른 탭 닫기 (고정한 탭은 남김)
 nexus tab close --saved              # 저장 안 한 변경이 없는 편집기 닫기 (탭을 주면 그 그룹만)
 nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭이 없으면 모든 그룹)
@@ -489,6 +500,11 @@ nexus view group workspace           # 에이전트 뷰 목록을 워크스페�
 ```bash
 nexus settings list                         # 설정 · 현재 값 · 받는 값 (바꾼 것은 *)
 nexus settings get editor.fontSize
+nexus settings get lsp.enabled
+nexus settings get updates.status
+nexus settings lsp status --json
+nexus settings updates status --json
+nexus settings keys list --json
 nexus settings set terminal.cursorStyle bar
 nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
 nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 열기

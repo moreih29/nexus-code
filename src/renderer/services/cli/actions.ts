@@ -10,11 +10,12 @@
 import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
-import { holdsUnsavedChanges } from "@/state/operations/tabs";
+import { holdsUnsavedChanges, openNewUntitledTab } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
 import { useAgentProfilesStore } from "@/state/stores/agent-profiles";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
+import { useClaudeStatusStore } from "@/state/stores/claude-status";
 import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
@@ -29,7 +30,8 @@ import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
 import { existingChatController } from "../chat/claude/controller";
-import { reloadModelFromDisk } from "../editor/model/cache";
+import { TEXT_ENCODINGS } from "../editor/encoding/text-encoding";
+import { getResolvedModel, reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { isPreviewable } from "../editor/preview/previewable";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
@@ -143,6 +145,9 @@ export const actionHandlers: {
     | "events.read"
     | "settings.instructions"
     | "settings.instructions.set"
+    | "settings.keys"
+    | "settings.lspStatus"
+    | "settings.updateStatus"
     | "settings.list"
     | "settings.set"
     | "settings.open"
@@ -229,6 +234,16 @@ export const actionHandlers: {
       showOpenTab(workspaceId, open, placement) ??
       openTab(workspaceId, { type: "git.commit", props: { workspaceId, sha } }, placement);
     return { tabId, sha, subject };
+  },
+
+  "terminal.reopen": async ({ workspaceId, tabId }) => {
+    const tab = tabRecord(workspaceId, tabId);
+    if (tab.type !== "terminal" || !tab.props.dead)
+      throw new UiRequestError("that terminal has not exited");
+    const controller = await startedTerminal(workspaceId, tabId);
+    await controller.reopen();
+    useTabsStore.getState().setTerminalDead(workspaceId, tabId, false);
+    return {};
   },
 
   "terminal.open": async ({ workspaceId, cwd, title, command, shell, profile, placement }) => {
@@ -392,6 +407,50 @@ export const actionHandlers: {
       }
     }
     return { folders: [...folders] };
+  },
+
+  "workspace.dismissNotifications": async ({ workspaceId }) => {
+    await callOrFail(ipcCallResult("claude", "clearWorkspace", { workspaceId }));
+    useClaudeStatusStore.getState().clearWorkspace(workspaceId);
+    return {};
+  },
+
+  "editor.newUntitled": async ({ workspaceId }) => ({
+    tabId: openNewUntitledTab(workspaceId).id,
+  }),
+
+  "editor.encoding": async ({ workspaceId, tabId, reopen, saveAs }) => {
+    const tab = tabRecord(workspaceId, tabId);
+    if (tab.type !== "editor" || tab.props.origin === "untitled")
+      throw new UiRequestError("choose a file tab");
+    const input = fileOfTab(workspaceId, tab);
+    const before = getResolvedModel(input);
+    if (!before) throw new UiRequestError("show the file in the editor to load its encoding");
+    if (reopen !== undefined || saveAs !== undefined) {
+      const encoding = TEXT_ENCODINGS.find((item) => item.id === (reopen ?? saveAs))?.id;
+      if (!encoding)
+        throw new UiRequestError("unknown encoding; run tab encoding without flags to list them");
+      if (reopen !== undefined) {
+        if (isDirty(before.cacheUri))
+          throw new UiRequestError("save the file before reopening it in another encoding");
+        if (!(await reloadModelFromDisk(input, encoding)))
+          throw new UiRequestError("could not reopen the file");
+      } else {
+        const saved = await saveModel(input, { encoding });
+        if (saved.kind !== "saved")
+          throw new UiRequestError(
+            saved.kind === "error" ? saved.message : `could not save the file (${saved.kind})`,
+          );
+      }
+    }
+    const current = getResolvedModel(input);
+    if (!current) throw new UiRequestError("that editor was closed");
+    return {
+      encoding: current.encoding,
+      dirty: isDirty(current.cacheUri),
+      readOnly: current.readOnly,
+      choices: TEXT_ENCODINGS.map(({ id, name }) => ({ id, name })),
+    };
   },
 
   "workspace.show": async ({ workspaceId }) => {

@@ -18,6 +18,7 @@ import {
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import {
@@ -38,6 +39,7 @@ import {
   agentTabController,
   startAgentTab,
 } from "../chat/agent-tab";
+import { conversationMarkdown } from "../chat/app-commands";
 import type { ForkPoint } from "../chat/claude/controller";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
@@ -660,6 +662,19 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
     if (model.running && waiting) await controller.readHeldNow();
     return {};
+  },
+
+  "chat.export": async ({ workspaceId, tabId }) => {
+    const { agent } = await openedTab(workspaceId, tabId, true);
+    const { items, tools } = conversationOf(sourceOf(workspaceId, tabId, agent));
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    const cwd = tab?.type === "claude" || tab?.type === "codex" ? tab.props.cwd : "";
+    return {
+      markdown: conversationMarkdown(items, tools, (tool) => toolSummary(tool, cwd), {
+        user: i18next.t("chat.commands.export_user"),
+        assistant: agent === "claude" ? "Claude" : "Codex",
+      }),
+    };
   },
 
   "chat.entryItem": async ({ workspaceId, tabId, i }) => {

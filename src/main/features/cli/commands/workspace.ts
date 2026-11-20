@@ -818,11 +818,30 @@ const workspaceMove: CliCommand = {
   },
 };
 
+const workspaceDismissNotifications: CliCommand = {
+  path: ["workspace", "dismiss-notifications"],
+  args: "[workspace]",
+  summary: "Clear a workspace's terminal-agent notification indicators",
+  async run(ctx, { positionals }) {
+    if (positionals.length > 1) throw new CliUsageError("give at most one workspace");
+    const workspace = resolveWorkspace(ctx, positionals[0]);
+    await mayChange(ctx, workspace, {
+      kind: "workspaceEdit",
+      detail: "clear notification indicators",
+    });
+    await ctx.services.ui("workspace.dismissNotifications", { workspaceId: workspace.id });
+    return output(`Cleared notification indicators in ${workspace.name}.`, {
+      workspaceId: workspace.id,
+    });
+  },
+};
+
 export const workspaceCommands: CliCommand[] = [
   status,
   workspaceList,
   workspaceCurrent,
   workspaceSwitch,
+  workspaceDismissNotifications,
   workspaceAdd,
   workspaceRemove,
   workspaceEdit,
