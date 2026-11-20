@@ -13,6 +13,7 @@ import {
 } from "../../../../../packages/remote-protocol/src";
 import type { CliChatEntry, CliChatInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { remoteControlCommand } from "../../chat/remote-control";
 import { CliUsageError, type ParsedArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, shortId } from "../context";
 import { type CliOutput, output } from "../registry";
@@ -156,6 +157,9 @@ export async function sendToPeer(
     selector,
     CHATS,
   );
+  if (peer.session.kind === "claude" && remoteControlCommand(text) && timeoutMs !== null) {
+    throw new CliUsageError("Remote Control is a setting change; omit --wait");
+  }
   // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
   const { at, heldId } = await askDevice(ctx, device, "chat.send", {

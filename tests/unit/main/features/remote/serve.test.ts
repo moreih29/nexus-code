@@ -1811,6 +1811,40 @@ describe("serving a chat's controls", () => {
     expect(asked.at(-1)?.[1]).not.toHaveProperty("user");
   });
 
+  test.each([
+    ["allow", "deny", "/remote-control", false, true, false],
+    ["ask", "once", "/RC", false, true, true],
+    ["ask", "deny", "/remote-control", true, false, true],
+    ["deny", "once", "/RC", false, false, false],
+    ["allow", "deny", "/RC", true, true, false],
+  ] as const)("Remote Control under %s with %s", async (policy, answer, text, wasEnabled, applies, prompts) => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        if (op === "consent.ask") return { answer };
+        if (op === "chat.panel") return { remoteControl: { enabled: wasEnabled } };
+        return {};
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => policy }) });
+    const result = serve({
+      from: "d",
+      method: "chat.send",
+      params: { ...tab, text, from: { kind: "tab", workspaceId: "bw", tabId: "bt" } },
+    });
+    if (applies) await expect(result).resolves.toEqual({});
+    else await expect(result).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(asked.filter(([op]) => op === "consent.ask")).toHaveLength(prompts ? 1 : 0);
+    expect(asked.filter(([op]) => op === "chat.remoteControl")).toEqual(
+      applies ? [["chat.remoteControl", { ...tab, enabled: !wasEnabled }]] : [],
+    );
+    expect(asked.some(([op]) => op === "chat.send")).toBe(false);
+  });
+
   test("sends the images the device attached with it, once, and nothing empty", async () => {
     const { serve, asked } = recording();
     const data = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]).toString("base64");

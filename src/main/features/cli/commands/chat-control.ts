@@ -10,10 +10,11 @@ import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-prot
 import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { ago, oneLine } from "../format";
-import { type CliCommand, output } from "../registry";
+import { type CliCommand, type CliOutput, output } from "../registry";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
 import { AGENT_NAMES } from "./chat-text";
@@ -432,40 +433,36 @@ const chatRemoteControl: CliCommand = {
   args: "<tab> <on|off>",
   details:
     "As the switch in its panel does: with it on, the session can be driven from claude.ai\n" +
-    "and the Claude app, at the address printed. The user allows turning it on.",
+    "and the Claude app, at the address printed. Follows the workspace change policy.",
   flags: { workspace: WORKSPACE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, turn] = exactArgs(positionals, "tab", "on|off") as [string, string];
     if (turn !== "on" && turn !== "off") throw new CliUsageError('it is "on" or "off"');
     const target = await otherChat(ctx, flags, selector);
     claudeOnly(target, "have Remote Control");
-    const enabled = turn === "on";
-    const change = {
-      kind: enabled ? ("chatRemoteControlOn" as const) : ("chatRemoteControlOff" as const),
-      detail: target.tab.title,
-    };
-    // Turned on, the session can be driven from outside the app: the user's to allow.
-    if (enabled) {
-      await ctx.services.askUser({
-        fromWorkspaceId: ctx.caller.workspaceId,
-        fromTabId: ctx.caller.tabId,
-        toWorkspaceId: target.workspace.id,
-        change,
-      });
-    } else {
-      await mayChange(ctx, target.workspace, change);
-    }
-    await ctx.services.ui("chat.remoteControl", { ...target.ref, enabled }, SEND_TIMEOUT_MS);
-    const url = enabled
-      ? (await ctx.services.ui("chat.panel", target.ref).catch(() => null))?.remoteControl?.url
-      : undefined;
-    return output(`Turned Remote Control ${turn} for ${named(target)}${url ? `: ${url}` : ""}.`, {
-      ...target.ref,
-      enabled,
-      ...(url ? { url } : {}),
-    });
+    return setRemoteControl(ctx, target, turn === "on");
   },
 };
+
+async function setRemoteControl(
+  ctx: CliContext,
+  target: ChatTarget,
+  enabled: boolean,
+): Promise<CliOutput> {
+  const change = {
+    kind: enabled ? ("chatRemoteControlOn" as const) : ("chatRemoteControlOff" as const),
+    detail: target.tab.title,
+  };
+  await mayChange(ctx, target.workspace, change);
+  await applyRemoteControl(ctx.services, target.ref, enabled);
+  const url = enabled
+    ? (await ctx.services.ui("chat.panel", target.ref).catch(() => null))?.remoteControl?.url
+    : undefined;
+  return output(
+    `Turned Remote Control ${enabled ? "on" : "off"} for ${named(target)}${url ? `: ${url}` : ""}.`,
+    { ...target.ref, enabled, ...(url ? { url } : {}) },
+  );
+}
 
 const RUNS: Readonly<Record<ChatCommand["runs"], string>> = {
   command: "chat command",
@@ -512,6 +509,11 @@ const chatCommandRun: CliCommand = {
     const name = typed.replace(/^\//, "");
     const args = words.join(" ").trim();
     const target = await otherChat(ctx, flags, selector);
+    const lower = name.toLowerCase();
+    if (target.tab.type === "claude" && remoteControlCommand(`/${name}`)) {
+      const { remoteControl } = await ctx.services.ui("chat.panel", target.ref, SEND_TIMEOUT_MS);
+      return setRemoteControl(ctx, target, remoteControl?.enabled !== true);
+    }
     const text = `/${name}${args ? ` ${args}` : ""}`;
     // Asked first: listing its commands starts a tab's program that is not running.
     await mayChange(ctx, target.workspace, {
@@ -520,7 +522,6 @@ const chatCommandRun: CliCommand = {
       body: text,
     });
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
-    const lower = name.toLowerCase();
     const command =
       commands.find((c) => c.name.toLowerCase() === lower) ??
       commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));

@@ -124,6 +124,7 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "shows it as yours, not the user's. A message to you that starts \"[nexus] ... sent this,",
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
+    "Claude Remote Control follows the workspace or device policy, like other settings.",
     "nexus events --since N --wait 10m follows every session's state changes as they come.",
     ...(inRoom ? remoteInstructions : []),
     "Work can be handed to another agent on its own branch and worktree: nexus worktree new",

@@ -10,6 +10,7 @@ import type { CliChatChoices } from "../../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../../i18n";
+import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import type { CliServices } from "../../cli/context";
 import type { FsProvider } from "../../fs/bridge/provider";
 import type { Attachments } from "../attachments";
@@ -53,6 +54,13 @@ export async function sendChat(
     );
   }
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  // The agent's chat.send was authorized by the receiving device's AgentGate.
+  if (relay && tab.type === "claude" && ids.length === 0 && remoteControlCommand(text)) {
+    const target = { workspaceId, tabId };
+    const { remoteControl } = await services.ui("chat.panel", target).catch(unavailable);
+    await applyRemoteControl(services, target, remoteControl?.enabled !== true).catch(chatFailure);
+    return {};
+  }
   const held =
     attached && ids.length > 0
       ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
@@ -592,7 +600,7 @@ export async function setChatRemoteControl(
   { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
 ): Promise<RpcResult<"chat.remoteControl">> {
   await tabOf(services, workspaceId, tabId, ["claude"]);
-  await services.ui("chat.remoteControl", { workspaceId, tabId, enabled }).catch(chatFailure);
+  await applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatFailure);
   return {};
 }
 
