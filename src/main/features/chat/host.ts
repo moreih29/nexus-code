@@ -109,8 +109,8 @@ export interface ChatHostOptions {
   agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
   instructions?: (workspaceId: string, profile: AgentProfile, session?: string) => string;
   claudeInstructionDigests?: {
-    get(workspaceId: string, sessionId: string): string | undefined;
-    save(workspaceId: string, sessionId: string, digest: string): void;
+    get(workspaceId: string, sessionId: string): string | null | undefined;
+    save(workspaceId: string, sessionId: string, digest: string | null): void;
   };
   savedClaudeInstructions?: (
     workspaceId: string,
@@ -154,7 +154,7 @@ export class ChatHost {
   >();
   private readonly claudeInstructionUpdates = new Map<
     string,
-    { launch: string; sessionId?: string; digest: string }
+    { launch: string; sessionId?: string; digest: string | null }
   >();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
@@ -269,11 +269,14 @@ export class ChatHost {
       if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
       const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
       const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
-      const sourceDigest =
-        sourceId && this.options.claudeInstructionDigests?.get(workspaceId, sourceId);
+      const sourceDigest = sourceId
+        ? this.options.claudeInstructionDigests?.get(workspaceId, sourceId)
+        : undefined;
       env.NEXUS_CHAT_INSTRUCTION_LAUNCH = claudeInstructionLaunch(
         combined,
-        sourceId && sourceDigest ? { sessionId: sourceId, digest: sourceDigest } : undefined,
+        sourceId && sourceDigest !== undefined
+          ? { sessionId: sourceId, digest: resume.resumeAt === undefined ? sourceDigest : null }
+          : undefined,
       );
       this.claudeInstructions.set(key, { profileId, instructions });
       const modelPicker = claudeModelPicker(profile.connection);
@@ -540,7 +543,7 @@ export class ChatHost {
     const prior = this.claudeInstructionUpdates.get(key);
     const previous =
       prior?.launch === launch && prior.sessionId === sessionId ? prior.digest : stored;
-    const remember = (digest: string) => {
+    const remember = (digest: string | null) => {
       this.claudeInstructionUpdates.set(key, { launch, sessionId, digest });
       if (!sessionId || digest === stored) return;
       try {
@@ -552,8 +555,8 @@ export class ChatHost {
 
     if (hook.phase === "start") {
       const fork = launchState.fork;
-      // A fork can inherit a block that already matches its settings. Retain its
-      // digest even if the child never needs to send a replacement of its own.
+      // A full fork inherits the source digest. A fork at a message may have
+      // omitted that block, so remember that its digest is unknown.
       if (sessionId && fork && sessionId !== fork.sessionId && previous === undefined)
         remember(fork.digest);
       return "";

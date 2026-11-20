@@ -35,7 +35,7 @@ export const ChatInstructionHistorySchema = z.record(z.record(InstructionTextSch
 export const ClaudeInstructionDigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const ClaudeInstructionDigestsSchema = z.record(
   z.string().uuid(),
-  z.record(z.string().uuid(), ClaudeInstructionDigestSchema),
+  z.record(z.string().uuid(), ClaudeInstructionDigestSchema.nullable()),
 );
 export function chatInstructionHistoryKey(agent: ChatAgent, conversationId: string): string {
   return `${agent}:${conversationId}`;

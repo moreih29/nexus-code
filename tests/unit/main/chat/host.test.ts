@@ -150,7 +150,7 @@ describe("Claude instruction history", () => {
   const childTab = "33333333-cccc-4ccc-8ccc-333333333333";
 
   function instructionsFixture() {
-    const digests = new Map<string, string>();
+    const digests = new Map<string, string | null>();
     const open = () =>
       setup({}, undefined, undefined, undefined, {
         instructions: (_workspaceId, _profile, session) => session ?? "",
@@ -162,17 +162,19 @@ describe("Claude instruction history", () => {
         },
       });
 
-    async function sendOriginalReplacement() {
+    async function sendOriginalReplacement(...later: string[]) {
       const { host, channel } = open();
       await host.start(WS, TAB, "/repo", {}, undefined, "BASE");
       const launch = launchOf(channel);
       expect(
         host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
       ).toBe("");
-      await host.send(WS, TAB, { type: "user" }, { instructions: "ECHO" });
-      expect(
-        host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
-      ).toEndWith("ECHO");
+      for (const instructions of ["ECHO", ...later]) {
+        await host.send(WS, TAB, { type: "user" }, { instructions });
+        expect(
+          host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+        ).toEndWith(instructions);
+      }
       await host.call("close", { workspaceId: WS, tabId: TAB });
     }
 
@@ -256,6 +258,35 @@ describe("Claude instruction history", () => {
         phase: "prompt",
       }),
     ).toEndWith("KILO");
+  });
+
+  test("a fork from an earlier message refreshes instructions once even when the source matches", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement("KILO");
+    const source = digests.get(`${WS}:${parent}`);
+    const { host, channel } = open();
+    await host.start(
+      WS,
+      childTab,
+      "/repo",
+      { resume: parent, fork: true, resumeAt: "earlier-message" },
+      undefined,
+      "KILO",
+    );
+    const launch = launchOf(channel);
+
+    expect(source).toBe(claudeInstructionLaunchState(launch)?.systemDigest);
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${parent}`)).toBe(source);
+    expect(digests.get(`${WS}:${child}`)).toBe(source);
   });
 
   test.each([

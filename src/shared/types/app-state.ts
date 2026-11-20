@@ -154,7 +154,7 @@ export const AppStateSchema = z.object({
   agentProfiles: AgentProfilesSchema.optional(),
   agentInstructions: AgentInstructionsSchema.optional(),
   chatInstructionHistory: ChatInstructionHistorySchema.optional(),
-  /** Last Claude hook replacement in each conversation, by workspace and session. */
+  /** Last Claude hook replacement by workspace and session, or null for a fork pending a refresh. */
   claudeInstructionDigests: ClaudeInstructionDigestsSchema.optional(),
 
   // What a new task opens with (a TaskAgent): a Claude or Codex tab given the

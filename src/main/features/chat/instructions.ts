@@ -40,7 +40,8 @@ export interface ClaudeInstructionHook {
 
 interface ForkInstructions {
   sessionId: string;
-  digest: string;
+  /** Null when the copied history may omit the source's latest block. */
+  digest: string | null;
 }
 
 /** The id Claude uses for a resume, including when a profile supplies a transcript path. */
@@ -59,7 +60,9 @@ export function instructionSessionId(value: unknown): string | undefined {
 
 /** Carry the startup baseline and any fork snapshot across a desktop reconnect. */
 export function claudeInstructionLaunch(text: string, fork?: ForkInstructions): string {
-  return [randomUUID(), digest(text), ...(fork ? [fork.sessionId, fork.digest] : [])].join(":");
+  return [randomUUID(), digest(text), ...(fork ? [fork.sessionId, fork.digest ?? ""] : [])].join(
+    ":",
+  );
 }
 
 export function claudeInstructionLaunchState(launch: string) {
@@ -68,19 +71,22 @@ export function claudeInstructionLaunchState(launch: string) {
   if (!systemDigest) return undefined;
 
   const sessionId = instructionSessionId(parentSessionId);
-  const digest = ClaudeInstructionDigestSchema.safeParse(parentDigest).data;
-  const fork = sessionId && digest ? { sessionId, digest } : undefined;
+  const digest =
+    parentDigest === "" ? null : ClaudeInstructionDigestSchema.safeParse(parentDigest).data;
+  const fork = sessionId && digest !== undefined ? { sessionId, digest } : undefined;
   return { systemDigest, fork };
 }
 
 export function claudeInstructionUpdate(
   systemDigest: string,
-  previous: string | undefined,
+  previous: string | null | undefined,
   current: string,
   restoring: boolean,
 ): { text: string; digest: string } | undefined {
+  // A fork with unknown instructions sends its replacement with the first prompt.
+  if (restoring && previous === null) return undefined;
   const next = digest(current);
-  const last = previous ?? systemDigest;
+  const last = previous === undefined ? systemDigest : previous;
   if (next === last && (!restoring || next === systemDigest)) return undefined;
   return {
     text: current ? `${replacement}\n\n${current}` : cleared,
