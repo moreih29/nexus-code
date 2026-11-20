@@ -37,6 +37,7 @@ import {
   useWorkspacesStore,
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { beginDragInFlight } from "@/utils/drag-in-flight";
 import { basename } from "@/utils/path";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
@@ -659,7 +660,10 @@ function PanelTab({
         onAuxClick={(e) => {
           if (e.button === 1) onRemove();
         }}
-        onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
+        onDragStart={(e) => {
+          setAgentDrag(e.dataTransfer, key);
+          beginDragInFlight();
+        }}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {children}

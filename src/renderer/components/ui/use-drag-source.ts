@@ -21,9 +21,11 @@
  * document-level capture listener would race against React and silently
  * leave the WebContentsView attached — see commit history for the bug.
  */
+
 import { useCallback, useEffect, useRef } from "react";
 import { color } from "../../../shared/design-tokens";
 import { useBrowserSuspendStore } from "../../state/stores/browser-suspend";
+import { beginDragInFlight } from "../../utils/drag-in-flight";
 
 export type DragImageSpec =
   | { kind: "self" }
@@ -158,7 +160,9 @@ export function useDragSource<T>({
 
       // Pair with a one-shot document `dragend` — the standard path when
       // the source element is still in the DOM at drop time.
+      const endFlight = beginDragInFlight();
       const onDragEnd = () => {
+        endFlight();
         releaseClaim();
         document.removeEventListener("dragend", onDragEnd);
       };

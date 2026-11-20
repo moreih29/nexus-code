@@ -36,6 +36,7 @@ import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { beginDragInFlight } from "@/utils/drag-in-flight";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
@@ -662,6 +663,7 @@ const AgentItem = memo(function AgentItem({
         onDragStart={(e) => {
           setAgentDrag(e.dataTransfer, key);
           setListDrag(key);
+          beginDragInFlight();
         }}
         onDragEnd={() => setListDrag(null)}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
