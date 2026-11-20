@@ -182,15 +182,13 @@ export async function runAppCommand(
         showToast({ kind: "warning", message: t("chat.commands.remote_not_ready") });
         return;
       }
-      // As the CLI's: on when off, off when on.
-      const on = model.remoteControl?.enabled === true;
-      await controller.setRemoteControl(!on);
+      const { enabled } = await controller.setRemoteControl();
       showToast({
         kind: "info",
-        message: t(on ? "chat.commands.remote_off" : "chat.commands.remote_on"),
+        message: t(enabled ? "chat.commands.remote_on" : "chat.commands.remote_off"),
       });
       // Its link is in the panel.
-      if (!on) revealPart(controller.key, "status");
+      if (enabled) revealPart(controller.key, "status");
       return;
     }
     case "memory": {

@@ -9,6 +9,7 @@ import "encoding/json"
 type DirEntry struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+	Size *int64 `json:"size,omitempty"`
 }
 
 // StatResult is the wire shape returned by fs.stat.

@@ -567,7 +567,20 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
     if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
+    if (op === "chat.fileSuggestions") return { paths: [] } as CliUiOps[K]["result"];
+    if (op === "browser.permissions") return { global: {}, sites: [] } as CliUiOps[K]["result"];
+    if (op === "chat.image")
+      return { data: "YA==", mediaType: "image/png" } as CliUiOps[K]["result"];
+    if (op === "chat.export") return { markdown: "## Claude\n" } as CliUiOps[K]["result"];
     if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
+    if (op === "note.voiceSuggestions")
+      return { recordingId: "rec", suggestions: [] } as CliUiOps[K]["result"];
+    if (op === "settings.lspStatus")
+      return { enabled: true, maxActiveWorkspaces: 4, servers: [] } as CliUiOps[K]["result"];
+    if (op === "settings.instructions") {
+      return { layers: [], instructions: "" } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.profiles") return { profiles: [] } as CliUiOps[K]["result"];
     if (op === "chat.panel") {
       return {
         todos: [],

@@ -83,6 +83,31 @@ export class AgentFsProvider implements AgentBackedProvider {
     return parseAgentResult(DirEntryArraySchema, result);
   }
 
+  async readdirNoLinks(
+    target: { relPath: string } | { absolutePath: string },
+  ): Promise<DirEntry[]> {
+    return parseAgentResult(DirEntryArraySchema, await this.callAgent("fs.readdirNoLinks", target));
+  }
+
+  async readFileNoLinks(relPath: string): Promise<FileReadResult> {
+    const result = await this.callAgent("fs.readFileNoLinks", { relPath });
+    return parseAgentResult(FileReadResultSchema, result);
+  }
+
+  async readBinaryNoLinks(relPath: string): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent("fs.readFileNoLinks", { relPath, binary: true });
+    return parseAgentResult(FileReadBinaryResultSchema, result);
+  }
+
+  async readRangeNoLinks(
+    relPath: string,
+    offset: number,
+    length: number,
+  ): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent("fs.readRangeNoLinks", { relPath, offset, length });
+    return parseAgentResult(FileReadBinaryResultSchema, result);
+  }
+
   async stat(relPath: string): Promise<FsStat> {
     const result = await this.callAgent("fs.stat", { relPath });
     return parseAgentResult(FsStatSchema, result);

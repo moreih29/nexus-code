@@ -975,6 +975,7 @@ export async function registerRemoteChannel(options: {
           };
         });
       },
+      alias: (deviceId, alias) => account.setDeviceAlias(deviceId, alias),
       request: (deviceId, method, params, timeoutMs, signal) =>
         inRoom().request(deviceId, method, params, timeoutMs, signal),
     },

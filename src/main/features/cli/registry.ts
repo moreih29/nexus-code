@@ -15,6 +15,8 @@ const log = createLogger("cli");
 export interface CliOutput {
   readonly text: string;
   readonly json: unknown;
+  /** Emit Unicode directly for commands whose output is intended as readable text. */
+  readonly utf8Json?: true;
   /**
    * The records --jsonl prints, a line each; by default the items of a
    * `json` that is a list, else `json` alone.
@@ -180,7 +182,7 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
       parsed.flags.jsonl === true
         ? jsonLines(out)
         : parsed.flags.json === true
-          ? `${asciiJson(out.json, 2)}\n`
+          ? `${out.utf8Json ? JSON.stringify(out.json, null, 2) : asciiJson(out.json, 2)}\n`
           : withNewline(out.text);
     return result(stdout, "", out.exitCode ?? 0, out.files);
   } catch (error) {

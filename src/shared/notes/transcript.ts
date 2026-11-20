@@ -492,6 +492,25 @@ export function speakerName(
   return recording.speakers[key]?.trim() || unnamed(recording.speakerNumbers?.[key] ?? key);
 }
 
+/** Lines as the CLI can show them, with an id within the recording. */
+export function transcriptLinesForCli(recording: TranscriptRecording) {
+  const occurrences = new Map<string, number>();
+  return recording.lines.map(({ speaker, startMs, endMs, text }) => {
+    const times = `${startMs}:${endMs}`;
+    const occurrence = (occurrences.get(times) ?? 0) + 1;
+    occurrences.set(times, occurrence);
+    return {
+      id: `${times}:${occurrence}`,
+      startMs,
+      endMs,
+      speaker,
+      speakerLabel: `Speaker ${recording.speakerNumbers?.[speaker] ?? speaker}`,
+      speakerName: recording.speakers[speaker]?.trim() || null,
+      text,
+    };
+  });
+}
+
 /** Adjacent lines of one voice, run together: how a transcript reads. */
 export function joinedLines(lines: readonly TranscriptLine[], gapMs = 4000): TranscriptLine[] {
   const out: TranscriptLine[] = [];

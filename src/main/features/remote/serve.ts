@@ -7,8 +7,10 @@
 import {
   type AgentSender,
   RpcErrorCode,
+  type RpcMethod,
   type RpcParams,
 } from "../../../../packages/remote-protocol/src";
+import { InstructionTextSchema } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliServices } from "../cli/context";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
@@ -18,7 +20,15 @@ import { isFileTransferMethod } from "./file-io";
 import { FileWrites } from "./file-writes";
 import { listFolders } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus } from "./git";
-import { attachToNote, listNotes, PhotoQuota } from "./notes";
+import {
+  attachToNote,
+  boundedNoteResult,
+  findNote,
+  listNotes,
+  noteTranscript,
+  PhotoQuota,
+  readNote,
+} from "./notes";
 import { RpcFailure } from "./room";
 import {
   answerChat,
@@ -64,8 +74,10 @@ import {
   readChat,
   readEvents,
 } from "./serving/chat-details";
-import { workspaceOf } from "./serving/common";
+import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common";
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
+import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
+import { ReadBudget } from "./serving/read-budget";
 import { serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
 import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
@@ -151,7 +163,49 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "terminal.read",
   "terminal.wait",
   "events.read",
+  "chat.commands",
+  "chat.panel",
+  "chat.tool",
+  "chat.fileSuggestions",
+  "chat.instructions",
+  "chat.entryItem",
+  "chat.rewindPreview",
+  "chat.image",
+  "history.list",
+  "profiles.list",
+  "terminal.shells",
+  "notes.list",
+  "notes.read",
+  "notes.transcript",
+  "notes.voiceNames.list",
+  "notes.voiceSuggestions.list",
+  "layout.get",
+  "agentView.get",
+  "browser.permissions",
 ]);
+
+/** A single deadline for reads that can cross both the renderer and the file system. */
+const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
+  "chat.commands": 12_000,
+  "chat.panel": 12_000,
+  "chat.tool": 12_000,
+  "chat.fileSuggestions": 12_000,
+  "chat.instructions": 12_000,
+  "chat.entryItem": 12_000,
+  "chat.rewindPreview": 12_000,
+  "chat.image": 12_000,
+  "history.list": 12_000,
+  "profiles.list": 12_000,
+  "terminal.shells": 12_000,
+  "notes.list": 12_000,
+  "notes.read": 12_000,
+  "notes.transcript": 12_000,
+  "notes.voiceNames.list": 12_000,
+  "notes.voiceSuggestions.list": 5 * 60_000,
+  "layout.get": 12_000,
+  "agentView.get": 12_000,
+  "browser.permissions": 12_000,
+};
 
 /** Answers another device's request with this device's services. */
 export function serveWith(services: () => CliServices | null, watches: RemoteServeOptions = {}) {
@@ -162,10 +216,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
-  return async (request: RemoteServeRequest) => {
-    const s = services();
-    if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+  async function dispatch(services: CliServices, request: RemoteServeRequest) {
     const { from, method, params } = request;
+    let s = services;
     if (sessions && method === "sessions.watch") return sessions.watch(from);
     if (sessions && method === "sessions.unwatch") {
       return sessions.unwatch(from, params as RpcParams<"sessions.unwatch">);
@@ -186,16 +239,27 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
     let relay: RelaySender | undefined;
+    let expectedMode: string | undefined;
     if (by && !watches.agents) {
       throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
     }
     // File controls ask in their handlers, after validating their scope.
+    const agentOnly =
+      method === "settings.instructions.set" || method === "notes.voiceNames.delete";
+    if (agentOnly && !by)
+      throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
+    if (
+      method === "settings.instructions.set" &&
+      !InstructionTextSchema.safeParse((params as RpcParams<"settings.instructions.set">).text)
+        .success
+    )
+      throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
     const checkInHandler = isFileTransferMethod(method);
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
-      await watches.agents.check(s, {
+      expectedMode = await watches.agents.check(s, {
         device,
         method,
         params: params as AgentRequest["params"],
@@ -207,10 +271,175 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         throw new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room");
       }
     };
+    if (by && !readOnly && !checkInHandler) {
+      checkCurrent();
+      s = {
+        ...services,
+        ui: (op, args, timeoutMs) => {
+          checkCurrent();
+          return services.ui(op, args, timeoutMs);
+        },
+        answerClaudeAsk: (...args) => {
+          checkCurrent();
+          return services.answerClaudeAsk(...args);
+        },
+      };
+    }
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
     switch (request.method) {
       case "sessions.list":
         return serveSessionsList(s, git, watches.notes, from, controls);
+      case "notes.read":
+        return readNote(s, request.params as RpcParams<"notes.read">);
+      case "notes.transcript":
+        return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "settings.instructions.set": {
+        const { workspaceId, layer, text } = params as RpcParams<"settings.instructions.set">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const scope =
+          layer === "all"
+            ? { kind: "all" as const }
+            : layer === "workspace"
+              ? { kind: "workspace" as const, id: workspaceId }
+              : { kind: "agent" as const, agent: layer };
+        return s.ui("settings.instructions.set", { scope, text }).catch(unavailable);
+      }
+      case "notes.speakers": {
+        const { workspaceId, note, recording, change } = params as RpcParams<"notes.speakers">;
+        const { id } = await findNote(s, workspaceId, note);
+        const result = await s
+          .ui("note.speakers", { workspaceId, noteId: id, recording, change }, 5 * 60_000)
+          .catch(unavailable);
+        return { noteId: id, ...result };
+      }
+      case "notes.voiceSuggestions.list":
+      case "notes.voiceSuggestions.change": {
+        const { workspaceId, note, recording } = params as RpcParams<"notes.voiceSuggestions.list">;
+        const { id } = await findNote(s, workspaceId, note);
+        const action =
+          method === "notes.voiceSuggestions.change"
+            ? (params as RpcParams<"notes.voiceSuggestions.change">).action
+            : { op: "list" as const };
+        const result = await s
+          .ui("note.voiceSuggestions", { workspaceId, noteId: id, recording, action }, 5 * 60_000)
+          .catch(unavailable);
+        return boundedNoteResult({ noteId: id, ...result });
+      }
+      case "notes.voiceNames.list":
+        return boundedNoteResult(
+          await s.ui("note.voiceNames", { action: { op: "list" } }).catch(unavailable),
+        );
+      case "notes.voiceNames.delete": {
+        const { workspaceId, name } = params as RpcParams<"notes.voiceNames.delete">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        await s.ui("note.voiceNames", { action: { op: "delete", name } }).catch(unavailable);
+        return {};
+      }
+      case "browser.permissions": {
+        const { workspaceId } = params as RpcParams<"browser.permissions">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const reply = await s.ui("browser.permissions", { workspaceId }).catch(unavailable);
+        if (!fitsAsResult(reply))
+          throw new RpcFailure(
+            RpcErrorCode.Unavailable,
+            "browser permission settings exceed one frame",
+          );
+        return reply;
+      }
+      case "browser.devtools": {
+        const { workspaceId, tabId } = params as RpcParams<"browser.devtools">;
+        await tabOf(s, workspaceId, tabId, ["browser"]);
+        return s.ui("browser.devtools", { workspaceId, tabId }).catch(unavailable);
+      }
+      case "layout.get":
+        return readLayout(s, (params as RpcParams<"layout.get">).workspaceId);
+      case "layout.change":
+        return changeLayout(s, params as RpcParams<"layout.change">, controls.terminal);
+      case "agentView.get":
+        return readAgentView(s);
+      case "agentView.change":
+        return changeAgentView(s, params as RpcParams<"agentView.change">, watches.files?.fs);
+      case "worktree.new": {
+        const { workspaceId, name, prompt, show, start } =
+          request.params as RpcParams<"worktree.new">;
+        const base = workspaceOf(s, workspaceId);
+        if (!base || base.task)
+          throw new RpcFailure(
+            RpcErrorCode.InvalidParams,
+            "choose the worktree's parent workspace",
+          );
+        if (start && "command" in start && start.command && !controls.terminal)
+          throw new RpcFailure(
+            RpcErrorCode.Forbidden,
+            "a worktree command requires terminal control",
+          );
+        const created = await s
+          .ui(
+            "task.create",
+            {
+              parentId: workspaceId,
+              name,
+              prompt,
+              show,
+              ...(start ? { start } : {}),
+              ...(relay && prompt.trim() ? { from: relay } : {}),
+            },
+            5 * 60_000,
+          )
+          .catch(unavailable);
+        if (
+          created.tabId &&
+          "command" in created.start &&
+          created.start.command.trim() &&
+          prompt.trim()
+        )
+          s.startedAgents.mark(
+            { workspaceId: created.workspaceId, tabId: created.tabId },
+            s.clock.now(),
+          );
+        return created;
+      }
+      case "worktree.remove": {
+        const { workspaceId, force, deleteBranch } = request.params as RpcParams<"worktree.remove">;
+        if (!workspaceOf(s, workspaceId)?.task)
+          throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a worktree");
+        if (!(watches.controls?.() ?? controls).terminal) {
+          const { tabs } = await s.ui("tabs.list", { workspaceId }).catch(unavailable);
+          if (
+            s.hasRunningTerminals?.(workspaceId) ||
+            tabs.some((tab) => tab.type === "terminal" && !tab.dead && !tab.unstarted)
+          ) {
+            throw new RpcFailure(
+              RpcErrorCode.Forbidden,
+              "removing a worktree with running terminals requires terminal control",
+            );
+          }
+        }
+        return s
+          .ui("task.remove", { taskId: workspaceId, force, deleteBranch }, 5 * 60_000)
+          .catch(unavailable);
+      }
+      case "chat.entryItem": {
+        const entry = request.params as RpcParams<"chat.entryItem">;
+        const { workspaceId, tabId, i } = entry;
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.entryItem", { workspaceId, tabId, i }).catch(unavailable);
+      }
+      case "chat.instructions.set": {
+        const { workspaceId, tabId, text } = request.params as RpcParams<"chat.instructions.set">;
+        if (!InstructionTextSchema.safeParse(text).success)
+          throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid session instruction text");
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.instructions", { workspaceId, tabId, text }).catch(unavailable);
+      }
+      case "chat.instructions": {
+        const { workspaceId, tabId } = request.params as RpcParams<"chat.instructions">;
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.instructions", { workspaceId, tabId }).catch(unavailable);
+      }
       case "notes.list":
       case "notes.attach": {
         const notes = watches.notes;
@@ -314,16 +543,25 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
-        return configureChat(s, request.params as RpcParams<"chat.configure">, relay !== undefined);
+        return configureChat(
+          s,
+          request.params as RpcParams<"chat.configure">,
+          relay !== undefined,
+          expectedMode,
+        );
       case "chat.profile":
-        // The user's own: the room refuses an agent's, as its params have no `from`.
         return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
       case "chat.fileSuggestions":
         return chatFileSuggestions(s, request.params as RpcParams<"chat.fileSuggestions">);
       case "chat.command":
-        return runChatCommand(s, request.params as RpcParams<"chat.command">, watches.folders);
+        return runChatCommand(
+          s,
+          request.params as RpcParams<"chat.command">,
+          watches.folders,
+          relay,
+        );
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs, relay);
       case "chat.wait":
@@ -361,7 +599,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.unqueue":
         return unqueueChat(s, request.params as RpcParams<"chat.unqueue">);
       case "chat.editHeld":
-        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">, from);
+        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">, from, relay);
       case "chat.withdraw":
         return withdrawChat(s, request.params as RpcParams<"chat.withdraw">);
       case "chat.hurry":
@@ -404,6 +642,19 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       default:
         throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
     }
+  }
+
+  return async (request: RemoteServeRequest) => {
+    const s = services();
+    if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+    const timeout = READ_DEADLINES[request.method];
+    if (timeout === undefined) return dispatch(s, request);
+    const budget = new ReadBudget(s, request.method, request.from, timeout);
+    const reader: CliServices = {
+      ...s,
+      ui: (op, args, ms) => budget.ui(op, args, ms ?? (op === "tabs.list" ? 2_000 : timeout)),
+    };
+    return budget.run(() => dispatch(reader, request));
   };
 }
 

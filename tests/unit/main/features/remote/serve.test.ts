@@ -1737,7 +1737,7 @@ describe("serving a chat's slash commands", () => {
 });
 
 describe("serving a chat's controls", () => {
-  function recording(fail?: string) {
+  function recording(fail?: string, responses: Record<string, unknown> = {}) {
     const asked: [string, unknown][] = [];
     const base = services();
     const s = {
@@ -1746,7 +1746,7 @@ describe("serving a chat's controls", () => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         asked.push([op, args]);
         if (fail) throw new Error(fail);
-        return op === "chat.open" ? { tabId: "t9" } : {};
+        return responses[op] ?? (op === "chat.open" ? { tabId: "t9" } : {});
       },
     } as unknown as CliServices;
     return { serve: serveWith(() => s), asked };
@@ -1789,12 +1789,13 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
-    // An agent's message goes now or next, never held for after the turn.
+    // A delayed message keeps the sender and the host can drop it when control is disabled.
     await expect(
       serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
-    ).rejects.toMatchObject({ code: -32602 });
+    ).resolves.toMatchObject({});
+    expect(asked[0]?.[1]).toMatchObject({ when: "after", device: "d", from });
     await serve({ from: "d", method: "chat.send", params });
-    expect(asked[0]).toEqual([
+    expect(asked[1]).toEqual([
       "chat.send",
       {
         ...tab,
@@ -1809,6 +1810,40 @@ describe("serving a chat's controls", () => {
       params: { ...tab, model: "haiku", from },
     });
     expect(asked.at(-1)?.[1]).not.toHaveProperty("user");
+  });
+
+  test.each([
+    ["allow", "deny", "/remote-control", false, true, false],
+    ["ask", "once", "/RC", false, true, true],
+    ["ask", "deny", "/remote-control", true, false, true],
+    ["deny", "once", "/RC", false, false, false],
+    ["allow", "deny", "/RC", true, true, false],
+  ] as const)("Remote Control under %s with %s", async (policy, answer, text, wasEnabled, applies, prompts) => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        if (op === "consent.ask") return { answer };
+        if (op === "chat.remoteControl") return { enabled: !wasEnabled };
+        return {};
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => policy }) });
+    const result = serve({
+      from: "d",
+      method: "chat.send",
+      params: { ...tab, text, from: { kind: "tab", workspaceId: "bw", tabId: "bt" } },
+    });
+    if (applies) await expect(result).resolves.toEqual({ remoteControl: { enabled: !wasEnabled } });
+    else await expect(result).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(asked.filter(([op]) => op === "consent.ask")).toHaveLength(prompts ? 1 : 0);
+    expect(asked.filter(([op]) => op === "chat.remoteControl")).toEqual(
+      applies ? [["chat.remoteControl", tab]] : [],
+    );
+    expect(asked.some(([op]) => op === "chat.send")).toBe(false);
   });
 
   test("sends the images the device attached with it, once, and nothing empty", async () => {
@@ -2087,9 +2122,20 @@ describe("serving a chat's controls", () => {
     }
   });
 
-  test("lists the profiles a chat may run with", async () => {
-    const { serve, asked } = recording();
-    await serve({ from: "d", method: "profiles.list", params: { agent: "codex" } });
+  test("lists profile names and defaults without configuration paths", async () => {
+    const profiles = [
+      { id: "p", name: "Work", agent: "codex", isDefault: false, workspaceDefault: true },
+    ];
+    const { serve, asked } = recording(undefined, {
+      "chat.profiles": {
+        profiles: [
+          { ...profiles[0], path: "/private/work-profile", email: "private@example.test" },
+        ],
+      },
+    });
+    await expect(
+      serve({ from: "d", method: "profiles.list", params: { agent: "codex" } }),
+    ).resolves.toEqual({ profiles });
     expect(asked).toEqual([["chat.profiles", { agent: "codex" }]]);
   });
 
@@ -2253,5 +2299,98 @@ describe("serving the sessions' changes", () => {
     })) as { events: { seq: number }[]; more: boolean };
     expect(last.events.at(-1)?.seq).toBe(500);
     expect(last.more).toBe(false);
+  });
+});
+
+describe("receiver-side checks on peer writes", () => {
+  const from = { kind: "tab", workspaceId: "caller", tabId: "source" } as const;
+  const worktree = { workspaceId: "w2", from, force: false, deleteBranch: false };
+  const terminal = { workspaceId: "w1", tabId: "t2", from };
+
+  test("an approval after disconnect does not remove a worktree", async () => {
+    let connected = true;
+    const calls: string[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        calls.push(op);
+        if (op === "consent.ask") {
+          connected = false;
+          return { answer: "once" };
+        }
+        return base.ui("tabs.list", args);
+      },
+    } as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "ask" }) });
+    await expect(
+      serve({
+        from: "d",
+        method: "worktree.remove",
+        params: worktree,
+        isCurrent: () => connected,
+      }),
+    ).rejects.toThrow("requesting device left");
+    expect(calls).toEqual(["consent.ask"]);
+  });
+
+  test("worktree removal uses the running terminal state on the host", async () => {
+    const base = services();
+    const calls: string[] = [];
+    const s = {
+      ...base,
+      hasRunningTerminals: (id: string) => id === "w2",
+      ui: async (op: string, args: { workspaceId: string }) => {
+        calls.push(op);
+        return op === "tabs.list" ? base.ui("tabs.list", args) : {};
+      },
+    } as CliServices;
+    let allowTerminal = false;
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      controls: () => ({ chat: true, terminal: allowTerminal }),
+    });
+    const remove = () => serve({ from: "d", method: "worktree.remove", params: worktree });
+    await expect(remove()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(calls).toEqual(["tabs.list"]);
+    allowTerminal = true;
+    await expect(remove()).resolves.toEqual({});
+    expect(calls).toEqual(["tabs.list", "task.remove"]);
+  });
+
+  test.each([
+    "AskUserQuestion",
+    "ExitPlanMode",
+  ])("an agent cannot answer %s in the terminal or type into it", async (tool) => {
+    const base = services();
+    const calls: string[] = [];
+    const s = {
+      ...base,
+      claudeAsks: () => [{ id: "ask", tool, target: "", since: 1 }],
+      answerClaudeAsk: async () => {
+        calls.push("answer");
+        return true;
+      },
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "terminal.input") calls.push(op);
+        return base.ui("tabs.list", args);
+      },
+    } as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "allow" }) });
+    await expect(
+      serve({
+        from: "d",
+        method: "terminal.answer",
+        params: { ...terminal, requestId: "ask", decision: "allow" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    await expect(
+      serve({
+        from: "d",
+        method: "terminal.input",
+        params: { ...terminal, text: "answer", enter: true },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(calls).toEqual([]);
   });
 });

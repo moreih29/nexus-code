@@ -224,6 +224,7 @@ describe("chat set", () => {
       workspaceId: APP,
       tabId: CHAT_TAB,
       settings: { model: "default", effort: "high", mode: "plan" },
+      expectedMode: "default",
     });
   });
 
@@ -772,7 +773,7 @@ describe("chat instructions", () => {
     }
   });
 
-  test("rejects invalid operations, oversized layers, and --device", async () => {
+  test("rejects invalid operations, oversized layers, and unavailable peer instructions", async () => {
     const app = withChat();
     expect(
       (await nexus(app, ["chat", "instructions", "eeee", "--show", "--clear"])).stderr,
@@ -780,7 +781,7 @@ describe("chat instructions", () => {
     expect(
       (await nexus(app, ["chat", "instructions", "eeee", "--show", "--device", "elsewhere"]))
         .stderr,
-    ).toContain("omit --device");
+    ).toContain('no device "elsewhere"');
     expect(
       (await nexus(app, ["chat", "new", "--instructions-file", "missing", "--device", "elsewhere"]))
         .stderr,

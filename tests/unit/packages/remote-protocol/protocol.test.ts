@@ -156,7 +156,13 @@ describe("the methods", () => {
     const read = terminal.filter(
       (m) => RPC_METHODS[m as keyof typeof RPC_METHODS].capability === "terminal.read",
     );
-    expect(read).toEqual(["terminal.read", "terminal.watch", "terminal.unwatch", "terminal.wait"]);
+    expect(read).toEqual([
+      "terminal.read",
+      "terminal.watch",
+      "terminal.unwatch",
+      "terminal.wait",
+      "terminal.shells",
+    ]);
     // Answering its Claude Code's request is an answer to an agent, as a chat's is.
     expect(RPC_METHODS["terminal.answer"].capability).toBe("chat.control");
     for (const m of terminal.filter((m) => !read.includes(m) && m !== "terminal.answer")) {
@@ -613,4 +619,107 @@ describe("the voice socket", () => {
     }
     expect(TranscriptionSchema.safeParse({ id: "tr_1", status: "done" }).success).toBe(false);
   });
+});
+
+test("expanded CLI peers share the v2 envelope and strip private transcript data", () => {
+  const hello = {
+    type: "hello",
+    protocol: 2,
+    schema: "0.15.0",
+    device: { id: "dev-a", name: "Mac", platform: "darwin" },
+    serves: ["sessions", "agents.cli"],
+    app: { name: "nexus-code", version: "0.36.0" },
+    reply: true,
+  };
+  expect(SealedMessageSchema.parse(hello)).toMatchObject(hello);
+  expect(
+    SealedMessageSchema.parse({ ...hello, schema: "0.14.0", serves: ["sessions"] }),
+  ).toMatchObject({
+    protocol: 2,
+    schema: "0.14.0",
+  });
+  const line = {
+    id: "1:2:1",
+    startMs: 1,
+    endMs: 2,
+    speaker: "s1",
+    speakerLabel: "Speaker 1",
+    speakerName: null,
+    text: "hello",
+  };
+  const result = RPC_METHODS["notes.transcript"].result.parse({
+    id: "note",
+    title: "Meeting",
+    recordings: [
+      {
+        id: "rec",
+        startedAt: 10,
+        participants: "auto",
+        lines: [{ ...line, embedding: [0.2], score: 0.9 }],
+      },
+    ],
+  });
+  expect(result.recordings[0]?.lines).toEqual([line]);
+});
+
+test("peer view changes take a declared action and validated arguments", () => {
+  const params = RPC_METHODS["agentView.change"].params;
+  expect(
+    params.parse({
+      workspaceId: "w",
+      change: { op: "place", tab: { key: "peer:d:t" }, show: true },
+      from: { kind: "tab", workspaceId: "source", tabId: "t" },
+    }).change,
+  ).toEqual({ op: "place", tab: { key: "peer:d:t" }, show: true });
+  for (const change of [
+    { op: "settings.set", key: "cliCrossWorkspace", value: "allow" },
+    { op: "place", tab: { key: "peer:d:t" }, show: true, index: -1 },
+    { op: "ratios", ratios: [{ splitId: "s", ratio: 2 }] },
+  ]) {
+    expect(
+      params.safeParse({
+        workspaceId: "w",
+        change,
+        from: { kind: "tab", workspaceId: "source", tabId: "t" },
+      }).success,
+    ).toBe(false);
+  }
+});
+
+test("peer instruction writes exclude profile editing; remembered voice results expose names only", () => {
+  const set = RPC_METHODS["settings.instructions.set"].params;
+  const from = { kind: "tab", workspaceId: "source", tabId: "t" };
+  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt", from }).success).toBe(
+    false,
+  );
+  const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
+    noteId: "note",
+    recordingId: "rec",
+    suggestions: [{ speaker: "s1", name: "Alex", embedding: [0.5], score: 0.98 }],
+  });
+  expect(suggestions.suggestions).toEqual([{ speaker: "s1", name: "Alex" }]);
+});
+
+test.each([
+  ["browser.devtools", { tabId: "t" }],
+  ["settings.instructions.set", { layer: "workspace", text: "prompt" }],
+  ["notes.speakers", { note: "n", change: { op: "regroup", participants: "auto" } }],
+  [
+    "notes.voiceSuggestions.change",
+    { note: "n", action: { op: "reject", speaker: "s", name: "Alex" } },
+  ],
+  ["notes.voiceNames.delete", {}],
+  ["layout.change", { change: { op: "focus", groupId: "g" } }],
+  ["agentView.change", { change: { op: "show", view: "agents" } }],
+  ["worktree.new", { name: "work", prompt: "", show: false }],
+  ["worktree.remove", { force: false, deleteBranch: false }],
+  ["chat.instructions.set", { tabId: "t", text: "prompt" }],
+] as const)("%s requires an agent sender", (method, args) => {
+  const { params } = RPC_METHODS[method];
+  const request = { workspaceId: "w", ...args };
+  expect(params.safeParse(request).success).toBe(false);
+  expect(
+    params.safeParse({ ...request, from: { kind: "tab", workspaceId: "source", tabId: "t" } })
+      .success,
+  ).toBe(true);
 });

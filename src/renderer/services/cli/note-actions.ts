@@ -6,8 +6,10 @@
 
 import type { CliRecorder, CliUiOp } from "../../../shared/cli/ui";
 import { type ToastInput, watchToasts } from "../../components/ui/toast";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealNoteTab } from "../../state/operations/tabs";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
+import { notesApi } from "../notes/api";
 import {
   pauseRecording,
   recorderElapsedMs,
@@ -18,6 +20,8 @@ import {
 } from "../notes/recorder";
 import { voiceAvailabilityNow, voiceLanguage } from "../voice/availability";
 import { type CliUiHandler, UiRequestError } from "./handler";
+
+import { noteSpeakerHandlers } from "./note-speakers";
 
 type NoteOp = Extract<CliUiOp, `note.${string}`>;
 
@@ -39,12 +43,20 @@ function showNote(workspaceId: string, noteId: string, title?: string): void {
 }
 
 export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
+  ...noteSpeakerHandlers,
+  "note.rename": async ({ workspaceId, noteId, title }) => {
+    const result = await notesApi.save(workspaceId, noteId, { title });
+    return { title: result.title };
+  },
+  "note.storage": async () => ({
+    entries: unwrapIpcResult(await ipcCallResult("notes", "storage", undefined)),
+  }),
   "note.show": async ({ workspaceId, noteId, title }) => {
     showNote(workspaceId, noteId, title);
     return {};
   },
 
-  "note.recorder": async ({ action, workspaceId, noteId }) => {
+  "note.recorder": async ({ action, workspaceId, noteId, participants }) => {
     const voice = await voiceAvailabilityNow();
     const phase = useRecorderStore.getState().phase;
     switch (action) {
@@ -79,7 +91,7 @@ export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
         const said: ToastInput[] = [];
         const stopWatching = watchToasts((toast) => said.push(toast));
         try {
-          await startRecording(workspaceId, noteId, voiceLanguage());
+          await startRecording(workspaceId, noteId, voiceLanguage(), participants);
         } finally {
           stopWatching();
         }

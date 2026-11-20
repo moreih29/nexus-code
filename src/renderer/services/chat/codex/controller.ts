@@ -957,7 +957,24 @@ export class CodexController {
    * the program starts again with it, and the tab shows its turns, under
    * the thread's name or first prompt.
    */
-  async resumeThread(threadId: string, title: string, profileId = this.profileId): Promise<void> {
+  async resumeThread(
+    threadId: string,
+    title: string,
+    profileId = this.profileId,
+    emptyOnly = false,
+  ): Promise<void> {
+    const checkTarget = emptyOnly
+      ? () => {
+          if (profileId !== undefined && !sameProfile(profileId, this.target.profileId))
+            throw new Error("use a tab with the conversation's profile, or resume in a new tab");
+          if (
+            this.model.items.some((item) => item.kind === "user" || item.kind === "assistant") ||
+            this.state.queue.length > 0 ||
+            (this.target.threadId && this.target.threadId !== this.emptyThread)
+          )
+            throw new Error("resume --tab requires an empty tab");
+        }
+      : undefined;
     this.requireHistoryIdle();
     await this.changeThread(async () => {
       const switching = !sameProfile(profileId, this.target.profileId);
@@ -992,7 +1009,7 @@ export class CodexController {
       this.hooks.onThread?.(threadId);
       this.hooks.onMoves?.([]);
       this.hooks.onTitle?.(this.model.threadName ?? title);
-    });
+    }, checkTarget);
   }
 
   /**
@@ -1071,7 +1088,7 @@ export class CodexController {
   }
 
   /** Holds sends while the source stops and restores it if the destination fails. */
-  private async changeThread(change: () => Promise<void>): Promise<void> {
+  private async changeThread(change: () => Promise<void>, checkTarget?: () => void): Promise<void> {
     if (
       this.disposed ||
       this.rewinding ||
@@ -1086,11 +1103,13 @@ export class CodexController {
     this.resumingSelection = true;
     try {
       this.flushNow();
+      checkTarget?.();
       if (this.model.process === "running") {
         await stopChatProgram(this.target.workspaceId, this.target.tabId);
       }
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
+      checkTarget?.();
       const source = this.state;
       const sourceModel = this.model;
       const target = this.target;
@@ -1762,12 +1781,13 @@ export class CodexController {
    * Changed from another computer (`device`), it is that computer user's
    * now, no longer the agent's that sent it.
    */
-  editQueued(id: string, text: string, device?: string): boolean {
+  editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
     if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
     this.update((prev) => ({
       ...prev,
       queue: prev.queue.map((q) => {
         if (q.id !== id) return q;
+        if (from) return { ...q, text, from, device };
         if (!device) return { ...q, text };
         const { from: _agent, ...rest } = q;
         return { ...rest, text, device };

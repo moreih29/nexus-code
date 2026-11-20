@@ -53,7 +53,9 @@ async function answer(message: Message): Promise<void> {
       ? { current_permission_mode: SETTINGS_MODE }
       : request.subtype === "set_permission_mode"
         ? { mode: request.mode }
-        : {};
+        : request.subtype === "remote_control" && request.enabled
+          ? { session_url: "https://claude.ai/code/example" }
+          : {};
   receive("out", {
     type: "control_response",
     response: { subtype: "success", request_id: message.request_id, response },
@@ -234,4 +236,18 @@ describe("the permission mode of a Claude tab's program started again", () => {
     expect(modesAsked()).toEqual(["acceptEdits"]);
     expect(c.state.model.permissionMode).toBe("acceptEdits");
   });
+});
+
+test("concurrent Remote Control toggles apply in order", async () => {
+  const c = await started();
+  const first = c.setRemoteControl();
+  const second = c.setRemoteControl();
+  await expect(first).resolves.toEqual({ enabled: true, url: "https://claude.ai/code/example" });
+  await expect(second).resolves.toEqual({ enabled: false });
+  expect(
+    sent
+      .filter((message) => message.request?.subtype === "remote_control")
+      .map((message) => message.request?.enabled),
+  ).toEqual([true, false]);
+  expect(c.state.model.remoteControl?.enabled).toBe(false);
 });

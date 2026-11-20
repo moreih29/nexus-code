@@ -71,7 +71,10 @@ export interface SetupCliFeatureOptions {
    * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
    * asks a terminal's agent which program holds its foreground.
    */
-  agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
+  agentHost: ActivitySource & {
+    call(method: string, args: unknown): Promise<unknown>;
+    hasWorkspaceSessions?(workspaceId: string): boolean;
+  };
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: {
@@ -277,6 +280,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),
+    hasRunningTerminals: options.agentHost.hasWorkspaceSessions?.bind(options.agentHost),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
     claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
@@ -293,6 +297,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
+      alias: async (deviceId, alias) => {
+        const remote = options.remote?.();
+        if (!remote?.alias) throw new CliError("device aliases are unavailable");
+        await remote.alias(deviceId, alias);
+      },
       request: (deviceId, method, params, timeoutMs, signal) => {
         const remote = options.remote?.();
         if (!remote) {

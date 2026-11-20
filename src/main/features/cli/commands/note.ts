@@ -1,11 +1,21 @@
 /** nexus note list|read|path: the workspace's notes, kept by the app. */
 
 import path from "node:path";
-import type { CliRecorder } from "../../../../shared/cli/ui";
+import type { RpcResult } from "../../../../../packages/remote-protocol/src";
+import type {
+  CliRecorder,
+  CliSpeakerChange,
+  CliVoiceSuggestionAction,
+} from "../../../../shared/cli/ui";
 import { imagesOf, markdownToBlocks } from "../../../../shared/notes/from-markdown";
 import { insertionIndex } from "../../../../shared/notes/insert";
 import type { DocNode } from "../../../../shared/notes/markdown";
-import { clockOf, transcriptMarkdown } from "../../../../shared/notes/transcript";
+import {
+  clockOf,
+  type ParticipantCount,
+  transcriptLinesForCli,
+  transcriptMarkdown,
+} from "../../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
@@ -14,6 +24,17 @@ import { ago, oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 
 import { type CliCommand, output } from "../registry";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerSessions,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
 
 /** When a note was last written: how long ago within two days, else its date. */
@@ -53,15 +74,40 @@ async function findNote(
   return ctx.services.notes.read(workspaceId, found.id);
 }
 
+async function notePeer(ctx: CliContext, flags: ParsedArgs["flags"]) {
+  const device = await resolveDevice(ctx, deviceFlag(flags));
+  if (!device) return null;
+  requirePeerCli(ctx, device);
+  return { device, workspace: await peerWorkspace(ctx, device, flags.workspace) };
+}
+
 const list: CliCommand = {
   path: ["note", "list"],
   summary: "List the workspace's notes, newest first",
   details:
     "Notes are kept by the app (not in the workspace's folder), by where the workspace's\n" +
     "folder is. Read one with nexus note read.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const { notes } = await askPeerCli(ctx, peer.device, "notes.list", {
+        workspaceId: peer.workspace.id,
+      });
+      const text = table(
+        ["ID", "TITLE", "UPDATED"],
+        notes.map((note) => [
+          note.id,
+          oneLine(note.title || "(untitled)", 50),
+          when(note.updatedAt, ctx.services.clock.now()),
+        ]),
+      );
+      return output(text || `No notes in ${peer.workspace.name}.`, {
+        device: deviceRef(peer.device),
+        notes,
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const notes = await ctx.services.notes.list(workspace.id);
     if (notes.length === 0) return output(`No notes in ${workspace.name}.`, { notes });
@@ -94,11 +140,25 @@ const read: CliCommand = {
   flags: {
     transcript: { type: "boolean", description: "Only what was said in its recordings" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const [selector] = exactArgs(positionals, "note");
+    const [selector] = exactArgs(positionals, "note") as [string];
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const note = await askPeerCli(ctx, peer.device, "notes.read", {
+        workspaceId: peer.workspace.id,
+        note: selector,
+        transcriptOnly: flags.transcript === true,
+      });
+      const text =
+        flags.transcript === true
+          ? note.transcript || `${named(note)} has no recordings.`
+          : `${note.markdown || "(empty note)\n"}${note.transcript ? `\n---\n\n${note.transcript}` : ""}`;
+      return output(text.trimEnd(), { device: deviceRef(peer.device), ...note });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const note = await findNote(ctx, workspace.id, selector as string);
+    const note = await findNote(ctx, workspace.id, selector);
     if (flags.transcript === true) {
       const said = transcriptMarkdown(
         await ctx.services.notes.transcript(workspace.id, note.id),
@@ -130,6 +190,73 @@ const read: CliCommand = {
   },
 };
 
+const noteTranscript: CliCommand = {
+  path: ["note", "transcript"],
+  summary: "List the lines and speakers of a note's recordings",
+  args: "<note>",
+  details: `${NOTE_ARG_HELP} Times are milliseconds from the start of each recording.`,
+  flags: {
+    recording: { type: "string", value: "ID", description: "Only this recording (id or prefix)" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "note") as [string];
+    const recordingId = typeof flags.recording === "string" ? flags.recording : undefined;
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const note = await askPeerCli(ctx, peer.device, "notes.transcript", {
+        workspaceId: peer.workspace.id,
+        note: selector,
+        recording: recordingId,
+      });
+      return transcriptOutput({ device: deviceRef(peer.device), ...note });
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const note = await findNote(ctx, workspace.id, selector);
+    const { recordings } = await ctx.services.notes.transcript(workspace.id, note.id);
+    const wanted =
+      recordingId !== undefined
+        ? [
+            pick(
+              recordings,
+              recordingId,
+              (r) => r.id,
+              (r) => r.id,
+              "recording",
+            ),
+          ]
+        : recordings;
+    const shown = wanted.map((recording) => ({
+      id: recording.id,
+      startedAt: recording.startedAt,
+      participants: recording.participantCount ?? "auto",
+      lines: transcriptLinesForCli(recording),
+    }));
+    return transcriptOutput({ id: note.id, title: note.title, recordings: shown });
+  },
+};
+
+function transcriptOutput(
+  note: RpcResult<"notes.transcript"> & { device?: ReturnType<typeof deviceRef> },
+) {
+  const text = note.recordings
+    .map((recording) =>
+      [
+        `Recording ${recording.id}`,
+        ...recording.lines.map(
+          (line) =>
+            `  ${line.id} [${clockOf(line.startMs)}] ${line.speakerName ?? line.speakerLabel}: ${line.text}`,
+        ),
+      ].join("\n"),
+    )
+    .join("\n\n");
+  return output(text || `${named(note)} has no recordings.`, note, {
+    records: note.recordings,
+    utf8Json: true,
+  });
+}
+
 const notePath: CliCommand = {
   path: ["note", "path"],
   summary: "Print the folder a note's files are kept in",
@@ -155,6 +282,51 @@ const notePath: CliCommand = {
 function named(note: { readonly id: string; readonly title: string }): string {
   return note.title ? `"${note.title}" (${note.id})` : note.id;
 }
+
+const noteRename: CliCommand = {
+  path: ["note", "rename"],
+  args: "<note> <title...>",
+  summary: "Change a note's title",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals: [selector, ...words], flags }) {
+    const title = words.join(" ").trim();
+    if (!selector || !title) throw new CliUsageError("give a note and a title");
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const note = await findNote(ctx, workspace.id, selector);
+    await mayChange(ctx, workspace, {
+      kind: "noteWrite",
+      detail: note.title || note.id,
+      body: title,
+    });
+    const result = await ctx.services.ui("note.rename", {
+      workspaceId: workspace.id,
+      noteId: note.id,
+      title,
+    });
+    return output(`Renamed ${note.id} to "${result.title}".`, { id: note.id, ...result });
+  },
+};
+
+const noteStorage: CliCommand = {
+  path: ["note", "storage"],
+  summary: "Show the notes and bytes stored at each workspace location",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { entries } = await ctx.services.ui("note.storage", {});
+    return output(
+      table(
+        ["LOCATION", "NOTES", "BYTES"],
+        entries.map((entry) => [
+          entry.location.label,
+          String(entry.notes),
+          String(Object.values(entry.bytes).reduce((total, size) => total + size, 0)),
+        ]),
+      ) || "No notes stored.",
+      { entries },
+      { records: entries },
+    );
+  },
+};
 
 const noteNew: CliCommand = {
   path: ["note", "new"],
@@ -376,6 +548,11 @@ const noteRecord: CliCommand = {
     pause: { type: "boolean", description: "Pause the recording" },
     resume: { type: "boolean", description: "Go on with the paused recording" },
     stop: { type: "boolean", description: "Stop the recording" },
+    participants: {
+      type: "string",
+      value: "N|auto",
+      description: "The expected participant count when starting",
+    },
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
@@ -384,6 +561,16 @@ const noteRecord: CliCommand = {
     const acts = (["pause", "resume", "stop"] as const).filter((a) => flags[a] === true);
     if (acts.length > 1) throw new CliUsageError("--pause, --resume or --stop: one of them");
     const [act] = acts;
+    const count = flags.participants as string | undefined;
+    let participants: ParticipantCount | undefined;
+    if (count !== undefined) {
+      if (!selector || act)
+        throw new CliUsageError("--participants goes with a note when starting");
+      if (count === "auto") participants = count;
+      else if (/^[1-9]\d*$/.test(count) && Number.isSafeInteger(Number(count)))
+        participants = Number(count);
+      else throw new CliUsageError("--participants takes a positive whole number or auto");
+    }
     if (act && selector !== undefined) {
       throw new CliUsageError(`--${act} goes to the recording there is; leave out <note>`);
     }
@@ -404,7 +591,7 @@ const noteRecord: CliCommand = {
           fromWorkspaceId: ctx.caller.workspaceId,
           fromTabId: ctx.caller.tabId,
           toWorkspaceId: workspace.id,
-          change: { kind: "noteRecord", ...change },
+          change: { kind: "noteRecord", ...change, eachTime: true },
         });
       } else {
         await mayChange(ctx, workspace, { kind: "noteRecordStop", ...change });
@@ -419,11 +606,21 @@ const noteRecord: CliCommand = {
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,
       toWorkspaceId: workspace.id,
-      change: { kind: "noteRecord", detail: note.title || note.id },
+      change: {
+        kind: "noteRecord",
+        eachTime: true,
+        detail: note.title || note.id,
+        ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+      },
     });
     const recorder = await ctx.services.ui(
       "note.recorder",
-      { action: "start", workspaceId: workspace.id, noteId: note.id },
+      {
+        action: "start",
+        workspaceId: workspace.id,
+        noteId: note.id,
+        ...(participants !== undefined ? { participants } : {}),
+      },
       RECORD_START_MS,
     );
     return output(await recorderText(ctx, recorder), recorder);
@@ -433,11 +630,268 @@ const noteRecord: CliCommand = {
 /** How long a recording may take to start: the microphone, maybe macOS asking for it, the server. */
 const RECORD_START_MS = 90_000;
 
+const RECORDING_FLAG = {
+  type: "string",
+  value: "ID",
+  description: "Recording id or prefix. Required when the note has multiple recordings",
+} as const;
+
+function speakerCommand(
+  verb: CliSpeakerChange["op"],
+  args: string,
+  summary: string,
+  changeOf: (words: readonly string[], flags: ParsedArgs["flags"]) => CliSpeakerChange,
+): CliCommand {
+  return {
+    path: ["note", "speaker", verb],
+    args: `<note> ${args}`.trim(),
+    summary,
+    details: "Use the recording, speaker keys, and line ids from note transcript --json.",
+    flags: {
+      recording: RECORDING_FLAG,
+      workspace: WORKSPACE_FLAG,
+      device: DEVICE_FLAG,
+      ...(verb === "regroup"
+        ? {
+            participants: {
+              type: "string",
+              value: "N|auto",
+              description: "Target number of voices or automatic grouping",
+            } as const,
+          }
+        : {}),
+    },
+    async run(ctx, { positionals: [selector, ...words], flags }) {
+      if (!selector) throw new CliUsageError("missing <note>");
+      const change = changeOf(words, flags);
+      const peer = await notePeer(ctx, flags);
+      if (peer) {
+        const result = await changePeerCli(ctx, peer.device, "notes.speakers", {
+          workspaceId: peer.workspace.id,
+          note: selector,
+          recording: flags.recording as string | undefined,
+          change,
+        });
+        return output(`Updated the speakers in recording ${result.recordingId}.`, {
+          ...result,
+          device: deviceRef(peer.device),
+        });
+      }
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+      const note = await findNote(ctx, workspace.id, selector);
+      await mayChange(ctx, workspace, {
+        kind: "noteSpeakers",
+        detail: note.title || note.id,
+        body: [verb, ...words].join(" "),
+      });
+      const { recordingId } = await ctx.services.ui(
+        "note.speakers",
+        {
+          workspaceId: workspace.id,
+          noteId: note.id,
+          recording: flags.recording as string | undefined,
+          change,
+        },
+        5 * 60_000,
+      );
+      return output(`Updated the speakers in recording ${recordingId}.`, {
+        noteId: note.id,
+        recordingId,
+      });
+    },
+  };
+}
+
+function voiceSuggestions(op: "list" | "accept" | "reject"): CliCommand {
+  return {
+    path: ["note", "voice", "suggestions", op],
+    args: op === "list" ? "<note>" : "<note> <speaker> <name>",
+    summary:
+      op === "list"
+        ? "List remembered-name suggestions for a recording"
+        : `${op === "accept" ? "Accept" : "Reject"} a remembered-name suggestion`,
+    flags: { recording: RECORDING_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+    async run(ctx, { positionals, flags }) {
+      const [selector, speaker, name] = exactArgs(
+        positionals,
+        ...(op === "list" ? ["note"] : ["note", "speaker", "name"]),
+      );
+      const action =
+        op === "list"
+          ? ({ op } as const)
+          : { op, speaker: speaker as string, name: name as string };
+      const recording = flags.recording as string | undefined;
+      const peer = await notePeer(ctx, flags);
+      const result = peer
+        ? await peerSuggestions(ctx, peer, selector as string, recording, action)
+        : await localSuggestions(ctx, flags, selector as string, recording, action);
+      const text =
+        op !== "list"
+          ? `${op === "accept" ? "Accepted" : "Rejected"} ${name}.`
+          : table(
+              ["SPEAKER", "NAME"],
+              result.suggestions.map((suggestion) => [suggestion.speaker, suggestion.name]),
+            );
+      return output(text || "No suggestions.", result, { records: result.suggestions });
+    },
+  };
+}
+
+async function peerSuggestions(
+  ctx: CliContext,
+  peer: NonNullable<Awaited<ReturnType<typeof notePeer>>>,
+  note: string,
+  recording: string | undefined,
+  action: CliVoiceSuggestionAction,
+) {
+  const target = { workspaceId: peer.workspace.id, note, recording };
+  const result =
+    action.op === "list"
+      ? await askPeerCli(ctx, peer.device, "notes.voiceSuggestions.list", target)
+      : await changePeerCli(ctx, peer.device, "notes.voiceSuggestions.change", {
+          ...target,
+          action,
+        });
+  return { ...result, device: deviceRef(peer.device) };
+}
+
+async function localSuggestions(
+  ctx: CliContext,
+  flags: ParsedArgs["flags"],
+  selector: string,
+  recording: string | undefined,
+  action: CliVoiceSuggestionAction,
+) {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const note = await findNote(ctx, workspace.id, selector);
+  if (action.op !== "list")
+    await mayChange(ctx, workspace, {
+      kind: "noteSpeakers",
+      detail: note.title || note.id,
+      body: `${action.op} ${action.name}`,
+    });
+  const result = await ctx.services.ui(
+    "note.voiceSuggestions",
+    {
+      workspaceId: workspace.id,
+      noteId: note.id,
+      recording,
+      action,
+    },
+    5 * 60_000,
+  );
+  return { noteId: note.id, ...result };
+}
+
+const voiceNamesList: CliCommand = {
+  path: ["note", "voice", "list"],
+  summary: "List remembered speaker names",
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const result = device
+      ? await askPeerCli(ctx, device, "notes.voiceNames.list", {})
+      : await ctx.services.ui("note.voiceNames", { action: { op: "list" } });
+    const { names } = result;
+    return output(names.join("\n") || "No remembered names.", { names });
+  },
+};
+
+const voiceNamesDelete: CliCommand = {
+  path: ["note", "voice", "delete"],
+  args: "[name]",
+  summary: "Forget one remembered voice or all remembered voices with user approval",
+  flags: {
+    all: { type: "boolean", description: "Forget all remembered voices" },
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [name] = flags.all === true ? exactArgs(positionals) : exactArgs(positionals, "name");
+    if (name !== undefined && (!name.trim() || name.trim().length > 80))
+      throw new CliUsageError("give a remembered name");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
+      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      await changePeerCli(ctx, device, "notes.voiceNames.delete", {
+        workspaceId: workspace.id,
+        name,
+      });
+      return output(
+        name === undefined
+          ? "Deleted all remembered voices."
+          : `Deleted the remembered voice for ${name}.`,
+        { name: name ?? null, device: deviceRef(device) },
+      );
+    }
+    await ctx.services.askUser({
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: ctx.caller.workspaceId,
+      change: { kind: "voiceNamesDelete", detail: name ?? "all remembered names", eachTime: true },
+    });
+    const result = await ctx.services.ui("note.voiceNames", {
+      action: { op: "delete", ...(name !== undefined ? { name } : {}) },
+    });
+    return output(
+      name === undefined
+        ? "Deleted all remembered voices."
+        : `Deleted the remembered voice for ${name}.`,
+      result,
+    );
+  },
+};
+
 export const noteCommands: CliCommand[] = [
   list,
   read,
+  noteTranscript,
+  speakerCommand("rename", "<speaker> <name>", "Name a recording's speaker", (words) => {
+    const [speaker, name] = exactArgs(words, "speaker", "name") as [string, string];
+    if (name.trim().length > 80) throw new CliUsageError("speaker names take up to 80 characters");
+    return { op: "rename", speaker, name };
+  }),
+  speakerCommand("merge", "<from> <into>", "Merge two voices in a recording", (words) => {
+    const [from, into] = exactArgs(words, "from", "into") as [string, string];
+    return { op: "merge", from, into };
+  }),
+  speakerCommand(
+    "move",
+    "<first-line> <last-line> <speaker|new>",
+    "Move a range of transcript lines to another voice",
+    (words) => {
+      const [first, last, into] = exactArgs(words, "first-line", "last-line", "speaker") as [
+        string,
+        string,
+        string,
+      ];
+      return { op: "move", first, last, into };
+    },
+  ),
+  speakerCommand(
+    "regroup",
+    "--participants N|auto",
+    "Regroup recording voices using a speaker count or automatic grouping",
+    (words, flags) => {
+      exactArgs(words);
+      if (flags.participants === "auto") return { op: "regroup", participants: "auto" };
+      const participants = Number(flags.participants);
+      if (!Number.isInteger(participants) || participants < 1 || participants > 50)
+        throw new CliUsageError("--participants takes auto or a whole number from 1 to 50");
+      return { op: "regroup", participants };
+    },
+  ),
+  voiceSuggestions("list"),
+  voiceSuggestions("accept"),
+  voiceSuggestions("reject"),
+  voiceNamesList,
+  voiceNamesDelete,
   notePath,
   noteNew,
+  noteRename,
+  noteStorage,
   noteShow,
   noteWrite,
   noteAdd,

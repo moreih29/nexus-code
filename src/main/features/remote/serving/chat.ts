@@ -10,6 +10,7 @@ import type { CliChatChoices } from "../../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../../i18n";
+import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import type { CliServices } from "../../cli/context";
 import type { FsProvider } from "../../fs/bridge/provider";
 import type { Attachments } from "../attachments";
@@ -44,15 +45,19 @@ export async function sendChat(
   if (ids.length > 0 && !attached) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "no attachments are kept here");
   }
-  // An agent's message goes, or is turned down, while its request is weighed:
-  // held for later, it would go after the user may have turned agents off.
-  if (relay && when === "after") {
-    throw new RpcFailure(
-      RpcErrorCode.InvalidParams,
-      "an agent's message is not held for after the turn; send it as next or now",
-    );
-  }
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  // The agent's chat.send was authorized by the receiving device's AgentGate.
+  if (relay && tab.type === "claude" && ids.length === 0 && remoteControlCommand(text)) {
+    if (when === "after")
+      throw new RpcFailure(
+        RpcErrorCode.InvalidParams,
+        "Remote Control is a setting change; omit --after",
+      );
+    const target = { workspaceId, tabId };
+    return {
+      remoteControl: await applyRemoteControl(services, target).catch(chatExecutionFailure),
+    };
+  }
   const held =
     attached && ids.length > 0
       ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
@@ -119,11 +124,18 @@ export async function editHeldChat(
   services: CliServices,
   { workspaceId, tabId, id, text }: RpcParams<"chat.editHeld">,
   device?: string,
+  from?: RelaySender,
 ): Promise<RpcResult<"chat.editHeld">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  // Changed by the user there, it is theirs now: an agent's no longer.
   await services
-    .ui("chat.editHeld", { workspaceId, tabId, id, text, ...(device ? { device } : {}) })
+    .ui("chat.editHeld", {
+      workspaceId,
+      tabId,
+      id,
+      text,
+      ...(device ? { device } : {}),
+      ...(from ? { from } : {}),
+    })
     .catch(chatFailure);
   return {};
 }
@@ -217,6 +229,7 @@ export async function answerChat(
     stop,
     always,
     planMode,
+    from,
   }: RpcParams<"chat.answer">,
 ): Promise<RpcResult<"chat.answer">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -226,13 +239,21 @@ export async function answerChat(
       tabId,
       decision,
       expect: requestId,
+      ...(from ? { byAgent: true } : {}),
       ...(message !== undefined ? { message } : {}),
       ...(updatedInput ? { updatedInput } : {}),
       ...(stop ? { stop } : {}),
       ...(decision === "allow" && always?.length ? { always } : {}),
       ...(decision === "allow" && planMode ? { planMode } : {}),
     })
-    .catch(unavailable);
+    .catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        error.message === "that request is for the user to answer in the app"
+      )
+        throw new RpcFailure(RpcErrorCode.Forbidden, error.message);
+      return unavailable(error);
+    });
   return {};
 }
 
@@ -277,6 +298,7 @@ export async function configureChat(
   services: CliServices,
   { workspaceId, tabId, model, effort, permissionMode }: RpcParams<"chat.configure">,
   byAgent = false,
+  expectedMode?: string,
 ): Promise<RpcResult<"chat.configure">> {
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const settings = {
@@ -302,7 +324,7 @@ export async function configureChat(
     .ui(
       "chat.settings",
       // An agent never takes the mode that lets everything run.
-      { workspaceId, tabId, settings, ...(byAgent ? {} : { user: true }) },
+      { workspaceId, tabId, settings, ...(byAgent ? { expectedMode } : { user: true }) },
       SETTINGS_TIMEOUT_MS,
     )
     .catch(unavailable);
@@ -339,18 +361,34 @@ export async function chatFileSuggestions(
  */
 export async function runChatCommand(
   services: CliServices,
-  { workspaceId, tabId, name, args: given }: RpcParams<"chat.command">,
+  { workspaceId, tabId, name, args: given, from }: RpcParams<"chat.command">,
   system: FolderSystem = SYSTEM_FOLDERS,
+  relay?: RelaySender,
 ): Promise<RpcResult<"chat.command">> {
-  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const bare = name.replace(/^\//, "");
   const lower = bare.toLowerCase();
+  if (from && tab.type === "claude" && remoteControlCommand(`/${bare}`)) {
+    const target = { workspaceId, tabId };
+    return {
+      remoteControl: await applyRemoteControl(services, target).catch(chatExecutionFailure),
+    };
+  }
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
     .catch(unavailable);
   const command =
     commands.find((c) => c.name.toLowerCase() === lower) ??
     commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
+  if (relay && command?.runs === "send") {
+    await sendChat(
+      services,
+      { workspaceId, tabId, text: `/${command.name}${given ? ` ${given}` : ""}` },
+      undefined,
+      relay,
+    );
+    return {};
+  }
   if (command?.runs !== "command") {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -373,7 +411,7 @@ export async function runChatCommand(
       { workspaceId, tabId, name: command.name, ...(args ? { args } : {}) },
       SETTINGS_TIMEOUT_MS,
     )
-    .catch(unavailable);
+    .catch(chatExecutionFailure);
 }
 
 /** The folder /add-dir names, as the composer reads it: from the chat's folder, or the home's. */
@@ -506,20 +544,36 @@ export async function newChat(
 /** The agent profiles a new chat may run with. */
 export async function listProfiles(
   services: CliServices,
-  { agent }: RpcParams<"profiles.list">,
+  { agent, workspaceId }: RpcParams<"profiles.list">,
 ): Promise<RpcResult<"profiles.list">> {
-  return services.ui("chat.profiles", agent ? { agent } : {}).catch(unavailable);
+  if (workspaceId !== undefined && !workspaceOf(services, workspaceId)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  }
+  const { profiles } = await services
+    .ui("chat.profiles", { ...(agent ? { agent } : {}), ...(workspaceId ? { workspaceId } : {}) })
+    .catch(unavailable);
+  return {
+    profiles: profiles.map(({ id, name, agent, isDefault, workspaceDefault }) => ({
+      id,
+      name,
+      agent,
+      isDefault,
+      workspaceDefault,
+    })),
+  };
 }
 
 /** Renames the chat, as its tab's rename does. */
 export async function renameChat(
   services: CliServices,
-  { workspaceId, tabId, title }: RpcParams<"chat.rename">,
+  { workspaceId, tabId, title, from }: RpcParams<"chat.rename">,
 ): Promise<RpcResult<"chat.rename">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  if (!title.trim())
+  if (!from && !title.trim())
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a title needs more than spaces");
-  return services.ui("chat.rename", { workspaceId, tabId, title }).catch(unavailable);
+  return services
+    .ui(from ? "tab.rename" : "chat.rename", { workspaceId, tabId, title })
+    .catch(unavailable);
 }
 
 /** Stops one of the chat's runs, as its pane's stop button does. */
@@ -546,6 +600,14 @@ export async function stopChatTask(
 }
 
 /** A tab's failure as another device is told it: an item or a call it does not have is not found. */
+function chatExecutionFailure(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "NexusCode's window did not answer" || message.endsWith(" got no answer")) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, `${message} in time`, { outcome: "unknown" });
+  }
+  return chatFailure(error);
+}
+
 export function chatFailure(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
   if (/^no (item|tool call|message|held message) /.test(message)) {
@@ -592,8 +654,7 @@ export async function setChatRemoteControl(
   { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
 ): Promise<RpcResult<"chat.remoteControl">> {
   await tabOf(services, workspaceId, tabId, ["claude"]);
-  await services.ui("chat.remoteControl", { workspaceId, tabId, enabled }).catch(chatFailure);
-  return {};
+  return applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatExecutionFailure);
 }
 
 /**
@@ -620,14 +681,20 @@ export async function workChatMcp(
 /** Goes on with a conversation of the past in a new chat, behind what this computer shows. */
 export async function resumeChat(
   services: CliServices,
-  { workspaceId, agent, sessionId, tabId }: RpcParams<"chat.resume">,
+  { workspaceId, agent, sessionId, tabId, from }: RpcParams<"chat.resume">,
 ): Promise<RpcResult<"chat.resume">> {
   if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
   if (tabId) await tabOf(services, workspaceId, tabId, [agent]);
   return services
-    .ui("chat.resume", { workspaceId, agent, sessionId, ...(tabId ? { tabId } : {}) })
+    .ui("chat.resume", {
+      workspaceId,
+      agent,
+      sessionId,
+      ...(tabId ? { tabId } : {}),
+      ...(from ? { emptyOnly: true } : {}),
+    })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);

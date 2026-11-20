@@ -1251,6 +1251,47 @@ test("peer cache transfer through sealed room requests on open, reopen and same-
   }
 });
 
+test("CLI-only writes with a missing or denied sender never reach a mutation", async () => {
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const mutations: string[] = [];
+  const app = fakeApp(0);
+  const workspaceId = app.services.listWorkspaces()[0]?.id ?? "";
+  const host = device(relay, "host", key, {
+    serves: ["agents", "agents.cli", "chat.control"],
+    serve: serveWith(
+      () => ({
+        ...app.services,
+        ui: async (op) => {
+          mutations.push(op);
+          throw new Error("unexpected call");
+        },
+      }),
+      { agents: new AgentGate({ policy: () => "deny" }) },
+    ),
+  }).room;
+  const peer = device(relay, "peer", key).room;
+  host.start();
+  peer.start();
+  try {
+    await flushRelay();
+    const params = { workspaceId, force: true, deleteBranch: false };
+    await expect(peer.request("host", "worktree.remove", params as never)).rejects.toMatchObject({
+      code: RpcErrorCode.InvalidParams,
+    });
+    await expect(
+      peer.request("host", "worktree.remove", {
+        ...params,
+        from: { kind: "tab", workspaceId: "other", tabId: "caller" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(mutations).toEqual([]);
+  } finally {
+    host.stop();
+    peer.stop();
+  }
+});
+
 test("serves file transfers by scope and cleans pending uploads when the sending peer disconnects", async () => {
   const tmp = await realpath(await mkdtemp(path.join(tmpdir(), "nexus-transfer-room-")));
   const root = path.join(tmp, "workspace");
@@ -1266,6 +1307,10 @@ test("serves file transfers by scope and cleans pending uploads when the sending
   Object.assign(workspace, { rootPath: root, location });
   const fs = {
     kind: "local",
+    readdirNoLinks: async ({ absolutePath }: { absolutePath: string }) => {
+      expect(absolutePath).toBe(tmp);
+      return [];
+    },
     readPreview: async ({ absolutePath }: { absolutePath: string }) => {
       expect(absolutePath).toBe(outside);
       const bytes = await readFile(absolutePath);

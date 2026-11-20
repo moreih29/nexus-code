@@ -85,6 +85,7 @@ const SEVERITIES: Record<number, CliProblem["severity"]> = {
 
 export type LayoutOp =
   | "layout.get"
+  | "layout.focus"
   | "layout.split"
   | "layout.ratios"
   | "tab.move"
@@ -100,6 +101,13 @@ export const layoutHandlers: { [K in LayoutOp & CliUiOp]: CliUiHandler<K> } = {
   "layout.get": async ({ workspaceId }) => {
     const layout = layoutOf(workspaceId);
     return { root: toCli(layout.root), activeGroupId: layout.activeGroupId };
+  },
+
+  "layout.focus": async ({ workspaceId, groupId }) => {
+    if (!findLeaf(layoutOf(workspaceId).root, groupId))
+      throw new UiRequestError("that group is gone");
+    useLayoutStore.getState().setActiveGroup(workspaceId, groupId);
+    return {};
   },
 
   "layout.split": async ({ workspaceId, tabId, groupId, side }) => {

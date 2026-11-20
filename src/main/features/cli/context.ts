@@ -63,6 +63,7 @@ export interface CliRemote {
   inRoom(): boolean;
   /** The account's devices, as the server and the room know them; the room's alone without the server. */
   devices(): Promise<CliDevice[]>;
+  alias?(deviceId: string, alias: string | null): Promise<void>;
   /** Asks another device; a RpcFailure for its refusal or its silence. */
   request<M extends RpcMethod>(
     deviceId: string,
@@ -141,6 +142,7 @@ export interface CliServices {
     workspaceId: string,
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
+  hasRunningTerminals?(workspaceId: string): boolean;
   activity(workspaceId: string, tabId: string): TabActivity | null;
   /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
   claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];

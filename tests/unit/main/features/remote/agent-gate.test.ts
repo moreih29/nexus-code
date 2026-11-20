@@ -23,21 +23,29 @@ function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
   let now = 0;
   const asked: Record<string, unknown>[] = [];
   const services = {
+    listWorkspaces: () => [{ id: "w1", name: "Work" }],
+    notes: {
+      list: async () => [{ id: "nqaspeaker02", title: "Design review" }],
+      read: async () => ({ id: "nqaspeaker02", title: "Design review" }),
+    },
     ui: async (op: string, args: Record<string, unknown>) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Review" }] };
       if (op === "consent.ask") {
         asked.push(args);
         return { answer: answers.shift() ?? "deny" };
       }
+      if (op === "chat.settings") return { agent: "claude", mode: "plan" };
+      if (op === "chat.profile") return { from: "Personal", to: "Work" };
       if (op === "chat.state")
         return {
           agent: "claude",
           state: "asking",
           waiting: { kind: "permission", text: "Bash rm -rf dist" },
+          request: { id: "r1", tool: "Bash", input: "npm test" },
         };
       throw new Error(op);
     },
-    claudeAsks: () => [],
+    claudeAsks: () => [{ id: "a1", tool: "Bash", target: "npm test" }],
   } as unknown as CliServices;
   const g = new AgentGate({ policy: () => policy, now: () => now });
   return { g, services, asked, later: (ms: number) => (now += ms) };
@@ -55,7 +63,7 @@ describe("an agent's request from another computer", () => {
     });
   });
 
-  test("an answer to a permission request goes only as it was asked, and once, whatever the setting", async () => {
+  test("allow takes permission answers without prompting and refuses broader grants", async () => {
     const { g, services, asked } = gate("allow");
     const answer = (method: "chat.answer" | "terminal.answer", params: Record<string, unknown>) =>
       g.check(services, {
@@ -196,18 +204,47 @@ describe("an agent's request from another computer", () => {
     expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
 
-  test("until restart holds for an answer to a permission request too", async () => {
+  test("a workspace approval given for a chat message covers later permission answers", async () => {
     const { g, services, asked } = gate("ask", ["session"]);
     await g.check(services, send());
-    const answer = {
+    await g.check(services, {
+      device,
+      method: "chat.answer",
+      params: { workspaceId: "w1", tabId: "t1", requestId: "r1", decision: "allow", from },
+    });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
+  });
+
+  test("permission answers follow the same remote policy as other workspace changes", async () => {
+    const chatAnswer = {
       device,
       method: "chat.answer" as const,
-      params: { workspaceId: "w1", tabId: "t1", requestId: "r", decision: "allow", from },
+      params: { workspaceId: "w1", tabId: "t1", requestId: "r1", decision: "allow", from },
     };
-    await g.check(services, answer);
-    expect(asked).toHaveLength(1);
-    // What it sends is shown whole when asked.
-    expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
+    const terminalAnswer = {
+      ...chatAnswer,
+      method: "terminal.answer" as const,
+      params: { ...chatAnswer.params, requestId: "a1", decision: "deny" },
+    };
+
+    const ask = gate("ask", ["session"]);
+    await ask.g.check(ask.services, chatAnswer);
+    await ask.g.check(ask.services, terminalAnswer);
+    expect(ask.asked).toHaveLength(1);
+    expect(ask.asked[0]?.change).toEqual({
+      kind: "permissionAllow",
+      detail: "Bash rm -rf dist",
+    });
+
+    const deny = gate("deny");
+    for (const answer of [chatAnswer, terminalAnswer]) {
+      await expect(deny.g.check(deny.services, answer)).rejects.toMatchObject({
+        code: 1002,
+        message: expect.stringContaining("control by agents is off"),
+      });
+    }
+    expect(deny.asked).toEqual([]);
   });
 
   test("a new tab's prompt and a new terminal's command are shown when asked", async () => {
@@ -334,4 +371,74 @@ test("a session approval for a file control is the existing device and workspace
     change: { kind: "fileWrite", detail: "/workspace/first", body: "30 B" },
   });
   expect(asked).toHaveLength(2);
+});
+
+test.each([
+  "allow",
+  "ask",
+] as const)("peer rewind offers a reusable workspace approval under %s", async (policy) => {
+  const { g, services, asked } = gate(policy, ["session"]);
+  const request = {
+    ...send(),
+    method: "chat.rewind" as const,
+    params: { ...send().params, itemKey: "user-1", files: false },
+  };
+  await g.check(services, request);
+  await g.check(services, request);
+  expect(asked.map((prompt) => prompt.change)).toEqual([{ kind: "chatRewind", detail: "Review" }]);
+});
+
+test("persistent global layers and voice deletion require fresh peer approval", async () => {
+  const { g, services, asked } = gate("ask", ["session", "once", "deny", "once"]);
+  const request = {
+    ...send(),
+    method: "settings.instructions.set" as const,
+    params: { ...send().params, layer: "all", text: "Review test results." },
+  };
+  await g.check(services, { ...request, params: { ...request.params, layer: "workspace" } });
+  await g.check(services, request);
+  await expect(g.check(services, request)).rejects.toMatchObject({ code: 1002 });
+  await g.check(services, {
+    ...send(),
+    method: "notes.voiceNames.delete",
+    params: { ...send().params, name: "Alex" },
+  });
+  expect(asked.map((prompt) => prompt.change)).toEqual([
+    expect.objectContaining({ kind: "instructionsEdit" }),
+    expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
+    expect.objectContaining({ kind: "instructionsEdit", eachTime: true }),
+    expect.objectContaining({ kind: "voiceNamesDelete", eachTime: true }),
+  ]);
+});
+
+test("a profile approval covers mode increases for the same pair", async () => {
+  const { g, services, asked } = gate("allow", ["session"]);
+  await g.check(services, {
+    ...send(),
+    method: "chat.profile",
+    params: { ...send().params, profile: "Work" },
+  });
+  const expectedMode = await g.check(services, {
+    ...send(),
+    method: "chat.configure",
+    params: { ...send().params, permissionMode: "acceptEdits" },
+  });
+  expect(expectedMode).toBe("plan");
+  expect(asked.map((prompt) => prompt.change)).toEqual([
+    { kind: "chatProfile", detail: '"Review" (Personal → Work)' },
+  ]);
+});
+
+test("the note speaker prompt uses the title instead of the note id", async () => {
+  const { g, services, asked } = gate("ask", ["once"]);
+  await g.check(services, {
+    ...send(),
+    method: "notes.speakers",
+    params: {
+      ...send().params,
+      note: "nqaspeaker02",
+      change: { op: "regroup", participants: "auto" },
+    },
+  });
+  expect(asked[0]?.change).toMatchObject({ kind: "noteSpeakers", detail: "Design review" });
 });

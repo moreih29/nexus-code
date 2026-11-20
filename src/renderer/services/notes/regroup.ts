@@ -32,17 +32,24 @@ export async function regroupRecording(
   workspaceId: string,
   noteId: string,
   recordingId: string,
-  target: number,
+  target: number | "auto",
+  reportFailure = false,
 ): Promise<void> {
   const key = regroupKey(workspaceId, noteId, recordingId);
-  if (useRegroupStore.getState().progress[key] !== undefined) return;
+  function unavailable(message: string) {
+    if (reportFailure) throw new Error(message);
+  }
+  if (useRegroupStore.getState().progress[key] !== undefined)
+    return unavailable("a regroup is already running");
   const current = () =>
     useTranscriptsStore
       .getState()
       .byNote[transcriptKey(workspaceId, noteId)]?.recordings.find((r) => r.id === recordingId);
   const before = current();
-  if (!before || before.audioRemoved || !before.takes.length || !before.lines.length) return;
-  if (useSecondPassStore.getState().running[recordingId]) return;
+  if (!before || before.audioRemoved || !before.takes.length || !before.lines.length)
+    return unavailable("the recording needs audio and transcript lines");
+  if (useSecondPassStore.getState().running[recordingId])
+    return unavailable("the recording is still being transcribed");
 
   const setProgress = (percent: number) => {
     useRegroupStore.setState((s) =>
@@ -70,7 +77,7 @@ export async function regroupRecording(
         key: l.speaker,
         ...(l.pinned ? { pinned: true } : {}),
       })),
-      target,
+      target: target === "auto" ? undefined : target,
     });
     const after = numberSpeakers({
       ...before,
@@ -84,7 +91,7 @@ export async function regroupRecording(
     updateRecording(workspaceId, noteId, recordingId, () => after);
     clearVoiceSuggestions({ workspaceId, noteId, recordingId });
     void refreshVoiceSuggestions({ workspaceId, noteId, recordingId }, samples);
-    void flushTranscript(workspaceId, noteId, true);
+    await flushTranscript(workspaceId, noteId, true, reportFailure);
     const toast = showToast({
       kind: "info",
       message: t("success", { count: peopleIn(after) }),
@@ -110,7 +117,8 @@ export async function regroupRecording(
       if (current() !== after) clearUndo();
     });
     const expiry = setTimeout(clearUndo, UNDO_MS);
-  } catch {
+  } catch (error) {
+    if (reportFailure) throw error;
     showToast({ kind: "error", message: t(current() === before ? "failed" : "changed") });
   } finally {
     useRegroupStore.setState((s) => {

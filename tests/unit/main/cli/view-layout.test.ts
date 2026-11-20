@@ -92,6 +92,7 @@ test("view layout --json adds held tab details alongside existing session fields
           { key: `${APP}:missing-tab` },
         ],
         shownTabId: root.shownTabId.split(":")[1],
+        shownTabKey: root.shownTabId,
       },
     ],
   });
@@ -109,5 +110,47 @@ test("status reads mixed panels and view focus still selects panels by local ses
   expect(remote.exitCode).not.toBe(0);
   expect(app.uiCalls.filter((call) => call.op === "agentView.focus")).toEqual([
     { op: "agentView.focus", args: { panelId: "p1" } },
+  ]);
+});
+
+test("view controls address held files and peer sessions by full key", async () => {
+  const app = mixedView();
+  const file = held[0].key;
+  const remote = held[3].key;
+  for (const argv of [
+    ["open", "--key", file],
+    ["split", "right", "--key", remote],
+    ["move", "1", "--at", "2", "--key", file],
+    ["remove", "--key", remote],
+  ]) {
+    expect((await runCli(CLI_COMMANDS, contextFor(app, ["view", ...argv]))).exitCode).toBe(0);
+  }
+  expect(
+    app.uiCalls.filter(({ op }) => op === "agentView.place" || op === "agentView.remove"),
+  ).toEqual([
+    { op: "agentView.place", args: { key: file, show: true } },
+    { op: "agentView.place", args: { key: remote, panelId: "p1", side: "right", show: false } },
+    { op: "agentView.place", args: { key: file, panelId: "p1", index: 1, show: false } },
+    { op: "agentView.remove", args: { key: remote } },
+  ]);
+  const invalid = await runCli(CLI_COMMANDS, contextFor(app, ["view", "open", "--key", "unknown"]));
+  expect(invalid.stderr).toContain("view layout --json");
+});
+
+test("view open-file uses the same workspace file boundary as open", async () => {
+  const app = mixedView();
+  const key = held[0].key;
+  app.uiAnswers.set("agentView.openFile", { key, tabId: EDITOR_TAB, panelId: "p1" });
+  const run = (...argv: string[]) =>
+    runCli(CLI_COMMANDS, contextFor(app, ["view", "open-file", ...argv]));
+  const opened = await run("index.ts", "--panel", "1", "--json");
+  expect(opened.exitCode).toBe(0);
+  expect(JSON.parse(opened.stdout)).toMatchObject({ key, path: "index.ts", panelId: "p1" });
+  expect((await run("../outside.txt")).stderr).toContain("is not a file inside");
+  expect(app.uiCalls.filter(({ op }) => op === "agentView.openFile")).toEqual([
+    {
+      op: "agentView.openFile",
+      args: { workspaceId: APP, filePath: "/w/app/index.ts", panelId: "p1" },
+    },
   ]);
 });

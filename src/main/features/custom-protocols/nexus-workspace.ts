@@ -17,6 +17,7 @@ import { PEER_HOST, type PeerWorkspace, peerFileOf } from "../../../shared/fs/pe
 import type { FileReadBinaryResult } from "../../../shared/fs/types";
 import { createLogger } from "../../../shared/log/main";
 import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
+import { isGuardedPeerViewFile } from "../fs/read-guard";
 import type { WorkspaceManager } from "../workspace/manager";
 
 const logger = createLogger("nexus-workspace");
@@ -253,7 +254,7 @@ export function buildNexusWorkspaceHandler(
     // SSH workspaces are served through the agent's fs.readRange method.
     // Local workspaces are read straight off disk below, without a base64
     // round-trip.
-    if (meta.location.kind !== "local") {
+    if (meta.location.kind !== "local" || isGuardedPeerViewFile(workspaceId, relPath)) {
       return serveViaAgent(workspaceManager, workspaceId, relPath, req.headers.get("range"));
     }
 
@@ -473,10 +474,15 @@ async function serveViaAgent(
     logger.warn(`SSH workspace fs unavailable: ${workspaceId} — ${(err as Error).message}`);
     return new Response(null, { status: 503 });
   }
-  const read: PieceReader = (offset, length) =>
-    outside
-      ? fsProvider.readAbsoluteRange(posixRelPath, offset, length)
-      : fsProvider.readRange(posixRelPath, offset, length);
+  const guarded = !outside && isGuardedPeerViewFile(workspaceId, posixRelPath);
+  const read: PieceReader = (offset, length) => {
+    if (outside) return fsProvider.readAbsoluteRange(posixRelPath, offset, length);
+    if (guarded) {
+      if (!fsProvider.readRangeNoLinks) throw new Error("secure file reads are unavailable");
+      return fsProvider.readRangeNoLinks(posixRelPath, offset, length);
+    }
+    return fsProvider.readRange(posixRelPath, offset, length);
+  };
 
   try {
     return await servePieces(read, posixRelPath, rangeHeader, READ_RANGE_MAX_BYTES);

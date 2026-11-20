@@ -3,7 +3,13 @@
  * drives them. A tab's conversation is the renderer's; these ask it, read it
  * whole or a piece at a time, and wait on one or several tabs.
  */
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  ImageMediaTypeSchema,
+  MAX_ATTACHMENT_BYTES,
+  type RpcParams,
+} from "../../../../../packages/remote-protocol/src";
 import { INSTRUCTION_LIMIT, InstructionTextSchema } from "../../../../shared/chat/instructions";
 import type {
   CliChatEntry,
@@ -15,6 +21,13 @@ import { createLogger } from "../../../../shared/log/main";
 import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import {
+  applyRemoteControl,
+  remoteControlCommand,
+  remoteControlOutput,
+} from "../../chat/remote-control";
+import { looksLike } from "../../remote/attachments";
+import { MAX_MESSAGE_BYTES } from "../../remote/room";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import type { ChangeRequest } from "../consent";
 import {
@@ -28,15 +41,25 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
-import { absolutePath, callerPath } from "../paths";
+import { absolutePath, callerPath, onAppMachine } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
-import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
   answerPeer,
   interruptPeer,
   newPeerChat,
+  peerChatTool,
+  peerCliChat,
   readPeerChat,
   sendToPeer,
   setPeerChat,
@@ -349,7 +372,7 @@ async function mayLoosen(
   });
 }
 
-async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
+export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
   const where = callerPath(ctx, file);
   const data = await ctx.services.readFile(ctx.caller.workspaceId, where);
   if (data === null) throw new CliError(`no file ${where}`);
@@ -359,6 +382,10 @@ async function readInstructionsFile(ctx: CliContext, file: string): Promise<stri
   } catch {
     throw new CliUsageError("the instructions file must be UTF-8 text");
   }
+  return checkedInstructions(text);
+}
+
+export function checkedInstructions(text: string): string {
   if (text.length > INSTRUCTION_LIMIT)
     throw new CliUsageError(
       `instructions are limited to ${INSTRUCTION_LIMIT} characters per layer`,
@@ -574,16 +601,33 @@ const chatSet: CliCommand = {
     await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
     let delegated: CallerMode | undefined;
     const dangerous = settings.mode === CHAT_MODES[agent].dangerous;
+    let expectedMode: string | undefined;
     if (settings.mode !== undefined) {
-      const from = dangerous
-        ? undefined
-        : (await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS))
-            .mode;
-      delegated = await mayLoosen(ctx, workspace, agent, `"${tab.title}"`, settings.mode, from);
+      if (dangerous) {
+        delegated = await mayLoosen(ctx, workspace, agent, `"${tab.title}"`, settings.mode);
+      }
+      expectedMode = (
+        await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS)
+      ).mode;
+      if (!dangerous) {
+        delegated = await mayLoosen(
+          ctx,
+          workspace,
+          agent,
+          `"${tab.title}"`,
+          settings.mode,
+          expectedMode,
+        );
+      }
     }
     const choices = await ctx.services.ui(
       "chat.settings",
-      { ...target, settings, ...(dangerous ? { allowDangerousMode: true } : {}) },
+      {
+        ...target,
+        settings,
+        ...(expectedMode === undefined ? {} : { expectedMode }),
+        ...(dangerous ? { allowDangerousMode: true } : {}),
+      },
       SEND_TIMEOUT_MS,
     );
     if (delegated && choices.mode === settings.mode) {
@@ -687,6 +731,11 @@ const chatRead: CliCommand = {
       value: "N",
       description: "Only the last N (default 20, or all with --since)",
     },
+    answer: {
+      type: "number",
+      value: "N",
+      description: "Print only the answer at the displayed message number #N",
+    },
     since: { type: "number", value: "I", description: "Only those after message #I" },
     all: { type: "boolean", description: "The whole conversation" },
     subagents: { type: "boolean", description: "Subagents' tool calls too" },
@@ -696,6 +745,37 @@ const chatRead: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    if (flags.answer !== undefined) {
+      const index = Number(flags.answer);
+      if (!Number.isSafeInteger(index) || index < 0)
+        throw new CliUsageError("--answer takes the displayed # of an answer");
+      if (
+        flags.device !== undefined ||
+        flags.since !== undefined ||
+        flags.messages !== undefined ||
+        flags.all === true
+      )
+        throw new CliUsageError(
+          "--answer reads one local answer; omit --device, --since, --messages and --all",
+        );
+      const found = await readChat(
+        ctx,
+        flags,
+        selector,
+        undefined,
+        index > 0 ? index - 1 : undefined,
+      );
+      const answer = found.entries.find(
+        (entry) => entry.i === index && entry.role === "agent" && !entry.parentToolUseId,
+      );
+      if (!answer) throw new CliError(`#${index} is not an answer in that tab`);
+      const text = cut(answer.text, maxCharsFlag(flags));
+      return output(text, {
+        workspaceId: found.workspaceId,
+        tabId: found.tab.id,
+        answer: { ...answer, text },
+      });
+    }
     const since = flags.since as number | undefined;
     if (since !== undefined && (!Number.isInteger(since) || since < 0)) {
       throw new CliUsageError("--since takes the # of a message");
@@ -761,7 +841,7 @@ const chatTool: CliCommand = {
     "<call> is the number chat read shows by the call (#i), given alone, or the call's id: a\n" +
     "shell drops a # and what follows. The input is printed as JSON, the output as the tool\n" +
     "gave it back.",
-  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG },
+  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length === 1) {
       // `chat tool tab #3`: the shell took "#3" for a comment.
@@ -769,15 +849,19 @@ const chatTool: CliCommand = {
         "missing <call>: the number chat read shows by it, without its # (a shell drops a # and what follows)",
       );
     }
-    const [selector, ref] = exactArgs(positionals, "tab", "call") as [string, string];
+    const [selector, refArg] = exactArgs(positionals, "tab", "call") as [string, string];
     const maxChars = maxCharsFlag(flags);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveChat(ctx, workspace, selector);
-    const tool = await ctx.services.ui("chat.tool", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      ref: ref.replace(/^#/, ""),
-    });
+    const ref = refArg.replace(/^#/, "");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const found = device
+      ? await peerChatTool(ctx, device, flags, selector, ref)
+      : await (async () => {
+          const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+          const tab = await resolveChat(ctx, workspace, selector);
+          const target = { workspaceId: workspace.id, tabId: tab.id };
+          return { ref: target, tool: await ctx.services.ui("chat.tool", { ...target, ref }) };
+        })();
+    const tool = found.tool;
     const input = typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 2);
     const lines = [
       `#${tool.i} ${tool.name} (${tool.status})${tool.parentToolUseId ? " (subagent)" : ""}  ${tool.toolUseId}`,
@@ -791,7 +875,7 @@ const chatTool: CliCommand = {
       maxChars === undefined || !tool.result
         ? tool
         : { ...tool, result: { ...tool.result, text: cut(tool.result.text, maxChars) } };
-    return output(lines.join("\n"), { ...json, tabId: tab.id, workspaceId: workspace.id });
+    return output(lines.join("\n"), { ...json, ...found.ref });
   },
 };
 
@@ -819,6 +903,17 @@ function filesFlag(flags: ParsedArgs["flags"]): string[] {
   return files;
 }
 
+async function imageAttachment(ctx: CliContext, file: string) {
+  const [image] = await attachments(ctx, [file]);
+  if (!image) throw new CliUsageError("--image takes a path");
+  const bytes = Buffer.from(image.data, "base64");
+  if (bytes.length > MAX_ATTACHMENT_BYTES)
+    throw new CliUsageError(`the image exceeds ${MAX_ATTACHMENT_BYTES} bytes`);
+  const mediaType = ImageMediaTypeSchema.options.find((type) => looksLike(type, bytes));
+  if (!mediaType) throw new CliUsageError("--image needs a PNG, JPEG, GIF or WebP image");
+  return { mediaType, data: image.data };
+}
+
 const chatSend: CliCommand = {
   path: ["chat", "send"],
   summary: "Send a Claude or Codex tab a message",
@@ -831,8 +926,7 @@ const chatSend: CliCommand = {
     "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
     "path after the text. Refused while the tab waits for the user to answer a request.\n" +
     "--wait then waits as chat wait does and prints how it ended. Another computer's tab\n" +
-    "(--device) takes it as its composer sends it, or --now: it holds no agent's message for\n" +
-    "after the turn.",
+    "(--device) also accepts --now and --after. Held peer messages are dropped when its user disables control by agents.",
   flags: {
     now: { type: "boolean", description: "During a turn: into it at once" },
     after: { type: "boolean", description: "During a turn: held until it ends" },
@@ -842,6 +936,7 @@ const chatSend: CliCommand = {
       repeat: true,
       description: "Attach a file; give it again for more",
     },
+    image: { type: "string", value: "PATH", description: "Attach a PNG, JPEG, GIF or WebP image" },
     wait: { type: "boolean", description: "Then wait until it is done" },
     timeout: TIMEOUT_FLAG,
     workspace: WORKSPACE_FLAG,
@@ -859,21 +954,20 @@ const chatSend: CliCommand = {
       fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")
     ).trim();
     const files = filesFlag(flags);
+    const imagePath = typeof flags.image === "string" ? flags.image : undefined;
     // ⌘↩ on an empty composer: the messages sent during the turn are read now.
-    const hurry = when === "now" && words.length === 0 && files.length === 0;
-    if (text === "" && files.length === 0 && !hurry) throw new CliUsageError("nothing to send");
+    const hurry =
+      when === "now" && words.length === 0 && files.length === 0 && imagePath === undefined;
+    if (text === "" && files.length === 0 && imagePath === undefined && !hurry)
+      throw new CliUsageError("nothing to send");
     const timeoutMs = flags.wait === true ? waitTimeout(flags) : null;
     const device = await resolveDevice(ctx, deviceFlag(flags));
     if (device) {
       if (files.length > 0) throw new CliUsageError("--file goes to this computer's tabs");
       if (hurry) throw new CliUsageError("--now with no text goes to this computer's tabs");
-      // As that computer answers an agent's chat.send `after`, before it is asked.
-      if (when === "after") {
-        throw new CliUsageError(
-          "--after goes to this computer's tabs: another computer's does not hold an agent's message for after the turn; send it without --after, or with --now",
-        );
-      }
-      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when === "now");
+      if (when === "after" || imagePath !== undefined) requirePeerCli(ctx, device);
+      const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
+      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when, images);
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
@@ -881,6 +975,21 @@ const chatSend: CliCommand = {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
     const target = { workspaceId: workspace.id, tabId: tab.id };
+    if (
+      tab.type === "claude" &&
+      !files.length &&
+      imagePath === undefined &&
+      remoteControlCommand(text)
+    ) {
+      if (timeoutMs !== null || when === "after")
+        throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
+      await mayChange(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
+      return remoteControlOutput(
+        `${tab.title} (${shortId(tab.id)})`,
+        target,
+        await applyRemoteControl(ctx.services, target),
+      );
+    }
     if (hurry) {
       if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
       await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
@@ -888,11 +997,14 @@ const chatSend: CliCommand = {
       return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
     }
     const attached = await attachments(ctx, files);
+    const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
     const listed = attached.map((file) => `[${file.name}]`).join(" ");
     await mayChange(ctx, workspace, {
       kind: "chatInput",
       detail: tab.title,
-      body: [text, listed].filter(Boolean).join("\n\n"),
+      body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
+        .filter(Boolean)
+        .join("\n\n"),
     });
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
@@ -906,6 +1018,7 @@ const chatSend: CliCommand = {
         text,
         ...(from ? { from } : {}),
         ...(attached.length > 0 ? { files: attached } : {}),
+        ...(images.length ? { images } : {}),
         ...(when ? { when } : {}),
         ...(timeoutMs === null ? {} : { wait: {} }),
       },
@@ -1075,7 +1188,8 @@ const chatAnswer: CliCommand = {
     "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
     "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
     "to answer in the app. A verified local chat tab in an unrestricted mode can approve\n" +
-    "or deny a tool as requested, once. Other callers need the user's approval.",
+    "or deny a tool as requested, once. Other local callers need the user's approval.\n" +
+    "On another device, the receiving device's Remote agent policy applies.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     stop: { type: "boolean", description: "With deny: stop the turn too" },
@@ -1143,10 +1257,10 @@ const chatAnswer: CliCommand = {
 
 const chatInstructions: CliCommand = {
   path: ["chat", "instructions"],
-  summary: "View or edit a local chat tab's instructions",
+  summary: "View or edit a chat tab's instructions",
   args: "<tab>",
   details:
-    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message.",
+    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message. Other devices support --show.",
   flags: {
     show: { type: "boolean", description: "Print the combined instructions for the tab" },
     "set-file": {
@@ -1160,14 +1274,25 @@ const chatInstructions: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
-    if (deviceFlag(flags) !== undefined) {
-      throw new CliUsageError("chat instructions goes to this computer's tabs; omit --device");
-    }
     const show = flags.show === true;
     const file = flags["set-file"] as string | undefined;
     const clear = flags.clear === true;
     if ([show, file !== undefined, clear].filter(Boolean).length !== 1) {
       throw new CliUsageError("use exactly one of --show, --set-file FILE, or --clear");
+    }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const { instructions } = show
+        ? await askPeerCli(ctx, device, "chat.instructions", target.ref)
+        : await changePeerCli(ctx, device, "chat.instructions.set", {
+            ...target.ref,
+            text: file === undefined ? "" : await readInstructionsFile(ctx, file),
+          });
+      return output(show ? instructions : `Updated session instructions for ${target.title}.`, {
+        ...target.json,
+        instructions,
+      });
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
@@ -1194,10 +1319,103 @@ const chatInstructions: CliCommand = {
   },
 };
 
+const chatImage: CliCommand = {
+  path: ["chat", "image"],
+  args: "<tab> [index]",
+  summary: "Read an image from a chat message, tool result, or held message",
+  details:
+    "Image indexes count from 1. Output is base64 by default. --out creates a new file on the app's machine.",
+  flags: {
+    message: {
+      type: "number",
+      value: "N",
+      description: "The user message number shown by chat read",
+    },
+    tool: { type: "string", value: "ID", description: "A tool call's id" },
+    held: { type: "string", value: "ID", description: "A held message's id" },
+    out: { type: "string", value: "FILE", description: "Write image bytes to a new file" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals: [selector, given = "1", ...extra], flags }) {
+    const index = Number(given) - 1;
+    if (!selector || extra.length || !Number.isInteger(index) || index < 0)
+      throw new CliUsageError("give a tab and a positive image index");
+    const message = typeof flags.message === "number" ? flags.message : undefined;
+    const tool = typeof flags.tool === "string" ? flags.tool : undefined;
+    const held = typeof flags.held === "string" ? flags.held : undefined;
+    if ([message, tool, held].filter((value) => value !== undefined).length !== 1)
+      throw new CliUsageError("give one of --message N, --tool ID, or --held ID");
+    if (message !== undefined && (!Number.isInteger(message) || message < 0))
+      throw new CliUsageError("--message takes the displayed message number");
+    if (flags.out !== undefined && !onAppMachine(ctx))
+      throw new CliUsageError("--out needs a shell on the app's machine; omit it to read base64");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const target = device
+      ? (await peerCliChat(ctx, device, flags, selector)).ref
+      : await localChatRef(ctx, flags, selector);
+    let ref: RpcParams<"chat.image">["ref"];
+    if (message !== undefined) {
+      const request = { ...target, i: message };
+      const item = device
+        ? await askPeerCli(ctx, device, "chat.entryItem", request)
+        : await ctx.services.ui("chat.entryItem", request);
+      if (item.kind !== "user") throw new CliError("that is not a user message");
+      ref = { kind: "user", itemKey: item.itemKey, index };
+    } else if (tool !== undefined) {
+      ref = { kind: "tool", toolUseId: tool, index };
+    } else {
+      ref = { kind: "held", id: held as string, index };
+    }
+    const image = device
+      ? await askPeerCli(ctx, device, "chat.image", { ...target, ref })
+      : await ctx.services.ui("chat.image", { ...target, ref, maxChars: MAX_MESSAGE_BYTES - 1024 });
+    if (!image.data) throw new CliError("there are no image bytes for that entry");
+    const { data, ...metadata } = image;
+    const out = typeof flags.out === "string" ? callerPath(ctx, flags.out) : undefined;
+    if (out) {
+      await writeFile(out, Buffer.from(data, "base64"), { flag: "wx" }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EEXIST") throw new CliError("image output already exists");
+          throw new CliError(`could not save the image (${error.code ?? "write failed"})`);
+        },
+      );
+      return output(`Wrote ${out}.`, { ...metadata, path: out });
+    }
+    return output(data, { ...metadata, data });
+  },
+};
+
+async function localChatRef(ctx: CliContext, flags: ParsedArgs["flags"], selector: string) {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const tab = await resolveChat(ctx, workspace, selector);
+  return { workspaceId: workspace.id, tabId: tab.id };
+}
+
+const chatExport: CliCommand = {
+  path: ["chat", "export"],
+  args: "<tab>",
+  summary: "Print the conversation as Markdown",
+  flags: {
+    stdout: { type: "boolean", description: "Write the Markdown to standard output" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    const { markdown } = await ctx.services.ui("chat.export", ref);
+    return output(markdown, { ...ref, markdown });
+  },
+};
+
 export const chatCommands: CliCommand[] = [
   chatNew,
   chatInstructions,
   chatRead,
+  chatExport,
+  chatImage,
   chatTool,
   chatSend,
   chatAnswer,

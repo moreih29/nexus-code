@@ -179,7 +179,7 @@ describe("note record", () => {
     );
     const denied = await nexus(app, ["note", "record", "Weekly"]);
     expect(denied.stderr).toBe("nexus: the user did not allow it\n");
-    expect(app.asked[0]?.change).toEqual({ kind: "noteRecord", detail: "Weekly" });
+    expect(app.asked[0]?.change).toEqual({ kind: "noteRecord", detail: "Weekly", eachTime: true });
     app.answers.push("once");
     const started = await nexus(app, ["note", "record", "Weekly"]);
     expect(started.stdout).toBe('Recording into "Weekly" (nmhz00aa0001): 0:04 (recording).\n');

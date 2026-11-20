@@ -8,6 +8,12 @@
  */
 import { z } from "zod";
 import {
+  AgentViewChangeSchema,
+  AgentViewSchema,
+  LayoutChangeSchema,
+  WorkspaceLayoutSchema,
+} from "./layout.js";
+import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
@@ -821,6 +827,7 @@ const FileUploadRef = {
 const FileSha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 
 const Ok = z.object({});
+const RemoteControlState = z.object({ enabled: z.boolean(), url: z.string().optional() });
 
 // ---------------------------------------------------------------------------
 // The methods
@@ -830,6 +837,22 @@ const Ok = z.object({});
  * Each method's params and result, and the capability (see ./sealed.ts)
  * the serving device lists for it.
  */
+const VoiceSuggestionTarget = z.object({
+  workspaceId: z.string(),
+  note: z.string().min(1).max(300),
+  recording: z.string().min(1).max(64).optional(),
+});
+const VoiceSuggestionsResult = z.object({
+  noteId: z.string(),
+  recordingId: z.string(),
+  suggestions: z.array(z.object({ speaker: z.string(), name: z.string().max(80) })),
+});
+
+const TaskStartSchema = z.union([
+  z.object({ agent: z.enum(["claude", "codex"]) }),
+  z.object({ command: z.string().max(10000) }),
+]);
+
 export const RPC_METHODS = {
   "sessions.list": {
     capability: "sessions",
@@ -869,7 +892,11 @@ export const RPC_METHODS = {
   /** The agent profiles a chat can run with (accounts, config folders). */
   "profiles.list": {
     capability: "sessions",
-    params: z.object({ agent: z.enum(["claude", "codex"]).optional() }),
+    params: z.object({
+      agent: z.enum(["claude", "codex"]).optional(),
+      workspaceId: z.string().optional(),
+      ...ReadBy,
+    }),
     result: z.object({
       profiles: z.array(
         z.object({
@@ -878,6 +905,8 @@ export const RPC_METHODS = {
           agent: z.enum(["claude", "codex"]),
           /** The one a workspace runs with unless told otherwise. */
           isDefault: z.boolean(),
+          workspaceDefault: z.boolean().optional(),
+          path: z.string().optional(),
         }),
       ),
     }),
@@ -931,6 +960,7 @@ export const RPC_METHODS = {
       agent: z.enum(["claude", "codex"]),
       /** Only those whose title has it. */
       query: z.string().max(200).optional(),
+      ...ReadBy,
       limit: z.number().int().positive().max(200).optional(),
     }),
     result: z.object({ sessions: z.array(PastSessionSchema) }),
@@ -976,20 +1006,25 @@ export const RPC_METHODS = {
   /** Its slash commands, the app's and the agent's, for a "/" picker. */
   "chat.commands": {
     capability: "chat.read",
-    params: z.object(TabRef),
+    params: z.object({ ...TabRef, ...ReadBy }),
     result: z.object({ commands: z.array(ChatCommandSchema) }),
   },
   /** Its side panel now; a watch sends it again in chat.update as it changes. */
   "chat.panel": {
     capability: "chat.read",
-    params: z.object(TabRef),
+    params: z.object({ ...TabRef, ...ReadBy }),
     result: ChatPanelSchema,
   },
   /** One tool call with as much of its result as a frame takes. */
   "chat.tool": {
     capability: "chat.read",
-    params: z.object({ ...TabRef, toolUseId: z.string() }),
-    result: ViewToolCallSchema,
+    params: z.object({
+      ...TabRef,
+      toolUseId: z.string(),
+      cli: z.literal(true).optional(),
+      ...ReadBy,
+    }),
+    result: ViewToolCallSchema.extend({ index: z.number().int().nonnegative().optional() }),
   },
   /**
    * A file the chat changed as it was before its first change, for its
@@ -1035,6 +1070,7 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       /** Since 0.9.0; a desktop before it sends the image whole. */
       maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
       /** Opt in to validating the requested image before sending its bytes. */
@@ -1103,6 +1139,7 @@ export const RPC_METHODS = {
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
     result: z.object({
+      remoteControl: RemoteControlState.optional(),
       at: z.number().optional(),
       heldId: z.string().optional(),
       clientNonce: ClientNonceSchema.optional(),
@@ -1117,8 +1154,8 @@ export const RPC_METHODS = {
    * run. Since 0.13.0.
    */
   "chat.fileSuggestions": {
-    capability: "chat.control",
-    params: z.object({ ...TabRef, query: z.string().max(256) }),
+    capability: "chat.read",
+    params: z.object({ ...TabRef, query: z.string().max(256), ...ReadBy }),
     result: z.object({ paths: z.array(z.string()).max(MAX_FILE_SUGGESTIONS) }),
   },
   /**
@@ -1128,7 +1165,7 @@ export const RPC_METHODS = {
    */
   "chat.unqueue": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, id: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, id: z.string() }),
     result: z.object({ text: z.string() }),
   },
   /**
@@ -1138,7 +1175,7 @@ export const RPC_METHODS = {
    */
   "chat.editHeld": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, id: z.string(), text: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, id: z.string(), text: z.string() }),
     result: Ok,
   },
   /**
@@ -1148,7 +1185,7 @@ export const RPC_METHODS = {
    */
   "chat.withdraw": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string() }),
     result: z.object({ withdrawn: z.boolean() }),
   },
   /**
@@ -1169,6 +1206,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       mediaType: ImageMediaTypeSchema,
       /** Base64, of at most MAX_ATTACHMENT_BYTES bytes. */
       data: z
@@ -1316,6 +1354,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       profile: z.string().min(1).max(100),
       fresh: z.boolean().optional(),
       stop: z.boolean().optional(),
@@ -1375,10 +1414,12 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       name: z.string().min(1).max(100),
       args: z.string().max(10_000).optional(),
     }),
     result: z.object({
+      remoteControl: RemoteControlState.optional(),
       /** What it said, when it says something rather than changing the chat. */
       message: z.string().optional(),
       /**
@@ -1423,7 +1464,7 @@ export const RPC_METHODS = {
   },
   "chat.rename": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    params: z.object({ ...TabRef, ...ReadBy, title: z.string().max(200) }),
     result: z.object({ title: z.string() }),
   },
   /**
@@ -1436,6 +1477,7 @@ export const RPC_METHODS = {
   "chat.resume": {
     capability: "chat.control",
     params: z.object({
+      ...ReadBy,
       workspaceId: z.string(),
       agent: z.enum(["claude", "codex"]),
       sessionId: z.string(),
@@ -1450,8 +1492,8 @@ export const RPC_METHODS = {
    * be rewound; the conversation still can. Since 0.11.0.
    */
   "chat.rewindPreview": {
-    capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string() }),
+    capability: "chat.read",
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string() }),
     result: z.object({
       canRewind: z.boolean(),
       error: z.string().optional(),
@@ -1468,7 +1510,7 @@ export const RPC_METHODS = {
    */
   "chat.rewind": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string(), files: z.boolean() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string(), files: z.boolean() }),
     result: Ok,
   },
   /**
@@ -1479,7 +1521,7 @@ export const RPC_METHODS = {
    */
   "chat.fork": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string().optional() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string().optional() }),
     result: z.object({ tabId: z.string(), draft: z.string().optional() }),
   },
   /** Sends a Claude chat's running command or subagent to the background, by its call's id. Since 0.11.0. */
@@ -1491,8 +1533,8 @@ export const RPC_METHODS = {
   /** Turns a Claude chat's Remote Control on or off, as its panel's switch does. Since 0.11.0. */
   "chat.remoteControl": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, enabled: z.boolean() }),
-    result: Ok,
+    params: z.object({ ...TabRef, ...ReadBy, enabled: z.boolean() }),
+    result: RemoteControlState.partial(),
   },
   /**
    * Opens a chat in one of the serving device's workspaces, sending it
@@ -1629,8 +1671,8 @@ export const RPC_METHODS = {
   },
   /** The shells a new terminal can run, as "New terminal with" lists them. */
   "terminal.shells": {
-    capability: "terminal.control",
-    params: z.object({ workspaceId: z.string() }),
+    capability: "terminal.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
     result: z.object({
       shells: z.array(z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() })),
     }),
@@ -1658,7 +1700,7 @@ export const RPC_METHODS = {
   },
   "terminal.rename": {
     capability: "terminal.control",
-    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    params: z.object({ ...TabRef, ...ReadBy, title: z.string().max(200) }),
     result: z.object({ title: z.string() }),
   },
   /** Closes a terminal; one running a program only with `force`. */
@@ -2004,7 +2046,7 @@ export const RPC_METHODS = {
    */
   "notes.list": {
     capability: "notes",
-    params: z.object({ workspaceId: z.string() }),
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
     result: z.object({
       notes: z.array(
         z.object({
@@ -2016,6 +2058,222 @@ export const RPC_METHODS = {
         }),
       ),
     }),
+  },
+  "notes.read": {
+    capability: "notes",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      transcriptOnly: z.boolean().optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      id: z.string(),
+      title: z.string(),
+      updatedAt: z.number(),
+      markdown: z.string(),
+      transcript: z.string(),
+    }),
+  },
+  "notes.transcript": {
+    capability: "notes",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      recording: z.string().min(1).max(64).optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      id: z.string(),
+      title: z.string(),
+      recordings: z.array(
+        z.object({
+          id: z.string(),
+          startedAt: z.number(),
+          participants: z.union([z.literal("auto"), z.literal("7+"), z.number().int().positive()]),
+          lines: z.array(
+            z.object({
+              id: z.string(),
+              startMs: z.number().nonnegative(),
+              endMs: z.number().nonnegative(),
+              speaker: z.string(),
+              speakerLabel: z.string(),
+              speakerName: z.string().nullable(),
+              text: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  },
+  "browser.permissions": {
+    capability: "chat.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
+    result: z.object({
+      global: z.record(z.boolean()),
+      sites: z.array(
+        z.object({
+          origin: z.string(),
+          permission: z.string(),
+          decision: z.enum(["allow", "block"]),
+        }),
+      ),
+    }),
+  },
+  "browser.devtools": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, from: AgentSenderSchema }),
+    result: Ok,
+  },
+  "settings.instructions.set": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      layer: z.enum(["all", "claude", "codex", "workspace"]),
+      text: z.string().max(5000),
+      from: AgentSenderSchema,
+    }),
+    result: Ok,
+  },
+  "notes.speakers": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      recording: z.string().min(1).max(64).optional(),
+      change: z.discriminatedUnion("op", [
+        z.object({
+          op: z.literal("rename"),
+          speaker: z.string().min(1).max(100),
+          name: z.string().max(80),
+        }),
+        z.object({
+          op: z.literal("merge"),
+          from: z.string().min(1).max(100),
+          into: z.string().min(1).max(100),
+        }),
+        z.object({
+          op: z.literal("move"),
+          first: z.string().min(1).max(100),
+          last: z.string().min(1).max(100),
+          into: z.string().min(1).max(100),
+        }),
+        z.object({
+          op: z.literal("regroup"),
+          participants: z.union([z.literal("auto"), z.number().int().min(1).max(50)]),
+        }),
+      ]),
+      from: AgentSenderSchema,
+    }),
+    result: z.object({ noteId: z.string(), recordingId: z.string() }),
+  },
+  "notes.voiceSuggestions.list": {
+    capability: "notes",
+    params: VoiceSuggestionTarget.extend(ReadBy),
+    result: VoiceSuggestionsResult,
+  },
+  "notes.voiceSuggestions.change": {
+    capability: "chat.control",
+    params: VoiceSuggestionTarget.extend({
+      action: z.object({
+        op: z.enum(["accept", "reject"]),
+        speaker: z.string().min(1).max(100),
+        name: z.string().trim().min(1).max(80),
+      }),
+      from: AgentSenderSchema,
+    }),
+    result: VoiceSuggestionsResult,
+  },
+  "notes.voiceNames.list": {
+    capability: "notes",
+    params: z.object(ReadBy),
+    result: z.object({ names: z.array(z.string().max(80)) }),
+  },
+  "notes.voiceNames.delete": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      name: z.string().trim().min(1).max(80).optional(),
+      from: AgentSenderSchema,
+    }),
+    result: Ok,
+  },
+  "layout.get": {
+    capability: "chat.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
+    result: WorkspaceLayoutSchema,
+  },
+  "layout.change": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      change: LayoutChangeSchema,
+      from: AgentSenderSchema,
+    }),
+    result: z.object({
+      groupId: z.string().optional(),
+      closed: z.number().int().nonnegative().optional(),
+    }),
+  },
+  "agentView.get": {
+    capability: "chat.read",
+    params: z.object({ ...ReadBy }),
+    result: AgentViewSchema,
+  },
+  "agentView.change": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      change: AgentViewChangeSchema,
+      from: AgentSenderSchema,
+    }),
+    result: z.object({
+      panelId: z.string().optional(),
+      removed: z.number().int().nonnegative().optional(),
+      key: z.string().optional(),
+      tabId: z.string().optional(),
+    }),
+  },
+  "worktree.new": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      name: z.string().trim().min(1).max(200),
+      prompt: z.string().max(50000),
+      start: TaskStartSchema.optional(),
+      show: z.boolean(),
+      from: AgentSenderSchema,
+    }),
+    result: z.object({
+      workspaceId: z.string(),
+      tabId: z.string().optional(),
+      start: TaskStartSchema,
+    }),
+  },
+  "worktree.remove": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      force: z.boolean(),
+      deleteBranch: z.boolean(),
+      from: AgentSenderSchema,
+    }),
+    result: Ok,
+  },
+  "chat.entryItem": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, i: z.number().int().nonnegative(), ...ReadBy }),
+    result: z.object({ itemKey: z.string(), kind: z.string(), text: z.string().optional() }),
+  },
+  "chat.instructions.set": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema }),
+    result: z.object({ instructions: z.string() }),
+  },
+  "chat.instructions": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, ...ReadBy }),
+    result: z.object({ instructions: z.string() }),
   },
   /**
    * Puts a photo at the end of a note, as one picked on the serving device

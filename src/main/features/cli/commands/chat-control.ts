@@ -10,12 +10,28 @@ import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-prot
 import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import {
+  applyRemoteControl,
+  remoteControlCommand,
+  remoteControlOutput,
+} from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
-import { ago, oneLine } from "../format";
-import { type CliCommand, output } from "../registry";
+import { ago, oneLine, table } from "../format";
+import { type CliCommand, type CliOutput, output } from "../registry";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
+import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -181,9 +197,18 @@ const chatPanel: CliCommand = {
     "Its goal, to-dos, tasks (background runs, by the id chat stop-task takes), subagents,\n" +
     "changed files, context window, cost, plan limits, MCP servers, Remote Control, and the\n" +
     "messages held for after the turn (by the id chat unsend and chat edit take).",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const panel = withoutAccount(await askPeerCli(ctx, device, "chat.panel", target.ref));
+      return output(panelText(target.title, panel, ctx.services.clock.now()), {
+        ...target.json,
+        ...panel,
+      });
+    }
     const target = await chatTarget(ctx, flags, selector);
     const panel = withoutAccount(await ctx.services.ui("chat.panel", target.ref));
     return output(panelText(named(target), panel, ctx.services.clock.now()), {
@@ -202,9 +227,38 @@ const chatUnsend: CliCommand = {
     "it is taken back whole and its text printed. Or the number chat read shows by a message\n" +
     "sent during a Claude tab's turn that it marks unread: taken back while Claude has not\n" +
     "read it.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, message] = exactArgs(positionals, "tab", "message") as [string, string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      if (!/^#?\d+$/.test(message)) {
+        const { text } = await changePeerCli(ctx, device, "chat.unqueue", {
+          ...target.ref,
+          id: message,
+        });
+        return output(`Took back the held message from ${target.title}:\n${text}`, {
+          ...target.json,
+          id: message,
+          text,
+        });
+      }
+      if (target.peer.session.kind !== "claude")
+        throw new CliError("only Claude can withdraw a message it has not read");
+      const i = placeArg(message);
+      const item = await askPeerCli(ctx, device, "chat.entryItem", { ...target.ref, i });
+      if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
+      const { withdrawn } = await changePeerCli(ctx, device, "chat.withdraw", {
+        ...target.ref,
+        itemKey: item.itemKey,
+      });
+      return output(
+        withdrawn ? `Took back #${i} from ${target.title}.` : `#${i} was read already; it stays.`,
+        { ...target.json, i, withdrawn, ...(item.text !== undefined ? { text: item.text } : {}) },
+        { exitCode: withdrawn ? 0 : 1 },
+      );
+    }
     const target = await otherChat(ctx, flags, selector);
     await mayChange(ctx, target.workspace, { kind: "chatInput", detail: target.tab.title });
     if (!/^#?\d+$/.test(message)) {
@@ -252,13 +306,23 @@ const chatEdit: CliCommand = {
   details:
     'Its images and files stay. <id> as chat send --after prints it, or chat panel lists it. "-"\n' +
     "reads the text from standard input.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, id, ...words] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     if (id === undefined) throw new CliUsageError("missing <id>");
     const text = textOf(ctx, words);
     if (text === "") throw new CliUsageError("missing <text>");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      await changePeerCli(ctx, device, "chat.editHeld", { ...target.ref, id, text });
+      return output(`Changed the held message ${id} of ${target.title}.`, {
+        ...target.json,
+        id,
+        text,
+      });
+    }
     const target = await otherChat(ctx, flags, selector);
     await mayChange(ctx, target.workspace, {
       kind: "chatInput",
@@ -276,22 +340,50 @@ const chatEdit: CliCommand = {
 
 const chatRewind: CliCommand = {
   path: ["chat", "rewind"],
-  summary: "Rewind a Claude tab to before one of the messages sent to it",
+  summary: "Rewind a Claude or Codex tab to before a user message",
   args: "<tab> <message>",
   details:
     "As its rewind button does: the conversation goes back to before the message (the number\n" +
-    "chat read shows by it), and with --files the files Claude changed since go back too.\n" +
-    "--preview only prints what --files would undo. The user allows it; not during a turn.",
+    "chat read shows by it). Claude's --files also restores files; Codex rewinds only the chat.\n" +
+    "--preview checks the target and shows what can be restored. Rewinding needs user approval.",
   flags: {
     files: { type: "boolean", description: "Undo Claude's changes to the files since, too" },
     preview: { type: "boolean", description: "Only print what would be undone in the files" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, message] = exactArgs(positionals, "tab", "message") as [string, string];
     const i = placeArg(message);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const withFiles = flags.files === true;
+      const codex = target.peer.session.kind === "codex";
+      if (codex && withFiles) throw new CliError("Codex conversation rewind cannot restore files");
+      const item = await askPeerCli(ctx, device, "chat.entryItem", { ...target.ref, i });
+      if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
+      const ref = { ...target.ref, itemKey: item.itemKey };
+      if (flags.preview === true) {
+        const preview = await askPeerCli(ctx, device, "chat.rewindPreview", ref);
+        const text = codex
+          ? "Codex can rewind the conversation. File restoration is unavailable."
+          : preview.canRewind
+            ? `Files to restore: ${preview.filesChanged.join(", ") || "none"}`
+            : (preview.error ?? "File restoration is unavailable.");
+        return output(text, { ...target.json, i, ...preview });
+      }
+      await changePeerCli(ctx, device, "chat.rewind", { ...ref, files: withFiles });
+      return output(`Rewound ${target.title} to before #${i}.`, {
+        ...target.json,
+        i,
+        files: withFiles,
+      });
+    }
     const target = await (flags.preview === true ? chatTarget : otherChat)(ctx, flags, selector);
-    claudeOnly(target, "rewind");
+    const codex = target.tab.type === "codex";
+    const withFiles = flags.files === true;
+    if (codex && withFiles) throw new CliError("Codex conversation rewind cannot restore files");
     const item = await ctx.services.ui("chat.entryItem", { ...target.ref, i });
     if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
     const preview = await ctx.services.ui("chat.rewindPreview", {
@@ -303,6 +395,16 @@ const chatRewind: CliCommand = {
         ? "no file changes to undo"
         : `${preview.filesChanged.length} file${preview.filesChanged.length === 1 ? "" : "s"} (+${preview.insertions} -${preview.deletions}):\n${preview.filesChanged.map((f) => `  ${f}`).join("\n")}`;
     if (flags.preview === true) {
+      if (codex) {
+        return output(
+          `Codex can rewind the conversation to before #${i}. It cannot restore files.`,
+          {
+            ...target.ref,
+            i,
+            ...preview,
+          },
+        );
+      }
       const why = preview.canRewind ? "" : `\nIts files cannot be rewound: ${preview.error ?? ""}`;
       return output(`Rewinding to before #${i} with --files undoes ${files}${why}`, {
         ...target.ref,
@@ -310,7 +412,6 @@ const chatRewind: CliCommand = {
         ...preview,
       });
     }
-    const withFiles = flags.files === true;
     if (withFiles && !preview.canRewind) {
       throw new CliError(`its files cannot be rewound${preview.error ? `: ${preview.error}` : ""}`);
     }
@@ -341,19 +442,39 @@ const chatRewind: CliCommand = {
 
 const chatFork: CliCommand = {
   path: ["chat", "fork"],
-  summary: "Fork a Claude tab's conversation into a new tab",
+  summary: "Fork a Claude or Codex conversation into a new tab",
   args: "<tab> [message]",
   details:
     "As its fork buttons do, the new tab opening behind what the window shows: with no\n" +
     "<message>, all of the conversation; from an answer (the number chat read shows by it), up\n" +
     "to it; from a message sent to it, what came before it, the message printed to send again.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length > 2) throw new CliUsageError("too many arguments");
     const [selector, message] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const item =
+        message === undefined
+          ? undefined
+          : await askPeerCli(ctx, device, "chat.entryItem", {
+              ...target.ref,
+              i: placeArg(message),
+            });
+      const reply = await changePeerCli(ctx, device, "chat.fork", {
+        ...target.ref,
+        ...(item ? { itemKey: item.itemKey } : {}),
+      });
+      const text = `Forked ${target.title} into tab ${shortId(reply.tabId)}.`;
+      return output(reply.draft ? `${text}\nDraft to resend:\n${reply.draft}` : text, {
+        ...target.json,
+        from: target.ref.tabId,
+        ...reply,
+      });
+    }
     const target = await chatTarget(ctx, flags, selector);
-    claudeOnly(target, "fork");
     await mayChange(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
     const itemKey =
       message === undefined
@@ -432,40 +553,50 @@ const chatRemoteControl: CliCommand = {
   args: "<tab> <on|off>",
   details:
     "As the switch in its panel does: with it on, the session can be driven from claude.ai\n" +
-    "and the Claude app, at the address printed. The user allows turning it on.",
-  flags: { workspace: WORKSPACE_FLAG },
+    "and the Claude app, at the address printed. Follows the workspace change policy.",
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, turn] = exactArgs(positionals, "tab", "on|off") as [string, string];
     if (turn !== "on" && turn !== "off") throw new CliUsageError('it is "on" or "off"');
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      if (target.peer.session.kind !== "claude")
+        throw new CliError("Remote Control is available only in Claude");
+      const enabled = turn === "on";
+      const result = await changePeerCli(ctx, device, "chat.remoteControl", {
+        ...target.ref,
+        enabled,
+      });
+      return remoteControlOutput(target.title, target.json, {
+        ...result,
+        enabled: result.enabled ?? enabled,
+      });
+    }
     const target = await otherChat(ctx, flags, selector);
     claudeOnly(target, "have Remote Control");
-    const enabled = turn === "on";
-    const change = {
-      kind: enabled ? ("chatRemoteControlOn" as const) : ("chatRemoteControlOff" as const),
-      detail: target.tab.title,
-    };
-    // Turned on, the session can be driven from outside the app: the user's to allow.
-    if (enabled) {
-      await ctx.services.askUser({
-        fromWorkspaceId: ctx.caller.workspaceId,
-        fromTabId: ctx.caller.tabId,
-        toWorkspaceId: target.workspace.id,
-        change,
-      });
-    } else {
-      await mayChange(ctx, target.workspace, change);
-    }
-    await ctx.services.ui("chat.remoteControl", { ...target.ref, enabled }, SEND_TIMEOUT_MS);
-    const url = enabled
-      ? (await ctx.services.ui("chat.panel", target.ref).catch(() => null))?.remoteControl?.url
-      : undefined;
-    return output(`Turned Remote Control ${turn} for ${named(target)}${url ? `: ${url}` : ""}.`, {
-      ...target.ref,
-      enabled,
-      ...(url ? { url } : {}),
-    });
+    return setRemoteControl(ctx, target, turn === "on");
   },
 };
+
+async function setRemoteControl(
+  ctx: CliContext,
+  target: ChatTarget,
+  enabled?: boolean,
+): Promise<CliOutput> {
+  const kind =
+    enabled === undefined
+      ? "chatRemoteControlToggle"
+      : enabled
+        ? "chatRemoteControlOn"
+        : "chatRemoteControlOff";
+  await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  return remoteControlOutput(
+    named(target),
+    target.ref,
+    await applyRemoteControl(ctx.services, target.ref, enabled),
+  );
+}
 
 const RUNS: Readonly<Record<ChatCommand["runs"], string>> = {
   command: "chat command",
@@ -480,17 +611,33 @@ const chatCommandsList: CliCommand = {
   details:
     "The agent's own, which go to it as a message; the app's own that change the\n" +
     "conversation; the model and effort, which chat set sets. chat command runs the first two.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
-    const target = await chatTarget(ctx, flags, selector);
-    const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const list = async () => {
+      if (device) {
+        const target = await peerCliChat(ctx, device, flags, selector);
+        return {
+          title: target.title,
+          ref: target.json,
+          ...(await askPeerCli(ctx, device, "chat.commands", target.ref)),
+        };
+      }
+      const target = await chatTarget(ctx, flags, selector);
+      return {
+        title: named(target),
+        ref: target.ref,
+        ...(await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS)),
+      };
+    };
+    const { title, ref, commands } = await list();
     const lines = commands.map((command) => {
       const args = command.args ? ` ${command.args}` : "";
       return `/${command.name}${args}  ${oneLine(command.description, 100)}  (${RUNS[command.runs]})`;
     });
-    return output(lines.length > 0 ? lines.join("\n") : `${named(target)} has no commands.`, {
-      ...target.ref,
+    return output(lines.length > 0 ? lines.join("\n") : `${title} has no commands.`, {
+      ...ref,
       commands,
     });
   },
@@ -504,14 +651,44 @@ const chatCommandRun: CliCommand = {
     "As its composer runs it typed: <command> as chat commands lists it, with or without\n" +
     "its /. The agent's own go to it as a message; the app's own print what they said, and\n" +
     "the tab they opened. The model and effort are chat set's.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, typed, ...words] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     if (typed === undefined) throw new CliUsageError("missing <command>");
     const name = typed.replace(/^\//, "");
     const args = words.join(" ").trim();
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const reply = await changePeerCli(ctx, device, "chat.command", {
+        ...target.ref,
+        name,
+        ...(args ? { args } : {}),
+      });
+      if (reply.remoteControl)
+        return remoteControlOutput(target.title, target.json, reply.remoteControl);
+      return output(
+        [
+          `Ran /${name} in ${target.title}.`,
+          reply.message,
+          reply.tabId ? `It opened tab ${shortId(reply.tabId)}.` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        {
+          ...target.json,
+          command: name,
+          ...(reply.message ? { message: reply.message } : {}),
+          ...(reply.tabId ? { opened: reply.tabId } : {}),
+        },
+      );
+    }
     const target = await otherChat(ctx, flags, selector);
+    const lower = name.toLowerCase();
+    if (target.tab.type === "claude" && remoteControlCommand(`/${name}`)) {
+      return setRemoteControl(ctx, target);
+    }
     const text = `/${name}${args ? ` ${args}` : ""}`;
     // Asked first: listing its commands starts a tab's program that is not running.
     await mayChange(ctx, target.workspace, {
@@ -520,7 +697,6 @@ const chatCommandRun: CliCommand = {
       body: text,
     });
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
-    const lower = name.toLowerCase();
     const command =
       commands.find((c) => c.name.toLowerCase() === lower) ??
       commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
@@ -568,11 +744,17 @@ const AGENT_FLAG = {
   description: "claude (default) or codex",
 } as const;
 
-function pastLine(session: CliPastSession, now: number): string {
+function pastLine(
+  session: Pick<
+    CliPastSession,
+    "title" | "at" | "sessionId" | "tabId" | "firstPrompt" | "gitBranch"
+  > & { profile?: string },
+  now: number,
+): string {
   const title = oneLine(session.title || session.firstPrompt || "(untitled)", 80);
   const about = [
     when(session.at, now),
-    session.profile !== "default" ? `profile ${session.profile}` : "",
+    session.profile && session.profile !== "default" ? `profile ${session.profile}` : "",
     session.gitBranch ? `on ${session.gitBranch}` : "",
     session.tabId ? `open in ${shortId(session.tabId)}` : "",
   ].filter(Boolean);
@@ -590,6 +772,7 @@ const chatHistory: CliCommand = {
     agent: AGENT_FLAG,
     limit: { type: "number", value: "N", description: "At most N (default 20)" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const agent = chatAgentFlag(flags.agent, "claude");
@@ -597,20 +780,31 @@ const chatHistory: CliCommand = {
     if (!Number.isInteger(limit) || limit < 1) {
       throw new CliUsageError("--limit takes a positive whole number");
     }
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
     const query = positionals.join(" ").trim();
-    const { sessions } = await ctx.services.ui("chat.history", {
-      workspaceId: workspace.id,
-      agent,
-      ...(query ? { query } : {}),
-      limit,
-    });
+    const params = { workspaceId: workspace.id, agent, ...(query ? { query } : {}), limit };
+    const { sessions } = device
+      ? await askPeerCli(ctx, device, "history.list", { ...params, limit: Math.min(limit, 200) })
+      : await ctx.services.ui("chat.history", params);
     const now = ctx.services.clock.now();
     const text =
       sessions.length === 0
         ? `No past ${AGENT_NAMES[agent]} conversations${query ? ` with "${query}"` : ""} in ${workspace.name}.`
         : sessions.map((s) => pastLine(s, now)).join("\n");
-    return output(text, { workspaceId: workspace.id, agent, sessions }, { records: sessions });
+    return output(
+      text,
+      {
+        workspaceId: workspace.id,
+        agent,
+        sessions,
+        ...(device ? { device: deviceRef(device) } : {}),
+      },
+      { records: sessions },
+    );
   },
 };
 
@@ -645,10 +839,34 @@ const chatResume: CliCommand = {
     agent: AGENT_FLAG,
     tab: { type: "string", value: "TAB", description: "Go on with it in this empty tab" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [id] = exactArgs(positionals, "session") as [string];
     const agent = chatAgentFlag(flags.agent, "claude");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = await peerWorkspace(ctx, device, flags.workspace);
+      const into =
+        typeof flags.tab === "string"
+          ? await peerCliChat(ctx, device, flags, flags.tab)
+          : undefined;
+      if (into && (into.ref.workspaceId !== workspace.id || into.peer.session.kind !== agent))
+        throw new CliUsageError("--tab must name a tab of the selected agent in --workspace");
+      const { tabId } = await changePeerCli(ctx, device, "chat.resume", {
+        workspaceId: workspace.id,
+        agent,
+        sessionId: id,
+        ...(into ? { tabId: into.ref.tabId } : {}),
+      });
+      return output(`Resumed ${id} in tab ${shortId(tabId)} on "${device.name}".`, {
+        tabId,
+        workspaceId: workspace.id,
+        agent,
+        device: deviceRef(device),
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const session = await pastSession(ctx, workspace, agent, id);
     const into =
@@ -661,7 +879,7 @@ const chatResume: CliCommand = {
         workspaceId: workspace.id,
         agent,
         sessionId: session.sessionId,
-        ...(into ? { tabId: into.id } : {}),
+        ...(into ? { tabId: into.id, emptyOnly: true } : {}),
       },
       SEND_TIMEOUT_MS,
     );
@@ -672,6 +890,76 @@ const chatResume: CliCommand = {
       agent,
       sessionId: session.sessionId,
     });
+  },
+};
+
+const chatProfiles: CliCommand = {
+  path: ["chat", "profiles"],
+  summary: "List the profiles a Claude or Codex tab can use",
+  details:
+    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.",
+  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const params = { workspaceId: workspace.id, ...(agent ? { agent } : {}) };
+    const { profiles } = device
+      ? await askPeerCli(ctx, device, "profiles.list", params)
+      : await ctx.services.ui("chat.profiles", params);
+    const rows = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
+      id,
+      name,
+      agent,
+      workspaceDefault: workspaceDefault === true,
+      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
+    }));
+    return output(
+      table(
+        ["AGENT", "NAME", "ID", "WORKSPACE DEFAULT", "PATH"],
+        rows.map((row) => [
+          row.agent,
+          row.name,
+          row.id,
+          row.workspaceDefault ? "yes" : "",
+          row.path ?? "",
+        ]),
+      ),
+      {
+        workspaceId: workspace.id,
+        profiles: rows,
+        ...(device ? { device: deviceRef(device) } : {}),
+      },
+      { records: rows },
+    );
+  },
+};
+
+const chatFiles: CliCommand = {
+  path: ["chat", "files"],
+  summary: "List file suggestions for the chat composer's @ picker",
+  args: "<tab> [query]",
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, query = "", ...extra] = positionals;
+    if (selector === undefined || extra.length) throw new CliUsageError("give <tab> [query]");
+    if (query.length > 256) throw new CliUsageError("the query is at most 256 characters");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const { paths } = await askPeerCli(ctx, device, "chat.fileSuggestions", {
+        ...target.ref,
+        query,
+      });
+      return output(paths.join("\n"), { ...target.json, paths }, { records: paths });
+    }
+    const target = await chatTarget(ctx, flags, selector);
+    const { paths } = await ctx.services.ui("chat.fileSuggestions", { ...target.ref, query });
+    return output(paths.join("\n"), { ...target.ref, paths }, { records: paths });
   },
 };
 
@@ -687,5 +975,7 @@ export const chatControlCommands: CliCommand[] = [
   chatCommandsList,
   chatCommandRun,
   chatHistory,
+  chatProfiles,
+  chatFiles,
   chatResume,
 ];

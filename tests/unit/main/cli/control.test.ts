@@ -142,33 +142,35 @@ describe("changing another workspace", () => {
     layout split codex right | layout resize 1 50 | layout even | layout close 1
     chat new | chat send eeee hi | chat interrupt eeee | chat set eeee --effort high
     chat instructions eeee --clear
-    open main.go | diff main.go | show | port forward 3000 | port unforward 3000
+    open main.go | tab new-editor | tab encoding main.go --save-as utf8 | settings instructions set workspace --clear | layout focus 1 | view open-file main.go | diff main.go | show | port forward 3000 | port unforward 3000
     agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
-    browser back | browser forward | browser reload | browser click e1 | browser hover e1
+    browser devtools | browser back | browser forward | browser reload | browser click e1 | browser hover e1
     browser drag e1 e2 | browser scroll down | browser fill e1 x | browser type x
     browser press Enter | browser upload e1 index.ts | browser eval 1
     chat unsend eeee r7 | chat edit eeee r7 x | chat rewind eeee 0 | chat fork eeee
     chat background eeee 2 | chat stop-task eeee b1 | chat remote-control eeee on
     chat command eeee compact | chat resume 5f2a | note new x | note show nmhz00cc
-    note write nmhz00cc hi | note add nmhz00cc index.ts | note record nmhz00cc`;
+    note speaker rename nmhz00cc s1 Alex | note speaker merge nmhz00cc s1 s2 | note speaker move nmhz00cc 0:1:1 1:2:1 s2 | note speaker regroup nmhz00cc --participants 2 | note voice suggestions accept nmhz00cc s1 Alex | note voice suggestions reject nmhz00cc s1 Alex | note rename nmhz00cc Review | terminal reopen gone | note write nmhz00cc hi | note add nmhz00cc index.ts | note record nmhz00cc`;
   const READS = `
-    worktree list | tab list | tab show codex | terminal list | terminal read codex
+    worktree list | tab list | tab show codex | terminal shells | terminal list | terminal read codex
     terminal wait codex --match Working | session list | events | layout show | problems
-    chat read eeee | chat tool eeee 2 | chat wait eeee | reveal main.go | port list
+    chat read eeee | chat export eeee --stdout | chat image eeee --tool t1 | chat tool eeee 2 | chat wait eeee | reveal main.go | port list
     view open codex | view split codex right | view move codex p1 | view remove codex
     panel list | panel show files | panel hide files | agent list --tab codex
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
-    browser snapshot | browser inspect e1 | browser dialog | browser screenshot
+    browser permissions | browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
-    note list | note read nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
-    chat history | chat instructions eeee --show`;
+    note list | note voice suggestions list nmhz00cc | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee | chat files eeee
+    settings lsp status | chat history | chat profiles | chat instructions eeee --show | settings instructions show`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
     panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
     page.pick page.network chat.entryItem chat.rewindPreview chat.panel chat.commands
-    chat.history`.split(/\s+/),
+    chat.history chat.image browser.permissions chat.export chat.profiles chat.fileSuggestions terminal.shells settings.instructions settings.lspStatus note.voiceSuggestions`.split(
+      /\s+/,
+    ),
   );
 
   test("every command asks before it changes another workspace, and only then", async () => {
@@ -180,7 +182,7 @@ describe("changing another workspace", () => {
     // File transfers use --workspace on the remote computer.
     const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace)
       .map((c) => c.path.join(" "))
-      .filter((p) => p !== "file pull" && p !== "file push");
+      .filter((p) => !p.startsWith("file "));
     const commandOf = (line: string) =>
       paths.filter((p) => `${line} `.startsWith(`${p} `)).sort((a, b) => b.length - a.length)[0];
     const runs = [
@@ -250,6 +252,14 @@ function apiAtWork(): FakeApp {
   ];
   app.tabs[API]?.push(
     { id: CHAT_TAB, type: "claude", title: "Fix the login", groupId: "g3", shown: false },
+    {
+      id: "dead-terminal",
+      type: "terminal",
+      title: "gone",
+      groupId: "g5",
+      shown: false,
+      dead: true,
+    },
     {
       id: WEB_TAB,
       type: "browser",

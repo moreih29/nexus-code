@@ -3,9 +3,11 @@
  * dialog shows and changes it, through the same store, which saves it.
  */
 
-import { ipcCallResult } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
+import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
 import { useAgentListViewStore } from "@/state/stores/agent-list-view";
+import { resolveWorkspaceProfile } from "@/state/stores/agent-profiles";
 import { useChatFontStore } from "@/state/stores/chat-font";
 import { useEditorFontStore } from "@/state/stores/editor-font";
 import { ICON_THEMES, useIconThemeStore } from "@/state/stores/icon-theme";
@@ -15,18 +17,24 @@ import {
   INACTIVE_PANEL_DIM_MIN,
   useInactivePanelDimStore,
 } from "@/state/stores/inactive-panel-dim";
+import { useKeybindingsStore } from "@/state/stores/keybindings";
 import { useLanguageStore } from "@/state/stores/language";
+import { useLspSettingsStore } from "@/state/stores/lsp-settings";
+import { useLspStatusStore } from "@/state/stores/lsp-status";
 import { useNotificationsStore } from "@/state/stores/notifications";
 import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
+import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
+import { instructionLayers, mergeAgentInstructions } from "../../../shared/chat/instructions";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../../../shared/i18n";
+import { EDITOR_COMMANDS } from "../../../shared/keybindings/editor-commands";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { MAX_VOICE_TERM_CHARS, MAX_VOICE_TERMS } from "../../../shared/remote/voice";
 import {
@@ -35,6 +43,7 @@ import {
   type TaskAgent,
 } from "../../../shared/sessions/task-agent";
 import { type AppState, ThemePreferenceSchema } from "../../../shared/types/app-state";
+import { LSP_MAX_ACTIVE_WORKSPACES } from "../../../shared/util/timing-constants";
 import { CHAT_FONT_SIZE, CHAT_FONT_SIZE_MAX, CHAT_FONT_SIZE_MIN } from "../chat/chat-font";
 import { builtInViewMode, PREVIEW_FORMATS } from "../editor/preview/previewable";
 import { loadShellMenu, shellNamed } from "../terminal/installed-shells";
@@ -429,6 +438,42 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     },
   },
   {
+    key: "lsp.enabled",
+    summary: "Whether language servers are enabled",
+    type: "boolean",
+    get: () => {
+      const { enabled } = useLspSettingsStore.getState().settings;
+      return { value: enabled, changed: enabled };
+    },
+  },
+  {
+    key: "lsp.maxActiveWorkspaces",
+    summary: "Maximum number of workspaces with active language servers",
+    type: "integer",
+    get: () => {
+      const { maxActiveWorkspaces } = useLspSettingsStore.getState().settings;
+      return {
+        value: maxActiveWorkspaces,
+        changed: maxActiveWorkspaces !== LSP_MAX_ACTIVE_WORKSPACES,
+      };
+    },
+  },
+  {
+    key: "updates.status",
+    summary: "The status of the latest update check or download",
+    type: "text",
+    get: () => {
+      const { status } = useUpdatesStore.getState();
+      const version =
+        status &&
+        ("version" in status ? status.version : "latest" in status ? status.latest : undefined);
+      return {
+        value: status ? [status.kind, version].filter(Boolean).join(" ") : "unchecked",
+        changed: false,
+      };
+    },
+  },
+  {
     key: "updates.autoCheck",
     summary: "Whether the app looks for updates by itself",
     type: "boolean",
@@ -526,9 +571,72 @@ const named = (key: string) => (setting: CliSetting) =>
   setting.key.toLowerCase() === key.toLowerCase();
 
 export const settingsHandlers: {
+  "settings.instructions": CliUiHandler<"settings.instructions">;
+  "settings.instructions.set": CliUiHandler<"settings.instructions.set">;
+  "settings.keys": CliUiHandler<"settings.keys">;
+  "settings.lspStatus": CliUiHandler<"settings.lspStatus">;
+  "settings.updateStatus": CliUiHandler<"settings.updateStatus">;
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
+  "settings.instructions": async ({ workspaceId, agent }) => {
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) throw new UiRequestError("that workspace is gone");
+    const { profile } = resolveWorkspaceProfile(agent, workspace, workspaces);
+    const config = useAgentInstructionsStore.getState().config;
+    const target = { agent, workspace, profile };
+    return {
+      layers: instructionLayers(config, target).flatMap(({ scope, title, text }) =>
+        scope ? [{ scope, title, text }] : [],
+      ),
+      instructions: mergeAgentInstructions(config, target),
+    };
+  },
+  "settings.instructions.set": async ({ scope, text }) => {
+    if (
+      scope.kind === "workspace" &&
+      !useWorkspacesStore.getState().workspaces.some((workspace) => workspace.id === scope.id)
+    )
+      throw new UiRequestError("that workspace is gone");
+    await saveInstructionEdits([{ scope, text }]);
+    return {};
+  },
+  "settings.lspStatus": async ({ workspaceId }) => {
+    const { enabled, maxActiveWorkspaces } = useLspSettingsStore.getState().settings;
+    const { statuses } = useLspStatusStore.getState();
+    return {
+      enabled,
+      maxActiveWorkspaces,
+      servers: Object.values(statuses)
+        .filter((server) => server.workspaceId === workspaceId)
+        .map((server) => ({ language: server.languageId, state: server.state })),
+    };
+  },
+  "settings.updateStatus": async () =>
+    unwrapIpcResult(await ipcCallResult("updates", "getStatus", undefined)),
+  "settings.keys": async () => {
+    const { effectiveBindings, editorOverrides } = useKeybindingsStore.getState();
+    return {
+      bindings: [
+        ...effectiveBindings.map(({ command, primary, chord, when }) => ({
+          command,
+          area: "app" as const,
+          primary: primary ?? null,
+          chord,
+          when,
+        })),
+        ...EDITOR_COMMANDS.map(({ id, defaultPrimary }) => {
+          const override = editorOverrides.find((item) => item.command === id)?.primary;
+          return {
+            command: id,
+            area: "editor" as const,
+            primary: override === undefined ? (defaultPrimary ?? null) : override,
+          };
+        }),
+      ],
+    };
+  },
   "settings.list": async ({ key }) => ({
     settings: await Promise.all(
       (key === undefined ? CLI_SETTINGS : CLI_SETTINGS.filter(named(key))).map(settingInfo),

@@ -320,6 +320,7 @@ export class ChatController {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /** New lines held while the log is sent again. */
   private readonly live = new LiveLines();
+  private remoteControlChange: Promise<unknown> = Promise.resolve();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
   /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
@@ -1165,7 +1166,23 @@ export class ChatController {
    * profile keeps is copied into the tab's (`--fork-session`), name and all,
    * and left as it was there.
    */
-  async resumeSession(sessionId: string, profileId?: string): Promise<void> {
+  async resumeSession(sessionId: string, profileId?: string, emptyOnly = false): Promise<void> {
+    const checkTarget = emptyOnly
+      ? () => {
+          if (profileId !== undefined && !sameProfile(profileId, this.target.profileId))
+            throw new Error("use a tab with the conversation's profile, or resume in a new tab");
+          if (
+            this.target.sessionId ||
+            this.target.fork ||
+            this.state.model.items.some(
+              (item) => item.kind === "user" || item.kind === "assistant",
+            ) ||
+            this.state.queue.length > 0 ||
+            this.transcriptPages
+          )
+            throw new Error("resume --tab requires an empty tab");
+        }
+      : undefined;
     if (this.state.model.running) throw new Error("a turn is running");
     await this.changeSession(async () => {
       const from =
@@ -1189,7 +1206,7 @@ export class ChatController {
       await this.startChangedSession(this.startArgs());
       this.publishSessionTarget();
       this.hooks.onMoves?.([]);
-    });
+    }, checkTarget);
   }
 
   /**
@@ -1225,7 +1242,10 @@ export class ChatController {
   }
 
   /** Waits for a confirmed stop before changing the session and its profile. */
-  private async changeSession(change: (shown: number) => Promise<void>): Promise<void> {
+  private async changeSession(
+    change: (shown: number) => Promise<void>,
+    checkTarget?: () => void,
+  ): Promise<void> {
     if (
       this.disposed ||
       this.changingSession ||
@@ -1238,12 +1258,14 @@ export class ChatController {
     this.changingSession = true;
     try {
       this.flushNow();
+      checkTarget?.();
       const shown = this.state.model.items.length;
       if (this.state.model.process === "running") {
         await stopChatProgram(this.target.workspaceId, this.target.tabId);
       }
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
+      checkTarget?.();
       const source = this.state;
       const transcriptSource = this.transcriptSource;
       const transcriptPages = this.transcriptPages;
@@ -1649,12 +1671,13 @@ export class ChatController {
    * Changed from another computer (`device`), it is that computer user's
    * now, no longer the agent's that sent it.
    */
-  editQueued(id: string, text: string, device?: string): boolean {
+  editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
     if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
     this.update((prev) => ({
       ...prev,
       queue: prev.queue.map((q) => {
         if (q.id !== id) return q;
+        if (from) return { ...q, text, from, device };
         if (!device) return { ...q, text };
         const { from: _agent, ...rest } = q;
         return { ...rest, text, device };
@@ -2285,11 +2308,28 @@ export class ChatController {
   }
 
   /** Turns Remote Control on or off; on, its answer has the session's URL. */
-  setRemoteControl(enabled: boolean): Promise<unknown> {
-    return this.request("remote_control", { enabled }).then((answer) => {
-      if (enabled) this.retellName();
-      return answer;
+  setRemoteControl(enabled?: boolean): Promise<{ enabled: boolean; url?: string }> {
+    const deadline = performance.now() + 45_000;
+    const change = this.remoteControlChange.then(async () => {
+      const left = deadline - performance.now();
+      if (left <= 0) throw new Error("Remote Control was not changed in time");
+      this.flushNow();
+      const next = enabled ?? this.state.model.remoteControl?.enabled !== true;
+      const answer = await this.request(
+        "remote_control",
+        { enabled: next },
+        Math.min(CONTROL_TIMEOUT_MS, left),
+      );
+      const url = next && typeof answer.session_url === "string" ? answer.session_url : undefined;
+      this.update((state) => ({
+        ...state,
+        model: { ...state.model, remoteControl: { enabled: next, sessionUrl: url } },
+      }));
+      if (next) this.retellName();
+      return { enabled: next, ...(url ? { url } : {}) };
     });
+    this.remoteControlChange = change.catch(() => {});
+    return change;
   }
 
   supports(subtype: string): boolean {

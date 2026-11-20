@@ -269,6 +269,7 @@ export function currentVoiceSuggestions(ref: RecordingRef): readonly VoiceNameSu
 export async function rejectVoiceSuggestion(
   ref: RecordingRef,
   suggestion: VoiceNameSuggestion,
+  reportFailure = false,
 ): Promise<void> {
   if (
     !currentVoiceSuggestions(ref).some(
@@ -286,7 +287,7 @@ export async function rejectVoiceSuggestion(
   updateRecording(workspaceId, noteId, recordingId, (recording) =>
     withRejectedVoiceName(recording, key, name),
   );
-  await flushTranscript(workspaceId, noteId);
+  await flushTranscript(workspaceId, noteId, false, reportFailure);
 }
 
 export async function rememberNamedVoice(
