@@ -121,6 +121,7 @@ import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cac
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { installErrorSafetyNet } from "./infra/error-safety-net";
+import { startEventLoopMonitor } from "./infra/event-loop-monitor";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
@@ -206,6 +207,7 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // does not take the first one's marker): notes a run that ended without a quit
 // line, and writes the quit line of this one.
 let currentRun: ReturnType<typeof beginRun> | null = null;
+let stopLoopMonitor: (() => void) | null = null;
 
 // Per-domain disposers wired into the workspace:removed interception below.
 // Each subsystem (fileWatcher, git*, lsp) owns its own per-workspace cleanup
@@ -510,6 +512,7 @@ updatesHandle = installUpdatesDomain({
 
 app.whenReady().then(async () => {
   currentRun = beginRun(path.join(userData, "running.json"), app.getVersion(), logger);
+  stopLoopMonitor = startEventLoopMonitor(logger);
   logger.info(
     startLine({
       version: app.getVersion(),
@@ -1025,6 +1028,7 @@ app.on("will-quit", (event) => {
   void shutDownMain()
     .catch((error) => logger.error("App shutdown failed", error))
     .finally(() => {
+      stopLoopMonitor?.();
       currentRun?.quit(logger);
       quitReady = true;
       app.quit();
