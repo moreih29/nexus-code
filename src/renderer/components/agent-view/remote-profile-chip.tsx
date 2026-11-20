@@ -92,7 +92,7 @@ export function RemoteProfileChip({
   };
 
   const chip = (
-    <span className="flex items-center gap-1">
+    <span className="flex items-center gap-1 whitespace-nowrap">
       <ProfileDot color="gray" className="size-1.5" />
       {!compact && <span className="max-w-28 truncate">{peerProfileName(name, t)}</span>}
     </span>
@@ -182,7 +182,7 @@ export function RemoteProfileChip({
                     type="button"
                     disabled={waits}
                     onClick={() => pick(other, true)}
-                    className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-40"
+                    className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro whitespace-nowrap text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-40"
                     data-testid="remote-profile-new"
                   >
                     {t("chat.profile.newChat")}

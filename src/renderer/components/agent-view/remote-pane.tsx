@@ -900,7 +900,7 @@ function RemoteChatView({
                         <button
                           type="button"
                           onClick={() => showAgent(null)}
-                          className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                          className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
                         >
                           <ArrowLeft className="size-3.5" aria-hidden />
                           {t("chat.strip.to_main")}
@@ -1250,7 +1250,7 @@ function RemoteControls({
                 <button
                   type="button"
                   onClick={onShowMain}
-                  className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                  className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
                 >
                   {t("chat.strip.to_main")}
                 </button>

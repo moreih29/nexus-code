@@ -57,7 +57,7 @@ type DeleteSession = (session: ListedSession) => Promise<void>;
 
 /** The confirm row's buttons: as tall as a row's text, their focus ring drawn inside them. */
 const CONFIRM_BUTTON_CLASS =
-  "h-6 px-2 text-app-ui-sm focus-visible:ring-0 focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground/60";
+  "h-6 shrink-0 whitespace-nowrap px-2 text-app-ui-sm focus-visible:ring-0 focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground/60";
 
 /** A Claude tab's: the sessions every Claude profile keeps of the folder. */
 export function SessionList(props: ListProps & { cwd: string }) {
@@ -198,7 +198,7 @@ export function SessionPicker({
         type="button"
         aria-expanded={false}
         onClick={() => setOpen(true)}
-        className="mt-3 flex items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+        className="mt-3 flex max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
         data-testid="chat-sessions-toggle"
       >
         <History className="size-3.5" />
@@ -224,7 +224,7 @@ export function SessionPicker({
       <h3 className="flex items-center px-2 text-app-label uppercase text-muted-foreground">
         {picking ? (
           <>
-            <span className="flex flex-1 items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
               <History className="size-3.5" />
               {query ? t("chat.sessions.title_query", { query }) : t("chat.sessions.title")}
             </span>
@@ -256,7 +256,7 @@ export function SessionPicker({
                 aria-pressed={shownProfile === id}
                 onClick={() => setOnly(id)}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-(--radius-pill) border px-2 py-px text-app-micro",
+                  "inline-flex items-center gap-1 whitespace-nowrap rounded-(--radius-pill) border px-2 py-px text-app-micro",
                   shownProfile === id
                     ? "border-foreground/40 text-foreground"
                     : "border-border text-muted-foreground hover:text-foreground",
@@ -287,7 +287,7 @@ export function SessionPicker({
               <li key={session.sessionId} className="flex items-center gap-1">
                 <fieldset
                   aria-label={t("chat.sessions.delete")}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-(--radius-control) bg-destructive/10 px-2 py-1"
+                  className="flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-(--radius-control) bg-destructive/10 px-2 py-1"
                   onKeyDown={(e) => {
                     if (e.key !== "Escape") return;
                     e.stopPropagation();
@@ -295,7 +295,7 @@ export function SessionPicker({
                   }}
                   data-testid="chat-session-delete-confirm"
                 >
-                  <span className="min-w-0 flex-1">
+                  <span className="min-w-20 flex-1">
                     <span className="block truncate text-app-body text-foreground">
                       {session.title}
                     </span>
@@ -357,7 +357,7 @@ export function SessionPicker({
                 <span className="min-w-0 flex-1 truncate text-app-body text-foreground">
                   {session.title}
                 </span>
-                <span className="shrink-0 truncate text-app-micro text-muted-foreground">
+                <span className="min-w-0 max-w-[50%] shrink truncate text-app-micro text-muted-foreground">
                   {[
                     tab ? t("chat.sessions.open") : undefined,
                     session.gitBranch,

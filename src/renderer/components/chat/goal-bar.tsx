@@ -169,13 +169,16 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   const meta = (
     <span className="flex shrink-0 items-center gap-2.5 text-app-micro text-muted-foreground">
       {status !== "active" && (
-        <span className="whitespace-nowrap" style={{ color: STATUS_COLOR[status] }}>
+        <span
+          className="whitespace-nowrap @max-[240px]:hidden"
+          style={{ color: STATUS_COLOR[status] }}
+        >
           {t(`chat.goal.status.${status}`)}
         </span>
       )}
       {seconds !== null && (
         <span
-          className="flex items-center gap-1 font-mono text-foreground tabular-nums"
+          className="flex items-center gap-1 whitespace-nowrap font-mono text-foreground tabular-nums"
           title={timeTitle}
         >
           <Clock aria-hidden className="size-3" />

@@ -4,7 +4,7 @@
  * An <iframe> (HTML preview, docx altChunk) is its own document: while the
  * cursor is over it, dragenter/dragover go to that document and never reach
  * the group's drop target, so no zone is computed and nothing can be dropped
- * there. globals.css turns off pointer events for iframes and webviews while
+ * there. globals.css turns off pointer events for iframes while
  * `data-dnd-active` is set on <html>, so the hit test lands on the group.
  *
  * The flag must never outlive the drag: it is cleared on dragend (normal end

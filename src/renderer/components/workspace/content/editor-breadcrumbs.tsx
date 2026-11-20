@@ -44,7 +44,7 @@ export function EditorBreadcrumbs({
       className="flex items-center gap-1 min-w-0 text-app-ui-sm text-muted-foreground select-none"
     >
       {dirSegments.length > 0 && (
-        <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+        <span className="flex items-center gap-1 min-w-0 shrink-[100] overflow-hidden">
           {dirSegments.map((seg, i) => (
             <Fragment key={dirSegments.slice(0, i + 1).join("/")}>
               {i > 0 && <ChevronRight className="size-3 shrink-0 opacity-60" aria-hidden="true" />}
@@ -54,7 +54,7 @@ export function EditorBreadcrumbs({
           <ChevronRight className="size-3 shrink-0 opacity-60" aria-hidden="true" />
         </span>
       )}
-      <span className="shrink-0 text-foreground">{fileName}</span>
+      <span className="min-w-0 truncate text-foreground">{fileName}</span>
     </nav>
   );
 }

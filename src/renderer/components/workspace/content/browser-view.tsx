@@ -375,7 +375,7 @@ export function BrowserTabView({
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar row — matches EditorView's toolbar tone */}
-      <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <NavControls tabId={tabId} canGoBack={canGoBack} canGoForward={canGoForward} />
         <UrlBar
           currentUrl={loadFailure?.url ?? currentUrl}
@@ -383,7 +383,7 @@ export function BrowserTabView({
           onNavigate={handleNavigate}
           autoFocus={showEmptyState}
           focusToken={urlFocusToken}
-          className="flex-1"
+          className="min-w-0 flex-1"
         />
         <PickButton tabId={tabId} workspaceId={workspaceId} />
         {/* DevTools toggle — sends `browser.openDevTools`.  Main toggles the

@@ -175,7 +175,7 @@ export function OperationBanner({
           ) : null}
         </div>
       </div>
-      <div className="mt-2 flex gap-2 pl-5">
+      <div className="mt-2 flex flex-wrap gap-2 pl-5">
         <Button
           type="button"
           size="sm"

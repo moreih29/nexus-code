@@ -73,7 +73,7 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
             useAgentViewStore.getState().updateRemoteFile(key, { compare })
           }
         />
-        <span className="shrink-0 px-1 text-app-micro text-muted-foreground">
+        <span className="min-w-0 truncate px-1 text-app-micro whitespace-nowrap text-muted-foreground">
           {t("chat.look.read_only")}
         </span>
       </div>

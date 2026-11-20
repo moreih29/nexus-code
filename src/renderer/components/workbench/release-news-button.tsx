@@ -21,9 +21,9 @@ export function ReleaseNewsButton() {
       <button
         type="button"
         onClick={() => showReleaseNotes(version)}
-        className="flex h-full items-center gap-1.5 rounded-l-full pl-2 pr-1.5 hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+        className="flex h-full items-center gap-1.5 whitespace-nowrap rounded-l-full pl-2 pr-1.5 hover:bg-[var(--state-hover-bg)] hover:text-foreground"
       >
-        <Sparkles className="size-3.5" aria-hidden="true" />
+        <Sparkles className="size-3.5 shrink-0" aria-hidden="true" />
         <span>{t("releaseNotes.news", { version })}</span>
       </button>
       <button

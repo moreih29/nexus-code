@@ -84,9 +84,11 @@ export const RecordingHeading = memo(function RecordingHeading({
           {startedAt} · {clockOf(recordingMs(recording))}
         </span>
         {live ? (
-          <span className="shrink-0 text-[var(--state-error-fg)]">{t("transcript.live")}</span>
+          <span className="shrink-0 whitespace-nowrap text-[var(--state-error-fg)]">
+            {t("transcript.live")}
+          </span>
         ) : refining ? (
-          <span className="flex shrink-0 items-center gap-1">
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
             <Loader2 className="size-3 animate-spin" aria-hidden="true" />
             {t("transcript.refining")}
           </span>

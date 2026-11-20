@@ -248,14 +248,18 @@ export function OfflinePeer({ peer }: { peer: RoomPeer }) {
   const { t } = useTranslation();
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1 text-muted-foreground"
+      className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-muted-foreground"
       data-testid="remote-peer-offline"
     >
       <ChevronRight aria-hidden className="size-3 shrink-0 opacity-40" />
       <Monitor aria-hidden className="size-3.5 shrink-0" />
-      <span className="truncate text-app-ui-sm">{peer.name}</span>
-      <span className="shrink-0 text-app-micro">{PLATFORMS[peer.platform] ?? peer.platform}</span>
-      <span className="ml-auto shrink-0 text-app-micro">{t("agentView.remote.offlineTag")}</span>
+      <span className="min-w-0 truncate text-app-ui-sm">{peer.name}</span>
+      <span className="min-w-0 truncate text-app-micro">
+        {PLATFORMS[peer.platform] ?? peer.platform}
+      </span>
+      <span className="ml-auto shrink-0 text-app-micro whitespace-nowrap">
+        {t("agentView.remote.offlineTag")}
+      </span>
     </div>
   );
 }
@@ -368,17 +372,17 @@ export function PeerGroup({
         type="button"
         aria-expanded={!folded}
         onClick={() => setFolded((f) => !f)}
-        className="flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-left hover:bg-[var(--state-hover-bg)]"
+        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-left hover:bg-[var(--state-hover-bg)]"
       >
         <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
         <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate text-app-ui-sm text-foreground">{peer.name}</span>
-        <span className="shrink-0 text-app-micro text-muted-foreground">
+        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{peer.name}</span>
+        <span className="min-w-0 truncate text-app-micro text-muted-foreground">
           {PLATFORMS[peer.platform] ?? peer.platform}
         </span>
         {/* Folded, it still tells how many sessions there are and whether one needs the user. */}
         {folded && list && (
-          <span className="ml-auto flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-app-micro whitespace-nowrap text-muted-foreground">
             {waiting > 0 && (
               <>
                 <StateGlyph state={GROUP_STATE.attention} className={GROUP_TINT.attention} />
@@ -588,7 +592,7 @@ function WorkspaceHeading({
       data-testid="remote-workspace"
     >
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-      <span className="truncate font-semibold text-app-micro text-foreground">{name}</span>
+      <span className="min-w-0 truncate font-semibold text-app-micro text-foreground">{name}</span>
       {/* The git status takes the space left by the name and controls. */}
       {stands && (
         <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
@@ -652,7 +656,7 @@ function DisclosureChip({
       onClick={toggle}
       title={label}
       aria-label={label}
-      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       data-testid={testId}
       data-workspace={workspaceId}
     >
@@ -762,7 +766,7 @@ export function RemoteSessionRow({
         <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
         <span className="sr-only">{state}</span>
         <Icon aria-hidden className="size-3 shrink-0" />
-        <span className="truncate text-app-ui-sm text-foreground">{session.title}</span>
+        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{session.title}</span>
       </span>
       {(session.waiting || session.last) && (
         <span
@@ -783,7 +787,7 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
   return (
     <span
       className={cn(
-        "flex max-w-24 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground",
+        "flex max-w-24 min-w-0 items-center gap-1 overflow-hidden rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-muted-foreground",
         className,
       )}
     >
@@ -818,7 +822,7 @@ export function RemoteTabLabel({
         <span
           role="img"
           aria-label={t(`agentView.remote.state.${target.state}`)}
-          className="inline-flex"
+          className="inline-flex shrink-0"
         >
           <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
         </span>
