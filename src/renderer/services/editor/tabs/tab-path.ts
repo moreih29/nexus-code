@@ -11,6 +11,8 @@ import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
  */
 export function normalizeFilePath(filePath: string): string {
   if (filePath === "") return ".";
+  // A Windows drive letter is case-insensitive: `c:/a` and `C:/a` are one file.
+  if (/^[a-z]:\//.test(filePath)) filePath = filePath[0].toUpperCase() + filePath.slice(1);
 
   const isAbsolute = filePath.startsWith("/");
   const hasTrailingSlash = filePath.endsWith("/");

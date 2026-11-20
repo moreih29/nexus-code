@@ -144,4 +144,13 @@ describe("chat links", () => {
     expect(baseName("/a/b/c.txt")).toBe("c.txt");
     expect(baseName("/a/b/")).toBe("b");
   });
+
+  test("a drive letter is upper case, whatever the link writes", () => {
+    const cwd = "C:/w/proj";
+    expect(resolveFilePath("c:/w/proj/docs/plan.md", cwd)).toBe("C:/w/proj/docs/plan.md");
+    expect(resolveFilePath("c:\\w\\proj\\docs\\plan.md", cwd)).toBe("C:/w/proj/docs/plan.md");
+    expect(resolveFilePath("file:///c:/w/proj/docs/plan.md", cwd)).toBe("C:/w/proj/docs/plan.md");
+    expect(resolveFilePath("c:/w/proj/docs/plan.md:3", cwd)).toBe("C:/w/proj/docs/plan.md");
+    expect(resolveFilePath("c:/w/proj/docs/plan.md", "/mac/ws")).toBe("C:/w/proj/docs/plan.md");
+  });
 });
