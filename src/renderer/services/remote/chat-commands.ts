@@ -77,7 +77,11 @@ export function chatCommandsOf(
     }));
   }
   const cli = listedCommands(model.init?.commands ?? []);
-  const own: ChatCommand[] = cli.map((c) => ({
+  // The composer's order: built-in commands, the app's own, then skills.
+  const own: ChatCommand[] = [
+    ...cli.filter((c) => c.builtin),
+    ...cli.filter((c) => !c.builtin),
+  ].map((c) => ({
     name: c.name,
     description: c.description ?? "",
     ...(SETTINGS[c.name]
@@ -94,7 +98,8 @@ export function chatCommandsOf(
       ...(c.argumentHint ? { args: c.argumentHint } : {}),
       ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
     }));
-  return [...own, ...app];
+  const builtin = own.length - cli.filter((c) => !c.builtin).length;
+  return [...own.slice(0, builtin), ...app, ...own.slice(builtin)];
 }
 
 /** The app's command a name or alias calls, of those another device may run. */

@@ -3,6 +3,7 @@ import {
   applyCompletion,
   completionAt,
   followTyped,
+  matchCommands,
   splitAttachments,
 } from "../../../../../src/renderer/services/chat/composer-input";
 
@@ -157,5 +158,54 @@ describe("composer completion", () => {
       name: "compact",
     });
     expect(done).toMatchObject({ text: "/compact ", caret: 9, open: null });
+  });
+});
+
+describe("matching commands", () => {
+  const skills = Array.from({ length: 60 }, (_, i) => ({ name: `plug:skill${i}` }));
+  const builtins = ["clear", "compact", "config", "context", "cost", "model"].map((name) => ({
+    name,
+    builtin: true,
+  }));
+  const app = [{ name: "copy", builtin: true }];
+  const all = [...skills, ...builtins, ...app];
+  const names = (list: { name: string }[]) => list.map((c) => c.name);
+
+  test("a bare / lists every command, built-ins and the app's first, order kept in each group", () => {
+    const got = names(matchCommands(all, ""));
+    expect(got).toHaveLength(all.length);
+    expect(got.slice(0, 7)).toEqual([
+      "clear",
+      "compact",
+      "config",
+      "context",
+      "cost",
+      "model",
+      "copy",
+    ]);
+    expect(got.slice(7)).toEqual(names(skills));
+  });
+
+  test("a query lists starts-with built-ins, starts-with skills, then contains", () => {
+    const list = [
+      { name: "co:skill" },
+      { name: "xx-co" },
+      { name: "compact", builtin: true },
+      { name: "yy-co", builtin: true },
+      { name: "config", builtin: true },
+    ];
+    expect(names(matchCommands(list, "co"))).toEqual([
+      "compact",
+      "config",
+      "co:skill",
+      "yy-co",
+      "xx-co",
+    ]);
+  });
+
+  test("hidden __ commands stay out", () => {
+    expect(names(matchCommands([{ name: "__x", builtin: true }, { name: "a" }], ""))).toEqual([
+      "a",
+    ]);
   });
 });

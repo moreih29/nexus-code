@@ -88,6 +88,7 @@ export function appCommandsBeside(
     aliases: c.aliases,
     argumentHint: c.argumentHint,
     description: describe(c.name),
+    builtin: true,
   }));
 }
 

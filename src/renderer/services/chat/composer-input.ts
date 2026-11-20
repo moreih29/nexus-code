@@ -78,24 +78,28 @@ export function followTyped(
   return { start: typed.start, caret };
 }
 
-/** Most commands the list shows at once. */
-export const MAX_COMMANDS = 50;
-
 /**
  * The session's commands that match what is typed: names (and aliases)
  * that start with it first, then those that contain it. The CLI's own
- * hidden ones (`__name`) are left out.
+ * hidden ones (`__name`) are left out. The list is not cut: the menu
+ * scrolls, and the commands the CLI lists after its many skills would
+ * otherwise fall off it. Built-in commands (the CLI's and the app's) come
+ * before skills within each of the two groups; each keeps the order it came in.
  */
 export function matchCommands(commands: CommandInfo[], query: string): CommandInfo[] {
   const q = query.toLowerCase();
   const visible = commands.filter((c) => !c.name.startsWith("__"));
-  if (!q) return visible.slice(0, MAX_COMMANDS);
+  const builtinFirst = (list: CommandInfo[]) => [
+    ...list.filter((c) => c.builtin),
+    ...list.filter((c) => !c.builtin),
+  ];
+  if (!q) return builtinFirst(visible);
   const names = (c: CommandInfo) => [c.name, ...(c.aliases ?? [])].map((n) => n.toLowerCase());
   const starts = visible.filter((c) => names(c).some((n) => n.startsWith(q)));
   const contains = visible.filter(
     (c) => !starts.includes(c) && names(c).some((n) => n.includes(q)),
   );
-  return [...starts, ...contains].slice(0, MAX_COMMANDS);
+  return [...builtinFirst(starts), ...builtinFirst(contains)];
 }
 
 /** A file as the CLI reads a mention of it: quoted when it has a space. */
