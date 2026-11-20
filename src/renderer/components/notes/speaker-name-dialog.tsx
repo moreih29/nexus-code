@@ -15,13 +15,12 @@ let pendingConsent: Promise<VoiceNameStatus> | undefined;
 export async function consentToVoiceMemory(): Promise<VoiceNameStatus | null> {
   const status = await loadVoiceMemory();
   if (!status?.available || status.consent !== "pending") return status;
-  const t = i18next.getFixedT(null, "notes", "voiceMemory.consent");
   pendingConsent ??= showConfirmDialog({
-    title: t("title"),
-    description: t("description"),
-    hint: t("hint"),
-    cancelLabel: t("decline"),
-    confirmLabel: t("accept"),
+    title: i18next.t("notes:voiceMemory.consent.title"),
+    description: i18next.t("notes:voiceMemory.consent.description"),
+    hint: i18next.t("notes:voiceMemory.consent.hint"),
+    cancelLabel: i18next.t("notes:voiceMemory.consent.decline"),
+    confirmLabel: i18next.t("notes:voiceMemory.consent.accept"),
   })
     .then(voiceMemoryApi.consent)
     .finally(() => {
