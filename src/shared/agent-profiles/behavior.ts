@@ -104,6 +104,8 @@ export const BehaviorFileSchema = z.object({
   values: z.record(z.string(), BehaviorValueSchema),
   /** The fields whose key has a shape this editor cannot change (a table, an array). */
   unsupported: z.array(z.string()),
+  /** Claude: the names of the user's own output styles, in the folder's output-styles. */
+  outputStyles: z.array(z.string()),
 });
 export type BehaviorFile = z.infer<typeof BehaviorFileSchema>;
 

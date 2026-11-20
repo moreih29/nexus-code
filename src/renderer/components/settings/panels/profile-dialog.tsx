@@ -39,6 +39,7 @@ import { Checkbox } from "../../ui/checkbox";
 import { Dialog } from "../../ui/dialog";
 import { DialogHeader } from "../../ui/dialog-header";
 import { twinOf } from "./agent-profiles-panel";
+import { type BehaviorSectionHandle, ProfileBehaviorSection } from "./profile-behavior-section";
 
 const inputClass = cn(
   "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
@@ -130,6 +131,7 @@ export function ProfileDialog({
   );
   const [env, setEnv] = useState(envText(profile?.env));
   const [saving, setSaving] = useState(false);
+  const behaviorRef = useRef<BehaviorSectionHandle>(null);
   const nameId = useId();
   const dirId = useId();
   const envId = useId();
@@ -177,6 +179,20 @@ export function ProfileDialog({
     parsedEnv !== null &&
     !hasReservedEnv;
 
+  /** The profile's file is its own now (copied in the link's place): it is no longer in what the profile shares. */
+  const unshared = async (file: string) => {
+    if (!profile) return;
+    const saved = profilesOf(useAgentProfilesStore.getState().config, agent).find(
+      (p) => p.id === profile.id,
+    );
+    if (!saved) return;
+    await saveProfile({
+      ...saved,
+      shared: (saved.shared ?? SHARED_BY_DEFAULT[agent]).filter((n) => n !== file),
+    });
+    setShared((prev) => prev.filter((n) => n !== file));
+  };
+
   const browse = async () => {
     const result = await ipcCallResult("dialog", "showOpenDirectory", {
       title: t("profiles.dialog.browseTitle"),
@@ -193,6 +209,11 @@ export function ProfileDialog({
     e.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
+    // The behavior file first, while the links are as they were read.
+    if (profile !== null && !(await (behaviorRef.current?.save() ?? true))) {
+      setSaving(false);
+      return;
+    }
     const next: AgentProfile = {
       id: profile?.id ?? `${agent}-${crypto.randomUUID().slice(0, 8)}`,
       agent,
@@ -344,6 +365,10 @@ export function ProfileDialog({
             </p>
           )}
         </details>
+
+        {profile !== null && (
+          <ProfileBehaviorSection profile={profile} onUnshared={unshared} handleRef={behaviorRef} />
+        )}
 
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>

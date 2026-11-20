@@ -195,6 +195,24 @@ function readFields(
   return { values, unsupported };
 }
 
+/** The names of the output styles in the folder's output-styles: a `name:` in the front matter, else the file's name. */
+async function readOutputStyles(profile: AgentProfile): Promise<string[]> {
+  if (profile.agent !== "claude") return [];
+  const dir = path.join(localProfileDir(profile), "output-styles");
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  const names: string[] = [];
+  for (const file of files.filter((f) => f.endsWith(".md")).sort()) {
+    const head = await fs
+      .readFile(path.join(dir, file), "utf8")
+      .then((t) => t.slice(0, 2000))
+      .catch(() => "");
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(head)?.[1] ?? "";
+    const named = /^name:\s*["']?(.+?)["']?\s*$/m.exec(front)?.[1];
+    names.push(named ?? file.slice(0, -3));
+  }
+  return names;
+}
+
 /** The profile's file as it is now. `prepare` first makes the folder and its links, for a profile that has them. */
 export async function readBehavior(
   profile: AgentProfile,
@@ -204,6 +222,7 @@ export async function readBehavior(
   const file = behaviorFilePath(profile);
   const text = await readText(file);
   const base = {
+    outputStyles: await readOutputStyles(profile),
     path: file,
     name: BEHAVIOR_FILE[profile.agent],
     exists: text !== null,

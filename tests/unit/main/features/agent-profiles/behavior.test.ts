@@ -79,6 +79,16 @@ describe("settings.json", () => {
     expect(got.unsupported).toEqual(["language"]);
   });
 
+  test("lists the user's own output styles by their name or file name", async () => {
+    const styles = path.join(defaultDir, "output-styles");
+    await fs.mkdir(styles);
+    await fs.writeFile(path.join(styles, "terse.md"), "---\nname: Very Terse\n---\nBe brief");
+    await fs.writeFile(path.join(styles, "plain.md"), "No front matter");
+    await fs.writeFile(path.join(styles, "notes.txt"), "not a style");
+    expect((await readBehavior(claudeProfile(""))).outputStyles).toEqual(["plain", "Very Terse"]);
+    expect((await readBehavior(codexProfile(""))).outputStyles).toEqual([]);
+  });
+
   test("changes only what was asked and keeps unknown keys, their order and the indent", async () => {
     const file = path.join(defaultDir, "settings.json");
     const before = {
