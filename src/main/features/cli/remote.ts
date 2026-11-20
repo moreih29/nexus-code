@@ -31,8 +31,8 @@ export const NOT_IN_ROOM = "this computer is not in the remote room (Settings â€
 
 /** How long a request an agent sends waits: the user there may be asked first. */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
-// General policy and individual approval can each take their full prompt window.
-const PEER_APPROVAL_MS = 2 * AGENT_CONSENT_MS + 70_000;
+// Commands whose renderer work can take 60 seconds after the approval.
+const PEER_APPLY_MS = AGENT_CONSENT_MS + 70_000;
 /** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
 // The peer may need to verify a maximum-size upload and then commit it.
@@ -157,11 +157,18 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
       if (message === "not in the room" || message === "left the room") return notInRoom();
       if (message.includes("device is not in the room")) return offline(device, now);
       if (/no answer in time/.test(message)) {
-        return new CliError(`"${device.name}" did not answer in time (${method})`, 3, {
-          error: "timeout",
-          device: ref,
-          method,
-        });
+        const outcome = (error as { data?: { outcome?: "unknown" | "rejected" } }).data?.outcome;
+        const uncertainty = outcome === "unknown" ? "; the change may have been applied" : "";
+        return new CliError(
+          `"${device.name}" did not answer in time (${method})${uncertainty}`,
+          3,
+          {
+            error: "timeout",
+            device: ref,
+            method,
+            ...(outcome ? { outcome } : {}),
+          },
+        );
       }
       return new CliError(`on "${device.name}": ${message}`, 1, {
         error: "unavailable",
@@ -267,13 +274,16 @@ export async function askDevice<M extends RpcMethod>(
           : from &&
               [
                 "chat.rewind",
+                "chat.command",
+                "chat.remoteControl",
+                "chat.send",
                 "chat.configure",
                 "chat.new",
                 "chat.profile",
                 "settings.instructions.set",
                 "notes.voiceNames.delete",
               ].includes(method)
-            ? PEER_APPROVAL_MS
+            ? PEER_APPLY_MS
             : from &&
                 !reads &&
                 (!isFileTransferMethod(method) ||
