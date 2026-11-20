@@ -408,7 +408,10 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
           throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a worktree");
         if (!(watches.controls?.() ?? controls).terminal) {
           const { tabs } = await s.ui("tabs.list", { workspaceId }).catch(unavailable);
-          if (tabs.some((tab) => tab.type === "terminal" && !tab.dead && !tab.unstarted)) {
+          if (
+            s.hasRunningTerminals?.(workspaceId) ||
+            tabs.some((tab) => tab.type === "terminal" && !tab.dead && !tab.unstarted)
+          ) {
             throw new RpcFailure(
               RpcErrorCode.Forbidden,
               "removing a worktree with running terminals requires terminal control",

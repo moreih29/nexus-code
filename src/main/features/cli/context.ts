@@ -142,6 +142,7 @@ export interface CliServices {
     workspaceId: string,
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
+  hasRunningTerminals?(workspaceId: string): boolean;
   activity(workspaceId: string, tabId: string): TabActivity | null;
   /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
   claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];

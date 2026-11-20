@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { RpcErrorCode, type RpcParams } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../cli/context";
 import { rendererRoot } from "../../cli/paths";
@@ -105,18 +106,21 @@ export async function changeAgentView(
       return services.ui("agentView.remove", change.tab).catch(unavailable);
     }
     case "openFile": {
-      const file = placeOf(workspace.rootPath, [], change.path);
+      const root = workspace.rootPath;
+      const location = structuredClone(workspace.location);
+      const file = placeOf(root, [], change.path);
       if (file.kind !== "workspace" || !file.rel)
         throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a file inside the workspace");
-      validatePathParts(workspace.rootPath, file.rel);
+      validatePathParts(root, file.rel);
       const provider = await fs?.(workspaceId).catch(unavailable);
       if (!provider?.readRangeNoLinks)
         throw new RpcFailure(RpcErrorCode.Unavailable, "secure file reads are unavailable");
       const verified = await provider.readRangeNoLinks(file.rel, 0, 0).catch(unavailable);
       if (verified.kind !== "ok") throw new RpcFailure(RpcErrorCode.NotFound, "no such file");
-      if (checkedWorkspace(services, workspaceId).rootPath !== workspace.rootPath)
+      const current = checkedWorkspace(services, workspaceId);
+      if (current.rootPath !== root || !isDeepStrictEqual(current.location, location))
         throw new RpcFailure(RpcErrorCode.NotFound, "the workspace moved");
-      guardPeerViewFile(workspaceId, workspace.rootPath, file.rel);
+      guardPeerViewFile(workspaceId, root, file.rel);
       return services
         .ui("agentView.openFile", {
           workspaceId,

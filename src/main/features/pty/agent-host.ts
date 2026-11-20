@@ -435,6 +435,12 @@ class AgentPtyHostHandle implements PtyHostHandle {
     this.emitExit(workspaceId, tabId, null);
   }
 
+  hasWorkspaceSessions(workspaceId: string): boolean {
+    if (this.sessionsByWorkspace.get(workspaceId)?.size) return true;
+    const prefix = sessionKey(workspaceId, "");
+    return [...this.spawning].some((key) => key.startsWith(prefix));
+  }
+
   /**
    * Terminates all active PTY sessions for the given workspace by emitting
    * pty.exit events. Called from `WorkspaceManager.remove()` *before* the

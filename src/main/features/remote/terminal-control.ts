@@ -32,7 +32,11 @@ export async function inputTerminal(
   await tabOf(services, workspaceId, tabId, ["terminal"]);
   const at = now();
   const type = (typed: string, mode: "paste" | "keys", andEnter: boolean) => {
-    if (from && services.claudeStatus(workspaceId, tabId)?.status === "permissionPending") {
+    if (
+      from &&
+      (services.claudeStatus(workspaceId, tabId)?.status === "permissionPending" ||
+        services.claudeAsks(workspaceId, tabId).length > 0)
+    ) {
       throw new RpcFailure(
         RpcErrorCode.Forbidden,
         "that request is for the user to answer in the app",

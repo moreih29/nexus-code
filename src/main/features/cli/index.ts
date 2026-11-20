@@ -71,7 +71,10 @@ export interface SetupCliFeatureOptions {
    * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
    * asks a terminal's agent which program holds its foreground.
    */
-  agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
+  agentHost: ActivitySource & {
+    call(method: string, args: unknown): Promise<unknown>;
+    hasWorkspaceSessions?(workspaceId: string): boolean;
+  };
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: {
@@ -277,6 +280,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),
+    hasRunningTerminals: options.agentHost.hasWorkspaceSessions?.bind(options.agentHost),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
     claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
