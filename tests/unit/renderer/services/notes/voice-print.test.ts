@@ -96,6 +96,20 @@ describe("VoiceTracker", () => {
     expect(asked.length).toBe(1);
   });
 
+  test("keeps the selected cap across periodic regrouping and takes", async () => {
+    tracker = new VoiceTracker(2);
+    tracker.startTake();
+    expect(await say(1, 4)).toBe("1");
+    expect(await say(2, 4)).toBe("2");
+    await say(3, 9);
+    tracker.startTake();
+    takeStart = 20_000;
+    heardMs = 0;
+    await say(4, 4);
+    expect(new Set(lines.values()).size).toBe(2);
+    expect(new Set(tracker.regroup({}).values()).size).toBe(2);
+  });
+
   test("moves only the line the user moved, and keeps it there", async () => {
     await say(1, 4);
     await say(2, 4);

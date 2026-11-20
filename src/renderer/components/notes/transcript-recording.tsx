@@ -95,6 +95,13 @@ export const RecordingHeading = memo(function RecordingHeading({
         ) : refined ? (
           <span className="shrink-0">{t("transcript.refined")}</span>
         ) : null}
+        {recording.participantCount !== undefined && recording.participantCount !== "auto" && (
+          <span className="shrink-0 whitespace-nowrap">
+            {recording.participantCount === "7+"
+              ? t("transcript.participantsMany")
+              : t("transcript.participants", { count: recording.participantCount })}
+          </span>
+        )}
         {!live && (
           <DropdownMenuRoot>
             <DropdownMenuTrigger>

@@ -14,6 +14,7 @@ import { create } from "zustand";
 import {
   movedLines,
   numberSpeakers,
+  type ParticipantCount,
   peopleIn,
   speakerKey,
   type TranscriptLine,
@@ -86,6 +87,7 @@ interface Active {
   noteId: string;
   recordingId: string;
   language: string;
+  participantCount: ParticipantCount;
   /** The take being recorded (0-based); -1 before the first. */
   take: number;
   stream: MediaStream | null;
@@ -266,6 +268,7 @@ export async function startRecording(
   workspaceId: string,
   noteId: string,
   language: string,
+  participantCount: ParticipantCount = "auto",
 ): Promise<void> {
   const a = active;
   if (a) {
@@ -284,6 +287,7 @@ export async function startRecording(
     noteId,
     recordingId,
     language,
+    participantCount,
     take: -1,
     stream: null,
     capture: null,
@@ -305,7 +309,15 @@ export async function startRecording(
     ...file,
     recordings: [
       ...file.recordings,
-      { id: recordingId, startedAt: Date.now(), language, takes: [], speakers: {}, lines: [] },
+      {
+        id: recordingId,
+        startedAt: Date.now(),
+        language,
+        participantCount: "auto",
+        takes: [],
+        speakers: {},
+        lines: [],
+      },
     ],
   }));
   if (!(await startTake(mine))) {
@@ -363,8 +375,9 @@ async function startTake(a: Active): Promise<boolean> {
   // The first take finds out whether the app can tell the voices apart; the recording keys its
   // voices so from its first line on.
   if (a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint) && active === a) {
-    a.voices = new VoiceTracker();
-    update((r) => ({ ...r, voicePrint: true }));
+    const count = a.participantCount;
+    a.voices = new VoiceTracker(typeof count === "number" ? count : undefined);
+    update((r) => ({ ...r, voicePrint: true, participantCount: count }));
   }
   const voices = a.voices;
   voices?.startTake();

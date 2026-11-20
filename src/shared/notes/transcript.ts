@@ -26,6 +26,15 @@ export const RECORDING_ID_RE = /^r[0-9a-z]{6,12}[0-9a-f]{4}$/;
 /** A take's audio, by place in the note's folder. */
 export const TAKE_FILE_RE = /^recordings\/r[0-9a-z]{6,12}[0-9a-f]{4}-\d{1,3}\.(webm|ogg)$/;
 
+export const ParticipantCountSchema = z.union([
+  z.literal("auto"),
+  z.literal("7+"),
+  z.number().int().positive(),
+]);
+export type ParticipantCount = z.infer<typeof ParticipantCountSchema>;
+
+export const PARTICIPANT_OPTIONS = ["auto", 2, 3, 4, 5, 6, "7+"] as const;
+
 /** One stretch of one voice's words. Times are from the recording's start, in ms. */
 export const TranscriptLineSchema = z.object({
   speaker: z.string().min(1).max(40),
@@ -70,6 +79,8 @@ export const TranscriptRecordingSchema = z.object({
   audioRemoved: z.boolean().optional(),
   /** Its voices were told apart by voice print: keyed for the whole recording. */
   voicePrint: z.boolean().optional(),
+  /** A participant count selected for this recording. Older recordings default to Auto. */
+  participantCount: ParticipantCountSchema.optional(),
   /** Display numbers once the recording ends. Keys still identify the original voices. */
   speakerNumbers: z.record(z.string(), z.string()).optional(),
 });
@@ -236,13 +247,22 @@ function withSecondPassByVoice(
   const old = recording.lines.filter(inTake);
   const rest = recording.lines.filter((l) => !inTake(l));
   // A take the live session heard nothing in: the pass's labels, as new voices.
-  const taken = new Set(recording.lines.map((l) => l.speaker));
+  const taken = new Set([
+    ...recording.lines.map((l) => l.speaker),
+    ...Object.keys(recording.speakers),
+  ]);
+  const limit =
+    typeof recording.participantCount === "number" ? recording.participantCount : undefined;
+  const existing = new Set(recording.lines.map((l) => l.speaker));
   const byLabel = new Map<string, string>();
   const keyOfLabel = (label: string) => {
     let key = byLabel.get(label);
     if (!key) {
-      key = nextVoiceKey(taken);
+      key =
+        limit !== undefined && existing.size >= limit ? existing.values().next().value : undefined;
+      key ??= nextVoiceKey(taken);
       taken.add(key);
+      existing.add(key);
       byLabel.set(label, key);
     }
     return key;
@@ -253,34 +273,34 @@ function withSecondPassByVoice(
       const startMs = t.offsetMs + s.startMs;
       const endMs = t.offsetMs + s.endMs;
       const shared = new Map<string, number>();
-      let pinned = false;
+      const pinned = new Map<string, number>();
       let near: TranscriptLine | null = null;
       for (const l of old) {
         const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
-        if (ms > 0) shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
+        if (ms > 0) {
+          shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
+          if (l.pinned) pinned.set(l.speaker, (pinned.get(l.speaker) ?? 0) + ms);
+        }
         const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
         if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
           near = l;
       }
       let speaker = "";
       let most = 0;
-      for (const [key, ms] of shared) {
+      for (const [key, ms] of pinned.size ? pinned : shared) {
         if (ms > most) {
           most = ms;
           speaker = key;
         }
       }
       speaker ||= near?.speaker ?? keyOfLabel(s.speaker);
-      // A line the user moved stays moved: the new lines over it go with it.
-      for (const l of old) {
-        if (
-          l.pinned &&
-          l.speaker === speaker &&
-          Math.min(endMs, l.endMs) > Math.max(startMs, l.startMs)
-        )
-          pinned = true;
-      }
-      return { speaker, startMs, endMs, text: s.text.trim(), ...(pinned ? { pinned } : {}) };
+      return {
+        speaker,
+        startMs,
+        endMs,
+        text: s.text.trim(),
+        ...(pinned.size ? { pinned: true } : {}),
+      };
     });
   return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
 }

@@ -67,6 +67,24 @@ describe("a note's transcript", () => {
     expect(TAKE_FILE_RE.test("recordings/../note.json")).toBe(false);
   });
 
+  test.each([
+    ["auto", 3],
+    ["7+", 3],
+    [2, 2],
+  ] as const)("applies participant selection %s when a take has only second-pass labels", (participantCount, count) => {
+    const old = recording({ voicePrint: true, participantCount, lines: [] });
+    const next = withSecondPass(old, 0, [
+      line("a", 0, 1000, "a"),
+      line("b", 1000, 2000, "b"),
+      line("c", 2000, 3000, "c"),
+    ]);
+    expect(peopleIn(next)).toBe(count);
+    expect(
+      TranscriptFileSchema.parse({ version: 1, recordings: [next] }).recordings[0]
+        ?.participantCount,
+    ).toBe(participantCount);
+  });
+
   test("counts people by name: two voices given one name are one person", () => {
     const r = recording({
       lines: [line("1", 0, 1000, "a"), line("2", 1000, 2000, "b"), line("2.1", 70000, 71000, "c")],

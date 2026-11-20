@@ -106,6 +106,8 @@
   },
   "recorder": {
     "record": "녹음",
+    "participants": "참석자",
+    "participantsAuto": "자동",
     "recordHint": "이 노트에 녹음합니다. 말한 내용은 오른쪽 원문 칸에 쌓입니다.",
     "pause": "일시정지",
     "resume": "이어서 녹음",
@@ -145,6 +147,8 @@
     "namePlaceholder": "이름",
     "insert": "노트에 인용으로 넣기",
     "live": "녹음 중",
+    "participants": "참석자 {{count}}명",
+    "participantsMany": "참석자 7명 이상",
     "refining": "다시 받아쓰는 중",
     "refined": "다시 받아씀",
     "refine": "다시 받아쓰기",

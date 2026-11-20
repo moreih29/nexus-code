@@ -38,6 +38,50 @@ describe("voices", () => {
     expect(liveVoice(sums, { vector: null, ms: 500 }, ["1", "2"], "1")).toBe("1");
   });
 
+  test.each([
+    [undefined, "3"],
+    [2, "1"],
+    [3, "3"],
+  ] as const)("uses the nearest live voice at the selected cap %s", (target, expected) => {
+    const sums = voiceSums([sample(0, "1"), sample(1, "2")]);
+    expect(
+      liveVoice(
+        sums,
+        { vector: voice(0, 1.3).map((v, i) => (i === 1 ? 0 : v)), ms: 4000 },
+        ["1", "2"],
+        "2",
+        target,
+      ),
+    ).toBe(expected);
+  });
+
+  test.each([
+    [2, {}, 2],
+    [3, {}, 3],
+    [1, { "1": "A", "2": "B", "3": "C" }, 3],
+  ] as const)("clusters to %i voices while preserving protected people", (target, names, count) => {
+    const samples = [sample(0, "1"), sample(1, "2"), sample(2, "3")];
+    const withoutVector = { at: (samples[0] as VoiceSample).at + 1, ms: 200, key: "4" };
+    const short = sample(0, "5", { ms: 900 });
+    const keys = regroupVoices({
+      samples: [...samples, short],
+      lines: [...samples, short, withoutVector],
+      names,
+      target,
+    });
+    expect(new Set(keys.values()).size).toBe(count);
+    if (Object.keys(names).length)
+      expect(samples.map((s) => keys.get(s.at))).toEqual(["1", "2", "3"]);
+  });
+
+  test("uses a protected slot for a pinned line without a voice print", () => {
+    const samples = [sample(0, "1"), sample(1, "2")];
+    const pinned = { at: 1, ms: 150, key: "3", pinned: true };
+    const keys = regroupVoices({ samples, lines: [pinned, ...samples], names: {}, target: 2 });
+    expect(keys.get(pinned.at)).toBe("3");
+    expect(new Set(keys.values()).size).toBe(2);
+  });
+
   test("groups lines whose voices are alike, keeping the key most of them had", () => {
     // The live session put one of A's lines under B's key and two of B's under A's.
     const samples = [

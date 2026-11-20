@@ -31,18 +31,25 @@ export const NEW_VOICE_MS = 3000;
 export const SMALL_GROUP = 4;
 /** How alike a small group must be to join another. */
 export const SMALL_MATCH = 0.3;
+/** The anchor and live thresholds when the participant count is known. */
+export const COUNTED_GROUP_MIN_MS = 2000;
+const COUNTED_LIVE_MATCH = 0.45;
+const COUNTED_NEW_VOICE_MS = 2200;
 
-/** A line's voice print. */
-export interface VoiceSample {
+export interface VoiceLine {
   /** The line's start in the recording (ms): which line it is. */
   at: number;
   /** How long the line is (ms). */
   ms: number;
-  vector: ArrayLike<number>;
   /** The voice the line has now. */
   key: string;
   /** The user moved the line to its voice. */
   pinned?: boolean;
+}
+
+/** A line with a voice print. */
+export interface VoiceSample extends VoiceLine {
+  vector: ArrayLike<number>;
 }
 
 function dot(a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -72,10 +79,11 @@ function personOf(names: Readonly<Record<string, string>>, key: string): string 
 /** The voices' lines' vectors added up, and how many, by key: what a line as it comes is matched against. */
 export function voiceSums(
   samples: readonly VoiceSample[],
+  groupMinMs = GROUP_MIN_MS,
 ): Map<string, { sum: Float64Array; count: number }> {
   const out = new Map<string, { sum: Float64Array; count: number }>();
   for (const s of samples) {
-    if (s.ms < GROUP_MIN_MS && !s.pinned) continue;
+    if (s.ms < groupMinMs && !s.pinned) continue;
     let v = out.get(s.key);
     if (!v) {
       v = { sum: new Float64Array(s.vector.length), count: 0 };
@@ -111,13 +119,21 @@ export function liveVoice(
   sample: { vector: ArrayLike<number> | null; ms: number },
   taken: Iterable<string>,
   fallback: string | null,
+  target?: number,
+  names: Readonly<Record<string, string>> = {},
 ): string {
   const near = sample.vector ? nearestVoice(sums, sample.vector) : null;
-  if (near && near.similarity >= LIVE_MATCH) return near.key;
+  const counted = target !== undefined;
+  const keys = new Set(taken);
+  if (counted && new Set([...keys].map((key) => personOf(names, key))).size >= target) {
+    return near?.key ?? fallback ?? keys.values().next().value ?? nextVoiceKey(keys);
+  }
+  if (near && near.similarity >= (counted ? COUNTED_LIVE_MATCH : LIVE_MATCH)) return near.key;
   if (!near && fallback) return fallback;
-  if (sample.vector && sample.ms >= NEW_VOICE_MS) return nextVoiceKey(taken);
+  if (sample.vector && sample.ms >= (counted ? COUNTED_NEW_VOICE_MS : NEW_VOICE_MS))
+    return nextVoiceKey(keys);
   if (near && near.similarity >= SHORT_MATCH) return near.key;
-  return fallback ?? nextVoiceKey(taken);
+  return fallback ?? (counted ? near?.key : null) ?? nextVoiceKey(keys);
 }
 
 interface Cluster {
@@ -141,9 +157,25 @@ export function regroupVoices(input: {
   samples: readonly VoiceSample[];
   names: Readonly<Record<string, string>>;
   sameVoice?: number;
+  /** The full set of assigned lines, including those without a voice print. */
+  lines?: readonly VoiceLine[];
+  target?: number;
 }): Map<number, string> {
   const { samples, names } = input;
   const threshold = input.sameVoice ?? SAME_VOICE;
+  const counted = input.target !== undefined;
+  const lines = input.lines ?? samples;
+  const protectedKeys = new Map<string, string>();
+  for (const line of lines) {
+    if (!line.pinned && !names[line.key]?.trim()) continue;
+    const person = personOf(names, line.key);
+    if (!protectedKeys.has(person)) protectedKeys.set(person, line.key);
+  }
+  const limit = Math.max(input.target ?? 0, protectedKeys.size);
+  const protectedPerson = (line: VoiceLine) =>
+    line.pinned || names[line.key]?.trim() ? personOf(names, line.key) : null;
+  const minMs = counted ? COUNTED_GROUP_MIN_MS : GROUP_MIN_MS;
+  const useShortAnchors = counted && !samples.some((s) => s.ms >= minMs);
   // The units grouped: each long sample, and the pinned lines of one person together.
   const units: {
     vectorSum: Float64Array;
@@ -165,18 +197,18 @@ export function regroupVoices(input: {
   };
   const short: number[] = [];
   samples.forEach((s, i) => {
-    if (s.pinned) {
-      const unit = unitOf(personOf(names, s.key));
-      addInto(unit.vectorSum, s.vector);
-      unit.count += 1;
-      unit.members.push(i);
-    } else if (s.ms >= GROUP_MIN_MS) {
-      const unit = unitOf(null);
-      addInto(unit.vectorSum, s.vector);
-      unit.count += 1;
-      unit.members.push(i);
-    } else short.push(i);
+    const person = protectedPerson(s);
+    if (person === null && s.ms < minMs && !useShortAnchors) {
+      short.push(i);
+      return;
+    }
+    const unit = unitOf(person);
+    addInto(unit.vectorSum, s.vector);
+    unit.count += 1;
+    unit.members.push(i);
   });
+  // A protected voice without a print still takes a place in the count.
+  if (counted) for (const person of protectedKeys.keys()) unitOf(person);
 
   // Average linkage over the units: the similarity of two groups is the mean
   // cosine of their lines', which their summed vectors give (sumA·sumB / nA·nB).
@@ -191,9 +223,8 @@ export function regroupVoices(input: {
   const sim = new Float64Array(n * n);
   for (let a = 0; a < n; a++) {
     for (let b = a + 1; b < n; b++) {
-      const v =
-        dot(sums[a] as Float64Array, sums[b] as Float64Array) /
-        ((units[a] as (typeof units)[number]).count * (units[b] as (typeof units)[number]).count);
+      const weight = (clusters[a] as Cluster).weight * (clusters[b] as Cluster).weight;
+      const v = weight ? dot(sums[a] as Float64Array, sums[b] as Float64Array) / weight : -1;
       sim[a * n + b] = v;
       sim[b * n + a] = v;
     }
@@ -219,7 +250,7 @@ export function regroupVoices(input: {
     }
   };
   for (let a = 0; a < n; a++) findBest(a);
-  for (;;) {
+  for (let remaining = n; !counted || remaining > limit; remaining--) {
     let a = -1;
     for (let i = 0; i < n; i++) {
       if (
@@ -229,16 +260,17 @@ export function regroupVoices(input: {
       )
         a = i;
     }
-    if (a === -1 || (bestSim[a] as number) < threshold) break;
+    if (a === -1 || (!counted && (bestSim[a] as number) < threshold)) break;
     const b = best[a] as number;
     const ca = clusters[a] as Cluster;
     const cb = clusters[b] as Cluster;
     // b into a.
     for (let c = 0; c < n; c++) {
       if (c === a || c === b || !(clusters[c] as Cluster).alive) continue;
-      const v =
-        ((sim[a * n + c] as number) * ca.weight + (sim[b * n + c] as number) * cb.weight) /
-        (ca.weight + cb.weight);
+      const weight = ca.weight + cb.weight;
+      const v = weight
+        ? ((sim[a * n + c] as number) * ca.weight + (sim[b * n + c] as number) * cb.weight) / weight
+        : -1;
       sim[a * n + c] = v;
       sim[c * n + a] = v;
     }
@@ -263,7 +295,7 @@ export function regroupVoices(input: {
   // A few lines alone are more likely a voice heard badly than a person: they join the
   // nearest group when alike enough, smallest first.
   const small = (g: (typeof groups)[number]) => g.pinned === null && g.members.length < SMALL_GROUP;
-  for (const g of [...groups].sort((x, y) => x.weight - y.weight)) {
+  for (const g of counted ? [] : [...groups].sort((x, y) => x.weight - y.weight)) {
     if (!g.alive || !small(g)) continue;
     let into: (typeof groups)[number] | null = null;
     let most = SMALL_MATCH;
@@ -297,14 +329,23 @@ export function regroupVoices(input: {
   });
   votes.sort((x, y) => y.weight - x.weight);
   const keyOfGroup = new Map<number, string>();
-  const used = new Set<string>();
+  const namedKeys = Object.keys(names).filter((key) => names[key]?.trim());
+  const used = new Set(namedKeys);
+  if (counted) {
+    for (const line of lines) if (line.pinned) used.add(line.key);
+  }
+  groups.forEach((g, gi) => {
+    if (g.pinned === null || (!counted && !g.pinned.startsWith("name:"))) return;
+    const key = protectedKeys.get(g.pinned);
+    if (key !== undefined) keyOfGroup.set(gi, key);
+  });
   for (const v of votes) {
     if (keyOfGroup.has(v.group) || used.has(v.key)) continue;
     keyOfGroup.set(v.group, v.key);
     used.add(v.key);
   }
   // A group left without one goes with the person its moved lines were moved to, or is new.
-  const taken = new Set([...samples.map((s) => s.key), ...Object.keys(names)]);
+  const taken = new Set([...lines.map((s) => s.key), ...Object.keys(names)]);
   groups.forEach((g, gi) => {
     if (keyOfGroup.has(gi)) return;
     const moved = new Map<string, number>();
@@ -333,13 +374,14 @@ export function regroupVoices(input: {
     for (const m of g.members) keys.set((samples[m] as VoiceSample).at, key);
   });
   // Pinned lines keep their voice whatever their group's key.
-  for (const s of samples) if (s.pinned) keys.set(s.at, s.key);
+  for (const s of lines) if (protectedPerson(s) !== null) keys.set(s.at, s.key);
   // Short lines join the nearest group when alike enough; else they keep their voice.
   for (const i of short) {
     const s = samples[i] as VoiceSample;
     let bestKey: string | null = null;
-    let most = SHORT_MATCH;
+    let most = counted ? Number.NEGATIVE_INFINITY : SHORT_MATCH;
     groups.forEach((g, gi) => {
+      if (!g.weight) return;
       const v = dot(g.sum, s.vector) / g.weight;
       if (v >= most) {
         most = v;
@@ -347,6 +389,25 @@ export function regroupVoices(input: {
       }
     });
     keys.set(s.at, bestKey ?? s.key);
+  }
+  if (counted) {
+    // Where there is no print, keep a supported assignment or follow the closest anchor in time.
+    const anchors = groups.flatMap((g) => g.members.map((m) => samples[m] as VoiceSample));
+    const supported = new Set([...keyOfGroup.values(), ...protectedKeys.values()]);
+    const fallback = anchors[0]?.key ?? supported.values().next().value ?? lines[0]?.key;
+    for (const line of lines) {
+      if (keys.has(line.at) || supported.has(line.key)) continue;
+      let nearest: string | undefined = fallback;
+      let distance = Number.POSITIVE_INFINITY;
+      const mid = line.at + line.ms / 2;
+      for (const anchor of anchors) {
+        const delta = Math.abs(mid - (anchor.at + anchor.ms / 2));
+        if (delta >= distance) continue;
+        distance = delta;
+        nearest = keys.get(anchor.at);
+      }
+      if (nearest !== undefined) keys.set(line.at, nearest);
+    }
   }
   return keys;
 }

@@ -106,6 +106,8 @@
   },
   "recorder": {
     "record": "Record",
+    "participants": "Participants",
+    "participantsAuto": "Auto",
     "recordHint": "Record into this note. What is said goes into the transcript beside it.",
     "pause": "Pause",
     "resume": "Resume recording",
@@ -145,6 +147,9 @@
     "namePlaceholder": "Name",
     "insert": "Quote in the note",
     "live": "Recording",
+    "participants_one": "{{count}} participant",
+    "participants_other": "{{count}} participants",
+    "participantsMany": "7+ participants",
     "refining": "Transcribing again",
     "refined": "Transcribed again",
     "refine": "Transcribe again",
