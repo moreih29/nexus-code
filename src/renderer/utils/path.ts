@@ -1,3 +1,5 @@
+import { isDrivePath, toSlashPath } from "../../shared/fs/drive-path";
+
 export { isWithinWorkspace } from "../../shared/fs/workspace-path";
 
 // Tiny path helpers for renderer code that already speaks in absolute
@@ -41,4 +43,19 @@ export function shownPath(path: string, cwd: string): string {
   const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
   const rel = relPath(slashed, base);
   return rel && rel !== slashed ? rel : path;
+}
+
+/** Path text split so a narrow toolbar can truncate the directory first. */
+export function workspacePathParts(filePath: string, workspaceRoot: string) {
+  const path = toSlashPath(filePath);
+  const root = toSlashPath(workspaceRoot).replace(/\/+$/, "");
+  const prefix = `${root}/`;
+  const inside =
+    workspaceRoot !== "" &&
+    (isDrivePath(path)
+      ? path.toLowerCase().startsWith(prefix.toLowerCase())
+      : path.startsWith(prefix));
+  const shown = inside ? path.slice(prefix.length) : path;
+  const separator = shown.lastIndexOf("/") + 1;
+  return { directory: shown.slice(0, separator), fileName: shown.slice(separator) };
 }

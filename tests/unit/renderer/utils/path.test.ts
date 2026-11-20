@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { isWithinWorkspace, shownPath } from "../../../../src/renderer/utils/path";
+import {
+  isWithinWorkspace,
+  shownPath,
+  workspacePathParts,
+} from "../../../../src/renderer/utils/path";
 
 describe("isWithinWorkspace", () => {
   it("1. file inside workspace → true", () => {
@@ -49,5 +53,19 @@ describe("shownPath", () => {
   it("leaves a file outside the folder as written", () => {
     expect(shownPath("D:\\other\\b.ts", "C:\\work\\demo")).toBe("D:\\other\\b.ts");
     expect(shownPath("/tmp/x", "/Users/me/app")).toBe("/tmp/x");
+  });
+});
+
+describe("workspacePathParts", () => {
+  it.each([
+    ["/work/docs/plan.md", "/work/", "docs/", "plan.md"],
+    ["/work/plan.md", "/work", "", "plan.md"],
+    ["/work/plan.md", "/", "work/", "plan.md"],
+    ["/work-old/plan.md", "/work", "/work-old/", "plan.md"],
+    ["/plan.md", "", "/", "plan.md"],
+    ["c:\\Work\\docs\\plan.md", "C:/work/", "docs/", "plan.md"],
+    ["D:\\Work\\plan.md", "C:/Work", "D:/Work/", "plan.md"],
+  ])("splits %s against %s", (path, root, directory, fileName) => {
+    expect(workspacePathParts(path, root)).toEqual({ directory, fileName });
   });
 });

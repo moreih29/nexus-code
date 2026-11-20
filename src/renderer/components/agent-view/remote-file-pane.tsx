@@ -7,6 +7,7 @@ import { peerChatFiles, usePeerChatAccess } from "../../services/remote/peer-cha
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useAgentViewStore } from "../../state/stores/agent-view";
+import { workspacePathParts } from "../../utils/path";
 import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-look";
 
 export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
@@ -15,6 +16,7 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
   const key = remoteFileKey(file);
   const details = useAgentViewStore((s) => s.remoteFiles.get(key));
   const { at, before, compareFrom, mode, compare, workspaceRoot = "" } = details ?? {};
+  const { directory, fileName } = workspacePathParts(path, workspaceRoot);
   const view = useFileLookView(path, { at, before, mode, compare });
   const access = usePeerChatAccess(deviceId, true);
   const files = useMemo(
@@ -55,9 +57,14 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
       data-testid="agent-remote-file"
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
-        <span className="min-w-0 flex-1 truncate text-app-ui-sm" title={path}>
-          {path}
-        </span>
+        <nav
+          aria-label={t("editor.file_path")}
+          title={path}
+          className="flex min-w-0 flex-1 text-app-ui-sm"
+        >
+          <span className="min-w-0 truncate text-muted-foreground">{directory}</span>
+          <span className="max-w-full shrink-0 truncate">{fileName}</span>
+        </nav>
         <FileLookControls
           path={path}
           view={view}
