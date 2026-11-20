@@ -1,18 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Shims
-// ---------------------------------------------------------------------------
-
-(globalThis as Record<string, unknown>).window = {
-  ipc: {
-    call: () => Promise.resolve(null),
-    listen: () => {},
-    off: () => {},
-  },
-};
-
-// ---------------------------------------------------------------------------
 // Mock ipcCallResult
 // ---------------------------------------------------------------------------
 
@@ -40,8 +28,16 @@ import {
 import { handleFsChanged, useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../src/shared/fs/types";
 
-// A save left pending would fire into the next test file, after its window is gone.
-afterEach(__cancelPendingSavesForTests);
+beforeEach(() => {
+  useFilesStore.setState(useFilesStore.getInitialState());
+  mockIpcCallResult.mockClear();
+});
+
+afterEach(() => {
+  // A save left pending could fire into the next test file's IPC bridge.
+  __cancelPendingSavesForTests();
+  useFilesStore.setState(useFilesStore.getInitialState());
+});
 
 // ---------------------------------------------------------------------------
 // Constants & helpers
@@ -52,11 +48,6 @@ const ROOT = "/test/workspace";
 
 function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
   return { name, type };
-}
-
-function resetStore() {
-  useFilesStore.setState({ trees: new Map(), selection: new Map() });
-  mockIpcCallResult.mockClear();
 }
 
 function setupReaddir(responses: Record<string, DirEntry[]>) {
@@ -76,8 +67,6 @@ function setupReaddir(responses: Record<string, DirEntry[]>) {
 // ---------------------------------------------------------------------------
 
 describe("ensureRoot: initializes tree and calls IPC", () => {
-  beforeEach(resetStore);
-
   it("prunes persisted rels whose fs.watch returns NOT_FOUND (stale-row cleanup)", async () => {
     // Scenario: previous session persisted three expanded paths. The user
     // deleted "stale" externally between sessions, so its watch fails
@@ -215,8 +204,6 @@ async function flush(): Promise<void> {
 }
 
 describe("panel directory watches", () => {
-  beforeEach(resetStore);
-
   it("watches a collapsed directory once for multiple panels without expanding the tree", async () => {
     setupReaddir({ "": [dirEntry("collapsed", "dir")] });
     await ensureRoot(WS_ID, ROOT);
@@ -225,24 +212,27 @@ describe("panel directory watches", () => {
 
     const first = retainPanelDirectoryWatch(WS_ID, "collapsed");
     const second = retainPanelDirectoryWatch(WS_ID, "collapsed");
-    expect(await first.ready).toBe(true);
-    expect(await second.ready).toBe(true);
-    expect(mockIpcCallResult.mock.calls).toEqual([["fs", "watch", args]]);
-    expect(useFilesStore.getState().trees.get(WS_ID)?.expanded.has(`${ROOT}/collapsed`)).toBe(
-      false,
-    );
+    let unwatchCallsAfterFirstRelease: ReturnType<typeof callsOf>;
+    try {
+      expect(await first.ready).toBe(true);
+      expect(await second.ready).toBe(true);
+      expect(mockIpcCallResult.mock.calls).toEqual([["fs", "watch", args]]);
+      expect(useFilesStore.getState().trees.get(WS_ID)?.expanded.has(`${ROOT}/collapsed`)).toBe(
+        false,
+      );
+    } finally {
+      first.release();
+      unwatchCallsAfterFirstRelease = callsOf("unwatch");
+      second.release();
+      await flush();
+    }
 
-    first.release();
-    expect(callsOf("unwatch")).toEqual([]);
-    second.release();
-    await flush();
+    expect(unwatchCallsAfterFirstRelease).toEqual([]);
     expect(callsOf("unwatch")).toEqual([["fs", "unwatch", args]]);
   });
 });
 
 describe("reveal: auto-expanded ancestors are watched like a manual expand", () => {
-  beforeEach(resetStore);
-
   it("issues fs.watch for each ancestor it expands", async () => {
     setupReaddir({ "": [dirEntry("src", "dir")], src: [dirEntry("deep", "dir")], "src/deep": [] });
     await ensureRoot(WS_ID, ROOT);
@@ -256,8 +246,6 @@ describe("reveal: auto-expanded ancestors are watched like a manual expand", () 
 });
 
 describe("collapse → re-expand re-reads the folder", () => {
-  beforeEach(resetStore);
-
   it("does not show the listing from before the collapse", async () => {
     const responses: Record<string, DirEntry[]> = { "": [dirEntry("lib", "dir")], lib: [] };
     setupReaddir(responses);
@@ -275,8 +263,6 @@ describe("collapse → re-expand re-reads the folder", () => {
 });
 
 describe("watch/unwatch for one folder reach the agent in call order", () => {
-  beforeEach(resetStore);
-
   it("holds a re-expand's watch until the collapse's unwatch has answered", async () => {
     setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
     await ensureRoot(WS_ID, ROOT);
@@ -310,8 +296,6 @@ describe("watch/unwatch for one folder reach the agent in call order", () => {
 });
 
 describe("fs.changed: a recreated expanded folder is re-watched and re-read", () => {
-  beforeEach(resetStore);
-
   it("re-arms the watch and replaces the pre-deletion listing", async () => {
     const responses: Record<string, DirEntry[]> = {
       "": [dirEntry("out", "dir")],
@@ -336,8 +320,6 @@ describe("fs.changed: a recreated expanded folder is re-watched and re-read", ()
 });
 
 describe("fs.changed during a folder's first listing", () => {
-  beforeEach(resetStore);
-
   it("re-reads after the in-flight listing instead of keeping it", async () => {
     const responses: Record<string, DirEntry[]> = { "": [dirEntry("lib", "dir")], lib: [] };
     let releaseFirstLib: () => void = () => {};

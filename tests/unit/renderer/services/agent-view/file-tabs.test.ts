@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { routeAgentViewCommand } from "../../../../../src/renderer/commands/domains/agent-view";
 import { sessionKey } from "../../../../../src/renderer/services/agent-sessions/model";
 import {
@@ -17,6 +17,7 @@ import {
   startAgentViewPruning,
   tabExists,
 } from "../../../../../src/renderer/services/agent-view/show";
+import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
 import { cancelTabFocus } from "../../../../../src/renderer/services/tab-focus";
 import { computeActiveContext } from "../../../../../src/renderer/state/claude-active-context-sync";
 import { openEditorTab } from "../../../../../src/renderer/state/operations/tabs";
@@ -31,17 +32,21 @@ import { COMMANDS } from "../../../../../src/shared/keybindings/commands";
 
 const WS = "project";
 const FILE = "/project/readme.md";
-const view = useAgentViewStore.getState();
 
-afterEach(() => {
+function resetFileTabs() {
   __resetAgentViewForTests();
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
+  __resetPendingEditorRevealsForTests();
   cancelTabFocus();
-});
+}
 
 describe("file links in the agent view", () => {
+  beforeEach(resetFileTabs);
+  afterEach(resetFileTabs);
+
   it("reuses and promotes an existing editor, and routes save and agent context by the active panel", () => {
+    const view = useAgentViewStore.getState();
     const session = useTabsStore
       .getState()
       .createTab(WS, { type: "claude", props: { cwd: "/project" } });
@@ -90,6 +95,7 @@ describe("file links in the agent view", () => {
   });
 
   it("finds a held peer file by device, workspace and path and switches to the linked line", () => {
+    const view = useAgentViewStore.getState();
     const file = { deviceId: "mac", workspaceId: WS, path: FILE };
     const key = remoteFileKey(file);
     const chat = remoteSessionKey({ ...file, tabId: "chat" });

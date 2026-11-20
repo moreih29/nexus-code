@@ -27,6 +27,7 @@ let requests: { path: string; length?: number; ifVersion?: string; versioned?: t
 let gate: Promise<void> | null = null;
 let saved: unknown;
 let savedInterval: unknown;
+let savedClearInterval: unknown;
 let savedDocument: unknown;
 let visible = "visible";
 const handlers: Record<string, () => void> = {};
@@ -121,24 +122,27 @@ beforeEach(() => {
     },
   };
   savedInterval = globals.setInterval;
+  savedClearInterval = globals.clearInterval;
   tick = null;
   globals.setInterval = (fn: () => void) => {
     tick = fn;
     return 1;
   };
-  const clear = globals.clearInterval;
   globals.clearInterval = () => {
     cleared++;
     tick = null;
-    globals.clearInterval = clear;
   };
 });
 
 afterEach(() => {
-  for (const stop of stops.splice(0)) stop();
-  globals.window = saved;
-  globals.document = savedDocument;
-  globals.setInterval = savedInterval;
+  try {
+    for (const stop of stops.splice(0)) stop();
+  } finally {
+    globals.window = saved;
+    globals.document = savedDocument;
+    globals.setInterval = savedInterval;
+    globals.clearInterval = savedClearInterval;
+  }
 });
 
 describe("a file of another computer's, kept current", () => {
