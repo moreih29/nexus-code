@@ -3,10 +3,16 @@
 // read it from one; from its data otherwise. Outside a Claude or Codex tab
 // it is a plain image.
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf, imageSrc } from "../../services/chat/image-look";
-import type { ImageBlock, ImageLoader, ToolCall } from "../../services/chat/model";
+import {
+  type ImageBlock,
+  type ImageLoader,
+  remoteImageKey,
+  type ToolCall,
+} from "../../services/chat/model";
+import { useRemotePicture } from "../../services/chat/remote-picture";
 import { cn } from "../../utils/cn";
 import { useChatLinks } from "./chat-links";
 
@@ -23,41 +29,17 @@ export function useImageBytes(image: ImageBlock | undefined): {
 } {
   const load = useContext(ImageLoaderContext);
   const remote = image?.data === "" ? image.remote : undefined;
-  const ref = remote ? JSON.stringify(remote) : null;
-  const [got, setGot] = useState<{
-    load: ImageLoader | null;
-    ref: string | null;
-    image: ImageBlock | null;
-    failed: boolean;
-  }>({ load, ref, image: null, failed: false });
-  const current = got.ref === ref && got.load === load;
-  if (!current) setGot({ load, ref, image: null, failed: false });
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ref identifies the image's bytes.
-  useEffect(() => {
-    if (!load || !image || !remote) return;
-    let live = true;
-    const show = (loaded: ImageBlock | null) => {
-      if (!live) return;
-      setGot((previous) =>
-        previous.load === load &&
-        previous.ref === ref &&
-        previous.image === loaded &&
-        previous.failed === (loaded === null)
-          ? previous
-          : { load, ref, image: loaded, failed: loaded === null },
-      );
-    };
-    const off = load.subscribe(remote, show);
-    void load(image).then(show, () => show(null));
-    return () => {
-      live = false;
-      off();
-    };
-  }, [ref, load]);
-  if (!remote) return { image: image ?? null, failed: false };
-  if (!load) return { image: null, failed: true };
-  return current ? got : { image: null, failed: false };
+  const shown = useRemotePicture(
+    load?.access ?? null,
+    remote ? remoteImageKey(remote) : null,
+    (show) => {
+      if (!load || !image || !remote) return;
+      const off = load.subscribe(remote, show);
+      void load(image).then(show, () => show(null));
+      return off;
+    },
+  );
+  return remote ? shown : { image: image ?? null, failed: false };
 }
 
 export function ChatImage({

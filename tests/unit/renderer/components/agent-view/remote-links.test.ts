@@ -1,4 +1,15 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as React from "react";
+import {
+  ImageLoaderContext,
+  useImageBytes,
+} from "../../../../../src/renderer/components/chat/chat-image";
+import {
+  ChatFilesContext,
+  useChatFiles,
+  useFilePicture,
+} from "../../../../../src/renderer/services/chat/chat-files";
+import { useFoundFiles } from "../../../../../src/renderer/services/chat/file-presence";
 import type { ImageBlock } from "../../../../../src/renderer/services/chat/model";
 import type { RoomState } from "../../../../../src/shared/remote/room";
 
@@ -48,6 +59,23 @@ const online = (rejoins = 0): RoomState => ({
   peers: ["d1", "d2"].map((id) => ({ id, online: true, name: id, platform: "darwin", rejoins })),
 });
 
+function offline(): RoomState {
+  const room = online();
+  return {
+    ...room,
+    peers: room.peers.map((peer) =>
+      peer.id === target.deviceId ? { ...peer, online: false } : peer,
+    ),
+  };
+}
+
+const signedIn = (id = "user") => ({
+  status: "signed-in",
+  server: "https://relay.example",
+  user: { id },
+  device: { id: "self" },
+});
+
 let savedWindow: unknown;
 let savedDocument: unknown;
 
@@ -59,6 +87,7 @@ beforeEach(() => {
     ipc: {
       call: async (_channel: string, method: string, args: Record<string, unknown>) => {
         if (method === "room") return online();
+        if (method === "account") return signedIn();
         calls.push({ method, args });
         return answer(method, args);
       },
@@ -92,7 +121,253 @@ const panel = {
   goal: null,
 };
 
+interface MediaDispatcher {
+  useCallback(callback: unknown): unknown;
+  useContext(): unknown;
+  useDebugValue(): void;
+  useEffect(effect: React.EffectCallback, deps: React.DependencyList): void;
+  useState(initial: unknown): [unknown, (next: unknown) => void];
+  useSyncExternalStore(_subscribe: unknown, getSnapshot: () => unknown): unknown;
+}
+
+/** Drives one hook's state and effects with a supplied context value. */
+function mountMedia<C, T>(_context: React.Context<C>, hook: () => T) {
+  const internals = (
+    React as unknown as {
+      __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {
+        H: MediaDispatcher | null;
+      };
+    }
+  ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+  let value: C;
+  let state: unknown;
+  let initialized = false;
+  let deps: React.DependencyList | undefined;
+  let cleanup: ReturnType<React.EffectCallback>;
+  let commit: (() => void) | undefined;
+  const dispatcher: MediaDispatcher = {
+    useCallback: (callback) => callback,
+    useContext: () => value,
+    useDebugValue: () => {},
+    useEffect(effect, next) {
+      if (
+        deps?.length === next.length &&
+        next.every((item, index) => Object.is(item, deps?.[index]))
+      )
+        return;
+      commit = () => {
+        cleanup?.();
+        deps = next;
+        cleanup = effect();
+      };
+    },
+    useState(initial) {
+      if (!initialized) {
+        state = typeof initial === "function" ? initial() : initial;
+        initialized = true;
+      }
+      return [
+        state,
+        (next) => {
+          state = typeof next === "function" ? next(state) : next;
+        },
+      ];
+    },
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+  };
+  const unmount = () => cleanup?.();
+  watched.push(unmount);
+  return (contextValue: C) => {
+    value = contextValue;
+    const previous = internals.H;
+    internals.H = dispatcher;
+    try {
+      return hook();
+    } finally {
+      internals.H = previous;
+      const finish = commit;
+      commit = undefined;
+      finish?.();
+    }
+  };
+}
+
 describe("another computer's chat, read from there", () => {
+  test.each([
+    { change: "focus", keep: true, outcome: "notModified" },
+    { change: "rejoin", keep: true, outcome: "new bytes" },
+    { change: "rejoin", keep: true, outcome: "failure" },
+    { change: "offline rejoin", keep: true, outcome: "notModified" },
+    { change: "sign-out", keep: false, outcome: "no access" },
+    { change: "account switch", keep: false, outcome: "new bytes" },
+    { change: "room closes", keep: false, outcome: "no access" },
+    { change: "peer removed", keep: false, outcome: "new bytes" },
+    { change: "read permission removed", keep: false, outcome: "failure" },
+    { change: "file permission removed while offline", keep: false, outcome: "paused" },
+    { change: "different ref", keep: false, outcome: "new bytes" },
+    { change: "different tab", keep: false, outcome: "new bytes" },
+  ])("the displayed attachment after $change and $outcome", async ({ change, keep, outcome }) => {
+    let ref = attachment();
+    const render = mountMedia(ImageLoaderContext, () => useImageBytes(ref));
+    const first = peerImageLoader(target, peerChatAccess("d1"));
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    expect(render(first).image).toBeNull();
+    await Bun.sleep(0);
+    const original = render(first).image;
+    expect(original?.data).toBe("AAA");
+
+    if (change === "focus") desktop.dispatchEvent(new Event("focus"));
+    if (change === "rejoin") events.get("roomChanged")?.(online(1));
+    if (
+      change === "offline rejoin" ||
+      change === "peer removed" ||
+      change === "room closes" ||
+      change === "file permission removed while offline"
+    ) {
+      events.get("roomChanged")?.(offline());
+      const paused = peerImageLoader(target, peerChatAccess("d1"));
+      expect(render(paused)).toEqual({ image: original, failed: false });
+      desktop.dispatchEvent(new Event("focus"));
+      await Bun.sleep(0);
+      expect(calls).toHaveLength(1);
+      if (change === "offline rejoin") events.get("roomChanged")?.(online(1));
+      if (change === "peer removed") {
+        events.get("roomChanged")?.({ status: "online", peers: [] });
+        expect(peerChatAccess("d1")).toBeNull();
+        events.get("roomChanged")?.(online(1));
+      }
+      if (change === "file permission removed while offline") {
+        const room = offline();
+        events.get("roomChanged")?.({
+          ...room,
+          peers: room.peers.map((peer) => ({ ...peer, serves: ["chat.read"] })),
+        });
+      }
+    }
+    if (change === "sign-out") events.get("accountChanged")?.({ status: "signed-out" });
+    if (change === "account switch") {
+      events.get("accountChanged")?.(signedIn("another-user"));
+      expect(peerChatAccess("d1")).toBeNull();
+      // React may receive the new room before it renders the null access.
+      events.get("roomChanged")?.(online());
+    }
+    if (change === "room closes") events.get("roomChanged")?.({ ...offline(), status: "waiting" });
+    if (change === "read permission removed") {
+      const room = online(1);
+      events.get("roomChanged")?.({
+        ...room,
+        peers: room.peers.map((peer) => ({ ...peer, serves: ["files"] })),
+      });
+    }
+    if (change === "different ref") ref = attachment("u-2");
+    const site = change === "different tab" ? { ...target, tabId: "t2" } : target;
+    const load = change === "different ref" ? first : peerImageLoader(site, peerChatAccess("d1"));
+    const reply = Promise.withResolvers<unknown>();
+    answer = () => reply.promise;
+    const paused = outcome === "no access" || outcome === "paused";
+    expect(render(load)).toMatchObject({
+      image: keep ? original : null,
+      failed: paused,
+    });
+    await Bun.sleep(0);
+    if (paused) {
+      expect(calls).toHaveLength(1);
+      return;
+    }
+    expect(calls).toHaveLength(2);
+    expect(calls.at(-1)?.args.ifVersion).toBe(keep ? "v1" : undefined);
+
+    if (outcome === "failure") reply.reject(new Error("attachment removed"));
+    else if (outcome === "notModified") {
+      reply.resolve({ mediaType: "image/jpeg", data: "", version: "v1", notModified: true });
+    } else reply.resolve({ mediaType: "image/jpeg", data: "BBB", version: "v2" });
+    await Bun.sleep(0);
+    const shown = render(load);
+    expect(shown.failed).toBe(outcome === "failure");
+    if (outcome === "notModified") expect(shown.image).toBe(original);
+    else if (outcome === "failure") expect(shown.image).toBeNull();
+    else expect(shown.image?.data).toBe("BBB");
+  });
+
+  test("an aborted attachment recheck leaves the displayed bytes in place", async () => {
+    const image = attachment();
+    const render = mountMedia(ImageLoaderContext, () => useImageBytes(image));
+    const current = () => peerImageLoader(target, peerChatAccess("d1"));
+    const first = current();
+    answer = () => ({ mediaType: "image/jpeg", data: "AAA", version: "v1" });
+    render(first);
+    await Bun.sleep(0);
+    const original = render(first).image;
+    expect(original?.data).toBe("AAA");
+
+    desktop.dispatchEvent(new Event("focus"));
+    const reply = Promise.withResolvers<unknown>();
+    answer = () => reply.promise;
+    expect(render(current()).image).toBe(original);
+    await Bun.sleep(0);
+
+    desktop.dispatchEvent(new Event("focus"));
+    reply.reject(new Error("previous access ended"));
+    await Bun.sleep(0);
+    answer = () => ({ mediaType: "image/jpeg", data: "", version: "v1", notModified: true });
+    const latest = current();
+    expect(render(latest).image).toBe(original);
+    await Bun.sleep(0);
+    expect(render(latest).image).toBe(original);
+  });
+
+  test.each([
+    "window focus",
+    "panel switch",
+    "peer reconnect",
+  ])("file cards and links stay while rechecked after %s", async (trigger) => {
+    const renderPicture = mountMedia(ChatFilesContext, () =>
+      useFilePicture(useChatFiles(), picturePath),
+    );
+    const renderLinks = mountMedia(ChatFilesContext, () =>
+      useFoundFiles("peer-workspace", "/w", [picturePath]),
+    );
+    const files = (visible = true) => peerChatFiles(target, peerChatAccess("d1"), visible);
+    const first = files();
+    answer = (method) =>
+      method === "peerFilesList"
+        ? { entries: [{ name: "a.png", kind: "file" }] }
+        : pictureResult("AAA");
+    renderPicture(first);
+    renderLinks(first);
+    await Bun.sleep(0);
+    expect(renderPicture(first).image?.data).toBe("AAA");
+    expect(renderLinks(first).has(picturePath)).toBe(true);
+
+    if (trigger === "panel switch") {
+      const hidden = files(false);
+      expect(renderPicture(hidden).image?.data).toBe("AAA");
+      expect(renderLinks(hidden).has(picturePath)).toBe(true);
+      await Bun.sleep(0);
+      expect(calls).toHaveLength(2);
+    } else if (trigger === "peer reconnect") {
+      events.get("roomChanged")?.(offline());
+      const paused = files();
+      expect(renderPicture(paused).image?.data).toBe("AAA");
+      expect(renderLinks(paused).has(picturePath)).toBe(true);
+      await Bun.sleep(0);
+      expect(calls).toHaveLength(2);
+      events.get("roomChanged")?.(online(1));
+    } else desktop.dispatchEvent(new Event("focus"));
+
+    const front = files();
+    const reply = Promise.withResolvers<unknown>();
+    answer = () => reply.promise;
+    expect(renderPicture(front).image?.data).toBe("AAA");
+    expect(renderLinks(front).has(picturePath)).toBe(true);
+    await Bun.sleep(0);
+    expect(calls).toHaveLength(trigger === "panel switch" ? 3 : 4);
+    reply.reject(new Error("file removed"));
+    await Bun.sleep(0);
+    expect(renderPicture(front)).toMatchObject({ image: null, failed: true });
+    expect(renderLinks(front).has(picturePath)).toBe(trigger === "panel switch");
+  });
+
   test("a file the conversation names is there when its folder lists it", async () => {
     answer = (method, args) =>
       method === "peerFilesList" && args.path === "/w/src"
@@ -205,7 +480,7 @@ describe("another computer's chat, read from there", () => {
     off();
   });
 
-  test("expired and mismatched attachment proofs never authorize cached data", async () => {
+  test("only a matching version proof authorizes retained attachment bytes", async () => {
     const clock = spyOn(Date, "now").mockReturnValue(1000);
     try {
       const load = peerImageLoader(target, peerChatAccess("d1"));
@@ -219,8 +494,9 @@ describe("another computer's chat, read from there", () => {
       await load(attachment());
       expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
       clock.mockReturnValue(31_000);
-      await load(attachment());
-      expect(calls.at(-1)?.args.ifVersion).toBeUndefined();
+      answer = () => ({ mediaType: "image/jpeg", data: "", version: "v2", notModified: true });
+      expect((await load(attachment())).data).toBe("BBB");
+      expect(calls.at(-1)?.args.ifVersion).toBe("v2");
     } finally {
       clock.mockRestore();
     }
@@ -325,7 +601,7 @@ describe("another computer's chat, read from there", () => {
     expect(await rejected).toBeInstanceOf(Error);
     await expect(stale.picture(picturePath)).rejects.toThrow();
     events.get("roomChanged")?.(online(1));
-    expect(peerChatAccess("d1")?.id).not.toBe(current.epoch!);
+    expect(peerChatAccess("d1")?.read?.id).not.toBe(current.epoch!);
     expect(peerChatFiles(target, peerChatAccess("d1")).connection).not.toBe(current.connection);
     events.get("accountChanged")?.({ status: "signed-out" });
     expect(peerChatAccess("d1")).toBeNull();
@@ -349,18 +625,25 @@ describe("another computer's chat, read from there", () => {
     expect(calls).toHaveLength(320);
   });
 
-  test("foreground keeps attachment candidates but rejoin clears their versions", async () => {
+  test("presence, rejoin and hello each validate the same cached attachment", async () => {
     answer = (_method, args) =>
       args.ifVersion === "v1"
         ? { mediaType: "image/jpeg", data: "", version: "v1", notModified: true }
         : { mediaType: "image/jpeg", data: "AAA", version: "v1" };
     const load = () => peerImageLoader(target, peerChatAccess("d1"))(attachment());
-    await load();
-    desktop.dispatchEvent(new Event("focus"));
-    await load();
+    const first = await load();
+    events.get("roomChanged")?.(offline());
+    events.get("roomChanged")?.(online());
+    expect(await load()).toBe(first);
     events.get("roomChanged")?.(online(1));
-    await load();
-    expect(calls.map(({ args }) => args.ifVersion)).toEqual([undefined, "v1", undefined]);
+    expect(await load()).toBe(first);
+    const room = online(1);
+    events.get("roomChanged")?.({
+      ...room,
+      peers: room.peers.map((peer) => ({ ...peer, schema: "0.13.4" })),
+    });
+    expect(await load()).toBe(first);
+    expect(calls.map(({ args }) => args.ifVersion)).toEqual([undefined, "v1", "v1", "v1"]);
   });
 
   test("a change's file before it is the hunks against the last commit taken back", () => {
