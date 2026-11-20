@@ -60,9 +60,9 @@ export class CrossWorkspaceConsent {
    */
   async ask(request: ChangeRequest): Promise<void> {
     const pair = `${request.fromWorkspaceId}>${request.toWorkspaceId}`;
-    if (this.allowed.has(pair)) return;
+    if (!request.change.eachTime && this.allowed.has(pair)) return;
     const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
-    if (answer === "session") this.allowed.add(pair);
+    if (answer === "session" && !request.change.eachTime) this.allowed.add(pair);
     if (answer === "once" || answer === "session") return;
     throw refusal(answer);
   }

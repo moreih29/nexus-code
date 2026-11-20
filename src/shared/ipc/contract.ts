@@ -2731,7 +2731,9 @@ const coreIpcContract = {
       ),
       /** Renames another device's chat, as the user. */
       peerChatRename: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rename"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.rename"].params.omit({ from: true })),
         RPC_METHODS["chat.rename"].result,
       ),
       /** Asks another device's Codex chat's program again whether it is signed in. */
@@ -2781,7 +2783,7 @@ const coreIpcContract = {
       peerChatCommands: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.commands"].params),
+          .merge(RPC_METHODS["chat.commands"].params.omit({ from: true })),
         RPC_METHODS["chat.commands"].result,
       ),
       /** Starts sending a file for the next message to another device's chat. */
@@ -2809,12 +2811,14 @@ const coreIpcContract = {
       peerChatFileSuggestions: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.fileSuggestions"].params),
+          .merge(RPC_METHODS["chat.fileSuggestions"].params.omit({ from: true })),
         RPC_METHODS["chat.fileSuggestions"].result,
       ),
       /** Runs one of the app's commands in another device's chat, as the user. */
       peerChatCommand: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.command"].params.omit({ from: true })),
         RPC_METHODS["chat.command"].result,
       ),
       /** Stops a background run or subagent of another device's chat, as its side panel's button does. */
@@ -2828,7 +2832,7 @@ const coreIpcContract = {
       peerProfiles: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["profiles.list"].params),
+          .merge(RPC_METHODS["profiles.list"].params.omit({ from: true })),
         RPC_METHODS["profiles.list"].result,
       ),
       /** Reads or changes the Claude Code settings of another device's chat, as the user. */
@@ -2843,12 +2847,16 @@ const coreIpcContract = {
       ),
       /** Has another device's chat run with another profile, as the user. */
       peerChatProfile: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.profile"].params.omit({ from: true })),
         RPC_METHODS["chat.profile"].result,
       ),
       /** An image of another device's chat: a message's or a tool's, by its place there. */
       peerChatImage: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.image"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.image"].params.omit({ from: true })),
         RPC_METHODS["chat.image"].result,
       ),
       /** A folder of another device's workspace: whether the files its chats name are there. */
@@ -2894,41 +2902,51 @@ const coreIpcContract = {
       ),
       /** The past conversations another device's workspace can resume. */
       peerHistory: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["history.list"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["history.list"].params.omit({ from: true })),
         RPC_METHODS["history.list"].result,
       ),
       /** Resumes a past conversation on another device: in a tab of its own there, or the one named. */
       peerChatResume: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.resume"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.resume"].params.omit({ from: true })),
         RPC_METHODS["chat.resume"].result,
       ),
       /** What rewinding another device's Claude chat to before a message would undo in its files. */
       peerChatRewindPreview: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.rewindPreview"].params),
+          .merge(RPC_METHODS["chat.rewindPreview"].params.omit({ from: true })),
         RPC_METHODS["chat.rewindPreview"].result,
       ),
       /** Rewinds another device's Claude chat to before one of the user's messages. */
       peerChatRewind: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rewind"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.rewind"].params.omit({ from: true })),
         RPC_METHODS["chat.rewind"].result,
       ),
       /** Forks another device's Claude chat into a new tab there. */
       peerChatFork: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.fork"].params.omit({ from: true })),
         RPC_METHODS["chat.fork"].result,
       ),
       /** Takes back a message another device's chat holds for after its turn, whole. */
       peerChatUnqueue: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unqueue"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.unqueue"].params.omit({ from: true })),
         RPC_METHODS["chat.unqueue"].result,
       ),
       /** Takes back a message another device's Claude chat has not read. */
       peerChatWithdraw: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.withdraw"].params),
+          .merge(RPC_METHODS["chat.withdraw"].params.omit({ from: true })),
         RPC_METHODS["chat.withdraw"].result,
       ),
       /** Has another device's Claude chat read its unread messages now. */
@@ -2947,12 +2965,14 @@ const coreIpcContract = {
       peerChatRemoteControl: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.remoteControl"].params),
+          .merge(RPC_METHODS["chat.remoteControl"].params.omit({ from: true })),
         RPC_METHODS["chat.remoteControl"].result,
       ),
       /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.attach"].params.omit({ from: true })),
         RPC_METHODS["chat.attach"].result,
       ),
       /** What changed in a chat another device watches here (the renderer tells main). */
@@ -3022,14 +3042,14 @@ const coreIpcContract = {
       peerTerminalShells: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["terminal.shells"].params),
+          .merge(RPC_METHODS["terminal.shells"].params.omit({ from: true })),
         RPC_METHODS["terminal.shells"].result,
       ),
       /** Renames another device's terminal, where it lets this one (terminal.control). */
       peerTerminalRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["terminal.rename"].params),
+          .merge(RPC_METHODS["terminal.rename"].params.omit({ from: true })),
         RPC_METHODS["terminal.rename"].result,
       ),
       /** Closes another device's terminal; one running a program only with `force`. */

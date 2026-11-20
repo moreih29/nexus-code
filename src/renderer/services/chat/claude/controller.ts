@@ -1649,12 +1649,13 @@ export class ChatController {
    * Changed from another computer (`device`), it is that computer user's
    * now, no longer the agent's that sent it.
    */
-  editQueued(id: string, text: string, device?: string): boolean {
+  editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
     if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
     this.update((prev) => ({
       ...prev,
       queue: prev.queue.map((q) => {
         if (q.id !== id) return q;
+        if (from) return { ...q, text, from, device };
         if (!device) return { ...q, text };
         const { from: _agent, ...rest } = q;
         return { ...rest, text, device };

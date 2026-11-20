@@ -104,8 +104,7 @@ export async function remoteConsents(
           ...(detail !== undefined ? { detail } : {}),
           ...(body !== undefined ? { body: clipBody(body) } : {}),
         },
-        // "Until restart" answers every prompt now; older phones read this.
-        eachTime: false,
+        eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, deviceId, controls) === null,
       };
     }),

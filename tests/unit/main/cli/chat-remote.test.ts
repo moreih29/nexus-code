@@ -160,12 +160,11 @@ describe("chat send --device", () => {
     expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
   });
 
-  test("--now goes into the turn there; --after is refused before anything is asked", async () => {
+  test("--now works across versions; --after needs a compatible peer", async () => {
     const app = withPeer({ "chat.send": () => ({ at: NOW }) });
     const now = await nexus(app, ["chat", "send", "Review", "--device", "Mac mini", "--now", "hi"]);
     expect(now.exitCode).toBe(0);
     expect(asked(app, "chat.send")).toEqual([expect.objectContaining({ text: "hi", when: "now" })]);
-    // That computer holds no agent's message for after the turn (it refuses chat.send `after`).
     const after = await nexus(app, [
       "chat",
       "send",
@@ -175,10 +174,27 @@ describe("chat send --device", () => {
       "--after",
       "x",
     ]);
-    expect(after.exitCode).toBe(2);
-    expect(after.stderr).toContain("--after goes to this computer's tabs");
+    expect(after.exitCode).toBe(3);
+    expect(after.stderr).toContain("Update NexusCode");
     expect(asked(app, "chat.send")).toHaveLength(1);
     expect(asked(app, "sessions.list")).toHaveLength(1);
+    const peer = app.peers.devices[1]!;
+    app.peers.devices[1] = { ...peer, serves: [...peer.serves, "agents.cli"] };
+    const queued = await nexus(app, [
+      "chat",
+      "send",
+      "Review",
+      "--device",
+      MINI,
+      "--after",
+      "later",
+    ]);
+    expect(queued.exitCode).toBe(0);
+    expect(asked(app, "chat.send")[1]).toMatchObject({
+      when: "after",
+      text: "later",
+      from: FROM_SHELL,
+    });
   });
 
   test("a tab is found among the computer's, in --workspace when given; . is this computer's", async () => {
@@ -483,7 +499,7 @@ describe("chat interrupt, set and tab close --device", () => {
     expect(
       (await nexus(app, ["chat", "set", "Review", "--device", "Mac mini", "--profile", "Work"]))
         .stderr,
-    ).toContain("--profile is for this computer's tabs");
+    ).toContain("Update NexusCode");
   });
 
   test("tab close closes a terminal there, a running one with --force", async () => {

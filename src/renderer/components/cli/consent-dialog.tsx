@@ -179,9 +179,11 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
-          {t("agentCli.consent.session")}
-        </Button>
+        {!prompt?.change.eachTime && (
+          <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
+            {t("agentCli.consent.session")}
+          </Button>
+        )}
         <Button variant="default" size="sm" onClick={() => active && settle(active, "once")}>
           {t("agentCli.consent.once")}
         </Button>

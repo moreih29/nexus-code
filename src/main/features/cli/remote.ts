@@ -31,6 +31,7 @@ export const NOT_IN_ROOM = "this computer is not in the remote room (Settings â€
 
 /** How long a request an agent sends waits: the user there may be asked first. */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
+const PEER_APPROVAL_MS = 2 * AGENT_CONSENT_MS + 25_000;
 /** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
 // The peer may need to verify a maximum-size upload and then commit it.
@@ -194,6 +195,9 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "chat.tool",
   "chat.fileSuggestions",
   "chat.instructions",
+  "chat.entryItem",
+  "chat.rewindPreview",
+  "chat.image",
   "history.list",
   "profiles.list",
   "terminal.shells",
@@ -240,12 +244,14 @@ export async function askDevice<M extends RpcMethod>(
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : from &&
-            !reads &&
-            (!isFileTransferMethod(method) ||
-              needsFileConsent(method, params as { anywhere?: true }))
-          ? AGENT_REQUEST_MS
-          : undefined;
+        : from && (method === "chat.rewind" || method === "chat.profile")
+          ? PEER_APPROVAL_MS
+          : from &&
+              !reads &&
+              (!isFileTransferMethod(method) ||
+                needsFileConsent(method, params as { anywhere?: true }))
+            ? AGENT_REQUEST_MS
+            : undefined;
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {
@@ -276,6 +282,17 @@ export function askPeerCli<M extends RpcMethod>(
 ): Promise<RpcResult<M>> {
   requirePeerCli(ctx, device);
   return askDevice(ctx, device, method, params, ctx.signal);
+}
+
+/** A CLI change on the receiving device, attributed to the caller. */
+export async function changePeerCli<M extends RpcMethod>(
+  ctx: CliContext,
+  device: CliDevice,
+  method: M,
+  params: RpcParams<M> & { from?: AgentSender },
+): Promise<RpcResult<M>> {
+  requirePeerCli(ctx, device);
+  return askPeerCli(ctx, device, method, { ...params, from: await agentSenderOf(ctx) });
 }
 
 /** A device's workspaces and sessions, as its sessions.list tells them. */

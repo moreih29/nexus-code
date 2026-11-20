@@ -118,6 +118,9 @@ export class AgentGate {
     );
     refuseBeyondAsked(request);
     await this.consent(services, request);
+    if (methodNeedsApproval(request.method)) {
+      await this.consent(services, request, undefined, true);
+    }
   }
 
   /** File transfers use the same prompt and session approvals as other controls. */
@@ -168,15 +171,20 @@ export class AgentGate {
     }
   }
 
-  private async consent(services: CliServices, request: AgentRequest, scope?: FileConsent) {
+  private async consent(
+    services: CliServices,
+    request: AgentRequest,
+    scope?: FileConsent,
+    eachTime = false,
+  ) {
     const { device, params } = request;
     const { from } = params;
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
-    if (policy === "allow") return;
-    const change = await changeOf(services, request, scope);
+    if (policy === "allow" && !eachTime) return;
+    const change = await changeOf(services, request, scope, eachTime);
     const pair = JSON.stringify([device.id, from.workspaceId, params.workspaceId]);
-    if (this.allowed.has(pair)) return;
+    if (!eachTime && this.allowed.has(pair)) return;
     const waiting = this.prompting.get(device.id) ?? 0;
     if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
       throw new RpcFailure(
@@ -213,7 +221,7 @@ export class AgentGate {
       });
     if (answer === "once" || answer === "session") {
       this.checkRead();
-      if (answer === "session") this.allowed.add(pair);
+      if (answer === "session" && !eachTime) this.allowed.add(pair);
       return answer;
     }
     throw forbidden(
@@ -281,11 +289,16 @@ async function tabTitle(services: CliServices, workspaceId: string, tabId: strin
   return tabs.find((t) => t.id === tabId)?.title ?? tabId.slice(0, 8);
 }
 
+function methodNeedsApproval(method: RpcMethod): boolean {
+  return method === "chat.rewind" || method === "chat.profile";
+}
+
 /** What the user is asked to let the agent do, as the consent prompt says it. */
 async function changeOf(
   services: CliServices,
   { method, params }: AgentRequest,
   scope?: FileConsent,
+  eachTime = false,
 ): Promise<CliChange> {
   const { workspaceId, tabId = "" } = params;
   const title = () => tabTitle(services, workspaceId, tabId);
@@ -313,6 +326,75 @@ async function changeOf(
       };
     case "chat.send":
       return { kind: "chatInput", detail: await title(), body: String(params.text) };
+    case "chat.unqueue":
+    case "chat.withdraw":
+      return { kind: "chatInput", detail: await title() };
+    case "chat.editHeld":
+      return { kind: "chatInput", detail: await title(), body: String(params.text) };
+    case "chat.attach":
+      return {
+        kind: "chatInput",
+        detail: await title(),
+        body: `Attach a ${String(params.mediaType)} image`,
+      };
+    case "chat.command":
+      return {
+        kind: "chatInput",
+        detail: await title(),
+        body: [`/${String(params.name).replace(/^\//, "")}`, params.args].filter(Boolean).join(" "),
+      };
+    case "chat.instructions.set":
+      return { kind: "chatSettings", detail: await title(), body: String(params.text) };
+    case "chat.remoteControl":
+      return {
+        kind: params.enabled === true ? "chatRemoteControlOn" : "chatRemoteControlOff",
+        detail: await title(),
+      };
+    case "chat.rename":
+    case "terminal.rename":
+      return {
+        kind: "tabRename",
+        detail: await title(),
+        body: String(params.title),
+        ...(method === "terminal.rename" ? { terminal: true } : {}),
+      };
+    case "chat.fork":
+      return { kind: "chatFork", detail: await title() };
+    case "chat.resume":
+      return { kind: "chatNew", detail: String(params.sessionId) };
+    case "chat.rewind": {
+      const target = { workspaceId, tabId, itemKey: String(params.itemKey) };
+      const preview =
+        eachTime && params.files === true
+          ? await services.ui("chat.rewindPreview", target)
+          : undefined;
+      if (preview && !preview.canRewind)
+        throw new RpcFailure(
+          RpcErrorCode.InvalidParams,
+          preview.error || "the files cannot be rewound",
+        );
+      return {
+        kind: params.files === true ? "chatRewindFiles" : "chatRewind",
+        detail: await title(),
+        ...(preview ? { body: preview.filesChanged.join("\n") } : {}),
+        ...(eachTime ? { eachTime: true } : {}),
+      };
+    }
+    case "chat.profile": {
+      if (!eachTime) return { kind: "chatSettings", detail: await title() };
+      const profiles = await services.ui("chat.profile", {
+        workspaceId,
+        tabId,
+        profile: String(params.profile),
+        fresh: params.fresh === true,
+        dryRun: true,
+      });
+      return {
+        kind: params.fresh === true ? "chatProfileNew" : "chatProfile",
+        detail: `"${await title()}" (${profiles.from} → ${profiles.to})`,
+        eachTime: true,
+      };
+    }
     case "chat.new":
       return {
         kind: "chatNew",

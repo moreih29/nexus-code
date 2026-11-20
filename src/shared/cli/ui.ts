@@ -294,6 +294,8 @@ export interface CliChange {
    * message or the prompt.
    */
   readonly body?: string;
+  /** This approval applies to this single request. */
+  readonly eachTime?: boolean;
   /** This change requires terminal control. */
   readonly terminal?: boolean;
 }
@@ -1171,7 +1173,14 @@ export interface CliUiOps {
   /** Changes the text of a message the tab holds for after the turn, its images kept. */
   "chat.editHeld": {
     /** `device`: the user's other computer that changes it, whose it is then. */
-    args: { workspaceId: string; tabId: string; id: string; text: string; device?: string };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      id: string;
+      text: string;
+      device?: string;
+      from?: RelaySender;
+    };
     result: Record<string, never>;
   };
   /**

@@ -18,6 +18,15 @@ import {
   shortId,
 } from "../context";
 import { type CliCommand, output } from "../registry";
+import {
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  requirePeerCli,
+  resolveDevice,
+  resolvePeerTab,
+} from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
 import { resolveAnyTab, workspaceTabs } from "./terminal";
 
@@ -404,6 +413,7 @@ const tabRename: CliCommand = {
   flags: {
     reset: { type: "boolean", description: "Drop the name given to it" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, ...words] = positionals;
@@ -411,6 +421,28 @@ const tabRename: CliCommand = {
     const title = words.join(" ").trim();
     if (flags.reset === true ? title !== "" : title === "") {
       throw new CliUsageError("give a title, or --reset");
+    }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const peer = await resolvePeerTab(
+        ctx,
+        device,
+        flags.workspace as string | undefined,
+        selector,
+      );
+      const ref = { workspaceId: peer.workspace.id, tabId: peer.session.tabId };
+      const renamed = await changePeerCli(
+        ctx,
+        device,
+        peer.session.kind === "terminal" ? "terminal.rename" : "chat.rename",
+        { ...ref, title },
+      );
+      return output(`${shortId(ref.tabId)} is now "${renamed.title}".`, {
+        ...ref,
+        device: deviceRef(device),
+        title: renamed.title,
+      });
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveAnyTab(ctx, workspace, selector);

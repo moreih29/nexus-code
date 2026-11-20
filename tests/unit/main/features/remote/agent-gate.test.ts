@@ -335,3 +335,20 @@ test("a session approval for a file control is the existing device and workspace
   });
   expect(asked).toHaveLength(2);
 });
+
+test.each([
+  ["allow", ["once", "deny"], [true, true]],
+  ["ask", ["session", "once", "deny"], [undefined, true, true]],
+] as const)("a peer rewind always asks under %s and never caches explicit approval", async (policy, answers, approvals) => {
+  const { g, services, asked } = gate(policy, [...answers]);
+  const request = {
+    ...send(),
+    method: "chat.rewind" as const,
+    params: { ...send().params, itemKey: "user-1", files: false },
+  };
+  await g.check(services, request);
+  await expect(g.check(services, request)).rejects.toMatchObject({ code: 1002 });
+  expect(asked.map((prompt) => (prompt.change as { eachTime?: boolean }).eachTime)).toEqual([
+    ...approvals,
+  ]);
+});

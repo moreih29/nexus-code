@@ -162,7 +162,7 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - `chat remote-control <탭> on|off` 는 패널의 원격 제어 스위치입니다. Claude 탭을 claude.ai 와 Claude 앱에서 조작할 수 있게 켜거나 끕니다. 같은 워크스페이스는 바로, 다른 워크스페이스는 에이전트의 변경 정책을 따릅니다.
 - `chat commands` 는 다른 기기에서 쓸 수 있는 슬래시 명령 목록이고, `chat command <탭> <명령> [인자]` 로 실행합니다. 에이전트 자신의 명령은 메시지로 가고, 앱의 명령은 그 결과를 출력합니다. 모델 · 강도는 `chat set` 으로 바꿉니다.
 - `chat history [검색어]` 는 워크스페이스 폴더의 지난 대화를 최신순으로 보여주고(`--agent codex`, `--limit N`), `chat resume <id>` 는 그 대화를 새 탭(뒤쪽)에서 이어갑니다. id 는 앞부분만 줘도 됩니다. 이미 열린 탭이 있으면 그 탭을 알려주고, `--tab` 이면 대화가 없는 그 탭에서 이어갑니다.
-- 다른 컴퓨터(`--device`)에는 `chat send` 의 `--now` 까지만 됩니다. 그 컴퓨터는 에이전트가 보낸 메시지를 턴이 끝날 때까지 보류하지 않으므로, `--after` 는 보내기 전에 거절합니다.
+- 다른 컴퓨터에서도 `chat send --after` 를 쓸 수 있습니다. 수신 기기에서 에이전트 제어를 끄면 에이전트가 보류한 메시지는 취소됩니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
 - `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. 두 명령에서 세션 지시 파일은 로컬 작업에 사용합니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
@@ -203,7 +203,7 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 
 - `session list` 는 이 컴퓨터만 보여주고, 다른 컴퓨터에 일하는 세션이 있으면 끝에 `+ 5 sessions on 1 other computer: nexus session list --device all` 을 덧붙입니다. `--device` 를 주면 DEVICE 열이 생기고, JSON 에는 `device: {id, name}` 이 붙습니다. 오프라인 컴퓨터는 목록을 실패시키지 않고 한 줄로 알립니다.
 - 다른 컴퓨터에서는 `--workspace` 를 주지 않으면 그 컴퓨터의 모든 탭에서 찾습니다. `.` 은 이 컴퓨터의 것이라 쓸 수 없습니다.
-- 읽기(`session list`, `chat read`, `terminal read`, `wait`, `events`)는 언제나 됩니다. 에이전트가 보내거나 바꾸는 일은 그 컴퓨터의 "다른 컴퓨터의 에이전트" 설정(묻기 · 허용 · 거부)을 따릅니다. 묻기면 그 컴퓨터에 확인 창이 뜨고 90초 안에 답이 없으면 거절됩니다. 사람이 자기 셸에서 실행한 명령은 원격 설정의 채팅 · 터미널 조작 스위치를 따릅니다.
+- 원격 읽기는 수신 기기에서 에이전트 요청을 거부로 설정하지 않았을 때 됩니다. 에이전트가 보내거나 바꾸는 일은 그 컴퓨터의 "다른 컴퓨터의 에이전트" 설정(묻기 · 허용 · 거부)을 따릅니다. 묻기면 그 컴퓨터에 확인 창이 뜨고 90초 안에 답이 없으면 거절됩니다. 사람이 자기 셸에서 실행한 명령은 원격 설정의 채팅 · 터미널 조작 스위치를 따릅니다.
 - 받는 쪽 에이전트에게는 보낸 컴퓨터와 탭, 답장할 명령(`nexus chat send ... --device ...`)이 함께 갑니다. 에이전트끼리 주고받은 메시지가 8개를 넘으면 루프로 보고 거절합니다.
 - 종료 코드: 오프라인(`"Mac mini" is offline (last seen 12m ago)`), 이 컴퓨터가 원격에 없음, 구버전, 응답 없음은 3, 그 컴퓨터가 거절하면(`"Mac mini" refused: ...`) 1 입니다. `--json` 이면 `{error, device, ...}` 도 출력합니다.
 - `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
@@ -216,6 +216,11 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 nexus chat tool 1a2b 4 --device "Mac mini"
 nexus chat files 1a2b report --device "Mac mini" --json
 nexus chat instructions 1a2b --show --device "Mac mini"
+nexus chat instructions 1a2b --set-file rules.md --device "Mac mini"
+nexus chat rewind 1a2b 5 --device "Mac mini" --preview
+nexus chat set 1a2b --profile Work --device "Mac mini"
+nexus chat send 1a2b --after --image screenshot.png --device "Mac mini" "확인해 주세요"
+nexus tab rename 1a2b Review --device "Mac mini"
 nexus note transcript meeting --workspace site --device "Mac mini" --json
 nexus terminal shells --workspace site --device "Mac mini"
 nexus file list dist --workspace site --device "Mac mini" --json

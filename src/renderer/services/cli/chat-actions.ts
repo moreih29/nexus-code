@@ -615,14 +615,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { text: item.text };
   },
 
-  "chat.editHeld": async ({ workspaceId, tabId, id, text, device }) => {
+  "chat.editHeld": async ({ workspaceId, tabId, id, text, device, from }) => {
     const { controller } = await openedTab(workspaceId, tabId);
     const item = controller.state.queue.find((q) => q.id === id);
     if (!item) throw new UiRequestError(`no held message ${id}: it went`);
     if (!text.trim() && item.images.length === 0) {
       throw new UiRequestError("a message needs text or an image");
     }
-    if (!controller.editQueued(id, text, device))
+    if (!controller.editQueued(id, text, device, from))
       throw new UiRequestError(`no held message ${id}: it went`);
     return {};
   },

@@ -1789,12 +1789,13 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
-    // An agent's message goes now or next, never held for after the turn.
+    // A delayed message keeps the sender and the host can drop it when control is disabled.
     await expect(
       serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
-    ).rejects.toMatchObject({ code: -32602 });
+    ).resolves.toMatchObject({});
+    expect(asked[0]?.[1]).toMatchObject({ when: "after", device: "d", from });
     await serve({ from: "d", method: "chat.send", params });
-    expect(asked[0]).toEqual([
+    expect(asked[1]).toEqual([
       "chat.send",
       {
         ...tab,

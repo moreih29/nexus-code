@@ -1047,6 +1047,7 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       /** Since 0.9.0; a desktop before it sends the image whole. */
       maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
       /** Opt in to validating the requested image before sending its bytes. */
@@ -1140,7 +1141,7 @@ export const RPC_METHODS = {
    */
   "chat.unqueue": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, id: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, id: z.string() }),
     result: z.object({ text: z.string() }),
   },
   /**
@@ -1150,7 +1151,7 @@ export const RPC_METHODS = {
    */
   "chat.editHeld": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, id: z.string(), text: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, id: z.string(), text: z.string() }),
     result: Ok,
   },
   /**
@@ -1160,7 +1161,7 @@ export const RPC_METHODS = {
    */
   "chat.withdraw": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string() }),
     result: z.object({ withdrawn: z.boolean() }),
   },
   /**
@@ -1181,6 +1182,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       mediaType: ImageMediaTypeSchema,
       /** Base64, of at most MAX_ATTACHMENT_BYTES bytes. */
       data: z
@@ -1328,6 +1330,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       profile: z.string().min(1).max(100),
       fresh: z.boolean().optional(),
       stop: z.boolean().optional(),
@@ -1387,6 +1390,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       ...TabRef,
+      ...ReadBy,
       name: z.string().min(1).max(100),
       args: z.string().max(10_000).optional(),
     }),
@@ -1435,7 +1439,7 @@ export const RPC_METHODS = {
   },
   "chat.rename": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    params: z.object({ ...TabRef, ...ReadBy, title: z.string().max(200) }),
     result: z.object({ title: z.string() }),
   },
   /**
@@ -1448,6 +1452,7 @@ export const RPC_METHODS = {
   "chat.resume": {
     capability: "chat.control",
     params: z.object({
+      ...ReadBy,
       workspaceId: z.string(),
       agent: z.enum(["claude", "codex"]),
       sessionId: z.string(),
@@ -1462,8 +1467,8 @@ export const RPC_METHODS = {
    * be rewound; the conversation still can. Since 0.11.0.
    */
   "chat.rewindPreview": {
-    capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string() }),
+    capability: "chat.read",
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string() }),
     result: z.object({
       canRewind: z.boolean(),
       error: z.string().optional(),
@@ -1480,7 +1485,7 @@ export const RPC_METHODS = {
    */
   "chat.rewind": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string(), files: z.boolean() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string(), files: z.boolean() }),
     result: Ok,
   },
   /**
@@ -1491,7 +1496,7 @@ export const RPC_METHODS = {
    */
   "chat.fork": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, itemKey: z.string().optional() }),
+    params: z.object({ ...TabRef, ...ReadBy, itemKey: z.string().optional() }),
     result: z.object({ tabId: z.string(), draft: z.string().optional() }),
   },
   /** Sends a Claude chat's running command or subagent to the background, by its call's id. Since 0.11.0. */
@@ -1503,7 +1508,7 @@ export const RPC_METHODS = {
   /** Turns a Claude chat's Remote Control on or off, as its panel's switch does. Since 0.11.0. */
   "chat.remoteControl": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, enabled: z.boolean() }),
+    params: z.object({ ...TabRef, ...ReadBy, enabled: z.boolean() }),
     result: Ok,
   },
   /**
@@ -1670,7 +1675,7 @@ export const RPC_METHODS = {
   },
   "terminal.rename": {
     capability: "terminal.control",
-    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    params: z.object({ ...TabRef, ...ReadBy, title: z.string().max(200) }),
     result: z.object({ title: z.string() }),
   },
   /** Closes a terminal; one running a program only with `force`. */
@@ -2075,6 +2080,16 @@ export const RPC_METHODS = {
         }),
       ),
     }),
+  },
+  "chat.entryItem": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, i: z.number().int().nonnegative(), ...ReadBy }),
+    result: z.object({ itemKey: z.string(), kind: z.string(), text: z.string().optional() }),
+  },
+  "chat.instructions.set": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, text: z.string().max(5000), ...ReadBy }),
+    result: z.object({ instructions: z.string() }),
   },
   "chat.instructions": {
     capability: "chat.read",

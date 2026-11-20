@@ -119,12 +119,11 @@ export async function openTerminal(
 
 export async function renameTerminal(
   services: CliServices,
-  { workspaceId, tabId, title }: RpcParams<"terminal.rename">,
+  { workspaceId, tabId, title, from }: RpcParams<"terminal.rename">,
 ): Promise<RpcResult<"terminal.rename">> {
   await tabOf(services, workspaceId, tabId, ["terminal"]);
-  if (!title.trim()) {
+  if (!from && !title.trim())
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a title needs more than spaces");
-  }
   return services.ui("tab.rename", { workspaceId, tabId, title: title.trim() }).catch(unavailable);
 }
 

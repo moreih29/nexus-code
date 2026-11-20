@@ -4,6 +4,10 @@
  * whole or a piece at a time, and wait on one or several tabs.
  */
 import path from "node:path";
+import {
+  ImageMediaTypeSchema,
+  MAX_ATTACHMENT_BYTES,
+} from "../../../../../packages/remote-protocol/src";
 import { INSTRUCTION_LIMIT, InstructionTextSchema } from "../../../../shared/chat/instructions";
 import type {
   CliChatEntry,
@@ -15,6 +19,7 @@ import { createLogger } from "../../../../shared/log/main";
 import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { looksLike } from "../../remote/attachments";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import type { ChangeRequest } from "../consent";
 import {
@@ -30,7 +35,15 @@ import {
 import { oneLine } from "../format";
 import { absolutePath, callerPath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
-import { askPeerCli, DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
@@ -825,6 +838,17 @@ function filesFlag(flags: ParsedArgs["flags"]): string[] {
   return files;
 }
 
+async function imageAttachment(ctx: CliContext, file: string) {
+  const [image] = await attachments(ctx, [file]);
+  if (!image) throw new CliUsageError("--image takes a path");
+  const bytes = Buffer.from(image.data, "base64");
+  if (bytes.length > MAX_ATTACHMENT_BYTES)
+    throw new CliUsageError(`the image exceeds ${MAX_ATTACHMENT_BYTES} bytes`);
+  const mediaType = ImageMediaTypeSchema.options.find((type) => looksLike(type, bytes));
+  if (!mediaType) throw new CliUsageError("--image needs a PNG, JPEG, GIF or WebP image");
+  return { mediaType, data: image.data };
+}
+
 const chatSend: CliCommand = {
   path: ["chat", "send"],
   summary: "Send a Claude or Codex tab a message",
@@ -837,8 +861,7 @@ const chatSend: CliCommand = {
     "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
     "path after the text. Refused while the tab waits for the user to answer a request.\n" +
     "--wait then waits as chat wait does and prints how it ended. Another computer's tab\n" +
-    "(--device) takes it as its composer sends it, or --now: it holds no agent's message for\n" +
-    "after the turn.",
+    "(--device) also accepts --now and --after. Held peer messages are dropped when its user disables control by agents.",
   flags: {
     now: { type: "boolean", description: "During a turn: into it at once" },
     after: { type: "boolean", description: "During a turn: held until it ends" },
@@ -848,6 +871,7 @@ const chatSend: CliCommand = {
       repeat: true,
       description: "Attach a file; give it again for more",
     },
+    image: { type: "string", value: "PATH", description: "Attach a PNG, JPEG, GIF or WebP image" },
     wait: { type: "boolean", description: "Then wait until it is done" },
     timeout: TIMEOUT_FLAG,
     workspace: WORKSPACE_FLAG,
@@ -865,21 +889,20 @@ const chatSend: CliCommand = {
       fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")
     ).trim();
     const files = filesFlag(flags);
+    const imagePath = typeof flags.image === "string" ? flags.image : undefined;
     // ⌘↩ on an empty composer: the messages sent during the turn are read now.
-    const hurry = when === "now" && words.length === 0 && files.length === 0;
-    if (text === "" && files.length === 0 && !hurry) throw new CliUsageError("nothing to send");
+    const hurry =
+      when === "now" && words.length === 0 && files.length === 0 && imagePath === undefined;
+    if (text === "" && files.length === 0 && imagePath === undefined && !hurry)
+      throw new CliUsageError("nothing to send");
     const timeoutMs = flags.wait === true ? waitTimeout(flags) : null;
     const device = await resolveDevice(ctx, deviceFlag(flags));
     if (device) {
       if (files.length > 0) throw new CliUsageError("--file goes to this computer's tabs");
       if (hurry) throw new CliUsageError("--now with no text goes to this computer's tabs");
-      // As that computer answers an agent's chat.send `after`, before it is asked.
-      if (when === "after") {
-        throw new CliUsageError(
-          "--after goes to this computer's tabs: another computer's does not hold an agent's message for after the turn; send it without --after, or with --now",
-        );
-      }
-      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when === "now");
+      if (when === "after" || imagePath !== undefined) requirePeerCli(ctx, device);
+      const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
+      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when, images);
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
@@ -894,11 +917,14 @@ const chatSend: CliCommand = {
       return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
     }
     const attached = await attachments(ctx, files);
+    const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
     const listed = attached.map((file) => `[${file.name}]`).join(" ");
     await mayChange(ctx, workspace, {
       kind: "chatInput",
       detail: tab.title,
-      body: [text, listed].filter(Boolean).join("\n\n"),
+      body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
+        .filter(Boolean)
+        .join("\n\n"),
     });
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
@@ -912,6 +938,7 @@ const chatSend: CliCommand = {
         text,
         ...(from ? { from } : {}),
         ...(attached.length > 0 ? { files: attached } : {}),
+        ...(images.length ? { images } : {}),
         ...(when ? { when } : {}),
         ...(timeoutMs === null ? {} : { wait: {} }),
       },
@@ -1174,10 +1201,17 @@ const chatInstructions: CliCommand = {
     }
     const device = await resolveDevice(ctx, deviceFlag(flags));
     if (device) {
-      if (!show) throw new CliUsageError("--device supports --show for session instructions");
       const target = await peerCliChat(ctx, device, flags, selector);
-      const { instructions } = await askPeerCli(ctx, device, "chat.instructions", target.ref);
-      return output(instructions, { ...target.json, instructions });
+      const { instructions } = show
+        ? await askPeerCli(ctx, device, "chat.instructions", target.ref)
+        : await changePeerCli(ctx, device, "chat.instructions.set", {
+            ...target.ref,
+            text: file === undefined ? "" : await readInstructionsFile(ctx, file),
+          });
+      return output(show ? instructions : `Updated session instructions for ${target.title}.`, {
+        ...target.json,
+        instructions,
+      });
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);

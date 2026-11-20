@@ -10,6 +10,7 @@ import {
   type RpcMethod,
   type RpcParams,
 } from "../../../../packages/remote-protocol/src";
+import { InstructionTextSchema } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliServices } from "../cli/context";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
@@ -158,6 +159,9 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "chat.tool",
   "chat.fileSuggestions",
   "chat.instructions",
+  "chat.entryItem",
+  "chat.rewindPreview",
+  "chat.image",
   "history.list",
   "profiles.list",
   "terminal.shells",
@@ -173,6 +177,9 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.tool": 12_000,
   "chat.fileSuggestions": 12_000,
   "chat.instructions": 12_000,
+  "chat.entryItem": 12_000,
+  "chat.rewindPreview": 12_000,
+  "chat.image": 12_000,
   "history.list": 12_000,
   "profiles.list": 12_000,
   "terminal.shells": 12_000,
@@ -233,6 +240,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         throw new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room");
       }
     };
+    if (by && !readOnly && !checkInHandler) checkCurrent();
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
     switch (request.method) {
       case "sessions.list":
@@ -241,6 +249,19 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "chat.entryItem": {
+        const entry = request.params as RpcParams<"chat.entryItem">;
+        const { workspaceId, tabId, i } = entry;
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.entryItem", { workspaceId, tabId, i }).catch(unavailable);
+      }
+      case "chat.instructions.set": {
+        const { workspaceId, tabId, text } = request.params as RpcParams<"chat.instructions.set">;
+        if (!InstructionTextSchema.safeParse(text).success)
+          throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid session instruction text");
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.instructions", { workspaceId, tabId, text }).catch(unavailable);
+      }
       case "chat.instructions": {
         const { workspaceId, tabId } = request.params as RpcParams<"chat.instructions">;
         await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
@@ -351,14 +372,18 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.configure":
         return configureChat(s, request.params as RpcParams<"chat.configure">, relay !== undefined);
       case "chat.profile":
-        // The user's own: the room refuses an agent's, as its params have no `from`.
         return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
       case "chat.fileSuggestions":
         return chatFileSuggestions(s, request.params as RpcParams<"chat.fileSuggestions">);
       case "chat.command":
-        return runChatCommand(s, request.params as RpcParams<"chat.command">, watches.folders);
+        return runChatCommand(
+          s,
+          request.params as RpcParams<"chat.command">,
+          watches.folders,
+          relay,
+        );
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs, relay);
       case "chat.wait":
@@ -396,7 +421,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.unqueue":
         return unqueueChat(s, request.params as RpcParams<"chat.unqueue">);
       case "chat.editHeld":
-        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">, from);
+        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">, from, relay);
       case "chat.withdraw":
         return withdrawChat(s, request.params as RpcParams<"chat.withdraw">);
       case "chat.hurry":
