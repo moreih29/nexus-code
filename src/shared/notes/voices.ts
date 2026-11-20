@@ -71,7 +71,7 @@ export function nextVoiceKey(taken: Iterable<string>): string {
 }
 
 /** A voice's person: its name, or the voice itself when it has none. */
-function personOf(names: Readonly<Record<string, string>>, key: string): string {
+export function voicePerson(names: Readonly<Record<string, string>>, key: string): string {
   const name = names[key]?.trim();
   return name ? `name:${name}` : `voice:${key}`;
 }
@@ -125,7 +125,7 @@ export function liveVoice(
   const near = sample.vector ? nearestVoice(sums, sample.vector) : null;
   const counted = target !== undefined;
   const keys = new Set(taken);
-  if (counted && new Set([...keys].map((key) => personOf(names, key))).size >= target) {
+  if (counted && new Set([...keys].map((key) => voicePerson(names, key))).size >= target) {
     return near?.key ?? fallback ?? keys.values().next().value ?? nextVoiceKey(keys);
   }
   if (near && near.similarity >= (counted ? COUNTED_LIVE_MATCH : LIVE_MATCH)) return near.key;
@@ -168,12 +168,12 @@ export function regroupVoices(input: {
   const protectedKeys = new Map<string, string>();
   for (const line of lines) {
     if (!line.pinned && !names[line.key]?.trim()) continue;
-    const person = personOf(names, line.key);
+    const person = voicePerson(names, line.key);
     if (!protectedKeys.has(person)) protectedKeys.set(person, line.key);
   }
   const limit = Math.max(input.target ?? 0, protectedKeys.size);
   const protectedPerson = (line: VoiceLine) =>
-    line.pinned || names[line.key]?.trim() ? personOf(names, line.key) : null;
+    line.pinned || names[line.key]?.trim() ? voicePerson(names, line.key) : null;
   const minMs = counted ? COUNTED_GROUP_MIN_MS : GROUP_MIN_MS;
   const useShortAnchors = counted && !samples.some((s) => s.ms >= minMs);
   // The units grouped: each long sample, and the pinned lines of one person together.

@@ -1,10 +1,18 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { type ToastAction, watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
+import { regroupRecording } from "../../../../../src/renderer/services/notes/regroup";
+import {
+  flushTranscript,
+  updateRecording,
+  useTranscriptsStore,
+} from "../../../../../src/renderer/services/notes/transcripts";
 import {
   type HeardLine,
   VOICE_PRINT_RATE,
   VoiceTracker,
 } from "../../../../../src/renderer/services/notes/voice-print";
+import { peopleIn, type TranscriptRecording } from "../../../../../src/shared/notes/transcript";
 
 /** Audio of person `who` (1 to 4) talking for `seconds`: the fake model knows them by level. */
 function speech(who: number, seconds: number): Float32Array {
@@ -137,4 +145,71 @@ describe("VoiceTracker", () => {
     expect(await say(2, 4, "1")).toBe("2");
     expect(await say(1, 4, "2")).toBe("1");
   });
+});
+
+test.each([
+  false,
+  true,
+])("regrouping restores the previous recording unless it was edited (%p)", async (edited) => {
+  const previousState = useTranscriptsStore.getState();
+  const previousContext = Object.getOwnPropertyDescriptor(globalThis, "OfflineAudioContext");
+  const { readAsset, saveTranscript } = notesApi;
+  const recording: TranscriptRecording = {
+    id: "rmhz00cc0abcd",
+    startedAt: 0,
+    language: "en",
+    participantCount: "auto",
+    takes: [{ file: "recordings/rmhz00cc0abcd-1.webm", pass: "done", offsetMs: 0, seconds: 12 }],
+    speakers: { "7": "Alex" },
+    lines: [
+      { speaker: "7", startMs: 0, endMs: 4000, text: "a", pinned: true },
+      { speaker: "9", startMs: 4000, endMs: 8000, text: "b" },
+      { speaker: "2", startMs: 8000, endMs: 12_000, text: "c" },
+    ],
+  };
+  const pcm = new Float32Array(VOICE_PRINT_RATE * 12);
+  pcm.set(speech(1, 4));
+  pcm.set(speech(2, 4), VOICE_PRINT_RATE * 4);
+  pcm.set(speech(1, 4), VOICE_PRINT_RATE * 8);
+  class Decoder {
+    async decodeAudioData() {
+      return { length: pcm.length, numberOfChannels: 1, getChannelData: () => pcm };
+    }
+  }
+  const current = () => useTranscriptsStore.getState().byNote["test/note"]?.recordings[0];
+  let undo: ToastAction | undefined;
+  const stopWatching = watchToasts((toast) => {
+    undo = toast.actions?.[0] ?? undo;
+  });
+  try {
+    Object.defineProperty(globalThis, "OfflineAudioContext", {
+      configurable: true,
+      value: Decoder,
+    });
+    notesApi.readAsset = async () => ({ base64: "AA==", mime: "audio/webm" });
+    notesApi.saveTranscript = async () => {};
+    useTranscriptsStore.setState({
+      byNote: { "test/note": { version: 1, recordings: [recording] } },
+    });
+    await regroupRecording("test", "note", recording.id, 2);
+    const grouped = current();
+    expect(grouped?.participantCount).toBe(2);
+    expect(grouped && peopleIn(grouped)).toBe(2);
+    expect(grouped?.lines[0]).toBe(recording.lines[0]);
+    expect(asked.filter((size) => size === VOICE_PRINT_RATE * 4)).toHaveLength(3);
+    if (edited)
+      updateRecording("test", "note", recording.id, (r) => ({ ...r, speakers: { "7": "Pat" } }));
+    expect(undo).toBeDefined();
+    undo?.onAction();
+    if (edited) expect(current()?.speakers["7"]).toBe("Pat");
+    else expect(current()).toBe(recording);
+  } finally {
+    await flushTranscript("test", "note");
+    useTranscriptsStore.setState(previousState);
+    notesApi.readAsset = readAsset;
+    notesApi.saveTranscript = saveTranscript;
+    if (previousContext) Object.defineProperty(globalThis, "OfflineAudioContext", previousContext);
+    else Reflect.deleteProperty(globalThis, "OfflineAudioContext");
+    stopWatching();
+  }
 });

@@ -16,7 +16,7 @@
  * Pure: no IO here.
  */
 import { z } from "zod";
-import { nextVoiceKey } from "./voices";
+import { nextVoiceKey, voicePerson } from "./voices";
 
 export const TRANSCRIPT_VERSION = 1;
 
@@ -81,6 +81,8 @@ export const TranscriptRecordingSchema = z.object({
   voicePrint: z.boolean().optional(),
   /** A participant count selected for this recording. Older recordings default to Auto. */
   participantCount: ParticipantCountSchema.optional(),
+  /** The user dismissed the prompt to review the automatic speaker count. */
+  speakerPromptDismissed: z.boolean().optional(),
   /** Display numbers once the recording ends. Keys still identify the original voices. */
   speakerNumbers: z.record(z.string(), z.string()).optional(),
 });
@@ -114,8 +116,7 @@ export function numberSpeakers(recording: TranscriptRecording): TranscriptRecord
   const numbers = new Map<string, string>();
   const speakerNumbers = Object.fromEntries(
     speakersOf({ lines: [...recording.lines].sort((a, b) => a.startMs - b.startMs) }).map((key) => {
-      const name = recording.speakers[key]?.trim();
-      const person = name ? `name:${name}` : `voice:${key}`;
+      const person = voicePerson(recording.speakers, key);
       const number = numbers.get(person) ?? String(numbers.size + 1);
       numbers.set(person, number);
       return [key, number];
@@ -126,7 +127,39 @@ export function numberSpeakers(recording: TranscriptRecording): TranscriptRecord
 
 /** How many people spoke: voices given one name count once. */
 export function peopleIn(recording: Pick<TranscriptRecording, "lines" | "speakers">): number {
-  return new Set(speakersOf(recording).map((k) => recording.speakers[k]?.trim() || `#${k}`)).size;
+  return new Set(speakersOf(recording).map((key) => voicePerson(recording.speakers, key))).size;
+}
+
+/** The least number of people allowed by names and manual assignments. */
+export function protectedVoiceCount(recording: TranscriptRecording): number {
+  const protectedPeople = new Set<string>();
+  for (const line of recording.lines) {
+    if (line.pinned || recording.speakers[line.speaker]?.trim()) {
+      protectedPeople.add(voicePerson(recording.speakers, line.speaker));
+    }
+  }
+  return protectedPeople.size;
+}
+
+/** A small amount of speech in extra groups can indicate that one voice was split. */
+export function shouldPromptSpeakerCount(recording: TranscriptRecording): boolean {
+  if (recording.speakerPromptDismissed || recording.audioRemoved) return false;
+  if (typeof recording.participantCount === "number") return false;
+  const activity = new Map<string, number>();
+  let total = 0;
+  for (const line of recording.lines) {
+    const person = voicePerson(recording.speakers, line.speaker);
+    const ms = Math.max(0, line.endMs - line.startMs);
+    activity.set(person, (activity.get(person) ?? 0) + ms);
+    total += ms;
+  }
+  if (recording.participantCount === "7+") return activity.size >= 9;
+  if (activity.size > 4) return true;
+  const durations = [...activity.values()];
+  return (
+    activity.size >= 3 &&
+    (durations.some((ms) => ms <= 1500) || durations.filter((ms) => ms < total * 0.05).length >= 2)
+  );
 }
 
 /** A recording's length: its takes', or as far as its words go while a take is open. */
@@ -155,16 +188,12 @@ export function carryNames(
   next: readonly TranscriptLine[],
 ): Record<string, string> {
   // A live voice's person: its name, or the voice itself when it has none.
-  const personOf = (speaker: string) => {
-    const name = names[speaker]?.trim();
-    return name ? `name:${name}` : `voice:${speaker}`;
-  };
   const overlap = new Map<string, Map<string, number>>();
   for (const n of next) {
     for (const l of live) {
       const shared = Math.min(n.endMs, l.endMs) - Math.max(n.startMs, l.startMs);
       if (shared <= 0) continue;
-      const person = personOf(l.speaker);
+      const person = voicePerson(names, l.speaker);
       const byPerson = overlap.get(n.speaker) ?? new Map<string, number>();
       byPerson.set(person, (byPerson.get(person) ?? 0) + shared);
       overlap.set(n.speaker, byPerson);

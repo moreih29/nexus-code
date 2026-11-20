@@ -29,7 +29,7 @@ const KEEP_SECONDS = 120;
 /** How often all the lines are grouped again, in the recording's time. */
 export const REGROUP_MS = 15_000;
 /** Shorter lines are not heard for a voice print. */
-const MIN_PRINT_MS = 400;
+export const MIN_PRINT_MS = 400;
 
 /** How long a recording waits, as it starts, for the model to answer: it goes on without. */
 const PROBE_MS = 5000;

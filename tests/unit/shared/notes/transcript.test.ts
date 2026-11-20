@@ -8,6 +8,7 @@ import {
   numberSpeakers,
   peopleIn,
   recordingMs,
+  shouldPromptSpeakerCount,
   speakerKey,
   speakerName,
   speakersOf,
@@ -39,6 +40,29 @@ function recording(over: Partial<TranscriptRecording> = {}): TranscriptRecording
 }
 
 describe("a note's transcript", () => {
+  test.each([
+    [[25_000, 30_000], {}, false],
+    [[400, 25_000, 30_000], {}, true],
+    [[22_300, 49_800, 608_600, 854_800], {}, true],
+    [[10_000, 10_000, 10_000, 10_000], {}, false],
+    [[10_000, 10_000, 10_000, 10_000, 10_000], {}, true],
+    [Array.from({ length: 8 }, () => 500), { participantCount: "7+" }, false],
+    [Array.from({ length: 9 }, () => 500), { participantCount: "7+" }, true],
+    [[400, 25_000, 30_000], { participantCount: 3 }, false],
+    [[400, 25_000, 30_000], { speakerPromptDismissed: true }, false],
+    [[400, 25_000, 30_000], { audioRemoved: true }, false],
+  ] satisfies [
+    number[],
+    Partial<TranscriptRecording>,
+    boolean,
+  ][])("prompts only when the grouping may be fragmented (%j, %j)", (durations, options, expected) => {
+    const rec = recording({
+      ...options,
+      lines: durations.map((ms, i) => line(String(i + 1), 0, ms, "a")),
+    });
+    expect(shouldPromptSpeakerCount(rec)).toBe(expected);
+  });
+
   test("compacts display numbers by first speech while keeping names and pinned keys", () => {
     const old = recording({
       speakers: { "7": "Alex" },

@@ -6,26 +6,34 @@
  * The person picked is also shown above the lines (`PickedSpeaker`), where
  * it stays as the recording scrolls away.
  */
-import { Loader2, MoreHorizontal, Pencil, Sparkles, Trash2, X } from "lucide-react";
+import { Layers2, Loader2, MoreHorizontal, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import { memo, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { dateTimeFormat } from "@/utils/intl-format";
 import {
   clockOf,
+  peopleIn,
+  protectedVoiceCount,
   recordingMs,
+  shouldPromptSpeakerCount,
   speakerName,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
+import { regroupKey, regroupRecording, useRegroupStore } from "../../services/notes/regroup";
 import { canSecondPass, runSecondPass, useSecondPassStore } from "../../services/notes/second-pass";
-import { removeRecording } from "../../services/notes/transcripts";
+import { removeRecording, updateRecording } from "../../services/notes/transcripts";
+import { useVoicePrintAvailable } from "../../services/notes/voice-print";
+import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRoot,
+  DropdownMenuText,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { RegroupDialog } from "./regroup-dialog";
 import { type Cast, isNamed, speakerColor } from "./transcript-rows";
 
 export const RecordingHeading = memo(function RecordingHeading({
@@ -58,6 +66,11 @@ export const RecordingHeading = memo(function RecordingHeading({
 }) {
   const { t, i18n } = useTranslation("notes");
   const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
+  const progress = useRegroupStore(
+    (s) => s.progress[regroupKey(workspaceId, noteId, recording.id)],
+  );
+  const voicePrint = useVoicePrintAvailable();
+  const [regroupOpen, setRegroupOpen] = useState(false);
   const refined = recording.takes.length > 0 && recording.takes.every((tk) => tk.pass === "done");
   const startedAt = dateTimeFormat(i18n.language || "en", {
     month: "short",
@@ -66,6 +79,21 @@ export const RecordingHeading = memo(function RecordingHeading({
     minute: "2-digit",
   }).format(new Date(recording.startedAt));
   const unnamed = (key: string) => t("transcript.speaker", { label: key });
+  const regroupReason =
+    recording.audioRemoved || recording.takes.length === 0
+      ? t("transcript.regroup.audioMissing")
+      : !voicePrint
+        ? t("transcript.regroup.modelUnavailable")
+        : refining || progress !== undefined
+          ? t("transcript.regroup.busy")
+          : !recording.lines.length
+            ? t("transcript.regroup.noSpeech")
+            : null;
+  const prompt = !live && !regroupReason && shouldPromptSpeakerCount(recording);
+  const regroup = (count: number) => {
+    setRegroupOpen(false);
+    void regroupRecording(workspaceId, noteId, recording.id, count);
+  };
 
   const removeAll = async () => {
     const ok = await showConfirmDialog({
@@ -86,6 +114,11 @@ export const RecordingHeading = memo(function RecordingHeading({
         {live ? (
           <span className="shrink-0 whitespace-nowrap text-[var(--state-error-fg)]">
             {t("transcript.live")}
+          </span>
+        ) : progress !== undefined ? (
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap" role="status">
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            {t("transcript.regroup.progress", { percent: progress })}
           </span>
         ) : refining ? (
           <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
@@ -117,6 +150,7 @@ export const RecordingHeading = memo(function RecordingHeading({
             <DropdownMenuContent align="end">
               {canSecondPass(recording) && !refining && (
                 <DropdownMenuItem
+                  disabled={progress !== undefined}
                   onSelect={() => void runSecondPass(workspaceId, noteId, recording.id)}
                 >
                   <span className="flex items-center gap-2">
@@ -125,8 +159,17 @@ export const RecordingHeading = memo(function RecordingHeading({
                   </span>
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                disabled={Boolean(regroupReason)}
+                onSelect={() => setRegroupOpen(true)}
+              >
+                <Layers2 className="size-3.5" aria-hidden="true" />
+                {t("transcript.regroup.menu")}
+              </DropdownMenuItem>
+              {regroupReason && <DropdownMenuText muted>{regroupReason}</DropdownMenuText>}
               {!recording.audioRemoved && (
                 <DropdownMenuItem
+                  disabled={progress !== undefined}
                   onSelect={() => void removeRecording(workspaceId, noteId, recording.id, false)}
                 >
                   <span className="flex items-center gap-2">
@@ -135,7 +178,7 @@ export const RecordingHeading = memo(function RecordingHeading({
                   </span>
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onSelect={() => void removeAll()}>
+              <DropdownMenuItem disabled={progress !== undefined} onSelect={() => void removeAll()}>
                 <span className="flex items-center gap-2">
                   <Trash2 className="size-3.5" aria-hidden="true" />
                   {t("transcript.removeAll")}
@@ -145,6 +188,59 @@ export const RecordingHeading = memo(function RecordingHeading({
           </DropdownMenuRoot>
         )}
       </div>
+      {prompt && (
+        <div className="mb-2 flex flex-col gap-1.5 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1.5">
+          <p className="text-app-ui-sm text-[var(--state-warning-fg)]">
+            {t("transcript.regroup.prompt", { count: peopleIn(recording) })}
+          </p>
+          <div className="flex flex-wrap items-center gap-1">
+            {[2, 3, 4, 5, 6]
+              .filter((count) => count >= protectedVoiceCount(recording))
+              .map((count) => (
+                <Button
+                  key={count}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  className="h-6 px-2"
+                  onClick={() => regroup(count)}
+                >
+                  {count}
+                </Button>
+              ))}
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              className="h-6 px-2"
+              onClick={() => setRegroupOpen(true)}
+            >
+              {t("transcript.regroup.custom")}
+            </Button>
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              className="ml-auto h-6 px-2"
+              onClick={() =>
+                updateRecording(workspaceId, noteId, recording.id, (r) => ({
+                  ...r,
+                  speakerPromptDismissed: true,
+                }))
+              }
+            >
+              {t("common:action.close")}
+            </Button>
+          </div>
+        </div>
+      )}
+      {regroupOpen && !regroupReason && (
+        <RegroupDialog
+          recording={recording}
+          onRegroup={regroup}
+          onClose={() => setRegroupOpen(false)}
+        />
+      )}
       {cast.people.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {cast.people.map(({ person, keys, color }) => (
