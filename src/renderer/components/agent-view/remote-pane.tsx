@@ -12,6 +12,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import { appErrorFailed } from "../../../shared/error/app-error";
+import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
@@ -55,7 +56,11 @@ import {
   usePeerSubmissions,
 } from "../../services/remote/peer-submissions";
 import { usePeerTerminal, watchPeerTerminalTyping } from "../../services/remote/peer-terminal";
-import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
+import {
+  peerWorkspaceId,
+  setPeerRoot,
+  usePeerChatFileChanges,
+} from "../../services/remote/peer-workspace";
 import {
   chatProfileIdThere,
   type PeerReach,
@@ -73,7 +78,8 @@ import {
   TerminalInputQueueFullError,
   type TerminalTyping,
 } from "../../services/remote/terminal-typing";
-import { registerTabFocusTarget } from "../../services/tab-focus";
+import { registerTabFocusTarget, requestTabFocus } from "../../services/tab-focus";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -475,6 +481,8 @@ function useRemoteGoal(
   return untimed;
 }
 
+const NO_CHANGES: readonly never[] = [];
+
 /** The chat, composer and side panel in the current pane. */
 function RemoteChatView({
   target,
@@ -712,6 +720,8 @@ function RemoteChatView({
   // That computer's workspace, as the previews read it, at its folder there.
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
   useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);
+  // A file this chat changed is read again by the views showing it.
+  usePeerChatFileChanges(peerWorkspace, page.panel?.changedFiles ?? NO_CHANGES, model.tools);
   const [look, setLook] = useState<QuickLookList | null>(null);
   const links = useRemoteLinks(target, { model }, files, setLook);
   // A chat put out of sight takes its quick look with it.
@@ -1015,11 +1025,26 @@ function RemoteChatView({
             {look && (
               <QuickLook
                 workspaceId={peerWorkspace}
+                peerRoot={target.path}
                 list={look}
                 area={lookAreaOf(rootRef.current)}
                 local={false}
                 onIndex={(index) => setLook({ ...look, index })}
                 onClose={() => setLook(null)}
+                onOpenBeside={(path, { at, before, mode, compare }) => {
+                  setLook(null);
+                  const key = remoteFileKey({ deviceId, workspaceId, path });
+                  useAgentViewStore.getState().placeRemoteFile(key, focusKey, {
+                    deviceName: target.deviceName,
+                    workspaceRoot: target.path,
+                    at: at?.line ? { line: at.line, column: at.column } : undefined,
+                    before,
+                    mode,
+                    compare,
+                    compareFrom: before !== undefined ? tabId : undefined,
+                  });
+                  requestTabFocus(key);
+                }}
               />
             )}
           </div>

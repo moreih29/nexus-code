@@ -68,7 +68,7 @@ function openFile(workspaceId: string, path: string, opts: { inside: boolean; at
   }
 }
 
-function cursorAt(line: number, column = 1): MonacoRange {
+export function cursorAt(line: number, column = 1): MonacoRange {
   return { startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column };
 }
 

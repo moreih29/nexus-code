@@ -3,7 +3,7 @@ import type { ImageBlock } from "../../../../../src/renderer/services/chat/model
 import type { RoomState } from "../../../../../src/shared/remote/room";
 
 const { beforeOfHunks } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-links"
+  "../../../../../src/renderer/services/remote/file-comparison"
 );
 const { peerChatAccess, peerChatFiles, peerImageLoader, watchPeerChatAccess } = await import(
   "../../../../../src/renderer/services/remote/peer-chat-media"

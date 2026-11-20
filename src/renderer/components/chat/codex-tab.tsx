@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { defaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
@@ -328,7 +329,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     };
     /** Shows a file alone, as a diff when the session changed it and the agent kept its original. */
     const showAlone = (path: string, line?: LineAt) => {
-      grant(path);
       const current = latest.current.state.model as CodexModel;
       setLook({
         files: [path],
@@ -355,13 +355,21 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     return {
       openFile(target) {
         follow(target, ({ path, ...line }) => {
+          grant(path);
+          if (showHeldLocalFile(workspaceId, path, line)) {
+            setLook(null);
+            return;
+          }
           // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) !== "image") return showAlone(path, line);
-          grant(path);
           lookAt({ file: path });
         });
       },
-      openChange: (path) => showAlone(path),
+      openChange(path) {
+        grant(path);
+        if (showHeldLocalFile(workspaceId, path)) setLook(null);
+        else showAlone(path);
+      },
       openImages(images, index) {
         const image = images[index];
         if (image) lookAt({ image }, () => imageLook(images, index));
@@ -878,6 +886,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
+          onOpenBeside={(path, { at }) => {
+            setLook(null);
+            placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+          }}
           onOpenTab={(path, at) => {
             setLook(null);
             links.openFileTab(path, at);

@@ -18,7 +18,7 @@
 
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
-import { activeKey, parseSessionKey } from "../services/agent-view/layout";
+import { activeLocalPanelTab, holdsInAgentView } from "../services/agent-view/show";
 import { useActiveStore } from "./stores/active";
 import { useAgentViewStore } from "./stores/agent-view";
 import { useAppFocusStore } from "./stores/app-focus";
@@ -57,9 +57,10 @@ export function computeActiveContext(): { workspaceId: string | null; tabId: str
   // While the agent view is open, the agent in front of the active panel is in front of the user.
   const agentView = useAgentViewStore.getState();
   if (agentView.mode === "agents") {
-    const key = activeKey(agentView);
-    const parsed = key !== null ? parseSessionKey(key) : null;
-    return parsed ?? { workspaceId: null, tabId: null };
+    const active = activeLocalPanelTab();
+    return active && holdsInAgentView(active.tab.type)
+      ? { workspaceId: active.workspaceId, tabId: active.tabId }
+      : { workspaceId: null, tabId: null };
   }
 
   const workspaceId = useActiveStore.getState().activeWorkspaceId;

@@ -26,9 +26,14 @@ function getLeafAndTabs(
 
 /**
  * Find an editor tab anywhere in the workspace's layout. Prefers the
- * active group, then falls back to scanning every leaf.
+ * active group, then falls back to scanning every leaf. `accept` limits
+ * the lookup when the caller is looking for a particular set of tabs.
  */
-export function findEditorTab(workspaceId: string, filePath: string): EditorTabLocation | null {
+export function findEditorTab(
+  workspaceId: string,
+  filePath: string,
+  accept: (tabId: string) => boolean = () => true,
+): EditorTabLocation | null {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
 
@@ -38,7 +43,8 @@ export function findEditorTab(workspaceId: string, filePath: string): EditorTabL
     const tab = tabsById[tabId];
     return (
       tab?.type === "editor" &&
-      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath
+      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath &&
+      accept(tabId)
     );
   };
 

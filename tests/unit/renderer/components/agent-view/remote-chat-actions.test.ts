@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
+import { cancelTabFocus } from "../../../../../src/renderer/services/tab-focus";
+import { __resetAgentViewForTests } from "../../../../../src/renderer/state/stores/agent-view";
+import {
+  type RemoteTarget,
+  useRemoteViewStore,
+} from "../../../../../src/renderer/state/stores/remote-view";
 
 const { draftImagesOf, forkPeerChat, peerRewinder } = await import(
   "../../../../../src/renderer/components/agent-view/remote-chat-actions"
@@ -20,7 +25,14 @@ let saved: unknown;
 const chat = { deviceId: "d1", workspaceId: "w1", tabId: "t1" };
 const ref = (index: number) => ({ kind: "user" as const, itemKey: "u1", index });
 
+function resetPanels() {
+  __resetAgentViewForTests();
+  useRemoteViewStore.setState({ targets: new Map() });
+  cancelTabFocus();
+}
+
 beforeEach(() => {
+  resetPanels();
   calls.length = 0;
   saved = globals.window;
   globals.window = {
@@ -43,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetPanels();
   globals.window = saved;
 });
 

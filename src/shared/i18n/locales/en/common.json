@@ -734,7 +734,9 @@
   },
   "mediaPreview": {
     "outside_workspace": "This file is outside the workspace and cannot be played.",
-    "load_failed": "Could not play this file: its format may not be supported."
+    "load_failed": "Could not play this file: its format may not be supported.",
+    "file_changed": "The file changed",
+    "reload": "Reload"
   },
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
@@ -1322,6 +1324,8 @@
       "previous": "Previous image (←)",
       "next": "Next image (→)",
       "open_tab": "Open as a tab",
+      "open_beside": "Move to a panel beside this one",
+      "read_only": "Read-only",
       "close": "Close (esc)",
       "copy_image": "Copy image",
       "copied_image": "Image copied",
@@ -1892,6 +1896,8 @@
     "pane": {
       "close": "Close panel",
       "remove": "Remove from panel (the session goes on)",
+      "remove_file": "Remove file from panel",
+      "show_file_tab": "Go to the file tab",
       "empty": "Empty panel",
       "empty_hint": "Pick an agent from the list, or drag one here",
       "open_list": "Open list"

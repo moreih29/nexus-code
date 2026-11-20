@@ -734,7 +734,9 @@
   },
   "mediaPreview": {
     "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
-    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다."
+    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다.",
+    "file_changed": "파일이 바뀌었어요",
+    "reload": "다시 불러오기"
   },
   "pdfPreview": {
     "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",
@@ -1322,6 +1324,8 @@
       "previous": "이전 이미지 (←)",
       "next": "다음 이미지 (→)",
       "open_tab": "탭으로 열기",
+      "open_beside": "옆 패널로 옮기기",
+      "read_only": "읽기 전용",
       "close": "닫기 (esc)",
       "copy_image": "이미지 복사",
       "copied_image": "이미지를 복사했습니다",
@@ -1892,6 +1896,8 @@
     "pane": {
       "close": "패널 닫기",
       "remove": "패널에서 빼기 (세션은 계속됨)",
+      "remove_file": "패널에서 파일 제거",
+      "show_file_tab": "파일 탭으로 이동",
       "empty": "빈 패널",
       "empty_hint": "목록에서 에이전트를 고르거나 여기로 끌어 놓으세요",
       "open_list": "목록 열기"

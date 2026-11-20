@@ -7,8 +7,13 @@
  */
 
 import { create } from "zustand";
+import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { createLogger } from "../../../shared/log/renderer";
-import type { AgentViewMode, AgentViewSnapshot } from "../../../shared/types/agent-view";
+import type {
+  AgentViewMode,
+  AgentViewSnapshot,
+  RemoteFileSnapshot,
+} from "../../../shared/types/agent-view";
 import { ipcCallResult } from "../../ipc/client";
 import {
   type EndedAgent,
@@ -20,8 +25,12 @@ import {
   type AgentLayout,
   emptyLayout,
   heldKeys,
+  isRemoteKey,
+  leafShowing,
   pruneKeys,
   sanitizeLayout,
+  selectHeldKey,
+  showBeside,
 } from "../../services/agent-view/layout";
 import {
   type AgentOrder,
@@ -45,12 +54,16 @@ const NO_FOLDS: ReadonlySet<string> = new Set();
 
 const PERSIST_DELAY_MS = 300;
 
+type RemoteFile = RemoteFileSnapshot & { before?: string | null };
+const NO_REMOTE_FILES: ReadonlyMap<string, RemoteFile> = new Map();
+
 interface AgentViewState extends AgentLayout {
   mode: AgentViewMode;
   /** The agent the pointer is over in the list, whose panel lights up. */
   hoveredKey: string | null;
   /** The terminal agents the panels show ended (services/agent-view/ended), by session key. */
   ended: ReadonlyMap<string, EndedAgent>;
+  remoteFiles: ReadonlyMap<string, RemoteFile>;
   /** The order the list's agents were dragged into (services/agent-view/order). */
   order: AgentOrder;
   /** How the list groups its agents. */
@@ -63,6 +76,8 @@ interface AgentViewState extends AgentLayout {
   toggleMode(): void;
   /** Applies a change to the panels (see services/agent-view/layout). */
   update(change: (layout: AgentLayout) => AgentLayout): void;
+  placeRemoteFile(key: string, fromKey: string, file: RemoteFile): void;
+  updateRemoteFile(key: string, file: Partial<RemoteFile>): void;
   setHovered(key: string | null): void;
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
   /** The order of a workspace's (or task's) agents in the list, every one of them. */
@@ -76,27 +91,63 @@ const NO_ENDED: ReadonlyMap<string, EndedAgent> = new Map();
 
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 let hydrated = false;
+let pending = false;
+let inFlight: Promise<boolean> | undefined;
+
+function cancelPersistTimer(): void {
+  if (persistTimer !== undefined) clearTimeout(persistTimer);
+  persistTimer = undefined;
+}
 
 function schedulePersist(): void {
   if (!hydrated) return;
-  if (persistTimer !== undefined) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = undefined;
-    const { mode, root, activeLeafId, ended, order, grouping, folded } =
+  pending = true;
+  cancelPersistTimer();
+  persistTimer = setTimeout(() => void flushAgentViewPersistence(), PERSIST_DELAY_MS);
+}
+
+async function writeAgentView(): Promise<boolean> {
+  pending = false;
+  try {
+    const { mode, root, activeLeafId, ended, remoteFiles, order, grouping, folded } =
       useAgentViewStore.getState();
     const agentView = {
       mode,
       root,
       activeLeafId,
       ...(ended.size > 0 ? { ended: endedToStore(ended) } : {}),
+      ...(remoteFiles.size > 0
+        ? {
+            remoteFiles: Object.fromEntries(
+              Array.from(remoteFiles, ([key, { before: _before, ...file }]) => [key, file]),
+            ),
+          }
+        : {}),
       ...(Object.keys(order).length > 0 ? { order: orderToStore(order) } : {}),
       ...(grouping !== AGENT_LIST_GROUPING_DEFAULT ? { grouping } : {}),
       ...(folded.size > 0 ? { folded: [...folded] } : {}),
     };
-    void ipcCallResult("appState", "set", { agentView }).then((result) => {
-      if (!result.ok) log.warn(`appState set (agent view) failed: ${result.message}`);
+    const result = await ipcCallResult("appState", "set", { agentView });
+    if (result.ok) return true;
+    log.warn(`appState set (agent view) failed: ${result.message}`);
+  } catch (error) {
+    log.warn(`appState set (agent view) failed: ${String(error)}`);
+  }
+  pending = true;
+  return false;
+}
+
+/** Flushes the panel layout before the window closes. */
+export async function flushAgentViewPersistence(): Promise<boolean> {
+  cancelPersistTimer();
+  while (inFlight || pending) {
+    inFlight ??= writeAgentView().finally(() => {
+      inFlight = undefined;
     });
-  }, PERSIST_DELAY_MS);
+    if (!(await inFlight)) return false;
+    cancelPersistTimer();
+  }
+  return true;
 }
 
 export const useAgentViewStore = create<AgentViewState>((set, get) => ({
@@ -104,18 +155,25 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   ...emptyLayout(),
   hoveredKey: null,
   ended: NO_ENDED,
+  remoteFiles: NO_REMOTE_FILES,
   order: NO_ORDER,
   grouping: AGENT_LIST_GROUPING_DEFAULT,
   folded: NO_FOLDS,
 
   hydrate(snapshot, alive) {
     if (snapshot) {
-      const layout = pruneKeys(sanitizeLayout(snapshot.root, snapshot.activeLeafId), alive);
+      const remoteFiles = new Map(Object.entries(snapshot.remoteFiles ?? {}));
+      const layout = pruneKeys(sanitizeLayout(snapshot.root, snapshot.activeLeafId), (key) => {
+        if (isRemoteFileKey(key)) return remoteFiles.has(key);
+        return !isRemoteKey(key) && alive(key);
+      });
+      const held = new Set(heldKeys(layout.root));
       set({
         mode: snapshot.mode,
         root: layout.root,
         activeLeafId: layout.activeLeafId,
-        ended: endedFromStore(snapshot.ended, new Set(heldKeys(layout.root))),
+        ended: endedFromStore(snapshot.ended, held),
+        remoteFiles: new Map([...remoteFiles].filter(([key]) => held.has(key))),
         order: orderFromStore(snapshot.order, alive),
         grouping: groupingFromStore(snapshot.grouping),
         folded: new Set(snapshot.folded ?? []),
@@ -135,10 +193,35 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   },
 
   update(change) {
-    const { root, activeLeafId } = get();
+    const { root, activeLeafId, remoteFiles } = get();
     const next = change({ root, activeLeafId });
     if (next.root === root && next.activeLeafId === activeLeafId) return;
-    set({ root: next.root, activeLeafId: next.activeLeafId });
+    const held = remoteFiles.size > 0 && next.root !== root ? new Set(heldKeys(next.root)) : null;
+    const remaining = held ? [...remoteFiles].filter(([key]) => held.has(key)) : null;
+    set({
+      ...next,
+      ...(remaining && remaining.length !== remoteFiles.size
+        ? { remoteFiles: new Map(remaining) }
+        : {}),
+    });
+    schedulePersist();
+  },
+
+  placeRemoteFile(key, fromKey, file) {
+    const { mode, root, activeLeafId, remoteFiles } = get();
+    const leafId = leafShowing(root, fromKey);
+    if (mode !== "agents" || leafId === null || !parseRemoteFileKey(key)) return;
+    const layout = { root, activeLeafId };
+    const next = selectHeldKey(layout, key) ?? showBeside(layout, key, leafId);
+    set({ ...next, remoteFiles: new Map(remoteFiles).set(key, file) });
+    schedulePersist();
+  },
+
+  updateRemoteFile(key, file) {
+    const { remoteFiles } = get();
+    const previous = remoteFiles.get(key);
+    if (!previous) return;
+    set({ remoteFiles: new Map(remoteFiles).set(key, { ...previous, ...file }) });
     schedulePersist();
   },
 
@@ -181,14 +264,15 @@ export function isAgentViewShown(): boolean {
 
 /** Test-only: forget the hydration, so a test starts from a fresh store. */
 export function __resetAgentViewForTests(): void {
-  if (persistTimer !== undefined) clearTimeout(persistTimer);
-  persistTimer = undefined;
+  cancelPersistTimer();
   hydrated = false;
+  pending = false;
   useAgentViewStore.setState({
     mode: "workspace",
     ...emptyLayout(),
     hoveredKey: null,
     ended: NO_ENDED,
+    remoteFiles: NO_REMOTE_FILES,
     order: NO_ORDER,
     grouping: AGENT_LIST_GROUPING_DEFAULT,
     folded: NO_FOLDS,

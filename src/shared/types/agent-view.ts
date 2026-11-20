@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { isRemoteFileKey, parseRemoteFileKey } from "../fs/remote-file-key";
 
 // ---------------------------------------------------------------------------
 // The agent view: the agents of every workspace side by side, in panels split
-// the way a workspace's groups are. Its panels hold sessions rather than a
-// workspace's tabs, each named by its session key, `${workspaceId}:${tabId}`,
-// so one panel can hold agents of different workspaces.
+// the way a workspace's groups are. Its panels hold tabs from any workspace
+// and peer files. A local tab uses its `${workspaceId}:${tabId}` key.
 // ---------------------------------------------------------------------------
 
 /** Which view the window shows: its workspaces, or the agents of all of them. */
@@ -15,12 +15,29 @@ export type AgentViewMode = z.infer<typeof AgentViewModeSchema>;
 const SessionKeySchema = z
   .string()
   .max(200)
-  .regex(/^[^:]+:[^:]+$/);
+  .regex(/^[^:]+:[^:]+$/)
+  .refine((key) => !isRemoteFileKey(key));
+
+const RemoteFileKeySchema = z.string().refine((key) => parseRemoteFileKey(key) !== null);
+const PanelKeySchema = z.union([SessionKeySchema, RemoteFileKeySchema]);
+
+const RemoteFileSnapshotSchema = z.object({
+  deviceName: z.string(),
+  workspaceRoot: z.string(),
+  at: z
+    .object({ line: z.number().int().positive(), column: z.number().int().positive().optional() })
+    .optional()
+    .catch(undefined),
+  mode: z.enum(["raw", "preview"]).optional(),
+  compare: z.boolean().optional(),
+  compareFrom: z.string().optional(),
+});
+export type RemoteFileSnapshot = z.infer<typeof RemoteFileSnapshotSchema>;
 
 export interface AgentViewLeaf {
   kind: "leaf";
   id: string;
-  /** Session keys, in the panel's tab order. */
+  /** Tab keys in panel order. */
   tabIds: string[];
   activeTabId: string | null;
 }
@@ -39,8 +56,8 @@ export type AgentViewNode = AgentViewLeaf | AgentViewSplit;
 const AgentViewLeafSchema = z.object({
   kind: z.literal("leaf"),
   id: z.string().uuid(),
-  tabIds: z.array(SessionKeySchema).max(256),
-  activeTabId: SessionKeySchema.nullable(),
+  tabIds: z.array(PanelKeySchema).max(256),
+  activeTabId: PanelKeySchema.nullable(),
 });
 
 export const AgentViewNodeSchema: z.ZodType<AgentViewNode> = z.lazy(() =>
@@ -73,6 +90,7 @@ export const AgentViewSnapshotSchema = z.object({
   mode: AgentViewModeSchema,
   root: AgentViewNodeSchema,
   activeLeafId: z.string().uuid(),
+  remoteFiles: z.record(RemoteFileKeySchema, RemoteFileSnapshotSchema).optional().catch(undefined),
   // The ended agents the panels show, by session key. Ones this version
   // cannot read are dropped rather than costing the panels.
   ended: z.record(SessionKeySchema, EndedAgentSnapshotSchema).optional().catch(undefined),

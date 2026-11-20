@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { keptSheet } from "../../../services/editor/preview/file-refresh";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import {
   columnName,
@@ -75,7 +76,7 @@ function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; re
 
   if (status.kind !== "ready") return <SpreadsheetStatus status={status} />;
   const { sheets } = status.workbook;
-  const sheet = sheets.find((s) => s.name === shown) ?? sheets[0];
+  const sheet = keptSheet(sheets, shown);
   if (!sheet) return <SpreadsheetStatus status={{ kind: "failed" }} />;
   return (
     <div className="flex flex-col h-full min-h-0 flex-1 bg-[var(--surface-backdrop-bg)]">
