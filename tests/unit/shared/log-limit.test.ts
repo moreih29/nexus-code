@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   extOf,
   limitLog,
+  opaqueTag,
   safeText,
   shortId,
   stripPaths,
@@ -97,5 +98,14 @@ describe("text helpers", () => {
     const out = safeText("fail /home/u/x token=abc123\nnext", 200, redactLogSecrets);
     expect(out).toBe("fail <path> token=[redacted] next");
     expect(safeText("x".repeat(500), 200).length).toBe(200);
+  });
+});
+
+describe("opaqueTag", () => {
+  test("is 8 hex digits, stable, and does not contain the value", () => {
+    const tag = opaqueTag("/Users/me/work");
+    expect(tag).toMatch(/^[0-9a-f]{8}$/);
+    expect(opaqueTag("/Users/me/work")).toBe(tag);
+    expect(opaqueTag("/Users/me/other")).not.toBe(tag);
   });
 });

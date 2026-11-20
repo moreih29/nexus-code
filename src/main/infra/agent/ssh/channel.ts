@@ -1,3 +1,4 @@
+import { opaqueTag } from "../../../../shared/log/limit";
 import type {
   AgentCallOptions,
   AgentChannel,
@@ -85,7 +86,7 @@ export function createSshChannel(
         spawn: dependencies.spawn,
       }),
     classifyStderr: classifyAuthLine,
-    logLabel: `ssh:${options.host}`,
+    logLabel: `ssh:${opaqueTag(options.host)}`,
     closeError: (_wasReady, context) =>
       createSshError("ssh.unknown", formatCloseDiagnostic(context)),
     requestTimeoutMs: dependencies.requestTimeoutMs,

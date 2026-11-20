@@ -111,3 +111,18 @@ export function safeText(
 ): string {
   return truncate(stripPaths(redact(text)).replace(/\s+/g, " ").trim(), max);
 }
+
+/**
+ * A stable 8-hex-digit tag for a value that must not appear in a log (a path,
+ * a host, a distro name). The same value gets the same tag, so the lines of
+ * one channel still line up; the value itself cannot be read back. A short
+ * hash, not a secret: it keeps a name out of the log, it does not hide a guess.
+ */
+export function opaqueTag(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
