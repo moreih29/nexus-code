@@ -38,8 +38,8 @@ describe("composer completion", () => {
     ["after a plus", "a+@", false],
     ["after a percent", "a%@", false],
     ["email domain typed", "a@b.com", false],
-    ["with a query", "이거@src/ap", true],
-    ["a quoted query", '이거 @"my fi', true],
+    ["in an existing query", "이거@src/ap", false],
+    ["in an existing quoted query", '이거 @"my fi', false],
   ];
   for (const [name, text, want] of cases) {
     test(`@ ${name}: ${want ? "opens" : "stays shut"}`, () => {
@@ -48,8 +48,18 @@ describe("composer completion", () => {
   }
 
   test("the query and range are the token's", () => {
-    expect(completionAt("이거@src", 6)).toEqual({ kind: "file", start: 2, end: 6, query: "src" });
-    expect(completionAt('a @"my f', 8)).toEqual({ kind: "file", start: 2, end: 8, query: "my f" });
+    expect(completionAt("이거@src", 6, 2)).toEqual({
+      kind: "file",
+      start: 2,
+      end: 6,
+      query: "src",
+    });
+    expect(completionAt('a @"my f', 8, 2)).toEqual({
+      kind: "file",
+      start: 2,
+      end: 8,
+      query: "my f",
+    });
   });
 
   test("an @ typed into a sentence opens; a caret moved into a mention does not", () => {
@@ -60,8 +70,17 @@ describe("composer completion", () => {
     expect(opens(text, 3, null)).toBe(false);
     // typed elsewhere than this token
     expect(opens(text, 3, 9)).toBe(false);
-    // at the end of a mention, before a space, as before
-    expect(opens("이 @a.ts 줘", 7)).toBe(true);
+    // Moving to the end of an existing mention leaves the menu closed.
+    expect(opens("이 @a.ts 줘", 7)).toBe(false);
+    expect(opens("이 @Makefile")).toBe(false);
+  });
+
+  test("editing an existing mention reopens suggestions", () => {
+    const text = "see @notes.m now";
+    const caret = "see @notes.m".length;
+    const typed = followTyped("see @notes.md now", text, caret, null);
+    expect(typed).toEqual({ start: 4, caret });
+    expect(opens(text, caret, typed?.start)).toBe(true);
   });
 
   test("followTyped keeps the token through an IME composing in the middle", () => {
@@ -95,13 +114,14 @@ describe("composer completion", () => {
 
   test("a picked file gets a space before and after", () => {
     const text = "이거@src 다음 글";
-    const completion = completionAt(text, 6, null);
+    const completion = completionAt(text, 6, 2);
     expect(completion).not.toBeNull();
     // caret before the space: the token ends at the caret
     const done = applyCompletion(text, completion!, { kind: "file", path: "src/a.ts" });
     expect(done.text).toBe("이거 @src/a.ts 다음 글");
     expect(done.caret).toBe("이거 @src/a.ts ".length);
     expect(done.open).toBeNull();
+    expect(opens(done.text, done.caret - 1)).toBe(false);
   });
 
   test("text right behind the token gets a space of its own", () => {
@@ -113,12 +133,12 @@ describe("composer completion", () => {
   });
 
   test("no extra space after a space or before a start", () => {
-    const at = completionAt("@a", 2)!;
+    const at = completionAt("@a", 2, 0)!;
     expect(applyCompletion("@a", at, { kind: "file", path: "a.ts" })).toMatchObject({
       text: "@a.ts ",
       caret: 6,
     });
-    const mid = completionAt("see @a x", 6)!;
+    const mid = completionAt("see @a x", 6, 4)!;
     expect(applyCompletion("see @a x", mid, { kind: "file", path: "a.ts" }).text).toBe(
       "see @a.ts x",
     );
@@ -126,12 +146,12 @@ describe("composer completion", () => {
 
   test("a folder is left open, with the token to follow", () => {
     const text = "이거@sr";
-    const done = applyCompletion(text, completionAt(text, 5)!, { kind: "file", path: "src/" });
+    const done = applyCompletion(text, completionAt(text, 5, 2)!, { kind: "file", path: "src/" });
     expect(done.text).toBe("이거 @src/");
     expect(done.caret).toBe(8);
     expect(done.open).toEqual({ start: 3, caret: 8 });
     // and the next pick, from the open token, replaces it
-    const next = completionAt(done.text, done.caret)!;
+    const next = completionAt(done.text, done.caret, done.open?.start)!;
     expect(next).toMatchObject({ start: 3, query: "src/" });
     expect(applyCompletion(done.text, next, { kind: "file", path: "src/a.ts" }).text).toBe(
       "이거 @src/a.ts ",
@@ -140,12 +160,12 @@ describe("composer completion", () => {
 
   test("a path with a space is quoted", () => {
     const text = "이거@my";
-    const done = applyCompletion(text, completionAt(text, 5)!, {
+    const done = applyCompletion(text, completionAt(text, 5, 2)!, {
       kind: "file",
       path: "my docs/a b.ts",
     });
     expect(done.text).toBe('이거 @"my docs/a b.ts" ');
-    const folder = applyCompletion(text, completionAt(text, 5)!, {
+    const folder = applyCompletion(text, completionAt(text, 5, 2)!, {
       kind: "file",
       path: "my docs/",
     });

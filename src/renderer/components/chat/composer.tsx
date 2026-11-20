@@ -321,8 +321,8 @@ export const Composer = memo(function Composer({
     areaRef.current?.focus();
   };
 
-  // The `@` being typed, so one typed into a sentence opens the list while
-  // a caret moved into an existing mention does not.
+  // The mention being edited, so moving the caret over an existing mention
+  // leaves the list closed.
   const typedRef = useRef<TypedToken | null>(null);
   const completion = completionAt(text, caret, typedRef.current?.start ?? null);
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
