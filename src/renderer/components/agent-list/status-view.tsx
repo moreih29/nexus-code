@@ -347,7 +347,7 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <Shield aria-hidden className={warn} />
-        <span className="shrink-0 font-medium text-foreground">
+        <span className="max-w-[60%] shrink-0 truncate font-medium text-foreground">
           {wait?.kind === "permission" ? wait.tool : stateLabel(session)}
         </span>
         {wait?.kind === "permission" && wait.target && (
@@ -399,7 +399,7 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
       return (
         <span className="flex min-w-0 items-center gap-1.5">
           <ToolIcon name={facts.tool.name} />
-          <span className="shrink-0 text-foreground">{facts.tool.name}</span>
+          <span className="max-w-[60%] shrink-0 truncate text-foreground">{facts.tool.name}</span>
           {facts.tool.target && (
             <span className="min-w-0 truncate font-mono text-app-micro text-muted-foreground">
               {facts.tool.target}
