@@ -135,6 +135,17 @@ describe("VoiceTracker", () => {
     expect(split.get(12_000)).toBe("2");
   });
 
+  test("keeps a merged assignment made while its voice print is pending", async () => {
+    tracker = new VoiceTracker(2);
+    tracker.startTake();
+    await say(1, 4);
+    const pending = say(2, 4);
+    tracker.pin([4000], "3", {}, new Set(["2"]));
+    expect(await pending).toBe("3");
+    expect(tracker.regroup({}).get(4000)).toBe("3");
+    expect(tracker.provisional("1", lines.values())).toBe("3");
+  });
+
   test("starts the audio over with each take", async () => {
     await say(1, 4);
     await say(2, 4);

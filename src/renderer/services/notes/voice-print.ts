@@ -214,6 +214,7 @@ export class VoiceTracker {
     ats: readonly number[],
     key: string,
     names: Readonly<Record<string, string>>,
+    merged?: ReadonlySet<string>,
   ): Map<number, string> {
     for (const at of ats) {
       if (this.pending.has(at)) this.pendingPins.set(at, key);
@@ -221,6 +222,10 @@ export class VoiceTracker {
       if (!line) continue;
       line.key = key;
       line.pinned = true;
+    }
+    if (merged?.size) {
+      for (const [label, from] of this.byLabel) if (merged.has(from)) this.byLabel.set(label, key);
+      if (this.last && merged.has(this.last)) this.last = key;
     }
     return this.regroup(names);
   }

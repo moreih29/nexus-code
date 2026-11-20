@@ -138,6 +138,13 @@
     "speaker": "Speaker {{label}}",
     "rename": "Name this person",
     "moveLine": "Change speaker",
+    "speakerOptions": "Options for {{name}}",
+    "mergeSpeaker": "Merge with another speaker",
+    "moveScope": {
+      "line": "This line only",
+      "following": "This speaker from here to the end",
+      "all": "All lines from this speaker (merge)"
+    },
     "only": "Only what they said",
     "everyone": "Everyone again",
     "search": "Search the transcript",

@@ -138,6 +138,13 @@
     "speaker": "화자 {{label}}",
     "rename": "이름 붙이기",
     "moveLine": "화자 바꾸기",
+    "speakerOptions": "{{name}} 옵션",
+    "mergeSpeaker": "다른 화자와 합치기",
+    "moveScope": {
+      "line": "이 줄만",
+      "following": "이 화자의 줄을 여기부터 끝까지",
+      "all": "이 화자의 줄 모두 (합치기)"
+    },
     "only": "이 사람 말만 보기",
     "everyone": "모두 보기",
     "search": "원문에서 찾기",

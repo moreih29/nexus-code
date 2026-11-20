@@ -239,24 +239,58 @@ export function withSecondPass(
 ): TranscriptRecording {
   const t = recording.takes[take];
   if (!t) return recording;
-  if (recording.voicePrint) return numberSpeakers(withSecondPassByVoice(recording, take, segments));
-  const inTake = (key: string) =>
-    take === 0 ? !key.includes(".") : key.startsWith(`${take + 1}.`);
-  const old = recording.lines.filter((l) => inTake(l.speaker));
-  const rest = recording.lines.filter((l) => !inTake(l.speaker));
+  const until = recording.takes[take + 1]?.offsetMs ?? Number.POSITIVE_INFINITY;
+  const inTake = (l: TranscriptLine) => l.startMs >= t.offsetMs && l.startMs < until;
+  const old = recording.lines.filter(inTake);
+  const rest = recording.lines.filter((l) => !inTake(l));
+  if (recording.voicePrint) {
+    return numberSpeakers(withSecondPassByVoice(recording, t, old, rest, segments));
+  }
+
+  const pinned = old.filter((l) => l.pinned);
+  const retained = new Set([...rest, ...pinned].map((l) => l.speaker));
+  const oldKeys = new Set(old.map((l) => l.speaker));
+  const taken = new Set([
+    ...Object.keys(recording.speakers),
+    ...recording.lines.map((l) => l.speaker),
+  ]);
+  for (const s of segments) taken.add(speakerKey(take, s.speaker));
+  const byLabel = new Map<string, string>();
+  const keyOfLabel = (label: string) => {
+    const original = speakerKey(take, label);
+    if (!retained.has(original)) return original;
+    const existing = byLabel.get(label);
+    if (existing !== undefined) return existing;
+    const key = nextVoiceKey(taken);
+    taken.add(key);
+    byLabel.set(label, key);
+    return key;
+  };
   const fresh = segments
     .filter((s) => s.text.trim())
-    .map((s) => ({
-      speaker: speakerKey(take, s.speaker),
-      startMs: t.offsetMs + s.startMs,
-      endMs: t.offsetMs + s.endMs,
-      text: s.text.trim(),
-    }));
-  const oldNames: Record<string, string> = {};
-  for (const [k, v] of Object.entries(recording.speakers)) if (inTake(k)) oldNames[k] = v;
-  const carried = carryNames(old, oldNames, fresh);
+    .map((s): TranscriptLine => {
+      const startMs = t.offsetMs + s.startMs;
+      const endMs = t.offsetMs + s.endMs;
+      const manual = greatestOverlap(overlapBySpeaker(pinned, startMs, endMs));
+      return {
+        speaker: manual ?? keyOfLabel(s.speaker),
+        startMs,
+        endMs,
+        text: s.text.trim(),
+        ...(manual ? { pinned: true } : {}),
+      };
+    });
+  const carried = carryNames(
+    old,
+    recording.speakers,
+    fresh.filter((l) => !l.pinned),
+  );
   const speakers: Record<string, string> = {};
-  for (const [k, v] of Object.entries(recording.speakers)) if (!inTake(k)) speakers[k] = v;
+  const keyInTake = (key: string) =>
+    take === 0 ? !key.includes(".") : key.startsWith(`${take + 1}.`);
+  for (const [key, name] of Object.entries(recording.speakers)) {
+    if (retained.has(key) || (!oldKeys.has(key) && !keyInTake(key))) speakers[key] = name;
+  }
   Object.assign(speakers, carried);
   return numberSpeakers({
     ...recording,
@@ -267,14 +301,11 @@ export function withSecondPass(
 
 function withSecondPassByVoice(
   recording: TranscriptRecording,
-  take: number,
+  take: TranscriptTake,
+  old: readonly TranscriptLine[],
+  rest: readonly TranscriptLine[],
   segments: readonly TranscriptLine[],
 ): TranscriptRecording {
-  const t = recording.takes[take] as TranscriptTake;
-  const until = recording.takes[take + 1]?.offsetMs ?? Number.POSITIVE_INFINITY;
-  const inTake = (l: TranscriptLine) => l.startMs >= t.offsetMs && l.startMs < until;
-  const old = recording.lines.filter(inTake);
-  const rest = recording.lines.filter((l) => !inTake(l));
   // A take the live session heard nothing in: the pass's labels, as new voices.
   const taken = new Set([
     ...recording.lines.map((l) => l.speaker),
@@ -282,7 +313,9 @@ function withSecondPassByVoice(
   ]);
   const limit =
     typeof recording.participantCount === "number" ? recording.participantCount : undefined;
-  const existing = new Set(recording.lines.map((l) => l.speaker));
+  const existing = new Map(
+    recording.lines.map((l) => [voicePerson(recording.speakers, l.speaker), l.speaker]),
+  );
   const byLabel = new Map<string, string>();
   const keyOfLabel = (label: string) => {
     let key = byLabel.get(label);
@@ -291,7 +324,7 @@ function withSecondPassByVoice(
         limit !== undefined && existing.size >= limit ? existing.values().next().value : undefined;
       key ??= nextVoiceKey(taken);
       taken.add(key);
-      existing.add(key);
+      existing.set(voicePerson(recording.speakers, key), key);
       byLabel.set(label, key);
     }
     return key;
@@ -299,8 +332,8 @@ function withSecondPassByVoice(
   const fresh = segments
     .filter((s) => s.text.trim())
     .map((s): TranscriptLine => {
-      const startMs = t.offsetMs + s.startMs;
-      const endMs = t.offsetMs + s.endMs;
+      const startMs = take.offsetMs + s.startMs;
+      const endMs = take.offsetMs + s.endMs;
       const shared = new Map<string, number>();
       const pinned = new Map<string, number>();
       let near: TranscriptLine | null = null;
@@ -314,15 +347,8 @@ function withSecondPassByVoice(
         if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
           near = l;
       }
-      let speaker = "";
-      let most = 0;
-      for (const [key, ms] of pinned.size ? pinned : shared) {
-        if (ms > most) {
-          most = ms;
-          speaker = key;
-        }
-      }
-      speaker ||= near?.speaker ?? keyOfLabel(s.speaker);
+      const speaker =
+        greatestOverlap(pinned.size ? pinned : shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
       return {
         speaker,
         startMs,
@@ -334,6 +360,32 @@ function withSecondPassByVoice(
   return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
 }
 
+function overlapBySpeaker(
+  lines: readonly TranscriptLine[],
+  startMs: number,
+  endMs: number,
+): Map<string, number> {
+  const shared = new Map<string, number>();
+  for (const line of lines) {
+    const ms = Math.min(endMs, line.endMs) - Math.max(startMs, line.startMs);
+    if (ms > 0) shared.set(line.speaker, (shared.get(line.speaker) ?? 0) + ms);
+  }
+  return shared;
+}
+
+function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefined {
+  let speaker: string | undefined;
+  let most = 0;
+  for (const [key, ms] of shared) {
+    if (ms <= most) continue;
+    most = ms;
+    speaker = key;
+  }
+  return speaker;
+}
+
+export type SpeakerMoveScope = "line" | "following" | "all";
+
 /**
  * The lines a shown line joined (joinedLines) moved to voice `to`, and kept
  * there: those of its voice from its start to its end.
@@ -342,15 +394,42 @@ export function movedLines(
   recording: TranscriptRecording,
   shown: Pick<TranscriptLine, "speaker" | "startMs" | "endMs">,
   to: string,
+  scope: SpeakerMoveScope = "line",
 ): TranscriptRecording {
-  let changed = false;
-  const lines = recording.lines.map((l) => {
-    if (l.speaker !== shown.speaker || l.startMs < shown.startMs || l.startMs > shown.endMs)
-      return l;
-    changed = true;
+  const from = voicePerson(recording.speakers, shown.speaker);
+  if (from === voicePerson(recording.speakers, to)) return recording;
+  const first = recording.lines.findIndex(
+    (l) => l.startMs === shown.startMs && l.speaker === shown.speaker,
+  );
+  if (first < 0) return recording;
+  let until = first + 1;
+  if (scope === "line") {
+    while (until < recording.lines.length) {
+      const line = recording.lines[until] as TranscriptLine;
+      if (line.speaker !== shown.speaker || line.startMs > shown.endMs || line.endMs > shown.endMs)
+        break;
+      until++;
+    }
+  }
+  const lines = recording.lines.map((l, i) => {
+    const selected =
+      scope === "line"
+        ? i >= first && i < until
+        : voicePerson(recording.speakers, l.speaker) === from && (scope === "all" || i >= first);
+    if (!selected) return l;
     return { ...l, speaker: to, pinned: true };
   });
-  return changed ? { ...recording, lines } : recording;
+  let speakers = recording.speakers;
+  if (scope === "all") {
+    speakers = { ...recording.speakers };
+    for (const key of Object.keys(speakers)) {
+      if (voicePerson(recording.speakers, key) === from) delete speakers[key];
+    }
+    const sourceName = recording.speakers[shown.speaker]?.trim();
+    if (sourceName && !speakers[to]?.trim()) speakers[to] = sourceName;
+  }
+  const next = { ...recording, lines, speakers };
+  return recording.speakerNumbers ? numberSpeakers(next) : next;
 }
 
 /** A key for a new voice of the recording: the next number not taken. */
