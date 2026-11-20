@@ -216,8 +216,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
-  async function dispatch(s: CliServices, request: RemoteServeRequest) {
+  async function dispatch(services: CliServices, request: RemoteServeRequest) {
     const { from, method, params } = request;
+    let s = services;
     if (sessions && method === "sessions.watch") return sessions.watch(from);
     if (sessions && method === "sessions.unwatch") {
       return sessions.unwatch(from, params as RpcParams<"sessions.unwatch">);
@@ -270,7 +271,20 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         throw new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room");
       }
     };
-    if (by && !readOnly && !checkInHandler) checkCurrent();
+    if (by && !readOnly && !checkInHandler) {
+      checkCurrent();
+      s = {
+        ...services,
+        ui: (op, args, timeoutMs) => {
+          checkCurrent();
+          return services.ui(op, args, timeoutMs);
+        },
+        answerClaudeAsk: (...args) => {
+          checkCurrent();
+          return services.answerClaudeAsk(...args);
+        },
+      };
+    }
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
     switch (request.method) {
       case "sessions.list":
@@ -392,6 +406,15 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         const { workspaceId, force, deleteBranch } = request.params as RpcParams<"worktree.remove">;
         if (!workspaceOf(s, workspaceId)?.task)
           throw new RpcFailure(RpcErrorCode.InvalidParams, "choose a worktree");
+        if (!(watches.controls?.() ?? controls).terminal) {
+          const { tabs } = await s.ui("tabs.list", { workspaceId }).catch(unavailable);
+          if (tabs.some((tab) => tab.type === "terminal" && !tab.dead && !tab.unstarted)) {
+            throw new RpcFailure(
+              RpcErrorCode.Forbidden,
+              "removing a worktree with running terminals requires terminal control",
+            );
+          }
+        }
         return s
           .ui("task.remove", { taskId: workspaceId, force, deleteBranch }, 5 * 60_000)
           .catch(unavailable);

@@ -37,7 +37,6 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
-import { isFileTransferMethod } from "./file-io";
 import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
 import type {
@@ -1050,14 +1049,8 @@ export class RemoteRoom {
         }
         return;
       }
-      const transfer = isFileTransferMethod(message.method);
-      if (transfer && !current()) return;
-      const answer = await this.answer(
-        from,
-        message.method,
-        message.params,
-        transfer ? current : undefined,
-      );
+      if (!current()) return;
+      const answer = await this.answer(from, message.method, message.params, current);
       if (current()) await this.reply(from, epoch, message, answer, current);
       return;
     }
