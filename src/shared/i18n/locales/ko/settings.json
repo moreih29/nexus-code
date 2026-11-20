@@ -328,7 +328,7 @@
         "permissionDeny": "{{detail}} 거부를",
         "chatInterrupt": "탭 \"{{detail}}\"의 진행 중인 턴 중지를",
         "chatSettings": "탭 \"{{detail}}\"의 모델·강도·권한 모드 변경을",
-        "instructionsEdit": "{{detail}} 지시 수정을",
+        "instructionsEdit": "{{detail}} 지시 바꾸기를",
         "chatMode": "탭 {{detail}}의 권한 모드 변경을",
         "chatProfile": "탭 {{detail}}의 프로필 변경(대화 이어가기)을",
         "chatProfileNew": "탭 {{detail}}의 프로필 변경(새 대화로)을",
@@ -342,7 +342,7 @@
         "noteNew": "노트 \"{{detail}}\" 만들기를",
         "noteWrite": "노트 \"{{detail}}\"에 쓰기를",
         "noteSpeakers": "노트 \"{{detail}}\"의 화자 수정을",
-        "voiceNamesDelete": "기억한 목소리({{detail}}) 삭제를",
+        "voiceNamesDelete": "기억한 목소리({{detail}}) 지우기를",
         "noteRecord": "마이크로 노트 \"{{detail}}\" 녹음하기를",
         "noteRecordStop": "노트 \"{{detail}}\" 녹음 멈추기를",
         "chatRemoteControlToggle": "탭 \"{{detail}}\"의 원격 제어 전환을"
@@ -375,7 +375,7 @@
     "openStore": "Microsoft Store 열기",
     "logs": {
       "title": "로그",
-      "description": "문제를 신고할 때 로그를 첨부하세요.",
+      "description": "문제 신고에 첨부할 로그",
       "open": "로그 폴더 열기",
       "copyPath": "로그 경로 복사",
       "copied": "복사됨"
@@ -712,32 +712,32 @@
       "title": "동작 설정",
       "openFile": "{{file}} 열기",
       "loading": "읽는 중…",
-      "ssh": "이 설정은 로컬 파일에 적용되며 SSH 호스트는 자체 파일을 사용합니다.",
+      "ssh": "이 컴퓨터의 파일만 · SSH 호스트는 그쪽 파일",
       "shared": {
-        "warn": "{{file}}을 기본 프로필과 공유하므로 변경 사항이 양쪽에 적용됩니다.",
+        "warn": "기본 프로필과 {{file}} 공유 · 양쪽에 변경 적용",
         "unshare": "프로필 전용 파일 만들기",
         "confirmTitle": "{{file}}을 프로필 전용으로 복사할까요?",
-        "confirmBody": "현재 내용을 이 프로필에 복사하며 기본 프로필은 그대로 유지됩니다.",
+        "confirmBody": "현재 내용을 이 프로필 폴더에 복사합니다. 기본 프로필은 그대로입니다.",
         "confirm": "복사",
         "own": "이 프로필 전용",
         "failed": "전용 파일을 만들지 못했습니다 ({{message}})."
       },
       "broken": "{{file}}을 읽지 못했습니다 ({{reason}}). 파일을 고친 뒤 다시 여세요.",
-      "outside": "외부에서 파일이 바뀌었습니다. 다시 읽어도 편집 내용은 유지됩니다.",
+      "outside": "파일이 밖에서 바뀌었습니다. 다시 읽어도 바꾼 값은 남습니다.",
       "reload": "다시 읽기",
-      "conflict": "파일이 외부에서 바뀌어 저장하지 못했습니다. 다시 읽은 뒤 저장하세요.",
-      "unsupported": "파일에서 직접 수정하세요.",
-      "unsupportedSave": "저장하지 못했습니다. {{fields}} 항목은 파일에서 직접 수정하세요.",
+      "conflict": "파일이 밖에서 바뀌어 저장하지 못했습니다. 다시 읽은 뒤 저장하세요.",
+      "unsupported": "파일에서 직접 고치기",
+      "unsupportedSave": "저장하지 못했습니다. {{fields}} 항목은 파일에서 직접 고치세요.",
       "saveFailed": "동작 설정을 저장하지 못했습니다 ({{message}}).",
       "default": "기본값",
       "defaultAccount": "기본값 (계정에 따름)",
       "tabNote": {
-        "claude": "새 탭의 시작값입니다. 탭에서 바꾼 모델과 권한 모드는 그 탭에만 적용됩니다.",
-        "codex": "새 탭의 승인·샌드박스 설정입니다. 탭에서 바꾼 권한은 그 탭에만 적용됩니다."
+        "claude": "새 탭의 시작값 · 탭에서 바꾼 모델과 권한 모드는 그 탭에만",
+        "codex": "새 탭의 승인·샌드박스 시작값 · 탭에서 바꾼 권한은 그 탭에만"
       },
       "footer": {
-        "claude": "허용·거부 규칙과 훅·상태 줄은 {{file}}에서, MCP 서버는 MCP 화면에서 수정하세요.",
-        "codex": "MCP 서버·규칙·훅·알림은 {{file}}에서 수정하세요."
+        "claude": "허용·거부 규칙, 훅, 상태 줄은 {{file}}에서 · MCP 서버는 MCP 화면에서",
+        "codex": "MCP 서버, 규칙, 훅, 알림은 {{file}}에서"
       },
       "groups": {
         "model": "모델",
@@ -747,19 +747,19 @@
       "fields": {
         "model": {
           "label": "시작 모델",
-          "hint": "Claude의 모델 목록에서 고릅니다."
+          "hint": "Claude 기본 모델 목록"
         },
         "thinking": {
-          "label": "확장 사고",
-          "hint": "끄면 확장 사고 없이 답합니다."
+          "label": "생각 과정",
+          "hint": "끄면 생각 과정 없이 바로 답함"
         },
         "permissionMode": {
           "label": "권한 모드",
-          "hint": "새 탭의 권한 모드입니다."
+          "hint": "새 탭이 시작할 때의 모드"
         },
         "language": {
           "label": "응답 언어",
-          "hint": "비워 두면 Claude가 정합니다.",
+          "hint": "비우면 Claude가 정함",
           "placeholder": "예: 한국어"
         },
         "outputStyle": {
@@ -767,44 +767,44 @@
         },
         "autoCompact": {
           "label": "자동 압축",
-          "hint": "컨텍스트가 차면 대화를 요약합니다."
+          "hint": "컨텍스트가 차면 대화를 요약합니다"
         },
         "autoMemory": {
           "label": "자동 메모리",
-          "hint": "배운 내용을 다음 대화에서도 사용합니다."
+          "hint": "다음 대화에도 배운 내용 기억"
         },
         "attribution": {
-          "label": "커밋·PR의 Claude 출처 표시",
-          "hint": "Co-Authored-By 줄과 PR 하단에 Claude를 표시합니다."
+          "label": "커밋·PR에 Claude 표시",
+          "hint": "Co-Authored-By 줄과 PR 끝의 문구"
         },
         "sandbox": {
           "label": "Bash 샌드박스",
-          "hint": "명령의 파일·네트워크 접근을 제한합니다."
+          "hint": "명령의 파일·네트워크 접근 제한"
         },
         "approvalPolicy": {
           "label": "승인",
-          "hint": "명령 실행 전에 승인을 받을지 정합니다."
+          "hint": "명령을 실행하기 전에 물을지"
         },
         "sandboxMode": {
           "label": "샌드박스",
-          "hint": "명령이 변경할 수 있는 범위를 정합니다."
+          "hint": "명령이 고칠 수 있는 범위"
         },
         "sandboxNetwork": {
           "label": "샌드박스 네트워크",
-          "hint": "워크스페이스 쓰기 모드에서 외부 연결을 허용합니다."
+          "hint": "워크스페이스 쓰기 모드에서 외부 연결 허용"
         },
         "webSearch": {
           "label": "웹 검색",
           "hint": "끄기 · 캐시 · 인덱스 · 실시간",
-          "locked": "이 API 주소에서는 웹 검색이 꺼집니다."
+          "locked": "이 API 주소에서는 웹 검색 꺼짐"
         },
         "reasoningSummary": {
           "label": "추론 요약",
-          "hint": "추론 과정을 얼마나 표시할지 정합니다."
+          "hint": "생각 과정을 얼마나 보여 줄지"
         },
         "autoCompactLimit": {
           "label": "자동 압축 기준",
-          "hint": "비워 두면 모델 기본값을 사용합니다.",
+          "hint": "비우면 모델 기본값",
           "placeholder": "예: 100000"
         },
         "verbosity": {
@@ -812,7 +812,7 @@
         },
         "codexModel": {
           "label": "시작 모델",
-          "hint": "비워 두면 Codex 기본 모델을 사용합니다.",
+          "hint": "비우면 Codex 기본 모델",
           "placeholder": "예: gpt-5"
         }
       },
@@ -862,54 +862,54 @@
         "account": {
           "claude": {
             "label": "Claude 계정",
-            "hint": "Pro·Max·Team 요금제로 사용하며, 만들면 로그인 창이 열립니다."
+            "hint": "Pro·Max·Team 요금제 · 만든 뒤 로그인 창 열림"
           },
           "codex": {
             "label": "ChatGPT 계정",
-            "hint": "ChatGPT 요금제로 사용하며, 만들면 로그인 창이 열립니다."
+            "hint": "ChatGPT 요금제 · 만든 뒤 로그인 창 열림"
           }
         },
         "api-key": {
           "claude": {
             "label": "Anthropic API 키",
-            "hint": "Claude Console 키를 사용하며 사용량에 따라 과금됩니다."
+            "hint": "Claude Console 키 · 사용량에 따라 과금"
           },
           "codex": {
             "label": "OpenAI API 키",
-            "hint": "OpenAI Platform 키를 사용하며 사용량에 따라 과금됩니다."
+            "hint": "OpenAI Platform 키 · 사용량에 따라 과금"
           }
         },
         "custom": {
           "claude": {
             "label": "사용자 지정 API 주소",
-            "hint": "Anthropic Messages를 지원하는 제공업체나 게이트웨이를 사용합니다."
+            "hint": "Anthropic Messages를 지원하는 제공업체 또는 게이트웨이"
           },
           "codex": {
             "label": "사용자 지정 API 주소",
-            "hint": "Responses API를 지원하는 서버나 게이트웨이를 사용합니다."
+            "hint": "Responses API를 지원하는 서버 또는 게이트웨이"
           }
         }
       },
       "addressAndKey": "주소와 키",
       "key": "API 키",
-      "keyOptional": "키가 필요 없으면 비워 두세요.",
+      "keyOptional": "키가 필요 없으면 빈칸",
       "clearKey": "키 지우기",
-      "sealedKey": "키는 이 컴퓨터에 암호화해 보관합니다",
-      "memoryKey": "시스템 키 보관함을 사용할 수 없어 앱을 닫을 때까지 키를 보관합니다.",
+      "sealedKey": "이 컴퓨터에 키 암호화 보관",
+      "memoryKey": "시스템 키 보관함 사용 불가 · 앱을 닫을 때까지 키 보관",
       "presets": "연결 프리셋",
       "manual": "직접 입력",
       "address": "API 주소",
       "auth": "키 전송 방식",
       "bearer": "Bearer 토큰",
-      "responsesHint": "Codex는 Responses API(/v1/responses)를 사용합니다. Chat Completions 전용 서버에는 요청을 변환하는 게이트웨이가 필요합니다.",
+      "responsesHint": "Codex는 Responses API(/v1/responses) 사용 · Chat Completions 전용 서버는 요청 변환 게이트웨이 필요",
       "models": "모델",
       "modelId": "모델 ID",
       "label": "표시 이름 (선택)",
       "default": "기본",
       "context": "컨텍스트 창",
-      "contextHint": "비워 두면 알 수 없는 모델에 Claude Code의 100만 토큰 기본값을 사용합니다.",
+      "contextHint": "비우면 알 수 없는 모델에 Claude Code의 100만 토큰 기본값 적용",
       "lightModel": "백그라운드 모델",
-      "lightHint": "대화 제목과 요약 등 백그라운드 작업에 사용합니다.",
+      "lightHint": "대화 제목과 요약 등 백그라운드 작업",
       "reasoning": "추론 강도",
       "effort": {
         "none": "없음",
@@ -918,12 +918,12 @@
       },
       "addModel": "모델 추가",
       "removeModel": "모델 삭제",
-      "localCheck": "모델 검색과 연결 테스트는 이 컴퓨터에서 실행합니다.",
+      "localCheck": "모델 찾기와 연결 시험은 이 컴퓨터에서",
       "find": "모델 찾기",
       "findAgain": "다시 찾기",
       "looking": "찾는 중…",
       "found_other": "모델 {{count}}개 찾음",
-      "noModels": "모델 목록을 가져올 수 없습니다. 제공업체의 모델 ID를 입력하세요.",
+      "noModels": "모델 목록을 가져올 수 없습니다. 제공업체 문서의 모델 ID를 입력하세요.",
       "notRunning": "서버가 실행 중이 아닙니다",
       "gigabytes": "{{size}} GB",
       "advanced": "고급",
@@ -940,53 +940,53 @@
       "disableBetas": "실험 기능 헤더 끄기",
       "retries": "재시도 횟수",
       "streamTimeout": "스트림 제한 시간 (ms)",
-      "envPriority": "연결 설정이 같은 이름의 추가 환경 변수보다 우선합니다.",
+      "envPriority": "같은 이름의 추가 환경 변수보다 연결 설정 우선",
       "test": "연결 시험",
       "testing": "시험 중…",
-      "testHint": "기본 모델에 짧은 요청을 보내며, 토큰이 조금 사용될 수 있습니다.",
+      "testHint": "기본 모델에 짧은 요청 1회 · 소량의 토큰 사용 가능",
       "tested": "{{ms}}ms · {{model}} 모델이 답했습니다",
       "createAndSignIn": "만들고 로그인",
       "saveError": "프로필을 저장하지 못했습니다",
       "errors": {
         "auth": "키와 보내는 방식을 확인하세요",
         "model": "{{model}} 모델을 찾지 못했습니다",
-        "network": "서버에 연결할 수 없습니다. 주소와 네트워크를 확인하세요.",
+        "network": "서버에 연결하지 못했습니다. 주소와 네트워크를 확인하세요",
         "address": "올바른 HTTP 또는 HTTPS API 주소를 적으세요",
         "unsupported": "이 주소는 Responses API를 받지 않습니다",
         "response": "서버가 예상과 다른 응답을 보냈습니다",
-        "missingKey": "설정에서 프로필의 API 키를 입력하세요.",
+        "missingKey": "설정에서 이 프로필의 API 키를 입력하세요",
         "claudeVersion": "다른 API 주소를 쓰려면 Claude Code {{version}} 이상이 필요합니다"
       },
       "found_one": "모델 {{count}}개 찾음",
       "behaviorModel": "연결 기본 모델 ({{model}})",
-      "behaviorModelPending": "연결 설정에서 기본 모델을 고르세요.",
-      "behaviorWebSearch": "이 API 주소에서는 웹 검색이 꺼집니다."
+      "behaviorModelPending": "연결 설정에서 기본 모델 선택",
+      "behaviorWebSearch": "이 API 주소에서는 웹 검색 꺼짐"
     }
   },
   "instructions": {
     "workspaceMenu": "지시사항…",
-    "description": "NexusCode가 연 에이전트는 이 지시를 CLAUDE.md·AGENTS.md와 함께 읽습니다.",
+    "description": "앱에서 여는 에이전트에 붙는 지시 · CLAUDE.md·AGENTS.md와 함께 적용",
     "all": "모든 에이전트",
     "agentsAndProfiles": "에이전트와 프로필",
     "workspaces": "워크스페이스",
-    "sessionHint": "세션 지시는 채팅 탭에서 수정하세요.",
+    "sessionHint": "세션 지시는 채팅 탭에서 고칩니다",
     "scope": {
-      "all": "앱에서 연 Claude와 Codex에 적용됩니다.",
-      "claude": "Claude 탭과 앱 터미널에서 실행한 Claude에 적용됩니다.",
-      "codex": "모든 Codex 탭에 적용됩니다.",
-      "profile": "이 프로필로 연 에이전트에 적용됩니다.",
-      "workspace": "앱에 저장되며 이 워크스페이스에서 연 에이전트에 적용됩니다."
+      "all": "앱에서 연 Claude와 Codex에 적용",
+      "claude": "모든 Claude 탭과 앱 터미널의 Claude에 적용",
+      "codex": "모든 Codex 탭에 적용",
+      "profile": "이 프로필로 연 에이전트에 적용",
+      "workspace": "이 워크스페이스에서 연 에이전트에 적용 · 앱에 저장"
     },
     "preview": "합친 지시 미리보기",
     "agent": "에이전트",
     "profile": "프로필",
     "workspace": "워크스페이스",
     "count": "{{chars}}자 · 약 {{tokens}}토큰",
-    "tooLong": "레이어당 {{max}}자까지 입력할 수 있습니다.",
-    "invalidText": "널 문자 없이 일반 텍스트를 입력하세요.",
+    "tooLong": "레이어당 최대 {{max}}자",
+    "invalidText": "널 문자 없는 일반 텍스트만",
     "empty": "지시사항 없음",
     "hasText": "지시 있음",
-    "applies": "새 탭에는 즉시, 열린 탭에는 다음 메시지부터 적용됩니다.",
+    "applies": "새 탭은 즉시 · 열린 탭은 다음 메시지부터",
     "saveFailed": "지시사항을 저장하지 못했습니다",
     "session": {
       "chip": "지시",
