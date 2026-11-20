@@ -369,6 +369,13 @@
     "checking": "Checking…",
     "storeManaged": "Updates come from the Microsoft Store.",
     "openStore": "Open Microsoft Store",
+    "logs": {
+      "title": "Logs",
+      "description": "Attach these files when you report a problem.",
+      "open": "Open log folder",
+      "copyPath": "Copy log path",
+      "copied": "Copied"
+    },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
