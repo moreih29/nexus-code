@@ -126,6 +126,7 @@ import { finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/platform/shell-path";
+import { beginRun, startLine } from "./infra/run-log";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
@@ -201,6 +202,10 @@ const userData = app.getPath("userData");
 const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
 const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"));
 const stateService = new StateService(path.join(userData, "state.json"));
+// Set once the app is ready (after the single-instance lock, so a second launch
+// does not take the first one's marker): notes a run that ended without a quit
+// line, and writes the quit line of this one.
+let currentRun: ReturnType<typeof beginRun> | null = null;
 
 // Per-domain disposers wired into the workspace:removed interception below.
 // Each subsystem (fileWatcher, git*, lsp) owns its own per-workspace cleanup
@@ -504,6 +509,19 @@ updatesHandle = installUpdatesDomain({
 });
 
 app.whenReady().then(async () => {
+  currentRun = beginRun(path.join(userData, "running.json"), app.getVersion(), logger);
+  logger.info(
+    startLine({
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      platform: process.platform,
+      osRelease: os.release(),
+      arch: process.arch,
+      locale: app.getLocale(),
+      electron: process.versions.electron ?? "",
+      readyMs: process.uptime() * 1000,
+    }),
+  );
   installAppSessionPermissions(session.defaultSession);
   // The app window's Content-Security-Policy. NEXUS_CSP_REPORT_ONLY=1 makes
   // an unpackaged run only report what it would block, in the console.
@@ -1007,6 +1025,7 @@ app.on("will-quit", (event) => {
   void shutDownMain()
     .catch((error) => logger.error("App shutdown failed", error))
     .finally(() => {
+      currentRun?.quit(logger);
       quitReady = true;
       app.quit();
     });
