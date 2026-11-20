@@ -12,7 +12,11 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { transcriptLinesForCli, transcriptMarkdown } from "../../../shared/notes/transcript";
+import { type CliServices, pick } from "../cli/context";
+import { noteMarkdown } from "../notes/store";
 import { RpcFailure } from "./room";
+import { fitsAsResult, workspaceOf } from "./serving/common";
 
 /** The image files a note keeps a photo as, by the type it came as. */
 const EXTENSIONS = {
@@ -76,6 +80,92 @@ export async function listNotes(
       .slice(0, MAX_LISTED_NOTES)
       .map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
   };
+}
+
+async function findNote(services: CliServices, workspaceId: string, selector: string) {
+  if (!workspaceOf(services, workspaceId))
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  const notes = await services.notes.list(workspaceId).catch(failure);
+  let selected: (typeof notes)[number];
+  try {
+    selected = pick(
+      notes,
+      selector,
+      (n) => n.id,
+      (n) => n.title,
+      "note",
+    );
+  } catch (error) {
+    throw new RpcFailure(RpcErrorCode.NotFound, (error as Error).message);
+  }
+  const { id } = selected;
+  return services.notes.read(workspaceId, id).catch(failure);
+}
+
+function bounded<T>(result: T): T {
+  if (!fitsAsResult(result)) {
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "the note is too large to send in one response; read it on that computer",
+    );
+  }
+  return result;
+}
+
+export async function readNote(
+  services: CliServices,
+  { workspaceId, note: selector, transcriptOnly }: RpcParams<"notes.read">,
+): Promise<RpcResult<"notes.read">> {
+  const note = await findNote(services, workspaceId, selector);
+  const { id, title, updatedAt } = note;
+  const transcript =
+    transcriptOnly || note.recording
+      ? transcriptMarkdown(await services.notes.transcript(workspaceId, id).catch(failure), title)
+      : "";
+  return bounded({
+    id,
+    title,
+    updatedAt,
+    markdown: transcriptOnly ? "" : noteMarkdown(note),
+    transcript,
+  });
+}
+
+export async function noteTranscript(
+  services: CliServices,
+  { workspaceId, note: selector, recording }: RpcParams<"notes.transcript">,
+): Promise<RpcResult<"notes.transcript">> {
+  const { id, title } = await findNote(services, workspaceId, selector);
+  const { recordings } = await services.notes.transcript(workspaceId, id).catch(failure);
+  const chosen =
+    recording === undefined
+      ? recordings
+      : [
+          pick(
+            recordings,
+            recording,
+            (r) => r.id,
+            (r) => r.id,
+            "recording",
+          ),
+        ];
+  const result = {
+    id,
+    title,
+    recordings: chosen.map((rec) => ({
+      id: rec.id,
+      startedAt: rec.startedAt,
+      participants: rec.participantCount ?? "auto",
+      lines: transcriptLinesForCli(rec),
+    })),
+  };
+  if (!fitsAsResult(result)) {
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "the transcript is too large to send; select a recording or read it on that computer",
+    );
+  }
+  return result;
 }
 
 /** Most photos one device may put into notes here a minute; more are Unavailable. */

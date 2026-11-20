@@ -171,9 +171,36 @@ const MAX_TOOL_TEXT = MAX_MESSAGE_BYTES;
 /** One tool call, a subagent's too, with as much of its result as a frame takes. */
 export async function chatTool(
   services: CliServices,
-  { workspaceId, tabId, toolUseId }: RpcParams<"chat.tool">,
+  { workspaceId, tabId, toolUseId, cli }: RpcParams<"chat.tool">,
 ): Promise<RpcResult<"chat.tool">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  if (cli) {
+    const found = await services
+      .ui("chat.tool", { workspaceId, tabId, ref: toolUseId })
+      .catch(unavailable);
+    const result = found.result
+      ? { ...found.result, text: found.result.text.slice(0, MAX_TOOL_TEXT / 4), images: [] }
+      : undefined;
+    const tool = {
+      id: found.toolUseId,
+      index: found.i,
+      name: found.name,
+      status: found.status,
+      input: found.input,
+      parentToolUseId: found.parentToolUseId ?? null,
+      ...(result
+        ? {
+            result: {
+              ...result,
+              ...(result.text.length < (found.result?.text.length ?? 0) ? { truncated: true } : {}),
+            },
+          }
+        : {}),
+    };
+    if (!fitsAsResult(tool))
+      throw new RpcFailure(RpcErrorCode.Unavailable, "that call is too large to send");
+    return tool;
+  }
   const ask = (maxText: number) =>
     services
       .ui("chat.toolCall", { workspaceId, tabId, toolUseId, maxText })
@@ -212,10 +239,18 @@ export async function chatOriginal(
 /** What the chat's side panel shows; its changed files cut to what goes in a frame. */
 export async function chatPanel(
   services: CliServices,
-  { workspaceId, tabId }: RpcParams<"chat.panel">,
+  { workspaceId, tabId, from }: RpcParams<"chat.panel">,
 ): Promise<RpcResult<"chat.panel">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const panel = await services.ui("chat.panel", { workspaceId, tabId }).catch(unavailable);
+  const session = panel.session;
+  if (from && session) {
+    const { account: _account, ...safe } = session;
+    return fitPanel({ ...panel, session: safe });
+  }
+  return fitPanel(panel);
+}
+function fitPanel(panel: RpcResult<"chat.panel">): RpcResult<"chat.panel"> {
   let { changedFiles } = panel;
   while (changedFiles.length > 0 && !fitsAsResult({ ...panel, changedFiles })) {
     changedFiles = changedFiles.slice(0, Math.floor(changedFiles.length / 2));

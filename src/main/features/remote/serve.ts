@@ -7,6 +7,7 @@
 import {
   type AgentSender,
   RpcErrorCode,
+  type RpcMethod,
   type RpcParams,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
@@ -18,7 +19,7 @@ import { isFileTransferMethod } from "./file-io";
 import { FileWrites } from "./file-writes";
 import { listFolders } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus } from "./git";
-import { attachToNote, listNotes, PhotoQuota } from "./notes";
+import { attachToNote, listNotes, noteTranscript, PhotoQuota, readNote } from "./notes";
 import { RpcFailure } from "./room";
 import {
   answerChat,
@@ -64,8 +65,9 @@ import {
   readChat,
   readEvents,
 } from "./serving/chat-details";
-import { workspaceOf } from "./serving/common";
+import { tabOf, unavailable, workspaceOf } from "./serving/common";
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
+import { ReadBudget } from "./serving/read-budget";
 import { serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
 import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
@@ -151,7 +153,33 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "terminal.read",
   "terminal.wait",
   "events.read",
+  "chat.commands",
+  "chat.panel",
+  "chat.tool",
+  "chat.fileSuggestions",
+  "chat.instructions",
+  "history.list",
+  "profiles.list",
+  "terminal.shells",
+  "notes.list",
+  "notes.read",
+  "notes.transcript",
 ]);
+
+/** A single deadline for reads that can cross both the renderer and the file system. */
+const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
+  "chat.commands": 12_000,
+  "chat.panel": 12_000,
+  "chat.tool": 12_000,
+  "chat.fileSuggestions": 12_000,
+  "chat.instructions": 12_000,
+  "history.list": 12_000,
+  "profiles.list": 12_000,
+  "terminal.shells": 12_000,
+  "notes.list": 12_000,
+  "notes.read": 12_000,
+  "notes.transcript": 12_000,
+};
 
 /** Answers another device's request with this device's services. */
 export function serveWith(services: () => CliServices | null, watches: RemoteServeOptions = {}) {
@@ -162,9 +190,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
-  return async (request: RemoteServeRequest) => {
-    const s = services();
-    if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+  async function dispatch(s: CliServices, request: RemoteServeRequest) {
     const { from, method, params } = request;
     if (sessions && method === "sessions.watch") return sessions.watch(from);
     if (sessions && method === "sessions.unwatch") {
@@ -211,6 +237,15 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     switch (request.method) {
       case "sessions.list":
         return serveSessionsList(s, git, watches.notes, from, controls);
+      case "notes.read":
+        return readNote(s, request.params as RpcParams<"notes.read">);
+      case "notes.transcript":
+        return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "chat.instructions": {
+        const { workspaceId, tabId } = request.params as RpcParams<"chat.instructions">;
+        await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
+        return s.ui("chat.instructions", { workspaceId, tabId }).catch(unavailable);
+      }
       case "notes.list":
       case "notes.attach": {
         const notes = watches.notes;
@@ -404,6 +439,19 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       default:
         throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
     }
+  }
+
+  return async (request: RemoteServeRequest) => {
+    const s = services();
+    if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+    const timeout = READ_DEADLINES[request.method];
+    if (timeout === undefined) return dispatch(s, request);
+    const budget = new ReadBudget(s, request.method, request.from, timeout);
+    const reader: CliServices = {
+      ...s,
+      ui: (op, args, ms) => budget.ui(op, args, ms ?? (op === "tabs.list" ? 2_000 : timeout)),
+    };
+    return budget.run(() => dispatch(reader, request));
   };
 }
 

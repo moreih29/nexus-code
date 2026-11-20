@@ -49,7 +49,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.14.0";
+export const SCHEMA_VERSION = "0.15.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -104,6 +104,8 @@ export const CAPABILITIES = [
    * android, web) is refused: no agent runs there.
    */
   "agents",
+  /** Extended agent CLI operations, since 0.15.0. */
+  "agents.cli",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

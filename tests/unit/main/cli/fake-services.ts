@@ -567,6 +567,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
     if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
+    if (op === "chat.fileSuggestions") return { paths: [] } as CliUiOps[K]["result"];
     if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
     if (op === "settings.instructions") {
       return { layers: [], instructions: "" } as CliUiOps[K]["result"];

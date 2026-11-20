@@ -141,6 +141,16 @@ const BULK_FRAMES = new Set([
   "chat.attach",
   "notes.attach",
 ]);
+const LARGE_READ_REPLY_BYTES = 64 * 1024;
+const LARGE_READ_REPLIES = new Set([
+  "chat.panel",
+  "chat.tool",
+  "chat.instructions",
+  "history.list",
+  "notes.list",
+  "notes.read",
+  "notes.transcript",
+]);
 const RATE_LIMITED = "the relay is rate limiting this connection";
 
 /** Reads that can be repeated after a connection loss. Watches create subscriptions. */
@@ -155,6 +165,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "chat.commands",
   "chat.panel",
   "chat.tool",
+  "chat.instructions",
   "chat.original",
   "chat.wait",
   "chat.image",
@@ -174,6 +185,8 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "git.log",
   "git.show",
   "notes.list",
+  "notes.read",
+  "notes.transcript",
 ]);
 
 function readsWholeImage(params: unknown): boolean {
@@ -1088,11 +1101,16 @@ export class RemoteRoom {
     current?: () => boolean,
   ): Promise<number | null> {
     const reply: SealedMessage = { jsonrpc: "2.0", id: request.id, ...answer };
-    const fits = fitsInFrame(reply);
-    const priority =
-      fits && "result" in answer
-        ? this.bulkPriority(request.method, FramePriority.Reply)
-        : FramePriority.Reply;
+    const bytes = Buffer.byteLength(JSON.stringify(reply), "utf8");
+    const fits = bytes <= MAX_MESSAGE_BYTES;
+    let priority = FramePriority.Reply;
+    if (fits && "result" in answer) {
+      if (bytes >= LARGE_READ_REPLY_BYTES && LARGE_READ_REPLIES.has(request.method)) {
+        priority = FramePriority.Data;
+      } else {
+        priority = this.bulkPriority(request.method, FramePriority.Reply);
+      }
+    }
     const localEpoch = this.epoch;
     const sent = await this.post(
       from,

@@ -152,7 +152,7 @@ describe("changing another workspace", () => {
     chat command eeee compact | chat resume 5f2a | note new x | note show nmhz00cc
     note write nmhz00cc hi | note add nmhz00cc index.ts | note record nmhz00cc`;
   const READS = `
-    worktree list | tab list | tab show codex | terminal list | terminal read codex
+    worktree list | tab list | tab show codex | terminal shells | terminal list | terminal read codex
     terminal wait codex --match Working | session list | events | layout show | problems
     chat read eeee | chat tool eeee 2 | chat wait eeee | reveal main.go | port list
     view open codex | view split codex right | view move codex p1 | view remove codex
@@ -160,7 +160,7 @@ describe("changing another workspace", () => {
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
-    note list | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
+    note list | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee | chat files eeee
     chat history | chat profiles | chat instructions eeee --show | settings instructions show`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
@@ -168,7 +168,9 @@ describe("changing another workspace", () => {
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
     panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
     page.pick page.network chat.entryItem chat.rewindPreview chat.panel chat.commands
-    chat.history chat.profiles settings.instructions`.split(/\s+/),
+    chat.history chat.profiles chat.fileSuggestions terminal.shells settings.instructions`.split(
+      /\s+/,
+    ),
   );
 
   test("every command asks before it changes another workspace, and only then", async () => {
@@ -180,7 +182,7 @@ describe("changing another workspace", () => {
     // File transfers use --workspace on the remote computer.
     const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace)
       .map((c) => c.path.join(" "))
-      .filter((p) => p !== "file pull" && p !== "file push");
+      .filter((p) => !p.startsWith("file "));
     const commandOf = (line: string) =>
       paths.filter((p) => `${line} `.startsWith(`${p} `)).sort((a, b) => b.length - a.length)[0];
     const runs = [

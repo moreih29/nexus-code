@@ -209,6 +209,18 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 - `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
 - 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
 
+다른 컴퓨터에서도 채팅 상세와 작업 패널, 슬래시 명령, 대화 기록, 프로필,
+노트와 녹음 전사, 터미널과 셸을 조회할 수 있습니다.
+
+```sh
+nexus chat tool 1a2b 4 --device "Mac mini"
+nexus chat files 1a2b report --device "Mac mini" --json
+nexus chat instructions 1a2b --show --device "Mac mini"
+nexus note transcript meeting --workspace site --device "Mac mini" --json
+nexus terminal shells --workspace site --device "Mac mini"
+nexus file list dist --workspace site --device "Mac mini" --json
+```
+
 ### 다른 컴퓨터와 파일 복사하기
 
 ```bash

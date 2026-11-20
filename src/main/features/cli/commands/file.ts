@@ -1,9 +1,19 @@
+import { CliUsageError } from "../args";
 import { CliError } from "../context";
 import { pull } from "../file-pull";
 import { push } from "../file-push";
 import type { FileTransfer } from "../file-transfer";
+import { table } from "../format";
 import { type CliCommand, output } from "../registry";
-import { deviceFlag } from "../remote";
+import {
+  agentSenderOf,
+  askPeerCli,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
 
 const flagsOfFile = {
@@ -104,4 +114,33 @@ const filePush: CliCommand = {
   },
 };
 
-export const fileCommands: CliCommand[] = [filePull, filePush];
+const fileList: CliCommand = {
+  path: ["file", "list"],
+  args: "[path]",
+  summary: "List a folder on another computer without downloading files",
+  flags: { device: flagsOfFile.device, workspace: flagsOfFile.workspace },
+  async run(ctx, { positionals: [folder = "", ...extra], flags }) {
+    if (extra.length) throw new CliUsageError("give at most one folder");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (!device) throw new CliUsageError("give --device to choose a remote computer");
+    requirePeerCli(ctx, device);
+    const workspace = await peerWorkspace(ctx, device, flags.workspace);
+    const result = await askPeerCli(ctx, device, "files.list", {
+      workspaceId: workspace.id,
+      path: folder,
+      from: await agentSenderOf(ctx),
+    });
+    const rows = table(
+      ["NAME", "KIND", "BYTES"],
+      result.entries.map((entry) => [entry.name, entry.kind, String(entry.size ?? "")]),
+    );
+    return output(
+      [result.path, rows, result.truncated ? "More entries omitted." : ""]
+        .filter(Boolean)
+        .join("\n"),
+      { device: deviceRef(device), ...result },
+    );
+  },
+};
+
+export const fileCommands: CliCommand[] = [fileList, filePull, filePush];

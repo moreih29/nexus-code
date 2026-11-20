@@ -504,3 +504,48 @@ describe("chat interrupt, set and tab close --device", () => {
     expect((await nexus(app, ["tab", "close", "--all", "--device", "Mac mini"])).exitCode).toBe(2);
   });
 });
+
+describe("expanded peer CLI reads", () => {
+  test("requires a compatible peer before discovery and forwards reads as the caller", async () => {
+    const app = withPeer({
+      "chat.instructions": () => ({ instructions: "Run the suite first." }),
+      "notes.transcript": () => ({ id: "note-1", title: "Planning", recordings: [] }),
+      "files.list": () => ({ path: "/w/site", entries: [{ name: "src", kind: "dir" }] }),
+    });
+    const command = ["chat", "instructions", "Review", "--show", "--device", MINI];
+    const old = await nexus(app, command);
+    expect(old.exitCode).toBe(3);
+    expect(old.stderr).toContain('Update NexusCode on "Mac mini"');
+    expect(app.peers.requests).toEqual([]);
+    const peer = app.peers.devices[1]!;
+    app.peers.devices[1] = { ...peer, serves: [...peer.serves, "agents.cli"], schema: "0.15.0" };
+
+    expect((await nexus(app, command)).stdout).toBe("Run the suite first.\n");
+    const note = await nexus(app, [
+      "note",
+      "transcript",
+      "Planning",
+      "--workspace",
+      "site",
+      "--device",
+      MINI,
+      "--json",
+    ]);
+    expect(JSON.parse(note.stdout)).toMatchObject({ id: "note-1", recordings: [] });
+    const folder = await nexus(app, [
+      "file",
+      "list",
+      "--workspace",
+      "site",
+      "--device",
+      MINI,
+      "--json",
+    ]);
+    expect(JSON.parse(folder.stdout)).toMatchObject({ entries: [{ name: "src", kind: "dir" }] });
+    for (const method of ["chat.instructions", "notes.transcript", "files.list"]) {
+      expect(asked(app, method)).toEqual([
+        expect.objectContaining({ workspaceId: SITE, from: FROM_SHELL }),
+      ]);
+    }
+  });
+});

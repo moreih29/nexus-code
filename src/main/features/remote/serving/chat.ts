@@ -514,9 +514,14 @@ export async function newChat(
 /** The agent profiles a new chat may run with. */
 export async function listProfiles(
   services: CliServices,
-  { agent }: RpcParams<"profiles.list">,
+  { agent, workspaceId }: RpcParams<"profiles.list">,
 ): Promise<RpcResult<"profiles.list">> {
-  return services.ui("chat.profiles", agent ? { agent } : {}).catch(unavailable);
+  if (workspaceId !== undefined && !workspaceOf(services, workspaceId)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  }
+  return services
+    .ui("chat.profiles", { ...(agent ? { agent } : {}), ...(workspaceId ? { workspaceId } : {}) })
+    .catch(unavailable);
 }
 
 /** Renames the chat, as its tab's rename does. */

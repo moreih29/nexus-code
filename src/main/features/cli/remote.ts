@@ -189,6 +189,17 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "terminal.read",
   "terminal.wait",
   "events.read",
+  "chat.commands",
+  "chat.panel",
+  "chat.tool",
+  "chat.fileSuggestions",
+  "chat.instructions",
+  "history.list",
+  "profiles.list",
+  "terminal.shells",
+  "notes.list",
+  "notes.read",
+  "notes.transcript",
 ]);
 
 /**
@@ -245,6 +256,28 @@ export async function askDevice<M extends RpcMethod>(
   }
 }
 
+/** An operation that needs the peer's expanded agent CLI contract. */
+export function requirePeerCli(ctx: CliContext, device: CliDevice): void {
+  if (!device.online) throw offline(device, ctx.services.clock.now());
+  if (!device.serves.includes("agents.cli")) {
+    throw new CliError(`Update NexusCode on "${device.name}" to use this command there`, 3, {
+      error: "older",
+      device: deviceRef(device),
+    });
+  }
+}
+
+/** Like askDevice for operations added to the expanded agent CLI contract. */
+export function askPeerCli<M extends RpcMethod>(
+  ctx: CliContext,
+  device: CliDevice,
+  method: M,
+  params: RpcParams<M>,
+): Promise<RpcResult<M>> {
+  requirePeerCli(ctx, device);
+  return askDevice(ctx, device, method, params, ctx.signal);
+}
+
 /** A device's workspaces and sessions, as its sessions.list tells them. */
 export async function peerSessions(
   ctx: CliContext,
@@ -270,6 +303,11 @@ export function pickPeerWorkspace(
     (w) => w.name,
     `workspace on "${device.name}"`,
   );
+}
+
+export async function peerWorkspace(ctx: CliContext, device: CliDevice, selector: unknown) {
+  const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+  return pickPeerWorkspace(device, workspaces, typeof selector === "string" ? selector : undefined);
 }
 
 /** A session of another device, found as `<tab> --workspace <ws> --device <d>` names it. */

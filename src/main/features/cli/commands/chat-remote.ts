@@ -20,14 +20,60 @@ import { type CliOutput, output } from "../registry";
 import {
   agentSenderOf,
   askDevice,
+  askPeerCli,
   deviceRef,
   type PeerTab,
   peerSessions,
   pickPeerWorkspace,
+  requirePeerCli,
   resolvePeerTab,
 } from "../remote";
 import { WAIT_POLL_MS, type WaitResult } from "../wait";
 import { AGENT_NAMES, chatStateText, choicesText } from "./chat-text";
+
+export async function peerCliChat(
+  ctx: CliContext,
+  device: CliDevice,
+  flags: ParsedArgs["flags"],
+  selector: string,
+) {
+  requirePeerCli(ctx, device);
+  const peer = await resolvePeerTab(
+    ctx,
+    device,
+    flags.workspace as string | undefined,
+    selector,
+    CHATS,
+  );
+  return { peer, ref: target(peer), json: targetJson(peer), title: named(peer) };
+}
+
+export async function peerChatTool(
+  ctx: CliContext,
+  device: CliDevice,
+  flags: ParsedArgs["flags"],
+  selector: string,
+  ref: string,
+) {
+  const target = await peerCliChat(ctx, device, flags, selector);
+  const tool = await askPeerCli(ctx, device, "chat.tool", {
+    ...target.ref,
+    toolUseId: ref,
+    cli: true,
+  });
+  return {
+    ref: target.json,
+    tool: {
+      i: tool.index ?? Number(ref),
+      toolUseId: tool.id,
+      name: tool.name,
+      status: tool.status,
+      input: tool.input,
+      ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+      ...(tool.result ? { result: tool.result } : {}),
+    },
+  };
+}
 
 const CHATS: readonly RemoteSession["kind"][] = ["claude", "codex"];
 /** Most items chat read --all or --since reads back through, a page at a time. */

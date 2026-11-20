@@ -869,7 +869,11 @@ export const RPC_METHODS = {
   /** The agent profiles a chat can run with (accounts, config folders). */
   "profiles.list": {
     capability: "sessions",
-    params: z.object({ agent: z.enum(["claude", "codex"]).optional() }),
+    params: z.object({
+      agent: z.enum(["claude", "codex"]).optional(),
+      workspaceId: z.string().optional(),
+      ...ReadBy,
+    }),
     result: z.object({
       profiles: z.array(
         z.object({
@@ -878,6 +882,8 @@ export const RPC_METHODS = {
           agent: z.enum(["claude", "codex"]),
           /** The one a workspace runs with unless told otherwise. */
           isDefault: z.boolean(),
+          workspaceDefault: z.boolean().optional(),
+          path: z.string().optional(),
         }),
       ),
     }),
@@ -931,6 +937,7 @@ export const RPC_METHODS = {
       agent: z.enum(["claude", "codex"]),
       /** Only those whose title has it. */
       query: z.string().max(200).optional(),
+      ...ReadBy,
       limit: z.number().int().positive().max(200).optional(),
     }),
     result: z.object({ sessions: z.array(PastSessionSchema) }),
@@ -976,20 +983,25 @@ export const RPC_METHODS = {
   /** Its slash commands, the app's and the agent's, for a "/" picker. */
   "chat.commands": {
     capability: "chat.read",
-    params: z.object(TabRef),
+    params: z.object({ ...TabRef, ...ReadBy }),
     result: z.object({ commands: z.array(ChatCommandSchema) }),
   },
   /** Its side panel now; a watch sends it again in chat.update as it changes. */
   "chat.panel": {
     capability: "chat.read",
-    params: z.object(TabRef),
+    params: z.object({ ...TabRef, ...ReadBy }),
     result: ChatPanelSchema,
   },
   /** One tool call with as much of its result as a frame takes. */
   "chat.tool": {
     capability: "chat.read",
-    params: z.object({ ...TabRef, toolUseId: z.string() }),
-    result: ViewToolCallSchema,
+    params: z.object({
+      ...TabRef,
+      toolUseId: z.string(),
+      cli: z.literal(true).optional(),
+      ...ReadBy,
+    }),
+    result: ViewToolCallSchema.extend({ index: z.number().int().nonnegative().optional() }),
   },
   /**
    * A file the chat changed as it was before its first change, for its
@@ -1117,8 +1129,8 @@ export const RPC_METHODS = {
    * run. Since 0.13.0.
    */
   "chat.fileSuggestions": {
-    capability: "chat.control",
-    params: z.object({ ...TabRef, query: z.string().max(256) }),
+    capability: "chat.read",
+    params: z.object({ ...TabRef, query: z.string().max(256), ...ReadBy }),
     result: z.object({ paths: z.array(z.string()).max(MAX_FILE_SUGGESTIONS) }),
   },
   /**
@@ -1629,8 +1641,8 @@ export const RPC_METHODS = {
   },
   /** The shells a new terminal can run, as "New terminal with" lists them. */
   "terminal.shells": {
-    capability: "terminal.control",
-    params: z.object({ workspaceId: z.string() }),
+    capability: "terminal.read",
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
     result: z.object({
       shells: z.array(z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() })),
     }),
@@ -2004,7 +2016,7 @@ export const RPC_METHODS = {
    */
   "notes.list": {
     capability: "notes",
-    params: z.object({ workspaceId: z.string() }),
+    params: z.object({ workspaceId: z.string(), ...ReadBy }),
     result: z.object({
       notes: z.array(
         z.object({
@@ -2016,6 +2028,58 @@ export const RPC_METHODS = {
         }),
       ),
     }),
+  },
+  "notes.read": {
+    capability: "notes",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      transcriptOnly: z.boolean().optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      id: z.string(),
+      title: z.string(),
+      updatedAt: z.number(),
+      markdown: z.string(),
+      transcript: z.string(),
+    }),
+  },
+  "notes.transcript": {
+    capability: "notes",
+    params: z.object({
+      workspaceId: z.string(),
+      note: z.string().min(1).max(300),
+      recording: z.string().min(1).max(64).optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      id: z.string(),
+      title: z.string(),
+      recordings: z.array(
+        z.object({
+          id: z.string(),
+          startedAt: z.number(),
+          participants: z.union([z.literal("auto"), z.literal("7+"), z.number().int().positive()]),
+          lines: z.array(
+            z.object({
+              id: z.string(),
+              startMs: z.number().nonnegative(),
+              endMs: z.number().nonnegative(),
+              speaker: z.string(),
+              speakerLabel: z.string(),
+              speakerName: z.string().nullable(),
+              text: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  },
+  "chat.instructions": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, ...ReadBy }),
+    result: z.object({ instructions: z.string() }),
   },
   /**
    * Puts a photo at the end of a note, as one picked on the serving device

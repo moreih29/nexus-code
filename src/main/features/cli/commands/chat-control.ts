@@ -15,8 +15,18 @@ import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { ago, oneLine, table } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import {
+  askPeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
+import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -182,9 +192,18 @@ const chatPanel: CliCommand = {
     "Its goal, to-dos, tasks (background runs, by the id chat stop-task takes), subagents,\n" +
     "changed files, context window, cost, plan limits, MCP servers, Remote Control, and the\n" +
     "messages held for after the turn (by the id chat unsend and chat edit take).",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const panel = withoutAccount(await askPeerCli(ctx, device, "chat.panel", target.ref));
+      return output(panelText(target.title, panel, ctx.services.clock.now()), {
+        ...target.json,
+        ...panel,
+      });
+    }
     const target = await chatTarget(ctx, flags, selector);
     const panel = withoutAccount(await ctx.services.ui("chat.panel", target.ref));
     return output(panelText(named(target), panel, ctx.services.clock.now()), {
@@ -487,17 +506,33 @@ const chatCommandsList: CliCommand = {
   details:
     "The agent's own, which go to it as a message; the app's own that change the\n" +
     "conversation; the model and effort, which chat set sets. chat command runs the first two.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
-    const target = await chatTarget(ctx, flags, selector);
-    const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const list = async () => {
+      if (device) {
+        const target = await peerCliChat(ctx, device, flags, selector);
+        return {
+          title: target.title,
+          ref: target.json,
+          ...(await askPeerCli(ctx, device, "chat.commands", target.ref)),
+        };
+      }
+      const target = await chatTarget(ctx, flags, selector);
+      return {
+        title: named(target),
+        ref: target.ref,
+        ...(await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS)),
+      };
+    };
+    const { title, ref, commands } = await list();
     const lines = commands.map((command) => {
       const args = command.args ? ` ${command.args}` : "";
       return `/${command.name}${args}  ${oneLine(command.description, 100)}  (${RUNS[command.runs]})`;
     });
-    return output(lines.length > 0 ? lines.join("\n") : `${named(target)} has no commands.`, {
-      ...target.ref,
+    return output(lines.length > 0 ? lines.join("\n") : `${title} has no commands.`, {
+      ...ref,
       commands,
     });
   },
@@ -579,11 +614,17 @@ const AGENT_FLAG = {
   description: "claude (default) or codex",
 } as const;
 
-function pastLine(session: CliPastSession, now: number): string {
+function pastLine(
+  session: Pick<
+    CliPastSession,
+    "title" | "at" | "sessionId" | "tabId" | "firstPrompt" | "gitBranch"
+  > & { profile?: string },
+  now: number,
+): string {
   const title = oneLine(session.title || session.firstPrompt || "(untitled)", 80);
   const about = [
     when(session.at, now),
-    session.profile !== "default" ? `profile ${session.profile}` : "",
+    session.profile && session.profile !== "default" ? `profile ${session.profile}` : "",
     session.gitBranch ? `on ${session.gitBranch}` : "",
     session.tabId ? `open in ${shortId(session.tabId)}` : "",
   ].filter(Boolean);
@@ -601,6 +642,7 @@ const chatHistory: CliCommand = {
     agent: AGENT_FLAG,
     limit: { type: "number", value: "N", description: "At most N (default 20)" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const agent = chatAgentFlag(flags.agent, "claude");
@@ -608,20 +650,31 @@ const chatHistory: CliCommand = {
     if (!Number.isInteger(limit) || limit < 1) {
       throw new CliUsageError("--limit takes a positive whole number");
     }
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
     const query = positionals.join(" ").trim();
-    const { sessions } = await ctx.services.ui("chat.history", {
-      workspaceId: workspace.id,
-      agent,
-      ...(query ? { query } : {}),
-      limit,
-    });
+    const params = { workspaceId: workspace.id, agent, ...(query ? { query } : {}), limit };
+    const { sessions } = device
+      ? await askPeerCli(ctx, device, "history.list", { ...params, limit: Math.min(limit, 200) })
+      : await ctx.services.ui("chat.history", params);
     const now = ctx.services.clock.now();
     const text =
       sessions.length === 0
         ? `No past ${AGENT_NAMES[agent]} conversations${query ? ` with "${query}"` : ""} in ${workspace.name}.`
         : sessions.map((s) => pastLine(s, now)).join("\n");
-    return output(text, { workspaceId: workspace.id, agent, sessions }, { records: sessions });
+    return output(
+      text,
+      {
+        workspaceId: workspace.id,
+        agent,
+        sessions,
+        ...(device ? { device: deviceRef(device) } : {}),
+      },
+      { records: sessions },
+    );
   },
 };
 
@@ -691,15 +744,19 @@ const chatProfiles: CliCommand = {
   summary: "List the profiles a Claude or Codex tab can use",
   details:
     "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.",
-  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG },
+  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
     const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const { profiles } = await ctx.services.ui("chat.profiles", {
-      workspaceId: workspace.id,
-      ...(agent ? { agent } : {}),
-    });
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const params = { workspaceId: workspace.id, ...(agent ? { agent } : {}) };
+    const { profiles } = device
+      ? await askPeerCli(ctx, device, "profiles.list", params)
+      : await ctx.services.ui("chat.profiles", params);
     const rows = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
       id,
       name,
@@ -718,9 +775,37 @@ const chatProfiles: CliCommand = {
           row.path ?? "",
         ]),
       ),
-      { workspaceId: workspace.id, profiles: rows },
+      {
+        workspaceId: workspace.id,
+        profiles: rows,
+        ...(device ? { device: deviceRef(device) } : {}),
+      },
       { records: rows },
     );
+  },
+};
+
+const chatFiles: CliCommand = {
+  path: ["chat", "files"],
+  summary: "List file suggestions for the chat composer's @ picker",
+  args: "<tab> [query]",
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, query = "", ...extra] = positionals;
+    if (selector === undefined || extra.length) throw new CliUsageError("give <tab> [query]");
+    if (query.length > 256) throw new CliUsageError("the query is at most 256 characters");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const { paths } = await askPeerCli(ctx, device, "chat.fileSuggestions", {
+        ...target.ref,
+        query,
+      });
+      return output(paths.join("\n"), { ...target.json, paths }, { records: paths });
+    }
+    const target = await chatTarget(ctx, flags, selector);
+    const { paths } = await ctx.services.ui("chat.fileSuggestions", { ...target.ref, query });
+    return output(paths.join("\n"), { ...target.ref, paths }, { records: paths });
   },
 };
 
@@ -737,5 +822,6 @@ export const chatControlCommands: CliCommand[] = [
   chatCommandRun,
   chatHistory,
   chatProfiles,
+  chatFiles,
   chatResume,
 ];

@@ -156,7 +156,13 @@ describe("the methods", () => {
     const read = terminal.filter(
       (m) => RPC_METHODS[m as keyof typeof RPC_METHODS].capability === "terminal.read",
     );
-    expect(read).toEqual(["terminal.read", "terminal.watch", "terminal.unwatch", "terminal.wait"]);
+    expect(read).toEqual([
+      "terminal.read",
+      "terminal.watch",
+      "terminal.unwatch",
+      "terminal.wait",
+      "terminal.shells",
+    ]);
     // Answering its Claude Code's request is an answer to an agent, as a chat's is.
     expect(RPC_METHODS["terminal.answer"].capability).toBe("chat.control");
     for (const m of terminal.filter((m) => !read.includes(m) && m !== "terminal.answer")) {
@@ -613,4 +619,45 @@ describe("the voice socket", () => {
     }
     expect(TranscriptionSchema.safeParse({ id: "tr_1", status: "done" }).success).toBe(false);
   });
+});
+
+test("expanded CLI peers share the v2 envelope and strip private transcript data", () => {
+  const hello = {
+    type: "hello",
+    protocol: 2,
+    schema: "0.15.0",
+    device: { id: "dev-a", name: "Mac", platform: "darwin" },
+    serves: ["sessions", "agents.cli"],
+    app: { name: "nexus-code", version: "0.36.0" },
+    reply: true,
+  };
+  expect(SealedMessageSchema.parse(hello)).toMatchObject(hello);
+  expect(
+    SealedMessageSchema.parse({ ...hello, schema: "0.14.0", serves: ["sessions"] }),
+  ).toMatchObject({
+    protocol: 2,
+    schema: "0.14.0",
+  });
+  const line = {
+    id: "1:2:1",
+    startMs: 1,
+    endMs: 2,
+    speaker: "s1",
+    speakerLabel: "Speaker 1",
+    speakerName: null,
+    text: "hello",
+  };
+  const result = RPC_METHODS["notes.transcript"].result.parse({
+    id: "note",
+    title: "Meeting",
+    recordings: [
+      {
+        id: "rec",
+        startedAt: 10,
+        participants: "auto",
+        lines: [{ ...line, embedding: [0.2], score: 0.9 }],
+      },
+    ],
+  });
+  expect(result.recordings[0]?.lines).toEqual([line]);
 });

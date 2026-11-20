@@ -1,6 +1,7 @@
 /** nexus note list|read|path: the workspace's notes, kept by the app. */
 
 import path from "node:path";
+import type { RpcResult } from "../../../../../packages/remote-protocol/src";
 import type { CliRecorder } from "../../../../shared/cli/ui";
 import { imagesOf, markdownToBlocks } from "../../../../shared/notes/from-markdown";
 import { insertionIndex } from "../../../../shared/notes/insert";
@@ -19,6 +20,15 @@ import { ago, oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 
 import { type CliCommand, output } from "../registry";
+import {
+  askPeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
 
 /** When a note was last written: how long ago within two days, else its date. */
@@ -58,15 +68,40 @@ async function findNote(
   return ctx.services.notes.read(workspaceId, found.id);
 }
 
+async function notePeer(ctx: CliContext, flags: ParsedArgs["flags"]) {
+  const device = await resolveDevice(ctx, deviceFlag(flags));
+  if (!device) return null;
+  requirePeerCli(ctx, device);
+  return { device, workspace: await peerWorkspace(ctx, device, flags.workspace) };
+}
+
 const list: CliCommand = {
   path: ["note", "list"],
   summary: "List the workspace's notes, newest first",
   details:
     "Notes are kept by the app (not in the workspace's folder), by where the workspace's\n" +
     "folder is. Read one with nexus note read.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const { notes } = await askPeerCli(ctx, peer.device, "notes.list", {
+        workspaceId: peer.workspace.id,
+      });
+      const text = table(
+        ["ID", "TITLE", "UPDATED"],
+        notes.map((note) => [
+          note.id,
+          oneLine(note.title || "(untitled)", 50),
+          when(note.updatedAt, ctx.services.clock.now()),
+        ]),
+      );
+      return output(text || `No notes in ${peer.workspace.name}.`, {
+        device: deviceRef(peer.device),
+        notes,
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const notes = await ctx.services.notes.list(workspace.id);
     if (notes.length === 0) return output(`No notes in ${workspace.name}.`, { notes });
@@ -99,11 +134,25 @@ const read: CliCommand = {
   flags: {
     transcript: { type: "boolean", description: "Only what was said in its recordings" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const [selector] = exactArgs(positionals, "note");
+    const [selector] = exactArgs(positionals, "note") as [string];
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const note = await askPeerCli(ctx, peer.device, "notes.read", {
+        workspaceId: peer.workspace.id,
+        note: selector,
+        transcriptOnly: flags.transcript === true,
+      });
+      const text =
+        flags.transcript === true
+          ? note.transcript || `${named(note)} has no recordings.`
+          : `${note.markdown || "(empty note)\n"}${note.transcript ? `\n---\n\n${note.transcript}` : ""}`;
+      return output(text.trimEnd(), { device: deviceRef(peer.device), ...note });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const note = await findNote(ctx, workspace.id, selector as string);
+    const note = await findNote(ctx, workspace.id, selector);
     if (flags.transcript === true) {
       const said = transcriptMarkdown(
         await ctx.services.notes.transcript(workspace.id, note.id),
@@ -143,18 +192,29 @@ const noteTranscript: CliCommand = {
   flags: {
     recording: { type: "string", value: "ID", description: "Only this recording (id or prefix)" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "note") as [string];
+    const recordingId = typeof flags.recording === "string" ? flags.recording : undefined;
+    const peer = await notePeer(ctx, flags);
+    if (peer) {
+      const note = await askPeerCli(ctx, peer.device, "notes.transcript", {
+        workspaceId: peer.workspace.id,
+        note: selector,
+        recording: recordingId,
+      });
+      return transcriptOutput({ device: deviceRef(peer.device), ...note });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const note = await findNote(ctx, workspace.id, selector);
     const { recordings } = await ctx.services.notes.transcript(workspace.id, note.id);
     const wanted =
-      typeof flags.recording === "string"
+      recordingId !== undefined
         ? [
             pick(
               recordings,
-              flags.recording,
+              recordingId,
               (r) => r.id,
               (r) => r.id,
               "recording",
@@ -167,28 +227,26 @@ const noteTranscript: CliCommand = {
       participants: recording.participantCount ?? "auto",
       lines: transcriptLinesForCli(recording),
     }));
-    const text = shown
-      .map((recording) =>
-        [
-          `Recording ${recording.id}`,
-          ...recording.lines.map(
-            (line) =>
-              `  ${line.id} [${clockOf(line.startMs)}] ${line.speakerName ?? line.speakerLabel}: ${line.text}`,
-          ),
-        ].join("\n"),
-      )
-      .join("\n\n");
-    return output(
-      text || `${named(note)} has no recordings.`,
-      {
-        id: note.id,
-        title: note.title,
-        recordings: shown,
-      },
-      { records: shown },
-    );
+    return transcriptOutput({ id: note.id, title: note.title, recordings: shown });
   },
 };
+
+function transcriptOutput(
+  note: RpcResult<"notes.transcript"> & { device?: ReturnType<typeof deviceRef> },
+) {
+  const text = note.recordings
+    .map((recording) =>
+      [
+        `Recording ${recording.id}`,
+        ...recording.lines.map(
+          (line) =>
+            `  ${line.id} [${clockOf(line.startMs)}] ${line.speakerName ?? line.speakerLabel}: ${line.text}`,
+        ),
+      ].join("\n"),
+    )
+    .join("\n\n");
+  return output(text || `${named(note)} has no recordings.`, note, { records: note.recordings });
+}
 
 const notePath: CliCommand = {
   path: ["note", "path"],

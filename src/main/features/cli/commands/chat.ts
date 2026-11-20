@@ -30,13 +30,15 @@ import {
 import { oneLine } from "../format";
 import { absolutePath, callerPath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
-import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
+import { askPeerCli, DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
   answerPeer,
   interruptPeer,
   newPeerChat,
+  peerChatTool,
+  peerCliChat,
   readPeerChat,
   sendToPeer,
   setPeerChat,
@@ -761,7 +763,7 @@ const chatTool: CliCommand = {
     "<call> is the number chat read shows by the call (#i), given alone, or the call's id: a\n" +
     "shell drops a # and what follows. The input is printed as JSON, the output as the tool\n" +
     "gave it back.",
-  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG },
+  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length === 1) {
       // `chat tool tab #3`: the shell took "#3" for a comment.
@@ -769,15 +771,19 @@ const chatTool: CliCommand = {
         "missing <call>: the number chat read shows by it, without its # (a shell drops a # and what follows)",
       );
     }
-    const [selector, ref] = exactArgs(positionals, "tab", "call") as [string, string];
+    const [selector, refArg] = exactArgs(positionals, "tab", "call") as [string, string];
     const maxChars = maxCharsFlag(flags);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveChat(ctx, workspace, selector);
-    const tool = await ctx.services.ui("chat.tool", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      ref: ref.replace(/^#/, ""),
-    });
+    const ref = refArg.replace(/^#/, "");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const found = device
+      ? await peerChatTool(ctx, device, flags, selector, ref)
+      : await (async () => {
+          const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+          const tab = await resolveChat(ctx, workspace, selector);
+          const target = { workspaceId: workspace.id, tabId: tab.id };
+          return { ref: target, tool: await ctx.services.ui("chat.tool", { ...target, ref }) };
+        })();
+    const tool = found.tool;
     const input = typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 2);
     const lines = [
       `#${tool.i} ${tool.name} (${tool.status})${tool.parentToolUseId ? " (subagent)" : ""}  ${tool.toolUseId}`,
@@ -791,7 +797,7 @@ const chatTool: CliCommand = {
       maxChars === undefined || !tool.result
         ? tool
         : { ...tool, result: { ...tool.result, text: cut(tool.result.text, maxChars) } };
-    return output(lines.join("\n"), { ...json, tabId: tab.id, workspaceId: workspace.id });
+    return output(lines.join("\n"), { ...json, ...found.ref });
   },
 };
 
@@ -1143,10 +1149,10 @@ const chatAnswer: CliCommand = {
 
 const chatInstructions: CliCommand = {
   path: ["chat", "instructions"],
-  summary: "View or edit a local chat tab's instructions",
+  summary: "View or edit a chat tab's instructions",
   args: "<tab>",
   details:
-    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message.",
+    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message. Other devices support --show.",
   flags: {
     show: { type: "boolean", description: "Print the combined instructions for the tab" },
     "set-file": {
@@ -1156,6 +1162,7 @@ const chatInstructions: CliCommand = {
     },
     clear: { type: "boolean", description: "Clear the session layer" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
@@ -1164,6 +1171,13 @@ const chatInstructions: CliCommand = {
     const clear = flags.clear === true;
     if ([show, file !== undefined, clear].filter(Boolean).length !== 1) {
       throw new CliUsageError("use exactly one of --show, --set-file FILE, or --clear");
+    }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      if (!show) throw new CliUsageError("--device supports --show for session instructions");
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const { instructions } = await askPeerCli(ctx, device, "chat.instructions", target.ref);
+      return output(instructions, { ...target.json, instructions });
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);

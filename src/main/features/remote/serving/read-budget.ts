@@ -1,4 +1,4 @@
-import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
+import { RpcErrorCode, type RpcMethod } from "../../../../../packages/remote-protocol/src";
 import type { CliUiOp, CliUiOps } from "../../../../shared/cli/ui";
 import { createLogger } from "../../../../shared/log/main";
 import type { CliServices } from "../../cli/context";
@@ -7,8 +7,7 @@ import { RpcFailure } from "../room";
 const log = createLogger("remote-serving");
 const SLOW_UI_MS = 1_000;
 const WARNING_INTERVAL_MS = 30_000;
-type ReadMethod = "sessions.list" | "sessions.watch" | "chat.read" | "terminal.read";
-const warnedAt = new Map<ReadMethod, number>();
+const warnedAt = new Map<RpcMethod, number>();
 
 /** Shares a deadline across the renderer reads that make up a remote answer. */
 export class ReadBudget {
@@ -17,13 +16,28 @@ export class ReadBudget {
 
   constructor(
     private readonly services: CliServices,
-    private readonly method: ReadMethod,
+    private readonly method: RpcMethod,
     private readonly from?: string,
     private readonly totalMs = 8_000,
   ) {}
 
   remaining(): number {
     return Math.floor(this.totalMs - (performance.now() - this.started));
+  }
+
+  async run<T>(read: () => Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new RpcFailure(RpcErrorCode.Unavailable, `${this.method}: the read timed out`));
+      }, this.remaining());
+    });
+    try {
+      return await Promise.race([expiry, read()]);
+    } finally {
+      clearTimeout(timer);
+      this.report();
+    }
   }
 
   async ui<K extends CliUiOp>(

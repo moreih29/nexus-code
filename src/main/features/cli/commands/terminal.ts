@@ -18,12 +18,16 @@ import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
+  askPeerCli,
   DEVICE_FLAG,
   deviceFlag,
+  deviceRef,
   listDevices,
   offline,
   peerSessions,
+  peerWorkspace,
   pickPeerWorkspace,
+  requirePeerCli,
   resolveDevice,
 } from "../remote";
 import {
@@ -479,8 +483,37 @@ const terminalList: CliCommand = {
   flags: {
     workspace: WORKSPACE_FLAG,
     all: { type: "boolean", description: "List every workspace's terminals" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { flags }) {
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      if (flags.all && flags.workspace) throw new CliUsageError("give --all or --workspace");
+      const { sessions, workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const workspace =
+        flags.workspace !== undefined
+          ? pickPeerWorkspace(device, workspaces, flags.workspace as string)
+          : undefined;
+      const rows = sessions
+        .filter(
+          (session) =>
+            session.kind === "terminal" && (!workspace || session.workspaceId === workspace.id),
+        )
+        .map((session) => ({
+          ...session,
+          workspace:
+            workspaces.find((item) => item.id === session.workspaceId)?.name ?? session.workspaceId,
+          device: deviceRef(device),
+        }));
+      return output(
+        table(
+          ["ID", "WORKSPACE", "TITLE", "STATE"],
+          rows.map((row) => [shortId(row.tabId), row.workspace, row.title, row.state]),
+        ) || "No terminals.",
+        rows,
+      );
+    }
     const workspaces = scope(ctx, flags);
     const rows = await terminalRows(ctx, workspaces);
     const text = table(
@@ -597,8 +630,27 @@ const terminalShells: CliCommand = {
     "The shells found on the computer NexusCode runs on and those added in Settings ›\n" +
     'Terminal, as the tab bar\'s "New terminal with" lists them. They are for local\n' +
     "workspaces only: an SSH or WSL workspace's terminals run the login shell of its machine.",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG, workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = await peerWorkspace(ctx, device, flags.workspace);
+      const { shells } = await askPeerCli(ctx, device, "terminal.shells", {
+        workspaceId: workspace.id,
+      });
+      return output(
+        table(
+          ["NAME", "ID"],
+          shells.map((shell) => [
+            shell.isDefault ? `${shell.name} (default)` : shell.name,
+            shell.id,
+          ]),
+        ),
+        { device: deviceRef(device), shells },
+      );
+    }
     const { shells } = await ctx.services.ui("terminal.shells", {});
     const text = table(
       ["NAME", "ID", "PATH"],
