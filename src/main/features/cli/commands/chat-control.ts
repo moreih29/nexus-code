@@ -10,7 +10,11 @@ import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-prot
 import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
-import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
+import {
+  applyRemoteControl,
+  remoteControlCommand,
+  remoteControlOutput,
+} from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { ago, oneLine, table } from "../format";
@@ -560,14 +564,14 @@ const chatRemoteControl: CliCommand = {
       if (target.peer.session.kind !== "claude")
         throw new CliError("Remote Control is available only in Claude");
       const enabled = turn === "on";
-      await changePeerCli(ctx, device, "chat.remoteControl", { ...target.ref, enabled });
-      const { remoteControl } = enabled
-        ? await askPeerCli(ctx, device, "chat.panel", target.ref)
-        : {};
-      return output(
-        `Remote Control ${turn} in ${target.title}.${remoteControl?.url ? `\n${remoteControl.url}` : ""}`,
-        { ...target.json, enabled, ...(remoteControl?.url ? { url: remoteControl.url } : {}) },
-      );
+      const result = await changePeerCli(ctx, device, "chat.remoteControl", {
+        ...target.ref,
+        enabled,
+      });
+      return remoteControlOutput(target.title, target.json, {
+        ...result,
+        enabled: result.enabled ?? enabled,
+      });
     }
     const target = await otherChat(ctx, flags, selector);
     claudeOnly(target, "have Remote Control");
@@ -578,20 +582,19 @@ const chatRemoteControl: CliCommand = {
 async function setRemoteControl(
   ctx: CliContext,
   target: ChatTarget,
-  enabled: boolean,
+  enabled?: boolean,
 ): Promise<CliOutput> {
-  const change = {
-    kind: enabled ? ("chatRemoteControlOn" as const) : ("chatRemoteControlOff" as const),
-    detail: target.tab.title,
-  };
-  await mayChange(ctx, target.workspace, change);
-  await applyRemoteControl(ctx.services, target.ref, enabled);
-  const url = enabled
-    ? (await ctx.services.ui("chat.panel", target.ref).catch(() => null))?.remoteControl?.url
-    : undefined;
-  return output(
-    `Turned Remote Control ${enabled ? "on" : "off"} for ${named(target)}${url ? `: ${url}` : ""}.`,
-    { ...target.ref, enabled, ...(url ? { url } : {}) },
+  const kind =
+    enabled === undefined
+      ? "chatRemoteControlToggle"
+      : enabled
+        ? "chatRemoteControlOn"
+        : "chatRemoteControlOff";
+  await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  return remoteControlOutput(
+    named(target),
+    target.ref,
+    await applyRemoteControl(ctx.services, target.ref, enabled),
   );
 }
 
@@ -663,6 +666,8 @@ const chatCommandRun: CliCommand = {
         name,
         ...(args ? { args } : {}),
       });
+      if (reply.remoteControl)
+        return remoteControlOutput(target.title, target.json, reply.remoteControl);
       return output(
         [
           `Ran /${name} in ${target.title}.`,
@@ -682,8 +687,7 @@ const chatCommandRun: CliCommand = {
     const target = await otherChat(ctx, flags, selector);
     const lower = name.toLowerCase();
     if (target.tab.type === "claude" && remoteControlCommand(`/${name}`)) {
-      const { remoteControl } = await ctx.services.ui("chat.panel", target.ref, SEND_TIMEOUT_MS);
-      return setRemoteControl(ctx, target, remoteControl?.enabled !== true);
+      return setRemoteControl(ctx, target);
     }
     const text = `/${name}${args ? ` ${args}` : ""}`;
     // Asked first: listing its commands starts a tab's program that is not running.

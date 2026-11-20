@@ -1827,7 +1827,7 @@ describe("serving a chat's controls", () => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         asked.push([op, args]);
         if (op === "consent.ask") return { answer };
-        if (op === "chat.panel") return { remoteControl: { enabled: wasEnabled } };
+        if (op === "chat.remoteControl") return { enabled: !wasEnabled };
         return {};
       },
     } as unknown as CliServices;
@@ -1837,11 +1837,11 @@ describe("serving a chat's controls", () => {
       method: "chat.send",
       params: { ...tab, text, from: { kind: "tab", workspaceId: "bw", tabId: "bt" } },
     });
-    if (applies) await expect(result).resolves.toEqual({});
+    if (applies) await expect(result).resolves.toEqual({ remoteControl: { enabled: !wasEnabled } });
     else await expect(result).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     expect(asked.filter(([op]) => op === "consent.ask")).toHaveLength(prompts ? 1 : 0);
     expect(asked.filter(([op]) => op === "chat.remoteControl")).toEqual(
-      applies ? [["chat.remoteControl", { ...tab, enabled: !wasEnabled }]] : [],
+      applies ? [["chat.remoteControl", tab]] : [],
     );
     expect(asked.some(([op]) => op === "chat.send")).toBe(false);
   });

@@ -320,6 +320,7 @@ export class ChatController {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /** New lines held while the log is sent again. */
   private readonly live = new LiveLines();
+  private remoteControlChange: Promise<unknown> = Promise.resolve();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
   /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
@@ -2307,11 +2308,28 @@ export class ChatController {
   }
 
   /** Turns Remote Control on or off; on, its answer has the session's URL. */
-  setRemoteControl(enabled: boolean): Promise<unknown> {
-    return this.request("remote_control", { enabled }).then((answer) => {
-      if (enabled) this.retellName();
-      return answer;
+  setRemoteControl(enabled?: boolean): Promise<{ enabled: boolean; url?: string }> {
+    const deadline = performance.now() + 45_000;
+    const change = this.remoteControlChange.then(async () => {
+      const left = deadline - performance.now();
+      if (left <= 0) throw new Error("Remote Control was not changed in time");
+      this.flushNow();
+      const next = enabled ?? this.state.model.remoteControl?.enabled !== true;
+      const answer = await this.request(
+        "remote_control",
+        { enabled: next },
+        Math.min(CONTROL_TIMEOUT_MS, left),
+      );
+      const url = next && typeof answer.session_url === "string" ? answer.session_url : undefined;
+      this.update((state) => ({
+        ...state,
+        model: { ...state.model, remoteControl: { enabled: next, sessionUrl: url } },
+      }));
+      if (next) this.retellName();
+      return { enabled: next, ...(url ? { url } : {}) };
     });
+    this.remoteControlChange = change.catch(() => {});
+    return change;
   }
 
   supports(subtype: string): boolean {

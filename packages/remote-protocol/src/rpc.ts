@@ -827,6 +827,7 @@ const FileUploadRef = {
 const FileSha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 
 const Ok = z.object({});
+const RemoteControlState = z.object({ enabled: z.boolean(), url: z.string().optional() });
 
 // ---------------------------------------------------------------------------
 // The methods
@@ -1138,6 +1139,7 @@ export const RPC_METHODS = {
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
     result: z.object({
+      remoteControl: RemoteControlState.optional(),
       at: z.number().optional(),
       heldId: z.string().optional(),
       clientNonce: ClientNonceSchema.optional(),
@@ -1417,6 +1419,7 @@ export const RPC_METHODS = {
       args: z.string().max(10_000).optional(),
     }),
     result: z.object({
+      remoteControl: RemoteControlState.optional(),
       /** What it said, when it says something rather than changing the chat. */
       message: z.string().optional(),
       /**
@@ -1531,7 +1534,7 @@ export const RPC_METHODS = {
   "chat.remoteControl": {
     capability: "chat.control",
     params: z.object({ ...TabRef, ...ReadBy, enabled: z.boolean() }),
-    result: Ok,
+    result: RemoteControlState.partial(),
   },
   /**
    * Opens a chat in one of the serving device's workspaces, sending it

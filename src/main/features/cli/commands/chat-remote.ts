@@ -14,7 +14,7 @@ import {
 } from "../../../../../packages/remote-protocol/src";
 import type { CliChatEntry, CliChatInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
-import { remoteControlCommand } from "../../chat/remote-control";
+import { remoteControlCommand, remoteControlOutput } from "../../chat/remote-control";
 import { CliUsageError, type ParsedArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, shortId } from "../context";
 import { type CliOutput, output } from "../registry";
@@ -224,13 +224,14 @@ export async function sendToPeer(
   }
   // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
-  const { at, heldId } = await askDevice(ctx, device, "chat.send", {
+  const { at, heldId, remoteControl } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
     from,
     ...(when ? { when } : {}),
     ...(attachments.length ? { attachments } : {}),
   });
+  if (remoteControl) return remoteControlOutput(named(peer), targetJson(peer), remoteControl);
   const sent = heldId ? `Held by ${named(peer)}, as ${heldId}.` : `Sent to ${named(peer)}.`;
   const json = { ...targetJson(peer), text, ...(heldId ? { heldId } : {}) };
   if (timeoutMs === null) return output(sent, json);

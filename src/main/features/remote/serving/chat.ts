@@ -54,9 +54,7 @@ export async function sendChat(
         "Remote Control is a setting change; omit --after",
       );
     const target = { workspaceId, tabId };
-    const { remoteControl } = await services.ui("chat.panel", target).catch(unavailable);
-    await applyRemoteControl(services, target, remoteControl?.enabled !== true).catch(chatFailure);
-    return {};
+    return { remoteControl: await applyRemoteControl(services, target).catch(chatFailure) };
   }
   const held =
     attached && ids.length > 0
@@ -363,9 +361,7 @@ export async function runChatCommand(
   const lower = bare.toLowerCase();
   if (from && tab.type === "claude" && remoteControlCommand(`/${bare}`)) {
     const target = { workspaceId, tabId };
-    const { remoteControl } = await services.ui("chat.panel", target).catch(unavailable);
-    await applyRemoteControl(services, target, remoteControl?.enabled !== true).catch(chatFailure);
-    return {};
+    return { remoteControl: await applyRemoteControl(services, target).catch(chatFailure) };
   }
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
@@ -639,8 +635,7 @@ export async function setChatRemoteControl(
   { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
 ): Promise<RpcResult<"chat.remoteControl">> {
   await tabOf(services, workspaceId, tabId, ["claude"]);
-  await applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatFailure);
-  return {};
+  return applyRemoteControl(services, { workspaceId, tabId }, enabled).catch(chatFailure);
 }
 
 /**

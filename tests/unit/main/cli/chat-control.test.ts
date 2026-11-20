@@ -290,10 +290,13 @@ describe("chat background, stop-task and remote-control", () => {
     ["slash off", ["command", "eeee", "remote-control"], false],
     ["slash alias on", ["command", "eeee", "/RC"], true],
     ["slash alias off", ["command", "eeee", "/RC"], false],
+    ["send alias", ["send", "eeee", "/RC"], false],
+    ["send command with args", ["send", "eeee", "/remote-control", "ignored"], true],
   ] as const)("%s follows the workspace policy", async (_name, argv, enabled) => {
     const app = withChat();
-    app.uiAnswers.set("chat.panel", {
-      remoteControl: { available: true, enabled: !enabled, url: "https://claude.ai/code/s1" },
+    app.uiAnswers.set("chat.remoteControl", {
+      enabled,
+      ...(enabled ? { url: "https://claude.ai/code/s1" } : {}),
     });
     const local = await nexus(app, ["chat", ...argv]);
     expect(local.stdout).toContain(`Turned Remote Control ${enabled ? "on" : "off"}`);
@@ -309,10 +312,15 @@ describe("chat background, stop-task and remote-control", () => {
     expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(0);
     app.settings.crossWorkspace = "allow";
     expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(0);
-    const kind = enabled ? "chatRemoteControlOn" : "chatRemoteControlOff";
+    const explicit = argv[0] === "remote-control";
+    const kind = explicit
+      ? enabled
+        ? "chatRemoteControlOn"
+        : "chatRemoteControlOff"
+      : "chatRemoteControlToggle";
     expect(app.asked.map((r) => r.change.kind)).toEqual([kind, kind]);
     expect(calls(app, "chat.remoteControl")).toEqual(
-      Array.from({ length: 3 }, () => ({ ...TARGET, enabled })),
+      Array.from({ length: 3 }, () => ({ ...TARGET, ...(explicit ? { enabled } : {}) })),
     );
     expect(calls(app, "chat.command")).toEqual([]);
   });

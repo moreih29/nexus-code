@@ -1027,11 +1027,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (model.init && !model.init.remoteControl) {
       throw new UiRequestError("its account cannot turn on Remote Control");
     }
-    if (phase !== "ready" || model.process !== "running") {
-      throw new UiRequestError("its program is not running");
+    if (!model.init || phase !== "ready" || model.process !== "running") {
+      throw new UiRequestError("its program is not ready");
     }
-    await controller.setRemoteControl(enabled);
-    return {};
+    return controller.setRemoteControl(enabled);
   },
 
   "chat.history": async ({ workspaceId, agent, query, limit, peer }) => {

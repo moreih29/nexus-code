@@ -21,6 +21,11 @@ import { createLogger } from "../../../../shared/log/main";
 import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import {
+  applyRemoteControl,
+  remoteControlCommand,
+  remoteControlOutput,
+} from "../../chat/remote-control";
 import { looksLike } from "../../remote/attachments";
 import { MAX_MESSAGE_BYTES } from "../../remote/room";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
@@ -960,6 +965,21 @@ const chatSend: CliCommand = {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
     const target = { workspaceId: workspace.id, tabId: tab.id };
+    if (
+      tab.type === "claude" &&
+      !files.length &&
+      imagePath === undefined &&
+      remoteControlCommand(text)
+    ) {
+      if (timeoutMs !== null || when === "after")
+        throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
+      await mayChange(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
+      return remoteControlOutput(
+        `${tab.title} (${shortId(tab.id)})`,
+        target,
+        await applyRemoteControl(ctx.services, target),
+      );
+    }
     if (hurry) {
       if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
       await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });

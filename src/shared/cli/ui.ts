@@ -270,6 +270,7 @@ export type CliChangeKind =
   | "chatFork"
   | "chatBackground"
   | "chatTaskStop"
+  | "chatRemoteControlToggle"
   | "chatRemoteControlOn"
   | "chatRemoteControlOff"
   | "noteNew"
@@ -1107,8 +1108,8 @@ export interface CliUiOps {
   };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
-    args: { workspaceId: string; tabId: string; enabled: boolean };
-    result: Record<string, never>;
+    args: { workspaceId: string; tabId: string; enabled?: boolean };
+    result: { enabled: boolean; url?: string };
   };
   /** Stops a watch chat.watch started; nothing when there is none. */
   "chat.unwatch": {
