@@ -99,7 +99,7 @@ export function ChatImage({
   return (
     <button
       type="button"
-      onClick={() => (file ? links.openFile(file) : links.openImages(images, index))}
+      onClick={() => links.openImages(images, index)}
       aria-label={t("chat.links.look")}
       title={file}
       className="inline-flex max-w-full cursor-zoom-in rounded-(--radius-control) focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
+  type ChatItem,
   type ChatLine,
   type ChatModel,
   emptyModel,
+  type ImageBlock,
+  type ToolCall,
 } from "../../../../../src/renderer/services/chat/model";
 import {
   agentsOf,
@@ -13,6 +16,7 @@ import {
   changedFilesOf,
   contextOf,
   distinctResults,
+  imagesOf,
   jobCommand,
   jobOutputFile,
   jobOutputFiles,
@@ -862,5 +866,40 @@ describe("the subagents of a history", () => {
       "print:r",
     ]);
     expect(joinAgents([], live, [])).toBe(live);
+  });
+});
+
+describe("imagesOf", () => {
+  const image = (data: string): ImageBlock => ({ mediaType: "image/png", data });
+  const read = (id: string, images: ImageBlock[]): ToolCall =>
+    ({
+      id,
+      name: "Read",
+      status: "done",
+      input: { file_path: "/tmp/x.png" },
+      result: { images },
+    }) as unknown as ToolCall;
+  const turn = (ids: string[]): ChatItem =>
+    ({
+      kind: "assistant",
+      blocks: ids.map((toolUseId) => ({ type: "tool", toolUseId })),
+    }) as unknown as ChatItem;
+
+  test("keeps each read of one file as its own image, in order", () => {
+    const [a, b, c] = [image("a"), image("b"), image("c")];
+    const tools = { t1: read("t1", [a]), t2: read("t2", [b]), t3: read("t3", [c]) };
+    const shown = imagesOf([turn(["t1", "t2", "t3"])], tools, "/tmp");
+    expect(shown).toEqual([
+      { file: "/tmp/x.png", image: a },
+      { file: "/tmp/x.png", image: b },
+      { file: "/tmp/x.png", image: c },
+    ]);
+    expect(shown[1].image).toBe(b);
+  });
+
+  test("lists a block only once, however often it is walked", () => {
+    const a = image("a");
+    const shown = imagesOf([turn(["t1", "t1"])], { t1: read("t1", [a]) }, "/tmp");
+    expect(shown).toHaveLength(1);
   });
 });

@@ -593,7 +593,8 @@ const MAX_AGENT_DEPTH = 4;
 const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
 
 /**
- * Every image a conversation shows, each once, in the order it came: the
+ * Every image a conversation shows, each once (each read of a file its own),
+ * in the order it came: the
  * ones the user pasted, the ones its tools gave (as the file a Read of one
  * took, its data kept for when the file is gone), and the image files it
  * sent the user, wrote new, or showed or pointed at in a reply, as
@@ -613,13 +614,20 @@ export function imagesOf(
   const addFile = (named: string, image?: ImageBlock) => {
     const file = resolveFilePath(named, cwd);
     if (!file || fileKind(file) !== "image") return;
-    if (image) seen.add(image);
+    if (image) {
+      if (seen.has(image)) return;
+      seen.add(image);
+    }
     const at = byFile.get(file);
     if (at === undefined) {
       byFile.set(file, out.length);
       out.push(image ? { file, image } : { file });
     } else if (image && !out[at].image) {
       out[at] = { file, image };
+    } else if (image) {
+      // Another read of the same file, which gave another image.
+      byFile.set(file, out.length);
+      out.push({ file, image });
     }
   };
   const addData = (image: ImageBlock) => {

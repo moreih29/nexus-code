@@ -11,7 +11,12 @@ import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import type { ChatFiles } from "../../services/chat/chat-files";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
@@ -61,6 +66,15 @@ export function useRemoteLinks(
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
       const shown = imagesOf(model.items, model.tools, cwd, model.agentItems);
+      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
+      const held = image.image ? latestReadFile(shown, image) : undefined;
+      if (held) {
+        opened++;
+        if (showHeldRemoteFile({ ...where, path: held })) {
+          setLook(null);
+          return;
+        }
+      }
       show(
         lookAtImage(shown, image, (paths) => files.there(paths)).then(
           (look) => look ?? alone?.() ?? null,
