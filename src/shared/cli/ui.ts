@@ -233,6 +233,16 @@ export interface CliRecorder {
   readonly voice: "unknown" | "signed-out" | "unavailable" | "ready";
 }
 
+export type CliSpeakerChange =
+  | { op: "rename"; speaker: string; name: string }
+  | { op: "merge"; from: string; into: string }
+  | { op: "move"; first: string; last: string; into: string }
+  | { op: "regroup"; participants: number };
+
+export type CliVoiceSuggestionAction =
+  | { op: "list" }
+  | { op: "accept" | "reject"; speaker: string; name: string };
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
@@ -262,6 +272,8 @@ export type CliChangeKind =
   | "chatRemoteControlOff"
   | "noteNew"
   | "noteWrite"
+  | "noteSpeakers"
+  | "voiceNamesDelete"
   | "noteRecord"
   | "noteRecordStop"
   | "tabClose"
@@ -1244,6 +1256,23 @@ export interface CliUiOps {
       participants?: ParticipantCount;
     };
     result: CliRecorder;
+  };
+  "note.speakers": {
+    args: { workspaceId: string; noteId: string; recording?: string; change: CliSpeakerChange };
+    result: { recordingId: string };
+  };
+  "note.voiceSuggestions": {
+    args: {
+      workspaceId: string;
+      noteId: string;
+      recording?: string;
+      action: CliVoiceSuggestionAction;
+    };
+    result: { recordingId: string; suggestions: { speaker: string; name: string }[] };
+  };
+  "note.voiceNames": {
+    args: { action: { op: "list" } | { op: "delete"; name?: string } };
+    result: { names: string[] };
   };
   /** The persistent instruction layers that apply when starting a new chat. */
   "settings.instructions": {

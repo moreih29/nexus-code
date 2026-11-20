@@ -595,6 +595,24 @@ export function moveLine(
   to: string,
   scope: SpeakerMoveScope = "line",
 ): void {
+  moveRecordingLines(
+    workspaceId,
+    noteId,
+    recordingId,
+    to,
+    (r) => movedLines(r, shown, to, scope),
+    scope === "all",
+  );
+}
+
+export function moveRecordingLines(
+  workspaceId: string,
+  noteId: string,
+  recordingId: string,
+  to: string,
+  move: (recording: TranscriptRecording) => TranscriptRecording,
+  merging = false,
+): void {
   const a =
     active?.recordingId === recordingId &&
     active.workspaceId === workspaceId &&
@@ -606,7 +624,7 @@ export function moveLine(
   const ref = { workspaceId, noteId, recordingId };
   const merged = new Set<string>();
   updateRecording(workspaceId, noteId, recordingId, (r) => {
-    const next = movedLines(r, shown, to, scope);
+    const next = move(r);
     if (next === r) return r;
     changed = true;
     if (!a) {
@@ -617,7 +635,7 @@ export function moveLine(
     }
     const movedLinesNow = r.lines.filter((l, i) => l !== next.lines[i]);
     moved = movedLinesNow.map((l) => l.startMs);
-    if (scope === "all") for (const line of movedLinesNow) merged.add(line.speaker);
+    if (merging) for (const line of movedLinesNow) merged.add(line.speaker);
     return next;
   });
   if (changed) clearVoiceSuggestions(ref);

@@ -2,7 +2,11 @@
 
 import path from "node:path";
 import type { RpcResult } from "../../../../../packages/remote-protocol/src";
-import type { CliRecorder } from "../../../../shared/cli/ui";
+import type {
+  CliRecorder,
+  CliSpeakerChange,
+  CliVoiceSuggestionAction,
+} from "../../../../shared/cli/ui";
 import { imagesOf, markdownToBlocks } from "../../../../shared/notes/from-markdown";
 import { insertionIndex } from "../../../../shared/notes/insert";
 import type { DocNode } from "../../../../shared/notes/markdown";
@@ -554,6 +558,7 @@ const noteRecord: CliCommand = {
       toWorkspaceId: workspace.id,
       change: {
         kind: "noteRecord",
+        eachTime: true,
         detail: note.title || note.id,
         ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
       },
@@ -575,10 +580,199 @@ const noteRecord: CliCommand = {
 /** How long a recording may take to start: the microphone, maybe macOS asking for it, the server. */
 const RECORD_START_MS = 90_000;
 
+const RECORDING_FLAG = {
+  type: "string",
+  value: "ID",
+  description: "Recording id or prefix. Required when the note has multiple recordings",
+} as const;
+
+function speakerCommand(
+  verb: CliSpeakerChange["op"],
+  args: string,
+  summary: string,
+  changeOf: (words: readonly string[], flags: ParsedArgs["flags"]) => CliSpeakerChange,
+): CliCommand {
+  return {
+    path: ["note", "speaker", verb],
+    args: `<note> ${args}`.trim(),
+    summary,
+    details: "Use the recording, speaker keys, and line ids from note transcript --json.",
+    flags: {
+      recording: RECORDING_FLAG,
+      workspace: WORKSPACE_FLAG,
+      ...(verb === "regroup"
+        ? {
+            participants: {
+              type: "number",
+              value: "N",
+              description: "Target number of voices",
+            } as const,
+          }
+        : {}),
+    },
+    async run(ctx, { positionals: [selector, ...words], flags }) {
+      if (!selector) throw new CliUsageError("missing <note>");
+      const change = changeOf(words, flags);
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+      const note = await findNote(ctx, workspace.id, selector);
+      await mayChange(ctx, workspace, {
+        kind: "noteSpeakers",
+        detail: note.title || note.id,
+        body: [verb, ...words].join(" "),
+      });
+      const { recordingId } = await ctx.services.ui(
+        "note.speakers",
+        {
+          workspaceId: workspace.id,
+          noteId: note.id,
+          recording: flags.recording as string | undefined,
+          change,
+        },
+        5 * 60_000,
+      );
+      return output(`Updated the speakers in recording ${recordingId}.`, {
+        noteId: note.id,
+        recordingId,
+      });
+    },
+  };
+}
+
+function voiceSuggestions(op: "list" | "accept" | "reject"): CliCommand {
+  return {
+    path: ["note", "voice", "suggestions", op],
+    args: op === "list" ? "<note>" : "<note> <speaker> <name>",
+    summary:
+      op === "list"
+        ? "List remembered-name suggestions for a recording"
+        : `${op === "accept" ? "Accept" : "Reject"} a remembered-name suggestion`,
+    flags: { recording: RECORDING_FLAG, workspace: WORKSPACE_FLAG },
+    async run(ctx, { positionals, flags }) {
+      const [selector, speaker, name] = exactArgs(
+        positionals,
+        ...(op === "list" ? ["note"] : ["note", "speaker", "name"]),
+      );
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+      const note = await findNote(ctx, workspace.id, selector as string);
+      const action: CliVoiceSuggestionAction =
+        op === "list" ? { op } : { op, speaker: speaker as string, name: name as string };
+      if (op !== "list")
+        await mayChange(ctx, workspace, {
+          kind: "noteSpeakers",
+          detail: note.title || note.id,
+          body: `${op} ${name}`,
+        });
+      const result = await ctx.services.ui(
+        "note.voiceSuggestions",
+        {
+          workspaceId: workspace.id,
+          noteId: note.id,
+          recording: flags.recording as string | undefined,
+          action,
+        },
+        5 * 60_000,
+      );
+      const text =
+        op !== "list"
+          ? `${op === "accept" ? "Accepted" : "Rejected"} ${name}.`
+          : table(
+              ["SPEAKER", "NAME"],
+              result.suggestions.map((suggestion) => [suggestion.speaker, suggestion.name]),
+            );
+      return output(
+        text || "No suggestions.",
+        { noteId: note.id, ...result },
+        { records: result.suggestions },
+      );
+    },
+  };
+}
+
+const voiceNamesList: CliCommand = {
+  path: ["note", "voice", "list"],
+  summary: "List remembered speaker names",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { names } = await ctx.services.ui("note.voiceNames", { action: { op: "list" } });
+    return output(names.join("\n") || "No remembered names.", { names });
+  },
+};
+
+const voiceNamesDelete: CliCommand = {
+  path: ["note", "voice", "delete"],
+  args: "[name]",
+  summary: "Forget one remembered voice or all remembered voices with user approval",
+  flags: { all: { type: "boolean", description: "Forget all remembered voices" } },
+  async run(ctx, { positionals, flags }) {
+    const [name] = flags.all === true ? exactArgs(positionals) : exactArgs(positionals, "name");
+    if (name !== undefined && (!name.trim() || name.trim().length > 80))
+      throw new CliUsageError("give a remembered name");
+    await ctx.services.askUser({
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: ctx.caller.workspaceId,
+      change: { kind: "voiceNamesDelete", detail: name ?? "all remembered names", eachTime: true },
+    });
+    const result = await ctx.services.ui("note.voiceNames", {
+      action: { op: "delete", ...(name !== undefined ? { name } : {}) },
+    });
+    return output(
+      name === undefined
+        ? "Deleted all remembered voices."
+        : `Deleted the remembered voice for ${name}.`,
+      result,
+    );
+  },
+};
+
 export const noteCommands: CliCommand[] = [
   list,
   read,
   noteTranscript,
+  speakerCommand("rename", "<speaker> <name>", "Name a recording's speaker", (words) => {
+    const [speaker, name] = exactArgs(words, "speaker", "name") as [string, string];
+    if (name.trim().length > 80) throw new CliUsageError("speaker names take up to 80 characters");
+    return { op: "rename", speaker, name };
+  }),
+  speakerCommand("merge", "<from> <into>", "Merge two voices in a recording", (words) => {
+    const [from, into] = exactArgs(words, "from", "into") as [string, string];
+    return { op: "merge", from, into };
+  }),
+  speakerCommand(
+    "move",
+    "<first-line> <last-line> <speaker|new>",
+    "Move a range of transcript lines to another voice",
+    (words) => {
+      const [first, last, into] = exactArgs(words, "first-line", "last-line", "speaker") as [
+        string,
+        string,
+        string,
+      ];
+      return { op: "move", first, last, into };
+    },
+  ),
+  speakerCommand(
+    "regroup",
+    "--participants N",
+    "Regroup recording voices with an explicit speaker count",
+    (words, flags) => {
+      exactArgs(words);
+      const participants = flags.participants;
+      if (
+        typeof participants !== "number" ||
+        !Number.isInteger(participants) ||
+        participants < 1 ||
+        participants > 50
+      )
+        throw new CliUsageError("--participants takes a whole number from 1 to 50");
+      return { op: "regroup", participants };
+    },
+  ),
+  voiceSuggestions("list"),
+  voiceSuggestions("accept"),
+  voiceSuggestions("reject"),
+  voiceNamesList,
+  voiceNamesDelete,
   notePath,
   noteNew,
   noteShow,

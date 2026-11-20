@@ -107,6 +107,7 @@ export function flushTranscript(
   workspaceId: string,
   noteId: string,
   announce = false,
+  reportFailure = false,
 ): Promise<void> {
   const key = transcriptKey(workspaceId, noteId);
   clearTimeout(timers.get(key));
@@ -114,26 +115,25 @@ export function flushTranscript(
   const file = useTranscriptsStore.getState().byNote[key];
   const before = writes.get(key) ?? Promise.resolve();
   if (!file) return before;
-  const write = before
-    .then(() => notesApi.saveTranscript(workspaceId, noteId, file, announce))
-    .then(
-      () => {
-        toldSaveFailure = false;
-      },
-      (error: unknown) => {
-        console.warn("[notes] transcript not saved", error);
-        if (toldSaveFailure) return;
-        toldSaveFailure = true;
-        showToast({
-          kind: "error",
-          message: i18next.t("notes:transcript.saveFailed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        });
-      },
-    );
-  writes.set(key, write);
-  return write;
+  const write = before.then(() => notesApi.saveTranscript(workspaceId, noteId, file, announce));
+  const reported = write.then(
+    () => {
+      toldSaveFailure = false;
+    },
+    (error: unknown) => {
+      console.warn("[notes] transcript not saved", error);
+      if (toldSaveFailure) return;
+      toldSaveFailure = true;
+      showToast({
+        kind: "error",
+        message: i18next.t("notes:transcript.saveFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    },
+  );
+  writes.set(key, reported);
+  return reportFailure ? write : reported;
 }
 
 /** Names a voice of a recording (an empty name takes the name away). */

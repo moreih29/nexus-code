@@ -19,6 +19,8 @@ import {
 import { voiceAvailabilityNow, voiceLanguage } from "../voice/availability";
 import { type CliUiHandler, UiRequestError } from "./handler";
 
+import { noteSpeakerHandlers } from "./note-speakers";
+
 type NoteOp = Extract<CliUiOp, `note.${string}`>;
 
 function recorderNow(voice: CliRecorder["voice"]): CliRecorder {
@@ -39,6 +41,7 @@ function showNote(workspaceId: string, noteId: string, title?: string): void {
 }
 
 export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
+  ...noteSpeakerHandlers,
   "note.show": async ({ workspaceId, noteId, title }) => {
     showNote(workspaceId, noteId, title);
     return {};

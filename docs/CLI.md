@@ -222,6 +222,15 @@ nexus chat set 1a2b --profile Work --device "Mac mini"
 nexus chat send 1a2b --after --image screenshot.png --device "Mac mini" "확인해 주세요"
 nexus tab rename 1a2b Review --device "Mac mini"
 nexus note transcript meeting --workspace site --device "Mac mini" --json
+nexus note speaker rename meeting voice-1 Alex --recording REC
+nexus note speaker merge meeting voice-2 voice-1 --recording REC
+nexus note speaker move meeting 9000:10000:1 11000:13000:1 new --recording REC
+nexus note speaker regroup meeting --participants 3 --recording REC
+nexus note voice suggestions list meeting --recording REC
+nexus note voice suggestions accept meeting voice-1 Alex --recording REC
+nexus note voice suggestions reject meeting voice-1 Alex --recording REC
+nexus note voice list --json
+nexus note voice delete Alex
 nexus terminal shells --workspace site --device "Mac mini"
 nexus file list dist --workspace site --device "Mac mini" --json
 ```
