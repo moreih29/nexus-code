@@ -287,6 +287,7 @@ export async function registerRemoteChannel(options: {
     },
   });
   await account.restore();
+  void account.syncDeviceName();
   const accountKeys = new AccountKeys({
     account,
     store: new SealedFile(join(app.getPath("userData"), "remote-key.bin"), box, SavedKeySchema),

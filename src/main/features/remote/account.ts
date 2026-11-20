@@ -228,6 +228,30 @@ export class RemoteAccount {
   }
 
   /**
+   * Tells the server this machine's name when it is not the one kept from
+   * sign-in (the PC was renamed since). Never throws: a request that fails
+   * leaves the kept name, so the next run asks again.
+   */
+  async syncDeviceName(): Promise<void> {
+    const saved = this.saved;
+    if (!saved) return;
+    const name = (this.deps.device ?? thisDevice()).name;
+    if (name === saved.device.name || name.trim().length < 1 || name.trim().length > 100) return;
+    try {
+      await this.call("PATCH", `/devices/${encodeURIComponent(saved.device.id)}`, {
+        body: { name },
+      });
+      // Signed out, or in as another device, while the request was away.
+      if (this.saved !== saved) return;
+      this.saved = { ...saved, device: { ...saved.device, name } };
+      await this.deps.store.save(this.saved);
+      this.changed();
+    } catch (error) {
+      log.warn(`Device name not synced: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * Deletes the account on the server: its devices, its key bundle, all
    * of it. Every device is signed out; this one forgets its sign-in.
    */
