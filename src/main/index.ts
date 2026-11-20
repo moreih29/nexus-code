@@ -420,9 +420,10 @@ registerAppStateChannel(stateService, {
 });
 
 /** The agent profiles changed in one window: every window takes them. */
-function agentProfilesChanged(): void {
+function agentProfilesChanged(connectionChangedProfileId?: string): void {
   broadcast("appState", "agentProfilesChanged", {
     config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
+    ...(connectionChangedProfileId ? { connectionChangedProfileId } : {}),
   });
   pruneProfileKeys();
 }

@@ -6,6 +6,7 @@ import {
   codexConnectionArgs,
   codexConnectionCatalog,
   codexConnectionEnv,
+  sameLaunchConnection,
 } from "../../../../../src/main/features/agent-profiles/connection-launch";
 import {
   classifyConnectionError,
@@ -63,6 +64,31 @@ const profile: AgentProfile = {
 };
 
 describe("profile connections", () => {
+  test("only launch-affecting edits change the connection", () => {
+    expect(sameLaunchConnection(profile, { ...profile, name: "New name", color: "red" })).toBe(
+      true,
+    );
+    expect(
+      sameLaunchConnection(
+        { ...profile, connection: undefined },
+        { ...profile, connection: { method: "account" } },
+      ),
+    ).toBe(true);
+    for (const edit of [
+      { baseUrl: "https://example.com" },
+      { auth: "bearer" },
+      { models: [...connection.models].reverse() },
+      { defaultModel: "small" },
+      { lightModel: "main/model" },
+      { contextWindow: 200_000 },
+      { advanced: { ...connection.advanced, timeoutMs: 3_000 } },
+    ] satisfies Partial<CustomConnection>[]) {
+      expect(
+        sameLaunchConnection(profile, { ...profile, connection: { ...connection, ...edit } }),
+      ).toBe(false);
+    }
+  });
+
   test("uses Kimi Code's API-key header and LiteLLM's documented self-hosted addresses", () => {
     expect(connectionPreset("claude", "kimi")).toEqual({
       baseUrl: "https://api.kimi.ai/coding",
@@ -191,8 +217,13 @@ describe("profile connections", () => {
   test("keeps keys bound to their endpoint, reports only a suffix, and clears removed profiles", async () => {
     const keys = new ConnectionKeys(keptInMemory(), false);
     const target = connectionKeyTarget("claude", connection);
-    await keys.saveProfile(profile, "test-test-1234", () => {});
-    expect(await keys.status(profile)).toEqual({ present: true, last4: "1234", persistent: false });
+    expect(await keys.saveProfile(profile, "test-test-1234", () => {})).toBe(true);
+    expect(await keys.saveProfile(profile, "test-test-1234", () => {})).toBe(false);
+    expect(await keys.status(profile.id, target)).toEqual({
+      present: true,
+      last4: "1234",
+      persistent: false,
+    });
     expect(
       await keys.get(profile.id, connectionKeyTarget("claude", { ...connection, auth: "bearer" })),
     ).toBeUndefined();
@@ -203,9 +234,35 @@ describe("profile connections", () => {
     ).rejects.toThrow("state write failed");
     expect(await keys.get(profile.id, target)).toBe("test-test-1234");
     await keys.saveProfile(profile, "123", () => {});
-    expect((await keys.status(profile)).last4).toBeUndefined();
+    expect((await keys.status(profile.id, target)).last4).toBeUndefined();
     await keys.prune(() => new Set());
     expect(await keys.get(profile.id, target)).toBeUndefined();
+  });
+
+  test("finds a dormant key only for the same profile, normalized URL and auth", async () => {
+    const keys = new ConnectionKeys(keptInMemory(), true);
+    const target = connectionKeyTarget("claude", connection);
+    await keys.saveProfile(profile, "dormant-1234", () => {});
+    expect(await keys.saveProfile({ ...profile, connection: undefined }, undefined, () => {})).toBe(
+      false,
+    );
+    expect(await keys.status(profile.id)).toEqual({ present: false, persistent: true });
+    const other = { ...profile, connection: { ...connection, baseUrl: "https://another.test" } };
+    const otherTarget = connectionKeyTarget("claude", other.connection);
+    await keys.saveProfile(other, null, () => {});
+    expect((await keys.status(profile.id, otherTarget)).present).toBe(false);
+    expect(
+      (
+        await keys.status(
+          profile.id,
+          connectionKeyTarget("claude", { ...connection, auth: "bearer" }),
+        )
+      ).present,
+    ).toBe(false);
+    expect((await keys.status("another-profile", target)).present).toBe(false);
+    expect((await keys.status(profile.id, target)).last4).toBe("1234");
+    expect(await keys.saveProfile(profile, null, () => {})).toBe(true);
+    expect((await keys.status(profile.id, target)).present).toBe(false);
   });
 
   test("classifies HTTP failures without returning provider response bodies", () => {

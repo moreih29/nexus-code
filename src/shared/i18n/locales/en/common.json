@@ -895,6 +895,7 @@
       "interrupted": "Interrupted",
       "exited": "Claude exited",
       "restarted": "Claude started again",
+      "connection_restarted": "Restarted after the profile connection changed",
       "compacted": "Conversation compacted",
       "cleared": "Started over (/clear)",
       "error": "Error",

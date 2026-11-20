@@ -619,6 +619,37 @@ func TestResetLogStartsTheReplayAtTheNewProgram(t *testing.T) {
 	}
 }
 
+func TestConnectionRestartKeepsTheLog(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	startFake(t, service, "tab", nil)
+	_ = send(t, service, "tab", "exit")
+	rec.waitFor(t, "the exit", func(_ []LinePayload, exits []ExitPayload) bool {
+		return len(exits) == 1
+	})
+	startFakeWith(t, service, "tab", nil, func(p *StartParams) {
+		p.ConnectionChanged = true
+		p.Resumed = true
+	})
+	rec.reset()
+	if _, err := service.Replay(context.Background(), tabParams("tab")); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.lines) < 2 {
+		t.Fatal("missing the old log or the restart")
+	}
+	first, last := string(rec.lines[0].Message), string(rec.lines[len(rec.lines)-1].Message)
+	if !strings.Contains(first, `"event":"start"`) || strings.Contains(first, `"connectionChanged"`) ||
+		!strings.Contains(last, `"connectionChanged":true`) || !strings.Contains(last, `"resumed":true`) {
+		t.Fatalf("wrong start and restart events: %s", describe(rec.lines))
+	}
+}
+
 func TestStopEndsAHungProgram(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")

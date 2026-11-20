@@ -24,10 +24,8 @@ export class ConnectionKeys {
     return saved?.target === target ? saved?.key : undefined;
   }
 
-  async status(profile?: AgentProfile): Promise<ConnectionKeyStatus> {
-    const key =
-      profile &&
-      (await this.get(profile.id, connectionKeyTarget(profile.agent, profile.connection)));
+  async status(id?: string, target?: string): Promise<ConnectionKeyStatus> {
+    const key = id && target ? await this.get(id, target) : undefined;
     return {
       present: key !== undefined,
       last4: key && key.length > 4 ? key.slice(-4) : undefined,
@@ -40,7 +38,7 @@ export class ConnectionKeys {
     profile: AgentProfile,
     key: string | null | undefined,
     commit: () => void,
-  ): Promise<void> {
+  ): Promise<boolean> {
     return this.serialize(async () => {
       const target = connectionKeyTarget(profile.agent, profile.connection);
       const before = (await this.storage.load()) ?? {};
@@ -48,7 +46,7 @@ export class ConnectionKeys {
       const nextKey = key === undefined && saved?.target === target ? saved?.key : key;
       const after = { ...before };
       if (target && nextKey) after[profile.id] = { target, key: nextKey };
-      else delete after[profile.id];
+      else if (key === null && saved?.target === target) delete after[profile.id];
       if (profile.connection?.method === "api-key" && !nextKey && key !== null) {
         throw new Error("An API key is required for this connection");
       }
@@ -61,6 +59,7 @@ export class ConnectionKeys {
         if (changed) await this.storage.save(before);
         throw error;
       }
+      return changed;
     });
   }
 
@@ -75,9 +74,12 @@ export class ConnectionKeys {
     });
   }
 
-  private serialize(work: () => Promise<void>): Promise<void> {
+  private serialize<T>(work: () => Promise<T>): Promise<T> {
     const next = this.pending.then(work);
-    this.pending = next.catch(() => {});
+    this.pending = next.then(
+      () => {},
+      () => {},
+    );
     return next;
   }
 }

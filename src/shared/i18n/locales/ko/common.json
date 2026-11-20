@@ -895,6 +895,7 @@
       "interrupted": "중단됨",
       "exited": "Claude 종료",
       "restarted": "Claude가 다시 시작됨",
+      "connection_restarted": "프로필 연결이 바뀌어 다시 시작했습니다",
       "compacted": "대화를 압축함",
       "cleared": "대화를 새로 시작함 (/clear)",
       "error": "오류",

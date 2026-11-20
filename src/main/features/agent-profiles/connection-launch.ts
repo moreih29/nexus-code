@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   type CustomConnection,
   normalizeConnectionUrl,
@@ -7,6 +8,28 @@ import codexInstructions from "./codex-instructions";
 
 const CODEX_PROVIDER = "nexus_profile";
 const CODEX_PROVIDER_KEY = "NEXUS_PROFILE_CODEX_API_KEY";
+
+/** Compare launch settings, omitting UI-only preset names and empty form values. */
+function launchConnection(profile: AgentProfile | null): unknown {
+  const connection = profile?.connection;
+  if (connection?.method !== "custom") return connection?.method ?? "account";
+  const { preset, advanced, ...options } = connection;
+  return JSON.parse(
+    JSON.stringify({
+      ...options,
+      auth: profile?.agent === "claude" ? (connection.auth ?? "bearer") : undefined,
+      lmStudio: profile?.agent === "claude" && preset === "lmstudio",
+      advanced:
+        advanced && Object.values(advanced).some((value) => value !== undefined)
+          ? advanced
+          : undefined,
+    }),
+  );
+}
+
+export function sameLaunchConnection(before: AgentProfile | null, after: AgentProfile): boolean {
+  return isDeepStrictEqual(launchConnection(before), launchConnection(after));
+}
 
 export function claudeConnectionEnv(
   connection: AgentProfile["connection"],

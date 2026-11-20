@@ -12,6 +12,8 @@ import { startTabActivityPolling } from "./services/agent-sessions/activity-poll
 import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { initBrowserOverlayAutoSuspend } from "./services/browser/suspend-auto";
+import { refreshClaudeProfileConnection } from "./services/chat/claude/controller";
+import { refreshCodexProfileConnection } from "./services/chat/codex/controller";
 import { startCliUiListener } from "./services/cli/ui-requests";
 import { initGitErrorToasts } from "./services/error-surface/git-error-toasts";
 import { initUpdatesSubscriptions } from "./services/updates/operations";
@@ -236,8 +238,12 @@ async function bootstrapAppState(): Promise<void> {
   // The Claude and Codex profiles, and their rules; another window's edits too.
   useAgentProfilesStore.getState().hydrate(state.agentProfiles);
   void loadProfilesHome();
-  ipcListen("appState", "agentProfilesChanged", ({ config }) => {
+  ipcListen("appState", "agentProfilesChanged", ({ config, connectionChangedProfileId }) => {
     useAgentProfilesStore.getState().hydrate(config);
+    if (connectionChangedProfileId) {
+      refreshClaudeProfileConnection(connectionChangedProfileId);
+      refreshCodexProfileConnection(connectionChangedProfileId);
+    }
   });
 
   // Hydrate window opacity from appState (authoritative store).

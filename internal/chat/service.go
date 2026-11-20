@@ -287,6 +287,9 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	if p.Resumed {
 		start["resumed"] = true
 	}
+	if p.ConnectionChanged {
+		start["connectionChanged"] = true
+	}
 	sess.addSysLocked(start)
 
 	stdoutDone := make(chan struct{})

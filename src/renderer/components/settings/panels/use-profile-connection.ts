@@ -9,6 +9,7 @@ import {
   type ConnectionProbe,
   type ConnectionTestResult,
   type CustomConnection,
+  connectionKeyTarget,
   connectionPreset,
   type DiscoveredModel,
   isLocalConnectionPreset,
@@ -74,18 +75,34 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     originalCustom?.auth ?? "bearer",
   );
   const [preset, setPreset] = useState(originalCustom?.preset);
-  const [key, setKey] = useState<ConnectionKeyChange | undefined>();
-  const [keyStatus, setKeyStatus] = useState<ConnectionKeyStatus>();
+  const [keyEdit, setKeyEdit] = useState<{ target?: string; value: ConnectionKeyChange }>();
+  const [savedKey, setSavedKey] = useState<{
+    target?: string;
+    profileId?: string;
+    status: ConnectionKeyStatus;
+  }>();
   const profileId = profile?.id;
+  const address = normalizedAddress(agent, baseUrl);
+  const target = connectionKeyTarget(
+    agent,
+    method === "custom" ? (address ? { method, baseUrl: address, auth } : undefined) : { method },
+  );
+  const key = keyEdit?.target === target ? keyEdit?.value : undefined;
+  const setKey = (value: ConnectionKeyChange | undefined) =>
+    setKeyEdit(value === undefined ? undefined : { target, value });
+  const keyStatus =
+    savedKey?.target === target && savedKey?.profileId === profileId ? savedKey?.status : undefined;
   useEffect(() => {
     let active = true;
-    void ipcCallResult("agentProfiles", "connectionKeyStatus", { profileId }).then((result) => {
-      if (active && result.ok) setKeyStatus(result.value);
-    });
+    void ipcCallResult("agentProfiles", "connectionKeyStatus", { profileId, target }).then(
+      (result) => {
+        if (active && result.ok) setSavedKey({ profileId, target, status: result.value });
+      },
+    );
     return () => {
       active = false;
     };
-  }, [profileId]);
+  }, [profileId, target]);
 
   const [rows, setRows] = useState<ModelRow[]>(
     () => originalCustom?.models.map((model) => ({ ...model, rowId: model.id })) ?? [blankModel()],
@@ -102,16 +119,8 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
   >(originalCustom?.advanced ?? {});
   const headers = useMemo(() => parsePairs(headersText, ":"), [headersText]);
   const query = useMemo(() => parsePairs(queryText, "="), [queryText]);
-  const address = normalizedAddress(agent, baseUrl);
-  const keepSavedKey =
-    method === original?.method &&
-    (method !== "custom" ||
-      (address === normalizedAddress(agent, originalCustom?.baseUrl ?? "") &&
-        (agent === "codex" || auth === (originalCustom?.auth ?? "bearer"))));
   const keyPlaceholder =
-    keepSavedKey && key === undefined && keyStatus?.present
-      ? `••••••••${keyStatus.last4 ?? ""}`
-      : undefined;
+    key === undefined && keyStatus?.present ? `••••${keyStatus.last4 ?? ""}` : undefined;
   const keyValid = key === undefined || ConnectionKeyChangeSchema.safeParse(key).success;
   const probe = useMemo<ConnectionProbe | undefined>(
     () =>
@@ -253,7 +262,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
       setLightRowId(undefined);
       setContextWindow(undefined);
     }
-    setKey(isLocalConnectionPreset(value) ? null : undefined);
+    setKey(undefined);
     setAttempt((n) => n + 1);
   };
   const updateModel = (rowId: string, patch: Partial<ConnectionModel>) =>

@@ -263,6 +263,7 @@ export class ChatHost {
         args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(resume.resetLog ? { resetLog: true } : {}),
+        ...(resume.connectionChanged ? { connectionChanged: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),
       });
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
@@ -282,7 +283,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     cwd: string,
-    options: { resetLog?: boolean; profileId?: string },
+    options: { resetLog?: boolean; connectionChanged?: boolean; profileId?: string },
   ): Promise<StartResult> {
     let profile: AgentProfile;
     try {
@@ -352,6 +353,7 @@ export class ChatHost {
         args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
+        ...(options.connectionChanged ? { connectionChanged: true } : {}),
       });
       return {
         ok: true,

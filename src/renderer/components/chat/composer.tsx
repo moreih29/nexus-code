@@ -1325,22 +1325,17 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
-export function modelPickerLabel(
-  model: ModelInfo,
-  models: readonly ModelInfo[],
-  claudeProfileDefaultModel: string | undefined,
-  defaultLabel: string,
-): { label: string; detail?: string } {
-  const label = model.displayName ?? model.value;
-  if (!claudeProfileDefaultModel) return { label, detail: model.description };
-  if (model.value === "default") {
-    const configured = models.find((option) => option.value === claudeProfileDefaultModel);
-    const name = configured?.displayName || configured?.value || claudeProfileDefaultModel;
-    return { label: `${defaultLabel} · ${name.replace(/\[1m\]$/i, "")}` };
-  }
-  // Claude repeats the ID in a generic description on entries supplied by the app.
-  const generic = model.description === `Custom model (${model.value})`;
-  return { label, detail: generic ? undefined : model.description };
+export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean) {
+  return models
+    .filter(({ value }) => !custom || value !== "default")
+    .map((model) => ({
+      model,
+      label: model.displayName ?? model.value,
+      detail:
+        custom && model.description === `Custom model (${model.value})`
+          ? undefined
+          : model.description,
+    }));
 }
 
 function ModelChip({
@@ -1351,15 +1346,14 @@ function ModelChip({
 }: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
-  const current = currentModelInfo(models, state.model.model, state.model.chosenModel);
-  const defaultLabel = t("settings:profiles.connection.default");
-  const display = (model: ModelInfo) =>
-    modelPickerLabel(model, models, controller.claudeProfileDefaultModel, defaultLabel);
+  const profileDefault = controller.claudeProfileDefaultModel;
+  const options = modelPickerOptions(models, profileDefault !== undefined);
+  let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
+  if (profileDefault && (!current || current.value === "default"))
+    current = models.find(({ value }) => value === profileDefault);
   const label =
-    current && (current.displayName || controller.claudeProfileDefaultModel)
-      ? display(current).label
-      : (state.model.model ?? t("chat.model.default"));
-  const ready = state.model.process === "running" && models.length > 0;
+    current?.displayName ?? state.model.model ?? profileDefault ?? t("chat.model.default");
+  const ready = state.model.process === "running" && options.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
     state,
@@ -1382,22 +1376,19 @@ function ModelChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.model.label")}</DropdownMenuLabel>
-        {models.map((m) => {
-          const row = display(m);
-          return (
-            <DropdownMenuItem
-              key={m.value}
-              onSelect={() => controller.setModel(m.value).catch((err: Error) => showError(err))}
-            >
-              <span className={cn(m === current && "font-medium")}>{row.label}</span>
-              {row.detail && (
-                <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
-                  {row.detail}
-                </span>
-              )}
-            </DropdownMenuItem>
-          );
-        })}
+        {options.map(({ model, label, detail }) => (
+          <DropdownMenuItem
+            key={model.value}
+            onSelect={() => controller.setModel(model.value).catch((err: Error) => showError(err))}
+          >
+            <span className={cn(model === current && "font-medium")}>{label}</span>
+            {detail && (
+              <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
+                {detail}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );

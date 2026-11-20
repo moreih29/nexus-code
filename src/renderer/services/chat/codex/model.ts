@@ -268,7 +268,13 @@ export function applyCodexLine(
   } else if (line.dir === "sys") {
     if (message.event === "exit" || message.event === "start") settleCommands(draft, at);
     applySys(draft, message, keySeq, at);
-    if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
+    if (message.event === "start") {
+      draft.next.canonicalCwd = str(message.canonicalCwd);
+      if (message.connectionChanged === true) {
+        draft.next.tokens = undefined;
+        draft.next.account = undefined;
+      }
+    }
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
@@ -517,6 +523,8 @@ function applyResponse(
       m.forkSource = undefined;
       if (
         !matchesProfileForkSettings(sent.request, result) ||
+        (typeof sent.request.modelProvider === "string" &&
+          result.modelProvider !== sent.request.modelProvider) ||
         !validCodexFork(
           fork,
           result,
@@ -531,7 +539,7 @@ function applyResponse(
         )
       )
         return;
-      if (m.threadId === threadId) {
+      if (m.threadId === threadId && typeof sent.request.modelProvider !== "string") {
         // A rewind replaces the displayed thread with its prefix copy. Keep
         // the process, outstanding RPCs and workspace file snapshots.
         const fresh = nextThreadModel(m);

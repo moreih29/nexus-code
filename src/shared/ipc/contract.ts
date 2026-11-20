@@ -929,6 +929,7 @@ export const ipcContract = {
           resumeAt: z.string().max(128).optional(),
           /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
+          connectionChanged: z.boolean().optional(),
           /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
@@ -953,6 +954,7 @@ export const ipcContract = {
           cwd: z.string(),
           /** Drop the tab's log first: the tab starts over. */
           resetLog: z.boolean().optional(),
+          connectionChanged: z.boolean().optional(),
           /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
@@ -1368,7 +1370,12 @@ export const ipcContract = {
         }),
       ),
       /** Broadcast when the agent profiles or their rules change via `appState.set`. */
-      agentProfilesChanged: listen(z.object({ config: AgentProfilesSchema })),
+      agentProfilesChanged: listen(
+        z.object({
+          config: AgentProfilesSchema,
+          connectionChangedProfileId: z.string().max(64).optional(),
+        }),
+      ),
     },
   },
 
@@ -2474,7 +2481,10 @@ export const ipcContract = {
         }),
       ),
       connectionKeyStatus: call(
-        z.object({ profileId: z.string().max(64).optional() }),
+        z.object({
+          profileId: z.string().max(64).optional(),
+          target: z.string().max(4200).optional(),
+        }),
         ConnectionKeyStatusSchema,
       ),
       connectionSave: call(

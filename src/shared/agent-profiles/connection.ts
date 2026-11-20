@@ -69,7 +69,13 @@ export function connectionDefaultModel(
 }
 
 /** A saved key follows its provider and the exact endpoint and auth method it was entered for. */
-export function connectionKeyTarget(agent: ChatAgent, connection: ProfileConnection | undefined) {
+export function connectionKeyTarget(
+  agent: ChatAgent,
+  connection:
+    | { method: "account" | "api-key" }
+    | Pick<CustomConnection, "method" | "baseUrl" | "auth">
+    | undefined,
+) {
   switch (connection?.method) {
     case "api-key":
       return agent;

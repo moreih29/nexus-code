@@ -19,6 +19,7 @@ import { ipcErr } from "../../../../../src/shared/ipc/result";
 const calls: { method: string; args: Record<string, unknown> }[] = [];
 /** What a stopped program does to the tab's lines: none come here unless a test says. */
 let onStop: (() => void) | undefined;
+let onStart: (() => void) | undefined;
 let stopFails = false;
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
@@ -44,6 +45,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: undefined });
     }
     calls.push({ method, args });
+    if (method === "start" || method === "codexStart") onStart?.();
     if (method === "stop") {
       if (stopFails) return Promise.resolve(ipcErr("chat.stop-failed", "stop refused"));
       onStop?.();
@@ -106,9 +108,18 @@ afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   calls.length = 0;
   onStop = undefined;
+  onStart = undefined;
   stopFails = false;
   codex = undefined;
 });
+
+async function waitFor(ready: () => boolean): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (ready()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error("the tab did not finish restarting");
+}
 
 describe("a Claude tab switched to another profile", () => {
   function claude() {
@@ -175,6 +186,58 @@ describe("a Claude tab switched to another profile", () => {
     expect(c.currentSession()).toBe("old");
     expect(c.state.queue.map((item) => item.id)).toEqual(["q"]);
     expect(seen).toEqual({});
+  });
+
+  test("restarts a connection edit on the same session after the turn and its jobs", async () => {
+    const { c } = claude();
+    const setIdle = (running: boolean, jobRunning: boolean) =>
+      useChatStore.getState().update(c.key, (prev) => ({
+        ...prev,
+        queue: [],
+        model: {
+          ...prev.model,
+          running,
+          contextUsage: { maxTokens: 1_000_000 },
+          tasks: jobRunning
+            ? {
+                job: {
+                  taskId: "job",
+                  type: "local_bash",
+                  description: "command",
+                  status: "running",
+                },
+              }
+            : {},
+        },
+      }));
+    setIdle(true, true);
+    c.profileConnectionChanged("different-profile");
+    c.profileConnectionChanged(c.profileId);
+    await Bun.sleep(20);
+    expect(calls).toEqual([]);
+    setIdle(false, true);
+    await Bun.sleep(260);
+    expect(calls).toEqual([]);
+    c.profileConnectionChanged(c.profileId);
+    onStart = () =>
+      c.receive({
+        seq: ++claudeSeq,
+        dir: "sys",
+        message: { event: "start", connectionChanged: true },
+      });
+    setIdle(false, false);
+    await waitFor(
+      () => calls.some(({ method }) => method === "start") && c.state.phase === "ready",
+    );
+    expect(calls.map(({ method }) => method)).toEqual(["stop", "start"]);
+    expect(calls[1]?.args).toMatchObject({ resume: "old", connectionChanged: true });
+    expect(calls[1]?.args.resetLog).toBeUndefined();
+    expect(c.currentSession()).toBe("old");
+    expect(c.state.history?.items).toHaveLength(1);
+    expect(c.state.model.items).toContainEqual(
+      expect.objectContaining({ code: "connection_restarted" }),
+    );
+    expect(c.state.model.contextUsage).toBeUndefined();
   });
 });
 
@@ -248,6 +311,87 @@ describe("a Codex tab switched to another profile", () => {
     expect(c.state.queue).toEqual([held]);
     expect(c.state.model.items.map((item) => item.key)).toEqual(["u1"]);
     expect(seen).toEqual({});
+  });
+
+  test.each([
+    false,
+    true,
+  ])("applies a saved connection while keeping the timeline (provider changed: %s)", async (providerChanged) => {
+    const { c } = codexTab();
+    let line = 100;
+    const updateJobs = (running: boolean) =>
+      useChatStore.getState().update(c.key, (prev) => ({
+        ...prev,
+        model: {
+          ...prev.model,
+          threadId: "old",
+          tasks: running
+            ? {
+                job: {
+                  taskId: "job",
+                  type: "codex-command",
+                  description: "command",
+                  status: "running",
+                },
+              }
+            : {},
+        },
+      }));
+    updateJobs(true);
+    c.profileConnectionChanged(c.profileId);
+    await Bun.sleep(20);
+    expect(calls).toEqual([]);
+    onStart = () =>
+      c.receive({ seq: ++line, dir: "sys", message: { event: "start", connectionChanged: true } });
+    const destination = {
+      model: "gateway",
+      modelProvider: "nexus_profile",
+      approvalPolicy: "never",
+      sandbox: { type: "readOnly" },
+    };
+    codex = (message) => {
+      if (message.id === undefined) return;
+      c.receive({ seq: ++line, dir: "in", message });
+      let result: Record<string, unknown> = {};
+      switch (message.method) {
+        case "config/read":
+          result = { config: { model: "gateway", model_provider: "nexus_profile" } };
+          break;
+        case "thread/read":
+          result = {
+            thread: { id: "old", modelProvider: providerChanged ? "openai" : "nexus_profile" },
+          };
+          break;
+        case "thread/start":
+          result = { ...destination, thread: { id: "ephemeral" } };
+          break;
+        case "thread/resume":
+          result = { ...destination, thread: { id: "old" } };
+          break;
+        case "thread/fork":
+          result = { ...destination, thread: { id: "copy", forkedFromId: "old" } };
+          break;
+      }
+      c.receive({ seq: ++line, dir: "out", message: { id: message.id, result } });
+    };
+    updateJobs(false);
+    await waitFor(
+      () => calls.some(({ method }) => method === "codexStart") && c.state.phase === "ready",
+    );
+    const restart = calls.find(({ method }) => method === "codexStart");
+    expect(restart?.args).toMatchObject({ connectionChanged: true });
+    expect(restart?.args.resetLog).toBeUndefined();
+    const rpc = calls.filter(({ method }) => method === "send").map(({ args }) => args.message);
+    expect(rpc).toContainEqual(
+      expect.objectContaining({
+        method: providerChanged ? "thread/fork" : "thread/resume",
+        params: expect.objectContaining({ threadId: "old", model: "gateway", excludeTurns: true }),
+      }),
+    );
+    expect(c.currentThread()).toBe(providerChanged ? "copy" : "old");
+    expect(c.model.items).toContainEqual(expect.objectContaining({ kind: "user", text: "hi" }));
+    expect(c.model.items).toContainEqual(expect.objectContaining({ code: "connection_restarted" }));
+    expect(c.model.model).toBe("gateway");
   });
 });
 

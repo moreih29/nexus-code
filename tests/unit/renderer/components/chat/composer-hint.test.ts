@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import i18next from "i18next";
 
-const { composerHint, composerKeys, modelPickerLabel } = await import(
+const { composerHint, composerKeys, modelPickerOptions } = await import(
   "../../../../../src/renderer/components/chat/composer"
 );
 
@@ -33,7 +33,7 @@ describe("the composer's hint", () => {
   });
 });
 
-test("labels a custom Claude picker with the configured model's name", () => {
+test("hides Claude's duplicate default alias and generic description for a custom connection", () => {
   const defaultModel = {
     value: "default",
     displayName: "Default (recommended)",
@@ -46,11 +46,9 @@ test("labels a custom Claude picker with the configured model's name", () => {
     description: "Custom model (glm-5-plus)",
   };
   const models = [defaultModel, custom];
-  expect(modelPickerLabel(defaultModel, models, custom.value, "기본")).toEqual({
-    label: "기본 · GLM 5 Plus",
-  });
-  expect(modelPickerLabel(custom, models, custom.value, "기본")).toEqual({ label: "GLM 5 Plus" });
-  expect(modelPickerLabel(defaultModel, models, undefined, "기본")).toEqual({
+  expect(modelPickerOptions(models, true)).toEqual([{ model: custom, label: "GLM 5 Plus" }]);
+  expect(modelPickerOptions(models, false)[0]).toEqual({
+    model: defaultModel,
     label: defaultModel.displayName,
     detail: defaultModel.description,
   });
