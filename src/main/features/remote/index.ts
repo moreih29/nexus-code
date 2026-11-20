@@ -104,14 +104,14 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
  * not (not-found, forbidden, unsupported: a version without the method,
  * unavailable: not in the room, gone, slow).
  */
-async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
+async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise<IpcResult<T>> {
   try {
     return ipcOk(await question());
   } catch (error) {
     if (error instanceof RpcFailure) {
       const data = error.data as { outcome?: unknown } | undefined;
-      if (data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
-      if (data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
+      if (chatSend && data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
+      if (chatSend && data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
       const kind =
         error.code === RpcErrorCode.NotFound
           ? "not-found"
@@ -588,7 +588,7 @@ export async function registerRemoteChannel(options: {
       },
       peerChatSend: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatSend.args, args);
-        return askPeer(() => inRoom().request(deviceId, "chat.send", params));
+        return askPeer(() => inRoom().request(deviceId, "chat.send", params), true);
       },
       peerChatAnswer: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatAnswer.args, args);

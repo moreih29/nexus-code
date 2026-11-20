@@ -476,20 +476,23 @@ describe("what the relay keeps and sends again", () => {
     relay.drop = null;
     jest.useFakeTimers();
     try {
-      const first = b.room.request("a", "sessions.list", {}).catch((e: unknown) => e);
-      const second = b.room.request("a", "sessions.list", {}).catch((e: unknown) => e);
+      const first = b.room.request("a", "sessions.list", {});
+      const second = b.room.request("a", "sessions.list", {});
       await flushRelay();
-      expect(a.served).toHaveLength(0);
       const targeted = relay.between("a", "b").filter((frame) => frame.to === "b");
-      const recent = await openMessage(key, targeted.at(-1)!);
-      expect(recent?.message).toMatchObject({ type: "hello", reply: true });
       const heard = await Promise.all(targeted.map((frame) => openMessage(key, frame)));
-      expect(heard.filter((item) => item?.epoch === recent?.epoch)).toHaveLength(1);
+      const recent = heard.at(-1);
+      expect(
+        heard.filter((item) => item && item.epoch === recent?.epoch && "type" in item.message),
+      ).toEqual([
+        expect.objectContaining({
+          message: expect.objectContaining({ type: "hello", reply: true }),
+        }),
+      ]);
       expect(b.room.state().peers[0]?.rejoins).toBe(1);
-      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
-      jest.advanceTimersByTime(300);
-      expect(await first).toBeInstanceOf(RpcFailure);
-      expect(await second).toBeInstanceOf(RpcFailure);
+      expect((await first).workspaces).toHaveLength(1);
+      expect((await second).workspaces).toHaveLength(1);
+      expect(a.served).toHaveLength(2);
     } finally {
       a.room.stop();
       b.room.stop();
@@ -600,8 +603,8 @@ describe("what the relay keeps and sends again", () => {
       await flushRelay();
       expect(b.recoveries()).toBe(1);
       expect(await pairing).toBe(false);
-      expect(await waiting).toMatchObject({ code: RpcErrorCode.Unavailable });
-      expect(a.served).toHaveLength(0);
+      expect(await waiting).toMatchObject({ workspaces: [{ id: "w1" }] });
+      expect(a.served).toHaveLength(1);
       expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
     } finally {
       a.room.stop();
@@ -753,21 +756,131 @@ describe("what the relay keeps and sends again", () => {
     expect(b.room.state().peers[0]?.serves).toEqual(["sessions"]);
   });
 
-  test("what it asked before its connection dropped fails at once", async () => {
+  test("a local reconnect retries a read and fails a sent chat message without replaying it", async () => {
     const relay = new MockRelay();
     const key = await roomKey();
-    const a = device(relay, "a", key, { serve: () => new Promise(() => {}) });
+    const methods: string[] = [];
+    let reads = 0;
+    const a = device(relay, "a", key, {
+      serves: ["sessions", "chat.control"],
+      serve: async ({ method }) => {
+        methods.push(method);
+        if (method === "chat.send" || ++reads === 1) return new Promise(() => {});
+        return { workspaces: [], sessions: [] };
+      },
+    });
     const b = device(relay, "b", key, { requestTimeoutMs: 10_000 });
     a.room.start();
     b.room.start();
     await flushRelay();
-    const asked = b.room.request("a", "sessions.list", {});
-    await flushRelay();
-    b.reopen();
-    await expect(asked).rejects.toMatchObject({
-      code: RpcErrorCode.Unavailable,
-      message: "the connection to the room was lost",
+    try {
+      const asked = b.room.request("a", "sessions.list", {});
+      const mutation = b.room
+        .request("a", "chat.send", { workspaceId: "w", tabId: "t", text: "hi" })
+        .catch((error: unknown) => error);
+      await flushRelay();
+      b.reopen();
+      await flushRelay();
+      expect(await mutation).toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: "the connection to the room was lost",
+        data: { outcome: "unknown" },
+      });
+      expect(await asked).toEqual({ workspaces: [], sessions: [] });
+      expect(methods).toEqual(["sessions.list", "chat.send", "sessions.list"]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
+  });
+
+  test.each([
+    "deadline",
+    "another reconnect",
+  ] as const)("a retained read stops at its original %s", async (reason) => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let reads = 0;
+    const a = device(relay, "a", key, {
+      serve: () => {
+        reads++;
+        return new Promise(() => {});
+      },
     });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    jest.useFakeTimers();
+    try {
+      const asked = b.room
+        .request("a", "sessions.list", {}, 1_000)
+        .catch((error: unknown) => error);
+      await flushRelay();
+      jest.advanceTimersByTime(600);
+      a.reopen();
+      await flushRelay();
+      expect(reads).toBe(2);
+      if (reason === "deadline") jest.advanceTimersByTime(400);
+      else b.reopen();
+      await flushRelay();
+      expect(await asked).toMatchObject({
+        message:
+          reason === "deadline"
+            ? "sessions.list: no answer in time"
+            : "the connection to the room was lost",
+      });
+      expect(reads).toBe(2);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("an online peer without a known epoch gets a hello before the first request", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key);
+    relay.drop = (from) => (from === "a" ? "silent" : undefined);
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    try {
+      expect(b.room.state().peers[0]).toMatchObject({ id: "a", online: true });
+      expect(b.room.state().peers[0]?.serves).toBeUndefined();
+      const oldFrames = relay.between("b", "a").length;
+      relay.drop = null;
+      const answer = b.room.request("a", "sessions.list", {}, 3_000);
+      await flushRelay();
+      expect((await answer).workspaces).toHaveLength(1);
+      const sent = relay.between("b", "a").slice(oldFrames);
+      expect(sent[0]?.to).toBe("*");
+      expect((await openMessage(key, sent.at(-1)!))?.message).toMatchObject({
+        method: "sessions.list",
+      });
+      expect(a.served).toHaveLength(1);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
+  });
+
+  test("a read rejected by the relay while a peer is between sockets resumes on its hello", async () => {
+    const { a, b } = await pair();
+    const reading = b.room.request("a", "sessions.list", {}, 1_000);
+    a.room.stop();
+    await flushRelay();
+    try {
+      expect(a.served).toHaveLength(0);
+      a.room.start();
+      expect((await reading).workspaces).toHaveLength(1);
+      expect(a.served).toHaveLength(1);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
   });
 
   test("nothing goes to a device it has not heard a hello from", async () => {

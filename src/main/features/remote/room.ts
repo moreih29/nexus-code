@@ -29,6 +29,7 @@ import {
   type RpcNotificationMethod,
   type RpcNotificationParams,
   type RpcParams,
+  type RpcRequest,
   type RpcResult,
   SCHEMA_VERSION,
   type SealedMessage,
@@ -47,6 +48,7 @@ const log = createLogger("remote-room");
 /** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
 const HELLO_RETRY_INTERVAL_MS = 5_000;
+const HELLO_WAIT_MS = 3_000;
 const WARNING_INTERVAL_MS = 30_000;
 const RECENT_REPLY_LIMIT = 200;
 const PEER_PROBE_MS = 5_000;
@@ -55,6 +57,7 @@ const MAX_PROBE_PEERS = 3;
 type RoomWarning =
   | "stale-epoch"
   | "request-timeout"
+  | `request-retry-${RetryReason}`
   | "slow-serving"
   | "relay-error"
   | "queue-drop"
@@ -135,6 +138,39 @@ const BULK_FRAMES = new Set([
 ]);
 const RATE_LIMITED = "the relay is rate limiting this connection";
 
+/** Reads that can be repeated after a connection loss. Watches create subscriptions. */
+const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
+  "sessions.list",
+  "events.read",
+  "profiles.list",
+  "folders.list",
+  "history.list",
+  "chat.read",
+  "chat.settings",
+  "chat.commands",
+  "chat.panel",
+  "chat.tool",
+  "chat.original",
+  "chat.wait",
+  "chat.image",
+  "chat.fileSuggestions",
+  "chat.runs",
+  "chat.run",
+  "chat.rewindPreview",
+  "terminal.read",
+  "terminal.wait",
+  "terminal.shells",
+  "files.list",
+  "files.read",
+  "files.find",
+  "files.search",
+  "git.status",
+  "git.diff",
+  "git.log",
+  "git.show",
+  "notes.list",
+]);
+
 function readsWholeImage(params: unknown): boolean {
   const { as, path } = (params ?? {}) as { as?: unknown; path?: unknown };
   const image = /\.(png|jpe?g|gif|webp)$/i;
@@ -203,12 +239,22 @@ export interface RemoteRoomDeps {
   readonly requestTimeoutMs?: number;
 }
 
+type OutboundRequest = RpcRequest & { id: number; method: RpcMethod };
+type RetryReason = "peer-rejoined" | "peer-unavailable" | "local-reconnected";
+
 interface Pending {
+  to: string;
+  message: OutboundRequest;
   resolve(result: unknown): void;
   reject(error: Error): void;
+  cleanup(): void;
+  started: number;
+  deadline: number;
   timer: ReturnType<typeof setTimeout>;
-  method: RpcMethod;
-  seq?: number;
+  helloTimer?: ReturnType<typeof setTimeout>;
+  attempt?: { peer: string; seq?: number };
+  retryReason?: RetryReason;
+  retried: boolean;
 }
 
 interface SentReply {
@@ -228,7 +274,7 @@ export class RemoteRoom {
   private seq = 0;
   private greeted = false;
   private nextId = 1;
-  private readonly pending = new Map<string, Pending>();
+  private readonly pending = new Map<number, Pending>();
   /** This connection's epoch: a message is taken only when sealed for it. */
   private epoch = newEpoch();
   /** Each other device's epoch now, and the seq of the last message taken of it. */
@@ -240,9 +286,11 @@ export class RemoteRoom {
   /** Messages are taken one after another, so their seqs are checked in the order they came. */
   private inbox = { tail: Promise.resolve(), pending: 0 };
   private readonly helloRetryAt = new Map<string, number>();
+  private broadcastHelloAt = -Infinity;
   private readonly warnedAt = new Map<RoomWarning, number>();
   private droppedFrames = 0;
   private rateLimitedFrames = 0;
+  private readonly retriedRequests = new Map<RetryReason, number>();
   private probe: { peers: Set<string>; timer: ReturnType<typeof setTimeout> } | undefined;
   private foreignAt = Number.NEGATIVE_INFINITY;
 
@@ -268,7 +316,7 @@ export class RemoteRoom {
 
   stop(): void {
     this.connection.stop();
-    this.failPending("left the room");
+    this.interruptRequests("left the room");
     this.deps.onDisconnect?.();
     this.status = "off";
     this.resetQueues();
@@ -276,24 +324,51 @@ export class RemoteRoom {
     this.changed();
   }
 
-  private failPending(why: string): void {
-    for (const [key, p] of this.pending) {
-      clearTimeout(p.timer);
-      p.reject(new RpcFailure(RpcErrorCode.Unavailable, why));
-      this.pending.delete(key);
-    }
+  private finishPending(p: Pending): boolean {
+    if (this.pending.get(p.message.id) !== p) return false;
+    this.pending.delete(p.message.id);
+    clearTimeout(p.timer);
+    clearTimeout(p.helloTimer);
+    p.cleanup();
+    return true;
   }
 
-  /** Starts a new epoch: nothing sealed for the last is taken, so what it asked in it fails now. */
+  private rejectPending(p: Pending, error: unknown): void {
+    if (this.finishPending(p)) p.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private interrupted(p: Pending, why: string, sent = p.attempt?.seq !== undefined): RpcFailure {
+    const outcome = sent ? "unknown" : "rejected";
+    const data = RETRYABLE_READS.has(p.message.method) ? undefined : { outcome };
+    return new RpcFailure(RpcErrorCode.Unavailable, why, data);
+  }
+
+  private interruptRequest(p: Pending, why: string, reason?: RetryReason): void {
+    if (reason && !p.retried && RETRYABLE_READS.has(p.message.method)) {
+      if (p.attempt) {
+        delete p.attempt;
+        p.retryReason = reason;
+      }
+      return;
+    }
+    this.rejectPending(p, this.interrupted(p, why));
+  }
+
+  private interruptRequests(why: string, reason?: RetryReason): void {
+    for (const p of this.pending.values()) this.interruptRequest(p, why, reason);
+  }
+
+  /** Starts a new epoch. A retained read must wait for a hello in this epoch. */
   private renew(why: string): void {
+    this.interruptRequests(why, "local-reconnected");
     this.deps.onDisconnect?.();
     this.epoch = newEpoch();
     this.heard.clear();
     this.past.clear();
     this.helloRetryAt.clear();
+    this.broadcastHelloAt = -Infinity;
     this.resetQueues();
     this.cancelQueuedReads();
-    this.failPending(why);
   }
 
   state(): RoomState {
@@ -325,70 +400,138 @@ export class RemoteRoom {
   ): Promise<RpcResult<M>> {
     signal?.throwIfAborted();
     const id = this.nextId++;
-    const key = `${to}|${id}`;
-    const message: SealedMessage = { jsonrpc: "2.0", id, method, params };
+    const message: OutboundRequest = { jsonrpc: "2.0", id, method, params };
     if (!fitsInFrame(message)) {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
     }
-    const peer = this.heard.get(to)?.epoch;
-    if (!peer) {
-      throw new RpcFailure(
-        RpcErrorCode.Unavailable,
-        this.peers.get(to)?.online
-          ? "that device has not said hello yet"
-          : "that device is not in the room",
-      );
+    const knownEpoch = this.heard.get(to)?.epoch;
+    const here = this.status === "online";
+    const peer = here ? knownEpoch : undefined;
+    const online = this.peers.get(to)?.online;
+    const awaitingReconnect =
+      (this.status === "connecting" || this.status === "waiting") &&
+      knownEpoch !== undefined &&
+      RETRYABLE_READS.has(method);
+    if (!here && !awaitingReconnect) {
+      throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
     }
+    if (here && (online === false || (!peer && !online))) {
+      throw new RpcFailure(RpcErrorCode.Unavailable, "that device is not in the room");
+    }
+
     const started = performance.now();
+    const wait = timeoutMs ?? this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     const answer = new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(
-        () => {
-          const sent = this.pending.get(key)?.seq !== undefined;
-          this.pending.delete(key);
-          reject(new RpcFailure(RpcErrorCode.Unavailable, `${method}: no answer in time`));
-          const elapsed = Math.round(performance.now() - started);
-          this.warnOccasionally(
-            "request-timeout",
-            `Remote request timed out method=${method} peer=${to.slice(0, 8)} elapsedMs=${elapsed}`,
-          );
-          this.retryHello(to, this.heard.get(to)?.epoch ?? peer);
-          if (sent) this.probePeerPath(to);
-        },
-        timeoutMs ?? this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
-      );
-      this.pending.set(key, { resolve, reject, timer, method });
+      const abort = () => this.rejectPending(p, signal?.reason);
+      const p: Pending = {
+        to,
+        message,
+        resolve,
+        reject,
+        cleanup: () => signal?.removeEventListener("abort", abort),
+        started,
+        deadline: started + wait,
+        timer: setTimeout(() => this.timeoutRequest(p), wait),
+        retried: false,
+      };
+      this.pending.set(id, p);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (peer) {
+        this.sendRequest(p, peer);
+      } else if (here) {
+        p.helloTimer = setTimeout(() => {
+          this.rejectPending(p, this.interrupted(p, "that device has not said hello yet"));
+        }, HELLO_WAIT_MS);
+        this.retryHello(to);
+      }
     });
-    const rejectPending = (error: unknown) => {
-      const p = this.pending.get(key);
-      if (!p) return;
-      clearTimeout(p.timer);
-      this.pending.delete(key);
-      p.reject(error instanceof Error ? error : new Error(String(error)));
-    };
-    const abort = () => rejectPending(signal?.reason);
-    signal?.addEventListener("abort", abort, { once: true });
-    void this.post(to, peer, message, {
+    return (await answer) as RpcResult<M>;
+  }
+
+  private timeoutRequest(p: Pending): void {
+    if (!this.finishPending(p)) return;
+    const {
+      to,
+      attempt,
+      started,
+      message: { method },
+    } = p;
+    p.reject(this.interrupted(p, `${method}: no answer in time`));
+    this.warnOccasionally(
+      "request-timeout",
+      `Remote request timed out method=${method} peer=${to.slice(0, 8)} elapsedMs=${Math.round(performance.now() - started)}`,
+    );
+    if (attempt?.seq !== undefined) {
+      this.retryHello(to, this.heard.get(to)?.epoch ?? attempt.peer);
+      this.probePeerPath(to);
+    }
+  }
+
+  private sendRequest(p: Pending, peer: string): void {
+    if (performance.now() >= p.deadline) {
+      this.timeoutRequest(p);
+      return;
+    }
+    const { to, retryReason } = p;
+    const { method } = p.message;
+    if (retryReason) {
+      this.pending.delete(p.message.id);
+      p.message = { ...p.message, id: this.nextId++ };
+      this.pending.set(p.message.id, p);
+      p.retried = true;
+      delete p.retryReason;
+      if (!fitsInFrame(p.message)) {
+        this.rejectPending(
+          p,
+          new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`),
+        );
+        return;
+      }
+    }
+    clearTimeout(p.helloTimer);
+    delete p.helloTimer;
+    const attempt: NonNullable<Pending["attempt"]> = { peer };
+    p.attempt = attempt;
+    const current = () => this.pending.get(p.message.id) === p && p.attempt === attempt;
+    void this.post(to, peer, p.message, {
       kind: `request:${method}`,
       priority:
         method === "files.read"
           ? FramePriority.Request
           : this.bulkPriority(method, FramePriority.Request),
-      wanted: () => !signal?.aborted && this.pending.has(key),
+      wanted: () => current() && performance.now() < p.deadline,
       onSending: (seq) => {
-        const pending = this.pending.get(key);
-        if (pending) pending.seq = seq;
+        attempt.seq = seq;
+        if (retryReason) this.logRetry(p, retryReason);
       },
-    }).then((seq) => {
-      if (seq === null) {
+    }).then(
+      (seq) => {
+        if (seq !== null || !current()) return;
+        if (performance.now() >= p.deadline) {
+          this.timeoutRequest(p);
+          return;
+        }
         const why = this.status === "online" ? "the relay send queue is busy" : "not in the room";
-        const data = method === "chat.send" ? { outcome: "rejected" } : undefined;
-        rejectPending(new RpcFailure(RpcErrorCode.Unavailable, why, data));
-      }
-    }, rejectPending);
-    try {
-      return (await answer) as RpcResult<M>;
-    } finally {
-      signal?.removeEventListener("abort", abort);
+        this.rejectPending(p, this.interrupted(p, why, false));
+      },
+      (error) => {
+        if (current()) this.rejectPending(p, error);
+      },
+    );
+  }
+
+  private logRetry(p: Pending, reason: RetryReason): void {
+    const count = (this.retriedRequests.get(reason) ?? 0) + 1;
+    const logged = this.warnOccasionally(
+      `request-retry-${reason}`,
+      `Remote read retried method=${p.message.method} peer=${p.to.slice(0, 8)} reason=${reason} attempt=2 count=${count}`,
+    );
+    this.retriedRequests.set(reason, logged ? 0 : count);
+  }
+
+  private resumeRequests(from: string, epoch: string): void {
+    for (const p of this.pending.values()) {
+      if (p.to === from && !p.attempt) this.sendRequest(p, epoch);
     }
   }
 
@@ -570,9 +713,15 @@ export class RemoteRoom {
     };
   }
 
-  private retryHello(to: string, epoch: string): void {
+  private retryHello(to: string, epoch = this.heard.get(to)?.epoch): void {
     if (this.status !== "online" || this.peers.get(to)?.online !== true) return;
     const now = performance.now();
+    if (!epoch) {
+      if (now - this.broadcastHelloAt < HELLO_RETRY_INTERVAL_MS) return;
+      this.broadcastHelloAt = now;
+      void this.post(ALL_DEVICES, null, this.hello(true));
+      return;
+    }
     if (now - (this.helloRetryAt.get(to) ?? -Infinity) < HELLO_RETRY_INTERVAL_MS) return;
     this.helloRetryAt.set(to, now);
     void this.post(to, epoch, this.hello(true));
@@ -590,12 +739,14 @@ export class RemoteRoom {
     const wasOnline = this.status === "online";
     this.status = status;
     if (status !== "online") {
-      if (wasOnline) {
-        this.failPending(
+      const reconnecting = status === "waiting" || status === "connecting";
+      if (wasOnline || !reconnecting) {
+        this.interruptRequests(
           status === "stopped" ? "left the room" : "the connection to the room was lost",
+          reconnecting ? "local-reconnected" : undefined,
         );
-        this.resetQueues();
       }
+      if (wasOnline) this.resetQueues();
       this.deps.onDisconnect?.();
       // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
@@ -626,12 +777,17 @@ export class RemoteRoom {
       for (const peer of this.peers.values()) {
         if (peer.online && !next.get(peer.id)?.online) this.deps.onDisconnect?.(peer.id);
       }
+      const previous = this.peers;
       this.peers = next;
       for (const id of this.helloRetryAt.keys()) if (!next.has(id)) this.helloRetryAt.delete(id);
       this.cancelQueuedReads();
       if (!this.greeted) {
         this.greeted = true;
         void this.post(ALL_DEVICES, null, this.hello(true));
+      } else {
+        for (const p of this.pending.values()) {
+          if (!p.attempt && !previous.get(p.to)?.online) this.retryHello(p.to);
+        }
       }
       this.changed();
       return;
@@ -672,17 +828,19 @@ export class RemoteRoom {
       this.rateLimitedFrames = 0;
     if (seq === undefined) return;
 
-    for (const [key, p] of this.pending) {
-      if (p.seq !== seq) continue;
-      clearTimeout(p.timer);
-      this.pending.delete(key);
+    for (const p of this.pending.values()) {
+      if (p.attempt?.seq !== seq) continue;
+      if (code === "no-such-device" && !p.retried && RETRYABLE_READS.has(p.message.method)) {
+        this.interruptRequest(p, "that device is not in the room", "peer-unavailable");
+        this.retryHello(p.to);
+        return;
+      }
       const why = limited
         ? RATE_LIMITED
         : code === "no-such-device"
           ? "that device is not in the room"
           : "the relay rejected the request frame";
-      const data = p.method === "chat.send" ? { outcome: "rejected" } : undefined;
-      p.reject(new RpcFailure(RpcErrorCode.Unavailable, why, data));
+      this.rejectPending(p, this.interrupted(p, why, false));
       return;
     }
     const reply = this.sentReplies.get(seq);
@@ -763,7 +921,7 @@ export class RemoteRoom {
       void this.post(ALL_DEVICES, null, this.hello(true));
       return false;
     }
-    if (heard && heard.epoch !== epoch) this.rejoined(from);
+    if (heard && heard.epoch !== epoch) this.rejoined(from, epoch);
     return true;
   }
 
@@ -773,7 +931,12 @@ export class RemoteRoom {
    * as gone (its old socket held on). Going, it dropped what was watched
    * there, which is asked for again as its `rejoins` grows.
    */
-  private rejoined(from: string): void {
+  private rejoined(from: string, epoch: string): void {
+    for (const p of this.pending.values()) {
+      if (p.to === from && p.attempt && p.attempt.peer !== epoch) {
+        this.interruptRequest(p, "the device reconnected to the room", "peer-rejoined");
+      }
+    }
     this.deps.onDisconnect?.(from);
     this.cancelQueuedReads();
     const peer = this.peers.get(from);
@@ -812,6 +975,7 @@ export class RemoteRoom {
       });
       this.changed();
       if (message.reply) void this.post(from, epoch, this.hello(false));
+      if (this.peers.get(from)?.online === true) this.resumeRequests(from, epoch);
       return;
     }
     if ("method" in message && "id" in message) {
@@ -873,21 +1037,26 @@ export class RemoteRoom {
       if (parsed.success) this.deps.onNotification?.(from, method, parsed.data);
       return;
     }
-    const key = `${from}|${message.id}`;
-    const p = this.pending.get(key);
-    if (!p) return;
+    const p = typeof message.id === "number" ? this.pending.get(message.id) : undefined;
+    if (!p || p.to !== from || p.attempt?.peer !== epoch || p.attempt.seq === undefined) return;
+    if (performance.now() >= p.deadline) {
+      this.timeoutRequest(p);
+      return;
+    }
     if (this.probe?.peers.has(from)) this.clearProbe();
-    clearTimeout(p.timer);
-    this.pending.delete(key);
+    this.finishPending(p);
     if ("error" in message) {
       p.reject(new RpcFailure(message.error.code, message.error.message, message.error.data));
       return;
     }
-    const result = RPC_METHODS[p.method].result.safeParse(message.result);
+    const result = RPC_METHODS[p.message.method].result.safeParse(message.result);
     if (result.success) p.resolve(result.data);
     else
       p.reject(
-        new RpcFailure(RpcErrorCode.InternalError, `${p.method}: an answer not of the protocol`),
+        new RpcFailure(
+          RpcErrorCode.InternalError,
+          `${p.message.method}: an answer not of the protocol`,
+        ),
       );
   }
 
