@@ -83,6 +83,7 @@ async function readPeerEvents(
   since: number | undefined,
   limit: number,
   workspaceId: string | undefined,
+  signal = ctx.signal,
 ): Promise<{ events: CliSessionEvent[]; cursor: number; more: boolean }> {
   const page = (after: number | undefined) =>
     askDevice(
@@ -93,7 +94,7 @@ async function readPeerEvents(
         ...(after !== undefined ? { since: after } : {}),
         limit: workspaceId === undefined ? Math.min(limit, MAX_PEER_EVENTS) : MAX_PEER_EVENTS,
       },
-      ctx.signal,
+      signal,
     );
   let read = await page(since);
   const tell = (event: (typeof read.events)[number]): CliSessionEvent => ({
@@ -146,6 +147,22 @@ function eventCursors(value: unknown): Record<string, number> {
   return Object.assign(Object.create(null), parsed);
 }
 
+/** Stops waiting even when a device-list or renderer service has no cancellation API. */
+async function beforeAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  let stop = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    stop = () => reject(signal.reason);
+    if (signal.aborted) stop();
+    else signal.addEventListener("abort", stop, { once: true });
+  });
+  try {
+    return await Promise.race([work, aborted]);
+  } finally {
+    signal.removeEventListener("abort", stop);
+  }
+}
+
 async function allDeviceEvents(
   ctx: CliContext,
   flags: Record<string, unknown>,
@@ -155,61 +172,80 @@ async function allDeviceEvents(
   if (flags.since !== undefined || flags.workspace !== undefined)
     throw new CliUsageError("--device all takes --cursors and covers every workspace");
   const cursors = eventCursors(flags.cursors);
-  const devices = await listDevices(ctx);
-  const self = devices.find((device) => device.self);
-  const local = self ? deviceRef(self) : { id: "local", name: "This computer" };
-  const sources = [
-    {
-      device: local,
-      read: (since: number | undefined) => readEvents(ctx, since, limit, undefined),
-    },
-    ...devices
-      .filter((device) => !device.self && device.online)
-      .map((device) => ({
-        device: deviceRef(device),
-        read: (since: number | undefined) => readPeerEvents(ctx, device, since, limit, undefined),
-      })),
-  ];
-  const offline = devices.filter((device) => !device.self && !device.online).map(deviceRef);
   const clock = ctx.services.clock;
   const started = clock.now();
+  const deadline = started + waitMs;
+  let devices: CliDevice[] = [];
+  let local = { id: "local", name: "This computer" };
+  let peerOffset = 0;
+
   async function batch() {
+    const signal =
+      waitMs > 0
+        ? AbortSignal.any([
+            AbortSignal.timeout(Math.max(1, Math.min(PEER_POLL_MS, deadline - clock.now()))),
+            ...(ctx.signal ? [ctx.signal] : []),
+          ])
+        : ctx.signal;
+    try {
+      devices = await beforeAbort(listDevices(ctx), signal);
+    } catch (error) {
+      if (!signal?.aborted) throw error;
+      return { events: [], errors: [], more: [] };
+    }
+    const self = devices.find((device) => device.self);
+    if (self) local = deviceRef(self);
+    const peers = devices.filter((device) => !device.self && device.online);
     const errors: { device: { id: string; name: string }; error: string }[] = [];
     const more: string[] = [];
-    const reads = await Promise.allSettled(
-      sources.map((source) => source.read(cursors[source.device.id])),
-    );
-    const events = reads.flatMap((read, index) => {
-      const source = sources[index];
-      if (!source) return [];
-      if (read.status === "rejected") {
-        errors.push({
-          device: source.device,
-          error: read.reason instanceof Error ? read.reason.message : String(read.reason),
-        });
-        return [];
+    const events: (CliSessionEvent & { device: typeof local })[] = [];
+
+    async function collect(device: typeof local, read: () => ReturnType<typeof readEvents>) {
+      try {
+        signal?.throwIfAborted();
+        const page = await beforeAbort(read(), signal);
+        cursors[device.id] = page.more
+          ? (page.events.at(-1)?.seq ?? cursors[device.id] ?? 0)
+          : page.cursor;
+        if (page.more) more.push(device.id);
+        events.push(...page.events.map((event) => ({ ...event, device })));
+      } catch (error) {
+        errors.push({ device, error: error instanceof Error ? error.message : String(error) });
       }
-      const page = read.value;
-      cursors[source.device.id] = page.more
-        ? (page.events.at(-1)?.seq ?? cursors[source.device.id] ?? 0)
-        : page.cursor;
-      if (page.more) more.push(source.device.id);
-      return page.events.map((event) => ({ ...event, device: source.device }));
-    });
+    }
+
+    let index = 0;
+    const readPeer = async () => {
+      while (index < peers.length && !signal?.aborted) {
+        const peer = peers[(peerOffset + index++) % peers.length];
+        await collect(deviceRef(peer), () =>
+          readPeerEvents(ctx, peer, cursors[peer.id], limit, undefined, signal),
+        );
+      }
+    };
+    await Promise.all([
+      collect(local, () => readEvents(ctx, cursors[local.id], limit, undefined)),
+      ...Array.from({ length: Math.min(4, peers.length) }, readPeer),
+    ]);
+    // A batch can time out before every peer is reached. Start the next
+    // batch where this one left off so a silent peer cannot starve another.
+    if (peers.length) peerOffset = (peerOffset + index) % peers.length;
     events.sort((a, b) => a.at - b.at || a.device.id.localeCompare(b.device.id) || a.seq - b.seq);
     return { events, errors, more };
   }
+
+  let polledAt = clock.now();
   let result = await batch();
-  while (
-    !result.events.length &&
-    !result.more.length &&
-    !ctx.signal?.aborted &&
-    clock.now() - started < waitMs
-  ) {
-    await clock.sleep(Math.min(PEER_POLL_MS, waitMs - (clock.now() - started)));
-    if (ctx.signal?.aborted) break;
+  while (!result.events.length && !result.more.length && !ctx.signal?.aborted) {
+    const remaining = deadline - clock.now();
+    if (remaining <= 0) break;
+    const delay = Math.min(remaining, polledAt + PEER_POLL_MS - clock.now());
+    if (delay > 0) await clock.sleep(delay);
+    if (clock.now() >= deadline || ctx.signal?.aborted) break;
+    polledAt = clock.now();
     result = await batch();
   }
+  const offline = devices.filter((device) => !device.self && !device.online).map(deviceRef);
   const text = table(
     ["DEVICE", "SEQ", "TIME", "TAB", "CHANGE"],
     result.events.map((event) => [
