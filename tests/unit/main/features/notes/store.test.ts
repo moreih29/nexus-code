@@ -397,8 +397,13 @@ describe("a note's recordings", () => {
 
   test("a take's audio is written piece by piece, only under recordings/", async () => {
     const note = await store.create(here, "");
+    expect(await store.hasRecordingAudio(here, note.id, [])).toBe(false);
+    expect(await store.hasRecordingAudio(here, note.id, [take(1)])).toBe(false);
     await store.appendAudio(here, note.id, take(1), new Uint8Array([1, 2]));
     await store.appendAudio(here, note.id, take(1), new Uint8Array([3]));
+    expect(await store.hasRecordingAudio(here, note.id, [take(1)])).toBe(true);
+    expect(await store.hasRecordingAudio(here, note.id, [take(1), take(2)])).toBe(false);
+
     expect([...(await fs.readFile(path.join(note.dir, take(1))))]).toEqual([1, 2, 3]);
     await expect(
       store.appendAudio(here, note.id, "note.json", new Uint8Array([0])),
@@ -421,6 +426,8 @@ describe("a note's recordings", () => {
     await withTrash.appendAudio(here, note.id, take(1), new Uint8Array([1]));
     await withTrash.appendAudio(here, note.id, take(2), new Uint8Array([2]));
     const kept = await withTrash.removeRecording(here, note.id, "rmhz00cc0abcd");
+    expect(await withTrash.hasRecordingAudio(here, note.id, [take(1), take(2)])).toBe(false);
+
     expect(trashed.sort()).toEqual(["rmhz00cc0abcd-1.webm", "rmhz00cc0abcd-2.webm"]);
     expect(kept.recordings[0]?.audioRemoved).toBe(true);
     expect(kept.recordings[0]?.lines).toHaveLength(2);

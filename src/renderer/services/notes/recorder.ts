@@ -22,6 +22,8 @@ import {
   type TranscriptRecording,
   takeFile,
 } from "../../../shared/notes/transcript";
+import { VOICE_NAME_LINE_MS } from "../../../shared/notes/voice-names";
+import type { VoiceSample } from "../../../shared/notes/voices";
 import type { VoiceEvent } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
@@ -37,6 +39,7 @@ import {
   updateTranscript,
   useTranscriptsStore,
 } from "./transcripts";
+import { clearVoiceSuggestions, type RecordingRef, refreshVoiceSuggestions } from "./voice-memory";
 import { VOICE_PRINT_RATE, VoiceTracker, voicePrintAvailable } from "./voice-print";
 
 /** How much audio each piece written to the take's file holds. */
@@ -62,6 +65,8 @@ interface RecorderState {
   /** How loud the microphone is, 0 to 1. */
   level: number;
 }
+
+const VOICE_NAME_SCAN_INTERVAL_MS = 3000;
 
 const IDLE: RecorderState = {
   phase: "idle",
@@ -104,6 +109,9 @@ interface Active {
   writes: Promise<void>;
   /** The take's file is written to the end (its recorder stopped). */
   mediaDone: Promise<void>;
+  /** At least one piece of this recording was successfully written locally. */
+  audioSaved: boolean;
+  lastVoiceNameScan: number;
   endTimer?: ReturnType<typeof setTimeout>;
   levelTimer?: ReturnType<typeof setInterval>;
   /** Whether the app can tell the voices apart by voice print, asked as the recording starts. */
@@ -177,10 +185,10 @@ function voiceOfLabel(a: Active, label: string): string {
 }
 
 /** Lines' voices as grouped again (by start), except the ones the user moved. */
-function regrouped(a: Active, keys: ReadonlyMap<number, string>): void {
+function regrouped(a: Active, keys: ReadonlyMap<number, string>): boolean {
   // The recording's, even once it has stopped: a voice print may come after.
+  let changed = false;
   updateRecording(a.workspaceId, a.noteId, a.recordingId, (r) => {
-    let changed = false;
     const lines = r.lines.map((l) => {
       const key = keys.get(l.startMs);
       if (!key || key === l.speaker || l.pinned) return l;
@@ -189,6 +197,28 @@ function regrouped(a: Active, keys: ReadonlyMap<number, string>): void {
     });
     return changed ? { ...r, lines } : r;
   });
+  return changed;
+}
+
+/** A live recording offers tracker samples, leaving file decoding to finished recordings. */
+export function liveVoiceNameSamples(ref: RecordingRef): readonly VoiceSample[] | null {
+  const a = active;
+  if (
+    !a ||
+    a.recordingId !== ref.recordingId ||
+    a.workspaceId !== ref.workspaceId ||
+    a.noteId !== ref.noteId
+  ) {
+    return null;
+  }
+  return a.audioSaved ? (a.voices?.nameSamples() ?? []) : [];
+}
+
+function refreshLiveNames(a: Active, at: number, force = false): void {
+  if (active !== a || !a.audioSaved || !a.voices) return;
+  if (!force && at - a.lastVoiceNameScan < VOICE_NAME_SCAN_INTERVAL_MS) return;
+  a.lastVoiceNameScan = at;
+  void refreshVoiceSuggestions(a, a.voices.nameSamples(), true);
 }
 
 function onEvent({ id, event }: VoiceEvent): void {
@@ -226,8 +256,13 @@ function onEvent({ id, event }: VoiceEvent): void {
             () => recordingOf(a)?.speakers ?? {},
           )
           .then(({ key, regrouped: keys }) => {
-            if (keys) regrouped(a, keys);
+            const reassigned = keys ? regrouped(a, keys) : false;
             regrouped(a, new Map([[line.startMs, key]]));
+            if (active !== a) return;
+            if (reassigned) clearVoiceSuggestions(a);
+            if (reassigned || line.endMs - line.startMs >= VOICE_NAME_LINE_MS) {
+              refreshLiveNames(a, line.endMs, reassigned);
+            }
           })
           .catch(() => {});
       }
@@ -303,6 +338,8 @@ export async function startRecording(
     ending: null,
     writes: Promise.resolve(),
     mediaDone: Promise.resolve(),
+    audioSaved: false,
+    lastVoiceNameScan: Number.NEGATIVE_INFINITY,
     // Asked now, while the microphone and the session open; it loads the model.
     voicePrint: voicePrintAvailable(),
     voices: null,
@@ -440,6 +477,7 @@ function recordAudio(a: Active, stream: MediaStream, file: string): MediaRecorde
           file,
           new Uint8Array(await piece.arrayBuffer()),
         );
+        a.audioSaved = true;
       } catch (error) {
         console.warn("[notes] recording not written", error);
         if (!failed) showToast({ kind: "error", message: t("failure.write") });
@@ -509,9 +547,10 @@ async function finishTake(a: Active): Promise<void> {
   if (a.voices) {
     await a.voices.settled();
     if (active !== a) return;
-    regrouped(a, a.voices.regroup(recordingOf(a)?.speakers ?? {}));
+    if (regrouped(a, a.voices.regroup(recordingOf(a)?.speakers ?? {}))) clearVoiceSuggestions(a);
   }
   const baseMs = a.offsetMs + length;
+  if (ending !== "stop") refreshLiveNames(a, baseMs, true);
   if (ending === "chain") {
     set({ baseMs, takeSince: null });
     set({ phase: "starting" });
@@ -538,6 +577,7 @@ async function finishRecording(a: Active): Promise<void> {
   const file = await loadTranscript(a.workspaceId, a.noteId);
   const recording = file.recordings.find((r) => r.id === a.recordingId);
   if (!recording) return;
+  if (a.audioSaved && a.voices) await refreshVoiceSuggestions(a, a.voices.nameSamples());
   // Words of more than one person: a meeting, which the second pass hears better. One: done.
   if (peopleIn(recording) >= 2) void runSecondPass(a.workspaceId, a.noteId, a.recordingId);
 }
@@ -562,26 +602,31 @@ export function moveLine(
       ? active
       : null;
   let moved: number[] = [];
+  let changed = false;
+  const ref = { workspaceId, noteId, recordingId };
   const merged = new Set<string>();
   updateRecording(workspaceId, noteId, recordingId, (r) => {
     const next = movedLines(r, shown, to, scope);
     if (next === r) return r;
+    changed = true;
     if (!a) {
       const count = next.participantCount;
       return typeof count === "number"
         ? { ...next, participantCount: Math.min(count, peopleIn(next)) }
         : next;
     }
-    const changed = r.lines.filter((l, i) => l !== next.lines[i]);
-    moved = changed.map((l) => l.startMs);
-    if (scope === "all") for (const line of changed) merged.add(line.speaker);
+    const movedLinesNow = r.lines.filter((l, i) => l !== next.lines[i]);
+    moved = movedLinesNow.map((l) => l.startMs);
+    if (scope === "all") for (const line of movedLinesNow) merged.add(line.speaker);
     return next;
   });
+  if (changed) clearVoiceSuggestions(ref);
   if (!a || !moved.length) return;
   const partial = useRecorderStore.getState().partial;
   if (partial && merged.has(partial.speaker)) set({ partial: { ...partial, speaker: to } });
   if (a.voices) {
     regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}, merged));
+    refreshLiveNames(a, a.lastVoiceNameScan, true);
   } else if (merged.size) {
     for (const [label, key] of a.serverMerges) if (merged.has(key)) a.serverMerges.set(label, to);
     for (const key of merged) if (!a.serverMerges.has(key)) a.serverMerges.set(key, to);
@@ -607,6 +652,7 @@ export function dropRecording(workspaceId: string, noteId: string): void {
   const a = active;
   if (!a || a.workspaceId !== workspaceId || a.noteId !== noteId) return;
   active = null;
+  clearVoiceSuggestions(a);
   if (a.sessionId) void ipcCallResult("remote", "voiceCancel", { id: a.sessionId });
   stopCapture(a);
   releaseMicrophone(a);

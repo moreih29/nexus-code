@@ -204,6 +204,11 @@ export class VoiceTracker {
     return next;
   }
 
+  /** The prints already heard, for local name matching by transcript assignment. */
+  nameSamples(): readonly VoiceSample[] {
+    return this.samples;
+  }
+
   /** Once the lines heard so far have their voice prints. */
   settled(): Promise<void> {
     return this.queue.then(() => {});

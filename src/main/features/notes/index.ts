@@ -452,6 +452,10 @@ export function registerNotesChannel(opts: {
         if (announce) changed({ locationKey: location.key, noteId, change: "saved" });
         return ipcOk(undefined);
       },
+      hasRecordingAudio: async (args: unknown) => {
+        const { workspaceId, noteId, files } = validateArgs(c.hasRecordingAudio.args, args);
+        return ipcOk(await store.hasRecordingAudio(locationOf(workspaceId), noteId, files));
+      },
       appendAudio: async (args: unknown) => {
         const { workspaceId, noteId, file, audio } = validateArgs(c.appendAudio.args, args);
         await store.appendAudio(locationOf(workspaceId), noteId, file, audio);

@@ -285,6 +285,22 @@ export class NotesStore {
     await writeAtomic(path.join(dir, TRANSCRIPT_MD), transcriptMarkdown(file, note.title));
   }
 
+  async hasRecordingAudio(
+    location: NoteLocation,
+    id: string,
+    files: readonly string[],
+  ): Promise<boolean> {
+    if (!files.length) return false;
+    const present = await Promise.all(
+      files.map(async (file) => {
+        if (!TAKE_FILE_RE.test(file)) return false;
+        const stat = await fs.stat(this.assetPath(location, id, file)).catch(() => null);
+        return Boolean(stat?.isFile() && stat.size > 0);
+      }),
+    );
+    return present.every(Boolean);
+  }
+
   /** Adds a piece of a take's audio to the end of its file, which the first piece makes. */
   async appendAudio(
     location: NoteLocation,

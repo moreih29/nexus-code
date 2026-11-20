@@ -166,6 +166,11 @@ export type TranscriptRow =
       readonly text: string;
       readonly marks: readonly number[];
     }
+  | {
+      readonly kind: "accept-suggestions";
+      readonly key: string;
+      readonly recording: TranscriptRecording;
+    }
   /** A recording with no words: listening, or nothing was heard. */
   | { readonly kind: "quiet"; readonly key: string; readonly recording: TranscriptRecording };
 
@@ -185,6 +190,7 @@ export function transcriptRows(
   recordings: readonly ReadRecording[],
   view: TranscriptView,
   live: LiveWords,
+  bulkSuggestions?: ReadonlySet<string>,
 ): { rows: TranscriptRow[]; matches: number } {
   const query = view.query.trim();
   const rows: TranscriptRow[] = [];
@@ -220,6 +226,13 @@ export function transcriptRows(
     }
     if (lines.length === 0 && !partial) {
       rows.push({ kind: "quiet", key: `${recording.id}:quiet`, recording });
+    }
+    if (bulkSuggestions?.has(recording.id)) {
+      rows.push({
+        kind: "accept-suggestions",
+        key: `${recording.id}:accept-suggestions`,
+        recording,
+      });
     }
   }
   return { rows, matches };

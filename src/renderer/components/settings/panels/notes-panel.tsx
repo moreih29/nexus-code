@@ -17,6 +17,7 @@ import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsPage } from "../section";
+import { RememberedVoicesGroup } from "./remembered-voices-group";
 
 type Entry = NoteStorageEntry & { workspaceIds: string[] };
 
@@ -186,6 +187,7 @@ export function NotesPanel() {
           </div>
         )}
       </SettingsGroup>
+      <RememberedVoicesGroup />
     </SettingsPage>
   );
 }

@@ -97,6 +97,8 @@ export const notesApi = {
     call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, transcript, announce })),
   appendAudio: (workspaceId: string, noteId: string, file: string, audio: Uint8Array) =>
     call(ipcCallResult("notes", "appendAudio", { workspaceId, noteId, file, audio })),
+  hasRecordingAudio: (workspaceId: string, noteId: string, files: string[]) =>
+    call(ipcCallResult("notes", "hasRecordingAudio", { workspaceId, noteId, files })),
   /** A line's voice print; null when the app has none to give. */
   voicePrint: (audio: Float32Array) => call(ipcCallResult("notes", "voicePrint", { audio })),
   removeRecording: (

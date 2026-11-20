@@ -72,6 +72,7 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { type NotesFeature, registerNotesChannel } from "./features/notes";
+import { registerRememberedVoices } from "./features/notes/remembered-voices";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { PortForwards } from "./features/pty/forwards";
@@ -218,6 +219,7 @@ let remote: {
   peerFiles: PeerFileReader;
   dispose(): void;
 } | null = null;
+let rememberedVoices: ReturnType<typeof registerRememberedVoices> | undefined;
 let notesFeature: NotesFeature | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
@@ -743,6 +745,8 @@ app.whenReady().then(async () => {
     workspaces: () => workspaceManager.list(),
   });
 
+  rememberedVoices = registerRememberedVoices(app.getPath("userData"), stateService);
+
   // The nexus command in the app's terminals.
   cliFeature = setupCliFeature({
     agentHost: agentPtyHost,
@@ -1022,6 +1026,7 @@ async function shutDownMain(): Promise<void> {
     agentProfiles?.dispose();
     remote?.dispose();
     notesFeature?.dispose();
+    rememberedVoices?.dispose();
     lspShutdown = lspHost?.dispose() ?? undefined;
     agentFsWatcher?.dispose();
     gitStatusCoalescer?.clearAll();
@@ -1031,7 +1036,9 @@ async function shutDownMain(): Promise<void> {
   } finally {
     await finishMainShutdown(
       {
-        waitForNotes: () => notesFeature?.waitForWrites(),
+        waitForNotes: async () => {
+          await Promise.all([notesFeature?.waitForWrites(), rememberedVoices?.waitForWrites()]);
+        },
         disposeGitHelpers: () => gitHelpersIpc?.dispose(),
         ...(lspShutdown ? { lspShutdown } : {}),
         closeWorkspaces: () => workspaceManager.close(),

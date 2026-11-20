@@ -118,6 +118,15 @@ import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { TranscriptFileSchema } from "../notes/transcript";
+import {
+  VoiceNameLearnArgsSchema,
+  VoiceNameMatchArgsSchema,
+  VoiceNamePersonSchema,
+  VoiceNamePreferencesSchema,
+  VoiceNameSchema,
+  VoiceNameStatusSchema,
+  VoiceNameSuggestionSchema,
+} from "../notes/voice-names";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
@@ -629,7 +638,84 @@ const transcriptPageResult = z.object({
 
 export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
 
-export const ipcContract = {
+const notesContracts = {
+  /**
+   * Notes: a workspace's notes, kept by the app under its data folder by
+   * where the workspace's folder is (shared/notes/types.ts).
+   */
+  notes: {
+    call: {
+      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
+      create: call(NotesArgs.create, NoteContentSchema),
+      read: call(NotesArgs.read, NoteContentSchema),
+      save: call(NotesArgs.save, NoteSummarySchema),
+      /** Clears away the files the note's document no longer uses; what it cleared. */
+      prune: call(NotesArgs.prune, z.array(z.string())),
+      /** Moves the note's folder to the Trash. */
+      remove: call(NotesArgs.remove, z.void()),
+      /** Copies files into the note's materials/. */
+      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
+      /** Writes a pasted image into the note's screens/. */
+      addImage: call(NotesArgs.addImage, NoteAssetSchema),
+      saveSketch: call(
+        NotesArgs.saveSketch,
+        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
+      ),
+      /** A file of the note's folder, as base64. */
+      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
+      /** Opens a file of the note's folder with the system's app for it. */
+      openAsset: call(NotesArgs.openAsset, z.void()),
+      revealAsset: call(NotesArgs.revealAsset, z.void()),
+      /** Shows the note's folder in the system's file manager. */
+      revealNote: call(NotesArgs.revealNote, z.void()),
+      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
+      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
+      /** Every location with notes, and what they take. */
+      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
+      /** Moves every note of a location to the Trash. */
+      removeLocation: call(NotesArgs.removeLocation, z.void()),
+      revealLocation: call(NotesArgs.revealLocation, z.void()),
+      /** What this window's recorder does; other devices see it (remote sessions' list). */
+      recording: call(NotesArgs.recording, z.void()),
+      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
+      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
+      hasRecordingAudio: call(NotesArgs.hasRecordingAudio, z.boolean()),
+      /** Writes transcript.json, and transcript.md beside it. */
+      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
+      appendAudio: call(NotesArgs.appendAudio, z.void()),
+      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
+      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
+      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
+    },
+    listen: {
+      changed: listen(NoteChangedSchema),
+      /** Another device put a photo at the end of a note: an editor open on it does too. */
+      photoAdded: listen(NotePhotoAddedSchema),
+      /** An agent put blocks into a note: an editor open on it does too. */
+      blocksAdded: listen(NoteBlocksAddedSchema),
+    },
+  },
+  /** Local desktop IPC only. Voice vectors are inputs and never part of its responses. */
+  voiceMemory: {
+    call: {
+      status: call(z.void(), VoiceNameStatusSchema),
+      list: call(z.void(), z.array(VoiceNamePersonSchema)),
+      claimConsent: call(
+        z.void(),
+        z.object({ prompt: z.boolean(), status: VoiceNameStatusSchema }),
+      ),
+      consent: call(z.object({ allowed: z.boolean() }), VoiceNameStatusSchema),
+      configure: call(VoiceNamePreferencesSchema, VoiceNameStatusSchema),
+      match: call(VoiceNameMatchArgsSchema, z.array(VoiceNameSuggestionSchema)),
+      learn: call(VoiceNameLearnArgsSchema, z.boolean()),
+      remove: call(z.object({ name: VoiceNameSchema }), z.void()),
+      clear: call(z.void(), z.void()),
+    },
+    listen: { changed: listen(VoiceNameStatusSchema) },
+  },
+} as const satisfies Record<string, ChannelDefinition>;
+
+const coreIpcContract = {
   workspace: {
     call: {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
@@ -1341,9 +1427,11 @@ export const ipcContract = {
     call: {
       get: call(z.void(), AppStateSchema),
       set: call(
-        AppStateSchema.partial().extend({
-          instructionEdits: z.array(InstructionEditSchema).optional(),
-        }),
+        AppStateSchema.omit({ rememberedVoices: true })
+          .partial()
+          .extend({
+            instructionEdits: z.array(InstructionEditSchema).optional(),
+          }),
         z.void(),
       ),
     },
@@ -2432,61 +2520,6 @@ export const ipcContract = {
   // Settings › Claude and Codex: the profiles' folders and sign-ins on this
   // machine. A chat tab's profile is set up on its workspace's host instead,
   // as it starts (chat.start's profileId).
-  /**
-   * Notes: a workspace's notes, kept by the app under its data folder by
-   * where the workspace's folder is (shared/notes/types.ts).
-   */
-  notes: {
-    call: {
-      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
-      create: call(NotesArgs.create, NoteContentSchema),
-      read: call(NotesArgs.read, NoteContentSchema),
-      save: call(NotesArgs.save, NoteSummarySchema),
-      /** Clears away the files the note's document no longer uses; what it cleared. */
-      prune: call(NotesArgs.prune, z.array(z.string())),
-      /** Moves the note's folder to the Trash. */
-      remove: call(NotesArgs.remove, z.void()),
-      /** Copies files into the note's materials/. */
-      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
-      /** Writes a pasted image into the note's screens/. */
-      addImage: call(NotesArgs.addImage, NoteAssetSchema),
-      saveSketch: call(
-        NotesArgs.saveSketch,
-        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
-      ),
-      /** A file of the note's folder, as base64. */
-      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
-      /** Opens a file of the note's folder with the system's app for it. */
-      openAsset: call(NotesArgs.openAsset, z.void()),
-      revealAsset: call(NotesArgs.revealAsset, z.void()),
-      /** Shows the note's folder in the system's file manager. */
-      revealNote: call(NotesArgs.revealNote, z.void()),
-      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
-      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
-      /** Every location with notes, and what they take. */
-      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
-      /** Moves every note of a location to the Trash. */
-      removeLocation: call(NotesArgs.removeLocation, z.void()),
-      revealLocation: call(NotesArgs.revealLocation, z.void()),
-      /** What this window's recorder does; other devices see it (remote sessions' list). */
-      recording: call(NotesArgs.recording, z.void()),
-      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
-      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
-      /** Writes transcript.json, and transcript.md beside it. */
-      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
-      appendAudio: call(NotesArgs.appendAudio, z.void()),
-      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
-      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
-      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
-    },
-    listen: {
-      changed: listen(NoteChangedSchema),
-      /** Another device put a photo at the end of a note: an editor open on it does too. */
-      photoAdded: listen(NotePhotoAddedSchema),
-      /** An agent put blocks into a note: an editor open on it does too. */
-      blocksAdded: listen(NoteBlocksAddedSchema),
-    },
-  },
   agentProfiles: {
     call: {
       /**
@@ -3077,5 +3110,10 @@ export const ipcContract = {
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
+
+export const ipcContract: typeof coreIpcContract & typeof notesContracts = {
+  ...coreIpcContract,
+  ...notesContracts,
+};
 
 export type IpcContract = typeof ipcContract;
