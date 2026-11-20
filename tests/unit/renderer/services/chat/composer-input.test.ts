@@ -63,16 +63,33 @@ describe("composer completion", () => {
     expect(opens("이 @a.ts 줘", 7)).toBe(true);
   });
 
-  test("followTyped tracks the @ being typed and drops it on anything else", () => {
-    const typed = followTyped("이 파일", "이 @파일", 3, null);
+  test("followTyped keeps the token through an IME composing in the middle", () => {
+    let typed = followTyped("이 파일", "이 @파일", 3, null);
     expect(typed).toEqual({ start: 2, caret: 3 });
-    const more = followTyped("이 @파일", "이 @s파일", 4, typed);
-    expect(more).toEqual({ start: 2, caret: 4 });
-    expect(followTyped("이 @s파일", "이 @파일", 3, more)).toEqual({ start: 2, caret: 3 });
-    // erasing the @ itself, a paste, or a char typed elsewhere
-    expect(followTyped("이 @파일", "이 파일", 2, typed)).toBeNull();
-    expect(followTyped("이 @파일", "이 @파일abc", 8, typed)).toBeNull();
-    expect(followTyped("이 @파일", "x이 @파일", 1, typed)).toBeNull();
+    let text = "이 @파일";
+    const steps: [string, number][] = [
+      ["이 @ㅁ파일", 4],
+      ["이 @무파일", 4],
+      ["이 @문파일", 4],
+      ["이 @무니파일", 5],
+    ];
+    for (const [next, caret] of steps) {
+      typed = followTyped(text, next, caret, typed);
+      expect(typed).not.toBeNull();
+      expect(completionAt(next, caret, typed?.start ?? null)?.kind).toBe("file");
+      text = next;
+    }
+    expect(typed).toEqual({ start: 2, caret: 5 });
+  });
+
+  test("followTyped drops the token when the edit leaves it", () => {
+    const typed = { start: 2, caret: 4 };
+    const text = "이 @a파일";
+    expect(followTyped(text, "x이 @a파일", 1, typed)).toBeNull(); // before the @
+    expect(followTyped(text, "이 @a파일x", 6, typed)).toBeNull(); // after the caret
+    expect(followTyped(text, "이 a파일", 2, typed)).toBeNull(); // the @ erased
+    expect(followTyped(text, "이 @a파일", 1, typed)).toBeNull(); // caret moved in front
+    expect(followTyped(text, "이 @abc파일", 6, typed)).toEqual({ start: 2, caret: 6 }); // paste
   });
 
   test("a picked file gets a space before and after", () => {

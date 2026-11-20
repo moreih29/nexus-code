@@ -57,9 +57,10 @@ export interface TypedToken {
 
 /**
  * Follows the `@` the user is typing across edits: set when one `@` is
- * typed, kept while characters are typed or erased right at the caret
- * inside the token, dropped by anything else. The textarea reports the
- * edit as old and new text with the new caret.
+ * typed, kept while the edit stays between that `@` and the caret (typing,
+ * erasing, an IME changing the letter it is composing, a paste), dropped
+ * by anything else. The textarea reports the edit as old and new text with
+ * the new caret.
  */
 export function followTyped(
   prev: string,
@@ -69,15 +70,12 @@ export function followTyped(
 ): TypedToken | null {
   if (next.length === prev.length + 1 && next.slice(0, caret - 1) + next.slice(caret) === prev) {
     if (next[caret - 1] === "@") return { start: caret - 1, caret };
-    if (typed && typed.caret === caret - 1 && caret > typed.start + 1) return { ...typed, caret };
-    return null;
   }
-  if (typed && next.length === prev.length - 1 && caret === typed.caret - 1) {
-    if (prev.slice(0, caret) + prev.slice(caret + 1) === next && caret > typed.start) {
-      return { ...typed, caret };
-    }
-  }
-  return null;
+  if (!typed || caret < typed.start + 1) return null;
+  const head = typed.start + 1;
+  if (prev.slice(0, head) !== next.slice(0, head)) return null;
+  if (prev.slice(typed.caret) !== next.slice(caret)) return null;
+  return { start: typed.start, caret };
 }
 
 /** Most commands the list shows at once. */
