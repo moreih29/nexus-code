@@ -1,6 +1,12 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { type ToastAction, watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
+import {
+  dropRecording,
+  moveLine,
+  startRecording,
+  useRecorderStore,
+} from "../../../../../src/renderer/services/notes/recorder";
 import { regroupRecording } from "../../../../../src/renderer/services/notes/regroup";
 import {
   flushTranscript,
@@ -12,6 +18,7 @@ import {
   VOICE_PRINT_RATE,
   VoiceTracker,
 } from "../../../../../src/renderer/services/notes/voice-print";
+import * as capture from "../../../../../src/renderer/services/voice/capture";
 import { peopleIn, type TranscriptRecording } from "../../../../../src/shared/notes/transcript";
 
 /** Audio of person `who` (1 to 4) talking for `seconds`: the fake model knows them by level. */
@@ -118,18 +125,17 @@ describe("VoiceTracker", () => {
     expect(new Set(tracker.regroup({}).values()).size).toBe(2);
   });
 
-  test("uses the reduced participant count for new lines after a manual merge", async () => {
+  test("can assign a late speaker after a manual merge frees a live slot", async () => {
     tracker = new VoiceTracker(3);
     tracker.startTake();
     await say(1, 4);
     await say(2, 4);
     expect(await say(3, 4)).toBe("3");
 
-    tracker.setParticipantCount(2);
-    const keys = tracker.pin([8000], "2", {}, new Set(["3"]));
+    const keys = tracker.pin([8000], "2", { "2": "Alex" }, new Set(["3"]));
     for (const [at, key] of keys) lines.set(at, key);
-    await say(4, 4);
     expect(new Set(lines.values())).toEqual(new Set(["1", "2"]));
+    expect(await say(4, 4)).toBe("3");
   });
 
   test("moves only the line the user moved, and keeps it there", async () => {
@@ -170,6 +176,74 @@ describe("VoiceTracker", () => {
     expect(await say(2, 4, "1")).toBe("2");
     expect(await say(1, 4, "2")).toBe("1");
   });
+});
+
+test.each([
+  "all",
+  "line",
+] as const)("reduces the participant count for a finished recording only (scope %s)", async (scope) => {
+  const workspaceId = "test";
+  const noteId = "speaker-edits";
+  const key = `${workspaceId}/${noteId}`;
+  const globals = globalThis as { window?: unknown };
+  const previousWindow = globals.window;
+  const previousState = useTranscriptsStore.getState();
+  const open = spyOn(capture, "openMicrophone").mockResolvedValue({
+    getTracks: () => [],
+  } as unknown as MediaStream);
+  const start = spyOn(capture, "startCapture").mockResolvedValue({ level: () => 0, stop() {} });
+  const shown = { speaker: "3", startMs: 4000, endMs: 5000, text: "c" };
+  const completed: TranscriptRecording = {
+    id: "rmhz00cc0abcd",
+    startedAt: 0,
+    language: "en",
+    participantCount: 3,
+    takes: [],
+    speakers: {},
+    lines: [
+      { speaker: "1", startMs: 0, endMs: 1000, text: "a" },
+      { speaker: "2", startMs: 2000, endMs: 3000, text: "b" },
+      shown,
+    ],
+  };
+  const current = (id: string) =>
+    useTranscriptsStore.getState().byNote[key]?.recordings.find((r) => r.id === id);
+  try {
+    globals.window = {
+      ipc: {
+        async call(_channel: string, method: string) {
+          if (method === "voiceMicrophone") return "granted";
+          if (method === "voiceStart")
+            return { status: "started", id: "test", sampleRate: VOICE_PRINT_RATE };
+        },
+        listen: () => () => {},
+      },
+    };
+    useTranscriptsStore.setState({ byNote: { [key]: { version: 1, recordings: [completed] } } });
+    await startRecording(workspaceId, noteId, "en", 3);
+    const { phase, recordingId } = useRecorderStore.getState();
+    expect(phase).toBe("recording");
+    if (!recordingId) throw new Error("No active recording");
+    updateRecording(workspaceId, noteId, recordingId, (r) => ({ ...r, lines: completed.lines }));
+
+    moveLine(workspaceId, noteId, recordingId, shown, "2", scope);
+    moveLine(workspaceId, noteId, completed.id, shown, "2", scope);
+    for (const [id, count] of [
+      [recordingId, 3],
+      [completed.id, 2],
+    ] as const) {
+      const edited = current(id);
+      expect(edited?.lines.at(-1)).toEqual({ ...shown, speaker: "2", pinned: true });
+      expect(edited?.participantCount).toBe(count);
+    }
+  } finally {
+    dropRecording(workspaceId, noteId);
+    await flushTranscript(workspaceId, noteId);
+    globals.window = previousWindow;
+    useTranscriptsStore.setState(previousState);
+    open.mockRestore();
+    start.mockRestore();
+  }
 });
 
 test.each([

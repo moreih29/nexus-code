@@ -555,32 +555,33 @@ export function moveLine(
   to: string,
   scope: SpeakerMoveScope = "line",
 ): void {
+  const a =
+    active?.recordingId === recordingId &&
+    active.workspaceId === workspaceId &&
+    active.noteId === noteId
+      ? active
+      : null;
   let moved: number[] = [];
   const merged = new Set<string>();
   updateRecording(workspaceId, noteId, recordingId, (r) => {
     const next = movedLines(r, shown, to, scope);
+    if (next === r) return r;
+    if (!a) {
+      const count = next.participantCount;
+      return typeof count === "number"
+        ? { ...next, participantCount: Math.min(count, peopleIn(next)) }
+        : next;
+    }
     const changed = r.lines.filter((l, i) => l !== next.lines[i]);
     moved = changed.map((l) => l.startMs);
     if (scope === "all") for (const line of changed) merged.add(line.speaker);
     return next;
   });
-  const a = active;
-  if (
-    !a ||
-    a.recordingId !== recordingId ||
-    a.workspaceId !== workspaceId ||
-    a.noteId !== noteId ||
-    !moved.length
-  )
-    return;
+  if (!a || !moved.length) return;
   const partial = useRecorderStore.getState().partial;
   if (partial && merged.has(partial.speaker)) set({ partial: { ...partial, speaker: to } });
   if (a.voices) {
-    const recording = recordingOf(a);
-    if (typeof recording?.participantCount === "number") {
-      a.voices.setParticipantCount(recording.participantCount);
-    }
-    regrouped(a, a.voices.pin(moved, to, recording?.speakers ?? {}, merged));
+    regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}, merged));
   } else if (merged.size) {
     for (const [label, key] of a.serverMerges) if (merged.has(key)) a.serverMerges.set(label, to);
     for (const key of merged) if (!a.serverMerges.has(key)) a.serverMerges.set(key, to);

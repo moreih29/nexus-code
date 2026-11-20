@@ -387,8 +387,7 @@ function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefine
 export type SpeakerMoveScope = "line" | "following" | "all";
 
 /**
- * The lines a shown line joined (joinedLines) moved to voice `to`, and kept
- * there: those of its voice from its start to its end.
+ * Move the selected lines to voice `to` and pin them there.
  */
 export function movedLines(
   recording: TranscriptRecording,
@@ -429,9 +428,6 @@ export function movedLines(
     if (sourceName && !speakers[to]?.trim()) speakers[to] = sourceName;
   }
   const next = { ...recording, lines, speakers };
-  if (typeof next.participantCount === "number") {
-    next.participantCount = Math.min(next.participantCount, peopleIn(next));
-  }
   return recording.speakerNumbers ? numberSpeakers(next) : next;
 }
 

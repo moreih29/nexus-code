@@ -6,7 +6,6 @@ import {
   movedLines,
   newSpeakerKey,
   numberSpeakers,
-  type ParticipantCount,
   peopleIn,
   recordingMs,
   type SpeakerMoveScope,
@@ -249,31 +248,6 @@ describe("a note's transcript", () => {
   });
 
   test.each([
-    [3, "all", "2", 2, 2],
-    [3, "following", "2", 2, 2],
-    [3, "line", "2", 2, 2],
-    [3, "line", "4", 3, 3],
-    [2, "line", "4", 3, 2],
-    ["auto", "all", "2", 2, "auto"],
-    ["7+", "line", "2", 2, "7+"],
-  ] satisfies [
-    ParticipantCount,
-    SpeakerMoveScope,
-    string,
-    number,
-    ParticipantCount,
-  ][])("updates participant count %s after moving scope %s to speaker %s", (participantCount, scope, to, people, expectedCount) => {
-    const shown = line("3", 4000, 5000, "c");
-    const r = recording({
-      participantCount,
-      lines: [line("1", 0, 1000, "a"), line("2", 2000, 3000, "b"), shown],
-    });
-    const moved = movedLines(r, shown, to, scope);
-    expect(peopleIn(moved)).toBe(people);
-    expect(moved.participantCount).toBe(expectedCount);
-  });
-
-  test.each([
     ["line", [2, 3]],
     ["following", [2, 3, 4, 6]],
     ["all", [0, 2, 3, 4, 6]],
@@ -282,6 +256,7 @@ describe("a note's transcript", () => {
     number[],
   ][])("moves only the selected person's lines for scope %s", (scope, changed) => {
     const r = recording({
+      participantCount: 2,
       speakers: { "1": "Alex", "4": "Alex", "2": "Pat" },
       lines: [
         line("1", 0, 1000, "a"),
@@ -299,6 +274,7 @@ describe("a note's transcript", () => {
       r.lines.map((l, i) => (changed.includes(i) ? { ...l, speaker: "2", pinned: true } : l)),
     );
     expect(moved.speakers).toEqual(scope === "all" ? { "2": "Pat" } : r.speakers);
+    expect(moved.participantCount).toBe(2);
   });
 
   test("transfers a merged name to an unnamed target and preserves cross-take pins through a second pass", () => {

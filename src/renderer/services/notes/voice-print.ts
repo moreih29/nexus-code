@@ -103,12 +103,7 @@ export class VoiceTracker {
   /** The lines (by `at`) whose voice is still being worked out. */
   private readonly pending = new Set<number>();
 
-  constructor(private target?: number) {}
-
-  /** Apply the recording's revised cap before regrouping a manual speaker edit. */
-  setParticipantCount(target: number): void {
-    this.target = target;
-  }
+  constructor(private readonly target?: number) {}
 
   /** A new take: its audio starts over, and so do the server's labels. */
   startTake(): void {
