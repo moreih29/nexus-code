@@ -91,9 +91,9 @@ export function chatAgentContext(
 }
 
 const remoteInstructions = [
-  "The user's other computers in the remote (nexus device list) are reached the same way:",
-  "session list --device all, then chat or terminal read/send/wait ... --device NAME.",
-  "Copy files with nexus file pull --device DEVICE --workspace WS REMOTE [LOCAL] or nexus file push --device DEVICE --workspace WS LOCAL... REMOTE (add -r for a folder).",
+  "Find other devices with nexus device list and session list --device all. Use --device NAME on",
+  "chat, terminal, note, worktree, layout and view commands. The receiver sets the policy.",
+  "Use file list/pull/push --device NAME --workspace WS and events --device all --json for device cursors.",
 ];
 
 function locationOf(
@@ -119,13 +119,13 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "current permission level. In fullAccess or bypassPermissions, you can also use chat answer",
     "to approve or deny a pending local tool request once. Cross-workspace settings still apply.",
     "Pass --instructions-file FILE to set the new tab's session instructions. Use nexus chat",
-    "instructions TAB --show, --set-file FILE, or --clear to view or edit a local tab's instructions.",
+    "instructions TAB --show, --set-file FILE, or --clear to view or edit a tab's instructions.",
     "What you send a tab reaches its agent after a line that says you sent it, and the tab",
     "shows it as yours, not the user's. A message to you that starts \"[nexus] ... sent this,",
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
     "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
-    "chat profiles lists choices. chat fork and rewind support Claude and Codex.",
+    "chat profiles lists choices. Use chat fork/rewind and chat export --stdout for either agent.",
     "Claude Remote Control follows the workspace or device policy.",
     "Use --json for structured results. Repeat events --since N --wait 10m, one batch at a time.",
     ...(inRoom ? remoteInstructions : []),
@@ -140,12 +140,11 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
     "workspace move/pin/edit (the sidebar's rows: order, pin, name and color),",
     "and nexus view layout/open/split for agent panels, with --key from view layout --json.",
-    "Use view open-file PATH to put a file there.",
-    "nexus problems lists the language servers' errors in open files.",
+    "Use view open-file PATH for files and nexus problems for language server diagnostics.",
     "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
-    "note write/add append, note transcript --json lists lines, note record can take --participants.",
-    "settings instructions show previews the persistent instruction layers.",
+    "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
+    "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",

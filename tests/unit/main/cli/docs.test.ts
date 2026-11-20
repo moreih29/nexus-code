@@ -33,6 +33,23 @@ test.each([
   "note transcript NOTE --recording RECORDING --json",
   "note record NOTE --participants 3",
   "settings instructions show --workspace WS --agent codex --json",
+  "chat read 3fa2 --answer 12",
+  "chat export 3fa2 --stdout",
+  "chat image 3fa2 --message 12 --out attachment.png",
+  "note speaker merge meeting voice-2 voice-1 --recording REC",
+  "note speaker regroup meeting --participants 3 --recording REC",
+  "note voice suggestions list meeting --recording REC",
+  "note voice delete Alex",
+  "settings instructions set workspace --workspace WS --clear",
+  "settings keys list --json",
+  "settings lsp status --json",
+  "settings updates status --json",
+  "terminal reopen 3fa2",
+  "layout focus 2",
+  "tab close index.ts --right",
+  "tab encoding index.ts --json",
+  "events --device all --json",
+  "browser permissions --workspace site --device Mini --json",
 ])("docs example uses registered syntax for %s", (example) => {
   expect(doc).toContain(example);
   const argv = example.split(" ");

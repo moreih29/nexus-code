@@ -1151,7 +1151,8 @@ const chatAnswer: CliCommand = {
     "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
     "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
     "to answer in the app. A verified local chat tab in an unrestricted mode can approve\n" +
-    "or deny a tool as requested, once. Other callers need the user's approval.",
+    "or deny a tool as requested, once. Other local callers need the user's approval.\n" +
+    "On another device, the receiving device's Remote agent policy applies.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     stop: { type: "boolean", description: "With deny: stop the turn too" },
