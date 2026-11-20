@@ -45,6 +45,12 @@ export const voiceMemoryApi = {
   list: async () => unwrapIpcResult(await ipcCallResult("voiceMemory", "list", undefined)),
   configure: async (change: { suggest?: boolean; expire?: boolean }) =>
     applyStatus(unwrapIpcResult(await ipcCallResult("voiceMemory", "configure", change))),
+  claimConsent: async () => {
+    const { prompt, status } = unwrapIpcResult(
+      await ipcCallResult("voiceMemory", "claimConsent", undefined),
+    );
+    return { prompt, status: applyStatus(status) };
+  },
   consent: async (allowed: boolean) =>
     applyStatus(unwrapIpcResult(await ipcCallResult("voiceMemory", "consent", { allowed }))),
   remove: async (name: string) =>

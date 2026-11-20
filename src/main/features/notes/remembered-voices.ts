@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { WebContents } from "electron";
 import { z } from "zod";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
@@ -186,12 +187,13 @@ export function openVoiceMemoryFile(
 export function registerRememberedVoices(
   userData: string,
   state: Pick<StateService, "getState" | "setState">,
+  createBox = electronSecretBox,
 ) {
   const prefs: Preferences = {
     read: () => state.getState().rememberedVoices ?? VoiceNameSettingsSchema.parse({}),
     write: (rememberedVoices) => state.setState({ rememberedVoices }),
   };
-  const ready = electronSecretBox()
+  const ready = createBox()
     .catch(() => null)
     .then((box) => {
       const file = openVoiceMemoryFile(userData, box);
@@ -204,15 +206,61 @@ export function registerRememberedVoices(
   const timer = setInterval(prune, DAY_MS);
   timer.unref();
 
+  let consentPrompt: { owner: WebContents; done: Promise<void>; release: () => void } | undefined;
+  let disposed = false;
+
+  /** The first saving window asks. Others wait for that choice or for its window to close. */
+  async function claimConsent(
+    owner?: WebContents,
+  ): Promise<{ prompt: boolean; status: VoiceNameStatus }> {
+    const voices = await ready;
+    while (true) {
+      const status = await voices.status();
+      if (
+        disposed ||
+        !owner ||
+        owner.isDestroyed() ||
+        !status.available ||
+        status.consent !== "pending"
+      ) {
+        return { prompt: false, status };
+      }
+      if (!consentPrompt) {
+        let resolve = () => {};
+        const done = new Promise<void>((settled) => {
+          resolve = settled;
+        });
+        const release = () => {
+          if (consentPrompt?.release !== release) return;
+          consentPrompt = undefined;
+          owner.removeListener("destroyed", release);
+          resolve();
+        };
+        consentPrompt = { owner, done, release };
+        owner.once("destroyed", release);
+      }
+      if (consentPrompt.owner === owner) return { prompt: true, status };
+      await consentPrompt.done;
+    }
+  }
+
   const c = ipcContract.voiceMemory.call;
   register("voiceMemory", {
     keepOnRendererClose: ["consent", "configure", "learn", "remove", "clear"],
     call: {
       status: async () => ipcOk(await (await ready).status()),
       list: async () => ipcOk(await (await ready).list()),
-      consent: async (args) => {
+      claimConsent: async (_args, ctx) => ipcOk(await claimConsent(ctx?.sender)),
+      consent: async (args, ctx) => {
         const { allowed } = validateArgs(c.consent.args, args);
-        return ipcOk(await (await ready).consent(allowed));
+        const voices = await ready;
+        const prompt = consentPrompt;
+        if (!prompt || prompt.owner !== ctx?.sender) return ipcOk(await voices.status());
+        try {
+          return ipcOk(await voices.consent(allowed));
+        } finally {
+          prompt.release();
+        }
       },
       configure: async (args) => {
         const patch = validateArgs(c.configure.args, args);
@@ -236,7 +284,11 @@ export function registerRememberedVoices(
   });
 
   return {
-    dispose: () => clearInterval(timer),
+    dispose: () => {
+      disposed = true;
+      clearInterval(timer);
+      consentPrompt?.release();
+    },
     waitForWrites: async () => (await ready).waitForWrites(),
   };
 }

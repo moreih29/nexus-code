@@ -700,6 +700,10 @@ const notesContracts = {
     call: {
       status: call(z.void(), VoiceNameStatusSchema),
       list: call(z.void(), z.array(VoiceNamePersonSchema)),
+      claimConsent: call(
+        z.void(),
+        z.object({ prompt: z.boolean(), status: VoiceNameStatusSchema }),
+      ),
       consent: call(z.object({ allowed: z.boolean() }), VoiceNameStatusSchema),
       configure: call(VoiceNamePreferencesSchema, VoiceNameStatusSchema),
       match: call(VoiceNameMatchArgsSchema, z.array(VoiceNameSuggestionSchema)),

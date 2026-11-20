@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   openVoiceMemoryFile,
   RememberedVoices,
+  registerRememberedVoices,
 } from "../../../../../src/main/features/notes/remembered-voices";
 import type { SecretBox } from "../../../../../src/main/features/remote/sealed-file";
 import {
@@ -13,7 +14,9 @@ import {
   type VoiceNameSettings,
   VoiceNameSettingsSchema,
 } from "../../../../../src/shared/notes/voice-names";
-import { AppStateSchema } from "../../../../../src/shared/types/app-state";
+import { type AppState, AppStateSchema } from "../../../../../src/shared/types/app-state";
+
+import { createIpcPair, resetInMemoryIpc, setupInMemoryRouter } from "../../../../helpers/ipc-pair";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -57,6 +60,7 @@ function setup(available = true) {
     );
   return {
     dir,
+    box,
     open,
     advance: (ms: number) => {
       now += ms;
@@ -152,4 +156,50 @@ test("app settings serialize only consent and preferences", () => {
     rememberedVoices: { ...settings, people: [sample("A", 0)] },
   });
   expect(state.rememberedVoices).toEqual(settings);
+});
+
+test.each([
+  ["choice shared", false],
+  ["closed window hands off the prompt", true],
+] as const)("first consent in multiple windows: %s", async (_label, closes) => {
+  const { dir, box } = setup();
+  let state = AppStateSchema.parse({});
+  await setupInMemoryRouter();
+  const feature = registerRememberedVoices(
+    dir,
+    {
+      getState: () => state,
+      setState: (next: Partial<AppState>) => {
+        state = { ...state, ...next };
+      },
+    },
+    async () => box,
+  );
+  try {
+    const first = createIpcPair();
+    const second = createIpcPair();
+    const claim = "claimConsent";
+    expect(await first.window.ipc.call("voiceMemory", claim, undefined)).toMatchObject({
+      ok: true,
+      value: { prompt: true, status: { consent: "pending" } },
+    });
+    const waiting = second.window.ipc.call("voiceMemory", claim, undefined);
+    if (closes) first.sender.destroy();
+    else {
+      expect(
+        await first.window.ipc.call("voiceMemory", "consent", { allowed: false }),
+      ).toMatchObject({
+        ok: true,
+        value: { consent: "declined" },
+      });
+    }
+    expect(await waiting).toMatchObject({
+      ok: true,
+      value: { prompt: closes, status: { consent: closes ? "pending" : "declined" } },
+    });
+  } finally {
+    feature.dispose();
+    resetInMemoryIpc();
+    await feature.waitForWrites();
+  }
 });

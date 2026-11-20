@@ -3,7 +3,12 @@ import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TranscriptRecording } from "../../../shared/notes/transcript";
 import type { VoiceNameStatus } from "../../../shared/notes/voice-names";
-import { loadVoiceMemory, useVoiceMemory, voiceMemoryApi } from "../../services/notes/voice-memory";
+import {
+  loadVoiceMemory,
+  recordingHasVoiceAudio,
+  useVoiceMemory,
+  voiceMemoryApi,
+} from "../../services/notes/voice-memory";
 import { useVoicePrintAvailable } from "../../services/notes/voice-print";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -16,14 +21,18 @@ let pendingConsent: Promise<VoiceNameStatus> | undefined;
 export async function consentToVoiceMemory(): Promise<VoiceNameStatus | null> {
   const status = await loadVoiceMemory();
   if (!status?.available || status.consent !== "pending") return status;
-  pendingConsent ??= showConfirmDialog({
-    title: i18next.t("notes:voiceMemory.consent.title"),
-    description: i18next.t("notes:voiceMemory.consent.description"),
-    hint: i18next.t("notes:voiceMemory.consent.hint"),
-    cancelLabel: i18next.t("notes:voiceMemory.consent.decline"),
-    confirmLabel: i18next.t("notes:voiceMemory.consent.accept"),
-  })
-    .then(voiceMemoryApi.consent)
+  pendingConsent ??= voiceMemoryApi
+    .claimConsent()
+    .then(({ prompt, status }) => {
+      if (!prompt) return status;
+      return showConfirmDialog({
+        title: i18next.t("notes:voiceMemory.consent.title"),
+        description: i18next.t("notes:voiceMemory.consent.description"),
+        hint: i18next.t("notes:voiceMemory.consent.hint"),
+        cancelLabel: i18next.t("notes:voiceMemory.consent.decline"),
+        confirmLabel: i18next.t("notes:voiceMemory.consent.accept"),
+      }).then(voiceMemoryApi.consent);
+    })
     .finally(() => {
       pendingConsent = undefined;
     });
