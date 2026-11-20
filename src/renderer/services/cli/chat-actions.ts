@@ -1033,6 +1033,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model, phase } = controller.state;
     if (model.init && !model.init.remoteControl) {
+      if (enabled === false) return { enabled: false };
       throw new UiRequestError("its account cannot turn on Remote Control");
     }
     if (!model.init || phase !== "ready" || model.process !== "running") {
