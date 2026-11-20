@@ -902,7 +902,13 @@ export interface CliUiOps {
    * `tabId`, a tab of the agent's with no conversation yet, in that tab.
    */
   "chat.resume": {
-    args: { workspaceId: string; agent: ChatAgent; sessionId: string; tabId?: string };
+    args: {
+      workspaceId: string;
+      agent: ChatAgent;
+      sessionId: string;
+      tabId?: string;
+      emptyOnly?: true;
+    };
     result: { tabId: string };
   };
   /**

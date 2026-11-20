@@ -1064,7 +1064,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };
   },
 
-  "chat.resume": async ({ workspaceId, agent, sessionId, tabId }) => {
+  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly }) => {
     const open = tabWithSession(workspaceId, agent, sessionId);
     if (open) return { tabId: open };
     const cwd = workspaceRoot(workspaceId);
@@ -1097,9 +1097,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       const target = await openedTab(workspaceId, tabId);
       if (target.agent !== agent) throw new UiRequestError(`that tab is not a ${agent} tab`);
       if (target.agent === "claude") {
-        await target.controller.resumeSession(sessionId, session.profileId);
+        await target.controller.resumeSession(sessionId, session.profileId, emptyOnly);
       } else {
-        await target.controller.resumeThread(sessionId, session.title, session.profileId);
+        await target.controller.resumeThread(
+          sessionId,
+          session.title,
+          session.profileId,
+          emptyOnly,
+        );
       }
       return { tabId };
     }

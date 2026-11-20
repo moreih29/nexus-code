@@ -1165,7 +1165,23 @@ export class ChatController {
    * profile keeps is copied into the tab's (`--fork-session`), name and all,
    * and left as it was there.
    */
-  async resumeSession(sessionId: string, profileId?: string): Promise<void> {
+  async resumeSession(sessionId: string, profileId?: string, emptyOnly = false): Promise<void> {
+    const checkTarget = emptyOnly
+      ? () => {
+          if (profileId !== undefined && !sameProfile(profileId, this.target.profileId))
+            throw new Error("use a tab with the conversation's profile, or resume in a new tab");
+          if (
+            this.target.sessionId ||
+            this.target.fork ||
+            this.state.model.items.some(
+              (item) => item.kind === "user" || item.kind === "assistant",
+            ) ||
+            this.state.queue.length > 0 ||
+            this.transcriptPages
+          )
+            throw new Error("resume --tab requires an empty tab");
+        }
+      : undefined;
     if (this.state.model.running) throw new Error("a turn is running");
     await this.changeSession(async () => {
       const from =
@@ -1189,7 +1205,7 @@ export class ChatController {
       await this.startChangedSession(this.startArgs());
       this.publishSessionTarget();
       this.hooks.onMoves?.([]);
-    });
+    }, checkTarget);
   }
 
   /**
@@ -1225,7 +1241,10 @@ export class ChatController {
   }
 
   /** Waits for a confirmed stop before changing the session and its profile. */
-  private async changeSession(change: (shown: number) => Promise<void>): Promise<void> {
+  private async changeSession(
+    change: (shown: number) => Promise<void>,
+    checkTarget?: () => void,
+  ): Promise<void> {
     if (
       this.disposed ||
       this.changingSession ||
@@ -1238,12 +1257,14 @@ export class ChatController {
     this.changingSession = true;
     try {
       this.flushNow();
+      checkTarget?.();
       const shown = this.state.model.items.length;
       if (this.state.model.process === "running") {
         await stopChatProgram(this.target.workspaceId, this.target.tabId);
       }
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
+      checkTarget?.();
       const source = this.state;
       const transcriptSource = this.transcriptSource;
       const transcriptPages = this.transcriptPages;

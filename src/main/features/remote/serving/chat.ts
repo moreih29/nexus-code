@@ -656,14 +656,20 @@ export async function workChatMcp(
 /** Goes on with a conversation of the past in a new chat, behind what this computer shows. */
 export async function resumeChat(
   services: CliServices,
-  { workspaceId, agent, sessionId, tabId }: RpcParams<"chat.resume">,
+  { workspaceId, agent, sessionId, tabId, from }: RpcParams<"chat.resume">,
 ): Promise<RpcResult<"chat.resume">> {
   if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
   if (tabId) await tabOf(services, workspaceId, tabId, [agent]);
   return services
-    .ui("chat.resume", { workspaceId, agent, sessionId, ...(tabId ? { tabId } : {}) })
+    .ui("chat.resume", {
+      workspaceId,
+      agent,
+      sessionId,
+      ...(tabId ? { tabId } : {}),
+      ...(from ? { emptyOnly: true } : {}),
+    })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);

@@ -875,7 +875,7 @@ const chatResume: CliCommand = {
         workspaceId: workspace.id,
         agent,
         sessionId: session.sessionId,
-        ...(into ? { tabId: into.id } : {}),
+        ...(into ? { tabId: into.id, emptyOnly: true } : {}),
       },
       SEND_TIMEOUT_MS,
     );
