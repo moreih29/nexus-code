@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { MAX_BYTES_CHUNK } from "../../../../../packages/remote-protocol/src/rpc";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
@@ -6,6 +8,13 @@ import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 const live = await import("../../../../../src/renderer/services/remote/peer-file-live");
 const { peerWorkspaceId } = await import(
   "../../../../../src/renderer/services/remote/peer-workspace"
+);
+const { FileLookBody, useFileLookView } = await import(
+  "../../../../../src/renderer/components/chat/file-look"
+);
+const { ChatFilesContext } = await import("../../../../../src/renderer/services/chat/chat-files");
+const { peerChatFiles } = await import(
+  "../../../../../src/renderer/services/remote/peer-chat-media"
 );
 
 const WS = peerWorkspaceId("d1", "w1");
@@ -133,6 +142,38 @@ afterEach(() => {
 });
 
 describe("a file of another computer's, kept current", () => {
+  test("a preview image follows the file version with and without the chat's epoch", async () => {
+    const path = "/w/image.png";
+    const url = "nexus-workspace://peer/d1/w1/w/image.png";
+    function PreviewImage() {
+      const view = useFileLookView(path, {});
+      return createElement(FileLookBody, { workspaceId: WS, root: "/w", path, view });
+    }
+    function render(epoch?: number) {
+      const image = createElement(PreviewImage);
+      if (epoch === undefined) return renderToStaticMarkup(image);
+      const files = peerChatFiles(
+        { deviceId: "d1", workspaceId: "w1" },
+        { id: epoch, cacheId: 1, signal: new AbortController().signal },
+      );
+      return renderToStaticMarkup(
+        createElement(ChatFilesContext.Provider, { value: files }, image),
+      );
+    }
+
+    watch(path, "version");
+    await settle();
+    expect(render()).toContain(`src="${url}"`);
+    expect(render(3)).toContain(`src="${url}?v=0&amp;epoch=3"`);
+    expect(render(4)).toContain(`src="${url}?v=0&amp;epoch=4"`);
+
+    version = "v2";
+    tick?.();
+    await settle();
+    expect(render(4)).toContain(`src="${url}?v=1&amp;epoch=4"`);
+    expect(render()).toContain(`src="${url}?v=1"`);
+  });
+
   test("reads once with a version, and a re-read that finds it unchanged keeps what is shown", async () => {
     const view = watch("/w/a.md");
     await settle();

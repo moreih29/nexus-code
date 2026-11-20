@@ -66,7 +66,8 @@ function useLocalFileVersion(workspaceId: string, relPath: string): number {
   return version;
 }
 
-/** `url` for `version` of its file: the first as it is, later ones marked. */
-export function versionedUrl(url: string, version: number): string {
+/** A URL keyed by file version and, when supplied, the chat's foreground epoch. */
+export function versionedUrl(url: string, version: number, epoch?: number): string {
+  if (epoch !== undefined) return `${url}?v=${version}&epoch=${epoch}`;
   return version === 0 ? url : `${url}?v=${version}`;
 }
