@@ -10,6 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  type RemoteSession,
   RpcErrorCode,
   type RpcParams,
   type RpcResult,
@@ -27,11 +28,14 @@ export const SESSIONS_POLL_MS = 1000;
 export const MAX_SESSION_WATCHES_PER_DEVICE = 2;
 
 type SessionsList = RpcResult<"sessions.list">;
+type SessionRows = ReadonlyMap<string, readonly RemoteSession[]>;
 
 interface Watch {
   from: string;
   /** The list as last sent, as compared (sameness). */
   sent: string;
+  /** Fully read session rows in the last list, including workspaces with zero sessions. */
+  rows: SessionRows;
 }
 
 /**
@@ -42,9 +46,37 @@ function sameness(list: SessionsList): string {
   return JSON.stringify(list, (key, value) => (key === "expiresInMs" ? undefined : value));
 }
 
+function rowsByWorkspace(list: SessionsList, incomplete: ReadonlySet<string>): SessionRows {
+  const rows = new Map<string, RemoteSession[]>();
+  for (const { id } of list.workspaces) {
+    if (!incomplete.has(id)) rows.set(id, []);
+  }
+  for (const session of list.sessions) rows.get(session.workspaceId)?.push(session);
+  return rows;
+}
+
+function withPreviousRows(
+  current: SessionRows,
+  incomplete: ReadonlySet<string>,
+  previous: SessionRows,
+): SessionRows | undefined {
+  if (incomplete.size === 0) return current;
+  const rows = new Map(current);
+  for (const id of incomplete) {
+    const retained = previous.get(id);
+    if (!retained) return undefined;
+    rows.set(id, retained);
+  }
+  return rows;
+}
+
 export interface SessionWatchesDeps {
   /** Reads the list once, then adds the consents for each device it is sent to. */
-  snapshot(from?: string): Promise<(to: string) => Promise<SessionsList>>;
+  snapshot(from?: string): Promise<{
+    list: SessionsList;
+    incompleteWorkspaces: ReadonlySet<string>;
+    forDevice(to: string): Promise<SessionsList>;
+  }>;
   notify(to: string, update: SessionsUpdate): Promise<boolean>;
   readonly pollMs?: number;
 }
@@ -63,10 +95,14 @@ export class SessionWatches {
       const [oldest] = mine[0] ?? [];
       if (oldest) this.watches.delete(oldest);
     }
-    const listFor = await this.deps.snapshot(from);
-    const list = await listFor(from);
+    const snapshot = await this.deps.snapshot(from);
+    const list = await snapshot.forDevice(from);
     const watchId = randomUUID();
-    this.watches.set(watchId, { from, sent: sameness(list) });
+    this.watches.set(watchId, {
+      from,
+      sent: sameness(list),
+      rows: rowsByWorkspace(list, snapshot.incompleteWorkspaces),
+    });
     this.schedule();
     return { ...list, watchId };
   }
@@ -104,18 +140,30 @@ export class SessionWatches {
     if (this.polling || this.watches.size === 0) return;
     this.polling = true;
     try {
-      const listFor = await this.deps.snapshot();
+      const watches = [...this.watches];
+      const snapshot = await this.deps.snapshot();
+      const incomplete = snapshot.incompleteWorkspaces;
+      const currentRows = rowsByWorkspace(snapshot.list, incomplete);
       // Each device's own list: the prompts it may answer differ.
       const lists = new Map<string, SessionsList>();
-      for (const [watchId, watch] of this.watches) {
+      for (const [watchId, watch] of watches) {
+        const rows = withPreviousRows(currentRows, incomplete, watch.rows);
+        if (!rows) continue;
         let list = lists.get(watch.from);
         if (!list) {
-          list = await listFor(watch.from);
+          list = await snapshot.forDevice(watch.from);
           lists.set(watch.from, list);
         }
-        const same = sameness(list);
-        if (watch.sent === same) continue;
-        if (await this.deps.notify(watch.from, { ...list, watchId })) watch.sent = same;
+        if (this.watches.get(watchId) !== watch) continue;
+        const update =
+          incomplete.size === 0
+            ? list
+            : { ...list, sessions: list.workspaces.flatMap(({ id }) => rows.get(id) ?? []) };
+        const same = sameness(update);
+        if (watch.sent === same || (await this.deps.notify(watch.from, { ...update, watchId }))) {
+          watch.sent = same;
+          watch.rows = rows;
+        }
       }
     } catch (error) {
       log.warn(`Could not list sessions: ${String(error)}`);
