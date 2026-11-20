@@ -30,7 +30,8 @@ export function SessionInstructionsChip({
   workspaceId,
   tabId,
   compact,
-}: InstructionsTab & { compact: boolean }) {
+  onMenu,
+}: InstructionsTab & { compact: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation(["settings", "common"]);
   const config = useAgentInstructionsStore((state) => state.config);
   const profiles = useAgentProfilesStore((state) => state.config);
@@ -38,7 +39,11 @@ export function SessionInstructionsChip({
     state.workspaces.find(({ id }) => id === workspaceId),
   );
   const tab = useTabsStore((state) => state.byWorkspace[workspaceId]?.[tabId]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onMenu(next);
+  };
   const [draft, setDraft] = useState("");
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);

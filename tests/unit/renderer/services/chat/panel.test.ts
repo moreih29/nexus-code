@@ -746,6 +746,36 @@ describe("links written from where the agent's shell went", () => {
 });
 
 describe("distinctResults", () => {
+  test("a percent-encoded link and the file it names share one result", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "C:/p/My Report.md", content: "report" },
+        },
+      ]),
+      result("w", "ok", { type: "create" }),
+      assistant("m2", [
+        {
+          type: "text",
+          text: "[report](my%20report.md:3), [report](<C:/p/My Report.md>), [notes](Review%20Notes.md), [site](https://example.com/My%20Report.md).",
+        },
+      ]),
+    ]);
+    const cwd = "C:/p";
+    const results = resultsOf(model.items, model.tools, cwd);
+    expect(results.map(({ target }) => target)).toContain("my%20report.md:3");
+    expect(distinctResults(results, cwd)).toEqual([
+      { kind: "file", target: "C:/p/My Report.md", created: true },
+      { kind: "file", target: "Review%20Notes.md", created: false },
+      { kind: "url", target: "https://example.com/My%20Report.md", created: false },
+    ]);
+    expect(resultFiles(results, cwd)).toContain("C:/p/Review Notes.md");
+  });
+
   test("a file is the one found for its target, when that is given", () => {
     const found: Record<string, string> = { "a.png": "/p/P/a.png", "/p/P/a.png": "/p/P/a.png" };
     const results = distinctResults(
