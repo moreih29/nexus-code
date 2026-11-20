@@ -521,12 +521,16 @@ function LoadedNote({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
-                <FolderOpen className="size-3.5" aria-hidden="true" />
-                {t("editor.reveal")}
+                <span className="flex items-center gap-2">
+                  <FolderOpen className="size-3.5" aria-hidden="true" />
+                  {t("editor.reveal")}
+                </span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void remove()}>
-                <Trash2 className="size-3.5" aria-hidden="true" />
-                {t("editor.delete")}
+                <span className="flex items-center gap-2">
+                  <Trash2 className="size-3.5" aria-hidden="true" />
+                  {t("editor.delete")}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuRoot>

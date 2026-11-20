@@ -1030,15 +1030,19 @@ function AddMenu({
         }}
       >
         <DropdownMenuItem onSelect={onAttach}>
-          <Paperclip className="size-3.5" />
-          {t("chat.composer.attach_file")}
+          <span className="flex items-center gap-2">
+            <Paperclip className="size-3.5" />
+            {t("chat.composer.attach_file")}
+          </span>
         </DropdownMenuItem>
         {typeof onMention === "string" ? (
           <DropdownMenuItem disabled onSelect={() => {}}>
-            <AtSign className="size-3.5" />
-            <span className="flex flex-col">
-              {t("chat.composer.mention_file")}
-              <span className="text-app-micro text-muted-foreground">{onMention}</span>
+            <span className="flex items-center gap-2">
+              <AtSign className="size-3.5" />
+              <span className="flex flex-col">
+                {t("chat.composer.mention_file")}
+                <span className="text-app-micro text-muted-foreground">{onMention}</span>
+              </span>
             </span>
           </DropdownMenuItem>
         ) : (
@@ -1048,8 +1052,10 @@ function AddMenu({
               onMention();
             }}
           >
-            <AtSign className="size-3.5" />
-            {t("chat.composer.mention_file")}
+            <span className="flex items-center gap-2">
+              <AtSign className="size-3.5" />
+              {t("chat.composer.mention_file")}
+            </span>
             <DropdownMenuShortcut>@</DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
@@ -1060,8 +1066,10 @@ function AddMenu({
               onCommand();
             }}
           >
-            <Slash className="size-3.5" />
-            {t("chat.composer.command")}
+            <span className="flex items-center gap-2">
+              <Slash className="size-3.5" />
+              {t("chat.composer.command")}
+            </span>
             <DropdownMenuShortcut>/</DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
