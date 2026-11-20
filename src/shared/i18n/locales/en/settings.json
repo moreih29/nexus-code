@@ -843,6 +843,109 @@
           "high": "Long"
         }
       }
+    },
+    "connection": {
+      "method": "Connection method",
+      "methods": {
+        "account": {
+          "claude": {
+            "label": "Sign in with Claude",
+            "hint": "Use your Pro, Max, or Team plan. The sign-in window opens after creation."
+          },
+          "codex": {
+            "label": "Sign in with ChatGPT",
+            "hint": "Use your ChatGPT plan. The sign-in window opens after creation."
+          }
+        },
+        "api-key": {
+          "claude": {
+            "label": "Anthropic API key",
+            "hint": "Use a key from the Claude Console with usage-based billing."
+          },
+          "codex": {
+            "label": "OpenAI API key",
+            "hint": "Use a key from the OpenAI Platform with usage-based billing."
+          }
+        },
+        "custom": {
+          "claude": {
+            "label": "Custom API address",
+            "hint": "Use a gateway or another provider that accepts Anthropic Messages."
+          },
+          "codex": {
+            "label": "Custom API address",
+            "hint": "Use a server or gateway that accepts the Responses API."
+          }
+        }
+      },
+      "addressAndKey": "Address and key",
+      "key": "API key",
+      "keyOptional": "Leave blank if the server does not require a key",
+      "clearKey": "Clear key",
+      "sealedKey": "The key is encrypted on this computer.",
+      "memoryKey": "System key storage is unavailable. The key is kept until the app quits.",
+      "presets": "Quick fill",
+      "manual": "Enter manually",
+      "address": "API address",
+      "auth": "Send key as",
+      "bearer": "Bearer token",
+      "responsesHint": "Codex uses the Responses API (/v1/responses). For a server that only accepts Chat Completions, use a gateway that translates requests.",
+      "models": "Models",
+      "modelId": "Model ID",
+      "label": "Display name (optional)",
+      "default": "Default",
+      "context": "Context window",
+      "contextHint": "Leave blank to use Claude Code’s 1M-token assumption for unknown models.",
+      "lightModel": "Light work",
+      "lightHint": "Used for background work such as conversation titles and summaries.",
+      "reasoning": "Reasoning",
+      "effort": {
+        "none": "None",
+        "high": "low–high",
+        "xhigh": "low–xhigh"
+      },
+      "addModel": "Add model",
+      "removeModel": "Remove model",
+      "localCheck": "Model discovery and connection tests run on this computer.",
+      "find": "Find models",
+      "findAgain": "Find again",
+      "looking": "Looking…",
+      "found_one": "Found {{count}} model at this address",
+      "found_other": "Found {{count}} models at this address",
+      "noModels": "No model list is available. Enter model IDs from the provider’s documentation.",
+      "notRunning": "The local server is not running.",
+      "gigabytes": "{{size}} GB",
+      "advanced": "Advanced",
+      "advancedHint": {
+        "claude": "Extra headers · Request timeout · Output tokens · Experimental headers",
+        "codex": "Query parameters · Extra headers · Retries · Stream timeout"
+      },
+      "headers": "Extra headers",
+      "headersInvalid": "Enter one valid Header-Name: value per line.",
+      "query": "Query parameters",
+      "queryInvalid": "Enter one name=value pair per line.",
+      "timeout": "Request timeout (ms)",
+      "outputTokens": "Max output tokens",
+      "disableBetas": "Disable experimental headers",
+      "retries": "Retry count",
+      "streamTimeout": "Stream idle timeout (ms)",
+      "envPriority": "Connection values take precedence over matching extra variables.",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "testHint": "Send one short request to the default model. This can use a few tokens.",
+      "tested": "{{model}} replied in {{ms}} ms",
+      "createAndSignIn": "Create and sign in",
+      "saveError": "Could not save the profile connection.",
+      "errors": {
+        "auth": "Check the API key and how it is sent.",
+        "model": "Could not find model {{model}}.",
+        "network": "Could not reach the server. Check the address and network.",
+        "address": "Enter a valid HTTP or HTTPS API address.",
+        "unsupported": "This address does not accept the Responses API.",
+        "response": "The server returned an unexpected response.",
+        "missingKey": "Set the profile API key in Settings.",
+        "claudeVersion": "Custom API addresses require Claude Code {{version}} or later."
+      }
     }
   },
   "profileRules": {

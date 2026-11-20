@@ -40,6 +40,12 @@ import { Dialog } from "../../ui/dialog";
 import { DialogHeader } from "../../ui/dialog-header";
 import { twinOf } from "./agent-profiles-panel";
 import { type BehaviorSectionHandle, ProfileBehaviorSection } from "./profile-behavior-section";
+import {
+  ProfileConnectionAdvanced,
+  ProfileConnectionSection,
+  ProfileConnectionTest,
+} from "./profile-connection-section";
+import { useProfileConnection } from "./use-profile-connection";
 
 const inputClass = cn(
   "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
@@ -112,7 +118,9 @@ export function ProfileDialog({
 }) {
   const { t } = useTranslation(["settings", "common"]);
   const config = useAgentProfilesStore((s) => s.config);
+  const hydrate = useAgentProfilesStore((s) => s.hydrate);
   const saveProfile = useAgentProfilesStore((s) => s.saveProfile);
+  const connection = useProfileConnection(agent, profile);
   const others = useMemo(
     () => profilesOf(config, agent).filter((p) => p.id !== profile?.id),
     [config, agent, profile],
@@ -131,6 +139,7 @@ export function ProfileDialog({
   );
   const [env, setEnv] = useState(envText(profile?.env));
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
   const behaviorRef = useRef<BehaviorSectionHandle>(null);
   const nameId = useId();
   const dirId = useId();
@@ -177,7 +186,8 @@ export function ProfileDialog({
     (isDefault || shownDir.trim() !== "") &&
     !dirError &&
     parsedEnv !== null &&
-    !hasReservedEnv;
+    !hasReservedEnv &&
+    connection.valid;
 
   /** The profile's file is its own now (copied in the link's place): it is no longer in what the profile shares. */
   const unshared = async (file: string) => {
@@ -209,6 +219,7 @@ export function ProfileDialog({
     e.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
+    setSaveError(undefined);
     // The behavior file first, while the links are as they were read.
     if (profile !== null && !(await (behaviorRef.current?.save() ?? true))) {
       setSaving(false);
@@ -219,12 +230,22 @@ export function ProfileDialog({
       agent,
       name: name.trim(),
       color,
+      connection: connection.connection,
       dir: isDefault ? "" : portableProfileDir(shownDir),
       ...(isDefault ? {} : { shared: SHAREABLE[agent].filter((n) => shared.includes(n)) }),
       ...(parsedEnv && Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
     };
-    await saveProfile(next);
-    if (profile === null) {
+    const result = await ipcCallResult("agentProfiles", "connectionSave", {
+      profile: next,
+      key: connection.method === "account" ? undefined : connection.key,
+    });
+    if (!result.ok) {
+      setSaveError(t("profiles.connection.saveError"));
+      setSaving(false);
+      return;
+    }
+    hydrate(result.value);
+    if (profile === null && connection.method === "account") {
       onCreated(next.id);
       return;
     }
@@ -236,9 +257,9 @@ export function ProfileDialog({
   return (
     <Dialog
       open
-      onOpenChange={(open) => !open && onClose()}
-      size="md"
-      className="flex max-h-[calc(100vh-2rem)] flex-col"
+      onOpenChange={(open) => !open && !saving && onClose()}
+      size="xl"
+      className="flex max-h-[90dvh] flex-col"
     >
       <DialogHeader
         title={
@@ -249,129 +270,132 @@ export function ProfileDialog({
       />
       <form
         onSubmit={(e) => void submit(e)}
-        className="mt-3 flex min-h-0 flex-1 flex-col gap-3"
+        className="mt-3 flex min-h-0 flex-1 flex-col"
         data-testid="profile-form"
       >
-        <div className="app-scrollbar -mr-2 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-2">
-          <Field
-            label={t("profiles.dialog.name")}
-            htmlFor={nameId}
-            hint={t("profiles.dialog.nameHint")}
-          >
-            <input
-              id={nameId}
-              type="text"
-              value={name}
-              maxLength={40}
-              spellCheck={false}
-              autoFocus
-              onChange={(e) => setName(e.target.value)}
-              placeholder={
-                isDefault ? t("profiles.default_name") : t("profiles.dialog.namePlaceholder")
-              }
-              className={inputClass}
-            />
-          </Field>
-
-          <Field label={t("profiles.dialog.color")}>
-            <div className="flex gap-2">
-              {PROFILE_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-pressed={color === c}
-                  aria-label={c}
-                  onClick={() => setColor(c)}
-                  className={cn(
-                    "size-5 rounded-full ring-offset-2 ring-offset-background transition-shadow",
-                    color === c ? "ring-2 ring-foreground/60" : "hover:ring-1 hover:ring-border",
-                  )}
-                  style={{ backgroundColor: profileColor(c) }}
-                />
-              ))}
-            </div>
-          </Field>
-
-          {!isDefault && (
+        <div className="app-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pt-1 pb-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
             <Field
-              label={t("profiles.dialog.folder")}
-              htmlFor={dirId}
-              hint={t(existing ? "profiles.dialog.folderExists" : "profiles.dialog.folderHint")}
-              error={dirError}
+              label={t("profiles.dialog.name")}
+              htmlFor={nameId}
+              hint={t("profiles.dialog.nameHint")}
             >
-              <div className="flex gap-2">
-                <input
-                  id={dirId}
-                  type="text"
-                  value={shownDir}
-                  spellCheck={false}
-                  disabled={profile !== null}
-                  onChange={(e) => {
-                    setDir(e.target.value);
-                    setDirTouched(true);
-                  }}
-                  className={cn(inputClass, "font-mono")}
-                />
-                {profile === null && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void browse()}>
-                    {t("profiles.dialog.browse")}
-                  </Button>
-                )}
-              </div>
+              <input
+                id={nameId}
+                type="text"
+                value={name}
+                maxLength={40}
+                spellCheck={false}
+                autoFocus
+                onChange={(e) => setName(e.target.value)}
+                placeholder={
+                  isDefault ? t("profiles.default_name") : t("profiles.dialog.namePlaceholder")
+                }
+                className={inputClass}
+              />
             </Field>
-          )}
 
-          {!isDefault && (
-            <Field label={t("profiles.dialog.share")} hint={t("profiles.dialog.shareHint")}>
-              <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 py-0.5">
-                {SHAREABLE[agent].map((entry) => (
-                  <label
-                    key={entry}
-                    htmlFor={`${shareId}-${entry}`}
-                    className="flex cursor-pointer items-center gap-1.5 text-app-ui-sm"
-                  >
-                    <Checkbox
-                      id={`${shareId}-${entry}`}
-                      checked={shared.includes(entry)}
-                      onCheckedChange={(on) =>
-                        setShared((prev) =>
-                          on === true ? [...prev, entry] : prev.filter((n) => n !== entry),
-                        )
-                      }
-                    />
-                    <span className="font-mono">{SHARABLE_LABELS[entry] ?? entry}</span>
-                  </label>
+            <Field label={t("profiles.dialog.color")}>
+              <div className="flex gap-2 py-1">
+                {PROFILE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-pressed={color === c}
+                    aria-label={c}
+                    onClick={() => setColor(c)}
+                    className={cn(
+                      "size-5 rounded-full ring-offset-2 ring-offset-background transition-shadow",
+                      color === c ? "ring-2 ring-foreground/60" : "hover:ring-1 hover:ring-border",
+                    )}
+                    style={{ backgroundColor: profileColor(c) }}
+                  />
                 ))}
               </div>
             </Field>
-          )}
-
-          <details className="group" open={env !== ""}>
-            <summary className="cursor-pointer select-none text-app-ui-sm text-muted-foreground hover:text-foreground">
-              {t("profiles.dialog.env")}
-            </summary>
-            <textarea
-              id={envId}
-              value={env}
-              rows={3}
-              spellCheck={false}
-              onChange={(e) => setEnv(e.target.value)}
-              placeholder={t("profiles.dialog.envPlaceholder")}
-              aria-label={t("profiles.dialog.env")}
-              aria-invalid={parsedEnv === null || hasReservedEnv}
-              className={cn(
-                inputClass,
-                "mt-1.5 resize-y font-mono",
-                (parsedEnv === null || hasReservedEnv) && "border-[var(--state-error-fg)]",
-              )}
-            />
-            {hasReservedEnv && (
-              <p className="mt-1 text-app-ui-sm text-[var(--state-error-fg)]">
-                {t("profiles.dialog.envReserved")}
-              </p>
+          </div>
+          <ProfileConnectionSection agent={agent} draft={connection} />
+          <ProfileConnectionAdvanced agent={agent} draft={connection}>
+            {!isDefault && (
+              <Field
+                label={t("profiles.dialog.folder")}
+                htmlFor={dirId}
+                hint={t(existing ? "profiles.dialog.folderExists" : "profiles.dialog.folderHint")}
+                error={dirError}
+              >
+                <div className="flex gap-2">
+                  <input
+                    id={dirId}
+                    type="text"
+                    value={shownDir}
+                    spellCheck={false}
+                    disabled={profile !== null}
+                    onChange={(e) => {
+                      setDir(e.target.value);
+                      setDirTouched(true);
+                    }}
+                    className={cn(inputClass, "font-mono")}
+                  />
+                  {profile === null && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void browse()}>
+                      {t("profiles.dialog.browse")}
+                    </Button>
+                  )}
+                </div>
+              </Field>
             )}
-          </details>
 
+            {!isDefault && (
+              <Field label={t("profiles.dialog.share")} hint={t("profiles.dialog.shareHint")}>
+                <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 py-0.5">
+                  {SHAREABLE[agent].map((entry) => (
+                    <label
+                      key={entry}
+                      htmlFor={`${shareId}-${entry}`}
+                      className="flex cursor-pointer items-center gap-1.5 text-app-ui-sm"
+                    >
+                      <Checkbox
+                        id={`${shareId}-${entry}`}
+                        checked={shared.includes(entry)}
+                        onCheckedChange={(on) =>
+                          setShared((prev) =>
+                            on === true ? [...prev, entry] : prev.filter((n) => n !== entry),
+                          )
+                        }
+                      />
+                      <span className="font-mono">{SHARABLE_LABELS[entry] ?? entry}</span>
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
+
+            <details className="group" open={env !== ""}>
+              <summary className="cursor-pointer select-none text-app-ui-sm text-muted-foreground hover:text-foreground">
+                {t("profiles.dialog.env")}
+              </summary>
+              <textarea
+                id={envId}
+                value={env}
+                rows={3}
+                spellCheck={false}
+                onChange={(e) => setEnv(e.target.value)}
+                placeholder={t("profiles.dialog.envPlaceholder")}
+                aria-label={t("profiles.dialog.env")}
+                aria-invalid={parsedEnv === null || hasReservedEnv}
+                className={cn(
+                  inputClass,
+                  "mt-1.5 resize-y font-mono",
+                  (parsedEnv === null || hasReservedEnv) && "border-[var(--state-error-fg)]",
+                )}
+              />
+              {hasReservedEnv && (
+                <p className="mt-1 text-app-ui-sm text-[var(--state-error-fg)]">
+                  {t("profiles.dialog.envReserved")}
+                </p>
+              )}
+            </details>
+          </ProfileConnectionAdvanced>
           {profile !== null && (
             <ProfileBehaviorSection
               profile={profile}
@@ -381,13 +405,23 @@ export function ProfileDialog({
           )}
         </div>
 
-        <div className="mt-1 flex shrink-0 justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            {t("common:action.cancel")}
-          </Button>
-          <Button type="submit" size="sm" disabled={!valid || saving}>
-            {profile === null ? t("profiles.dialog.create") : t("profiles.dialog.save")}
-          </Button>
+        {saveError && (
+          <p role="alert" className="text-app-ui-sm text-[var(--state-error-fg)]">
+            {saveError}
+          </p>
+        )}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <ProfileConnectionTest draft={connection} />
+          <div className="ml-auto flex gap-2">
+            <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={onClose}>
+              {t("common:action.cancel")}
+            </Button>
+            <Button type="submit" size="sm" disabled={!valid || saving}>
+              {profile === null && connection.method === "account"
+                ? t("profiles.connection.createAndSignIn")
+                : t("profiles.dialog.save")}
+            </Button>
+          </div>
         </div>
       </form>
     </Dialog>

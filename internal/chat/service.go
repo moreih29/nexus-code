@@ -140,6 +140,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.attach", service.Attach)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 	d.Register("chat.profileDir", service.ProfileDir)
+	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
 
 // connectionSink binds a sink to the host that installed it.

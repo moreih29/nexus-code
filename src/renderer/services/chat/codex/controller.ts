@@ -8,12 +8,18 @@
 // picks (model, effort, approvals) go with the next turn, as the server
 // takes them: they hold for the thread from that turn on.
 
-import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-profiles/profiles";
+import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
+import {
+  defaultProfileId,
+  isDefaultProfileId,
+  profileOf,
+} from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import { createLogger } from "../../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../../shared/sessions/chat-modes";
 import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
@@ -247,6 +253,8 @@ export class CodexController {
   /** A thread started here that has yet to see any turn. */
   private emptyThread?: string;
   private canonicalCwd: string | undefined;
+  /** The launch's connection stays in effect until the program restarts. */
+  private connection: ProfileConnection | undefined;
   private agentRefresh: ReturnType<typeof setTimeout> | undefined;
   private readonly readingAgents = new Map<string, Promise<void>>();
   private readonly readAgentAt = new Map<string, number>();
@@ -270,6 +278,7 @@ export class CodexController {
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
+    this.connection = savedProfileConnection(target.profileId);
     this.key = chatKey(target.workspaceId, target.tabId);
     // What the user picked before and no turn has sent yet: the next turn
     // takes it, as one picked now would.
@@ -373,6 +382,7 @@ export class CodexController {
   ): Promise<boolean> {
     if (this.disposed) return false;
     const { workspaceId, tabId, cwd, profileId } = this.target;
+    const connection = savedProfileConnection(profileId);
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
     try {
@@ -416,6 +426,7 @@ export class CodexController {
       this.showPicks();
       return true;
     }
+    this.connection = connection;
     this.collaborationProbe = undefined;
     const introduced = this.introduce();
     this.introduced = introduced.then(
@@ -1382,6 +1393,40 @@ export class CodexController {
       ?.heldId;
   }
 
+  /** A gateway model can need an explicit reset of another model's reasoning effort. */
+  private turnModelSettings(model: string | undefined, effort: string | undefined) {
+    const connection = this.connection;
+    if (connection?.method !== "custom") {
+      return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+    }
+    const selected = model ?? this.model.model;
+    const choice =
+      connection.models.find(({ id }) => id === selected) ??
+      connection.models.find(({ id }) => id === connection.defaultModel);
+    if (!choice) return {};
+    if (!choice.reasoning || choice.reasoning === "none") {
+      const mode = this.model.collaborationMode ?? "default";
+      return {
+        collaborationMode: {
+          mode,
+          settings: {
+            model: choice.id,
+            reasoning_effort: null,
+            developer_instructions:
+              this.model.collaborationSettings?.[mode]?.developer_instructions ?? null,
+          },
+        },
+      };
+    }
+    const chosenEffort = effort ?? this.model.effort;
+    const allowed =
+      choice.reasoning === "xhigh" ? ["low", "medium", "high", "xhigh"] : ["low", "medium", "high"];
+    return {
+      model: choice.id,
+      effort: chosenEffort && allowed.includes(chosenEffort) ? chosenEffort : "low",
+    };
+  }
+
   private async sendMessage(
     text: string,
     images: ImageBlock[],
@@ -1505,8 +1550,7 @@ export class CodexController {
       threadId,
       clientUserMessageId,
       input,
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
+      ...this.turnModelSettings(model, effort),
       ...(mode ? MODE_SETTINGS[mode] : {}),
     });
     const start = reply
@@ -2252,6 +2296,10 @@ export interface CodexPicks {
   model?: string;
   effort?: string;
   mode?: CodexMode;
+}
+
+function savedProfileConnection(profileId: string | undefined): ProfileConnection | undefined {
+  return profileOf(useAgentProfilesStore.getState().config, "codex", profileId).connection;
 }
 
 /** A tab's kept model and effort as picks for its next turn. */

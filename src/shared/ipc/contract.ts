@@ -11,7 +11,14 @@ import {
   BehaviorFileSchema,
   BehaviorWriteResultSchema,
 } from "../agent-profiles/behavior";
-import { AgentProfilesSchema } from "../agent-profiles/profiles";
+import {
+  ConnectionKeyChangeSchema,
+  ConnectionKeyStatusSchema,
+  ConnectionModelsResultSchema,
+  ConnectionProbeSchema,
+  ConnectionTestResultSchema,
+} from "../agent-profiles/connection";
+import { AgentProfileSchema, AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
   ACTIVITY_TEXT_MAX_CHARS,
@@ -2465,6 +2472,19 @@ export const ipcContract = {
           home: z.string(),
           defaultDirs: z.object({ claude: z.string(), codex: z.string() }),
         }),
+      ),
+      connectionKeyStatus: call(
+        z.object({ profileId: z.string().max(64).optional() }),
+        ConnectionKeyStatusSchema,
+      ),
+      connectionSave: call(
+        z.object({ profile: AgentProfileSchema, key: ConnectionKeyChangeSchema.optional() }),
+        AgentProfilesSchema,
+      ),
+      connectionDiscover: call(ConnectionProbeSchema, ConnectionModelsResultSchema),
+      connectionTest: call(
+        ConnectionProbeSchema.extend({ model: z.string().trim().min(1).max(256) }),
+        ConnectionTestResultSchema,
       ),
       /** Who the profile is signed in as on this machine. */
       status: call(z.object({ profileId: z.string().max(64) }), AgentProfileStatusSchema),

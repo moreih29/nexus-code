@@ -843,6 +843,109 @@
           "high": "길게"
         }
       }
+    },
+    "connection": {
+      "method": "연결 방식",
+      "methods": {
+        "account": {
+          "claude": {
+            "label": "Claude 계정으로 로그인",
+            "hint": "Pro·Max·Team 요금제로 사용합니다. 만든 뒤 로그인 창이 열립니다"
+          },
+          "codex": {
+            "label": "ChatGPT로 로그인",
+            "hint": "ChatGPT 요금제로 사용합니다. 만든 뒤 로그인 창이 열립니다"
+          }
+        },
+        "api-key": {
+          "claude": {
+            "label": "Anthropic API 키",
+            "hint": "Claude Console에서 발급한 키로, 쓴 만큼 과금됩니다"
+          },
+          "codex": {
+            "label": "OpenAI API 키",
+            "hint": "OpenAI Platform 키로, 쓴 만큼 과금됩니다"
+          }
+        },
+        "custom": {
+          "claude": {
+            "label": "다른 API 주소",
+            "hint": "Anthropic 형식을 받는 게이트웨이나 다른 회사 모델을 씁니다"
+          },
+          "codex": {
+            "label": "다른 API 주소",
+            "hint": "Responses API를 받는 서버나 게이트웨이를 씁니다"
+          }
+        }
+      },
+      "addressAndKey": "주소와 키",
+      "key": "API 키",
+      "keyOptional": "필요 없으면 비워 두세요",
+      "clearKey": "키 지우기",
+      "sealedKey": "키는 이 컴퓨터에 암호화해 보관합니다",
+      "memoryKey": "시스템 키 보관함을 쓸 수 없어 앱이 켜져 있는 동안만 키를 기억합니다",
+      "presets": "빠르게 채우기",
+      "manual": "직접 입력",
+      "address": "API 주소",
+      "auth": "보내는 방식",
+      "bearer": "Bearer 토큰",
+      "responsesHint": "Codex는 Responses API(/v1/responses)로 요청합니다. Chat Completions만 받는 곳은 요청을 변환하는 게이트웨이를 연결하세요",
+      "models": "모델",
+      "modelId": "모델 ID",
+      "label": "표시 이름 (선택)",
+      "default": "기본",
+      "context": "컨텍스트 창",
+      "contextHint": "비우면 알 수 없는 모델의 컨텍스트 창을 1M 토큰으로 가정합니다",
+      "lightModel": "가벼운 작업",
+      "lightHint": "대화 제목 짓기, 요약 같은 백그라운드 작업에 씁니다",
+      "reasoning": "추론 강도",
+      "effort": {
+        "none": "없음",
+        "high": "low~high",
+        "xhigh": "low~xhigh"
+      },
+      "addModel": "모델 추가",
+      "removeModel": "모델 삭제",
+      "localCheck": "모델 찾기와 연결 시험은 이 컴퓨터에서 합니다",
+      "find": "모델 찾기",
+      "findAgain": "다시 찾기",
+      "looking": "찾는 중…",
+      "found_other": "이 주소에서 모델 {{count}}개를 찾았습니다",
+      "noModels": "모델 목록을 가져올 수 없습니다. 제공자 문서의 모델 ID를 적으세요",
+      "notRunning": "서버가 실행 중이 아닙니다",
+      "gigabytes": "{{size}} GB",
+      "advanced": "고급",
+      "advancedHint": {
+        "claude": "추가 헤더 · 응답 제한 시간 · 최대 출력 토큰 · 실험 기능 헤더",
+        "codex": "쿼리 파라미터 · 추가 헤더 · 재시도 횟수 · 스트림 제한 시간"
+      },
+      "headers": "추가 헤더",
+      "headersInvalid": "한 줄에 하나씩 Header-Name: value 형식으로 적으세요",
+      "query": "쿼리 파라미터",
+      "queryInvalid": "한 줄에 하나씩 name=value 형식으로 적으세요",
+      "timeout": "응답 제한 시간 (ms)",
+      "outputTokens": "최대 출력 토큰",
+      "disableBetas": "실험 기능 헤더 끄기",
+      "retries": "재시도 횟수",
+      "streamTimeout": "스트림 제한 시간 (ms)",
+      "envPriority": "이름이 같은 추가 변수보다 연결 설정의 값이 우선합니다",
+      "test": "연결 시험",
+      "testing": "시험 중…",
+      "testHint": "기본 모델에 짧은 요청을 한 번 보냅니다. 토큰이 조금 듭니다",
+      "tested": "{{ms}}ms · {{model}} 모델이 답했습니다",
+      "createAndSignIn": "만들고 로그인",
+      "saveError": "프로필 연결 설정을 저장하지 못했습니다",
+      "errors": {
+        "auth": "키와 보내는 방식을 확인하세요",
+        "model": "{{model}} 모델을 찾지 못했습니다",
+        "network": "서버에 연결하지 못했습니다. 주소와 네트워크를 확인하세요",
+        "address": "올바른 HTTP 또는 HTTPS API 주소를 적으세요",
+        "unsupported": "이 주소는 Responses API를 받지 않습니다",
+        "response": "서버가 예상과 다른 응답을 보냈습니다",
+        "missingKey": "설정에서 이 프로필의 API 키를 입력하세요",
+        "claudeVersion": "다른 API 주소를 쓰려면 Claude Code {{version}} 이상이 필요합니다"
+      },
+      "found_one": "이 주소에서 모델 {{count}}개를 찾았습니다"
     }
   },
   "profileRules": {

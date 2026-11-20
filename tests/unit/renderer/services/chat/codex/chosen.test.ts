@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../../src/renderer/services/chat/codex/config";
+import { useAgentProfilesStore } from "../../../../../../src/renderer/state/stores/agent-profiles";
 import { ipcErr } from "../../../../../../src/shared/ipc/result";
 
 // The version the app tells Codex it is.
@@ -154,6 +155,44 @@ describe("the model and effort picked in a Codex tab", () => {
     await c.send("hi");
     const turn = sent.find((m) => m.method === "turn/start");
     expect(turn?.params).toMatchObject({ threadId: "t1", model: "gpt-5.4-mini", effort: "low" });
+  });
+
+  test("a custom model with no reasoning clears the effort inherited from a resumed thread", async () => {
+    const profiles = useAgentProfilesStore.getState();
+    profiles.hydrate({
+      profiles: [
+        {
+          agent: "codex",
+          id: "codex-default",
+          name: "",
+          dir: "",
+          color: "blue",
+          connection: {
+            method: "custom",
+            baseUrl: "http://localhost:8080/v1",
+            defaultModel: "gateway-model",
+            models: [{ id: "gateway-model" }],
+          },
+        },
+      ],
+      rules: [],
+      defaults: {},
+    });
+    try {
+      const c = tab({ model: "gpt-5.4-mini", effort: "high" });
+      await c.readDefaults();
+      await c.send("hi");
+      const turn = sent.find((m) => m.method === "turn/start");
+      expect(turn?.params?.effort).toBeUndefined();
+      expect(turn?.params).toMatchObject({
+        collaborationMode: {
+          mode: "default",
+          settings: { model: "gateway-model", reasoning_effort: null },
+        },
+      });
+    } finally {
+      profiles.hydrate(profiles.config);
+    }
   });
 
   test("are forgotten once a turn takes them: the thread holds them from then on", async () => {

@@ -6,12 +6,17 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
-import { defaultProfileId, isDefaultProfileId } from "../../../../shared/agent-profiles/profiles";
+import {
+  defaultProfileId,
+  isDefaultProfileId,
+  profileOf,
+} from "../../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../../shared/chat/relay";
 import type { TranscriptPageResult } from "../../../../shared/ipc/contract";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import {
   type ChatLine,
@@ -863,8 +868,22 @@ export class ChatController {
           );
         })
         .then(() => {
-          if (!this.chosenModel) return;
-          return this.request("set_model", { model: this.chosenModel }).then(
+          const picked = this.chosenModel;
+          if (!picked) return;
+          const { config } = useAgentProfilesStore.getState();
+          const { connection } = profileOf(config, "claude", this.profileId);
+          // A moved or restarted tab can still hold a model from an old provider.
+          if (
+            connection?.method === "custom" &&
+            picked !== "default" &&
+            !connection.models.some(({ id }) => id === picked)
+          ) {
+            this.chosenModel = undefined;
+            const effort = this.flags.effortLevel;
+            this.hooks.onChosen?.(typeof effort === "string" ? { model: undefined, effort } : {});
+            return;
+          }
+          return this.request("set_model", { model: picked }).then(
             () => {},
             (err: Error) => log.warn(`picked model not applied: ${err.message}`),
           );
