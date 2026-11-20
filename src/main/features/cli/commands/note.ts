@@ -251,7 +251,10 @@ function transcriptOutput(
       ].join("\n"),
     )
     .join("\n\n");
-  return output(text || `${named(note)} has no recordings.`, note, { records: note.recordings });
+  return output(text || `${named(note)} has no recordings.`, note, {
+    records: note.recordings,
+    utf8Json: true,
+  });
 }
 
 const notePath: CliCommand = {

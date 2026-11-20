@@ -293,6 +293,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
+      alias: async (deviceId, alias) => {
+        const remote = options.remote?.();
+        if (!remote?.alias) throw new CliError("device aliases are unavailable");
+        await remote.alias(deviceId, alias);
+      },
       request: (deviceId, method, params, timeoutMs, signal) => {
         const remote = options.remote?.();
         if (!remote) {
