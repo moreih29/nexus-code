@@ -734,7 +734,9 @@
   },
   "mediaPreview": {
     "outside_workspace": "This file is outside the workspace and cannot be played.",
-    "load_failed": "Could not play this file: its format may not be supported."
+    "load_failed": "Could not play this file: its format may not be supported.",
+    "file_changed": "The file changed",
+    "reload": "Reload"
   },
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
@@ -842,6 +844,7 @@
     "jump_to_bottom": "Scroll to the latest message",
     "show_earlier": "Show earlier messages ({{count}})",
     "show_earlier_unknown": "Show earlier messages",
+    "history_truncated": "The earliest messages in this conversation are unavailable.",
     "thinking": "Thinking",
     "thinking_live": "Thinking…",
     "received": {
@@ -893,6 +896,7 @@
       "interrupted": "Interrupted",
       "exited": "Claude exited",
       "restarted": "Claude started again",
+      "connection_restarted": "Restarted after the profile connection changed",
       "compacted": "Conversation compacted",
       "cleared": "Started over (/clear)",
       "error": "Error",
@@ -1056,8 +1060,7 @@
       "not_found": "Claude Code was not found where this workspace runs. Install it and try again.",
       "failed": "Claude could not be started.",
       "old_version": "Claude Code {{version}} is too old for this tab. {{min}} or later is needed.",
-      "retry": "Try again",
-      "truncated": "The oldest part of this conversation is no longer kept."
+      "retry": "Try again"
     },
     "queue": {
       "aria": "Messages waiting to be read",
@@ -1322,6 +1325,8 @@
       "previous": "Previous image (←)",
       "next": "Next image (→)",
       "open_tab": "Open as a tab",
+      "open_beside": "Move to a panel beside this one",
+      "read_only": "Read-only",
       "close": "Close (esc)",
       "copy_image": "Copy image",
       "copied_image": "Image copied",
@@ -1892,6 +1897,8 @@
     "pane": {
       "close": "Close panel",
       "remove": "Remove from panel (the session goes on)",
+      "remove_file": "Remove file from panel",
+      "show_file_tab": "Go to the file tab",
       "empty": "Empty panel",
       "empty_hint": "Pick an agent from the list, or drag one here",
       "open_list": "Open list"

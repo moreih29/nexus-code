@@ -5,10 +5,12 @@
  * reads them from its workspace here.
  */
 
-import { createContext, useContext, useEffect, useState } from "react";
-import type { ImageBlock } from "./model";
+import { createContext, useContext } from "react";
+import type { ChatMediaAccess, ImageBlock } from "./model";
+import { useRemotePicture } from "./remote-picture";
 
 export interface ChatFiles {
+  access: ChatMediaAccess | null;
   /** The peer connection and foreground lifetime; null while unavailable. */
   epoch: number | null;
   /** The peer connection alone, which a return to the foreground keeps; null while unavailable. */
@@ -26,43 +28,15 @@ export function useChatFiles(): ChatFiles | null {
   return useContext(ChatFilesContext);
 }
 
-interface PictureState {
-  files: ChatFiles | null;
-  path: string;
-  image: ImageBlock | null;
-  failed: boolean;
-}
-
 /** The currently authorized image for the path. */
 export function useFilePicture(
   files: ChatFiles | null,
   path: string,
 ): { image: ImageBlock | null; failed: boolean } {
-  const [state, setState] = useState<PictureState>({ files, path, image: null, failed: false });
-  const current = state.path === path && state.files === files;
-  if (!current) setState({ files, path, image: null, failed: false });
-
-  useEffect(() => {
-    if (!files || files.epoch === null) return;
-    let live = true;
-    const show = (image: ImageBlock | null) => {
-      if (!live) return;
-      setState((previous) =>
-        previous.files === files &&
-        previous.path === path &&
-        previous.image === image &&
-        previous.failed === (image === null)
-          ? previous
-          : { files, path, image, failed: image === null },
-      );
-    };
+  return useRemotePicture(files?.access, path, (show) => {
+    if (!files) return;
     const off = files.subscribePicture(path, show);
     void files.picture(path).then(show, () => show(null));
-    return () => {
-      live = false;
-      off();
-    };
-  }, [files, path]);
-  if (files?.epoch === null) return { image: null, failed: true };
-  return current ? state : { image: null, failed: false };
+    return off;
+  });
 }

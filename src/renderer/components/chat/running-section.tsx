@@ -253,10 +253,10 @@ function Fold({
             className={cn("size-3 shrink-0 text-muted-foreground", empty && "opacity-40")}
           />
         )}
-        <span>{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
         <span
           className={cn(
-            "tabular-nums",
+            "shrink-0 tabular-nums",
             live && !empty ? "font-semibold text-[var(--state-info-fg)]" : "text-muted-foreground",
           )}
           data-testid={`${testId}-count`}

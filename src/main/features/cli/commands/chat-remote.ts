@@ -10,23 +10,72 @@ import {
   MAX_READ_ITEMS,
   MAX_WAIT_MS as MAX_REQUEST_WAIT_MS,
   type RemoteSession,
+  type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliChatEntry, CliChatInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { remoteControlCommand, remoteControlOutput } from "../../chat/remote-control";
 import { CliUsageError, type ParsedArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, shortId } from "../context";
 import { type CliOutput, output } from "../registry";
 import {
   agentSenderOf,
   askDevice,
+  askPeerCli,
+  changePeerCli,
   deviceRef,
   type PeerTab,
   peerSessions,
   pickPeerWorkspace,
+  requirePeerCli,
   resolvePeerTab,
 } from "../remote";
 import { WAIT_POLL_MS, type WaitResult } from "../wait";
 import { AGENT_NAMES, chatStateText, choicesText } from "./chat-text";
+
+export async function peerCliChat(
+  ctx: CliContext,
+  device: CliDevice,
+  flags: ParsedArgs["flags"],
+  selector: string,
+) {
+  requirePeerCli(ctx, device);
+  const peer = await resolvePeerTab(
+    ctx,
+    device,
+    flags.workspace as string | undefined,
+    selector,
+    CHATS,
+  );
+  return { peer, ref: target(peer), json: targetJson(peer), title: named(peer) };
+}
+
+export async function peerChatTool(
+  ctx: CliContext,
+  device: CliDevice,
+  flags: ParsedArgs["flags"],
+  selector: string,
+  ref: string,
+) {
+  const target = await peerCliChat(ctx, device, flags, selector);
+  const tool = await askPeerCli(ctx, device, "chat.tool", {
+    ...target.ref,
+    toolUseId: ref,
+    cli: true,
+  });
+  return {
+    ref: target.json,
+    tool: {
+      i: tool.index ?? Number(ref),
+      toolUseId: tool.id,
+      name: tool.name,
+      status: tool.status,
+      input: tool.input,
+      ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+      ...(tool.result ? { result: tool.result } : {}),
+    },
+  };
+}
 
 const CHATS: readonly RemoteSession["kind"][] = ["claude", "codex"];
 /** Most items chat read --all or --since reads back through, a page at a time. */
@@ -147,7 +196,8 @@ export async function sendToPeer(
   selector: string,
   text: string,
   timeoutMs: number | null,
-  now = false,
+  when?: "now" | "after",
+  images: Pick<RpcParams<"chat.attach">, "mediaType" | "data">[] = [],
 ): Promise<CliOutput> {
   const peer = await resolvePeerTab(
     ctx,
@@ -156,14 +206,32 @@ export async function sendToPeer(
     selector,
     CHATS,
   );
+  if (
+    peer.session.kind === "claude" &&
+    remoteControlCommand(text) &&
+    !images.length &&
+    (timeoutMs !== null || when === "after")
+  ) {
+    throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
+  }
+  const attachments: string[] = [];
+  for (const image of images) {
+    const { attachmentId } = await changePeerCli(ctx, device, "chat.attach", {
+      ...target(peer),
+      ...image,
+    });
+    attachments.push(attachmentId);
+  }
   // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
-  const { at, heldId } = await askDevice(ctx, device, "chat.send", {
+  const { at, heldId, remoteControl } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
     from,
-    ...(now ? { when: "now" as const } : {}),
+    ...(when ? { when } : {}),
+    ...(attachments.length ? { attachments } : {}),
   });
+  if (remoteControl) return remoteControlOutput(named(peer), targetJson(peer), remoteControl);
   const sent = heldId ? `Held by ${named(peer)}, as ${heldId}.` : `Sent to ${named(peer)}.`;
   const json = { ...targetJson(peer), text, ...(heldId ? { heldId } : {}) };
   if (timeoutMs === null) return output(sent, json);
@@ -359,8 +427,23 @@ export async function setPeerChat(
   selector: string,
   settingsOf: (agent: ChatAgent) => { model?: string; effort?: string; mode?: string },
 ): Promise<CliOutput> {
-  if (flags.profile !== undefined || flags.new !== undefined) {
-    throw new CliUsageError("--profile is for this computer's tabs");
+  const profile = typeof flags.profile === "string" ? flags.profile.trim() : undefined;
+  if (flags.new === true && profile === undefined)
+    throw new CliUsageError("--new goes with --profile");
+  if (profile !== undefined) {
+    if (!profile) throw new CliUsageError("--profile takes a profile's name");
+    const target = await peerCliChat(ctx, device, flags, selector);
+    if (Object.keys(settingsOf(agentOf(target.peer.session))).length)
+      throw new CliUsageError("--profile goes alone; set the model, effort or mode after it");
+    const result = await changePeerCli(ctx, device, "chat.profile", {
+      ...target.ref,
+      profile,
+      fresh: flags.new === true,
+    });
+    return output(`${target.title} now uses profile "${result.to}".`, {
+      ...target.json,
+      ...result,
+    });
   }
   const peer = await resolvePeerTab(
     ctx,

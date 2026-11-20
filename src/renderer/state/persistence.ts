@@ -16,6 +16,7 @@ import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/ti
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
 import { ipcCallResult, ipcListen } from "../ipc/client";
 import { normalizeWorkspaceTabOrder } from "./operations/tab-order";
+import { flushAgentViewPersistence } from "./stores/agent-view";
 import { useLayoutStore } from "./stores/layout";
 import { restoredTitles, useTabsStore } from "./stores/tabs";
 
@@ -189,7 +190,8 @@ export function flushStatePersistence(): Promise<boolean> {
 export function installLayoutClosePersistence(): () => void {
   return ipcListen("window", "prepareClose", ({ attempt }) => {
     void (async () => {
-      const saved = await flushStatePersistence();
+      const results = await Promise.all([flushStatePersistence(), flushAgentViewPersistence()]);
+      const saved = results.every(Boolean);
       const result = await ipcCallResult("window", "closePrepared", { attempt, saved });
       if (!result.ok) log.warn(`Could not acknowledge layout flush: ${result.message}`);
     })().catch((error: unknown) => {

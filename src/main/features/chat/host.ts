@@ -2,6 +2,12 @@
 // the workspace's agent and relays its chat.* events to the renderer.
 
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { gte } from "semver";
+import {
+  connectionDefaultModel,
+  connectionKeyTarget,
+} from "../../../shared/agent-profiles/connection";
 import {
   agentEnvValue,
   mergeAgentEnv,
@@ -18,28 +24,57 @@ import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/
 import type { TranscriptPageResult } from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { tryGetMainT } from "../../i18n";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
+import {
+  claudeConnectionEnv,
+  claudeModelPicker,
+  codexConnectionArgs,
+  codexConnectionCatalog,
+  codexConnectionEnv,
+} from "../agent-profiles/connection-launch";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
 import { tabHookToken } from "../workspace/tab-token";
+import {
+  type ClaudeInstructionHook,
+  claudeInstructionLaunch,
+  claudeInstructionLaunchState,
+  claudeInstructionUpdate,
+  claudeResumeId,
+  instructionSessionId,
+} from "./instructions";
 import {
   CLAUDE_TAB_PROMPT,
   type ClaudeCommand,
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  claudeTabPrompt,
   codexTabEnv,
   hostJoin,
   parseClaudeVersion,
   type ResumeOptions,
+  takesAppendPromptFile,
+  windowsCommandLineTooLong,
 } from "./launch";
 import { OAuthCallbacks } from "./oauth-callback";
+import type { PromptFiles } from "./prompt-files";
 
 const log = createLogger("chat-host");
 
 /** How long `claude --version` may take: a first run can unpack itself. */
 const VERSION_TIMEOUT_MS = 20_000;
+/** The first Claude Code release with modelPicker in --settings. */
+const CUSTOM_CLAUDE_FROM = "2.1.242";
+
+function missingApiKeyMessage(): string {
+  return (
+    tryGetMainT()?.("settings:profiles.connection.errors.missingKey") ??
+    "Set the profile API key in Settings."
+  );
+}
 /** How long workspace removal waits for its chats, including queued requests. */
 const WORKSPACE_CHAT_CLOSE_MS = 5000;
 /** How long a `claude` command may take: an install fetches the plugin. */
@@ -63,6 +98,11 @@ export interface ChatHostOptions {
   broadcast: (event: string, args: unknown) => void;
   /** On Windows, where local claude runs without the bash wrapper. */
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
+  /**
+   * On Windows, where a tab's instructions go to claude in a file: the
+   * command line has no room for them once escaped.
+   */
+  promptFiles?: PromptFiles;
   /** The result a Claude chat reported on its stream. */
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** The lifecycle messages for a Claude chat's background tasks. */
@@ -73,8 +113,18 @@ export interface ChatHostOptions {
   knownChatTabs?: (workspaceId: string) => readonly string[];
   /** The agent profile of that id, as the app state has it; null when gone. */
   profile?: (id: string) => AgentProfile | null;
+  connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
   agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
+  instructions?: (workspaceId: string, profile: AgentProfile, session?: string) => string;
+  claudeInstructionDigests?: {
+    get(workspaceId: string, sessionId: string): string | null | undefined;
+    save(workspaceId: string, sessionId: string, digest: string | null): void;
+  };
+  savedClaudeInstructions?: (
+    workspaceId: string,
+    tabId: string,
+  ) => { profileId?: string; instructions?: string } | undefined;
 }
 
 export type StartResult =
@@ -107,6 +157,18 @@ export class ChatHost {
   readonly oauth = new OAuthCallbacks();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly tabIntents = new Map<string, TabIntent>();
+  private readonly claudeInstructions = new Map<
+    string,
+    { profileId?: string; instructions?: string }
+  >();
+  private readonly claudeInstructionUpdates = new Map<
+    string,
+    { launch: string; sessionId?: string; digest: string | null }
+  >();
+  /** The prompt file of each Claude tab's current program. */
+  private readonly promptFiles = new Map<string, string>();
+  /** Tabs whose new prompt file is not yet taken by a started program. */
+  private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
@@ -140,6 +202,7 @@ export class ChatHost {
     cwd: string,
     resume: ResumeOptions,
     profileId?: string,
+    instructions?: string,
   ): Promise<StartResult> {
     let profile: AgentProfile;
     try {
@@ -156,7 +219,7 @@ export class ChatHost {
 
     let profileEnv: Record<string, string>;
     try {
-      profileEnv = await this.profileEnv(channel, profile, windows);
+      profileEnv = await this.profileEnv(channel, profile, windows, true);
     } catch (error) {
       return { ok: false, reason: "failed", message: (error as Error).message };
     }
@@ -174,6 +237,16 @@ export class ChatHost {
       mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
     );
 
+    if (profile.connection?.method === "custom" && version && !gte(version, CUSTOM_CLAUDE_FROM)) {
+      return {
+        ok: false,
+        reason: "failed",
+        message:
+          tryGetMainT()?.("settings:profiles.connection.errors.claudeVersion", {
+            version: CUSTOM_CLAUDE_FROM,
+          }) ?? `Custom API addresses require Claude Code ${CUSTOM_CLAUDE_FROM} or later.`,
+      };
+    }
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = found.path;
@@ -207,20 +280,90 @@ export class ChatHost {
         ...(gitBash ? { gitBash } : {}),
       });
       if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
-      const result = await this.spawn(key, intent, channel, {
-        workspaceId,
-        tabId,
-        cwd,
-        program,
-        args: claudeTabArgs(resume, hooksSettings, version),
-        env: mergeAgentEnv(windows, profileEnv, env),
-        ...(resume.resetLog ? { resetLog: true } : {}),
-        ...(resume.resume !== undefined ? { resumed: true } : {}),
-      });
+      const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
+      const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
+      const sourceDigest = sourceId
+        ? this.options.claudeInstructionDigests?.get(workspaceId, sourceId)
+        : undefined;
+      env.NEXUS_CHAT_INSTRUCTION_LAUNCH = claudeInstructionLaunch(
+        combined,
+        sourceId && sourceDigest !== undefined
+          ? { sessionId: sourceId, digest: resume.resumeAt === undefined ? sourceDigest : null }
+          : undefined,
+      );
+      this.claudeInstructions.set(key, { profileId, instructions });
+      const modelPicker = claudeModelPicker(profile.connection);
+      let settings = hooksSettings;
+      if (modelPicker) {
+        if (program !== found.path) {
+          // The shell wrapper adds its hooks to this JSON before passing --settings.
+          env.NEXUS_CLAUDE_MODEL_PICKER = JSON.stringify(modelPicker);
+        } else {
+          const hooks = hooksSettings ? JSON.parse(await readFile(hooksSettings, "utf8")) : {};
+          settings = JSON.stringify({ ...hooks, modelPicker });
+        }
+      }
+      let promptFile: string | undefined;
+      const files = this.options.promptFiles;
+      if (windows && files && combined !== "" && takesAppendPromptFile(version)) {
+        this.promptStarting.add(key);
+        await this.removePromptFile(key);
+        try {
+          promptFile = await files.write(tabId, claudeTabPrompt(combined));
+          this.promptFiles.set(key, promptFile);
+        } catch {
+          // Not the error's text: it may name the file.
+          log.warn("instructions file could not be written");
+          this.promptStarting.delete(key);
+        }
+      }
+      const args = claudeTabArgs(resume, settings, version, combined, promptFile);
+      const defaultModel = connectionDefaultModel(profile);
+      if (defaultModel) args.push(`--model=${defaultModel}`);
+      if (windows && windowsCommandLineTooLong(program, args)) {
+        this.promptStarting.delete(key);
+        await this.removePromptFile(key);
+        return {
+          ok: false,
+          reason: "failed",
+          message:
+            tryGetMainT()?.("errors:chat.commandLineTooLong") ??
+            "The instructions are too long for Windows to start Claude Code. Shorten them and try again.",
+        };
+      }
+      let result: { pid: number; attached?: boolean };
+      try {
+        result = await this.spawn(key, intent, channel, {
+          workspaceId,
+          tabId,
+          cwd,
+          program,
+          args,
+          env: mergeAgentEnv(windows, profileEnv, env),
+          ...(resume.resetLog ? { resetLog: true } : {}),
+          ...(resume.connectionChanged ? { connectionChanged: true } : {}),
+          ...(resume.resume !== undefined ? { resumed: true } : {}),
+        });
+      } catch (err) {
+        await this.removePromptFile(key);
+        throw err;
+      } finally {
+        this.promptStarting.delete(key);
+      }
+      // A program the agent still ran took no new prompt.
+      if (result.attached === true) await this.removePromptFile(key);
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
     } catch (err) {
       return { ok: false, reason: "failed", message: (err as Error).message };
     }
+  }
+
+  /** Removes the tab's prompt file, once its program has read it or is gone. */
+  private async removePromptFile(key: string): Promise<void> {
+    const file = this.promptFiles.get(key);
+    if (file === undefined) return;
+    this.promptFiles.delete(key);
+    await this.options.promptFiles?.remove(file);
   }
 
   /**
@@ -234,7 +377,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     cwd: string,
-    options: { resetLog?: boolean; profileId?: string },
+    options: { resetLog?: boolean; connectionChanged?: boolean; profileId?: string },
   ): Promise<StartResult> {
     let profile: AgentProfile;
     try {
@@ -247,8 +390,17 @@ export class ChatHost {
     const channel = await this.channelForStart(workspaceId, key, intent);
     const windows = this.windowsHost(workspaceId);
     let profileEnv: Record<string, string>;
+    let apiKey: string | undefined;
     try {
       profileEnv = await this.profileEnv(channel, profile, windows);
+      apiKey = await this.profileConnectionKey(profile);
+      if (profile.connection?.method === "api-key" && !apiKey)
+        throw new Error(missingApiKeyMessage());
+      profileEnv = mergeAgentEnv(
+        windows,
+        profileEnv,
+        codexConnectionEnv(profile.connection, apiKey),
+      );
     } catch (error) {
       return { ok: false, reason: "failed", message: (error as Error).message };
     }
@@ -279,14 +431,23 @@ export class ChatHost {
         hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
         shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
       });
+      const connection = profile.connection;
+      const catalogPath =
+        connection?.method === "custom"
+          ? await channel.call<string>("chat.writeCodexCatalog", {
+              catalog: codexConnectionCatalog(connection),
+            })
+          : undefined;
+      const args = ["app-server", ...codexConnectionArgs(connection, apiKey, catalogPath)];
       const result = await this.spawn(key, intent, channel, {
         workspaceId,
         tabId,
         cwd,
         program: found.path,
-        args: ["app-server"],
+        args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
+        ...(options.connectionChanged ? { connectionChanged: true } : {}),
       });
       return {
         ok: true,
@@ -343,7 +504,11 @@ export class ChatHost {
     const previous = this.closingTabs.get(key);
     if (previous && !intent && !removal) return previous;
     this.tabIntents.delete(key);
+    this.claudeInstructions.delete(key);
+    this.claudeInstructionUpdates.delete(key);
     const close = async () => {
+      // Whatever follows, the closed tab's file has no use.
+      await this.removePromptFile(key);
       if (removal?.channel === null) return;
       if (previous) {
         if (!intent) return previous;
@@ -379,18 +544,89 @@ export class ChatHost {
     }
   }
 
-  async send(workspaceId: string, tabId: string, message: Record<string, unknown>): Promise<void> {
+  async send(
+    workspaceId: string,
+    tabId: string,
+    message: Record<string, unknown>,
+    layer: { profileId?: string; instructions?: string } = {},
+  ): Promise<void> {
     const channel = await this.channelFor(workspaceId);
-    const note =
-      message.method === "turn/start" ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    if (message.type === "user" && layer.instructions !== undefined) {
+      this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
+    }
+    const turn = message.method === "turn/start";
+    const note = turn ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    const instructions =
+      turn && this.options.instructions
+        ? this.options.instructions(
+            workspaceId,
+            this.instructionProfile("codex", layer.profileId),
+            layer.instructions,
+          )
+        : undefined;
     await channel.call("chat.send", {
       workspaceId,
       tabId,
       message,
-      ...(message.method === "turn/start"
-        ? { codexContext: { files: CLAUDE_TAB_PROMPT, cli: note } }
+      ...(turn
+        ? {
+            codexContext: {
+              files: CLAUDE_TAB_PROMPT,
+              cli: note,
+              ...(instructions ? { instructions } : {}),
+            },
+          }
         : {}),
     });
+  }
+
+  /** The hook reports changes against conversation history and restores them after compaction. */
+  claudeHookInstructions(
+    workspaceId: string,
+    tabId: string,
+    launch: string,
+    hook: ClaudeInstructionHook,
+  ): string {
+    const launchState = claudeInstructionLaunchState(launch);
+    if (!launchState) return "";
+    const key = `${workspaceId}:${tabId}`;
+    const saved = this.options.savedClaudeInstructions?.(workspaceId, tabId);
+    const layer = this.claudeInstructions.get(key) ?? saved;
+    if (!layer || !this.options.instructions) return "";
+
+    const sessionId = instructionSessionId(hook.sessionId);
+    const stored = sessionId
+      ? this.options.claudeInstructionDigests?.get(workspaceId, sessionId)
+      : undefined;
+    const prior = this.claudeInstructionUpdates.get(key);
+    const previous =
+      prior?.launch === launch && prior.sessionId === sessionId ? prior.digest : stored;
+    const remember = (digest: string | null) => {
+      this.claudeInstructionUpdates.set(key, { launch, sessionId, digest });
+      if (!sessionId || digest === stored) return;
+      try {
+        this.options.claudeInstructionDigests?.save(workspaceId, sessionId, digest);
+      } catch (error) {
+        log.warn(`Could not save Claude's instruction digest: ${(error as Error).message}`);
+      }
+    };
+
+    if (hook.phase === "start") {
+      const fork = launchState.fork;
+      // A full fork inherits the source digest. A fork at a message may have
+      // omitted that block, so remember that its digest is unknown.
+      if (sessionId && fork && sessionId !== fork.sessionId && previous === undefined)
+        remember(fork.digest);
+      return "";
+    }
+    const restoring = hook.phase === "restore";
+    const profile = this.instructionProfile("claude", layer.profileId);
+    const session = (restoring ? saved?.instructions : undefined) ?? layer.instructions;
+    const text = this.options.instructions(workspaceId, profile, session);
+    const update = claudeInstructionUpdate(launchState.systemDigest, previous, text, restoring);
+    if (!update) return "";
+    remember(update.digest);
+    return update.text;
   }
 
   async call(
@@ -598,6 +834,13 @@ export class ChatHost {
     throw error;
   }
 
+  /** A running tab can outlive its profile. Deleted profiles have no layer. */
+  private instructionProfile(agent: ChatAgent, profileId: string | undefined): AgentProfile {
+    const id = profileId ?? defaultProfileId(agent);
+    const profile = this.options.profile?.(id);
+    return profile?.agent === agent ? profile : { id, agent, dir: "", name: "", color: "" };
+  }
+
   /** Selects the same folder when reading history as when starting a profile. */
   private profileDir(workspaceId: string, agent: ChatAgent, profileId: string | undefined): string {
     return profileDirectory(this.profile(agent, profileId), this.windowsHost(workspaceId));
@@ -633,10 +876,22 @@ export class ChatHost {
     channel: AgentChannel,
     profile: AgentProfile,
     windows: boolean,
+    requireApiKey = false,
   ): Promise<Record<string, string>> {
     const { agent } = profile;
     const key = PROFILE_DIR_ENV[agent];
-    const env = profileVariables(profile.env, windows);
+    const connection = agent === "claude" ? profile.connection : undefined;
+    const apiKey =
+      connection && connection.method !== "account"
+        ? await this.profileConnectionKey(profile)
+        : undefined;
+    if (requireApiKey && connection?.method === "api-key" && !apiKey)
+      throw new Error(missingApiKeyMessage());
+    const env = mergeAgentEnv(
+      windows,
+      profileVariables(profile.env, windows),
+      claudeConnectionEnv(connection, apiKey),
+    );
     let dir = profileDirectory(profile, windows);
     if (profile.dir.trim() !== "") {
       const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
@@ -656,6 +911,14 @@ export class ChatHost {
       );
     }
     return mergeAgentEnv(windows, env, { [key]: dir });
+  }
+
+  private profileConnectionKey(profile: AgentProfile): Promise<string | undefined> | undefined {
+    if (!profile.connection || profile.connection.method === "account") return;
+    return this.options.connectionKey?.(
+      profile.id,
+      connectionKeyTarget(profile.agent, profile.connection),
+    );
   }
 
   /** Closes tracked and restored chats before the workspace's agent is torn down. */
@@ -757,6 +1020,9 @@ export class ChatHost {
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
     if (!tabId) return;
     if (event === "exit") {
+      // A restart's new file is not the exited program's.
+      const key = `${workspaceId}:${tabId}`;
+      if (!this.promptStarting.has(key)) void this.removePromptFile(key);
       this.options.onProgramExit?.(workspaceId, tabId);
       return;
     }

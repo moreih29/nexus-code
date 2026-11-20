@@ -12,6 +12,7 @@ import {
   profileForkSettings,
 } from "../../../../../src/renderer/services/chat/codex/profile-fork";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
+import { ClaudeTabPropsSchema, CodexTabPropsSchema } from "../../../../../src/shared/types/layout";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -19,10 +20,12 @@ import { ipcErr } from "../../../../../src/shared/ipc/result";
 const calls: { method: string; args: Record<string, unknown> }[] = [];
 /** What a stopped program does to the tab's lines: none come here unless a test says. */
 let onStop: (() => void) | undefined;
+let onStart: (() => void) | undefined;
 let stopFails = false;
 /** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
 let claudeSeq = 500;
+let initializeRequest: Record<string, unknown> | undefined;
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -30,8 +33,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
-    const input = args.message as { type?: string; request_id?: string } | undefined;
+    const input = args.message as
+      | {
+          type?: string;
+          request_id?: string;
+          request?: Record<string, unknown>;
+        }
+      | undefined;
     if (method === "send" && input?.type === "control_request") {
+      if (input.request?.subtype === "initialize") initializeRequest = input.request;
       const controller = live.find((c) => c.key === `${args.workspaceId}:${args.tabId}`);
       controller?.receive({
         seq: ++claudeSeq,
@@ -44,6 +54,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: undefined });
     }
     calls.push({ method, args });
+    if (method === "start" || method === "codexStart") onStart?.();
     if (method === "stop") {
       if (stopFails) return Promise.resolve(ipcErr("chat.stop-failed", "stop refused"));
       onStop?.();
@@ -71,6 +82,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: { found: false, lines: [], truncated: false } });
     }
     if (method === "start") {
+      if (args.workspaceId === "ws-instructions") {
+        live
+          .find((c) => c.key === `${args.workspaceId}:${args.tabId}`)
+          ?.receive({
+            seq: ++claudeSeq,
+            dir: "sys",
+            message: { event: "start" },
+          });
+      }
       return Promise.resolve({
         ok: true,
         value: { ok: true, pid: 1, attached: false, version: null },
@@ -106,9 +126,19 @@ afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   calls.length = 0;
   onStop = undefined;
+  onStart = undefined;
   stopFails = false;
+  initializeRequest = undefined;
   codex = undefined;
 });
+
+async function waitFor(ready: () => boolean): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (ready()) return;
+    await Bun.sleep(10);
+  }
+  throw new Error("the tab did not finish restarting");
+}
 
 describe("a Claude tab switched to another profile", () => {
   function claude() {
@@ -175,6 +205,58 @@ describe("a Claude tab switched to another profile", () => {
     expect(c.currentSession()).toBe("old");
     expect(c.state.queue.map((item) => item.id)).toEqual(["q"]);
     expect(seen).toEqual({});
+  });
+
+  test("restarts a connection edit on the same session after the turn and its jobs", async () => {
+    const { c } = claude();
+    const setIdle = (running: boolean, jobRunning: boolean) =>
+      useChatStore.getState().update(c.key, (prev) => ({
+        ...prev,
+        queue: [],
+        model: {
+          ...prev.model,
+          running,
+          contextUsage: { maxTokens: 1_000_000 },
+          tasks: jobRunning
+            ? {
+                job: {
+                  taskId: "job",
+                  type: "local_bash",
+                  description: "command",
+                  status: "running",
+                },
+              }
+            : {},
+        },
+      }));
+    setIdle(true, true);
+    c.profileConnectionChanged("different-profile");
+    c.profileConnectionChanged(c.profileId);
+    await Bun.sleep(20);
+    expect(calls).toEqual([]);
+    setIdle(false, true);
+    await Bun.sleep(260);
+    expect(calls).toEqual([]);
+    c.profileConnectionChanged(c.profileId);
+    onStart = () =>
+      c.receive({
+        seq: ++claudeSeq,
+        dir: "sys",
+        message: { event: "start", connectionChanged: true },
+      });
+    setIdle(false, false);
+    await waitFor(
+      () => calls.some(({ method }) => method === "start") && c.state.phase === "ready",
+    );
+    expect(calls.map(({ method }) => method)).toEqual(["stop", "start"]);
+    expect(calls[1]?.args).toMatchObject({ resume: "old", connectionChanged: true });
+    expect(calls[1]?.args.resetLog).toBeUndefined();
+    expect(c.currentSession()).toBe("old");
+    expect(c.state.history?.items).toHaveLength(1);
+    expect(c.state.model.items).toContainEqual(
+      expect.objectContaining({ code: "connection_restarted" }),
+    );
+    expect(c.state.model.contextUsage).toBeUndefined();
   });
 });
 
@@ -248,6 +330,87 @@ describe("a Codex tab switched to another profile", () => {
     expect(c.state.queue).toEqual([held]);
     expect(c.state.model.items.map((item) => item.key)).toEqual(["u1"]);
     expect(seen).toEqual({});
+  });
+
+  test.each([
+    false,
+    true,
+  ])("applies a saved connection while keeping the timeline (provider changed: %s)", async (providerChanged) => {
+    const { c } = codexTab();
+    let line = 100;
+    const updateJobs = (running: boolean) =>
+      useChatStore.getState().update(c.key, (prev) => ({
+        ...prev,
+        model: {
+          ...prev.model,
+          threadId: "old",
+          tasks: running
+            ? {
+                job: {
+                  taskId: "job",
+                  type: "codex-command",
+                  description: "command",
+                  status: "running",
+                },
+              }
+            : {},
+        },
+      }));
+    updateJobs(true);
+    c.profileConnectionChanged(c.profileId);
+    await Bun.sleep(20);
+    expect(calls).toEqual([]);
+    onStart = () =>
+      c.receive({ seq: ++line, dir: "sys", message: { event: "start", connectionChanged: true } });
+    const destination = {
+      model: "gateway",
+      modelProvider: "nexus_profile",
+      approvalPolicy: "never",
+      sandbox: { type: "readOnly" },
+    };
+    codex = (message) => {
+      if (message.id === undefined) return;
+      c.receive({ seq: ++line, dir: "in", message });
+      let result: Record<string, unknown> = {};
+      switch (message.method) {
+        case "config/read":
+          result = { config: { model: "gateway", model_provider: "nexus_profile" } };
+          break;
+        case "thread/read":
+          result = {
+            thread: { id: "old", modelProvider: providerChanged ? "openai" : "nexus_profile" },
+          };
+          break;
+        case "thread/start":
+          result = { ...destination, thread: { id: "ephemeral" } };
+          break;
+        case "thread/resume":
+          result = { ...destination, thread: { id: "old" } };
+          break;
+        case "thread/fork":
+          result = { ...destination, thread: { id: "copy", forkedFromId: "old" } };
+          break;
+      }
+      c.receive({ seq: ++line, dir: "out", message: { id: message.id, result } });
+    };
+    updateJobs(false);
+    await waitFor(
+      () => calls.some(({ method }) => method === "codexStart") && c.state.phase === "ready",
+    );
+    const restart = calls.find(({ method }) => method === "codexStart");
+    expect(restart?.args).toMatchObject({ connectionChanged: true });
+    expect(restart?.args.resetLog).toBeUndefined();
+    const rpc = calls.filter(({ method }) => method === "send").map(({ args }) => args.message);
+    expect(rpc).toContainEqual(
+      expect.objectContaining({
+        method: providerChanged ? "thread/fork" : "thread/resume",
+        params: expect.objectContaining({ threadId: "old", model: "gateway", excludeTurns: true }),
+      }),
+    );
+    expect(c.currentThread()).toBe(providerChanged ? "copy" : "old");
+    expect(c.model.items).toContainEqual(expect.objectContaining({ kind: "user", text: "hi" }));
+    expect(c.model.items).toContainEqual(expect.objectContaining({ code: "connection_restarted" }));
+    expect(c.model.model).toBe("gateway");
   });
 });
 
@@ -395,6 +558,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     const start = calls.find((call) => call.method === "start")?.args ?? {};
     expect(start.resume).toBeUndefined();
     expect(c.profileId).toBe("work");
+    expect(initializeRequest?.systemPromptSnapshot).toBeUndefined();
   });
 
   test("a session another profile keeps, taken up from the list, is copied into the tab's", async () => {
@@ -432,6 +596,7 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     expect(start.resume).toBe("mine");
     expect(start.fork).toBeUndefined();
     expect(c.currentSession()).toBe("mine");
+    expect(initializeRequest?.systemPromptSnapshot).toBe(false);
   });
 });
 
@@ -743,4 +908,48 @@ describe("the tab's profile in the store", () => {
       profileId: "work",
     });
   });
+});
+
+test("an initialized Claude tab restarts with edited instructions before its first prompt", async () => {
+  const base = { workspaceId: "ws-instructions", tabId: `t${++seq}`, cwd: "/p" };
+  let instructions = "";
+  const c = new ChatController(base, {
+    instructions: () => instructions,
+    mergedInstructions: (_profile, text) => text,
+  });
+  live.push(c);
+  await c.prepareSend();
+  instructions = "First-prompt rules";
+  await c.send("Review the diff.");
+  instructions = "Later rules";
+  await c.send("Review the tests.");
+  expect(
+    calls.filter(({ method }) => method === "start").map(({ args }) => args.instructions),
+  ).toEqual(["", "First-prompt rules"]);
+  expect(
+    calls.filter(({ method }) => method === "send").map(({ args }) => args.instructions),
+  ).toContain("Later rules");
+});
+
+test("Claude and Codex forks copy the session layer into the new tab's persisted props", () => {
+  const base = { workspaceId: "ws-instructions-fork", cwd: "/tmp/project" };
+  let instructions = "Review only";
+  const hooks = { instructions: () => instructions };
+  const claude = new ChatController({ ...base, tabId: "claude" }, hooks);
+  const codex = new CodexController({ ...base, tabId: "codex" }, hooks);
+  try {
+    const claudeFork = ClaudeTabPropsSchema.parse({ cwd: base.cwd, ...claude.inherited() });
+    const codexFork = CodexTabPropsSchema.parse({
+      cwd: base.cwd,
+      ...codex.inheritedInstructions(),
+    });
+    instructions = "Write tests";
+    expect(claudeFork.instructions).toBe("Review only");
+    expect(codexFork.instructions).toBe("Review only");
+    expect(claude.inherited().instructions).toBe("Write tests");
+    expect(codex.inheritedInstructions().instructions).toBe("Write tests");
+  } finally {
+    claude.dispose();
+    codex.dispose();
+  }
 });

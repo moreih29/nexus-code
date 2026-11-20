@@ -35,8 +35,21 @@ export type RemoteImageRef =
   | { kind: "tool"; toolUseId: string; index: number }
   | { kind: "held"; id: string; index: number };
 
+export function remoteImageKey(ref: RemoteImageRef): string {
+  const id = ref.kind === "user" ? ref.itemKey : ref.kind === "tool" ? ref.toolUseId : ref.id;
+  return JSON.stringify([ref.kind, id, ref.index]);
+}
+
+export interface ChatMediaAccess {
+  /** Identifies what can stay on screen while the next read runs. */
+  scope: string;
+  /** The current read generation. Null while the peer is offline or the panel is hidden. */
+  signal: AbortSignal | null;
+}
+
 export interface ImageLoader {
   (image: ImageBlock): Promise<ImageBlock>;
+  access: ChatMediaAccess | null;
   subscribe(ref: RemoteImageRef, listener: (image: ImageBlock | null) => void): () => void;
 }
 
@@ -103,6 +116,7 @@ export type NoticeCode =
   | "interrupted"
   | "exited"
   | "restarted"
+  | "connection_restarted"
   | "compacted"
   | "cleared"
   | "error"
@@ -324,6 +338,8 @@ export interface CommandInfo {
   description?: string;
   argumentHint?: string;
   aliases?: string[];
+  /** The CLI's own command, or one of the app's; not a skill. */
+  builtin?: boolean;
 }
 
 export interface InitializeInfo {
@@ -411,10 +427,14 @@ export interface ChatModel {
    */
   chosenModel?: string;
   permissionMode?: string;
+  /** The mode confirmed by the program, before any pending selections. */
+  confirmedPermissionMode?: string;
   effort?: string;
   cwd?: string;
   version?: string;
   init?: InitializeInfo;
+  /** Names from a system/init line, available even if an old log lost initialize. */
+  slashCommands?: CommandInfo[];
   running: boolean;
   turn: TurnState | null;
   process: "none" | "running" | "exited";
@@ -543,9 +563,18 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
   switch (message.event) {
     case "start":
       if (m.process === "none" && m.items.length === 0) m.resumed = message.resumed === true;
-      if (m.process === "exited")
+      if (message.connectionChanged === true) {
+        draft.push({ kind: "notice", key: `n${seq}`, code: "connection_restarted", at });
+        m.init = undefined;
+        m.slashCommands = undefined;
+        m.model = undefined;
+        m.chosenModel = undefined;
+        m.effort = undefined;
+        m.contextUsage = undefined;
+      } else if (m.process === "exited")
         draft.push({ kind: "notice", key: `n${seq}`, code: "restarted", at });
       m.process = "running";
+      m.confirmedPermissionMode = undefined;
       m.processCostUsd = 0;
       m.exit = undefined;
       m.outgoing = {};
@@ -562,6 +591,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       const stderr = str(message.stderrTail);
       const stderrTail = stderr === undefined ? undefined : terminalText(stderr);
       m.process = "exited";
+      m.confirmedPermissionMode = undefined;
       finishSubmittedTurn(draft, m.turn?.id, "the program exited");
       m.exit = { code, ...(signal ? { signal } : {}), ...(stderrTail ? { stderrTail } : {}) };
       m.running = false;
@@ -576,6 +606,7 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
       return;
     }
     case "dropped":
+      m.confirmedPermissionMode = undefined;
       draft.push({ kind: "notice", key: `n${seq}`, code: "dropped", at });
       return;
   }

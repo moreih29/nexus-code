@@ -57,12 +57,16 @@ describe("a socket that went straight", () => {
   function setup(answer: () => Response | Error) {
     let now = 0;
     const route = new ServerRoute(SERVER, PROXY, () => now);
-    let via: { origin: string } | null = { origin: "wss://nexus.example" };
+    let via: { origin: string; openedAt: number } | null = {
+      origin: "wss://nexus.example",
+      openedAt: -Infinity,
+    };
     const asked: string[] = [];
     let reconnects = 0;
     const back = returnToProxy({
       route,
       via: () => via,
+      now: () => now,
       reconnect: () => {
         reconnects += 1;
       },
@@ -82,8 +86,8 @@ describe("a socket that went straight", () => {
       at: (ms: number) => {
         now = ms;
       },
-      goes: (to: string | null) => {
-        via = to ? { origin: to } : null;
+      goes: (to: string | null, openedAt = -Infinity) => {
+        via = to ? { origin: to, openedAt } : null;
       },
     };
   }
@@ -95,6 +99,20 @@ describe("a socket that went straight", () => {
     await t.back.check();
     expect(t.asked).toEqual([]);
     t.at(PROXY_DOWN_MS);
+    await t.back.check();
+    expect(t.asked).toEqual([`${PROXY}/info`]);
+    expect(t.reconnects()).toBe(1);
+  });
+
+  test("a proxy probe leaves a newly opened direct connection in place", async () => {
+    const t = setup(() => new Response("{}"));
+    t.goes("wss://nexus.example", 34_000);
+    t.at(60_000);
+    await t.back.check();
+    expect(t.asked).toEqual([]);
+    expect(t.reconnects()).toBe(0);
+
+    t.at(94_000);
     await t.back.check();
     expect(t.asked).toEqual([`${PROXY}/info`]);
     expect(t.reconnects()).toBe(1);
@@ -117,7 +135,8 @@ describe("a socket that went straight", () => {
   ] as const)("ignores a late probe success after the original connection is %s", async (change) => {
     const route = new ServerRoute(SERVER, PROXY, () => 0);
     const response = Promise.withResolvers<Response>();
-    let via: { origin: string } | null = { origin: "wss://nexus.example" };
+    const direct = () => ({ origin: "wss://nexus.example", openedAt: -Infinity });
+    let via: ReturnType<typeof direct> | null = direct();
     let reconnects = 0;
     let probeSignal: AbortSignal | null | undefined;
     const probe = returnToProxy({
@@ -134,7 +153,7 @@ describe("a socket that went straight", () => {
     try {
       const pending = probe.check();
       if (change === "disconnected") via = null;
-      else if (change === "replaced at the same origin") via = { origin: "wss://nexus.example" };
+      else if (change === "replaced at the same origin") via = direct();
       else if (change === "on another route") route.unreachable(PROXY);
       else {
         probe.stop();
@@ -151,7 +170,8 @@ describe("a socket that went straight", () => {
   test("a late probe failure cannot put the proxy in cooldown for a new socket", async () => {
     const route = new ServerRoute(SERVER, PROXY, () => 0);
     const response = Promise.withResolvers<Response>();
-    let connection = { origin: "wss://nexus.example" };
+    const direct = () => ({ origin: "wss://nexus.example", openedAt: -Infinity });
+    let connection = direct();
     const probe = returnToProxy({
       route,
       via: () => connection,
@@ -160,7 +180,7 @@ describe("a socket that went straight", () => {
     });
     probes.push(probe);
     const pending = probe.check();
-    connection = { origin: "wss://nexus.example" };
+    connection = direct();
     response.reject(new TypeError("old probe failed"));
     await pending;
 

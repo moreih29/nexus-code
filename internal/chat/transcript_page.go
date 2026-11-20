@@ -43,6 +43,7 @@ type transcriptPage struct {
 	Cursor       string              `json:"cursor,omitempty"`
 	BeforeAnchor string              `json:"beforeAnchor,omitempty"`
 	Anchored     bool                `json:"anchored,omitempty"`
+	CutMatched   bool                `json:"cutMatched"`
 	Fragment     *transcriptFragment `json:"fragment,omitempty"`
 }
 
@@ -192,7 +193,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 			}
 			page.Anchored = true
 		} else if p.UpTo != "" || len(p.Before) > 0 {
-			snapshot.end, err = transcriptCutEnd(ctx, file, snapshot, p)
+			snapshot.end, page.CutMatched, err = transcriptCutEnd(ctx, file, snapshot, p)
 			if err != nil {
 				return page, err
 			}
@@ -328,7 +329,7 @@ func transcriptEndBeforeAnchor(file *os.File, snapshot *transcriptSnapshot, anch
 
 // A cut uses the first matching UUID in the retained window, as the
 // renderer's full-transcript cut did. It does not transfer the scan.
-func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSnapshot, p transcriptPageParams) (int64, error) {
+func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSnapshot, p transcriptPageParams) (int64, bool, error) {
 	reader := bufio.NewReaderSize(io.NewSectionReader(file, snapshot.floor, snapshot.end-snapshot.floor), transcriptReadBlock)
 	before := make(map[string]bool, len(p.Before))
 	for _, uuid := range p.Before {
@@ -340,7 +341,7 @@ func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSn
 		var line []byte
 		for {
 			if err := ctx.Err(); err != nil {
-				return 0, err
+				return 0, false, err
 			}
 			chunk, err := reader.ReadSlice('\n')
 			pos += int64(len(chunk))
@@ -349,7 +350,7 @@ func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSn
 			}
 			if err != bufio.ErrBufferFull {
 				if err != nil && err != io.EOF {
-					return 0, err
+					return 0, false, err
 				}
 				break
 			}
@@ -368,13 +369,13 @@ func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSn
 			entry.UUID = *entry.Attachment.Source
 		}
 		if before[entry.UUID] {
-			return start, nil
+			return start, true, nil
 		}
 		if p.UpTo != "" && p.UpTo == entry.UUID {
-			return pos, nil
+			return pos, true, nil
 		}
 	}
-	return snapshot.end, nil
+	return snapshot.end, false, nil
 }
 
 type transcriptReverseReader struct {

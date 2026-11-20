@@ -17,6 +17,7 @@ import { FS_READ_ABSOLUTE_BINARY_METHOD } from "../../../shared/fs/protocol";
 import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { limitLog, safeText } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
@@ -47,12 +48,14 @@ import {
 } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
-import { runCli } from "./registry";
+import { commandName, commandWaits, runCli } from "./registry";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { noteSlowRequest } from "./slow-log";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
+const slowRequests = limitLog(log);
 
 /** How long a pick started from a browser tab's button waits for the click. */
 const BUTTON_PICK_MS = 10 * 60_000;
@@ -62,14 +65,16 @@ const DISABLED: CliResult = {
   stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agents)\n",
   exitCode: 1,
 };
-const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
 
 export interface SetupCliFeatureOptions {
   /**
    * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
    * asks a terminal's agent which program holds its foreground.
    */
-  agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
+  agentHost: ActivitySource & {
+    call(method: string, args: unknown): Promise<unknown>;
+    hasWorkspaceSessions?(workspaceId: string): boolean;
+  };
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: {
@@ -129,6 +134,8 @@ export interface SetupCliFeatureOptions {
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
   /** The SSH workspaces' ports forwarded to this machine. */
   forwards: CliForwards;
+  claudeInstructions?: CliServices["claudeInstructions"];
+  terminalClaudeInstructions?: CliServices["terminalClaudeInstructions"];
   /** The workspaces' notes. */
   notes: CliNotes;
 }
@@ -243,7 +250,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     options.focusWindow();
     workspaceManager.connect(workspaceId).catch((error: unknown) => {
       log.warn(
-        `connecting ${workspaceId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+        `connecting ${shortId(workspaceId)} failed: ${safeText(error instanceof Error ? error.message : String(error), 200, redactLogSecrets)}`,
       );
     });
     options.broadcast("pty", "notificationClick", { workspaceId, tabId });
@@ -273,6 +280,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),
+    hasRunningTerminals: options.agentHost.hasWorkspaceSessions?.bind(options.agentHost),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
     claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
@@ -289,6 +297,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
+      alias: async (deviceId, alias) => {
+        const remote = options.remote?.();
+        if (!remote?.alias) throw new CliError("device aliases are unavailable");
+        await remote.alias(deviceId, alias);
+      },
       request: (deviceId, method, params, timeoutMs, signal) => {
         const remote = options.remote?.();
         if (!remote) {
@@ -337,7 +350,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
-    agentContextEnabled: () => options.settings().agentContext,
+    agentContextEnabled: () => options.settings().enabled && options.settings().agentContext,
+    claudeInstructions: options.claudeInstructions,
+    terminalClaudeInstructions: options.terminalClaudeInstructions,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
     forwards: options.forwards,
@@ -351,9 +366,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   };
 
   const run = (caller: CliCaller, request: CliInvocation, signal: AbortSignal) => {
-    if (!options.settings().enabled) {
-      // The SessionStart hook asks for the agent note in every session; it gets none.
-      if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
+    if (!options.settings().enabled && request.argv[0] !== "agent-context") {
       return Promise.resolve(DISABLED);
     }
     return runCli(CLI_COMMANDS, { caller, invocation: request, services, signal });
@@ -365,7 +378,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {
     const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
     if (!channel) {
-      log.warn(`cli.respond: no agent for workspace ${workspaceId}`);
+      log.warn(`cli.respond: no agent for workspace ${shortId(workspaceId)}`);
       return;
     }
     await channel.call("cli.respond", { requestId, response });
@@ -380,6 +393,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     const { requestId, workspaceId, tabId, request, verified } = parsed.data;
     const controller = new AbortController();
     running.set(requestId, controller);
+    const name = commandName(CLI_COMMANDS, request.argv);
+    const waits = commandWaits(CLI_COMMANDS, request.argv);
+    const startedAt = Date.now();
     run(
       { workspaceId, tabId, ...(verified !== undefined ? { verified } : {}) },
       request,
@@ -390,10 +406,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       })
       .catch((error: unknown) => {
         log.warn(
-          `cli request ${requestId} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,
+          `cli request ${requestId} failed: command=${name} ms=${Date.now() - startedAt} ${safeText(error instanceof Error ? error.message : String(error), 200, redactLogSecrets)}`,
         );
       })
-      .finally(() => running.delete(requestId));
+      .finally(() => {
+        running.delete(requestId);
+        noteSlowRequest(slowRequests, name, waits, Date.now() - startedAt);
+      });
   });
   const offCancel = agentHost.on("cli.cancel", (payload) => {
     const parsed = CliCancelSchema.safeParse(payload);

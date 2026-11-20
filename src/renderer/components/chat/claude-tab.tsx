@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { useStableHandlers } from "../../hooks/use-stable-handlers";
+import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
@@ -18,10 +19,19 @@ import {
   pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { historyForDisplay } from "../../services/chat/claude/history";
+import {
+  borrowedClaudeModels,
+  useClaudeModelCatalog,
+} from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
@@ -115,6 +125,7 @@ interface ClaudeTabViewProps {
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
+  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -147,6 +158,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
   const steady = useStateBesideStream(state);
+  const modelCatalogKey = isVisible && !steady.model.init ? controller.modelCatalogKey : undefined;
+  const fallbackModels = useClaudeModelCatalog((catalog) =>
+    modelCatalogKey ? borrowedClaudeModels(catalog, modelCatalogKey, controller.key) : undefined,
+  );
   const goal = useTabGoal(workspaceId, tabId);
 
   // The line under the composer: the context and the plan's usage when the
@@ -454,8 +469,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       const items = history ? [...history.items, ...model.items] : model.items;
       const tools = history ? { ...history.tools, ...model.tools } : model.tools;
       const shown = imagesOf(items, tools, cwd, model.agentItems);
+      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
+      const held = target.image ? latestReadFile(shown, target) : undefined;
+      if (held && showHeldLocalFile(workspaceId, held)) {
+        setLook(null);
+        return;
+      }
       void lookAtImage(shown, target, (files) => filesThere(workspaceId, rootPath, files)).then(
         (look) => {
+          // What shows from its data opens its file by path (as a tab, beside, in Finder): let that read it.
+          for (const path of Object.values(look?.paths ?? {})) grant(path);
           const list = look ?? alone?.();
           if (list) setLook(list);
         },
@@ -465,6 +488,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
+          if (showHeldLocalFile(workspaceId, path, line)) {
+            setLook(null);
+            return;
+          }
           // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) === "image") {
             lookAt({ file: path });
@@ -482,6 +509,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         if (image) lookAt({ image }, () => imageLook(images, index));
       },
       openChange(path) {
+        if (showHeldLocalFile(workspaceId, path)) {
+          setLook(null);
+          return;
+        }
         const { history, model } = latest.current.state;
         const tools = history ? { ...history.tools, ...model.tools } : model.tools;
         const before = changedFilesOf(tools).find((file) => file.path === path)?.before;
@@ -532,7 +563,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       revealPart(controller.key, part);
       return true;
     }
-    const command = parseAppCommand(text, state.model.init?.commands ?? []);
+    const command = parseAppCommand(
+      text,
+      state.model.init?.commands ?? state.model.slashCommands ?? [],
+    );
     if (!command) return false;
     if (command.name === "resume") {
       if (state.model.running) {
@@ -692,6 +726,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
+              historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
                   ? {
@@ -774,8 +809,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           <RateLimitBanner limit={state.model.rateLimit} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
+            instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
+            fallbackModels={fallbackModels}
             relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -862,6 +899,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
+          onOpenBeside={(path, { at }) => {
+            setLook(null);
+            placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+          }}
           onOpenTab={(path, at) => {
             setLook(null);
             links.openFileTab(path, at);
@@ -970,9 +1011,6 @@ function PhaseBanner({ controller, state }: { controller: ChatController; state:
         ),
       );
       break;
-  }
-  if (state.truncated) {
-    banners.push(<Banner key="truncated" variant="info" message={t("chat.phase.truncated")} />);
   }
   if (banners.length === 0) return null;
   return <div className="shrink-0 pt-1">{banners}</div>;

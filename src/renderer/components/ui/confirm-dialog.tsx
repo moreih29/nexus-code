@@ -41,6 +41,7 @@ export const MOUNT_CLICK_GRACE_MS = 120;
 export interface ConfirmDialogRequest {
   title: string;
   description: string;
+  hint?: string;
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
@@ -146,6 +147,7 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       {...(active?.description ? {} : { "aria-describedby": undefined })}
     >
       <DialogHeader title={active?.title} description={active?.description} />
+      {active?.hint && <p className="mt-3 text-app-ui-sm text-muted-foreground">{active.hint}</p>}
       {/* Enter takes the focused button: Cancel when confirming would
           delete or discard something, so a stray Enter loses nothing. */}
       <div className="mt-5 flex justify-end gap-2">

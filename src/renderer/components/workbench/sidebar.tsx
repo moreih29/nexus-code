@@ -1,12 +1,12 @@
 import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import { appErrorFailed } from "../../../shared/error/app-error";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { type WorkspaceColor, workspaceColorToken } from "../../../shared/types/workspace-color";
+import { workspaceColorToken } from "../../../shared/types/workspace-color";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
 import type { EstimatedGlyph } from "../../services/agent-sessions/model";
@@ -28,16 +28,8 @@ import {
   useWorkspacesStore,
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
-import { isImeComposing } from "../../utils/ime";
-import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
-import {
-  ContextMenuContent,
-  ContextMenuItems,
-  ContextMenuRoot,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "../ui/context-menu";
+import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
@@ -45,7 +37,9 @@ import { RowDropSlot } from "./dnd/row-drop-slot";
 import { buildSlotsForGroup, type SlotInfo, useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
-import { WorkspaceColorMenu } from "./workspace-color-menu";
+import { WorkspaceMenuContent } from "./workspace-menu";
+import { WorkspaceNameInput } from "./workspace-name-input";
+import { useWorkspaceRename, useWorkspaceUpdate } from "./workspace-rename";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -232,51 +226,10 @@ function WorkspaceRow({
   }
 
   // Rename and color go through workspace.update; the store follows its broadcast.
-  const { run: runUpdate } = useIpcAction<WorkspaceMeta>({});
-  function updateWorkspace(patch: { name?: string; color?: WorkspaceColor }) {
-    runUpdate(async (signal) => {
-      const result = await ipcCallResult(
-        "workspace",
-        "update",
-        { id: ws.id, ...patch },
-        { signal },
-      );
-      if (!result.ok) {
-        const err = appErrorFailed(result.message);
-        surfaceError(err, { surface: "auto" });
-        throw err;
-      }
-      return result.value;
-    });
-  }
-
-  // Inline rename: the name line becomes a field. Enter or leaving it commits (an empty name
-  // or the same one changes nothing), Escape cancels. The menu hands focus over to the field.
+  const updateWorkspace = useWorkspaceUpdate(ws);
+  // Inline rename: the name line becomes a field; the menu hands focus over to it.
   const handoff = useContextMenuHandoff();
-  const [renaming, setRenaming] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const renameSettled = useRef(true);
-  function startRename() {
-    renameSettled.current = false;
-    setNameDraft(ws.name);
-    setRenaming(true);
-  }
-  function endRename(commit: boolean) {
-    if (renameSettled.current) return;
-    renameSettled.current = true;
-    setRenaming(false);
-    const name = nameDraft.trim();
-    if (commit && name !== "" && name !== ws.name) updateWorkspace({ name });
-  }
-  useEffect(() => {
-    if (!renaming) return;
-    const id = requestAnimationFrame(() => {
-      nameInputRef.current?.focus();
-      nameInputRef.current?.select();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [renaming]);
+  const rename = useWorkspaceRename(ws, updateWorkspace);
 
   // The workspace's own color tints its icon; "auto" keeps the row as it was.
   const colorToken = workspaceColorToken(ws.color);
@@ -302,7 +255,7 @@ function WorkspaceRow({
           )}
           {...(rowDragProps as React.HTMLAttributes<HTMLDivElement>)}
           // Dragging would take the mouse from the name being typed.
-          {...(renaming ? { draggable: false } : {})}
+          {...(rename.renaming ? { draggable: false } : {})}
         >
           <button
             type="button"
@@ -357,32 +310,12 @@ function WorkspaceRow({
                     nameEmphasis && "font-semibold",
                   )}
                 >
-                  {renaming ? (
+                  {rename.renaming ? (
                     // It sits in the row's button: keys stay here so Space and the arrows do not
                     // reach it.
-                    <input
-                      ref={nameInputRef}
-                      value={nameDraft}
-                      onChange={(e) => setNameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (isImeComposing(e)) return;
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          endRename(true);
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          endRename(false);
-                        }
-                      }}
-                      onKeyUp={(e) => {
-                        if (e.key === " ") e.preventDefault();
-                      }}
-                      onBlur={() => endRename(true)}
-                      onClick={(e) => e.stopPropagation()}
+                    <WorkspaceNameInput
+                      rename={rename}
                       className="m-0 w-full border-0 bg-transparent p-0 text-foreground outline-none"
-                      aria-label={t("sidebar.rename_aria")}
-                      spellCheck={false}
                     />
                   ) : (
                     primaryText
@@ -435,7 +368,7 @@ function WorkspaceRow({
                       </>
                     )}
                     {taskIds.length > 0 && (
-                      <span className="shrink-0">
+                      <span className="shrink-0 whitespace-nowrap">
                         {branchName && "· "}
                         {t("sidebar.task_count", { count: taskIds.length })}
                       </span>
@@ -500,35 +433,14 @@ function WorkspaceRow({
           </IconButton>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent onCloseAutoFocus={handoff.onCloseAutoFocus}>
-        <ContextMenuItems
-          items={[
-            {
-              kind: "item",
-              label: ws.pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top"),
-              onSelect: () => onTogglePin(ws),
-            },
-            {
-              kind: "item",
-              label: t("sidebar.rename"),
-              onSelect: () => handoff.defer(startRename),
-            },
-          ]}
-        />
-        <WorkspaceColorMenu color={ws.color} onSelect={(color) => updateWorkspace({ color })} />
-        <WorkspaceProfileMenu workspace={ws} />
-        <ContextMenuSeparator />
-        <ContextMenuItems
-          items={[
-            {
-              kind: "item",
-              label: t("sidebar.dismiss_notification"),
-              disabled: !hasStatusToReset,
-              onSelect: resetStatus,
-            },
-          ]}
-        />
-      </ContextMenuContent>
+      <WorkspaceMenuContent
+        workspace={ws}
+        handoff={handoff}
+        onTogglePin={() => onTogglePin(ws)}
+        onRename={rename.start}
+        onColor={(color) => updateWorkspace({ color })}
+        dismiss={{ disabled: !hasStatusToReset, onSelect: resetStatus }}
+      />
     </ContextMenuRoot>
   );
 }
@@ -743,9 +655,9 @@ export const Sidebar = memo(function Sidebar({
             )}
             aria-label={t("sidebar.add_workspace")}
           >
-            <span className="inline-flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               <span aria-hidden="true">+</span>
-              <span>{t("sidebar.add_workspace")}</span>
+              <span className="truncate">{t("sidebar.add_workspace")}</span>
             </span>
           </button>
         </div>

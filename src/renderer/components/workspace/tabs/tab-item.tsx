@@ -180,7 +180,7 @@ function PinIcon() {
  * diff tab edits. Returns false for other tabs and for tabs whose model has
  * not yet been attached (the tracker creates entries lazily on model load).
  */
-function useTabDirty(tab: Tab): boolean {
+export function useTabDirty(tab: Tab): boolean {
   const diffWorkingFile = useDiffWorkingFile(tab.type === "editor.diff" ? tab.props : null);
   const filePath = tab.type === "editor" ? tab.props.filePath : diffWorkingFile;
   const cacheUri =

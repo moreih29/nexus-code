@@ -98,6 +98,7 @@ export async function runCodexCommand(
       const chosen = controller.inheritedChoice();
       openCodexTab(ctx.workspaceId, {
         cwd: ctx.cwd,
+        ...controller.inheritedInstructions(),
         fork: { ...controller.forkPoint(), ...(shown ? { title: shown } : {}) },
         profileId: controller.profileId,
         ...(chosen ? { chosen } : {}),

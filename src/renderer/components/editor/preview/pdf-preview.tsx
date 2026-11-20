@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { READ_RANGE_MAX_BYTES } from "../../../../shared/fs/defaults";
+import { pdfKept } from "../../../services/editor/preview/file-refresh";
 import { FIND_COLORS } from "../../../services/editor/preview/find/dom-finder";
 import { nextZoomStep } from "../../../services/editor/preview/pdf";
 import { type FilePart, readWorkspaceRange } from "../../../services/editor/preview/read-range";
@@ -244,13 +245,13 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
         }
         // A changed file keeps the zoom and place it was at.
         const previous = viewer.pdfDocument;
-        const keep = previous
-          ? {
-              scale: fitPendingRef.current ? "page-width" : viewer.currentScaleValue,
-              top: container.scrollTop,
-              left: container.scrollLeft,
-            }
-          : null;
+        const keep = pdfKept(
+          previous !== null && previous !== undefined,
+          fitPendingRef.current,
+          String(viewer.currentScaleValue),
+          container.scrollTop,
+          container.scrollLeft,
+        );
         viewer.eventBus.on(
           "pagesinit",
           () => {

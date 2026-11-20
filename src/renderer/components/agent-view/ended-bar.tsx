@@ -41,7 +41,7 @@ export function EndedBar({ sessionKey, ended }: { sessionKey: string; ended: End
         <Button
           type="button"
           size="sm"
-          className="h-6 px-2.5 text-app-ui-sm"
+          className="h-6 shrink-0 px-2.5 text-app-ui-sm whitespace-nowrap"
           title={t("agentView.ended.resume_title", { line })}
           onClick={resume}
         >

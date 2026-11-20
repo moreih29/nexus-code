@@ -111,8 +111,8 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
 {
   "preferredNotifChannel": "notifications_disabled",
   "hooks": {
-    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context","timeout":10}]}],
-    "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true}]}],
+    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context --launch=\"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" --profile=\"${NEXUS_TERMINAL_PROFILE_ID}\" -","timeout":10}]}],
+    "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true},{"type":"command","command":"if [ -n \"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" ]; then \"${NEXUS_AGENT_BIN}\" cli agent-context --launch=\"${NEXUS_CHAT_INSTRUCTION_LAUNCH}\" -; fi","timeout":10}]}],
     "PreToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook pre-tool-use","timeout":5,"async":true}]},{"matcher":"SendMessage","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook send-message","timeout":5}]}],
     "PostToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use","timeout":5,"async":true}]}],
     "PostToolUseFailure": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use-failure","timeout":5,"async":true}]}],
@@ -129,6 +129,14 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
 }
 SETTINGS_EOF
 )"
+
+# The chat host supplies only a modelPicker object, serialized as JSON.
+# Merge it with the hooks so Claude receives one settings argument.
+MODEL_PICKER="${NEXUS_CLAUDE_MODEL_PICKER:-}"
+unset NEXUS_CLAUDE_MODEL_PICKER
+if [[ -n "$MODEL_PICKER" ]]; then
+  SETTINGS_JSON="${SETTINGS_JSON%\}}"',"modelPicker":'"${MODEL_PICKER}}"
+fi
 
 # 7) The settings file claude reads. exec leaves nothing behind to delete a
 #    file per launch, so every launch shares one, named after its content: a
@@ -151,12 +159,15 @@ write_settings() {
   printf '%s' "$file"
 }
 if ! SETTINGS_FILE="$(write_settings)"; then
-  echo "nexus-code: cannot write claude's hooks settings; hook injection skipped" >&2
-  exec "$REAL_CLAUDE" "$@"
+  if [[ -z "$MODEL_PICKER" ]]; then
+    echo "nexus-code: cannot write claude's hooks settings; hook injection skipped" >&2
+    exec "$REAL_CLAUDE" "$@"
+  fi
+  SETTINGS_FILE="$SETTINGS_JSON"
 fi
 
 # 8) (테스트 전용) NEXUS_CAPTURE_SETTINGS_TO가 지정된 경우 settings 파일을 해당 경로로 복사.
-if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
+if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" && "$SETTINGS_FILE" != "$SETTINGS_JSON" ]]; then
   cp "$SETTINGS_FILE" "$NEXUS_CAPTURE_SETTINGS_TO"
 fi
 

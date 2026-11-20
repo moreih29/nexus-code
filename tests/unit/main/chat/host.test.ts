@@ -4,17 +4,24 @@ import {
   type ChatHostOptions,
   type ChatWorkspaceManager,
 } from "../../../../src/main/features/chat/host";
+import { claudeInstructionLaunchState } from "../../../../src/main/features/chat/instructions";
 import {
+  APPEND_PROMPT_FILE_FROM,
   CLAUDE_TAB_ARGS,
   CLAUDE_TAB_PROMPT,
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
   codexTabEnv,
+  escapeWindowsArg,
   gitBashPath,
   parseClaudeVersion,
   THINKING_DISPLAY_FROM,
+  takesAppendPromptFile,
   takesThinkingDisplay,
+  WINDOWS_COMMAND_LINE_MAX,
+  windowsCommandLineLength,
+  windowsCommandLineTooLong,
 } from "../../../../src/main/features/chat/launch";
 import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
 import { sessionAgents } from "../../../../src/main/features/remote/serving/sessions";
@@ -26,6 +33,7 @@ import type {
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
+import type { CustomConnection } from "../../../../src/shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -52,6 +60,8 @@ class FakeChannel implements AgentChannel {
       return { code: 0, stdout: this.versionOutput, stderr: "" } as T;
     }
     if (method === "chat.start") return { pid: 42 } as T;
+    if (method === "chat.writeCodexCatalog")
+      return "/home/u/.nexus-code/run/codex-catalogs/catalog.json" as T;
     if (method === "chat.transcriptPage" && this.transcriptPageError) {
       throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
     }
@@ -86,6 +96,7 @@ function setup(
   agentContext?: ChatHostOptions["agentContext"],
   onTaskEvent?: ChatHostOptions["onTaskEvent"],
   profile?: ChatHostOptions["profile"],
+  options: Partial<ChatHostOptions> = {},
 ) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
@@ -113,6 +124,7 @@ function setup(
     broadcast: (event, args) => events.push({ event, args }),
     onTurnResult: (ws, tab, result) => status.push(`${result.outcome} ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
+    ...options,
   });
   return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
 }
@@ -138,6 +150,171 @@ test.each([
   }
 });
 
+describe("Claude instruction history", () => {
+  const parent = "11111111-aaaa-4aaa-8aaa-111111111111";
+  const child = "22222222-bbbb-4bbb-8bbb-222222222222";
+  const childTab = "33333333-cccc-4ccc-8ccc-333333333333";
+
+  function instructionsFixture() {
+    const digests = new Map<string, string | null>();
+    const open = () =>
+      setup({}, undefined, undefined, undefined, {
+        instructions: (_workspaceId, _profile, session) => session ?? "",
+        claudeInstructionDigests: {
+          get: (workspaceId, sessionId) => digests.get(`${workspaceId}:${sessionId}`),
+          save: (workspaceId, sessionId, digest) => {
+            digests.set(`${workspaceId}:${sessionId}`, digest);
+          },
+        },
+      });
+
+    async function sendOriginalReplacement(...later: string[]) {
+      const { host, channel } = open();
+      await host.start(WS, TAB, "/repo", {}, undefined, "BASE");
+      const launch = launchOf(channel);
+      expect(
+        host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+      ).toBe("");
+      for (const instructions of ["ECHO", ...later]) {
+        await host.send(WS, TAB, { type: "user" }, { instructions });
+        expect(
+          host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+        ).toEndWith(instructions);
+      }
+      await host.call("close", { workspaceId: WS, tabId: TAB });
+    }
+
+    return { open, digests, sendOriginalReplacement };
+  }
+
+  function launchOf(channel: FakeChannel): string {
+    const params = channel.calls.findLast(({ method }) => method === "chat.start")?.params as {
+      env: Record<string, string>;
+    };
+    return params.env.NEXUS_CHAT_INSTRUCTION_LAUNCH ?? "";
+  }
+
+  test("a restarted app replaces a stale block on the first prompt of a resumed chat", async () => {
+    const { open, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, TAB, "/repo", { resume: parent }, undefined, "KILO");
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "restore" }),
+    ).toBe("");
+  });
+
+  test("a fork replaces its inherited block on the first prompt without changing the source", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const original = digests.get(`${WS}:${parent}`);
+    const { host, channel } = open();
+    await host.start(
+      WS,
+      childTab,
+      "/repo",
+      { resume: `/profile/${parent}.jsonl`, fork: true },
+      undefined,
+      "KILO",
+    );
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${child}`)).toBe(original);
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${parent}`)).toBe(original);
+    expect(digests.get(`${WS}:${child}`)).toBe(claudeInstructionLaunchState(launch)?.systemDigest);
+  });
+
+  test("a fork keeps a matching inherited block without repeating it and passes it to later resumes", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, childTab, "/repo", { resume: parent, fork: true }, undefined, "ECHO");
+    const launch = launchOf(channel);
+    host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" });
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${child}`)).toBe(digests.get(`${WS}:${parent}`));
+
+    const resumed = open();
+    await resumed.host.start(WS, childTab, "/repo", { resume: child }, undefined, "KILO");
+    expect(
+      resumed.host.claudeHookInstructions(WS, childTab, launchOf(resumed.channel), {
+        sessionId: child,
+        phase: "prompt",
+      }),
+    ).toEndWith("KILO");
+  });
+
+  test("a fork from an earlier message refreshes instructions once even when the source matches", async () => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    await sendOriginalReplacement("KILO");
+    const source = digests.get(`${WS}:${parent}`);
+    const { host, channel } = open();
+    await host.start(
+      WS,
+      childTab,
+      "/repo",
+      { resume: parent, fork: true, resumeAt: "earlier-message" },
+      undefined,
+      "KILO",
+    );
+    const launch = launchOf(channel);
+
+    expect(source).toBe(claudeInstructionLaunchState(launch)?.systemDigest);
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toEndWith("KILO");
+    expect(
+      host.claudeHookInstructions(WS, childTab, launch, { sessionId: child, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.get(`${WS}:${parent}`)).toBe(source);
+    expect(digests.get(`${WS}:${child}`)).toBe(source);
+  });
+
+  test.each([
+    false,
+    true,
+  ])("resuming skips a replacement when the history had a matching block: %s", async (hadBlock) => {
+    const { open, digests, sendOriginalReplacement } = instructionsFixture();
+    if (hadBlock) await sendOriginalReplacement();
+    const { host, channel } = open();
+    await host.start(WS, TAB, "/repo", { resume: parent }, undefined, "ECHO");
+    const launch = launchOf(channel);
+
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "start" }),
+    ).toBe("");
+    expect(
+      host.claudeHookInstructions(WS, TAB, launch, { sessionId: parent, phase: "prompt" }),
+    ).toBe("");
+    expect(digests.has(`${WS}:${parent}`)).toBe(hadBlock);
+  });
+});
+
 describe("chat launch", () => {
   test("resume and fork add their flags after the stream-json ones", () => {
     expect(claudeTabArgs({})).toEqual([
@@ -156,6 +333,49 @@ describe("chat launch", () => {
     // resumeAt means nothing without fork.
     expect(claudeTabArgs({ resume: "s1", resumeAt: "u9" })).not.toContain("--resume-session-at");
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
+  });
+
+  test("adds the merged instructions to the existing system prompt argument", () => {
+    const instructions = "# Instructions set in NexusCode\n\n## This session\nUse Korean.";
+    const args = claudeTabArgs({ resume: "s1" }, undefined, null, instructions);
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+      `${CLAUDE_TAB_PROMPT}\n\n${instructions}`,
+    );
+    expect(args.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
+  });
+
+  test("a prompt file replaces the prompt argument and carries no text on the line", () => {
+    const args = claudeTabArgs({ resume: "s1" }, undefined, null, "x", "C:\runp.txt");
+    expect(args).not.toContain("--append-system-prompt");
+    expect(args[args.indexOf("--append-system-prompt-file") + 1]).toBe("C:\runp.txt");
+    expect(args.join(" ")).not.toContain(CLAUDE_TAB_PROMPT);
+  });
+
+  test("only a claude known to take --append-system-prompt-file is given a file", () => {
+    expect(takesAppendPromptFile(APPEND_PROMPT_FILE_FROM)).toBe(true);
+    expect(takesAppendPromptFile("2.1.321")).toBe(true);
+    for (const version of ["2.1.68", null, "garbage"]) {
+      expect(takesAppendPromptFile(version)).toBe(false);
+    }
+  });
+
+  test("Windows argument escaping matches Go's os/exec", () => {
+    expect(escapeWindowsArg("")).toBe('""');
+    expect(escapeWindowsArg("plain")).toBe("plain");
+    expect(escapeWindowsArg('a"b')).toBe('a\\"b');
+    expect(escapeWindowsArg('a\\"b')).toBe('a\\\\\\"b');
+    expect(escapeWindowsArg("a\b")).toBe("a\b");
+    expect(escapeWindowsArg("a b")).toBe('"a b"');
+    expect(escapeWindowsArg("a b\\")).toBe('"a b\\\\"');
+  });
+
+  test("the command line length counts the escapes, and quotes can exceed the limit", () => {
+    expect(windowsCommandLineLength("c.exe", ["-p", "a b"])).toBe('c.exe -p "a b"'.length);
+    const quotes = '"'.repeat(WINDOWS_COMMAND_LINE_MAX / 2);
+    expect(windowsCommandLineTooLong("c.exe", ["--append-system-prompt", quotes])).toBe(true);
+    expect(windowsCommandLineTooLong("c.exe", ["--append-system-prompt", "a".repeat(30_000)])).toBe(
+      false,
+    );
   });
 
   test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
@@ -377,6 +597,91 @@ describe("ChatHost", () => {
     ]);
   });
 
+  test("passes a custom Claude profile to the wrapper and terminal on the workspace host", async () => {
+    const connection: CustomConnection = {
+      method: "custom",
+      baseUrl: "http://127.0.0.1:8080",
+      auth: "bearer",
+      defaultModel: "custom-model",
+      models: [{ id: "custom-model", label: "Custom" }],
+    };
+    const profile: AgentProfile = {
+      id: "claude-default",
+      agent: "claude",
+      name: "",
+      color: "blue",
+      dir: "",
+      connection,
+      env: { ANTHROPIC_AUTH_TOKEN: "older key" },
+    };
+    const { host, channel } = setup(
+      {},
+      undefined,
+      undefined,
+      (id) => (id === profile.id ? profile : null),
+      { connectionKey: async () => "sealed-key" },
+    );
+    expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    expect(await host.terminalProfileEnv(WS, profile.id)).toMatchObject({
+      ANTHROPIC_AUTH_TOKEN: "sealed-key",
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:8080",
+    });
+    const launch = channel.calls.find(({ method }) => method === "chat.start")?.params;
+    expect(launch).toMatchObject({
+      args: expect.arrayContaining(["--model=custom-model"]),
+      env: {
+        ANTHROPIC_AUTH_TOKEN: "sealed-key",
+        NEXUS_CLAUDE_MODEL_PICKER:
+          '{"replaceBuiltInOptions":true,"options":[{"model":"custom-model","label":"Custom"}]}',
+      },
+    });
+  });
+
+  test("puts Codex's catalog on the workspace agent before launching Codex", async () => {
+    const profile: AgentProfile = {
+      id: "codex-default",
+      agent: "codex",
+      name: "",
+      color: "cyan",
+      dir: "",
+      connection: {
+        method: "custom",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        defaultModel: "custom-model",
+        models: [{ id: "custom-model" }],
+      },
+    };
+    const { host, channel } = setup(
+      {},
+      undefined,
+      undefined,
+      (id) => (id === profile.id ? profile : null),
+      { connectionKey: async () => "sealed-key" },
+    );
+    channel.found = { path: "/remote/bin/codex" };
+    expect(await host.startCodex(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    const calls = channel.calls.filter(({ method }) =>
+      ["chat.writeCodexCatalog", "chat.start"].includes(method),
+    );
+    expect(calls).toMatchObject([
+      {
+        method: "chat.writeCodexCatalog",
+        params: { catalog: { models: [{ slug: "custom-model" }] } },
+      },
+      {
+        method: "chat.start",
+        params: {
+          program: "/remote/bin/codex",
+          args: expect.arrayContaining([
+            'model_catalog_json="/home/u/.nexus-code/run/codex-catalogs/catalog.json"',
+          ]),
+          env: { NEXUS_PROFILE_CODEX_API_KEY: "sealed-key" },
+        },
+      },
+    ]);
+    expect(await host.terminalProfileEnv(WS, profile.id)).toEqual({});
+  });
+
   test("a missing or wrong-agent profile cannot spawn or read, delete, or stage default history", async () => {
     const { host, channel } = setup({}, undefined, undefined);
     for (const id of ["missing", "codex-default"]) {
@@ -535,6 +840,83 @@ describe("ChatHost", () => {
       NEXUS_CLAUDE_TAB_ID: TAB,
       BASH_ENV: "/c/Users/u/.nexus-code/shim/ws/bashenv",
       NEXUS_BASH_WRAPPER_DIR: "/c/Users/u/.nexus-code/bin",
+    });
+  });
+
+  describe("Windows instructions file", () => {
+    function windowsHost(instructions: string, files: string[], removed: string[]) {
+      const channel = new FakeChannel();
+      channel.found = { path: "C:/Users/u/.local/bin/claude.exe" };
+      channel.versionOutput = "2.1.321 (Claude Code)\n";
+      const host = new ChatHost({
+        workspaceManager: {
+          getAgentChannel: async () => channel,
+          tryGetAgentChannel: async () => channel,
+          onProviderReady: () => () => {},
+          getSpawnHookInfo: async () => null,
+          getWrapperBinDir: () => null,
+          getWrapperAgentBin: () => null,
+          getWrapperShimDir: () => null,
+          isLocal: () => true,
+        },
+        broadcast: () => {},
+        windowsAgentFiles: async () => ({ binDir: "C:/bin" }),
+        instructions: () => instructions,
+        promptFiles: {
+          write: async (_tab, text) => {
+            files.push(text);
+            return `C:/run/p${files.length}.txt`;
+          },
+          remove: async (file) => {
+            removed.push(file);
+          },
+        },
+      });
+      return { channel, host };
+    }
+    const argsOf = (channel: FakeChannel) =>
+      (channel.calls.find((c) => c.method === "chat.start")?.params as { args: string[] }).args;
+
+    test("passes the merged prompt by file, and removes it when the tab closes", async () => {
+      const files: string[] = [];
+      const removed: string[] = [];
+      const { channel, host } = windowsHost("Use Korean.", files, removed);
+      await host.start(WS, TAB, "C:/repo", {});
+      const args = argsOf(channel);
+      expect(args).not.toContain("--append-system-prompt");
+      expect(args[args.indexOf("--append-system-prompt-file") + 1]).toBe("C:/run/p1.txt");
+      expect(files).toEqual([`${CLAUDE_TAB_PROMPT}\n\nUse Korean.`]);
+      expect(removed).toEqual([]);
+      await host.closeWorkspace(WS, channel);
+      expect(removed).toEqual(["C:/run/p1.txt"]);
+    });
+
+    test("a restart writes a new file and removes the old one", async () => {
+      const files: string[] = [];
+      const removed: string[] = [];
+      const { host } = windowsHost("A", files, removed);
+      await host.start(WS, TAB, "C:/repo", {});
+      await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toHaveLength(2);
+      expect(removed).toEqual(["C:/run/p1.txt"]);
+    });
+
+    test("without instructions the prompt stays on the command line", async () => {
+      const files: string[] = [];
+      const { channel, host } = windowsHost("", files, []);
+      await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toEqual([]);
+      expect(argsOf(channel)).toContain("--append-system-prompt");
+    });
+
+    test("an unknown claude version keeps the argument, and a line too long is refused", async () => {
+      const files: string[] = [];
+      const { channel, host } = windowsHost('"'.repeat(20_000), files, []);
+      channel.versionOutput = "not a version\n";
+      const result = await host.start(WS, TAB, "C:/repo", {});
+      expect(files).toEqual([]);
+      expect(result.ok).toBe(false);
+      expect(channel.calls.some((c) => c.method === "chat.start")).toBe(false);
     });
   });
 

@@ -5,6 +5,7 @@
 // controlled open state without prop drilling.
 
 import { create } from "zustand";
+import type { InstructionScope } from "../../../shared/chat/instructions";
 
 interface SettingsUIState {
   /** Whether the settings dialog is open. */
@@ -14,6 +15,8 @@ interface SettingsUIState {
    * Cleared when the dialog closes.
    */
   initialActiveId?: string;
+  initialInstructionScope?: InstructionScope;
+  openInstructions(scope: InstructionScope): void;
   /** Open the settings dialog on the default (first) tab. */
   openSettings(): void;
   /** Open the settings dialog navigated to a specific tab. */
@@ -32,11 +35,15 @@ export const useSettingsUIStore = create<SettingsUIState>((set, get) => ({
   },
 
   openSettingsAt(activeId) {
-    set({ settingsOpen: true, initialActiveId: activeId });
+    set({ settingsOpen: true, initialActiveId: activeId, initialInstructionScope: undefined });
+  },
+
+  openInstructions(scope) {
+    set({ settingsOpen: true, initialActiveId: "instructions", initialInstructionScope: scope });
   },
 
   closeSettings() {
-    set({ settingsOpen: false, initialActiveId: undefined });
+    set({ settingsOpen: false, initialActiveId: undefined, initialInstructionScope: undefined });
   },
 
   toggleSettings() {

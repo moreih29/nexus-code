@@ -7,56 +7,28 @@
 
 import i18next from "i18next";
 import { useMemo, useRef } from "react";
-import type { DiffHunk } from "../../../../packages/remote-protocol/src/rpc";
+import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
-import { ipcCallResult } from "../../ipc/client";
+import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import type { ChatFiles } from "../../services/chat/chat-files";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
+import { readRemoteFileBefore } from "../../services/remote/file-comparison";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import type { ChatLinks } from "../chat/chat-links";
 import type { QuickLookList } from "../chat/quick-look";
 import { showToast } from "../ui/toast";
 
 const t = (key: string, options?: Record<string, unknown>) => String(i18next.t(key, options));
-
-/**
- * The file before the changes `hunks` tell, from the file as it is now:
- * the hunks of a diff against the last commit taken back. Null when they
- * do not fit the file now (it changed since).
- */
-export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string | null {
-  const lines = now.split("\n");
-  const out: string[] = [];
-  let at = 0;
-  for (const hunk of [...hunks].sort((a, b) => a.newStart - b.newStart)) {
-    // A hunk that adds nothing starts after its line; any other, at it.
-    const from = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
-    if (from < at || from > lines.length) return null;
-    out.push(...lines.slice(at, from));
-    at = from;
-    for (const line of hunk.lines) {
-      const mark = line[0];
-      const text = line.slice(1);
-      if (mark === " ") {
-        if (lines[at] !== text) return null;
-        out.push(text);
-        at++;
-      } else if (mark === "-") {
-        out.push(text);
-      } else if (mark === "+") {
-        if (lines[at] !== text) return null;
-        at++;
-      }
-      // "\ No newline at end of file" tells nothing of the lines.
-    }
-  }
-  out.push(...lines.slice(at));
-  return out.join("\n");
-}
 
 /** What a remote chat's links read of its conversation when one is followed. */
 export interface RemoteLinkSource {
@@ -66,9 +38,8 @@ export interface RemoteLinkSource {
 /**
  * The links of another computer's chat, as a chat here's: a file, an
  * image or a change in quick look, which reads that computer's files
- * through the room (as its peer workspace); an image among
- * all of the conversation's images. Nothing opens as a tab here, and an
- * address of that computer's own is not this one's to open.
+ * through the room (as its peer workspace). A file held by a panel is
+ * selected there. Images can be stepped through in the conversation.
  */
 export function useRemoteLinks(
   target: RemoteTarget,
@@ -91,28 +62,19 @@ export function useRemoteLinks(
         if (list && opened === mine) setLook(list);
       });
     };
-    /** A changed file against its last commit: from how it differs now, the file as that had it. */
-    const sinceCommit = (path: string): Promise<QuickLookList> =>
-      Promise.all([
-        ipcCallResult("remote", "peerGitDiff", { ...where, path }),
-        ipcCallResult("remote", "peerFilesRead", { ...where, path }),
-      ]).then(([diff, read]): QuickLookList => {
-        const now =
-          read.ok && read.value.kind === "text" && !read.value.truncated ? read.value.text : null;
-        const before =
-          diff.ok && !diff.value.binary && diff.value.hunks.length > 0 && now !== null
-            ? beforeOfHunks(diff.value.hunks, now)
-            : null;
-        return {
-          files: [path],
-          index: 0,
-          ...(before !== null ? { changes: { [path]: before } } : {}),
-        };
-      });
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
       const shown = imagesOf(model.items, model.tools, cwd, model.agentItems);
+      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
+      const held = image.image ? latestReadFile(shown, image) : undefined;
+      if (held) {
+        opened++;
+        if (showHeldRemoteFile({ ...where, path: held })) {
+          setLook(null);
+          return;
+        }
+      }
       show(
         lookAtImage(shown, image, (paths) => files.there(paths)).then(
           (look) => look ?? alone?.() ?? null,
@@ -120,6 +82,11 @@ export function useRemoteLinks(
       );
     };
     const showFile = ({ path, line, column }: FileLink) => {
+      opened++;
+      if (showHeldRemoteFile({ ...where, path }, { line, column })) {
+        setLook(null);
+        return;
+      }
       if (fileKind(path) === "image") {
         lookAt({ file: path });
         return;
@@ -144,27 +111,34 @@ export function useRemoteLinks(
         if (image) lookAt({ image }, () => imageLook(images, index));
       },
       openChange(path) {
+        opened++;
+        const file = { ...where, path };
         const { model } = latest.current;
-        const known = changedFilesOf(model.tools).find((file) => file.path === path)?.before;
-        if (known !== undefined) {
-          setLook({ files: [path], index: 0, changes: { [path]: known } });
+        const known = changedFilesOf(model.tools).find((change) => change.path === path)?.before;
+        if (showHeldRemoteFile(file)) {
+          const view = useAgentViewStore.getState();
+          const key = remoteFileKey(file);
+          const previous = view.remoteFiles.get(key);
+          view.updateRemoteFile(key, {
+            before:
+              known !== undefined
+                ? known
+                : previous?.compareFrom === tabId
+                  ? previous.before
+                  : undefined,
+            compare: true,
+            compareFrom: tabId,
+          });
+          setLook(null);
           return;
         }
-        // Not in the conversation read here (a Codex chat's, or one further
-        // back): the original that computer kept of it (0.13.0); without
-        // one, the file as its last commit had it, from how it differs now.
-        show(
-          ipcCallResult("remote", "peerChatOriginal", { ...where, tabId, path }).then(
-            (kept): Promise<QuickLookList> =>
-              kept.ok
-                ? Promise.resolve({
-                    files: [path],
-                    index: 0,
-                    changes: { [path]: kept.value.before },
-                  })
-                : sinceCommit(path),
-          ),
-        );
+        const list = (before: string | null | undefined): QuickLookList => ({
+          files: [path],
+          index: 0,
+          ...(before !== undefined ? { changes: { [path]: before } } : {}),
+        });
+        if (known !== undefined) setLook(list(known));
+        else show(readRemoteFileBefore(file, tabId).then(list, () => list(undefined)));
       },
       openUrl(url) {
         // That computer's own address is not this one's to open.

@@ -18,7 +18,7 @@ export function SpreadsheetEditorView({ filePath, workspaceId }: SpreadsheetEdit
   );
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
       </div>
       <PreviewFindScope className="flex-1 min-h-0">

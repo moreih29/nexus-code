@@ -239,14 +239,22 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     case "init": {
       m.sessionId = str(message.session_id) ?? m.sessionId;
       m.model = str(message.model) ?? m.model;
-      m.permissionMode = str(message.permissionMode) ?? m.permissionMode;
+      if (typeof message.permissionMode === "string") {
+        m.permissionMode = m.confirmedPermissionMode = message.permissionMode;
+      }
       m.cwd = str(message.cwd) ?? m.cwd;
       m.version = str(message.claude_code_version) ?? m.version;
+      if (Array.isArray(message.slash_commands)) {
+        m.slashCommands = message.slash_commands.flatMap((raw) => {
+          const name = str(raw);
+          return name ? [{ name }] : [];
+        });
+      }
       return;
     }
     case "status": {
       const mode = str(message.permissionMode);
-      if (mode) m.permissionMode = mode;
+      if (mode) m.permissionMode = m.confirmedPermissionMode = mode;
       if (m.turn) m.turn = { ...m.turn, status: str(message.status) };
       return;
     }
@@ -1113,14 +1121,18 @@ function applyControlResponse(
           : undefined,
         account: accountOf(rec(body.account)),
       };
-      m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
+      if (typeof body.current_permission_mode === "string") {
+        m.permissionMode = m.confirmedPermissionMode = body.current_permission_mode;
+      }
       m.version = str(body.claude_code_version) ?? m.version;
       return;
     }
-    case "set_permission_mode":
+    case "set_permission_mode": {
       // The first switch of a process sends no system/status: the answer says.
-      m.permissionMode = str(body.mode) ?? str(request.mode) ?? m.permissionMode;
+      const mode = str(body.mode) ?? str(request.mode);
+      if (mode) m.permissionMode = m.confirmedPermissionMode = mode;
       return;
+    }
     case "set_model":
       m.model = str(request.model) ?? m.model;
       m.chosenModel = str(request.model) ?? m.chosenModel;

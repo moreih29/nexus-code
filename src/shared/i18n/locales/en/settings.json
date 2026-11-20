@@ -15,6 +15,7 @@
     "claude": "Claude",
     "codex": "Codex",
     "profileRules": "Profiles by workspace",
+    "instructions": "Instructions",
     "remote": "Remote"
   },
   "dialog": {
@@ -327,6 +328,7 @@
         "permissionDeny": "deny {{detail}}",
         "chatInterrupt": "stop the turn of the tab \"{{detail}}\"",
         "chatSettings": "change the model, effort or mode of the tab \"{{detail}}\"",
+        "instructionsEdit": "change instructions for {{detail}}",
         "chatMode": "change the permission mode of the tab {{detail}}",
         "chatProfile": "change the profile of the tab {{detail}}, going on with its conversation",
         "chatProfileNew": "change the profile of the tab {{detail}}, starting a new conversation",
@@ -335,10 +337,13 @@
         "chatFork": "copy the conversation of the tab \"{{detail}}\" into a new tab",
         "chatBackground": "send {{detail}} to the background",
         "chatTaskStop": "stop the task {{detail}}",
+        "chatRemoteControlToggle": "toggle Remote Control for \"{{detail}}\"",
         "chatRemoteControlOn": "turn on Remote Control of the tab \"{{detail}}\"",
         "chatRemoteControlOff": "turn off Remote Control of the tab \"{{detail}}\"",
         "noteNew": "make the note \"{{detail}}\"",
         "noteWrite": "write into the note \"{{detail}}\"",
+        "noteSpeakers": "edit speakers in the note \"{{detail}}\"",
+        "voiceNamesDelete": "delete remembered voiceprints ({{detail}})",
         "noteRecord": "record into the note \"{{detail}}\" with the microphone",
         "noteRecordStop": "pause or stop the recording of the note \"{{detail}}\""
       },
@@ -368,6 +373,13 @@
     "checking": "Checking…",
     "storeManaged": "Updates come from the Microsoft Store.",
     "openStore": "Open Microsoft Store",
+    "logs": {
+      "title": "Logs",
+      "description": "Logs to attach to a problem report",
+      "open": "Open log folder",
+      "copyPath": "Copy log path",
+      "copied": "Copied"
+    },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
@@ -695,6 +707,302 @@
       "cancel": "Cancel",
       "sameOrg": "Same organization as the {{name}} profile. Sign in again with another one.",
       "sameAccount": "Same account as the {{name}} profile"
+    },
+    "behavior": {
+      "title": "Behavior",
+      "openFile": "Open {{file}}",
+      "loading": "Reading…",
+      "ssh": "This computer's files only · SSH hosts use their own files",
+      "shared": {
+        "warn": "{{file}} shared with the default profile · changes apply to both",
+        "unshare": "Use a separate file",
+        "confirmTitle": "Create a profile-only copy of {{file}}?",
+        "confirmBody": "This copies the current content to this profile's folder. The default profile stays as it is.",
+        "confirm": "Copy",
+        "own": "This profile only",
+        "failed": "Couldn't create a separate file ({{message}})."
+      },
+      "broken": "Couldn't read {{file}} ({{reason}}). Fix the file and reopen.",
+      "outside": "The file changed externally. Reloading keeps your edits.",
+      "reload": "Reload",
+      "conflict": "The file changed externally. Reload it before saving.",
+      "unsupported": "Edit directly in the file",
+      "unsupportedSave": "Couldn't save. Edit {{fields}} directly in the file.",
+      "saveFailed": "Couldn't save these settings ({{message}}).",
+      "default": "Default",
+      "defaultAccount": "Default (by account)",
+      "tabNote": {
+        "claude": "Defaults for new tabs · model and mode changes stay in their tab",
+        "codex": "Approval and sandbox defaults for new tabs · permission changes stay in their tab"
+      },
+      "footer": {
+        "claude": "Allow and deny rules, hooks, and status line in {{file}} · servers on the MCP screen",
+        "codex": "MCP servers, rules, hooks, and notifications in {{file}}"
+      },
+      "groups": {
+        "model": "Model",
+        "work": "Workflow",
+        "permissions": "Permissions"
+      },
+      "fields": {
+        "model": {
+          "label": "Starting model",
+          "hint": "Claude's built-in model list"
+        },
+        "thinking": {
+          "label": "Extended thinking",
+          "hint": "Off · answers right away without thinking first"
+        },
+        "permissionMode": {
+          "label": "Permission mode",
+          "hint": "The mode a new tab starts in"
+        },
+        "language": {
+          "label": "Reply language",
+          "hint": "Blank · Claude chooses",
+          "placeholder": "e.g. Korean"
+        },
+        "outputStyle": {
+          "label": "Output style"
+        },
+        "autoCompact": {
+          "label": "Auto-compact",
+          "hint": "Summarizes the conversation when the context fills"
+        },
+        "autoMemory": {
+          "label": "Auto memory",
+          "hint": "Keeps what Claude learns for future chats"
+        },
+        "attribution": {
+          "label": "Claude attribution in commits and PRs",
+          "hint": "The Co-Authored-By line and the PR footer"
+        },
+        "sandbox": {
+          "label": "Bash sandbox",
+          "hint": "File and network limits for commands"
+        },
+        "approvalPolicy": {
+          "label": "Approval",
+          "hint": "Whether to ask before running a command"
+        },
+        "sandboxMode": {
+          "label": "Sandbox",
+          "hint": "What a command may change"
+        },
+        "sandboxNetwork": {
+          "label": "Sandbox network access",
+          "hint": "Outbound connections in workspace-write mode"
+        },
+        "webSearch": {
+          "label": "Web search",
+          "hint": "Off · cached · indexed · live",
+          "locked": "Web search off for this API address"
+        },
+        "reasoningSummary": {
+          "label": "Reasoning summary",
+          "hint": "How much of the thinking to show"
+        },
+        "autoCompactLimit": {
+          "label": "Auto-compact limit",
+          "hint": "Empty: the model's default",
+          "placeholder": "e.g. 100000"
+        },
+        "verbosity": {
+          "label": "Answer length"
+        },
+        "codexModel": {
+          "label": "Starting model",
+          "hint": "Empty: Codex's default model",
+          "placeholder": "e.g. gpt-5"
+        }
+      },
+      "options": {
+        "permissionMode": {
+          "default": "Default",
+          "plan": "Plan",
+          "acceptEdits": "Accept edits",
+          "auto": "Auto",
+          "dontAsk": "Don't ask"
+        },
+        "outputStyle": {
+          "default": "Default"
+        },
+        "approvalPolicy": {
+          "on-request": "Ask when needed",
+          "never": "Never ask",
+          "untrusted": "Ask for untrusted commands"
+        },
+        "sandboxMode": {
+          "read-only": "Read only",
+          "workspace-write": "Workspace only",
+          "danger-full-access": "Full access"
+        },
+        "webSearch": {
+          "disabled": "Off",
+          "cached": "Cached",
+          "indexed": "Indexed",
+          "live": "Live"
+        },
+        "reasoningSummary": {
+          "auto": "Auto",
+          "concise": "Concise",
+          "detailed": "Detailed",
+          "none": "Hidden"
+        },
+        "verbosity": {
+          "low": "Short",
+          "medium": "Medium",
+          "high": "Long"
+        }
+      }
+    },
+    "connection": {
+      "method": "Connection method",
+      "methods": {
+        "account": {
+          "claude": {
+            "label": "Claude account",
+            "hint": "Pro, Max, or Team plan · sign-in opens after creation"
+          },
+          "codex": {
+            "label": "ChatGPT account",
+            "hint": "ChatGPT plan · sign-in opens after creation"
+          }
+        },
+        "api-key": {
+          "claude": {
+            "label": "Anthropic API key",
+            "hint": "Claude Console key · usage-based billing"
+          },
+          "codex": {
+            "label": "OpenAI API key",
+            "hint": "OpenAI Platform key · usage-based billing"
+          }
+        },
+        "custom": {
+          "claude": {
+            "label": "Custom API address",
+            "hint": "Provider or gateway that supports Anthropic Messages"
+          },
+          "codex": {
+            "label": "Custom API address",
+            "hint": "Server or gateway that supports the Responses API"
+          }
+        }
+      },
+      "addressAndKey": "Address and key",
+      "key": "API key",
+      "keyOptional": "Blank if the server needs no key",
+      "clearKey": "Clear key",
+      "sealedKey": "Encrypted key storage on this computer",
+      "memoryKey": "System key storage unavailable · key kept in memory until the app quits",
+      "presets": "Connection presets",
+      "manual": "Enter manually",
+      "address": "API address",
+      "auth": "Key authentication",
+      "bearer": "Bearer token",
+      "responsesHint": "Responses API (/v1/responses) · Chat Completions-only servers need a gateway that translates requests",
+      "models": "Models",
+      "modelId": "Model ID",
+      "label": "Display name (optional)",
+      "default": "Default",
+      "context": "Context window",
+      "contextHint": "Blank · Claude Code's 1M-token default for unknown models",
+      "lightModel": "Background model",
+      "lightHint": "Background work such as chat titles and summaries",
+      "reasoning": "Reasoning",
+      "effort": {
+        "none": "None",
+        "high": "low–high",
+        "xhigh": "low–xhigh"
+      },
+      "addModel": "Add model",
+      "removeModel": "Remove model",
+      "localCheck": "Model discovery and connection tests on this computer",
+      "find": "Find models",
+      "findAgain": "Find again",
+      "looking": "Looking…",
+      "found_one": "{{count}} model found",
+      "found_other": "{{count}} models found",
+      "noModels": "No model list available. Enter model IDs from the provider's documentation.",
+      "notRunning": "The local server is not running.",
+      "gigabytes": "{{size}} GB",
+      "advanced": "Advanced",
+      "advancedHint": {
+        "claude": "Extra headers · Request timeout · Output tokens · Experimental headers",
+        "codex": "Query parameters · Extra headers · Retries · Stream timeout"
+      },
+      "headers": "Extra headers",
+      "headersInvalid": "Enter one valid Header-Name: value per line.",
+      "query": "Query parameters",
+      "queryInvalid": "Enter one name=value pair per line.",
+      "timeout": "Request timeout (ms)",
+      "outputTokens": "Max output tokens",
+      "disableBetas": "Disable experimental headers",
+      "retries": "Retry count",
+      "streamTimeout": "Stream idle timeout (ms)",
+      "envPriority": "Connection settings override matching extra environment variables",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "testHint": "One short request to the default model · may use a few tokens",
+      "tested": "{{model}} replied in {{ms}} ms",
+      "createAndSignIn": "Create and sign in",
+      "saveError": "Could not save the profile.",
+      "errors": {
+        "auth": "Check the API key and how it is sent.",
+        "model": "Could not find model {{model}}.",
+        "network": "Could not reach the server. Check the address and network.",
+        "address": "Enter a valid HTTP or HTTPS API address.",
+        "unsupported": "This address does not accept the Responses API.",
+        "response": "The server returned an unexpected response.",
+        "missingKey": "Set the profile API key in Settings.",
+        "claudeVersion": "Custom API addresses require Claude Code {{version}} or later."
+      },
+      "behaviorModel": "Connection default model ({{model}})",
+      "behaviorModelPending": "Choose the default model in Connection",
+      "behaviorWebSearch": "Web search off for this API address"
+    }
+  },
+  "instructions": {
+    "workspaceMenu": "Instructions…",
+    "description": "Extra instructions for agents opened by NexusCode · alongside CLAUDE.md and AGENTS.md",
+    "all": "All agents",
+    "agentsAndProfiles": "Agents and profiles",
+    "workspaces": "Workspaces",
+    "sessionHint": "Edit session instructions in the chat tab",
+    "scope": {
+      "all": "Claude and Codex opened by NexusCode",
+      "claude": "All Claude tabs and Claude in app terminals",
+      "codex": "All Codex tabs",
+      "profile": "Agents opened with this profile",
+      "workspace": "Agents opened in this workspace · stored in the app"
+    },
+    "preview": "Combined instructions",
+    "agent": "Agent",
+    "profile": "Profile",
+    "workspace": "Workspace",
+    "count": "{{chars}} characters · about {{tokens}} tokens",
+    "tooLong": "Up to {{max}} characters per layer",
+    "invalidText": "Plain text without null characters",
+    "empty": "No instructions",
+    "hasText": "Has instructions",
+    "applies": "New tabs immediately · open tabs from the next message",
+    "saveFailed": "Could not save the instructions.",
+    "session": {
+      "chip": "Instructions",
+      "chipCount": "Instructions {{count}}",
+      "title": "Instructions for this tab",
+      "profile": "Profile · {{name}}",
+      "workspace": "Workspace · {{name}}",
+      "emptyLayer": "None",
+      "lines_one": "{{count}} line",
+      "lines_other": "{{count}} lines",
+      "edit": "Edit in Settings ↗",
+      "add": "Add ↗",
+      "label": "This session",
+      "preview": "View combined instructions",
+      "apply": "Apply",
+      "applies": "Applies from the next message."
     }
   },
   "profileRules": {

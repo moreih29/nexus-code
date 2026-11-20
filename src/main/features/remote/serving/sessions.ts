@@ -8,7 +8,7 @@ import {
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../../shared/claude/activity";
-import type { CliChatState } from "../../../../shared/cli/ui";
+import type { CliChatState, CliTabInfo } from "../../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
@@ -16,6 +16,7 @@ import type { CliServices } from "../../cli/context";
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
 import { oneLine } from "./common";
+import { ReadBudget } from "./read-budget";
 
 /** A chat's state as the agent lists show it. */
 const CHAT_STATES: Record<CliChatState, SessionState> = {
@@ -82,14 +83,122 @@ function agentsField(
   return agents ? { agents } : {};
 }
 
-/**
- * The workspaces and their sessions; a task's git facts from `git`, which
- * looks at them now and then rather than now.
- */
+const MAX_CONCURRENT_UI_READS = 8;
+
+/** Keeps renderer requests bounded and puts their results back in input order. */
+async function gather<T, R>(
+  items: readonly T[],
+  budget: ReadBudget,
+  read: (item: T) => Promise<R>,
+) {
+  const results: (R | undefined)[] = Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length && budget.remaining() > 0) {
+      const index = next++;
+      results[index] = await read(items[index] as T);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(items.length, MAX_CONCURRENT_UI_READS) }, worker),
+  );
+  return { results, skipped: items.length - next };
+}
+
+async function chatSession(
+  services: CliServices,
+  budget: ReadBudget,
+  workspaceId: string,
+  tab: CliTabInfo,
+): Promise<RemoteSession | undefined> {
+  if (tab.type !== "claude" && tab.type !== "codex") return undefined;
+  const info = await budget
+    .ui("chat.state", { workspaceId, tabId: tab.id, peek: true })
+    .catch(() => undefined);
+  // The protocol has no unknown chat state. Leave the row out until it can be read.
+  if (!info) return undefined;
+  return {
+    workspaceId,
+    tabId: tab.id,
+    kind: tab.type,
+    title: tab.title,
+    state: CHAT_STATES[info.state],
+    ...(info.since !== undefined ? { since: info.since } : {}),
+    ...(info.message ? { last: oneLine(info.message) } : {}),
+    ...(info.profile ? { profile: info.profile } : {}),
+    ...(info.cwd ? { cwd: info.cwd } : {}),
+    ...(info.state === "asking" && info.waiting
+      ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
+      : {}),
+    ...agentsField(services, workspaceId, tab.id),
+  };
+}
+
+function terminalSession(
+  services: CliServices,
+  workspaceId: string,
+  tab: CliTabInfo,
+  now: number,
+): RemoteSession {
+  const claude = services.claudeStatus(workspaceId, tab.id);
+  const state = describeTerminal(claude, services.activity(workspaceId, tab.id), tab.title, now);
+  const ask =
+    claude?.status === "permissionPending"
+      ? services.claudeAsks(workspaceId, tab.id)[0]
+      : undefined;
+  return {
+    workspaceId,
+    tabId: tab.id,
+    kind: "terminal",
+    title: tab.title,
+    state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
+    ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
+    ...(state.since !== undefined ? { since: state.since } : {}),
+    ...(state.message ? { last: oneLine(state.message) } : {}),
+    ...(ask
+      ? {
+          waiting: {
+            kind: "permission",
+            text: oneLine(ask.target ? `${ask.tool} ${ask.target}` : ask.tool),
+            requestId: ask.id,
+            always: ask.always.length > 0,
+            subagent: ask.agentId !== undefined,
+          },
+        }
+      : {}),
+    ...agentsField(services, workspaceId, tab.id),
+  };
+}
+
+/** The workspaces and their sessions, using task Git facts from the cache. */
 export async function listSessions(
   services: CliServices,
   git?: WorkspaceGit,
 ): Promise<RpcResult<"sessions.list">> {
+  return (await snapshotSessions(services, git)).list;
+}
+
+/** Returns the workspace and session snapshot with the requester's consents. */
+export async function serveSessionsList(
+  services: CliServices,
+  git: WorkspaceGit | undefined,
+  notes: RemoteNotes | undefined,
+  from: string,
+  controls: ConsentControls,
+): Promise<RpcResult<"sessions.list">> {
+  const snapshot = await snapshotSessions(services, git, notes, "sessions.list", from);
+  return snapshot.forDevice(from, controls);
+}
+
+/** A snapshot whose renderer reads can also supply consent titles for each watcher. */
+export async function snapshotSessions(
+  services: CliServices,
+  git: WorkspaceGit | undefined,
+  notes?: RemoteNotes,
+  method: "sessions.list" | "sessions.watch" = "sessions.watch",
+  from?: string,
+) {
+  const budget = new ReadBudget(services, method, from);
   const workspaces = ordered(services.listWorkspaces());
   // Read Git facts with the workspace snapshot. Waiting for tabs first would
   // let an old list recreate the cache entry for a workspace removed meanwhile.
@@ -104,93 +213,61 @@ export async function listSessions(
       ...(facts ? { git: facts } : {}),
     };
   });
-  const sessions: RemoteSession[] = [];
   const now = Date.now();
-  for (const workspace of workspaces) {
-    let tabs: Awaited<ReturnType<typeof services.ui<"tabs.list">>>["tabs"];
-    try {
-      tabs = (await services.ui("tabs.list", { workspaceId: workspace.id })).tabs;
-    } catch {
-      // A workspace the renderer does not hold (not opened yet): nothing to list.
+  const tabs = await gather(workspaces, budget, ({ id: workspaceId }) =>
+    budget.ui("tabs.list", { workspaceId }).catch(() => undefined),
+  );
+
+  const incompleteWorkspaces = new Set<string>();
+  const tabsByWorkspace = new Map<string, readonly CliTabInfo[]>();
+  const sessions: (RemoteSession | undefined)[] = [];
+  const chats: { index: number; workspaceId: string; tab: CliTabInfo }[] = [];
+  for (const [index, { id: workspaceId }] of workspaces.entries()) {
+    const entry = tabs.results[index];
+    if (!entry) {
+      incompleteWorkspaces.add(workspaceId);
       continue;
     }
-    for (const tab of tabs) {
+    tabsByWorkspace.set(workspaceId, entry.tabs);
+    for (const tab of entry.tabs) {
       if (tab.type === "claude" || tab.type === "codex") {
-        const info = await services
-          .ui("chat.state", { workspaceId: workspace.id, tabId: tab.id, peek: true })
-          .catch(() => null);
-        if (!info) continue;
-        sessions.push({
-          workspaceId: workspace.id,
-          tabId: tab.id,
-          kind: tab.type,
-          title: tab.title,
-          state: CHAT_STATES[info.state],
-          ...(info.since !== undefined ? { since: info.since } : {}),
-          ...(info.message ? { last: oneLine(info.message) } : {}),
-          ...(info.profile ? { profile: info.profile } : {}),
-          ...(info.cwd ? { cwd: info.cwd } : {}),
-          ...(info.state === "asking" && info.waiting
-            ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
-            : {}),
-          ...agentsField(services, workspace.id, tab.id),
-        });
+        chats.push({ index: sessions.length, workspaceId, tab });
+        sessions.push(undefined);
       } else if (tab.type === "terminal" && !tab.unstarted) {
-        // One not started has nothing to show another device until its workspace is opened here.
-        const claude = services.claudeStatus(workspace.id, tab.id);
-        const state = describeTerminal(
-          claude,
-          services.activity(workspace.id, tab.id),
-          tab.title,
-          now,
-        );
-        // A Claude Code there asking to run a tool: what it asks, as the app holds it.
-        const ask =
-          claude?.status === "permissionPending"
-            ? services.claudeAsks(workspace.id, tab.id)[0]
-            : undefined;
-        sessions.push({
-          workspaceId: workspace.id,
-          tabId: tab.id,
-          kind: "terminal",
-          title: tab.title,
-          state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
-          ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
-          ...(state.since !== undefined ? { since: state.since } : {}),
-          ...(state.message ? { last: oneLine(state.message) } : {}),
-          ...(ask
-            ? {
-                waiting: {
-                  kind: "permission" as const,
-                  text: oneLine(ask.target ? `${ask.tool} ${ask.target}` : ask.tool),
-                  requestId: ask.id,
-                  always: ask.always.length > 0,
-                  subagent: ask.agentId !== undefined,
-                },
-              }
-            : {}),
-          ...agentsField(services, workspace.id, tab.id),
-        });
+        sessions.push(terminalSession(services, workspaceId, tab, now));
       }
     }
   }
-  return { workspaces: listed, sessions };
-}
-
-/** Returns the workspace and session snapshot with the requester's consents. */
-export async function serveSessionsList(
-  s: CliServices,
-  git: WorkspaceGit | undefined,
-  notes: RemoteNotes | undefined,
-  from: string,
-  controls: ConsentControls,
-) {
-  const list = await listSessions(s, git);
+  const chatReads = await gather(chats, budget, async ({ index, workspaceId, tab }) => {
+    sessions[index] = await chatSession(services, budget, workspaceId, tab);
+  });
+  for (const { index, workspaceId } of chats) {
+    if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
+  }
   const recording = notes?.recording();
-  return {
-    ...list,
-    consents: await remoteConsents(s, from, controls),
+  const list: RpcResult<"sessions.list"> = {
+    workspaces: listed,
+    sessions: sessions.filter((row) => row !== undefined),
     ...(recording ? { recording } : {}),
+  };
+  budget.report(tabs.skipped + chatReads.skipped);
+  return {
+    list,
+    incompleteWorkspaces,
+    async forDevice(
+      deviceId: string,
+      controls: ConsentControls,
+    ): Promise<RpcResult<"sessions.list">> {
+      // Titles are optional. Reuse the bounded tab reads, even if some are missing.
+      const consents = await remoteConsents(
+        services,
+        deviceId,
+        controls,
+        Date.now(),
+        async (id) => tabsByWorkspace.get(id) ?? [],
+      );
+      return { ...list, consents };
+    },
   };
 }
 

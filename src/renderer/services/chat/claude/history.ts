@@ -28,16 +28,45 @@ function rec(value: unknown): Rec | null {
     : null;
 }
 
-/** Turns transcript entries into stream-json lines. */
+/**
+ * Turns transcript entries into stream-json lines. `liveCompacted`: the tab
+ * shows the compaction the entries end with (a cut just before its /compact
+ * command or the next message), so its notice is left out here.
+ */
 export function transcriptLines(
   entries: readonly unknown[],
   positions?: readonly number[],
+  liveCompacted = false,
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
+  // A compaction's notice, held while the /compact command's entries pass,
+  // which the log writes after the boundary but which happened before it.
+  let pending: { at: number; line: TranscriptLine; command: boolean } | undefined;
+  const settle = () => {
+    if (pending) lines.splice(pending.at, 0, pending.line);
+    pending = undefined;
+  };
   for (const [index, raw] of entries.entries()) {
-    const seq = positions ? positions[index] + 1 : lines.length + 1;
+    const seq = (positions ? positions[index] : index) + 1;
     const entry = rec(raw);
     if (!entry || entry.isSidechain === true) continue;
+    if (pending) {
+      const text = entry.type === "user" ? textOf(rec(entry.message)?.content) : "";
+      const output = entry.type === "user" && isCommandOutput(text);
+      if (output && pending.command) {
+        lines.push({ ...pending.line, seq });
+        pending = undefined;
+        continue;
+      }
+      if (entry.type === "user" && typedCommand(text) !== null) pending.command = true;
+      else if (
+        !output &&
+        !(entry.type === "user" && entry.isCompactSummary === true) &&
+        !(entry.isMeta === true && text.startsWith("<local-command-caveat>"))
+      ) {
+        settle();
+      }
+    }
     // A message that came while a turn ran is kept apart from the others.
     const queued = queuedLine(entry, seq);
     if (queued) {
@@ -52,6 +81,23 @@ export function transcriptLines(
       origin !== undefined && (SENDER_KINDS.has(origin) || origin === "task-notification");
     if (entry.isMeta === true && !told) continue;
     if (entry.type === "user" && entry.promptSource === "system" && !told) continue;
+    // The summary Claude Code writes when it compacts is for the model; the
+    // tab shows the compaction as a notice, as it does live.
+    if (entry.type === "user" && entry.isCompactSummary === true) continue;
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      settle();
+      pending = {
+        at: lines.length,
+        command: false,
+        line: {
+          seq,
+          dir: "out",
+          replay: true,
+          message: { type: "system", subtype: "compact_boundary", timestamp: entry.timestamp },
+        },
+      };
+      continue;
+    }
     const goal = goalLine(entry, seq);
     if (goal) {
       lines.push(goal);
@@ -105,6 +151,8 @@ export function transcriptLines(
       });
     }
   }
+  if (liveCompacted) pending = undefined;
+  else settle();
   return lines;
 }
 
@@ -298,9 +346,12 @@ export function historyModel(
   entries: readonly unknown[],
   cut?: HistoryCut,
   positions?: readonly number[],
+  liveCompacted = false,
 ): ChatModel {
   const model = applyTranscriptLines(
-    cut ? transcriptLines(cutEntries(entries, cut)) : transcriptLines(entries, positions),
+    cut
+      ? transcriptLines(cutEntries(entries, cut), undefined, liveCompacted)
+      : transcriptLines(entries, positions, liveCompacted),
   );
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }

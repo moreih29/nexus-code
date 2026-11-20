@@ -1,8 +1,14 @@
 import { z } from "zod";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
+import {
+  AgentInstructionsSchema,
+  ChatInstructionHistorySchema,
+  ClaudeInstructionDigestsSchema,
+} from "../chat/instructions";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
+import { VoiceNameSettingsSchema } from "../notes/voice-names";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
 import { AgentViewSnapshotSchema } from "./agent-view";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
@@ -147,6 +153,10 @@ export const AppStateSchema = z.object({
   // and the rules that pick a workspace's. Absent = each agent's default
   // folder everywhere.
   agentProfiles: AgentProfilesSchema.optional(),
+  agentInstructions: AgentInstructionsSchema.optional(),
+  chatInstructionHistory: ChatInstructionHistorySchema.optional(),
+  /** Last Claude hook replacement by workspace and session, or null for a fork pending a refresh. */
+  claudeInstructionDigests: ClaudeInstructionDigestsSchema.optional(),
 
   // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
   // task's first prompt, or a plain terminal; absent = "claude". Kept as a
@@ -240,6 +250,9 @@ export const AppStateSchema = z.object({
   // names along (in its ticket), so the speech recognition service hears
   // them right. Off unless the user turned it on, on this computer only.
   voiceSendNames: z.boolean().default(false),
+
+  /** Local consent and preferences, written through the voice memory service. */
+  rememberedVoices: VoiceNameSettingsSchema.optional(),
 
   // Whether the account's other devices may control this one's chats
   // (send, answer, stop, open, close) or only look (main/features/remote).

@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../../src/renderer/services/chat/codex/config";
+import { useAgentProfilesStore } from "../../../../../../src/renderer/state/stores/agent-profiles";
 import { ipcErr } from "../../../../../../src/shared/ipc/result";
 
 // The version the app tells Codex it is.
@@ -154,6 +155,44 @@ describe("the model and effort picked in a Codex tab", () => {
     await c.send("hi");
     const turn = sent.find((m) => m.method === "turn/start");
     expect(turn?.params).toMatchObject({ threadId: "t1", model: "gpt-5.4-mini", effort: "low" });
+  });
+
+  test("a custom model with no reasoning clears the effort inherited from a resumed thread", async () => {
+    const profiles = useAgentProfilesStore.getState();
+    profiles.hydrate({
+      profiles: [
+        {
+          agent: "codex",
+          id: "codex-default",
+          name: "",
+          dir: "",
+          color: "blue",
+          connection: {
+            method: "custom",
+            baseUrl: "http://localhost:8080/v1",
+            defaultModel: "gateway-model",
+            models: [{ id: "gateway-model" }],
+          },
+        },
+      ],
+      rules: [],
+      defaults: {},
+    });
+    try {
+      const c = tab({ model: "gpt-5.4-mini", effort: "high" });
+      await c.readDefaults();
+      await c.send("hi");
+      const turn = sent.find((m) => m.method === "turn/start");
+      expect(turn?.params?.effort).toBeUndefined();
+      expect(turn?.params).toMatchObject({
+        collaborationMode: {
+          mode: "default",
+          settings: { model: "gateway-model", reasoning_effort: null },
+        },
+      });
+    } finally {
+      profiles.hydrate(profiles.config);
+    }
   });
 
   test("are forgotten once a turn takes them: the thread holds them from then on", async () => {
@@ -939,4 +978,70 @@ describe("Codex collaboration modes", () => {
     ).toBe(false);
     expect(c.model.collaborationMode).toBe("default");
   });
+});
+
+test("CLI mode changes refuse a stale approval baseline at application", async () => {
+  const workspaceId = "ws-codex-mode-approval";
+  const tabRecord = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "codex", props: { cwd: "/p" } });
+  const ref = { workspaceId, tabId: tabRecord.id };
+  const c = tab(undefined, undefined, undefined, ref);
+  try {
+    await c.prepareSend();
+    useChatStore.getState().update(c.key, (state) => ({
+      ...state,
+      model: {
+        ...state.model,
+        process: "running",
+        model: "gpt-5.5",
+        init: { commands: [], models: [], remoteControl: false },
+      },
+    }));
+    await c.setPermissionMode("auto");
+    const { mode } = await chatHandlers["chat.settings"]({ ...ref, settings: {} });
+    await c.setPermissionMode("readOnly");
+    await expect(
+      chatHandlers["chat.settings"]({
+        ...ref,
+        settings: { mode: "auto" },
+        expectedMode: mode,
+      }),
+    ).rejects.toThrow("permission mode changed");
+    expect(c.model.permissionMode).toBe("readOnly");
+  } finally {
+    closeCodexTab(workspaceId, tabRecord.id);
+  }
+});
+
+test.each([
+  "AskUserQuestion",
+  "ExitPlanMode",
+])("chat answer protects the user's %s request", async (toolName) => {
+  const workspaceId = "ws-codex-agent-only-answer";
+  const tabRecord = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "codex", props: { cwd: "/p" } });
+  const ref = { workspaceId, tabId: tabRecord.id };
+  const c = tab(undefined, undefined, undefined, ref);
+  try {
+    await c.prepareSend();
+    useChatStore.getState().update(c.key, (state) => ({
+      ...state,
+      model: {
+        ...state.model,
+        permissions: [{ requestId: "user", toolName, input: {}, suggestions: [] }],
+      },
+    }));
+    await expect(
+      chatHandlers["chat.answer"]({
+        ...ref,
+        byAgent: true,
+        decision: "allow",
+        expect: "user",
+      }),
+    ).rejects.toThrow("for the user to answer");
+  } finally {
+    closeCodexTab(workspaceId, tabRecord.id);
+  }
 });

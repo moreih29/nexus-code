@@ -33,29 +33,46 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
   register("chat", {
     call: {
       start: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, resume, fork, resumeAt, resetLog, profileId } =
-          validateArgs(c.start.args, args);
+        const {
+          workspaceId,
+          tabId,
+          cwd,
+          resume,
+          fork,
+          resumeAt,
+          resetLog,
+          connectionChanged,
+          profileId,
+          instructions,
+        } = validateArgs(c.start.args, args);
         return ipcOk(
           await host.start(
             workspaceId,
             tabId,
             cwd,
-            { resume, fork, resumeAt, resetLog },
+            { resume, fork, resumeAt, resetLog, connectionChanged },
             profileId,
+            instructions,
           ),
         );
       },
       codexStart: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, resetLog, profileId } = validateArgs(
+        const { workspaceId, tabId, cwd, resetLog, connectionChanged, profileId } = validateArgs(
           c.codexStart.args,
           args,
         );
-        return ipcOk(await host.startCodex(workspaceId, tabId, cwd, { resetLog, profileId }));
+        return ipcOk(
+          await host.startCodex(workspaceId, tabId, cwd, {
+            resetLog,
+            connectionChanged,
+            profileId,
+          }),
+        );
       },
       send: async (args: unknown) => {
-        const { workspaceId, tabId, message } = validateArgs(c.send.args, args);
+        const { workspaceId, tabId, message, ...layer } = validateArgs(c.send.args, args);
         try {
-          await host.send(workspaceId, tabId, message);
+          await host.send(workspaceId, tabId, message, layer);
           return ipcOk(undefined);
         } catch (error) {
           const code = (error as { code?: unknown } | null)?.code;

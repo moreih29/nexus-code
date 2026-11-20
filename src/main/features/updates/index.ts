@@ -43,7 +43,9 @@
 import { shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { errorText, limitLog } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
+import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import {
   nextUpdateStatus,
@@ -111,6 +113,7 @@ export interface UpdatesDomainHandle {
 // ---------------------------------------------------------------------------
 
 const logger = createLogger("updates");
+const repeated = limitLog(logger);
 
 const c = ipcContract.updates.call;
 
@@ -225,7 +228,11 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     });
 
     if (result.kind === "error") {
-      logger.warn(`updates: check failed (trigger=${trigger}): ${result.message}`);
+      repeated.log(
+        "warn",
+        `check-failed:${trigger}`,
+        `updates: check failed (trigger=${trigger}): ${errorText(result.message, 200, redactLogSecrets)}`,
+      );
     }
 
     const payload = buildPayload(result, trigger, installer !== undefined);
@@ -233,7 +240,11 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
 
     const shouldBroadcast = shouldBroadcastResult(result, trigger, ignoredVersion);
     if (!shouldBroadcast) {
-      logger.debug(`updates: suppressing ${result.kind} for trigger=${trigger}`);
+      repeated.log(
+        "debug",
+        `suppress:${result.kind}:${trigger}`,
+        `updates: suppressing ${result.kind} for trigger=${trigger}`,
+      );
       return;
     }
 

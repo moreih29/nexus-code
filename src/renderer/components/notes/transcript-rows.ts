@@ -26,7 +26,7 @@ const SPEAKER_COLORS = [
   "var(--state-info-fg)",
   "var(--state-success-fg)",
   "var(--state-warning-fg)",
-  "var(--primary)",
+  "var(--color-git-lane-6)",
   "var(--state-error-fg)",
   "var(--muted-foreground)",
 ];
@@ -74,15 +74,16 @@ export interface Cast {
  * or goes.
  */
 export function castOf(
-  recording: Pick<TranscriptRecording, "lines" | "speakers">,
+  recording: Pick<TranscriptRecording, "lines" | "speakers" | "speakerNumbers">,
   extra?: string | null,
 ): Cast {
   const voices = speakersOf(recording);
   if (extra && !voices.includes(extra)) voices.push(extra);
   const ofKey = (key: string) => personOf(recording, key);
+  const numberOf = (key: string) => recording.speakerNumbers?.[key] ?? key;
   const grouped = [...new Set(voices.map(ofKey))]
     .map((person) => ({ person, keys: voices.filter((k) => ofKey(k) === person).sort(byKey) }))
-    .sort((a, b) => byKey(a.keys[0] as string, b.keys[0] as string));
+    .sort((a, b) => byKey(numberOf(a.keys[0] as string), numberOf(b.keys[0] as string)));
   const numbered = voices.every((k) => /^[1-9]\d*$/.test(k));
   const people = grouped.map((p, index) => ({
     ...p,
@@ -165,6 +166,11 @@ export type TranscriptRow =
       readonly text: string;
       readonly marks: readonly number[];
     }
+  | {
+      readonly kind: "accept-suggestions";
+      readonly key: string;
+      readonly recording: TranscriptRecording;
+    }
   /** A recording with no words: listening, or nothing was heard. */
   | { readonly kind: "quiet"; readonly key: string; readonly recording: TranscriptRecording };
 
@@ -184,6 +190,7 @@ export function transcriptRows(
   recordings: readonly ReadRecording[],
   view: TranscriptView,
   live: LiveWords,
+  bulkSuggestions?: ReadonlySet<string>,
 ): { rows: TranscriptRow[]; matches: number } {
   const query = view.query.trim();
   const rows: TranscriptRow[] = [];
@@ -219,6 +226,13 @@ export function transcriptRows(
     }
     if (lines.length === 0 && !partial) {
       rows.push({ kind: "quiet", key: `${recording.id}:quiet`, recording });
+    }
+    if (bulkSuggestions?.has(recording.id)) {
+      rows.push({
+        kind: "accept-suggestions",
+        key: `${recording.id}:accept-suggestions`,
+        recording,
+      });
     }
   }
   return { rows, matches };

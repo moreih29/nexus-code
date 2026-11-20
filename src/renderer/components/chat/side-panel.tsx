@@ -419,7 +419,7 @@ function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-6 items-center gap-2 text-app-ui-sm">
-      <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
+      <span className="w-14 shrink-0 truncate text-muted-foreground">{label}</span>
       <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
     </div>
   );
@@ -557,7 +557,9 @@ function EnvSection({
       )}
       {(state.version ?? model.version) && (
         <Field label={t("chat.panel.env.version")}>
-          <span className="font-mono text-app-micro">{state.version ?? model.version}</span>
+          <span className="min-w-0 truncate font-mono text-app-micro">
+            {state.version ?? model.version}
+          </span>
         </Field>
       )}
       {signedIn.length > 0 && (
@@ -616,7 +618,7 @@ function ContextSection({
           {context.used.map((category) => (
             <Row key={category.name} className="text-app-micro">
               <span className="min-w-0 flex-1 truncate text-muted-foreground">{category.name}</span>
-              <span className="tabular-nums">{formatTokens(category.tokens)}</span>
+              <span className="shrink-0 tabular-nums">{formatTokens(category.tokens)}</span>
             </Row>
           ))}
         </>
@@ -628,7 +630,7 @@ function ContextSection({
           aria-disabled={running || undefined}
           title={running ? t("chat.panel.context.compact_busy") : undefined}
           className={cn(
-            "rounded-(--radius-control) border border-border px-2 py-0.5 text-app-ui-sm",
+            "whitespace-nowrap rounded-(--radius-control) border border-border px-2 py-0.5 text-app-ui-sm",
             running
               ? "cursor-not-allowed opacity-40"
               : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
@@ -846,7 +848,7 @@ export function JobButton({
       type="button"
       onClick={onClick}
       title={title}
-      className="flex items-center gap-1 rounded-(--radius-control) border border-border px-1.5 py-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+      className="flex items-center gap-1 whitespace-nowrap rounded-(--radius-control) border border-border px-1.5 py-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
     >
       {children}
     </button>
@@ -1000,7 +1002,7 @@ function UsageSection({ controller, state }: { controller: ChatController; state
       {cost !== undefined && cost > 0 && (
         <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
           <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
-          <span className="tabular-nums" data-testid="chat-panel-cost">
+          <span className="shrink-0 tabular-nums" data-testid="chat-panel-cost">
             {formatCost(cost, i18n.language)}
           </span>
         </Row>
@@ -1021,7 +1023,7 @@ function UsageSection({ controller, state }: { controller: ChatController; state
                   scope: limit.scope ?? "",
                 })}
               </span>
-              <span className="tabular-nums">{Math.round(limit.percent)}%</span>
+              <span className="shrink-0 tabular-nums">{Math.round(limit.percent)}%</span>
             </Row>
             <Meter percent={Math.min(100, limit.percent)} />
             {limit.resetsAt && (
@@ -1167,7 +1169,7 @@ export function TextButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="shrink-0 rounded-(--radius-control) px-1 text-app-micro text-primary disabled:opacity-40 hover:bg-[var(--state-hover-bg)]"
+      className="shrink-0 whitespace-nowrap rounded-(--radius-control) px-1 text-app-micro text-primary disabled:opacity-40 hover:bg-[var(--state-hover-bg)]"
     >
       {children}
     </button>

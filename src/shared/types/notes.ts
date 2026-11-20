@@ -99,6 +99,7 @@ export const NotesArgs = {
   pickFiles: z.object({ images: z.boolean().optional() }),
   storage: z.void(),
   readTranscript: z.object(note),
+  hasRecordingAudio: z.object({ ...note, files: z.array(z.string().regex(TAKE_FILE_RE)) }),
   saveTranscript: z.object({
     ...note,
     transcript: TranscriptFileSchema,

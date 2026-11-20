@@ -4,6 +4,7 @@
  * between the view and the workspaces with the keyboard following.
  */
 
+import { isRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import type { AgentViewMode } from "../../../shared/types/agent-view";
 import { Grid, type SplitNode } from "../../engine";
 import { useActiveStore } from "../../state/stores/active";
@@ -25,9 +26,17 @@ import {
   showBeside,
 } from "./layout";
 
-/** Whether the agent view shows tabs of this type: Claude and Codex tabs, and terminals. */
+/** Whether this tab can represent an agent session. */
 export function holdsInAgentView(type: string): boolean {
   return type === "claude" || type === "codex" || type === "terminal";
+}
+
+/** Local tab in front of the active agent panel. */
+export function activeLocalPanelTab() {
+  const key = activeKey(useAgentViewStore.getState());
+  const ref = key !== null ? parseSessionKey(key) : null;
+  const tab = ref ? useTabsStore.getState().byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined;
+  return ref && tab ? { ...ref, tab } : null;
 }
 
 /** The tab whose agent has the keyboard in the agent view; null when the keyboard is elsewhere. */
@@ -117,11 +126,16 @@ export function showInAgentView(
   if (opts.focus !== false) requestTabFocus(tabId);
 }
 
-/** Puts the keyboard in the agent in front of the active panel. */
+/** Puts the keyboard in the given panel tab. */
+export function focusPanelTab(key: string): void {
+  const tabId = isRemoteKey(key) || isRemoteFileKey(key) ? key : parseSessionKey(key)?.tabId;
+  if (tabId) requestTabFocus(tabId);
+}
+
+/** Puts the keyboard in the tab in front of the active panel. */
 export function focusActiveAgent(): void {
   const key = activeKey(useAgentViewStore.getState());
-  const session = key !== null ? parseSessionKey(key) : null;
-  if (session) requestTabFocus(session.tabId);
+  if (key !== null) focusPanelTab(key);
 }
 
 /**
@@ -156,13 +170,11 @@ export function switchView(mode: AgentViewMode): void {
   if (tabId) requestTabFocus(tabId);
 }
 
-/** Whether the tab `key` names is open. */
+/** Whether a local panel tab can still be shown. */
 export function tabExists(key: string): boolean {
-  const session = parseSessionKey(key);
-  return (
-    session !== null &&
-    useTabsStore.getState().byWorkspace[session.workspaceId]?.[session.tabId] !== undefined
-  );
+  const ref = parseSessionKey(key);
+  const tab = ref ? useTabsStore.getState().byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined;
+  return tab !== undefined;
 }
 
 /**
@@ -176,7 +188,7 @@ export function startAgentViewPruning(): () => void {
   });
 }
 
-/** Whether a panel keeps `key` as tabs close: another computer's session, or a tab still open. */
+/** Whether a panel keeps `key` as workspace tabs close. */
 export function staysInPanels(key: string): boolean {
-  return isRemoteKey(key) || tabExists(key);
+  return isRemoteKey(key) || useAgentViewStore.getState().remoteFiles.has(key) || tabExists(key);
 }

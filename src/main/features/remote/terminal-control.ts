@@ -23,7 +23,7 @@ import { tabOf, unavailable, workspaceOf } from "./serving/common";
  */
 export async function inputTerminal(
   services: CliServices,
-  { workspaceId, tabId, text, typed, keys, enter }: RpcParams<"terminal.input">,
+  { workspaceId, tabId, text, typed, keys, enter, from }: RpcParams<"terminal.input">,
   now: () => number = Date.now,
 ): Promise<RpcResult<"terminal.input">> {
   if (!text && !keys?.length && !enter) {
@@ -31,10 +31,21 @@ export async function inputTerminal(
   }
   await tabOf(services, workspaceId, tabId, ["terminal"]);
   const at = now();
-  const type = (typed: string, mode: "paste" | "keys", andEnter: boolean) =>
-    services
+  const type = (typed: string, mode: "paste" | "keys", andEnter: boolean) => {
+    if (
+      from &&
+      (services.claudeStatus(workspaceId, tabId)?.status === "permissionPending" ||
+        services.claudeAsks(workspaceId, tabId).length > 0)
+    ) {
+      throw new RpcFailure(
+        RpcErrorCode.Forbidden,
+        "that request is for the user to answer in the app",
+      );
+    }
+    return services
       .ui("terminal.input", { workspaceId, tabId, text: typed, mode, enter: andEnter })
       .catch(unavailable);
+  };
   const mode = typed ? "keys" : "paste";
   const given = typed ? (text ?? "").replace(/\r?\n/g, "\r") : (text ?? "");
   if (keys?.length) {
@@ -119,12 +130,11 @@ export async function openTerminal(
 
 export async function renameTerminal(
   services: CliServices,
-  { workspaceId, tabId, title }: RpcParams<"terminal.rename">,
+  { workspaceId, tabId, title, from }: RpcParams<"terminal.rename">,
 ): Promise<RpcResult<"terminal.rename">> {
   await tabOf(services, workspaceId, tabId, ["terminal"]);
-  if (!title.trim()) {
+  if (!from && !title.trim())
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a title needs more than spaces");
-  }
   return services.ui("tab.rename", { workspaceId, tabId, title: title.trim() }).catch(unavailable);
 }
 
@@ -141,12 +151,18 @@ export async function closeTerminal(
 /** Answers the request a terminal's Claude Code holds, as the app's card does. */
 export async function answerTerminal(
   services: CliServices,
-  { workspaceId, tabId, requestId, decision }: RpcParams<"terminal.answer">,
+  { workspaceId, tabId, requestId, decision, from }: RpcParams<"terminal.answer">,
 ): Promise<RpcResult<"terminal.answer">> {
   await tabOf(services, workspaceId, tabId, ["terminal"]);
   const ask = services.claudeAsks(workspaceId, tabId).find((a) => a.id === requestId);
   if (!ask) {
     throw new RpcFailure(RpcErrorCode.NotFound, "that request no longer waits for an answer");
+  }
+  if (from && (ask.tool === "AskUserQuestion" || ask.tool === "ExitPlanMode")) {
+    throw new RpcFailure(
+      RpcErrorCode.Forbidden,
+      "that request is for the user to answer in the app",
+    );
   }
   const answered = await services
     .answerClaudeAsk(workspaceId, tabId, requestId, decision)

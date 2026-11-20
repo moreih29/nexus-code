@@ -5,11 +5,23 @@
  * ever shown.
  */
 
-import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import {
+  type AgentProfiles,
+  isDefaultProfileId,
+  profileOf,
+} from "../../../shared/agent-profiles/profiles";
+import { mergeAgentInstructions } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
+import {
+  currentSessionInstructions,
+  rememberSessionInstructions,
+  useAgentInstructionsStore,
+} from "../../state/stores/agent-instructions";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
 import { clipTitle, titleOf } from "./tab-title";
@@ -19,8 +31,17 @@ import { sendFirstMessage } from "./transport/submission";
 export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks {
   const tabs = () => useTabsStore.getState();
   return {
-    onSession: (sessionId) => tabs().setClaudeSession(workspaceId, tabId, sessionId),
-    onTarget: (target) => tabs().setClaudeTarget(workspaceId, tabId, target),
+    instructions: (sessionId) => currentSessionInstructions(workspaceId, tabId, sessionId),
+    mergedInstructions: (profileId, session) =>
+      agentInstructionsOf(workspaceId, "claude", profileId, session),
+    onSession: (sessionId) => {
+      rememberSessionInstructions(workspaceId, tabId, sessionId);
+      tabs().setClaudeSession(workspaceId, tabId, sessionId);
+    },
+    onTarget: (target) => {
+      if (target.sessionId) rememberSessionInstructions(workspaceId, tabId, target.sessionId);
+      tabs().setClaudeTarget(workspaceId, tabId, target);
+    },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
     // The user's own name for it, whole, as the tab's rename menu keeps one.
@@ -47,7 +68,11 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
 export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks {
   const tabs = () => useTabsStore.getState();
   return {
-    onThread: (threadId) => tabs().setCodexThread(workspaceId, tabId, threadId),
+    instructions: (threadId) => currentSessionInstructions(workspaceId, tabId, threadId),
+    onThread: (threadId) => {
+      rememberSessionInstructions(workspaceId, tabId, threadId);
+      tabs().setCodexThread(workspaceId, tabId, threadId);
+    },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
     onProfile: (profileId) =>
@@ -60,6 +85,32 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
   };
+}
+
+/** A running program can still use a profile that has been removed from Settings. */
+export function instructionProfileOf(
+  config: AgentProfiles,
+  agent: ChatAgent,
+  id: string | undefined,
+) {
+  const profile = profileOf(config, agent, id);
+  return id && id !== profile.id ? { ...profile, id, name: id } : profile;
+}
+
+export function agentInstructionsOf(
+  workspaceId: string,
+  agent: ChatAgent,
+  profileId?: string,
+  session?: string,
+): string {
+  const workspace = useWorkspacesStore.getState().workspaces.find(({ id }) => id === workspaceId);
+  const profile = instructionProfileOf(useAgentProfilesStore.getState().config, agent, profileId);
+  return mergeAgentInstructions(useAgentInstructionsStore.getState().config, {
+    agent,
+    profile,
+    workspace,
+    session,
+  });
 }
 
 /** A Claude or Codex tab's controller, and which agent it runs. */

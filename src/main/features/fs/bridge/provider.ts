@@ -20,6 +20,11 @@ export interface FsProvider {
   readonly kind: "local" | "ssh" | "wsl";
   /** `includeHidden` also lists entries the explorer hides (.git, .DS_Store). */
   readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]>;
+  /** Lists through a directory handle without following links in the authorized path. */
+  readdirNoLinks?(target: { relPath: string } | { absolutePath: string }): Promise<DirEntry[]>;
+  readFileNoLinks?(relPath: string): Promise<FileReadResult>;
+  readBinaryNoLinks?(relPath: string): Promise<FileReadBinaryResult>;
+  readRangeNoLinks?(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult>;
   stat(relPath: string): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
   /**

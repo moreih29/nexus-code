@@ -16,12 +16,11 @@ import { displayWidth } from "../../../services/editor/preview/delimited";
 import { MAX_FIND_MATCHES } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import { cn } from "../../../utils/cn";
+import { gridTemplate } from "./grid-template";
 import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
 /** A row's height, in px: one line of the UI's small text with its padding. */
 const ROW_PX = 24;
-/** Space a field gets beside its text, in px. */
-const FIELD_PADDING_PX = 16;
 
 export interface GridField {
   readonly text: string;
@@ -87,11 +86,7 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
     [widths.length],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
-  const gutter = Math.max(3, String(rowCount).length + 1);
-  const template = [
-    `${gutter}ch`,
-    ...widths.map((w) => `calc(${w}ch + ${FIELD_PADDING_PX}px)`),
-  ].join(" ");
+  const template = gridTemplate(rowCount, widths);
 
   const virtualizer = useVirtualizer({
     count: rowCount,

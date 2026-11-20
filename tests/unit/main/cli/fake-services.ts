@@ -19,6 +19,7 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import {
+  type CliCaller,
   type CliContext,
   type CliDevice,
   CliError,
@@ -394,6 +395,7 @@ export const PICKED: PickedElement = {
 
 export function fakeApp(now = Date.now()): FakeApp {
   const uiCalls: FakeApp["uiCalls"] = [];
+  const chatInstructions = new Map<string, string>();
   const claude: FakeApp["claude"] = new Map([
     [
       `${APP}:${CLAUDE_TAB}`,
@@ -473,6 +475,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
     grouping: "status",
+    held: [],
     activePanelId: "p1",
     root: {
       kind: "split",
@@ -564,7 +567,20 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
     if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
+    if (op === "chat.fileSuggestions") return { paths: [] } as CliUiOps[K]["result"];
+    if (op === "browser.permissions") return { global: {}, sites: [] } as CliUiOps[K]["result"];
+    if (op === "chat.image")
+      return { data: "YA==", mediaType: "image/png" } as CliUiOps[K]["result"];
+    if (op === "chat.export") return { markdown: "## Claude\n" } as CliUiOps[K]["result"];
     if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
+    if (op === "note.voiceSuggestions")
+      return { recordingId: "rec", suggestions: [] } as CliUiOps[K]["result"];
+    if (op === "settings.lspStatus")
+      return { enabled: true, maxActiveWorkspaces: 4, servers: [] } as CliUiOps[K]["result"];
+    if (op === "settings.instructions") {
+      return { layers: [], instructions: "" } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.profiles") return { profiles: [] } as CliUiOps[K]["result"];
     if (op === "chat.panel") {
       return {
         todos: [],
@@ -638,6 +654,11 @@ export function fakeApp(now = Date.now()): FakeApp {
         start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
     }
+    if (op === "chat.instructions") {
+      const { tabId, text } = args as CliUiOps["chat.instructions"]["args"];
+      if (text !== undefined) chatInstructions.set(tabId, text);
+      return { instructions: chatInstructions.get(tabId) ?? "" } as CliUiOps[K]["result"];
+    }
     if (op === "chat.open") {
       const error = chatOpenError.message;
       return { tabId: NEW_TAB, ...(error ? { error } : {}) } as CliUiOps[K]["result"];
@@ -647,6 +668,14 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { profile } = args as CliUiOps["chat.profile"]["args"];
       if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
       return { from: "default", to: profile } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.mode") {
+      const { workspaceId, tabId } = args as CliUiOps["chat.mode"]["args"];
+      const agent = tabs[workspaceId]?.find((tab) => tab.id === tabId)?.type;
+      const mode = chatChoices.get(tabId)?.mode;
+      return (
+        agent === "claude" || agent === "codex" ? { agent, ...(mode ? { mode } : {}) } : null
+      ) as CliUiOps[K]["result"];
     }
     if (op === "chat.settings") {
       const { tabId, settings: wanted } = args as CliUiOps["chat.settings"]["args"];
@@ -948,7 +977,7 @@ export function fakeApp(now = Date.now()): FakeApp {
 export function contextFor(
   app: FakeApp,
   argv: string[],
-  caller = { workspaceId: APP, tabId: SHELL_TAB },
+  caller: CliCaller = { workspaceId: APP, tabId: SHELL_TAB },
   invocation: { cwd?: string; tempDir?: string; stdin?: string; msysRoot?: string } = {},
 ): CliContext {
   return {

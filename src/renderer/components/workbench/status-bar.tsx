@@ -73,6 +73,10 @@ import { SystemStatsSegment, useWiderThan } from "./system-stats";
 
 /** The bar's width from which it shows how busy the host is. */
 const STATS_MIN_WIDTH = 576;
+/** The bar's width from which it lists the ports the terminals listen on. */
+const PORTS_MIN_WIDTH = 440;
+/** The bar's width from which it shows the encoding and language server. */
+const EDITOR_SEGMENTS_MIN_WIDTH = 300;
 
 interface StatusBarProps {
   workspaceId: string;
@@ -114,6 +118,8 @@ export const StatusBar = memo(function StatusBar({
   // branch and the diagnostics out of sight.
   const barRef = useRef<HTMLDivElement>(null);
   const roomForStats = useWiderThan(barRef, STATS_MIN_WIDTH);
+  const roomForPorts = useWiderThan(barRef, PORTS_MIN_WIDTH);
+  const roomForEditorSegments = useWiderThan(barRef, EDITOR_SEGMENTS_MIN_WIDTH);
 
   return (
     <div
@@ -155,12 +161,12 @@ export const StatusBar = memo(function StatusBar({
       </div>
 
       {/* RIGHT segments */}
-      <div className="flex items-center shrink-0">
+      <div className="flex items-center shrink-0 whitespace-nowrap">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
         {roomForStats && <SystemStatsSegment workspaceId={workspaceId} />}
-        <PortsSegment workspaceId={workspaceId} />
-        <EncodingSegment workspaceId={workspaceId} />
-        <LspStatusSegment workspaceId={workspaceId} />
+        {roomForPorts && <PortsSegment workspaceId={workspaceId} />}
+        {roomForEditorSegments && <EncodingSegment workspaceId={workspaceId} />}
+        {roomForEditorSegments && <LspStatusSegment workspaceId={workspaceId} />}
       </div>
     </div>
   );
@@ -214,7 +220,7 @@ export function BranchSegment({
         aria-label={t("statusBar.branch_aria", { label })}
         onClick={() => setPickerOpen(true)}
         className={cn(
-          "inline-flex items-center gap-1 h-full px-2",
+          "inline-flex min-w-0 items-center gap-1 whitespace-nowrap h-full px-2",
           "text-app-ui-sm font-sans leading-none",
           "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
         )}
@@ -335,7 +341,7 @@ function ChangesSegment({
       aria-label={title}
       onClick={() => setFilesPanelMode(workspaceId, "git")}
       className={cn(
-        "inline-flex items-center gap-1.5 h-full px-2",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap h-full px-2",
         "text-app-ui-sm font-sans leading-none tabular-nums",
         "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
       )}
@@ -406,7 +412,7 @@ function DiagnosticSegment({
           disabled={disabled}
           aria-label={title}
           className={cn(
-            "inline-flex items-center gap-1 h-full px-2",
+            "inline-flex shrink-0 items-center gap-1 whitespace-nowrap h-full px-2",
             "text-app-ui-sm font-sans leading-none",
             // Hover/focus affordance only when interactive.
             !disabled &&
@@ -501,7 +507,7 @@ function StatusBarItem({
     <span
       title={title}
       className={cn(
-        "inline-flex items-center gap-1 h-full px-2",
+        "inline-flex min-w-0 items-center gap-1 whitespace-nowrap h-full px-2",
         "text-app-ui-sm font-sans leading-none",
         interactive && "hover:bg-[var(--status-bar-item-hover-bg)] transition-colors",
         className,

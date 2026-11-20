@@ -140,6 +140,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.attach", service.Attach)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 	d.Register("chat.profileDir", service.ProfileDir)
+	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
 
 // connectionSink binds a sink to the host that installed it.
@@ -286,6 +287,9 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	if p.Resumed {
 		start["resumed"] = true
 	}
+	if p.ConnectionChanged {
+		start["connectionChanged"] = true
+	}
 	sess.addSysLocked(start)
 
 	stdoutDone := make(chan struct{})
@@ -342,7 +346,7 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 		sess.mu.Unlock()
 		return nil, notRunning(key)
 	}
-	slot := sess.log.add(DirSys, nil, "")
+	slot := sess.log.reserveInput(line.Bytes())
 	sess.pending = slot
 	sess.mu.Unlock()
 
@@ -875,9 +879,13 @@ func (p *process) readStderr(stderr io.Reader) {
 func (p *process) stderr() string {
 	p.stderrMu.Lock()
 	defer p.stderrMu.Unlock()
-	tail := strings.ToValidUTF8(string(p.stderrTail), "")
+	raw := p.stderrTail
 	if p.stderrTruncated {
-		_, tail, _ = strings.Cut(tail, "\n")
+		// The cut may have split a character; drop that first line before decoding.
+		_, raw, _ = bytes.Cut(raw, []byte("\n"))
+	}
+	tail := decodeOutput(raw)
+	if p.stderrTruncated {
 		return "[Chat stderr truncated]\n" + redact.Credentials(tail)
 	}
 	return redact.Credentials(tail)

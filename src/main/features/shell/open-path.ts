@@ -15,8 +15,12 @@ import { validateArgs } from "../../infra/ipc-router";
 const openPathExternalArgsSchema = ipcContract.system.call.openPathExternal.args;
 const revealInOSArgsSchema = ipcContract.system.call.revealInOS.args;
 
-type SystemPathErrorCode = "not-absolute" | "not-found" | "permission-denied" | "open-failed";
-type SystemPathResult =
+export type SystemPathErrorCode =
+  | "not-absolute"
+  | "not-found"
+  | "permission-denied"
+  | "open-failed";
+export type SystemPathResult =
   | { ok: true }
   | {
       ok: false;

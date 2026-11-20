@@ -5,6 +5,7 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { EMPTY_INSTRUCTIONS } from "../shared/chat/instructions";
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
@@ -12,6 +13,8 @@ import { startTabActivityPolling } from "./services/agent-sessions/activity-poll
 import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { initBrowserOverlayAutoSuspend } from "./services/browser/suspend-auto";
+import { refreshClaudeProfileConnection } from "./services/chat/claude/controller";
+import { refreshCodexProfileConnection } from "./services/chat/codex/controller";
 import { startCliUiListener } from "./services/cli/ui-requests";
 import { initGitErrorToasts } from "./services/error-surface/git-error-toasts";
 import { initUpdatesSubscriptions } from "./services/updates/operations";
@@ -29,6 +32,7 @@ import { focusWorkspace } from "./state/operations/workspace-selection";
 import { hydrateLayoutSnapshots, registerStatePersistence } from "./state/persistence";
 import { useActiveStore } from "./state/stores/active";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { useAgentInstructionsStore } from "./state/stores/agent-instructions";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
 import { useAgentViewStore } from "./state/stores/agent-view";
@@ -236,8 +240,12 @@ async function bootstrapAppState(): Promise<void> {
   // The Claude and Codex profiles, and their rules; another window's edits too.
   useAgentProfilesStore.getState().hydrate(state.agentProfiles);
   void loadProfilesHome();
-  ipcListen("appState", "agentProfilesChanged", ({ config }) => {
+  ipcListen("appState", "agentProfilesChanged", ({ config, connectionChangedProfileId }) => {
     useAgentProfilesStore.getState().hydrate(config);
+    if (connectionChangedProfileId) {
+      refreshClaudeProfileConnection(connectionChangedProfileId);
+      refreshCodexProfileConnection(connectionChangedProfileId);
+    }
   });
 
   // Hydrate window opacity from appState (authoritative store).
@@ -270,6 +278,16 @@ async function bootstrapAppState(): Promise<void> {
   // reflects persisted state on first render.
   useBrowserPermissionsStore.getState().hydrate(state.browserPermissionGrants);
 
+  useAgentInstructionsStore.setState({
+    config: state.agentInstructions ?? EMPTY_INSTRUCTIONS,
+    history: state.chatInstructionHistory ?? {},
+  });
+  ipcListen("appState", "agentInstructionsChanged", ({ config }) =>
+    useAgentInstructionsStore.setState({ config }),
+  );
+  ipcListen("appState", "chatInstructionHistoryChanged", (history) =>
+    useAgentInstructionsStore.setState({ history }),
+  );
   hydrateLayoutSnapshots(state.layoutByWorkspace);
 
   // The agent view's panels hold tabs, so they come back after the tabs,

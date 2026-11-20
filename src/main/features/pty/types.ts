@@ -11,6 +11,7 @@ export interface PtyHostHandle {
   on: (event: string, cb: EventCallback) => () => void;
   isAlive: () => boolean;
   dispose: () => void;
+  hasWorkspaceSessions?: (workspaceId: string) => boolean;
   /**
    * Terminates all active PTY sessions for the given workspace.
    * Called by `WorkspaceManager.remove()` before the workspace context is

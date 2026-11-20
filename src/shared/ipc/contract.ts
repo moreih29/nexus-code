@@ -6,8 +6,26 @@ import {
   SessionsUpdateSchema,
   TerminalUpdateSchema,
 } from "../../../packages/remote-protocol/src/rpc";
-import { AgentProfilesSchema } from "../agent-profiles/profiles";
+import {
+  BehaviorChangesSchema,
+  BehaviorFileSchema,
+  BehaviorWriteResultSchema,
+} from "../agent-profiles/behavior";
+import {
+  ConnectionKeyChangeSchema,
+  ConnectionKeyStatusSchema,
+  ConnectionModelsResultSchema,
+  ConnectionProbeSchema,
+  ConnectionTestResultSchema,
+} from "../agent-profiles/connection";
+import { AgentProfileSchema, AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
+import {
+  AgentInstructionsSchema,
+  ChatInstructionHistorySchema,
+  InstructionEditSchema,
+  InstructionTextSchema,
+} from "../chat/instructions";
 import {
   ACTIVITY_TEXT_MAX_CHARS,
   PermissionAnswerSchema,
@@ -100,6 +118,15 @@ import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { TranscriptFileSchema } from "../notes/transcript";
+import {
+  VoiceNameLearnArgsSchema,
+  VoiceNameMatchArgsSchema,
+  VoiceNamePersonSchema,
+  VoiceNamePreferencesSchema,
+  VoiceNameSchema,
+  VoiceNameStatusSchema,
+  VoiceNameSuggestionSchema,
+} from "../notes/voice-names";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
@@ -599,6 +626,7 @@ const transcriptPageResult = z.object({
   cursor: z.string().optional(),
   beforeAnchor: z.string().optional(),
   anchored: z.boolean().optional(),
+  cutMatched: z.boolean().optional(),
   fragment: z
     .object({
       position: z.number().int().nonnegative(),
@@ -611,7 +639,84 @@ const transcriptPageResult = z.object({
 
 export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
 
-export const ipcContract = {
+const notesContracts = {
+  /**
+   * Notes: a workspace's notes, kept by the app under its data folder by
+   * where the workspace's folder is (shared/notes/types.ts).
+   */
+  notes: {
+    call: {
+      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
+      create: call(NotesArgs.create, NoteContentSchema),
+      read: call(NotesArgs.read, NoteContentSchema),
+      save: call(NotesArgs.save, NoteSummarySchema),
+      /** Clears away the files the note's document no longer uses; what it cleared. */
+      prune: call(NotesArgs.prune, z.array(z.string())),
+      /** Moves the note's folder to the Trash. */
+      remove: call(NotesArgs.remove, z.void()),
+      /** Copies files into the note's materials/. */
+      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
+      /** Writes a pasted image into the note's screens/. */
+      addImage: call(NotesArgs.addImage, NoteAssetSchema),
+      saveSketch: call(
+        NotesArgs.saveSketch,
+        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
+      ),
+      /** A file of the note's folder, as base64. */
+      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
+      /** Opens a file of the note's folder with the system's app for it. */
+      openAsset: call(NotesArgs.openAsset, z.void()),
+      revealAsset: call(NotesArgs.revealAsset, z.void()),
+      /** Shows the note's folder in the system's file manager. */
+      revealNote: call(NotesArgs.revealNote, z.void()),
+      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
+      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
+      /** Every location with notes, and what they take. */
+      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
+      /** Moves every note of a location to the Trash. */
+      removeLocation: call(NotesArgs.removeLocation, z.void()),
+      revealLocation: call(NotesArgs.revealLocation, z.void()),
+      /** What this window's recorder does; other devices see it (remote sessions' list). */
+      recording: call(NotesArgs.recording, z.void()),
+      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
+      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
+      hasRecordingAudio: call(NotesArgs.hasRecordingAudio, z.boolean()),
+      /** Writes transcript.json, and transcript.md beside it. */
+      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
+      appendAudio: call(NotesArgs.appendAudio, z.void()),
+      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
+      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
+      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
+    },
+    listen: {
+      changed: listen(NoteChangedSchema),
+      /** Another device put a photo at the end of a note: an editor open on it does too. */
+      photoAdded: listen(NotePhotoAddedSchema),
+      /** An agent put blocks into a note: an editor open on it does too. */
+      blocksAdded: listen(NoteBlocksAddedSchema),
+    },
+  },
+  /** Local desktop IPC only. Voice vectors are inputs and never part of its responses. */
+  voiceMemory: {
+    call: {
+      status: call(z.void(), VoiceNameStatusSchema),
+      list: call(z.void(), z.array(VoiceNamePersonSchema)),
+      claimConsent: call(
+        z.void(),
+        z.object({ prompt: z.boolean(), status: VoiceNameStatusSchema }),
+      ),
+      consent: call(z.object({ allowed: z.boolean() }), VoiceNameStatusSchema),
+      configure: call(VoiceNamePreferencesSchema, VoiceNameStatusSchema),
+      match: call(VoiceNameMatchArgsSchema, z.array(VoiceNameSuggestionSchema)),
+      learn: call(VoiceNameLearnArgsSchema, z.boolean()),
+      remove: call(z.object({ name: VoiceNameSchema }), z.void()),
+      clear: call(z.void(), z.void()),
+    },
+    listen: { changed: listen(VoiceNameStatusSchema) },
+  },
+} as const satisfies Record<string, ChannelDefinition>;
+
+const coreIpcContract = {
   workspace: {
     call: {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
@@ -915,8 +1020,10 @@ export const ipcContract = {
           fork: z.boolean().optional(),
           /** With fork: the message to copy the session up to (`--resume-session-at`). */
           resumeAt: z.string().max(128).optional(),
+          instructions: InstructionTextSchema.optional(),
           /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
+          connectionChanged: z.boolean().optional(),
           /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
@@ -941,6 +1048,7 @@ export const ipcContract = {
           cwd: z.string(),
           /** Drop the tab's log first: the tab starts over. */
           resetLog: z.boolean().optional(),
+          connectionChanged: z.boolean().optional(),
           /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
@@ -961,7 +1069,14 @@ export const ipcContract = {
         ]),
       ),
       /** Writes one message to the program as a line. */
-      send: call(PtyWorkspaceTabSchema.extend({ message: z.record(z.unknown()) }), z.void()),
+      send: call(
+        PtyWorkspaceTabSchema.extend({
+          message: z.record(z.unknown()),
+          profileId: z.string().max(64).optional(),
+          instructions: InstructionTextSchema.optional(),
+        }),
+        z.void(),
+      ),
       /** Ends the tab's program; its log stays, to show and to start again on. */
       stop: call(PtyWorkspaceTabSchema, z.void()),
       /** Ends the tab's program and forgets its log: the tab was closed. */
@@ -1312,7 +1427,14 @@ export const ipcContract = {
   appState: {
     call: {
       get: call(z.void(), AppStateSchema),
-      set: call(AppStateSchema.partial(), z.void()),
+      set: call(
+        AppStateSchema.omit({ rememberedVoices: true })
+          .partial()
+          .extend({
+            instructionEdits: z.array(InstructionEditSchema).optional(),
+          }),
+        z.void(),
+      ),
     },
     listen: {
       /**
@@ -1356,7 +1478,14 @@ export const ipcContract = {
         }),
       ),
       /** Broadcast when the agent profiles or their rules change via `appState.set`. */
-      agentProfilesChanged: listen(z.object({ config: AgentProfilesSchema })),
+      agentProfilesChanged: listen(
+        z.object({
+          config: AgentProfilesSchema,
+          connectionChangedProfileId: z.string().max(64).optional(),
+        }),
+      ),
+      agentInstructionsChanged: listen(z.object({ config: AgentInstructionsSchema })),
+      chatInstructionHistoryChanged: listen(ChatInstructionHistorySchema),
     },
   },
 
@@ -1609,8 +1738,14 @@ export const ipcContract = {
         z.array(DirEntrySchema),
       ),
       stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
-      watch: call(workspaceScoped({ relPath: z.string() }), z.void()),
-      unwatch: call(workspaceScoped({ relPath: z.string() }), z.void()),
+      watch: call(
+        workspaceScoped({ relPath: z.string(), panel: z.literal(true).optional() }),
+        z.void(),
+      ),
+      unwatch: call(
+        workspaceScoped({ relPath: z.string(), panel: z.literal(true).optional() }),
+        z.void(),
+      ),
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
@@ -1712,6 +1847,10 @@ export const ipcContract = {
     call: {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
+      /** The folder the app's log files are in (main.log and its old file). */
+      logsPath: call(z.void(), z.object({ path: z.string() })),
+      /** Shows that folder in the OS file manager. */
+      openLogsFolder: call(z.void(), SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
       /**
        * How busy the workspace's host is (an SSH or WSL one's, from its
@@ -2386,61 +2525,6 @@ export const ipcContract = {
   // Settings › Claude and Codex: the profiles' folders and sign-ins on this
   // machine. A chat tab's profile is set up on its workspace's host instead,
   // as it starts (chat.start's profileId).
-  /**
-   * Notes: a workspace's notes, kept by the app under its data folder by
-   * where the workspace's folder is (shared/notes/types.ts).
-   */
-  notes: {
-    call: {
-      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
-      create: call(NotesArgs.create, NoteContentSchema),
-      read: call(NotesArgs.read, NoteContentSchema),
-      save: call(NotesArgs.save, NoteSummarySchema),
-      /** Clears away the files the note's document no longer uses; what it cleared. */
-      prune: call(NotesArgs.prune, z.array(z.string())),
-      /** Moves the note's folder to the Trash. */
-      remove: call(NotesArgs.remove, z.void()),
-      /** Copies files into the note's materials/. */
-      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
-      /** Writes a pasted image into the note's screens/. */
-      addImage: call(NotesArgs.addImage, NoteAssetSchema),
-      saveSketch: call(
-        NotesArgs.saveSketch,
-        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
-      ),
-      /** A file of the note's folder, as base64. */
-      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
-      /** Opens a file of the note's folder with the system's app for it. */
-      openAsset: call(NotesArgs.openAsset, z.void()),
-      revealAsset: call(NotesArgs.revealAsset, z.void()),
-      /** Shows the note's folder in the system's file manager. */
-      revealNote: call(NotesArgs.revealNote, z.void()),
-      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
-      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
-      /** Every location with notes, and what they take. */
-      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
-      /** Moves every note of a location to the Trash. */
-      removeLocation: call(NotesArgs.removeLocation, z.void()),
-      revealLocation: call(NotesArgs.revealLocation, z.void()),
-      /** What this window's recorder does; other devices see it (remote sessions' list). */
-      recording: call(NotesArgs.recording, z.void()),
-      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
-      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
-      /** Writes transcript.json, and transcript.md beside it. */
-      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
-      appendAudio: call(NotesArgs.appendAudio, z.void()),
-      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
-      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
-      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
-    },
-    listen: {
-      changed: listen(NoteChangedSchema),
-      /** Another device put a photo at the end of a note: an editor open on it does too. */
-      photoAdded: listen(NotePhotoAddedSchema),
-      /** An agent put blocks into a note: an editor open on it does too. */
-      blocksAdded: listen(NoteBlocksAddedSchema),
-    },
-  },
   agentProfiles: {
     call: {
       /**
@@ -2454,6 +2538,26 @@ export const ipcContract = {
           home: z.string(),
           defaultDirs: z.object({ claude: z.string(), codex: z.string() }),
         }),
+      ),
+      connectionKeyStatus: call(
+        z.object({
+          profileId: z.string().max(64).optional(),
+          target: z.string().max(4200).optional(),
+        }),
+        ConnectionKeyStatusSchema,
+      ),
+      connectionSave: call(
+        z.object({
+          profile: AgentProfileSchema,
+          key: ConnectionKeyChangeSchema.optional(),
+          instructions: InstructionTextSchema.optional(),
+        }),
+        AgentProfilesSchema,
+      ),
+      connectionDiscover: call(ConnectionProbeSchema, ConnectionModelsResultSchema),
+      connectionTest: call(
+        ConnectionProbeSchema.extend({ model: z.string().trim().min(1).max(256) }),
+        ConnectionTestResultSchema,
       ),
       /** Who the profile is signed in as on this machine. */
       status: call(z.object({ profileId: z.string().max(64) }), AgentProfileStatusSchema),
@@ -2478,6 +2582,28 @@ export const ipcContract = {
       loginCancel: call(z.object({ id: z.string().max(64) }), z.void()),
       /** Opens a sign-in's https address in the system browser. */
       openUrl: call(z.object({ url: z.string().url().max(8192) }), z.void()),
+      /**
+       * The profile's behavior file (settings.json, config.toml) on this machine and
+       * the values of the fields Settings edits. `prepare` first makes the folder and links.
+       */
+      readBehavior: call(
+        z.object({ profileId: z.string().max(64), prepare: z.boolean().optional() }),
+        BehaviorFileSchema,
+      ),
+      /** Writes the changed fields only, if the file is still at `version`. */
+      writeBehavior: call(
+        z.object({
+          profileId: z.string().max(64),
+          version: z.string().max(128),
+          changes: BehaviorChangesSchema,
+        }),
+        BehaviorWriteResultSchema,
+      ),
+      /** Replaces the profile's link to the default folder's behavior file with a copy of its own. */
+      unshareBehavior: call(
+        z.object({ profileId: z.string().max(64) }),
+        z.object({ path: z.string() }),
+      ),
     },
     listen: {
       loginOutput: listen(z.object({ id: z.string(), text: z.string() })),
@@ -2605,7 +2731,13 @@ export const ipcContract = {
       ),
       /** Renames another device's chat, as the user. */
       peerChatRename: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rename"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(
+            RPC_METHODS["chat.rename"].params
+              .omit({ from: true })
+              .extend({ title: z.string().min(1).max(200) }),
+          ),
         RPC_METHODS["chat.rename"].result,
       ),
       /** Asks another device's Codex chat's program again whether it is signed in. */
@@ -2655,7 +2787,7 @@ export const ipcContract = {
       peerChatCommands: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.commands"].params),
+          .merge(RPC_METHODS["chat.commands"].params.omit({ from: true })),
         RPC_METHODS["chat.commands"].result,
       ),
       /** Starts sending a file for the next message to another device's chat. */
@@ -2683,12 +2815,14 @@ export const ipcContract = {
       peerChatFileSuggestions: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.fileSuggestions"].params),
+          .merge(RPC_METHODS["chat.fileSuggestions"].params.omit({ from: true })),
         RPC_METHODS["chat.fileSuggestions"].result,
       ),
       /** Runs one of the app's commands in another device's chat, as the user. */
       peerChatCommand: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.command"].params.omit({ from: true })),
         RPC_METHODS["chat.command"].result,
       ),
       /** Stops a background run or subagent of another device's chat, as its side panel's button does. */
@@ -2702,7 +2836,7 @@ export const ipcContract = {
       peerProfiles: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["profiles.list"].params),
+          .merge(RPC_METHODS["profiles.list"].params.omit({ from: true })),
         RPC_METHODS["profiles.list"].result,
       ),
       /** Reads or changes the Claude Code settings of another device's chat, as the user. */
@@ -2717,12 +2851,16 @@ export const ipcContract = {
       ),
       /** Has another device's chat run with another profile, as the user. */
       peerChatProfile: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.profile"].params.omit({ from: true })),
         RPC_METHODS["chat.profile"].result,
       ),
       /** An image of another device's chat: a message's or a tool's, by its place there. */
       peerChatImage: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.image"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.image"].params.omit({ from: true })),
         RPC_METHODS["chat.image"].result,
       ),
       /** A folder of another device's workspace: whether the files its chats name are there. */
@@ -2768,41 +2906,51 @@ export const ipcContract = {
       ),
       /** The past conversations another device's workspace can resume. */
       peerHistory: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["history.list"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["history.list"].params.omit({ from: true })),
         RPC_METHODS["history.list"].result,
       ),
       /** Resumes a past conversation on another device: in a tab of its own there, or the one named. */
       peerChatResume: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.resume"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.resume"].params.omit({ from: true })),
         RPC_METHODS["chat.resume"].result,
       ),
       /** What rewinding another device's Claude chat to before a message would undo in its files. */
       peerChatRewindPreview: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.rewindPreview"].params),
+          .merge(RPC_METHODS["chat.rewindPreview"].params.omit({ from: true })),
         RPC_METHODS["chat.rewindPreview"].result,
       ),
       /** Rewinds another device's Claude chat to before one of the user's messages. */
       peerChatRewind: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rewind"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.rewind"].params.omit({ from: true })),
         RPC_METHODS["chat.rewind"].result,
       ),
       /** Forks another device's Claude chat into a new tab there. */
       peerChatFork: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.fork"].params.omit({ from: true })),
         RPC_METHODS["chat.fork"].result,
       ),
       /** Takes back a message another device's chat holds for after its turn, whole. */
       peerChatUnqueue: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unqueue"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.unqueue"].params.omit({ from: true })),
         RPC_METHODS["chat.unqueue"].result,
       ),
       /** Takes back a message another device's Claude chat has not read. */
       peerChatWithdraw: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.withdraw"].params),
+          .merge(RPC_METHODS["chat.withdraw"].params.omit({ from: true })),
         RPC_METHODS["chat.withdraw"].result,
       ),
       /** Has another device's Claude chat read its unread messages now. */
@@ -2821,12 +2969,14 @@ export const ipcContract = {
       peerChatRemoteControl: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["chat.remoteControl"].params),
+          .merge(RPC_METHODS["chat.remoteControl"].params.omit({ from: true })),
         RPC_METHODS["chat.remoteControl"].result,
       ),
       /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.attach"].params.omit({ from: true })),
         RPC_METHODS["chat.attach"].result,
       ),
       /** What changed in a chat another device watches here (the renderer tells main). */
@@ -2896,14 +3046,18 @@ export const ipcContract = {
       peerTerminalShells: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["terminal.shells"].params),
+          .merge(RPC_METHODS["terminal.shells"].params.omit({ from: true })),
         RPC_METHODS["terminal.shells"].result,
       ),
       /** Renames another device's terminal, where it lets this one (terminal.control). */
       peerTerminalRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["terminal.rename"].params),
+          .merge(
+            RPC_METHODS["terminal.rename"].params
+              .omit({ from: true })
+              .extend({ title: z.string().min(1).max(200) }),
+          ),
         RPC_METHODS["terminal.rename"].result,
       ),
       /** Closes another device's terminal; one running a program only with `force`. */
@@ -2989,5 +3143,10 @@ export const ipcContract = {
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
+
+export const ipcContract: typeof coreIpcContract & typeof notesContracts = {
+  ...coreIpcContract,
+  ...notesContracts,
+};
 
 export type IpcContract = typeof ipcContract;

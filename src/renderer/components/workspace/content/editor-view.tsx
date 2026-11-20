@@ -392,7 +392,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         still appears so the breadcrumb keeps a consistent location across
         all editor tabs.
       */}
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {previewSupport !== "none" && (
           <ViewModeToggle
@@ -471,7 +471,7 @@ export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps)
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+      <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {naturalSize && <ImageResolutionChip size={naturalSize} />}
       </div>
@@ -496,7 +496,7 @@ function ImageResolutionChip({ size }: { size: { w: number; h: number } }) {
   const label = `${size.w} × ${size.h}`;
   return (
     <span
-      className="text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none"
+      className="shrink-0 whitespace-nowrap text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none"
       title={t("imagePreview.resolution", { size: label })}
     >
       {label}

@@ -469,6 +469,64 @@ describe("the account", () => {
     expect(store.value?.device.alias).toBeNull();
   });
 
+  test.each([
+    {
+      case: "same name sends nothing",
+      now: "Mac",
+      signedIn: true,
+      status: 204,
+      sent: 0,
+      kept: "Mac",
+    },
+    {
+      case: "new name is sent and kept",
+      now: "Studio",
+      signedIn: true,
+      status: 204,
+      sent: 1,
+      kept: "Studio",
+    },
+    {
+      case: "a failed request keeps the old name",
+      now: "Studio",
+      signedIn: true,
+      status: 500,
+      sent: 1,
+      kept: "Mac",
+    },
+    {
+      case: "signed out sends nothing",
+      now: "Studio",
+      signedIn: false,
+      status: 204,
+      sent: 0,
+      kept: undefined,
+    },
+  ])("syncs a renamed device: $case", async ({ now, signedIn, status, sent, kept }) => {
+    const store = memoryStore(signedIn ? { server: SERVER, token: "tok", user, device } : null);
+    const requests: { method: string; path: string; body: unknown }[] = [];
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      device: { name: now, platform: "darwin" },
+      fetch: (async (input: URL | string, init?: RequestInit) => {
+        requests.push({
+          method: init?.method ?? "GET",
+          path: new URL(String(input)).pathname,
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response(null, { status });
+      }) as typeof fetch,
+    });
+    await account.restore();
+    await account.syncDeviceName();
+    expect(requests).toHaveLength(sent);
+    if (sent)
+      expect(requests[0]).toEqual({ method: "PATCH", path: "/devices/d1", body: { name: now } });
+    expect(store.value?.device.name).toBe(kept);
+  });
+
   test("names the device as the server takes it", () => {
     const { name, platform } = thisDevice();
     expect(name.length).toBeGreaterThan(0);

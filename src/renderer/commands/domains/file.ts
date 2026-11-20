@@ -11,6 +11,7 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import { activeLocalPanelTab } from "../../services/agent-view/show";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
 import { workingFileOfDiff } from "../../services/editor/tabs";
@@ -20,6 +21,7 @@ import { confirmAndDeleteBatch } from "../../services/fs-mutations";
 import { refresh } from "../../state/operations/files";
 import { openNewUntitledTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
+import { isAgentViewShown } from "../../state/stores/agent-view";
 import {
   selectFocus,
   selectOperablePaths,
@@ -182,6 +184,11 @@ export function registerFileCommands(): Array<() => void> {
     }),
 
     registerCommand(COMMANDS.fileSave, () => {
+      if (isAgentViewShown()) {
+        const active = activeLocalPanelTab();
+        if (active?.tab.type === "editor") runSaveAndReport(active.tab.props);
+        return;
+      }
       const ctx = getActiveTabContext();
       if (!ctx) return;
       const tab = useTabsStore.getState().byWorkspace[ctx.wsId]?.[ctx.tabId];

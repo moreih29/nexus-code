@@ -3,6 +3,7 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import { instructionSessionId } from "../../chat/instructions";
 import { type CliServices, resolveWorkspace, shortId } from "../context";
 import { type CliCommand, output } from "../registry";
 
@@ -10,16 +11,57 @@ const agentContext: CliCommand = {
   path: ["agent-context"],
   summary: "Print the note on nexus a Claude Code session gets at its start",
   hidden: true,
-  async run(ctx) {
-    if (!ctx.services.agentContextEnabled()) return output("", { note: null });
+  args: "[-]",
+  flags: {
+    launch: { type: "string", value: "ID", description: "The tab's Claude launch" },
+    profile: { type: "string", value: "ID", description: "The terminal's Claude profile" },
+  },
+  async run(ctx, { flags }) {
     const workspace = resolveWorkspace(ctx, undefined);
-    const note = agentContextNote(
-      locationOf(workspace.name, ctx.caller.tabId, "terminal"),
-      ctx.services.remote.inRoom(),
-    );
-    return output(note, { note });
+    const event = hookEvent(ctx.invocation.stdin);
+    const launch = typeof flags.launch === "string" ? flags.launch : "";
+    if (launch && ctx.caller.verified === false) return output("", { note: null });
+    const profile = typeof flags.profile === "string" ? flags.profile : "";
+    const prompt = event.hook_event_name === "UserPromptSubmit";
+    const start = event.hook_event_name === "SessionStart";
+    const restoresContext = start && (event.source === "compact" || event.source === "clear");
+    const note =
+      ctx.services.agentContextEnabled() && !prompt
+        ? agentContextNote(
+            locationOf(workspace.name, ctx.caller.tabId, launch ? "Claude chat tab" : "terminal"),
+            ctx.services.remote.inRoom(),
+          )
+        : "";
+    const instructions =
+      launch && (prompt || start)
+        ? ctx.services.claudeInstructions?.(workspace.id, ctx.caller.tabId, launch, {
+            sessionId: instructionSessionId(event.session_id),
+            phase: prompt ? "prompt" : restoresContext ? "restore" : "start",
+          })
+        : !launch && start && ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
+    const text = [note, instructions].filter(Boolean).join("\n\n");
+    if (text && launch && (prompt || restoresContext)) {
+      const result = {
+        hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text },
+      };
+      return output(JSON.stringify(result), result);
+    }
+    return output(text, { note: text || null });
   },
 };
+
+function hookEvent(input: string | undefined): {
+  hook_event_name?: string;
+  source?: string;
+  session_id?: string;
+} {
+  try {
+    const payload: unknown = JSON.parse(input ?? "{}");
+    return payload && typeof payload === "object" ? payload : {};
+  } catch {
+    return {};
+  }
+}
 
 export interface ChatAgentContext {
   status: string;
@@ -49,15 +91,15 @@ export function chatAgentContext(
 }
 
 const remoteInstructions = [
-  "The user's other computers in the remote (nexus device list) are reached the same way:",
-  "session list --device all, then chat or terminal read/send/wait ... --device NAME.",
-  "Copy files with nexus file pull --device DEVICE --workspace WS REMOTE [LOCAL] or nexus file push --device DEVICE --workspace WS LOCAL... REMOTE (add -r for a folder).",
+  "Find other devices with nexus device list and session list --device all. Use --device NAME on",
+  "chat, terminal, note, worktree, layout and view commands. The receiver sets the policy.",
+  "Use file list/pull/push --device NAME --workspace WS and events --device all --json for device cursors.",
 ];
 
 function locationOf(
   workspaceName: string,
   tabId: string,
-  kind: "terminal" | "Codex chat tab",
+  kind: "terminal" | "Claude chat tab" | "Codex chat tab",
 ): string {
   const label = JSON.stringify(workspaceName).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
   return `You are running in a ${kind} of NexusCode (workspace ${label}, ${kind} ${shortId(tabId)}).`;
@@ -73,15 +115,23 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
     "the user (nexus notify). The app's Claude and Codex tabs are agents too: nexus chat new",
     "--prompt TEXT (--agent codex) opens one, and chat read, send --wait and wait follow it.",
+    "From a verified local chat tab, use chat new or chat set with --mode to grant up to your",
+    "current permission level. In fullAccess or bypassPermissions, you can also use chat answer",
+    "to approve or deny a pending local tool request once. Cross-workspace settings still apply.",
+    "Pass --instructions-file FILE to set the new tab's session instructions. Use nexus chat",
+    "instructions TAB --show, --set-file FILE, or --clear to view or edit a tab's instructions.",
     "What you send a tab reaches its agent after a line that says you sent it, and the tab",
     "shows it as yours, not the user's. A message to you that starts \"[nexus] ... sent this,",
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
-    "nexus events --since N --wait 10m follows every session's state changes as they come.",
+    "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
+    "chat profiles lists choices. Use chat fork/rewind and chat export --stdout for either agent.",
+    "Claude Remote Control follows the workspace or device policy.",
+    "Use --json for structured results. Repeat events --since N --wait 10m, one batch at a time.",
     ...(inRoom ? remoteInstructions : []),
     "Work can be handed to another agent on its own branch and worktree: nexus worktree new",
     "NAME --prompt TEXT (--agent claude or codex; the task agent set in the app by default),",
-    "then the chat wait it prints. Make worktrees with nexus worktree new, not git worktree add",
+    "then run the wait command it prints. Make worktrees with nexus worktree new, not git worktree add",
     "or a worktree tool of your own, so the user sees them as tasks in the app.",
     "The app's browser tabs can be opened and driven to check a web",
     "app: nexus browser open URL (or a bare /path, on the port this workspace's dev server",
@@ -89,11 +139,12 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
     "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
     "workspace move/pin/edit (the sidebar's rows: order, pin, name and color),",
-    "and nexus view agents|workspaces, view layout/open/split for the agent view's panels;",
-    "nexus problems lists the language servers' errors in open files.",
+    "and nexus view layout/open/split for agent panels, with --key from view layout --json.",
+    "Use view open-file PATH for files and nexus problems for language server diagnostics.",
     "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
-    "note write and note add add to one (never change what is there), note record records into it.",
+    "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
+    "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",

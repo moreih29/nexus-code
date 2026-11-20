@@ -248,7 +248,7 @@ function FindBar({
       : t("previewFind.count", { current: result.current, total: result.total });
   return (
     <search
-      className="absolute right-4 z-30 flex items-center gap-0.5 floating-panel py-1 pl-2 pr-1"
+      className="absolute right-4 z-30 flex max-w-[calc(100%-1rem)] items-center gap-0.5 floating-panel py-1 pl-2 pr-1"
       style={{ top }}
     >
       <input
@@ -265,12 +265,12 @@ function FindBar({
         placeholder={t("previewFind.placeholder")}
         aria-label={t("previewFind.placeholder")}
         spellCheck={false}
-        className="h-6 w-44 bg-transparent text-app-ui-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="h-6 w-44 min-w-0 shrink bg-transparent text-app-ui-sm text-foreground outline-none placeholder:text-muted-foreground"
       />
       <span
         aria-live="polite"
         className={cn(
-          "min-w-16 px-1 text-right text-app-ui-sm tabular-nums whitespace-nowrap",
+          "min-w-16 shrink-0 px-1 text-right text-app-ui-sm tabular-nums whitespace-nowrap",
           searched && result.total === 0 ? "text-[var(--state-error-fg)]" : "text-muted-foreground",
         )}
       >

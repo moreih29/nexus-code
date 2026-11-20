@@ -5,7 +5,18 @@
  * files keep its other exports.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Composer } from "../../../../../../src/renderer/components/chat/composer";
 import { historyModel } from "../../../../../../src/renderer/services/chat/claude/history";
+import {
+  borrowedClaudeModels,
+  useClaudeModelCatalog,
+} from "../../../../../../src/renderer/services/chat/claude/model-catalog";
+import { claudeModelLabel } from "../../../../../../src/renderer/services/chat/claude/settings-defaults";
+import { currentModelInfo } from "../../../../../../src/renderer/services/chat/model";
+import { chatChoicesOf } from "../../../../../../src/renderer/services/cli/chat-settings";
+import { chatCommandsOf } from "../../../../../../src/renderer/services/remote/chat-commands";
 import type { TranscriptPageResult } from "../../../../../../src/shared/ipc/contract";
 
 import { type IpcErrResult, ipcErr } from "../../../../../../src/shared/ipc/result";
@@ -14,8 +25,15 @@ let releaseStart: () => void = () => {};
 let started = false;
 let replyToInitialize: ((requestId: string) => void) | undefined;
 let onStartRequested: (() => void) | undefined;
+let replayLog:
+  | (() => { found: boolean; truncated: boolean; running: boolean; lastSeq: number })
+  | undefined;
 let transcriptPage:
-  | ((cursor?: string, beforeAnchor?: string) => Promise<TranscriptPageResult | IpcErrResult>)
+  | ((
+      cursor?: string,
+      beforeAnchor?: string,
+      before?: string[],
+    ) => Promise<TranscriptPageResult | IpcErrResult>)
   | undefined;
 let completeLines: readonly unknown[] | undefined;
 let completeReads = 0;
@@ -26,13 +44,18 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (
     _channel: string,
     method: string,
-    args: { message?: { request_id?: string }; cursor?: string; beforeAnchor?: string },
+    args: {
+      message?: { request_id?: string };
+      cursor?: string;
+      beforeAnchor?: string;
+      before?: string[];
+    },
   ) => {
     if (method === "replay") {
-      return Promise.resolve({ ok: true, value: { found: false } });
+      return Promise.resolve({ ok: true, value: replayLog?.() ?? { found: false } });
     }
     if (method === "transcriptPage" && transcriptPage) {
-      return transcriptPage(args.cursor, args.beforeAnchor).then((value) =>
+      return transcriptPage(args.cursor, args.beforeAnchor, args.before).then((value) =>
         "ok" in value ? value : { ok: true, value },
       );
     }
@@ -87,6 +110,7 @@ afterEach(() => {
   started = false;
   replyToInitialize = undefined;
   onStartRequested = undefined;
+  replayLog = undefined;
   transcriptPage = undefined;
   completeLines = undefined;
   completeReads = 0;
@@ -148,6 +172,264 @@ function goal(condition: string) {
 function page(lines: unknown[], positions: number[], cursor?: string): TranscriptPageResult {
   return { found: true, truncated: false, snapshot: "same-snapshot", lines, positions, cursor };
 }
+
+test.each([
+  true,
+  false,
+])("controls after a truncated replay with initialize retained=%s", async (initialized) => {
+  const c = new ChatController({ workspaceId: "ws-replay", tabId: "controls", cwd: "/p" });
+  live.push(c);
+  replayLog = () => {
+    if (initialized) {
+      c.receive({ dir: "sys", seq: 1, replay: true, message: { event: "start" } });
+      c.receive({
+        dir: "in",
+        seq: 2,
+        replay: true,
+        message: {
+          type: "control_request",
+          request_id: "init",
+          request: { subtype: "initialize" },
+        },
+      });
+      c.receive({
+        dir: "out",
+        seq: 3,
+        replay: true,
+        message: {
+          type: "control_response",
+          response: {
+            request_id: "init",
+            subtype: "success",
+            response: {
+              commands: [{ name: "compact", description: "Compact this conversation" }],
+              models: [
+                {
+                  value: "opus",
+                  resolvedModel: "claude-opus-5-5",
+                  displayName: "Opus 5.5",
+                  supportedEffortLevels: ["high", "xhigh"],
+                },
+              ],
+            },
+          },
+        },
+      });
+    }
+    c.receive({
+      dir: "out",
+      seq: 8_000,
+      replay: true,
+      message: {
+        type: "system",
+        subtype: "init",
+        model: "claude-opus-5-5",
+        permissionMode: "plan",
+        slash_commands: ["compact"],
+      },
+    });
+    if (initialized) {
+      c.receive({
+        dir: "in",
+        seq: 8_005,
+        replay: true,
+        message: {
+          type: "control_request",
+          request_id: "effort",
+          request: { subtype: "apply_flag_settings", settings: { effortLevel: "xhigh" } },
+        },
+      });
+      c.receive({
+        dir: "out",
+        seq: 8_006,
+        replay: true,
+        message: {
+          type: "control_response",
+          response: { request_id: "effort", subtype: "success" },
+        },
+      });
+    }
+    return { found: true, running: true, truncated: true, lastSeq: initialized ? 8_006 : 8_000 };
+  };
+
+  await c.open();
+  const { model } = c.state;
+  expect(model.process).toBe("running");
+  expect(model.permissionMode).toBe("plan");
+  if (initialized) {
+    const selected = currentModelInfo(model.init?.models ?? [], model.model, model.chosenModel);
+    expect(selected?.displayName).toBe("Opus 5.5");
+    expect(selected?.supportedEffortLevels).toEqual(["high", "xhigh"]);
+    expect(model.effort).toBe("xhigh");
+    expect(model.init?.commands[0]?.description).toBe("Compact this conversation");
+  } else {
+    expect(model.init).toBeUndefined();
+    expect(claudeModelLabel(model.model ?? "")).toBe("Opus 5.5");
+    expect(claudeModelLabel("private-model")).toBe("private-model");
+    expect(model.slashCommands).toEqual([{ name: "compact" }]);
+    expect(model.effort).toBeUndefined();
+  }
+});
+
+test("a truncated tab borrows model and effort options from its profile until its own list arrives", async () => {
+  const tab = (tabId: string, profileId: string) => {
+    const c = new ChatController({ workspaceId: `ws-${tabId}`, tabId, cwd: "/p", profileId });
+    live.push(c);
+    return c;
+  };
+  const older = tab("catalog-older", "claude-catalog-shared");
+  const different = tab("catalog-other", "claude-catalog-other");
+  const donor = tab("catalog-donor", "claude-catalog-shared");
+  for (const c of [older, different]) {
+    replayLog = () => {
+      c.receive({
+        dir: "out",
+        seq: 900,
+        replay: true,
+        message: {
+          type: "system",
+          subtype: "init",
+          model: "claude-opus-5-5",
+          slash_commands: ["compact"],
+        },
+      });
+      return { found: true, running: true, truncated: true, lastSeq: 900 };
+    };
+    await c.open();
+  }
+
+  const borrowed = (c: Controller) =>
+    borrowedClaudeModels(useClaudeModelCatalog.getState(), c.modelCatalogKey, c.key);
+  const render = (c: Controller) =>
+    renderToStaticMarkup(
+      createElement(Composer, {
+        controller: c,
+        state: c.state,
+        fallbackModels: borrowed(c),
+        local: true,
+      }),
+    );
+  const button = (html: string, label: "Model" | "Effort") =>
+    html.match(new RegExp(`<button\\b[^>]*aria-label="${label}"[^>]*>`))?.[0];
+  const disabled = /\sdisabled=""/;
+  expect(button(render(older), "Model")).toMatch(disabled);
+  expect(button(render(older), "Effort")).toBeUndefined();
+
+  const initialize = (c: Controller, displayName: string, supportedEffortLevels: string[]) => {
+    const seq = c.state.model.lastSeq;
+    c.receive({
+      dir: "in",
+      seq: seq + 1,
+      message: {
+        type: "control_request",
+        request_id: "catalog-init",
+        request: { subtype: "initialize" },
+      },
+    });
+    c.receive({
+      dir: "out",
+      seq: seq + 2,
+      message: {
+        type: "control_response",
+        response: {
+          request_id: "catalog-init",
+          subtype: "success",
+          response: {
+            commands: [{ name: "only-in-initialize" }],
+            models: [
+              {
+                value: "opus",
+                resolvedModel: "claude-opus-5-5",
+                displayName,
+                supportedEffortLevels,
+              },
+            ],
+          },
+        },
+      },
+    });
+    c.flushNow();
+  };
+
+  initialize(donor, "Profile Opus", ["high", "xhigh"]);
+  const shared = render(older);
+  expect(button(shared, "Model")).toContain("Profile Opus");
+  expect(button(shared, "Model")).not.toMatch(disabled);
+  expect(button(shared, "Effort")).toBeDefined();
+  expect(button(shared, "Effort")).not.toMatch(disabled);
+  expect(button(render(different), "Model")).toMatch(disabled);
+  expect(button(render(different), "Effort")).toBeUndefined();
+  expect(older.state.model.init).toBeUndefined();
+  expect(chatChoicesOf("claude", older.state.model)).toMatchObject({ models: [], efforts: [] });
+  expect(chatCommandsOf("claude", older.state.model).map(({ name }) => name)).not.toContain(
+    "only-in-initialize",
+  );
+
+  donor.dispose();
+  expect(button(render(older), "Model")).toMatch(disabled);
+  expect(button(render(older), "Effort")).toBeUndefined();
+
+  initialize(older, "This Tab's Opus", []);
+  initialize(tab("catalog-new-donor", "claude-catalog-shared"), "Updated Profile Opus", ["xhigh"]);
+  expect(borrowed(older)?.[0]?.displayName).toBe("Updated Profile Opus");
+  expect(render(older)).toContain("This Tab&#x27;s Opus");
+  expect(button(render(older), "Effort")).toBeUndefined();
+});
+
+test.each([
+  "complete",
+  "transcript capped",
+  "no overlap",
+  "legacy transcript",
+])("a truncated log checks its prefix in a %s", async (kind) => {
+  const c = new ChatController({
+    workspaceId: "ws-replay",
+    tabId: "history",
+    cwd: "/p",
+    sessionId: "s-history",
+  });
+  live.push(c);
+  replayLog = () => {
+    c.receive({
+      dir: "out",
+      seq: 900,
+      replay: true,
+      message: { ...user("live", "live"), isReplay: true },
+    });
+    return { found: true, truncated: true, running: true, lastSeq: 900 };
+  };
+  transcriptPage = async (cursor, _anchor, before) => {
+    if (cursor)
+      return { ...page([user("first", "first")], [10]), truncated: kind === "transcript capped" };
+    expect(before).toEqual(["live"]);
+    if (kind === "legacy transcript") {
+      return {
+        found: true,
+        truncated: false,
+        lines: [user("first", "first"), user("live", "live")],
+      };
+    }
+    return {
+      ...page([user("recent", "recent")], [40], "earlier"),
+      cutMatched: kind !== "no overlap",
+      truncated: kind === "transcript capped",
+    };
+  };
+
+  await c.open();
+  if (kind === "no overlap") {
+    expect(c.state.history).toBeNull();
+    expect(c.state.truncated).toBe(true);
+    return;
+  }
+  if (kind !== "legacy transcript") {
+    expect(c.state.historyPage?.hasEarlier).toBe(true);
+    await c.loadEarlier();
+    expect(c.state.historyPage?.hasEarlier).toBe(false);
+  }
+  expect(c.state.history?.items[0]).toMatchObject({ uuid: "first" });
+  expect(c.state.truncated).toBe(kind === "transcript capped");
+});
 
 function openTail(hooks = {}) {
   const controller = new ChatController(

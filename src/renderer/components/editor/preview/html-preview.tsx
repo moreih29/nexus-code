@@ -347,7 +347,9 @@ function buildBaseTag(
   if (!isWithinWorkspace(currentFileAbsPath, workspaceRootAbsPath)) {
     return outsideDirGranted ? `<base href="${buildOutsideDirUrl(workspaceId, dirAbs)}">` : "";
   }
-  const baseHref = buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
+  const baseHref = peerOf(workspaceId)
+    ? buildOutsideDirUrl(workspaceId, dirAbs)
+    : buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
   return `<base href="${baseHref}">`;
 }
 

@@ -14,10 +14,13 @@
 //   claude      → closeChatTab, then closeTab
 //   codex       → closeCodexTab, then closeTab
 
+import i18next from "i18next";
+import { showToast } from "@/components/ui/toast";
 import { closeChatTab } from "@/services/chat/claude/controller";
 import { closeCodexTab } from "@/services/chat/codex/controller";
 import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
+import { flushStatePersistence } from "@/state/persistence";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CloseTabOutcome } from "./close-handler";
 import {
@@ -60,15 +63,15 @@ export async function closeTabWithConfirm(
     closeTab(workspaceId, tabId);
   }
 
-  // A Claude tab's program ends with it; its session stays resumable.
-  if (tab.type === "claude") {
-    closeChatTab(workspaceId, tabId);
-    closeTab(workspaceId, tabId);
-  }
-
-  // So does a Codex tab's; its thread stays in Codex's history.
-  if (tab.type === "codex") {
-    closeCodexTab(workspaceId, tabId);
+  if (tab.type === "claude" || tab.type === "codex") {
+    // The layout write keeps the instructions with the conversation's ID, which
+    // may have arrived in the last turn just before the user closed the tab.
+    if (tab.props.instructions !== undefined && !(await flushStatePersistence())) {
+      showToast({ kind: "error", message: i18next.t("settings:instructions.saveFailed") });
+      return "cancelled";
+    }
+    if (tab.type === "claude") closeChatTab(workspaceId, tabId);
+    else closeCodexTab(workspaceId, tabId);
     closeTab(workspaceId, tabId);
   }
 

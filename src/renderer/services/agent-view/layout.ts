@@ -6,6 +6,7 @@
  */
 
 import { type Direction, Grid, type SplitLeaf, type SplitNode } from "@/engine";
+import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 
 export interface AgentLayout {
   readonly root: SplitNode;
@@ -47,12 +48,20 @@ export function isRemoteKey(key: string): boolean {
   return key.startsWith(REMOTE_KEY_PREFIX);
 }
 
+/** The device, workspace and tab a remote session key names. */
+export function parseRemoteSessionKey(key: string) {
+  if (!isRemoteKey(key)) return null;
+  const [deviceId, workspaceId, tabId, ...rest] = key.slice(REMOTE_KEY_PREFIX.length).split("/");
+  if (!deviceId || !workspaceId || !tabId || rest.length > 0) return null;
+  return { deviceId, workspaceId, tabId };
+}
+
 /**
  * The workspace and tab of this computer a session key names; null for one
  * that names neither, and for another computer's session.
  */
 export function parseSessionKey(key: string): { workspaceId: string; tabId: string } | null {
-  if (isRemoteKey(key)) return null;
+  if (isRemoteKey(key) || isRemoteFileKey(key)) return null;
   const colon = key.indexOf(":");
   if (colon <= 0 || colon === key.length - 1) return null;
   return { workspaceId: key.slice(0, colon), tabId: key.slice(colon + 1) };
@@ -61,6 +70,12 @@ export function parseSessionKey(key: string): { workspaceId: string; tabId: stri
 /** The panel holding `key`, whether it shows it or keeps it behind another tab. */
 export function leafHolding(root: SplitNode, key: string): SplitLeaf | null {
   return Grid.findLeafByTab(root, (id) => id === key)?.leaf ?? null;
+}
+
+/** Selects a tab only if a panel already holds it, even behind another tab. */
+export function selectHeldKey(layout: AgentLayout, key: string): AgentLayout | null {
+  const holder = leafHolding(layout.root, key);
+  return holder ? selectKey(layout, holder.id, key) : null;
 }
 
 /** The panel showing `key` in front; null when no panel does. */
@@ -319,7 +334,12 @@ export function sanitizeLayout(root: SplitNode, activeLeafId: string): AgentLayo
     if (node.kind === "split")
       return { ...node, first: clean(node.first), second: clean(node.second) };
     const tabIds = node.tabIds.filter((key) => {
-      if (seen.has(key) || parseSessionKey(key) === null) return false;
+      if (
+        seen.has(key) ||
+        (!parseSessionKey(key) && !isRemoteKey(key) && !parseRemoteFileKey(key))
+      ) {
+        return false;
+      }
       seen.add(key);
       return true;
     });

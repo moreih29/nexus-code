@@ -1,8 +1,11 @@
+import type { NoteStorageEntry } from "../notes/types";
+import type { UpdateProgress, UpdateStatus } from "../updates/status";
 /**
  * What the nexus CLI asks of the renderer, which owns the tabs, the layout
  * and the terminals' screens. Main sends "cli.uiRequest" to the active
  * window and the renderer answers with "cli.uiRespond".
  */
+
 import { z } from "zod";
 import type {
   ChatCommand,
@@ -11,7 +14,9 @@ import type {
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
+import type { InstructionScope } from "../chat/instructions";
 import type { RelaySender } from "../chat/relay";
+import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
 
@@ -140,20 +145,28 @@ export interface CliViewAgent {
   readonly type: string;
 }
 
-/**
- * The agent view: whether the window shows it, and its panels, split as a
- * workspace's editor area is; a panel's tabIds are the keys of the
- * sessions it holds.
- */
+/** A file or a peer session held by an agent view panel. */
+export type CliViewHeldTab = {
+  readonly key: string;
+  readonly workspaceId: string;
+  readonly title: string;
+} & (
+  | { readonly kind: "file"; readonly path: string }
+  | { readonly kind: "remote-file"; readonly device: string; readonly path: string }
+  | { readonly kind: "remote-session"; readonly device: string; readonly path?: string }
+);
+
 /** How the agent view's list groups its agents: by their state, or by their workspace. */
 export type CliAgentGrouping = "status" | "workspace";
 
+/** The agent view and its panels. A panel's tabIds are keys in agents or held. */
 export interface CliAgentView {
   readonly view: CliView;
   readonly grouping: CliAgentGrouping;
   readonly root: CliLayoutNode;
   readonly activePanelId: string;
   readonly agents: readonly CliViewAgent[];
+  readonly held: readonly CliViewHeldTab[];
 }
 
 /** The columns left of the editor area: the workspace list, and the files panel. */
@@ -222,6 +235,16 @@ export interface CliRecorder {
   readonly voice: "unknown" | "signed-out" | "unavailable" | "ready";
 }
 
+export type CliSpeakerChange =
+  | { op: "rename"; speaker: string; name: string }
+  | { op: "merge"; from: string; into: string }
+  | { op: "move"; first: string; last: string; into: string }
+  | { op: "regroup"; participants: number | "auto" };
+
+export type CliVoiceSuggestionAction =
+  | { op: "list" }
+  | { op: "accept" | "reject"; speaker: string; name: string };
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
@@ -238,6 +261,7 @@ export type CliChangeKind =
   | "chatInput"
   | "chatInterrupt"
   | "chatSettings"
+  | "instructionsEdit"
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
@@ -246,10 +270,13 @@ export type CliChangeKind =
   | "chatFork"
   | "chatBackground"
   | "chatTaskStop"
+  | "chatRemoteControlToggle"
   | "chatRemoteControlOn"
   | "chatRemoteControlOff"
   | "noteNew"
   | "noteWrite"
+  | "noteSpeakers"
+  | "voiceNamesDelete"
   | "noteRecord"
   | "noteRecordStop"
   | "tabClose"
@@ -283,6 +310,8 @@ export interface CliChange {
    * message or the prompt.
    */
   readonly body?: string;
+  /** This approval applies to this single request. */
+  readonly eachTime?: boolean;
   /** This change requires terminal control. */
   readonly terminal?: boolean;
 }
@@ -533,6 +562,10 @@ export interface CliUiOps {
     result: { tabId: string };
   };
   /** The shells a terminal of a local workspace can run, as "New terminal with" lists them. */
+  "terminal.reopen": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
   "terminal.shells": {
     args: Record<string, never>;
     result: { shells: CliShellInfo[] };
@@ -573,10 +606,25 @@ export interface CliUiOps {
     /** Where "goto" went. */
     result: { url?: string };
   };
+  "browser.permissions": {
+    args: { workspaceId: string };
+    result: {
+      global: Record<string, boolean>;
+      sites: { origin: string; permission: string; decision: "allow" | "block" }[];
+    };
+  };
+  "browser.devtools": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
   /** A workspace's editor area and its active group. */
   "layout.get": {
     args: { workspaceId: string };
     result: { root: CliLayoutNode; activeGroupId: string };
+  };
+  "layout.focus": {
+    args: { workspaceId: string; groupId: string };
+    result: Record<string, never>;
   };
   /** Moves a tab into a new group on a side of `groupId`, its own group or another. */
   "layout.split": {
@@ -654,9 +702,7 @@ export interface CliUiOps {
    * the active one; otherwise the active panel stays.
    */
   "agentView.place": {
-    args: {
-      workspaceId: string;
-      tabId: string;
+    args: ({ workspaceId: string; tabId: string } | { key: string }) & {
       panelId?: string;
       side?: CliSplitSide;
       index?: number;
@@ -664,9 +710,14 @@ export interface CliUiOps {
     };
     result: { panelId: string };
   };
-  /** Takes a session out of the agent view; its tab goes on in its workspace. */
+  /** Opens a workspace file in an agent panel. */
+  "agentView.openFile": {
+    args: { workspaceId: string; filePath: string; panelId?: string };
+    result: { key: string; tabId: string; panelId: string };
+  };
+  /** Takes a tab out of the agent view; local tabs go on in their workspace. */
   "agentView.remove": {
-    args: { workspaceId: string; tabId: string };
+    args: { workspaceId: string; tabId: string } | { key: string };
     result: Record<string, never>;
   };
   /** Closes a panel, taking its sessions out of the view; the only one is emptied. */
@@ -713,8 +764,9 @@ export interface CliUiOps {
       prompt: string;
       start?: CliTaskStart;
       show: boolean;
+      allowTerminal?: boolean;
       /** The terminal whose agent asks for the task. */
-      createdBy: { workspaceId: string; tabId: string };
+      createdBy?: { workspaceId: string; tabId: string };
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
     };
@@ -739,6 +791,7 @@ export interface CliUiOps {
       settings?: CliChatSettings;
       /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
+      instructions?: string;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
       /**
@@ -746,13 +799,28 @@ export interface CliUiOps {
        * take the mode that lets everything run, unless a policy keeps it off.
        */
       user?: boolean;
+      /** Main verified that a local caller may grant the unrestricted mode. */
+      allowDangerousMode?: boolean;
     };
     result: { tabId: string; error?: string };
   };
+  "chat.instructions": {
+    args: { workspaceId: string; tabId: string; text?: string };
+    result: { instructions: string };
+  };
   /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {
-    args: { agent?: ChatAgent };
-    result: { profiles: { id: string; name: string; agent: ChatAgent; isDefault: boolean }[] };
+    args: { agent?: ChatAgent; workspaceId?: string };
+    result: {
+      profiles: {
+        id: string;
+        name: string;
+        agent: ChatAgent;
+        isDefault: boolean;
+        workspaceDefault?: boolean;
+        path?: string;
+      }[];
+    };
   };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {
@@ -775,6 +843,11 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string };
     result: { signedOut: boolean };
   };
+  /** The caller's confirmed live permission mode, without starting its program. */
+  "chat.mode": {
+    args: { workspaceId: string; tabId: string };
+    result: { agent: ChatAgent; mode?: string } | null;
+  };
   /**
    * The files outside the workspace that its Claude and Codex tabs name,
    * absolute: what their tools took or wrote, what their replies link, and
@@ -795,11 +868,15 @@ export interface CliUiOps {
       workspaceId: string;
       tabId: string;
       settings: CliChatSettings;
+      /** Mode used to authorize this change. */
+      expectedMode?: string;
       /**
        * The user sets them, from another device (the remote): the mode that
-       * lets everything run too, unless a policy keeps it off. An agent never.
+       * lets everything run too, unless a policy keeps it off.
        */
       user?: boolean;
+      /** Main verified that a local caller may grant the unrestricted mode. */
+      allowDangerousMode?: boolean;
     };
     result: CliChatChoices;
   };
@@ -826,7 +903,13 @@ export interface CliUiOps {
    * `tabId`, a tab of the agent's with no conversation yet, in that tab.
    */
   "chat.resume": {
-    args: { workspaceId: string; agent: ChatAgent; sessionId: string; tabId?: string };
+    args: {
+      workspaceId: string;
+      agent: ChatAgent;
+      sessionId: string;
+      tabId?: string;
+      emptyOnly?: true;
+    };
     result: { tabId: string };
   };
   /**
@@ -1025,8 +1108,8 @@ export interface CliUiOps {
   };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
-    args: { workspaceId: string; tabId: string; enabled: boolean };
-    result: Record<string, never>;
+    args: { workspaceId: string; tabId: string; enabled?: boolean };
+    result: { enabled: boolean; url?: string };
   };
   /** Stops a watch chat.watch started; nothing when there is none. */
   "chat.unwatch": {
@@ -1134,7 +1217,14 @@ export interface CliUiOps {
   /** Changes the text of a message the tab holds for after the turn, its images kept. */
   "chat.editHeld": {
     /** `device`: the user's other computer that changes it, whose it is then. */
-    args: { workspaceId: string; tabId: string; id: string; text: string; device?: string };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      id: string;
+      text: string;
+      device?: string;
+      from?: RelaySender;
+    };
     result: Record<string, never>;
   };
   /**
@@ -1160,6 +1250,10 @@ export interface CliUiOps {
    * of, by the entry's i as chat.read numbers it: the item's key, which
    * chat.rewind, chat.fork and chat.withdraw take, and its kind.
    */
+  "chat.export": {
+    args: { workspaceId: string; tabId: string };
+    result: { markdown: string };
+  };
   "chat.entryItem": {
     args: { workspaceId: string; tabId: string; i: number };
     /** `text`: a message of the user's, its text. */
@@ -1189,8 +1283,87 @@ export interface CliUiOps {
       action: "status" | "start" | "pause" | "resume" | "stop";
       workspaceId?: string;
       noteId?: string;
+      participants?: ParticipantCount;
     };
     result: CliRecorder;
+  };
+  "editor.newUntitled": {
+    args: { workspaceId: string };
+    result: { tabId: string };
+  };
+  "editor.encoding": {
+    args: { workspaceId: string; tabId: string; reopen?: string; saveAs?: string };
+    result: {
+      encoding: string;
+      dirty: boolean;
+      readOnly: boolean;
+      choices: { id: string; name: string }[];
+    };
+  };
+  "workspace.dismissNotifications": {
+    args: { workspaceId: string };
+    result: Record<string, never>;
+  };
+  "settings.lspStatus": {
+    args: { workspaceId: string };
+    result: {
+      enabled: boolean;
+      maxActiveWorkspaces: number;
+      servers: { language: string; state: string }[];
+    };
+  };
+  "settings.updateStatus": {
+    args: Record<string, never>;
+    result: { status: UpdateStatus | null; progress: UpdateProgress | null };
+  };
+  "note.rename": {
+    args: { workspaceId: string; noteId: string; title: string };
+    result: { title: string };
+  };
+  "note.storage": {
+    args: Record<string, never>;
+    result: { entries: (NoteStorageEntry & { workspaceIds?: string[] })[] };
+  };
+  "note.speakers": {
+    args: { workspaceId: string; noteId: string; recording?: string; change: CliSpeakerChange };
+    result: { recordingId: string };
+  };
+  "note.voiceSuggestions": {
+    args: {
+      workspaceId: string;
+      noteId: string;
+      recording?: string;
+      action: CliVoiceSuggestionAction;
+    };
+    result: { recordingId: string; suggestions: { speaker: string; name: string }[] };
+  };
+  "note.voiceNames": {
+    args: { action: { op: "list" } | { op: "delete"; name?: string } };
+    result: { names: string[] };
+  };
+  /** The persistent instruction layers that apply when starting a new chat. */
+  "settings.instructions": {
+    args: { workspaceId: string; agent: ChatAgent };
+    result: {
+      layers: { scope: InstructionScope; title: string; text: string }[];
+      instructions: string;
+    };
+  };
+  "settings.keys": {
+    args: Record<string, never>;
+    result: {
+      bindings: {
+        command: string;
+        area: "app" | "editor";
+        primary: string | null;
+        chord?: readonly [string, string];
+        when?: string;
+      }[];
+    };
+  };
+  "settings.instructions.set": {
+    args: { scope: Exclude<InstructionScope, { kind: "profile" }>; text: string };
+    result: Record<string, never>;
   };
   /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {
@@ -1232,6 +1405,8 @@ export interface CliUiOps {
       message?: string;
       /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
+      /** Only tool permission requests may be answered by an agent. */
+      byAgent?: true;
       /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
       updatedInput?: Record<string, unknown>;
       /** With deny: stop the turn too. */

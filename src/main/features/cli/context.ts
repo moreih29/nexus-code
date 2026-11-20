@@ -20,6 +20,7 @@ import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import type { ClaudeInstructionHook } from "../chat/instructions";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
@@ -62,6 +63,7 @@ export interface CliRemote {
   inRoom(): boolean;
   /** The account's devices, as the server and the room know them; the room's alone without the server. */
   devices(): Promise<CliDevice[]>;
+  alias?(deviceId: string, alias: string | null): Promise<void>;
   /** Asks another device; a RpcFailure for its refusal or its silence. */
   request<M extends RpcMethod>(
     deviceId: string,
@@ -140,6 +142,7 @@ export interface CliServices {
     workspaceId: string,
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
+  hasRunningTerminals?(workspaceId: string): boolean;
   activity(workspaceId: string, tabId: string): TabActivity | null;
   /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
   claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];
@@ -187,6 +190,13 @@ export interface CliServices {
   askUser(request: ChangeRequest): Promise<void>;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
+  claudeInstructions?(
+    workspaceId: string,
+    tabId: string,
+    launch: string,
+    hook: ClaudeInstructionHook,
+  ): string;
+  terminalClaudeInstructions?(workspaceId: string, profileId: string): string;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
   /**

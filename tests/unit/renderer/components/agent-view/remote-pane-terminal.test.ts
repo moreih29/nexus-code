@@ -3,8 +3,13 @@
  * banner, a /login) opens in the chat's profile there: by its name, or the
  * agent's only profile when the chat names none, never a guess.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cancelTabFocus } from "../../../../../src/renderer/services/tab-focus";
+import { __resetAgentViewForTests } from "../../../../../src/renderer/state/stores/agent-view";
+import {
+  type RemoteTarget,
+  useRemoteViewStore,
+} from "../../../../../src/renderer/state/stores/remote-view";
 
 const calls: { method: string; args: Record<string, unknown> }[] = [];
 let profiles: { id: string; name: string }[] = [];
@@ -59,7 +64,9 @@ const opened = () => calls.filter((call) => call.method === "peerTerminalOpen");
 describe("a command run in a terminal of a chat's computer", () => {
   beforeEach(() => {
     calls.length = 0;
+    resetPanels();
   });
+  afterEach(resetPanels);
 
   test("with one profile of its agent there and no name, opens in that one", async () => {
     profiles = [{ id: "codex-default", name: "default" }];
@@ -98,3 +105,9 @@ describe("a command run in a terminal of a chat's computer", () => {
     expect(errors[0]).toContain("not known here");
   });
 });
+
+function resetPanels() {
+  __resetAgentViewForTests();
+  useRemoteViewStore.setState({ targets: new Map() });
+  cancelTabFocus();
+}

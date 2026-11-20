@@ -6,17 +6,26 @@ import {
   UnreachableError,
 } from "../../../../../src/main/features/remote/errors";
 import {
+  CLOSE_FLOODING,
   CLOSE_REPLACED,
   CLOSE_SIGNED_OUT,
   RELAY_PING,
   RELAY_PONG,
   RelayConnection,
   type RelayStatus,
+  SEND_BUFFER_STALL_MS,
+  SOCKET_OPEN_TIMEOUT_MS,
 } from "../../../../../src/main/features/remote/relay-connection";
-import { returnToProxy, ServerRoute } from "../../../../../src/main/features/remote/route";
+import {
+  RETURN_CHECK_MS,
+  returnToProxy,
+  ServerRoute,
+} from "../../../../../src/main/features/remote/route";
+import { mainInfoMock, mainWarnMock } from "../../../../log-test-spies";
 
 class FakeSocket {
   readyState = 0;
+  bufferedAmount = 0;
   private readonly listeners = new Map<string, ((event: never) => void)[]>();
   constructor(readonly url: string) {}
   addEventListener(type: string, listener: (event: never) => void) {
@@ -28,11 +37,13 @@ class FakeSocket {
     for (const listener of this.listeners.get(type) ?? []) listener(event as never);
   }
   readonly sent: string[] = [];
+  readonly closes: [number | undefined, string | undefined][] = [];
   closed = false;
   send(text: string) {
     this.sent.push(text);
   }
-  close() {
+  close(code?: number, reason?: string) {
+    this.closes.push([code, reason]);
     this.closed = true;
     this.readyState = 2;
   }
@@ -322,13 +333,42 @@ describe("relay ticket ownership", () => {
       first.resolve(firstUrl);
       await Promise.resolve();
       sockets[0]?.emit("open");
+      const logsBefore = mainInfoMock.mock.calls.length;
       sockets[0]?.emit("close", { code });
+      const logs = mainInfoMock.mock.calls.slice(logsBefore).map(([message]) => message);
+      expect(logs).toContain(
+        `Relay socket closed code=${code} opened=true reason=${code === CLOSE_REPLACED ? "replaced" : "signed-out"}`,
+      );
+      expect(logs).toContain(`Relay state changed from=online to=${status}`);
 
       relay.reconnect();
       jest.advanceTimersByTime(60_000);
       expect(statuses).toEqual(["connecting", "online", status]);
       expect(url).toHaveBeenCalledTimes(1);
       expect(signedOut).toHaveBeenCalledTimes(called);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a retry queued before an explicit reconnect cannot open another socket", async () => {
+    jest.useFakeTimers();
+    const { relay, first, next, sockets, statuses, url } = harness();
+    try {
+      first.resolve(firstUrl);
+      await Promise.resolve();
+      sockets[0]?.emit("close", { code: 1006 });
+      expect(statuses.at(-1)).toBe("waiting");
+      relay.reconnect();
+      next.resolve(nextUrl);
+      await Promise.resolve();
+      sockets[1]?.emit("open");
+
+      jest.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      expect(url).toHaveBeenCalledTimes(2);
+      expect(sockets).toHaveLength(2);
+      expect(statuses.at(-1)).toBe("online");
     } finally {
       relay.stop();
     }
@@ -391,6 +431,7 @@ test("a proxy probe completing during automatic reconnect leaves the pending tic
   const probe = returnToProxy({
     route: new ServerRoute("https://nexus.example", "https://proxy.example", () => 0),
     via: () => relay.onlineRoute(),
+    now: () => performance.now() + RETURN_CHECK_MS,
     reconnect: () => relay.reconnect(),
     fetch: (() => response.promise) as typeof fetch,
   });
@@ -418,12 +459,12 @@ test("a proxy probe completing during automatic reconnect leaves the pending tic
 });
 
 describe("the heartbeat", () => {
-  const heartbeat = { every: 10, wait: 15 };
+  const heartbeat = { every: 25, wait: 15 };
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
   /** Opens the connection before advancing the heartbeat clock. */
-  async function open() {
+  async function open(timing = heartbeat) {
     const sockets: FakeSocket[] = [];
     const frames: unknown[] = [];
     const statuses: RelayStatus[] = [];
@@ -439,7 +480,7 @@ describe("the heartbeat", () => {
         return socket;
       },
       backoff: () => 60_000,
-      heartbeat,
+      heartbeat: timing,
     });
     relay.start();
     await Promise.resolve();
@@ -463,17 +504,24 @@ describe("the heartbeat", () => {
     }
   });
 
-  test("one not answered lets the socket go and joins the room again at once", async () => {
+  test("two consecutive misses reopen the socket with a diagnostic close reason", async () => {
     const { relay, sockets, statuses, socket } = await open();
     try {
+      const logsBefore = mainInfoMock.mock.calls.length;
       jest.advanceTimersByTime(heartbeat.every);
       expect(socket.sent).toEqual([RELAY_PING]);
       jest.advanceTimersByTime(heartbeat.wait - 1);
       expect(socket.closed).toBe(false);
 
       jest.advanceTimersByTime(1);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
       await Promise.resolve();
       expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
+      const logs = mainInfoMock.mock.calls.slice(logsBefore).map(([message]) => message);
+      expect(logs).toContain("Relay closing socket code=1000 reason=pong-timeout");
+      expect(logs).toContain("Relay connecting reason=pong-timeout");
       expect(sockets).toHaveLength(2);
       expect(statuses).not.toContain("waiting");
 
@@ -487,10 +535,165 @@ describe("the heartbeat", () => {
     }
   });
 
+  test("a pong received between misses clears the miss count", async () => {
+    const { relay, socket } = await open();
+    try {
+      jest.advanceTimersByTime(heartbeat.every + heartbeat.wait);
+      jest.advanceTimersByTime(heartbeat.every - heartbeat.wait);
+      socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(heartbeat.every + heartbeat.wait);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a late pong timer leaves the socket open and gives a queued pong time to arrive", async () => {
+    const { relay, socket } = await open();
+    const now = performance.now.bind(performance);
+    let slipMs = 0;
+    const clock = jest.spyOn(performance, "now").mockImplementation(() => now() + slipMs);
+    try {
+      const warnings = mainWarnMock.mock.calls.length;
+      jest.advanceTimersByTime(heartbeat.every);
+      slipMs = 2_000;
+      jest.advanceTimersByTime(heartbeat.wait);
+      expect(mainWarnMock.mock.calls.slice(warnings)).toEqual([]);
+      socket.emit("message", { data: RELAY_PONG });
+      jest.advanceTimersByTime(heartbeat.every);
+      expect(socket.closed).toBe(false);
+      expect(mainWarnMock.mock.calls.slice(warnings).map(([message]) => message)).toEqual([
+        expect.stringContaining("consecutive=1 reconnect=false"),
+      ]);
+    } finally {
+      clock.mockRestore();
+      relay.stop();
+    }
+  });
+
+  test("relay errors reach the room with or without a message or sequence", async () => {
+    const { relay, socket, frames } = await open();
+    try {
+      socket.emit("message", { data: '{"t":"error","code":"rate-limited","seq":42}' });
+      socket.emit("message", { data: '{"t":"error","code":"rate-limited"}' });
+      socket.emit("message", { data: '{"t":"error","code":"too-big","message":"too big"}' });
+      expect(frames).toEqual([
+        { t: "error", code: "rate-limited", message: "", seq: 42 },
+        { t: "error", code: "rate-limited", message: "" },
+        { t: "error", code: "too-big", message: "too big" },
+      ]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("flooding backs off despite presence and resets only after a sustained connection", async () => {
+    const { relay, sockets, statuses } = await open({ every: 2_000_000, wait: 1_000 });
+    try {
+      const warnings = mainWarnMock.mock.calls.length;
+      for (const [index, delay] of [60_000, 120_000, 240_000, 60_000].entries()) {
+        const socket = sockets[index];
+        if (index > 0) socket?.emit("open");
+        relay.healthy();
+        if (index === 3) jest.advanceTimersByTime(10 * 60_000);
+
+        socket?.emit("close", { code: CLOSE_FLOODING });
+        expect(statuses.at(-1)).toBe("waiting");
+        jest.advanceTimersByTime(delay - 1);
+        await Promise.resolve();
+        expect(sockets).toHaveLength(index + 1);
+        jest.advanceTimersByTime(1);
+        await Promise.resolve();
+        expect(sockets).toHaveLength(index + 2);
+      }
+      expect(mainWarnMock.mock.calls.slice(warnings).map(([msg]) => msg)).toEqual([
+        expect.stringContaining("code=4002 retryMs=60000"),
+        expect.stringContaining("code=4002 retryMs=120000"),
+        expect.stringContaining("code=4002 retryMs=240000"),
+        expect.stringContaining("code=4002 retryMs=60000"),
+      ]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("incoming presence does not satisfy a client ping", async () => {
+    const { relay, socket, sockets, frames } = await open();
+    try {
+      jest.advanceTimersByTime(heartbeat.every);
+      socket.emit("message", { data: '{"t":"presence","self":"a","devices":[]}' });
+      expect(frames).toHaveLength(1);
+      jest.advanceTimersByTime(heartbeat.wait);
+      expect(socket.closed).toBe(false);
+      jest.advanceTimersByTime(heartbeat.every);
+      await Promise.resolve();
+      expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "pong-timeout"]]);
+      expect(sockets).toHaveLength(2);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("a buffered write reconnects when it stops draining even if every ping gets a pong", async () => {
+    const { relay, socket, sockets } = await open({ every: 1_000, wait: 2_000 });
+    try {
+      const frame = { t: "send", to: "a", seq: 1, kid: 1, nonce: "", box: "" } as const;
+      socket.bufferedAmount = 100;
+      expect(relay.send(frame)).toBe(true);
+      const beat = () => {
+        jest.advanceTimersByTime(1_000);
+        socket.emit("message", { data: RELAY_PONG });
+      };
+      for (let i = 0; i < 5; i++) beat();
+      socket.bufferedAmount = 50;
+      beat();
+      for (let i = 0; i < SEND_BUFFER_STALL_MS / 1000 - 1; i++) beat();
+      expect(socket.closed).toBe(false);
+      beat();
+      await Promise.resolve();
+      expect(socket.closed).toBe(true);
+      expect(socket.closes).toEqual([[1000, "send-buffer-stalled"]]);
+      expect(sockets).toHaveLength(2);
+    } finally {
+      relay.stop();
+    }
+  });
+
   test("none is sent once the socket is let go", async () => {
     const { relay, socket } = await open();
     relay.stop();
     jest.advanceTimersByTime(3 * heartbeat.every);
     expect(socket.sent).toEqual([]);
   });
+});
+
+test("a stuck socket handshake follows the normal unreachable route and backoff", async () => {
+  jest.useFakeTimers();
+  const unreachable = jest.fn();
+  const socket = new FakeSocket("wss://nexus.example/relay?ticket=t");
+  const relay = new RelayConnection({
+    url: async () => socket.url,
+    socket: () => socket,
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: () => {},
+    onSignedOut: () => {},
+    unreachable,
+    backoff: () => 60_000,
+  });
+  try {
+    relay.start();
+    await Promise.resolve();
+    jest.advanceTimersByTime(SOCKET_OPEN_TIMEOUT_MS);
+    expect(socket.closed).toBe(true);
+    expect(unreachable).toHaveBeenCalledTimes(1);
+    socket.emit("close", { code: 1006 });
+    expect(unreachable).toHaveBeenCalledTimes(1);
+  } finally {
+    relay.stop();
+    jest.useRealTimers();
+  }
 });

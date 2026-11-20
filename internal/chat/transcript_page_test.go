@@ -33,13 +33,15 @@ func TestTranscriptPages(t *testing.T) {
 		before              []string
 		want                []string
 		stale               bool
+		cutMatched          bool
 	}{
 		{name: "UTF-8 CRLF large row and partial tail", input: withPartial, want: []string{old, big, tip}},
 		{name: "complete row at EOF", input: strings.TrimSuffix(base, "\r\n"), want: []string{old, big, tip}},
 		{name: "append preserves the old end", input: withPartial, change: "append", want: []string{old, big, tip}},
 		{name: "retention discards the first fragment", input: base, retention: int64(len(base) - len(old)/2), want: []string{big, tip}},
-		{name: "fork ends at the first inclusive UUID", input: base + old + "\n", upTo: "old", want: []string{old}},
-		{name: "resume uses the first exclusive UUID", input: base + big + "\n", before: []string{"large", "recent"}, want: []string{old}},
+		{name: "fork ends at the first inclusive UUID", input: base + old + "\n", upTo: "old", want: []string{old}, cutMatched: true},
+		{name: "resume uses the first exclusive UUID", input: base + big + "\n", before: []string{"large", "recent"}, want: []string{old}, cutMatched: true},
+		{name: "a missing UUID does not confirm a join", input: base, before: []string{"absent"}, want: []string{old, big, tip}},
 		{name: "truncate", input: base, change: "truncate", stale: true},
 		{name: "replace at the same size", input: base, change: "replace", stale: true},
 		{name: "profile mismatch", input: base, change: "profile", stale: true},
@@ -70,6 +72,9 @@ func TestTranscriptPages(t *testing.T) {
 			page, err := service.readTranscriptPage(ctx, params, retention, budget)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if page.CutMatched != tc.cutMatched {
+				t.Fatalf("cut matched = %t, want %t", page.CutMatched, tc.cutMatched)
 			}
 			params.UpTo, params.Before = "", nil
 			switch tc.change {

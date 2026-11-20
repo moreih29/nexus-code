@@ -5,9 +5,13 @@ import {
   joinedLines,
   movedLines,
   newSpeakerKey,
+  numberSpeakers,
   peopleIn,
   recordingMs,
+  type SpeakerMoveScope,
+  shouldPromptSpeakerCount,
   speakerKey,
+  speakerName,
   speakersOf,
   TAKE_FILE_RE,
   TranscriptFileSchema,
@@ -37,12 +41,73 @@ function recording(over: Partial<TranscriptRecording> = {}): TranscriptRecording
 }
 
 describe("a note's transcript", () => {
+  test.each([
+    [[25_000, 30_000], {}, false],
+    [[400, 25_000, 30_000], {}, true],
+    [[22_300, 49_800, 608_600, 854_800], {}, true],
+    [[10_000, 10_000, 10_000, 10_000], {}, false],
+    [[10_000, 10_000, 10_000, 10_000, 10_000], {}, true],
+    [Array.from({ length: 8 }, () => 500), { participantCount: "7+" }, false],
+    [Array.from({ length: 9 }, () => 500), { participantCount: "7+" }, true],
+    [[400, 25_000, 30_000], { participantCount: 3 }, false],
+    [[400, 25_000, 30_000], { speakerPromptDismissed: true }, false],
+    [[400, 25_000, 30_000], { audioRemoved: true }, false],
+  ] satisfies [
+    number[],
+    Partial<TranscriptRecording>,
+    boolean,
+  ][])("prompts only when the grouping may be fragmented (%j, %j)", (durations, options, expected) => {
+    const rec = recording({
+      ...options,
+      lines: durations.map((ms, i) => line(String(i + 1), 0, ms, "a")),
+    });
+    expect(shouldPromptSpeakerCount(rec)).toBe(expected);
+  });
+
+  test("compacts display numbers by first speech while keeping names and pinned keys", () => {
+    const old = recording({
+      speakers: { "7": "Alex" },
+      lines: [
+        line("5", 0, 1000, "a"),
+        { ...line("7", 1000, 2000, "b"), pinned: true },
+        line("1", 2000, 3000, "c"),
+      ],
+    });
+    const next = numberSpeakers(old);
+    expect(next.speakerNumbers).toEqual({ "5": "1", "7": "2", "1": "3" });
+    expect(next.lines).toBe(old.lines);
+    expect(next.speakers).toBe(old.speakers);
+    expect(["5", "7", "1"].map((key) => speakerName(next, key))).toEqual([
+      "Speaker 1",
+      "Alex",
+      "Speaker 3",
+    ]);
+  });
+
   test("keys a voice by its take, and names a take's file", () => {
     expect(speakerKey(0, "1")).toBe("1");
     expect(speakerKey(1, "1")).toBe("2.1");
     expect(takeFile("rmhz00cc0abcd", 0)).toBe("recordings/rmhz00cc0abcd-1.webm");
     expect(TAKE_FILE_RE.test(takeFile("rmhz00cc0abcd", 2))).toBe(true);
     expect(TAKE_FILE_RE.test("recordings/../note.json")).toBe(false);
+  });
+
+  test.each([
+    ["auto", 3],
+    ["7+", 3],
+    [2, 2],
+  ] as const)("applies participant selection %s when a take has only second-pass labels", (participantCount, count) => {
+    const old = recording({ voicePrint: true, participantCount, lines: [] });
+    const next = withSecondPass(old, 0, [
+      line("a", 0, 1000, "a"),
+      line("b", 1000, 2000, "b"),
+      line("c", 2000, 3000, "c"),
+    ]);
+    expect(peopleIn(next)).toBe(count);
+    expect(
+      TranscriptFileSchema.parse({ version: 1, recordings: [next] }).recordings[0]
+        ?.participantCount,
+    ).toBe(participantCount);
   });
 
   test("counts people by name: two voices given one name are one person", () => {
@@ -180,6 +245,72 @@ describe("a note's transcript", () => {
     ]);
     expect(newSpeakerKey(moved)).toBe("3");
     expect(newSpeakerKey(recording({ speakers: { "1": "지현" } }))).toBe("2");
+  });
+
+  test.each([
+    ["line", [2, 3]],
+    ["following", [2, 3, 4, 6]],
+    ["all", [0, 2, 3, 4, 6]],
+  ] satisfies [
+    SpeakerMoveScope,
+    number[],
+  ][])("moves only the selected person's lines for scope %s", (scope, changed) => {
+    const r = recording({
+      participantCount: 2,
+      speakers: { "1": "Alex", "4": "Alex", "2": "Pat" },
+      lines: [
+        line("1", 0, 1000, "a"),
+        line("2", 1500, 2000, "b"),
+        line("1", 3000, 4000, "c"),
+        line("1", 4500, 5000, "d"),
+        line("4", 5200, 6000, "e"),
+        line("2", 6200, 6700, "f"),
+        line("1", 7500, 8000, "g"),
+      ],
+    });
+    const shown = joinedLines(r.lines)[2] as TranscriptRecording["lines"][number];
+    const moved = movedLines(r, shown, "2", scope);
+    expect(moved.lines).toEqual(
+      r.lines.map((l, i) => (changed.includes(i) ? { ...l, speaker: "2", pinned: true } : l)),
+    );
+    expect(moved.speakers).toEqual(scope === "all" ? { "2": "Pat" } : r.speakers);
+    expect(moved.participantCount).toBe(2);
+  });
+
+  test("transfers a merged name to an unnamed target and preserves cross-take pins through a second pass", () => {
+    const r = numberSpeakers(
+      recording({
+        takes: [
+          { file: "recordings/rmhz00cc0abcd-1.webm", pass: "none", offsetMs: 0, seconds: 10 },
+          {
+            file: "recordings/rmhz00cc0abcd-2.webm",
+            pass: "pending",
+            offsetMs: 10_000,
+            seconds: 10,
+          },
+        ],
+        speakers: { "2.1": "Alex" },
+        lines: [
+          line("1", 0, 1000, "a"),
+          line("2.1", 10_100, 10_500, "b"),
+          line("2.2", 10_600, 12_000, "c"),
+        ],
+      }),
+    );
+    const merged = movedLines(r, r.lines[1] as TranscriptRecording["lines"][number], "1", "all");
+    expect(merged.speakers).toEqual({ "1": "Alex" });
+    expect(merged.lines[1]).toEqual({ ...r.lines[1], speaker: "1", pinned: true });
+    expect(merged.speakerNumbers).toEqual({ "1": "1", "2.2": "2" });
+    const next = withSecondPass(merged, 1, [
+      line("2", 0, 1200, "better b"),
+      line("2", 1200, 2000, "better c"),
+    ]);
+    expect(next.lines).toEqual([
+      r.lines[0],
+      { ...line("1", 10_000, 11_200, "better b"), pinned: true },
+      line("2.2", 11_200, 12_000, "better c"),
+    ]);
+    expect(next.speakers).toEqual({ "1": "Alex" });
   });
 
   test("runs a voice's adjacent lines together, with a space except between CJK characters", () => {

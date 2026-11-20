@@ -25,7 +25,6 @@ import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
-import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { FileWrites } from "./file-writes";
 import { untrackedReader } from "./files";
@@ -38,8 +37,9 @@ import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
-import { listSessions, servesWith, serveWith } from "./serve";
+import { servesWith, serveWith } from "./serve";
 import { remoteProxy, remoteServer } from "./server";
+import { snapshotSessions } from "./serving/sessions";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
@@ -104,14 +104,14 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
  * not (not-found, forbidden, unsupported: a version without the method,
  * unavailable: not in the room, gone, slow).
  */
-async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
+async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise<IpcResult<T>> {
   try {
     return ipcOk(await question());
   } catch (error) {
     if (error instanceof RpcFailure) {
       const data = error.data as { outcome?: unknown } | undefined;
-      if (data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
-      if (data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
+      if (chatSend && data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
+      if (chatSend && data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
       const kind =
         error.code === RpcErrorCode.NotFound
           ? "not-found"
@@ -235,16 +235,14 @@ export async function registerRemoteChannel(options: {
   });
   // The sessions' list other devices watch here.
   const sessionWatches = new SessionWatches({
-    list: async () => {
+    snapshot: async (from) => {
       const services = options.services();
       if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-      const list = await listSessions(services, git);
-      const recording = options.notes?.recording();
-      return recording ? { ...list, recording } : list;
-    },
-    consents: async (to) => {
-      const services = options.services();
-      return services ? remoteConsents(services, to, controls()) : [];
+      const snapshot = await snapshotSessions(services, git, options.notes, "sessions.watch", from);
+      return {
+        ...snapshot,
+        forDevice: (to) => snapshot.forDevice(to, controls()),
+      };
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
   });
@@ -287,6 +285,7 @@ export async function registerRemoteChannel(options: {
     },
   });
   await account.restore();
+  void account.syncDeviceName();
   const accountKeys = new AccountKeys({
     account,
     store: new SealedFile(join(app.getPath("userData"), "remote-key.bin"), box, SavedKeySchema),
@@ -346,7 +345,7 @@ export async function registerRemoteChannel(options: {
       ? JSON.stringify([want.signedIn.user.id, want.signedIn.device.id, want.key.kid])
       : "";
     if (room && id !== roomFor) {
-      room.stop();
+      room.stop("room-changed");
       room = null;
       relay = null;
       setRoomState({ status: "off", peers: [] });
@@ -592,7 +591,7 @@ export async function registerRemoteChannel(options: {
       },
       peerChatSend: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatSend.args, args);
-        return askPeer(() => inRoom().request(deviceId, "chat.send", params));
+        return askPeer(() => inRoom().request(deviceId, "chat.send", params), true);
       },
       peerChatAnswer: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatAnswer.args, args);
@@ -976,6 +975,7 @@ export async function registerRemoteChannel(options: {
           };
         });
       },
+      alias: (deviceId, alias) => account.setDeviceAlias(deviceId, alias),
       request: (deviceId, method, params, timeoutMs, signal) =>
         inRoom().request(deviceId, method, params, timeoutMs, signal),
     },
@@ -987,7 +987,7 @@ export async function registerRemoteChannel(options: {
       account.cancelSignIn();
       voice.cancel();
       noteVoice.cancel();
-      room?.stop();
+      room?.stop("shutdown");
     },
   };
 }

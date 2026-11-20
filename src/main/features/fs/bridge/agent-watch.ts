@@ -1,11 +1,15 @@
+import type { WebContents } from "electron";
 import { z } from "zod";
 import { FsChangeSchema } from "../../../../shared/fs/types";
+import { limitLog } from "../../../../shared/log/limit";
 import { createLogger } from "../../../../shared/log/main";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { type AgentBackedProvider, isAgentBackedProvider } from "./provider";
+import { reportWatchFailure } from "./watch-failure-log";
 import { enqueueWatchOperation, subscribeAgentWatch } from "./watch-lifecycle";
 
 const log = createLogger("fs");
+const failures = limitLog(log);
 const AgentFsChangedPayloadSchema = z.object({ changes: z.array(FsChangeSchema) });
 
 interface WatchSubscription {
@@ -14,7 +18,8 @@ interface WatchSubscription {
 }
 
 interface WorkspaceWatches {
-  readonly paths: Set<string>;
+  /** The tree and each renderer's agent panels can watch the same directory. */
+  readonly paths: Map<string, Set<WebContents | undefined>>;
   readonly pending: Map<string, Promise<void>>;
   subscription?: WatchSubscription;
 }
@@ -22,6 +27,7 @@ interface WorkspaceWatches {
 /** Owns each workspace's desired paths and forwards changes from its current agent. */
 export class AgentFsWatcher {
   private readonly workspaces = new Map<string, WorkspaceWatches>();
+  private readonly panelRenderers = new WeakSet<WebContents>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
@@ -36,22 +42,32 @@ export class AgentFsWatcher {
   }
 
   /** Tracks a requested path before its RPC completes so teardown and rebind can see it. */
-  async watch(workspaceId: string, relPath: string): Promise<void> {
+  async watch(workspaceId: string, relPath: string, owner?: WebContents): Promise<void> {
+    if (owner?.isDestroyed()) return;
+    if (owner && !this.panelRenderers.has(owner)) {
+      this.panelRenderers.add(owner);
+      owner.once("destroyed", () => this.releasePanelRenderer(owner));
+    }
     const state = this.state(workspaceId);
     await this.enqueue(workspaceId, state, relPath, async () => {
       if (this.workspaces.get(workspaceId) !== state) return;
       const provider = await this.requireReadyAgentProvider(workspaceId);
-      if (this.workspaces.get(workspaceId) !== state) return;
+      if (this.workspaces.get(workspaceId) !== state || owner?.isDestroyed()) return;
       const subscription = this.bind(workspaceId, state, provider);
-      const wasWatched = state.paths.has(relPath);
-      state.paths.add(relPath);
+      const owners = state.paths.get(relPath) ?? new Set();
+      const wasWatching = owners.has(owner);
+      owners.add(owner);
+      state.paths.set(relPath, owners);
       try {
         await provider.callAgentMethod("fs.watch", { relPath });
       } catch (error) {
-        if (!wasWatched && state.subscription === subscription) {
-          state.paths.delete(relPath);
-          if ((error as { code?: string }).code === "transport.timeout") {
-            await this.cleanup(workspaceId, provider, relPath);
+        if (!wasWatching && state.subscription === subscription) {
+          owners.delete(owner);
+          if (owners.size === 0) {
+            state.paths.delete(relPath);
+            if ((error as { code?: string }).code === "transport.timeout") {
+              await this.cleanup(workspaceId, provider, relPath);
+            }
           }
         }
         throw error;
@@ -63,16 +79,31 @@ export class AgentFsWatcher {
   }
 
   /** Stops a path after any earlier watch or replay of that same path. */
-  async unwatch(workspaceId: string, relPath: string): Promise<void> {
+  async unwatch(workspaceId: string, relPath: string, owner?: WebContents): Promise<void> {
     const state = this.state(workspaceId);
     await this.enqueue(workspaceId, state, relPath, async () => {
       if (this.workspaces.get(workspaceId) !== state) return;
+      const owners = state.paths.get(relPath);
+      if (owner && !owners?.has(owner)) return;
+      owners?.delete(owner);
+      if (owners?.size) return;
       state.paths.delete(relPath);
       const provider = await this.requireReadyAgentProvider(workspaceId);
       if (this.workspaces.get(workspaceId) !== state) return;
       if (state.paths.size > 0) this.bind(workspaceId, state, provider);
       await provider.callAgentMethod("fs.unwatch", { relPath });
     });
+  }
+
+  private releasePanelRenderer(owner: WebContents): void {
+    for (const [workspaceId, state] of this.workspaces) {
+      for (const [relPath, owners] of state.paths) {
+        if (!owners.has(owner)) continue;
+        void this.unwatch(workspaceId, relPath, owner).catch((error: unknown) => {
+          reportWatchFailure(failures, "fs.unwatch panel cleanup", workspaceId, error);
+        });
+      }
+    }
   }
 
   /** Detaches the listener immediately and clears watches after pending registrations settle. */
@@ -83,7 +114,7 @@ export class AgentFsWatcher {
     const subscription = state.subscription;
     if (!subscription) return;
     subscription.unsubscribe();
-    for (const relPath of state.paths) {
+    for (const relPath of state.paths.keys()) {
       void this.enqueue(workspaceId, state, relPath, () =>
         this.cleanup(workspaceId, subscription.provider, relPath),
       );
@@ -102,7 +133,7 @@ export class AgentFsWatcher {
     if (this.disposed) throw new Error("file watcher is disposed");
     const existing = this.workspaces.get(workspaceId);
     if (existing) return existing;
-    const state = { paths: new Set<string>(), pending: new Map<string, Promise<void>>() };
+    const state: WorkspaceWatches = { paths: new Map(), pending: new Map() };
     this.workspaces.set(workspaceId, state);
     return state;
   }
@@ -159,7 +190,7 @@ export class AgentFsWatcher {
     state: WorkspaceWatches,
     subscription: WatchSubscription,
   ): void {
-    for (const relPath of state.paths) {
+    for (const relPath of state.paths.keys()) {
       void this.enqueue(workspaceId, state, relPath, async () => {
         if (
           this.workspaces.get(workspaceId) !== state ||
@@ -173,15 +204,13 @@ export class AgentFsWatcher {
           await this.cleanup(workspaceId, subscription.provider, relPath);
         }
       }).catch((error: unknown) => {
-        log.warn(
-          `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
-        );
+        reportWatchFailure(failures, "fs.watch replay", workspaceId, error);
       });
     }
     if (state.paths.size > 0) {
       this.broadcast("fs", "changed", {
         workspaceId,
-        changes: [...state.paths].map((relPath) => ({ relPath, kind: "added" as const })),
+        changes: [...state.paths.keys()].map((relPath) => ({ relPath, kind: "added" as const })),
       });
     }
   }
@@ -195,9 +224,7 @@ export class AgentFsWatcher {
     try {
       await provider.callAgentMethod("fs.unwatch", { relPath });
     } catch (error) {
-      log.warn(
-        `fs.unwatch cleanup failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
-      );
+      reportWatchFailure(failures, "fs.unwatch cleanup", workspaceId, error);
     }
   }
 

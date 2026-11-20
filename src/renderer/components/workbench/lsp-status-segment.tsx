@@ -92,7 +92,7 @@ export function LspStatusSegment({
           title={title}
           aria-label={title}
           className={cn(
-            "inline-flex items-center gap-1 h-full px-2",
+            "inline-flex shrink-0 items-center gap-1 whitespace-nowrap h-full px-2",
             "text-app-ui-sm font-sans leading-none",
             "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
             (state === "off" || state === "idle") && "text-muted-foreground/70",

@@ -388,10 +388,8 @@ function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
       },
       {
         label: i18next.t("common:action.open_log"),
-        // Opens the application log file via the system shell handler.
-        // Best-effort: if the shell IPC is unavailable the user can find
-        // the log at their platform's electron-log path manually.
-        onAction: openLogFile,
+        // Opens the log folder via the system shell handler.
+        onAction: openLogsFolder,
       },
     ],
   });
@@ -400,43 +398,23 @@ function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
 }
 
 // ---------------------------------------------------------------------------
-// Log file opener — best-effort, shell IPC
+// Log folder opener — best-effort, shell IPC
 // ---------------------------------------------------------------------------
 
 /**
- * Asks the main process to reveal the electron-log file in the OS file manager.
- * Calls the "system" IPC channel's "openPathExternal" method with the log path
- * queried from electron-log's renderer transport.
+ * Asks the main process to open the folder the log files are in. Main knows the
+ * folder (`app.getPath("logs")`); the renderer does not read it out of the log
+ * library.
  *
  * Best-effort: failures are swallowed — the user can still use "Copy details"
- * to capture error context even if the log file cannot be opened.
+ * to capture error context, and Settings > About has the folder and its path.
  */
-function openLogFile(): void {
-  // electron-log exposes the log path through its renderer transport.
-  // We use `import("electron-log/renderer")` dynamically to keep this
-  // module free of a hard dependency on the electron-log renderer bundle
-  // at the static import layer (tests mock it without issue).
-  import("electron-log/renderer")
-    .then((mod) => {
-      // The renderer transport surfaces the path as `transports.file.getFile().path`.
-      // biome-ignore lint/suspicious/noExplicitAny: dynamic runtime access to electron-log internals
-      const logPath = (mod.default as any)?.transports?.file?.getFile?.()?.path as
-        | string
-        | undefined;
-      if (!logPath) return;
-
-      // The "system" IPC channel is always registered (see main/features/shell/ipc.ts).
-      // We import ipcCallResult lazily to keep this module testable without the IPC bridge.
-      // Fire-and-forget: open log file in OS default app; no UI feedback required.
-      import("../../ipc/client")
-        .then(({ ipcCallResult }) => {
-          void ipcCallResult("system", "openPathExternal", { absPath: logPath });
-        })
-        .catch(() => {
-          // IPC bridge unavailable (e.g. test environment) — silently skip.
-        });
+function openLogsFolder(): void {
+  import("../../ipc/client")
+    .then(({ ipcCallResult }) => {
+      void ipcCallResult("system", "openLogsFolder", undefined);
     })
     .catch(() => {
-      // electron-log renderer bundle not available — silently skip.
+      // IPC bridge unavailable (e.g. test environment) — silently skip.
     });
 }

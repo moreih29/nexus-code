@@ -56,7 +56,7 @@ export function SegmentedControl<T extends string>({
       title={disabled ? disabledReason : undefined}
       className={cn(
         // w-fit: as wide as its options, also in a stretching flex column.
-        "inline-flex w-fit rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
+        "inline-flex w-fit shrink-0 rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
         disabled && "opacity-60",
       )}
     >
@@ -70,7 +70,7 @@ export function SegmentedControl<T extends string>({
             disabled={disabled}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5",
+              "inline-flex items-center justify-center gap-1.5 whitespace-nowrap",
               "rounded-(--radius-control) px-2 py-0.5 text-app-ui-sm font-sans transition-colors",
               isSelected
                 ? "bg-[var(--state-selected-bg)] text-[var(--state-selected-fg)]"

@@ -20,7 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { PairingState } from "../../../shared/remote/pairing";
 import { newPairSecret, openPair, type PairRouting, pairKeyOf, sealPair } from "./device-key";
-import type { RelayConnectionDeps } from "./relay-connection";
+import type { RelayConnectionDeps, RelayStopReason } from "./relay-connection";
 
 /** How long the user has to answer a device that asks for the key. */
 const ASK_MS = 60_000;
@@ -37,7 +37,7 @@ export interface PairingRoom {
 /** A socket to the room of a device that does not hold the key yet. */
 export interface PairingSocket {
   start(): void;
-  stop(): void;
+  stop(reason?: RelayStopReason): void;
   send(frame: {
     t: "send";
     to: string;
@@ -248,7 +248,7 @@ export class Pairing {
     if (!showing) return;
     this.showing = null;
     clearTimeout(showing.timer);
-    showing.socket?.stop();
+    showing.socket?.stop("pairing-ended");
   }
 
   private set(state: PairingState): PairingState {

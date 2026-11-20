@@ -406,7 +406,7 @@ export function SessionSidePanel({
         )}
         {version && (
           <Field label={t("chat.panel.env.version")}>
-            <span className="font-mono text-app-micro">{version}</span>
+            <span className="min-w-0 truncate font-mono text-app-micro">{version}</span>
           </Field>
         )}
         {(account || onRefreshAccount) && (
@@ -465,7 +465,7 @@ export function SessionSidePanel({
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">
                   {category.name}
                 </span>
-                <span className="tabular-nums">{formatTokens(category.tokens)}</span>
+                <span className="shrink-0 tabular-nums">{formatTokens(category.tokens)}</span>
               </Row>
             ))}
           </>
@@ -488,7 +488,7 @@ export function SessionSidePanel({
               aria-disabled={busy || undefined}
               title={busy ? t("chat.panel.context.compact_busy", { context: agent }) : undefined}
               className={cn(
-                "rounded-(--radius-control) border border-border px-2 py-0.5 text-app-ui-sm",
+                "rounded-(--radius-control) border border-border px-2 py-0.5 text-app-ui-sm whitespace-nowrap",
                 busy
                   ? "cursor-not-allowed opacity-40"
                   : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
@@ -503,7 +503,7 @@ export function SessionSidePanel({
         {cost !== undefined && cost > 0 && (
           <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
             <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
-            <span className="tabular-nums">{formatCost(cost, i18n.language)}</span>
+            <span className="shrink-0 tabular-nums">{formatCost(cost, i18n.language)}</span>
           </Row>
         )}
         {limits.length === 0 ? (
@@ -518,7 +518,7 @@ export function SessionSidePanel({
                 <span className="min-w-0 flex-1 truncate">
                   {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
                 </span>
-                <span className="tabular-nums">{Math.round(limit.percent)}%</span>
+                <span className="shrink-0 tabular-nums">{Math.round(limit.percent)}%</span>
               </Row>
               <Meter percent={Math.min(100, limit.percent)} />
               {limit.resetsAt !== undefined && (
@@ -656,7 +656,7 @@ export function CodexPanelMcp({
       {servers?.map((server) => (
         <Row key={server.name} title={server.name}>
           <span className="min-w-0 flex-1 truncate">{server.name}</span>
-          <span className="shrink-0 text-app-micro text-muted-foreground">
+          <span className="shrink-0 text-app-micro whitespace-nowrap text-muted-foreground">
             {signingIn === server.name
               ? t("chat.panel.mcp.signing_in")
               : t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
@@ -714,7 +714,7 @@ function RemoteMcp({
             >
               <span className="min-w-0 flex-1 truncate">{server.name}</span>
               {signingIn ? (
-                <span className="flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
+                <span className="flex shrink-0 items-center gap-1 text-app-micro whitespace-nowrap text-muted-foreground">
                   {t("chat.panel.mcp.signing_in")}
                   <TextButton onClick={mcp.reopen}>{t("chat.panel.mcp.reopen")}</TextButton>
                   <TextButton onClick={mcp.cancel}>{t("chat.panel.mcp.cancel")}</TextButton>
@@ -724,7 +724,7 @@ function RemoteMcp({
                   {t("chat.panel.mcp.sign_in")}
                 </TextButton>
               ) : (
-                <span className="shrink-0 text-app-micro text-muted-foreground">
+                <span className="shrink-0 text-app-micro whitespace-nowrap text-muted-foreground">
                   {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
                 </span>
               )}
@@ -812,12 +812,14 @@ function RemoteJobDetail({
       )}
       <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
         {running ? (
-          <span className="flex items-center gap-1 text-[var(--state-success-fg)]">
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[var(--state-success-fg)]">
             <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
             {t("chat.panel.jobs.live")}
           </span>
         ) : exitCode !== undefined ? (
-          <span className={cn(exitCode !== 0 && "text-[var(--state-error-fg)]")}>
+          <span
+            className={cn("whitespace-nowrap", exitCode !== 0 && "text-[var(--state-error-fg)]")}
+          >
             {t("chat.panel.jobs.exit_code", { code: exitCode })}
           </span>
         ) : outputFile !== undefined && job.summary ? (
@@ -825,7 +827,7 @@ function RemoteJobDetail({
             {job.summary}
           </span>
         ) : (
-          <span className="truncate font-mono">{job.type}</span>
+          <span className="min-w-0 truncate font-mono">{job.type}</span>
         )}
         {output && output.sizeBytes > 0 && (
           <span className="ml-auto shrink-0 tabular-nums">{formatBytes(output.sizeBytes)}</span>

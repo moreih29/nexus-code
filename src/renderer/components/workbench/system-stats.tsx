@@ -50,7 +50,11 @@ function StatsLine({
 }): React.JSX.Element {
   const title = useStatsTitle(stats, host);
   return (
-    <div className={cn("flex items-center tabular-nums", className)} title={title} aria-live="off">
+    <div
+      className={cn("flex items-center whitespace-nowrap tabular-nums", className)}
+      title={title}
+      aria-live="off"
+    >
       {stats.cpu !== null && (
         <span className="inline-flex items-center gap-1">
           <Cpu className="size-3 shrink-0" aria-hidden="true" />

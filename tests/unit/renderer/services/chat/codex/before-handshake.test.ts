@@ -281,6 +281,19 @@ test("a refused profile resume does not persist the destination thread or title"
   expect(persisted).toEqual([]);
 });
 
+test("CLI resume cannot replace a conversation or switch profiles in an existing tab", async () => {
+  const c = tab();
+  await expect(c.resumeThread("dest", "Destination", "work", true)).rejects.toThrow(
+    "conversation's profile",
+  );
+  await expect(c.resumeThread("dest", "Destination", c.profileId, true)).rejects.toThrow(
+    "empty tab",
+  );
+  expect(c.currentThread()).toBe("t1");
+  expect(c.profileId).toBe("codex-default");
+  expect(starts).toEqual([]);
+});
+
 test("resumes a Codex thread after agent replacement and queues against the new log", async () => {
   jest.useFakeTimers();
   const c = tab();

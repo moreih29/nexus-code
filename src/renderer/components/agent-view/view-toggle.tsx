@@ -28,14 +28,14 @@ export function ViewToggle() {
         title={shortcut ? `${label} (${shortcut})` : label}
         onClick={() => switchView(value)}
         className={cn(
-          "flex h-5 items-center gap-1.5 rounded-[calc(var(--radius-control)-1px)] px-2 text-app-ui-sm transition-colors duration-150",
+          "flex h-5 shrink-0 items-center gap-1.5 rounded-[calc(var(--radius-control)-1px)] px-2 text-app-ui-sm transition-colors duration-150",
           on
             ? "bg-[var(--state-active-bg)] text-foreground"
             : "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
         )}
       >
         {icon}
-        <span>{label}</span>
+        <span className="whitespace-nowrap">{label}</span>
         {count > 0 && (
           <span
             className="flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-(--state-warning-fg) px-1 text-[10px] leading-none font-semibold text-background tabular-nums"

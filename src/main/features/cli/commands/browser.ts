@@ -2,12 +2,13 @@
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
 import { loopbackPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
-import { exactArgs } from "../args";
+import { CliUsageError, exactArgs } from "../args";
 import type { PageInfo } from "../browser/driver";
 import {
   type CliContext,
   CliError,
   mayChange,
+  pick,
   placementFor,
   resolveTab,
   resolveWorkspace,
@@ -15,6 +16,16 @@ import {
 } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
 import { describePorts, forwardFailed, workspacePorts } from "./port";
 import { workspaceTabs } from "./terminal";
@@ -213,8 +224,89 @@ function historyCommand(action: Exclude<CliBrowserAction, "goto">, summary: stri
   };
 }
 
+const browserPermissions: CliCommand = {
+  path: ["browser", "permissions"],
+  summary: "Read global browser permissions and remembered decisions for a workspace",
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const ref = { workspaceId: workspace.id };
+    const result = device
+      ? await askPeerCli(ctx, device, "browser.permissions", ref)
+      : await ctx.services.ui("browser.permissions", ref);
+    const text = table(
+      ["SCOPE", "PERMISSION", "DECISION"],
+      [
+        ...Object.entries(result.global)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, allowed]) => ["global", key, allowed ? "on" : "off"]),
+        ...result.sites.map(({ origin, permission, decision }) => [origin, permission, decision]),
+      ],
+    );
+    return output(text || "No saved browser permission settings.", {
+      ...ref,
+      ...result,
+      ...(device ? { device: deviceRef(device) } : {}),
+    });
+  },
+};
+
+const browserDevtools: CliCommand = {
+  path: ["browser", "devtools"],
+  summary: "Toggle a browser tab's developer tools",
+  args: "[tab]",
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    if (positionals.length > 1) throw new CliUsageError("give at most one tab");
+    const selector = positionals[0];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = await peerWorkspace(ctx, device, flags.workspace);
+      const { tabs } = await askPeerCli(ctx, device, "layout.get", { workspaceId: workspace.id });
+      const browsers = tabs.filter((tab) => tab.type === "browser");
+      const tab =
+        selector === undefined
+          ? browsers.length === 1
+            ? browsers[0]
+            : undefined
+          : pick(
+              browsers,
+              selector,
+              (tab) => tab.id,
+              (tab) => tab.title,
+              "browser tab",
+            );
+      if (!tab) throw new CliError("give a browser tab from layout show");
+      const ref = { workspaceId: workspace.id, tabId: tab.id };
+      await changePeerCli(ctx, device, "browser.devtools", ref);
+      return output(`Toggled developer tools for ${tab.title} on "${device.name}".`, {
+        ...ref,
+        device: deviceRef(device),
+      });
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveBrowser(ctx, workspace, selector);
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    await mayChange(ctx, workspace, {
+      kind: "browserControl",
+      detail: tab.title,
+      body: "Toggle browser developer tools",
+    });
+    await ctx.services.ui("browser.devtools", ref);
+    return output(`Toggled developer tools for ${tab.title}.`, ref);
+  },
+};
+
 export const browserCommands: CliCommand[] = [
   browserList,
+  browserPermissions,
+  browserDevtools,
   browserOpen,
   browserGoto,
   historyCommand("back", "Go back in a browser tab"),

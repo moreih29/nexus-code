@@ -61,7 +61,7 @@ export function BackgroundBadge({ testId }: { testId?: string }) {
   const { t } = useTranslation();
   return (
     <span
-      className="shrink-0 rounded-full border border-border px-1.5 text-app-micro leading-4 text-muted-foreground"
+      className="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 text-app-micro leading-4 text-muted-foreground"
       data-testid={testId}
     >
       {t("chat.panel.running.background")}
@@ -101,7 +101,7 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
           </span>
           {unsandboxed && (
             <span
-              className="shrink-0 text-[var(--state-warning-fg)]"
+              className="shrink-0 whitespace-nowrap text-[var(--state-warning-fg)]"
               title={t("chat.tool.unsandboxed_hint")}
             >
               {t("chat.tool.unsandboxed")}
@@ -109,13 +109,17 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
           )}
           {status === "background" && <BackgroundBadge />}
           {status === "denied" && (
-            <span className="shrink-0 text-muted-foreground">{t("chat.tool.denied")}</span>
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+              {t("chat.tool.denied")}
+            </span>
           )}
           {status === "stopped" && (
-            <span className="shrink-0 text-muted-foreground">{t("chat.tool.stopped")}</span>
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+              {t("chat.tool.stopped")}
+            </span>
           )}
           {children.length > 0 && (
-            <span className="shrink-0 text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground">
               {t("chat.tool.subagent_calls", { count: children.length })}
             </span>
           )}
@@ -132,7 +136,7 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
             type="button"
             onClick={() => onBackground(toolUseId)}
             title={t("chat.tool.background_hint")}
-            className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-1 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-1 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           >
             <BackgroundIcon className="size-3" aria-hidden />
             {t("chat.tool.background")}

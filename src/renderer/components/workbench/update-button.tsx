@@ -72,7 +72,7 @@ export function UpdateButton() {
           type="button"
           data-testid="update-button"
           className={cn(
-            "app-no-drag mr-1.5 flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2",
+            "app-no-drag mr-1.5 flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2",
             "text-app-ui-sm font-medium tabular-nums transition-colors duration-150",
             TONE[shown.kind],
           )}

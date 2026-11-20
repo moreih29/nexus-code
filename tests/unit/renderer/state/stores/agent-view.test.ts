@@ -4,6 +4,8 @@
  * before what was stored came back.
  */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
+import { remoteFileKey } from "../../../../../src/shared/fs/remote-file-key";
+import { AgentViewSnapshotSchema } from "../../../../../src/shared/types/agent-view";
 
 const stored: unknown[] = [];
 
@@ -14,10 +16,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { __resetAgentViewForTests, useAgentViewStore } = await import(
+const { __resetAgentViewForTests, flushAgentViewPersistence, useAgentViewStore } = await import(
   "../../../../../src/renderer/state/stores/agent-view"
 );
-const { openKey } = await import("../../../../../src/renderer/services/agent-view/layout");
+const { heldKeys, openKey, remoteSessionKey, removeKey } = await import(
+  "../../../../../src/renderer/services/agent-view/layout"
+);
 
 const P1 = "00000000-0000-4000-8000-0000000000a1";
 const P2 = "00000000-0000-4000-8000-0000000000a2";
@@ -76,6 +80,39 @@ describe("agent view store", () => {
     const { agentView } = stored[0] as { agentView: { mode: string; root: { tabIds: string[] } } };
     expect(agentView.mode).toBe("agents");
     expect(agentView.root.tabIds).toEqual([A]);
+  });
+
+  it("flushes a peer file before closing, restores it without the session, and prunes its details", async () => {
+    const where = { deviceId: "mac", workspaceId: "project" };
+    const session = remoteSessionKey({ ...where, tabId: "chat" });
+    const file = remoteFileKey({ ...where, path: "/project/한글 #.md" });
+    const details = {
+      deviceName: "Mac",
+      workspaceRoot: "/project",
+      at: { line: 2 },
+      compareFrom: "chat",
+    };
+    const view = useAgentViewStore.getState();
+    view.hydrate(undefined, () => true);
+    view.setMode("agents");
+    view.update((layout) => openKey(layout, session));
+    view.placeRemoteFile(file, session, { ...details, before: "old text" });
+    expect(heldKeys(useAgentViewStore.getState().root)).toEqual([session, file]);
+
+    expect(await flushAgentViewPersistence()).toBe(true);
+    const saved = AgentViewSnapshotSchema.parse((stored[0] as { agentView: unknown }).agentView);
+    expect(saved.remoteFiles).toEqual({ [file]: details });
+    __resetAgentViewForTests();
+    view.hydrate(saved, () => false);
+    const restored = useAgentViewStore.getState();
+    expect(heldKeys(restored.root)).toEqual([file]);
+    expect(restored.root.kind).toBe("leaf");
+    expect(restored.remoteFiles.get(file)).toEqual(details);
+
+    view.update((layout) => removeKey(layout, file));
+    expect(useAgentViewStore.getState().remoteFiles.size).toBe(0);
+    await flushAgentViewPersistence();
+    expect((stored[1] as { agentView: object }).agentView).not.toHaveProperty("remoteFiles");
   });
 
   it("restores the ended agents of the panels' terminals, and stores them as they change", async () => {

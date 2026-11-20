@@ -6,11 +6,17 @@
  * panel; and a terminal's Claude Code answered.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { panelText } from "../../../../src/main/features/cli/commands/chat-control";
 import { runCli } from "../../../../src/main/features/cli/registry";
-import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
+import { existingChatController } from "../../../../src/renderer/services/chat/claude/controller";
+import { chatKey, emptyTabState, useChatStore } from "../../../../src/renderer/services/chat/store";
+import { useTabsStore } from "../../../../src/renderer/state/stores/tabs";
+import type { CliChatInfo, CliTabInfo, CliUiOps } from "../../../../src/shared/cli/ui";
 import {
   API,
   APP,
@@ -232,16 +238,36 @@ describe("chat rewind", () => {
     expect(calls(app, "chat.rewind")).toEqual([]);
     const answer = await nexus(app, ["chat", "rewind", "eeee", "1"]);
     expect(answer.stderr).toContain("#1 is not a message sent to it");
-    const codex = withChat({}, "codex");
-    expect((await nexus(codex, ["chat", "rewind", "eeee", "0"])).stderr).toContain(
-      "only a Claude tab can rewind",
+  });
+
+  test("Codex previews and rewinds a turn with approval and refuses restoring files", async () => {
+    const app = withChat({ state: "idle" }, "codex");
+    app.uiAnswers.set("chat.rewindPreview", {
+      canRewind: false,
+      filesChanged: [],
+      insertions: 0,
+      deletions: 0,
+    });
+    const rewind = ["chat", "rewind", "eeee", "0"];
+    expect((await nexus(app, [...rewind, "--files"])).stderr).toContain(
+      "Codex conversation rewind cannot restore files",
     );
+    expect((await nexus(app, [...rewind, "--preview"])).stdout).toContain(
+      "Codex can rewind the conversation to before #0",
+    );
+    expect(app.asked).toEqual([]);
+    expect((await nexus(app, rewind)).exitCode).toBe(1);
+    expect(calls(app, "chat.rewind")).toEqual([]);
+    app.answers.push("once");
+    expect((await nexus(app, rewind)).exitCode).toBe(0);
+    expect(app.asked.map((request) => request.change.kind)).toEqual(["chatRewind", "chatRewind"]);
+    expect(calls(app, "chat.rewind")).toEqual([{ ...TARGET, itemKey: "u0", files: false }]);
   });
 });
 
 describe("chat fork", () => {
-  test("forks all of it, or from a message, printing the message to send again", async () => {
-    const app = withChat();
+  test.each(["claude", "codex"] as const)("%s forks all or from a message", async (agent) => {
+    const app = withChat({}, agent);
     app.uiAnswers.set("chat.fork", { tabId: NEW_TAB });
     const all = await nexus(app, ["chat", "fork", "eeee"]);
     expect(all.stdout).toBe("Forked Fix the login (eeeeeeee) into tab cccccccc.\n");
@@ -263,25 +289,120 @@ describe("chat background, stop-task and remote-control", () => {
     expect(calls(app, "chat.stopTask")).toEqual([{ ...TARGET, taskId: "b12" }]);
   });
 
-  test("Remote Control goes on only as the user allows; off goes without asking here", async () => {
+  test.each([
+    [
+      "off succeeds without an eligible account",
+      "off",
+      false,
+      {
+        exitCode: 0,
+        stdout: "Turned Remote Control off for Fix the login (eeeeeeee).\n",
+      },
+    ],
+    [
+      "on requires an eligible account",
+      "on",
+      false,
+      {
+        exitCode: 1,
+        stderr: "nexus: its account cannot turn on Remote Control\n",
+      },
+    ],
+    [
+      "off requires initialization to check availability",
+      "off",
+      undefined,
+      {
+        exitCode: 1,
+        stderr: "nexus: its program is not ready\n",
+      },
+    ],
+  ] as const)("%s", async (_name, turn, available, expected) => {
     const app = withChat();
-    app.uiAnswers.set("chat.panel", {
-      remoteControl: { available: true, enabled: true, url: "https://claude.ai/code/s1" },
+    const tabs = useTabsStore.getState().byWorkspace;
+    const chats = useChatStore.getState().tabs;
+    const globals = globalThis as Record<string, unknown>;
+    const savedWindow = globals.window;
+    globals.window = { ...(savedWindow as object), ipc: { listen: () => () => {} } };
+    const tab = emptyTabState();
+    if (available !== undefined) {
+      tab.phase = "ready";
+      tab.model.process = "running";
+      tab.model.init = { commands: [], models: [], remoteControl: available };
+    }
+    useChatStore.setState({ tabs: { ...chats, [chatKey(APP, CHAT_TAB)]: tab } });
+    useTabsStore.setState({
+      byWorkspace: {
+        ...tabs,
+        [APP]: {
+          ...tabs[APP],
+          [CHAT_TAB]: {
+            id: CHAT_TAB,
+            type: "claude",
+            title: "Fix the login",
+            defaultTitle: "Fix the login",
+            isPreview: false,
+            isPinned: false,
+            props: { cwd: "/w/app" },
+          },
+        },
+      },
     });
-    const denied = await nexus(app, ["chat", "remote-control", "eeee", "on"]);
-    expect(denied.stderr).toBe("nexus: the user did not allow it\n");
-    expect(app.asked[0]?.change).toEqual({ kind: "chatRemoteControlOn", detail: "Fix the login" });
+    try {
+      const { chatHandlers } = await import("../../../../src/renderer/services/cli/chat-actions");
+      app.uiAnswers.set("chat.remoteControl", (args) =>
+        chatHandlers["chat.remoteControl"](args as CliUiOps["chat.remoteControl"]["args"]),
+      );
+      expect(await nexus(app, ["chat", "remote-control", "eeee", turn])).toMatchObject(expected);
+      expect(app.asked).toHaveLength(0);
+    } finally {
+      existingChatController(APP, CHAT_TAB)?.dispose();
+      useChatStore.setState({ tabs: chats });
+      useTabsStore.setState({ byWorkspace: tabs });
+      globals.window = savedWindow;
+    }
+  });
+
+  test.each([
+    ["dedicated on", ["remote-control", "eeee", "on"], true],
+    ["dedicated off", ["remote-control", "eeee", "off"], false],
+    ["slash on", ["command", "eeee", "remote-control"], true],
+    ["slash off", ["command", "eeee", "remote-control"], false],
+    ["slash alias on", ["command", "eeee", "/RC"], true],
+    ["slash alias off", ["command", "eeee", "/RC"], false],
+    ["send alias", ["send", "eeee", "/RC"], false],
+    ["send command with args", ["send", "eeee", "/remote-control", "ignored"], true],
+  ] as const)("%s follows the workspace policy", async (_name, argv, enabled) => {
+    const app = withChat();
+    app.uiAnswers.set("chat.remoteControl", {
+      enabled,
+      ...(enabled ? { url: "https://claude.ai/code/s1" } : {}),
+    });
+    const local = await nexus(app, ["chat", ...argv]);
+    expect(local.stdout).toContain(`Turned Remote Control ${enabled ? "on" : "off"}`);
+    expect(app.asked).toHaveLength(0);
+
+    const remoteWorkspace = ["chat", ...argv, "--workspace", APP];
+    const caller = { workspaceId: API, tabId: SHELL_TAB };
+    app.settings.crossWorkspace = "deny";
+    expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(1);
+    app.settings.crossWorkspace = "ask";
+    expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(1);
     app.answers.push("once");
-    const on = await nexus(app, ["chat", "remote-control", "eeee", "on"]);
-    expect(on.stdout).toBe(
-      "Turned Remote Control on for Fix the login (eeeeeeee): https://claude.ai/code/s1.\n",
+    expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(0);
+    app.settings.crossWorkspace = "allow";
+    expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(0);
+    const explicit = argv[0] === "remote-control";
+    const kind = explicit
+      ? enabled
+        ? "chatRemoteControlOn"
+        : "chatRemoteControlOff"
+      : "chatRemoteControlToggle";
+    expect(app.asked.map((r) => r.change.kind)).toEqual([kind, kind]);
+    expect(calls(app, "chat.remoteControl")).toEqual(
+      Array.from({ length: 3 }, () => ({ ...TARGET, ...(explicit ? { enabled } : {}) })),
     );
-    await nexus(app, ["chat", "remote-control", "eeee", "off"]);
-    expect(app.asked).toHaveLength(2);
-    expect(calls(app, "chat.remoteControl")).toEqual([
-      { ...TARGET, enabled: true },
-      { ...TARGET, enabled: false },
-    ]);
+    expect(calls(app, "chat.command")).toEqual([]);
   });
 });
 
@@ -457,4 +578,61 @@ describe("chat answer for a terminal's Claude Code", () => {
     ]);
     expect(message.stderr).toContain("--message goes to a Claude or Codex tab");
   });
+});
+
+test("chat profiles exposes selectable names and the workspace default, with portable paths", async () => {
+  const app = withChat();
+  app.uiAnswers.set("chat.profiles", {
+    profiles: [
+      {
+        id: "work",
+        name: "Work",
+        agent: "codex",
+        workspaceDefault: true,
+        path: "~/.codex-work",
+        account: "hidden",
+        token: "hidden",
+      },
+    ],
+  });
+  const result = await nexus(app, [
+    "chat",
+    "profiles",
+    "--workspace",
+    API,
+    "--agent",
+    "codex",
+    "--json",
+  ]);
+  expect(JSON.parse(result.stdout)).toEqual({
+    workspaceId: API,
+    profiles: [
+      { id: "work", name: "Work", agent: "codex", workspaceDefault: true, path: "~/.codex-work" },
+    ],
+  });
+  expect(calls(app, "chat.profiles")).toEqual([{ workspaceId: API, agent: "codex" }]);
+  expect(app.asked).toEqual([]);
+});
+
+test("an image save collision does not print its destination path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cli-image-"));
+  try {
+    const out = join(dir, "private-destination.png");
+    await writeFile(out, "existing");
+    const app = withChat();
+    app.uiAnswers.set("chat.image", { mediaType: "image/png", data: "YQ==" });
+    const ctx = contextFor(
+      app,
+      ["chat", "image", "eeee", "--tool", "t1", "--out", out],
+      undefined,
+      {
+        cwd: dir,
+      },
+    );
+    const result = await runCli(CLI_COMMANDS, ctx);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("nexus: image output already exists\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

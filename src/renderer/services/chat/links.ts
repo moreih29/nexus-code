@@ -169,7 +169,8 @@ function safeDecode(text: string): string {
 
 /** `.` and `..` resolved, repeated and trailing slashes dropped; a Windows drive kept in front. */
 function normalize(path: string): string {
-  const drive = /^[A-Za-z]:(?=\/|$)/.exec(path)?.[0] ?? "";
+  // The drive letter is upper case, so `c:/a` and `C:/a` name one file.
+  const drive = (/^[A-Za-z]:(?=\/|$)/.exec(path)?.[0] ?? "").toUpperCase();
   const out: string[] = [];
   for (const part of path.slice(drive.length).split("/")) {
     if (part === "" || part === ".") continue;

@@ -1,4 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
+import { EventEmitter } from "node:events";
+import type { WebContents } from "electron";
 import { AgentFsWatcher } from "../../../../../../src/main/features/fs/bridge/agent-watch";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
@@ -75,7 +77,67 @@ function makeFixture() {
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+function panelWindow() {
+  const events = new EventEmitter();
+  const isDestroyed = mock(() => false);
+  const owner = Object.assign(events, { isDestroyed }) as unknown as WebContents;
+  return {
+    owner,
+    close() {
+      isDestroyed.mockReturnValue(true);
+      events.emit("destroyed");
+    },
+  };
+}
+
 describe("AgentFsWatcher", () => {
+  it("keeps a collapsed directory watched by a panel and preserves a tree watch when the panel closes", async () => {
+    const { watcher, provider, emitChanged, broadcasts } = makeFixture();
+    const { owner } = panelWindow();
+    await watcher.watch(WORKSPACE_ID, "collapsed", owner);
+    emitChanged({ changes: [{ relPath: "collapsed/plan.md", kind: "modified" }] });
+    expect(broadcasts).toHaveLength(1);
+
+    await watcher.watch(WORKSPACE_ID, "collapsed");
+    await watcher.unwatch(WORKSPACE_ID, "collapsed");
+    expect(provider.callAgentMethod.mock.calls.map(([method]) => method)).toEqual([
+      "fs.watch",
+      "fs.watch",
+    ]);
+
+    await watcher.watch(WORKSPACE_ID, "collapsed");
+    await watcher.unwatch(WORKSPACE_ID, "collapsed", owner);
+    expect(provider.callAgentMethod.mock.calls.map(([method]) => method)).toEqual([
+      "fs.watch",
+      "fs.watch",
+      "fs.watch",
+    ]);
+    await watcher.unwatch(WORKSPACE_ID, "collapsed");
+    expect(provider.callAgentMethod.mock.lastCall).toEqual([
+      "fs.unwatch",
+      { relPath: "collapsed" },
+    ]);
+  });
+
+  it("releases a destroyed renderer's panel watches without removing another window's watches", async () => {
+    const { watcher, provider } = makeFixture();
+    const first = panelWindow();
+    const second = panelWindow();
+    await watcher.watch(WORKSPACE_ID, "shared", first.owner);
+    await watcher.watch(WORKSPACE_ID, "shared", second.owner);
+    await watcher.watch(WORKSPACE_ID, "first-only", first.owner);
+    provider.callAgentMethod.mockClear();
+
+    first.close();
+    await settle();
+    expect(provider.callAgentMethod.mock.calls).toEqual([
+      ["fs.unwatch", { relPath: "first-only" }],
+    ]);
+    second.close();
+    await settle();
+    expect(provider.callAgentMethod.mock.lastCall).toEqual(["fs.unwatch", { relPath: "shared" }]);
+  });
+
   it("removes the event subscription after the last unwatch", async () => {
     const { watcher, listeners, broadcasts } = makeFixture();
 

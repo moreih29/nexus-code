@@ -73,12 +73,12 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="notes-panel">
       <div className="flex h-8 shrink-0 items-center gap-1 px-3">
-        <span className="flex-1 text-app-ui-sm font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate text-app-ui-sm font-medium text-foreground">
           {t("panel.title")}
         </span>
         <button
           type="button"
-          className="inline-flex size-6 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           aria-label={t("panel.search")}
           title={t("panel.search")}
           onClick={() => {
@@ -185,12 +185,12 @@ function NoteRow({
           {note.title || t("panel.untitled")}
         </span>
         <span className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground">
-          <span className="shrink-0">{noteTime(note.updatedAt)}</span>
+          <span className="shrink-0 whitespace-nowrap">{noteTime(note.updatedAt)}</span>
           <span className="ml-auto flex min-w-0 gap-1 overflow-hidden">
             {noteChips(note).map((chip) => (
               <span
                 key={chip}
-                className="shrink-0 rounded-(--radius-pill) border border-border px-1.5 leading-4"
+                className="shrink-0 whitespace-nowrap rounded-(--radius-pill) border border-border px-1.5 leading-4"
               >
                 {chip}
               </span>

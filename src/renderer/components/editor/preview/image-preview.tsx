@@ -41,9 +41,9 @@
 //
 // LIVE RELOAD
 //   The protocol URL is stable for a given file, so an on-disk change would
-//   never re-request it. ImageCanvas watches fs.changed (plus a stat check on
-//   git.statusChanged, for directories the file-tree watcher doesn't cover)
-//   and appends a `?v=<n>` cache-buster; main ignores the query string.
+//   never re-request it. ImageCanvas puts the file's version and, when
+//   available, the remote chat's foreground epoch on the URL. Main ignores
+//   the query string, and a change to either signal re-requests the image.
 //
 //   Cursor-anchored zoom: at wheel time we snapshot the cursor's position
 //   relative to the image as ratios in [0,1]; a useLayoutEffect then
@@ -175,7 +175,7 @@ function ImageCanvas({
   const version = useFileVersion(workspaceId, relPath);
   return (
     <ZoomableImage
-      src={versionedUrl(url, revision ?? version)}
+      src={versionedUrl(url, version, revision)}
       alt={alt}
       onNaturalSize={onNaturalSize}
       fill={fill}

@@ -4,10 +4,9 @@
  * at a time, and the folder it is at there, which its chat's pane tells.
  */
 
-import { useEffect, useState } from "react";
 import { MAX_BYTES_CHUNK } from "../../../../packages/remote-protocol/src/rpc";
 import { MAX_READABLE_FILE_SIZE, READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
-import { type PeerWorkspace, peerOf } from "../../../shared/fs/peer-url";
+import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import { ipcCallResult } from "../../ipc/client";
 import { bytesFromBase64 } from "../editor/encoding/text-encoding";
 
@@ -107,7 +106,7 @@ export async function readPeerPiece(
 const PARALLEL = 4;
 
 export type PeerBinary =
-  | { readonly kind: "ok"; readonly bytes: Uint8Array }
+  | { readonly kind: "ok"; readonly bytes: Uint8Array; readonly version?: string }
   | { readonly kind: "too_large" }
   | { readonly kind: "failed" };
 
@@ -120,7 +119,8 @@ export async function readPeerBinary(
   const head = await readSpan(peer, path, 0, MAX_BYTES_CHUNK, undefined, signal, true);
   if (!head) return { kind: "failed" };
   if (head.size > MAX_READABLE_FILE_SIZE) return { kind: "too_large" };
-  if (head.bytes.length >= head.size) return { kind: "ok", bytes: head.bytes };
+  if (head.bytes.length >= head.size)
+    return { kind: "ok", bytes: head.bytes, ...(head.version ? { version: head.version } : {}) };
   const bytes = new Uint8Array(head.size);
   bytes.set(head.bytes);
   const offsets: number[] = [];
@@ -148,7 +148,22 @@ export async function readPeerBinary(
       bytes.set(piece.bytes.subarray(0, head.size - at), at);
     }
   }
-  return { kind: "ok", bytes };
+  return { kind: "ok", bytes, ...(head.version ? { version: head.version } : {}) };
+}
+
+/**
+ * The generation of a file of another computer's, by the cheapest read the
+ * room has: one byte, which the desktop's cache answers with a conditional
+ * read (notModified) while the file stands. undefined for a host that gives
+ * no version, null when the read fails (the file is gone, the host away).
+ */
+export async function probePeerVersion(
+  peer: PeerWorkspace,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string | undefined | null> {
+  const piece = await readSpan(peer, path, 0, 1, undefined, signal);
+  return piece ? piece.version : null;
 }
 
 /** How far into a file a NUL makes it binary, as the editor tells. */
@@ -166,27 +181,23 @@ export async function readPeerText(
   path: string,
   signal?: AbortSignal,
 ): Promise<PeerText> {
-  const read = await readPeerBinary(peer, path, signal);
-  if (read.kind !== "ok") return read;
-  if (read.bytes.subarray(0, SNIFF_BYTES).includes(0)) return { kind: "binary" };
-  const text = new TextDecoder("utf-8").decode(read.bytes);
-  return { kind: "text", text: text.startsWith("\uFEFF") ? text.slice(1) : text };
+  return (await readPeerTextVersioned(peer, path, signal)).text;
 }
 
-/** The text another computer's file holds, read through the room; null while it comes. */
-export function usePeerText(workspaceId: string, path: string): PeerText | null {
-  const [read, setRead] = useState<{ workspaceId: string; path: string; text: PeerText } | null>(
-    null,
-  );
-  useEffect(() => {
-    const peer = peerOf(workspaceId);
-    if (!peer) return;
-    const abort = new AbortController();
-    void readPeerText(peer, path, abort.signal).then(
-      (text) => !abort.signal.aborted && setRead({ workspaceId, path, text }),
-      () => !abort.signal.aborted && setRead({ workspaceId, path, text: { kind: "failed" } }),
-    );
-    return () => abort.abort();
-  }, [workspaceId, path]);
-  return read?.workspaceId === workspaceId && read.path === path ? read.text : null;
+/** A text file as readPeerText gives it, and the generation it was read at when the host tells. */
+export async function readPeerTextVersioned(
+  peer: PeerWorkspace,
+  path: string,
+  signal?: AbortSignal,
+): Promise<{ text: PeerText; version?: string }> {
+  const read = await readPeerBinary(peer, path, signal);
+  if (read.kind !== "ok") return { text: read };
+  if (read.bytes.subarray(0, SNIFF_BYTES).includes(0)) return { text: { kind: "binary" } };
+  const text = new TextDecoder("utf-8").decode(read.bytes);
+  return {
+    text: { kind: "text", text: text.startsWith("\uFEFF") ? text.slice(1) : text },
+    ...(read.version ? { version: read.version } : {}),
+  };
 }
+
+export { usePeerChatFileChanges, usePeerFileRevision, usePeerText } from "./peer-file-live";

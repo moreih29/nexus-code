@@ -8,6 +8,7 @@ import i18next from "i18next";
 import { create } from "zustand";
 import {
   EMPTY_TRANSCRIPT,
+  numberSpeakers,
   type TranscriptFile,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
@@ -47,8 +48,12 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
         // A change made while it loaded (a recording just started) wins.
         const now = useTranscriptsStore.getState().byNote[key];
         if (now) return now;
-        useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: file } }));
-        return file;
+        const numbered = {
+          ...file,
+          recordings: file.recordings.map((r) => (r.speakerNumbers ? r : numberSpeakers(r))),
+        };
+        useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: numbered } }));
+        return numbered;
       })
       .finally(() => loading.delete(key));
     loading.set(key, pending);
@@ -102,6 +107,7 @@ export function flushTranscript(
   workspaceId: string,
   noteId: string,
   announce = false,
+  reportFailure = false,
 ): Promise<void> {
   const key = transcriptKey(workspaceId, noteId);
   clearTimeout(timers.get(key));
@@ -109,26 +115,25 @@ export function flushTranscript(
   const file = useTranscriptsStore.getState().byNote[key];
   const before = writes.get(key) ?? Promise.resolve();
   if (!file) return before;
-  const write = before
-    .then(() => notesApi.saveTranscript(workspaceId, noteId, file, announce))
-    .then(
-      () => {
-        toldSaveFailure = false;
-      },
-      (error: unknown) => {
-        console.warn("[notes] transcript not saved", error);
-        if (toldSaveFailure) return;
-        toldSaveFailure = true;
-        showToast({
-          kind: "error",
-          message: i18next.t("notes:transcript.saveFailed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        });
-      },
-    );
-  writes.set(key, write);
-  return write;
+  const write = before.then(() => notesApi.saveTranscript(workspaceId, noteId, file, announce));
+  const reported = write.then(
+    () => {
+      toldSaveFailure = false;
+    },
+    (error: unknown) => {
+      console.warn("[notes] transcript not saved", error);
+      if (toldSaveFailure) return;
+      toldSaveFailure = true;
+      showToast({
+        kind: "error",
+        message: i18next.t("notes:transcript.saveFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    },
+  );
+  writes.set(key, reported);
+  return reportFailure ? write : reported;
 }
 
 /** Names a voice of a recording (an empty name takes the name away). */
@@ -144,7 +149,8 @@ export function nameSpeaker(
     const trimmed = name.trim().slice(0, 80);
     if (trimmed) speakers[key] = trimmed;
     else delete speakers[key];
-    return { ...r, speakers };
+    const next = { ...r, speakers };
+    return r.speakerNumbers ? numberSpeakers(next) : next;
   });
 }
 

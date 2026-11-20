@@ -1,6 +1,8 @@
 import type { RpcParams, RpcResult } from "../../../../../packages/remote-protocol/src";
+import type { CliUiOps } from "../../../../shared/cli/ui";
 import type { CliServices } from "../../cli/context";
 import { fitsAsResult, tabOf, unavailable } from "./common";
+import { ReadBudget } from "./read-budget";
 
 /** How many lines of a terminal a read gives when it does not say. */
 export const DEFAULT_TERMINAL_LINES = 1000;
@@ -8,16 +10,25 @@ export const DEFAULT_TERMINAL_LINES = 1000;
 export async function readTerminal(
   services: CliServices,
   { workspaceId, tabId, lines, ansi }: RpcParams<"terminal.read">,
+  from?: string,
 ): Promise<RpcResult<"terminal.read">> {
-  await tabOf(services, workspaceId, tabId, ["terminal"]);
-  const { text, caret } = await services
-    .ui("terminal.read", {
-      workspaceId,
-      tabId,
-      lines: lines ?? DEFAULT_TERMINAL_LINES,
-      ...(ansi ? { ansi } : {}),
-    })
-    .catch(unavailable);
+  const budget = new ReadBudget(services, "terminal.read", from, 12_000);
+  try {
+    await tabOf(services, workspaceId, tabId, ["terminal"], budget);
+    const screen = await budget
+      .ui(
+        "terminal.read",
+        { workspaceId, tabId, lines: lines ?? DEFAULT_TERMINAL_LINES, ...(ansi ? { ansi } : {}) },
+        budget.remaining(),
+      )
+      .catch(unavailable);
+    return fitScreen(screen);
+  } finally {
+    budget.report();
+  }
+}
+
+function fitScreen({ text, caret }: CliUiOps["terminal.read"]["result"]) {
   // The end of it, as much as goes in a frame, from a line's start: no escape cut in two. The
   // cursor goes up with the lines cut; above them, it is not told.
   let shown = text;

@@ -39,6 +39,38 @@ const LEAST_TO_MOST: Readonly<Record<ChatAgent, readonly string[]>> = {
   codex: ["readOnly", "auto", "fullAccess"],
 };
 
+/** The shared order when a Claude tab grants a mode to Codex or vice versa. */
+const CROSS_AGENT_RANK: Readonly<Record<ChatAgent, ReadonlyMap<string, number>>> = {
+  claude: new Map([
+    ["plan", 0],
+    ["default", 0],
+    ["acceptEdits", 1],
+    ["auto", 1],
+    ["bypassPermissions", 2],
+  ]),
+  codex: new Map([
+    ["readOnly", 0],
+    ["auto", 1],
+    ["fullAccess", 2],
+  ]),
+};
+
+/** Whether the caller's current mode covers a known mode in another tab. */
+export function grants(
+  callerAgent: ChatAgent,
+  callerMode: string | undefined,
+  agent: ChatAgent,
+  mode: string,
+): boolean {
+  if (callerAgent === agent) {
+    const order = LEAST_TO_MOST[agent];
+    const target = order.indexOf(mode);
+    return target >= 0 && Math.max(0, order.indexOf(callerMode ?? "")) >= target;
+  }
+  const rank = CROSS_AGENT_RANK[agent].get(mode);
+  return rank !== undefined && (CROSS_AGENT_RANK[callerAgent].get(callerMode ?? "") ?? 0) >= rank;
+}
+
 /** The mode a name gives, in any case; undefined for none of the agent's. */
 export function chatModeNamed(agent: ChatAgent, name: string): string | undefined {
   const lower = name.trim().toLowerCase();

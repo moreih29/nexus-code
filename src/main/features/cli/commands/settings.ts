@@ -4,17 +4,31 @@
  * workspace's, so changing one needs no leave; what nexus itself may do is
  * left to the user.
  */
+
+import type { InstructionScope } from "../../../../shared/chat/instructions";
 import {
   describeShape,
   formatSettingValue,
   SETTINGS_PAGES,
   settingsPageNamed,
 } from "../../../../shared/cli/settings";
-import type { CliSettingInfo } from "../../../../shared/cli/ui";
+import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
+import {
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerSessions,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
+import { chatAgentFlag, checkedInstructions, readInstructionsFile } from "./chat";
+import { WORKSPACE_FLAG } from "./flags";
 
 /** The settings, or the one `key` names (none when it names none). */
 async function listSettings(ctx: CliContext, key?: string): Promise<CliSettingInfo[]> {
@@ -123,10 +137,186 @@ const settingsOpen: CliCommand = {
   },
 };
 
+const settingsInstructions: CliCommand = {
+  path: ["settings", "instructions", "show"],
+  summary: "Show the instruction layers for a new chat and their combined text",
+  details: "The profile comes from the workspace's rules. The agent defaults to Claude.",
+  flags: {
+    workspace: WORKSPACE_FLAG,
+    agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const agent = chatAgentFlag(flags.agent, "claude");
+    const result = await ctx.services.ui("settings.instructions", {
+      workspaceId: workspace.id,
+      agent,
+    });
+    const sources = result.layers.map((layer) => `- ${layer.title}${layer.text ? "" : " (empty)"}`);
+    const text = ["Sources, in order:", ...sources, "", result.instructions || "(no instructions)"];
+    return output(text.join("\n"), { workspaceId: workspace.id, agent, ...result });
+  },
+};
+
+const settingsInstructionsSet: CliCommand = {
+  path: ["settings", "instructions", "set"],
+  args: "<all|claude|codex|workspace>",
+  summary: "Replace or clear a persistent instruction layer",
+  details:
+    "All, Claude, and Codex changes need approval each time. Workspace changes follow the workspace policy.",
+  flags: {
+    file: {
+      type: "string",
+      value: "FILE",
+      description: "Read the new layer from UTF-8 FILE or - for stdin",
+    },
+    clear: { type: "boolean", description: "Clear the layer" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { flags, positionals }) {
+    const [layer] = exactArgs(positionals, "layer") as [string];
+    if (layer !== "all" && layer !== "claude" && layer !== "codex" && layer !== "workspace")
+      throw new CliUsageError("choose all, claude, codex, or workspace");
+    if (flags.workspace !== undefined && layer !== "workspace")
+      throw new CliUsageError("--workspace goes with the workspace layer");
+    const file = typeof flags.file === "string" ? flags.file : undefined;
+    if ((file !== undefined) === (flags.clear === true))
+      throw new CliUsageError("give --file or --clear");
+    const text =
+      file === "-"
+        ? checkedInstructions(ctx.invocation.stdin ?? "")
+        : file === undefined
+          ? ""
+          : await readInstructionsFile(ctx, file);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace =
+        layer === "workspace"
+          ? await peerWorkspace(ctx, device, flags.workspace)
+          : (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
+      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      await changePeerCli(ctx, device, "settings.instructions.set", {
+        workspaceId: workspace.id,
+        layer,
+        text,
+      });
+      return output(`Updated the ${layer} instruction layer on "${device.name}".`, {
+        layer,
+        device: deviceRef(device),
+        text,
+      });
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const scope: Exclude<InstructionScope, { kind: "profile" }> =
+      layer === "workspace"
+        ? { kind: "workspace", id: workspace.id }
+        : layer === "all"
+          ? { kind: "all" }
+          : { kind: "agent", agent: layer };
+    const change: CliChange = {
+      kind: "instructionsEdit",
+      detail:
+        layer === "workspace"
+          ? workspace.name
+          : layer === "all"
+            ? "Shared"
+            : layer === "claude"
+              ? "Claude"
+              : "Codex",
+      body: text || "Clear this layer",
+    };
+    if (layer === "workspace") await mayChange(ctx, workspace, change);
+    else
+      await ctx.services.askUser({
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change: { ...change, eachTime: true },
+      });
+    await ctx.services.ui("settings.instructions.set", { scope, text });
+    return output(
+      text ? `Updated the ${layer} instruction layer.` : `Cleared the ${layer} instruction layer.`,
+      { scope, text },
+    );
+  },
+};
+
+const settingsKeysList: CliCommand = {
+  path: ["settings", "keys", "list"],
+  summary: "List effective app and editor keybindings",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { bindings } = await ctx.services.ui("settings.keys", {});
+    return output(
+      table(
+        ["AREA", "COMMAND", "KEYS", "WHEN"],
+        bindings.map((binding) => [
+          binding.area,
+          binding.command,
+          [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
+          binding.when ?? "",
+        ]),
+      ),
+      { bindings },
+      { records: bindings },
+    );
+  },
+};
+
+const settingsLspStatus: CliCommand = {
+  path: ["settings", "lsp", "status"],
+  summary: "Show the current workspace's language server status",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const result = await ctx.services.ui("settings.lspStatus", { workspaceId: workspace.id });
+    const text = table(
+      ["LANGUAGE", "STATE"],
+      result.servers.map(({ language, state }) => [language, state]),
+    );
+    return output(
+      text ||
+        (result.enabled ? "No language servers have started." : "Language servers are disabled."),
+      result,
+    );
+  },
+};
+
+const settingsUpdateStatus: CliCommand = {
+  path: ["settings", "updates", "status"],
+  summary: "Show the last app update check and download progress",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.updateStatus", {});
+    const version =
+      result.status &&
+      ("version" in result.status
+        ? result.status.version
+        : "latest" in result.status
+          ? result.status.latest
+          : undefined);
+    return output(
+      result.status
+        ? [result.status.kind, version].filter(Boolean).join(" ")
+        : "No update check yet.",
+      result,
+    );
+  },
+};
+
 export const settingsCommands: CliCommand[] = [
   settingsList,
   settingsGet,
   settingsSet,
   settingsReset,
   settingsOpen,
+  settingsInstructions,
+  settingsInstructionsSet,
+  settingsKeysList,
+  settingsLspStatus,
+  settingsUpdateStatus,
 ];

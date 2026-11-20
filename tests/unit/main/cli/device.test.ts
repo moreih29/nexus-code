@@ -7,6 +7,10 @@ import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { chatAgentContext } from "../../../../src/main/features/cli/commands/agent-context";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
+import {
+  type SetupCliFeatureOptions,
+  setupCliFeature,
+} from "../../../../src/main/features/cli/index";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { agentSenderOf, askDevice, resolveDevice } from "../../../../src/main/features/cli/remote";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
@@ -353,6 +357,50 @@ describe("nexus agent-context", () => {
     ).toBeUndefined();
   });
 
+  test("delivers a terminal's instruction layers independently of CLI guidance", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    app.services.terminalClaudeInstructions = (workspaceId, profileId) =>
+      `instructions for ${workspaceId}/${profileId}`;
+    const ctx = contextFor(app, ["agent-context", "--profile=personal", "-"]);
+    const result = await runCli(CLI_COMMANDS, {
+      ...ctx,
+      invocation: { ...ctx.invocation, stdin: JSON.stringify({ hook_event_name: "SessionStart" }) },
+    });
+    expect(result.stdout).toBe(`instructions for ${APP}/personal\n`);
+  });
+
+  test("passes the Claude session id and hook phase to instruction tracking", async () => {
+    const app = withDevices();
+    app.settings.agentContext = false;
+    const phases: unknown[] = [];
+    app.services.claudeInstructions = (_workspaceId, _tabId, _launch, hook) => {
+      phases.push(hook);
+      return hook.phase === "start" ? "" : `${hook.phase} instructions`;
+    };
+    const ctx = contextFor(app, ["agent-context", "--launch=test", "-"]);
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    for (const [event, source, phase] of [
+      ["SessionStart", "resume", "start"],
+      ["UserPromptSubmit", undefined, "prompt"],
+      ["SessionStart", "compact", "restore"],
+    ] as const) {
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        invocation: {
+          ...ctx.invocation,
+          stdin: JSON.stringify({ hook_event_name: event, source, session_id: sessionId }),
+        },
+      });
+      expect(phases.at(-1)).toEqual({ sessionId, phase });
+      if (phase === "start") expect(result.stdout).toBe("");
+      else
+        expect(JSON.parse(result.stdout)).toEqual({
+          hookSpecificOutput: { hookEventName: event, additionalContext: `${phase} instructions` },
+        });
+    }
+  });
+
   test("tells a session that the user's notes are the app's", async () => {
     const app = withDevices();
     app.settings.agentContext = true;
@@ -365,4 +413,45 @@ describe("nexus agent-context", () => {
     app.peers.inRoom = false;
     expect((await nexus(app, ["agent-context"])).stdout).not.toContain("--device");
   });
+});
+
+test("device alias and clear use the active Remote service", async () => {
+  const app = fakeApp();
+  const changes: [string, string | null][] = [];
+  const peer = {
+    id: "9b1e44d2-0000-4000-8000-000000000002",
+    name: "Mac mini",
+    platform: "macos",
+    self: false,
+    online: true,
+    serves: [],
+  };
+  const feature = setupCliFeature({
+    agentHost: { on: () => () => {} },
+    workspaceManager: {},
+    getWindow: () => null,
+    remote: () => ({
+      ...app.services.remote,
+      devices: async () => [peer],
+      alias: async (id: string, alias: string | null) => {
+        changes.push([id, alias]);
+      },
+    }),
+  } as unknown as SetupCliFeatureOptions);
+  try {
+    for (const args of [["Build Mac"], ["--clear"]]) {
+      const ctx = contextFor(app, ["device", "alias", "9b1e", ...args]);
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        services: { ...ctx.services, remote: feature.services.remote },
+      });
+      expect(result.exitCode).toBe(0);
+    }
+    expect(changes).toEqual([
+      [peer.id, "Build Mac"],
+      [peer.id, null],
+    ]);
+  } finally {
+    feature.dispose();
+  }
 });

@@ -21,9 +21,13 @@ afterEach(() => {
 
 function setup() {
   let now = listOf("first");
+  let incompleteWorkspaces = new Set<string>();
   const sent: { to: string; update: SessionsUpdate }[] = [];
   const watches = new SessionWatches({
-    list: async () => now,
+    snapshot: async () => {
+      const list = now;
+      return { list, incompleteWorkspaces, forDevice: async () => list };
+    },
     notify: async (to, update) => {
       sent.push({ to, update });
       return true;
@@ -35,8 +39,9 @@ function setup() {
   return {
     watches,
     sent,
-    set(next: List) {
+    set(next: List, incomplete: string[] = []) {
       now = next;
+      incompleteWorkspaces = new Set(incomplete);
     },
   };
 }
@@ -58,8 +63,11 @@ describe("watching the sessions' list", () => {
       answerable: answerable && to === "phone",
     });
     const watches = new SessionWatches({
-      list: async () => listOf("first"),
-      consents: async (to) => [consent(to)],
+      snapshot: async () => ({
+        list: listOf("first"),
+        incompleteWorkspaces: new Set(),
+        forDevice: async (to) => ({ ...listOf("first"), consents: [consent(to)] }),
+      }),
       notify: async (to, update) => {
         sent.push({ to, update });
         return true;
@@ -104,6 +112,63 @@ describe("watching the sessions' list", () => {
     await watches.watch("laptop");
     await watches.poll();
     expect(sent.map((s) => s.to)).toEqual(["phone"]);
+  });
+
+  test("preserves each watcher's rows for incomplete workspaces until a complete read", async () => {
+    const { watches, sent, set } = setup();
+    const second = listOf("second");
+    const otherWorkspace = { id: "w2", name: "other", path: "/other" };
+    const otherSession = {
+      workspaceId: "w2",
+      tabId: "t2",
+      kind: "terminal",
+      title: "zsh",
+      state: "idle",
+    } as const;
+    await watches.watch("phone");
+    set(second);
+    await watches.watch("laptop");
+
+    const list = {
+      workspaces: [...second.workspaces, otherWorkspace],
+      sessions: [...listOf("partial").sessions, otherSession],
+    };
+    set(list, ["w1"]);
+    await watches.poll();
+    await watches.poll();
+    expect(sent.map(({ to, update }) => [to, update.sessions.map(({ title }) => title)])).toEqual([
+      ["phone", ["first", "zsh"]],
+      ["laptop", ["second", "zsh"]],
+    ]);
+
+    set({ ...list, sessions: [otherSession] });
+    await watches.poll();
+    expect(sent.slice(2).map(({ update }) => update.sessions)).toEqual([
+      [otherSession],
+      [otherSession],
+    ]);
+  });
+
+  test("holds updates until every incomplete workspace has a prior complete list", async () => {
+    const { watches, sent, set } = setup();
+    const empty = { ...listOf("first"), sessions: [] };
+    const other = {
+      ...empty,
+      workspaces: [...empty.workspaces, { id: "w2", name: "other", path: "/other" }],
+    };
+    set(empty, ["w1"]);
+    await watches.watch("phone");
+    set(other, ["w1"]);
+    await watches.poll();
+    expect(sent).toHaveLength(0);
+
+    // A complete read of an empty workspace establishes a baseline without sending an update.
+    set(empty);
+    await watches.poll();
+    expect(sent).toHaveLength(0);
+    set(other, ["w1"]);
+    await watches.poll();
+    expect(sent.map(({ update }) => update.workspaces)).toEqual([other.workspaces]);
   });
 
   test("an unwatch is the watcher's own; a device that left ends its watches", async () => {

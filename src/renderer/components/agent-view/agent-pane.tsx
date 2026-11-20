@@ -25,10 +25,10 @@ import {
   setActiveLeaf,
   splitLeaf,
 } from "@/services/agent-view/layout";
-import { requestTabFocus } from "@/services/tab-focus";
+import { focusPanelTab } from "@/services/agent-view/show";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
-import { useTabsStore } from "@/state/stores/tabs";
+import { type EditorTab, useTabsStore } from "@/state/stores/tabs";
 import { useUIStore } from "@/state/stores/ui";
 import {
   rootWorkspaceId,
@@ -37,11 +37,16 @@ import {
   useWorkspacesStore,
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { beginDragInFlight } from "@/utils/drag-in-flight";
+import { basename } from "@/utils/path";
+import { toSlashPath } from "../../../shared/fs/drive-path";
+import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import type { DropZone } from "../../types/workbench-dnd";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
+import { FileIcon } from "../files/file-tree/file-icon";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
@@ -49,6 +54,7 @@ import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-regist
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
+import { TabIcon, useTabDirty } from "../workspace/tabs/tab-item";
 import {
   agentDragKey,
   insertionIndex,
@@ -59,21 +65,12 @@ import {
   ZONE_DIRECTION,
 } from "./drag";
 import { EndedBar } from "./ended-bar";
+import { RemoteFilePane } from "./remote-file-pane";
 import { RemoteSessionPane } from "./remote-pane";
 import { DeviceChip, RemoteTabLabel } from "./remote-sessions";
 
 function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
-}
-
-/** Puts the keyboard in the agent `key` names: another computer's chat by its key. */
-function focusKey(key: string): void {
-  if (isRemoteKey(key)) {
-    requestTabFocus(key);
-    return;
-  }
-  const session = parseSessionKey(key);
-  if (session) requestTabFocus(session.tabId);
 }
 
 // Memo: the view renders for each change of the agents' or the layout's,
@@ -92,6 +89,7 @@ export const AgentPane = memo(function AgentPane({
   const split = useAgentViewStore((s) => s.root.kind === "split");
   const lit = useAgentViewStore((s) => s.hoveredKey !== null && leaf.tabIds.includes(s.hoveredKey));
   const front = leaf.activeTabId !== null ? parseSessionKey(leaf.activeTabId) : null;
+  const frontFile = leaf.activeTabId !== null ? parseRemoteFileKey(leaf.activeTabId) : null;
   const frontEnded = leaf.activeTabId !== null ? ended.get(leaf.activeTabId) : undefined;
   const frontKind = useTabsStore((s) =>
     front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
@@ -196,7 +194,12 @@ export const AgentPane = memo(function AgentPane({
       const at = insertionOf(e);
       const zone = zoneOf(e);
       reset();
-      if (key === null) return;
+      if (
+        key === null ||
+        (isRemoteFileKey(key) && !useAgentViewStore.getState().remoteFiles.has(key))
+      ) {
+        return;
+      }
       // On the tab bar: where its line showed. On the content: an edge splits
       // the panel toward it, the middle puts the agent last.
       update((layout) =>
@@ -204,7 +207,7 @@ export const AgentPane = memo(function AgentPane({
           ? placeKey(layout, key, leaf.id, undefined, insertionIndex(leaf.tabIds, key, at.before))
           : placeKey(layout, key, leaf.id, zone === "center" ? undefined : ZONE_DIRECTION[zone]),
       );
-      focusKey(key);
+      focusPanelTab(key);
     };
     outerEl.addEventListener("dragenter", onEnter, true);
     outerEl.addEventListener("dragover", onOver, true);
@@ -222,7 +225,7 @@ export const AgentPane = memo(function AgentPane({
 
   const select = (key: string) => {
     update((layout) => selectKey(layout, leaf.id, key));
-    focusKey(key);
+    focusPanelTab(key);
   };
   const remove = (key: string) => update((layout) => removeKey(layout, key));
   const splitTo = (direction: "right" | "down") =>
@@ -249,7 +252,7 @@ export const AgentPane = memo(function AgentPane({
       data-testid="agent-pane"
       data-leaf-id={leaf.id}
     >
-      <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 px-1.5">
+      <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 overflow-hidden px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
         <div
@@ -264,6 +267,14 @@ export const AgentPane = memo(function AgentPane({
                 sessionKey={key}
                 active={key === leaf.activeTabId}
                 showDevice={sharedDevice === undefined}
+                onSelect={() => select(key)}
+                onRemove={() => remove(key)}
+              />
+            ) : isRemoteFileKey(key) ? (
+              <RemoteFileTab
+                key={key}
+                fileKey={key}
+                active={key === leaf.activeTabId}
                 onSelect={() => select(key)}
                 onRemove={() => remove(key)}
               />
@@ -292,6 +303,8 @@ export const AgentPane = memo(function AgentPane({
           renderTab={(key) =>
             isRemoteKey(key) ? (
               <RemoteTabFace sessionKey={key} showDevice={sharedDevice === undefined} />
+            ) : isRemoteFileKey(key) ? (
+              <RemoteFileTabFace fileKey={key} />
             ) : (
               <AgentTabLabel
                 sessionKey={key}
@@ -338,6 +351,7 @@ export const AgentPane = memo(function AgentPane({
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
+        {viewShown && frontFile && <RemoteFilePane key={leaf.activeTabId} file={frontFile} />}
         {/* Each kept while its tab is in the panel, as a chat here is: its draft,
             drawer and goal stay its own. Only the front one is read. */}
         {leaf.tabIds.filter(isRemoteKey).map((key) => (
@@ -350,7 +364,7 @@ export const AgentPane = memo(function AgentPane({
         ))}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
-      {frontEnded && leaf.activeTabId !== null && (
+      {frontKind === "terminal" && frontEnded && leaf.activeTabId !== null && (
         <EndedBar sessionKey={leaf.activeTabId} ended={frontEnded} />
       )}
 
@@ -380,7 +394,7 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   return (
     <span
       className={cn(
-        "flex max-w-24 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground",
+        "flex max-w-24 min-w-0 items-center gap-1 overflow-hidden rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-muted-foreground",
         className,
       )}
     >
@@ -394,21 +408,23 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   );
 }
 
-/** What a tab shows of the agent `key` names, or null once its tab is gone. */
-function useAgentTabInfo(key: string, agents: Agents) {
+/** What a local tab shows, or null once its tab is gone. */
+function useLocalTabInfo(key: string, agents: Agents) {
   const ref = parseSessionKey(key);
   const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
   const workspaceName = useWorkspacesStore((s) =>
     ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
   );
   if (!ref || !tab) return null;
+  if (tab.type === "editor") return { kind: "file" as const, ref, tab };
+  if (tab.type !== "claude" && tab.type !== "codex" && tab.type !== "terminal") return null;
   const session = agents.byKey.get(key)?.session;
   const mark: AgentSession = session ?? {
     key,
     workspaceId: ref.workspaceId,
     tabId: ref.tabId,
     title: tab.title,
-    kind: tab.type === "claude" || tab.type === "codex" ? tab.type : "terminal",
+    kind: tab.type,
     agent: undefined,
     state: "idle",
     phase: "idle",
@@ -417,7 +433,14 @@ function useAgentTabInfo(key: string, agents: Agents) {
     message: undefined,
     prompt: undefined,
   };
-  return { ref, session, mark, title: session?.title ?? tab.title, workspaceName };
+  return {
+    kind: "agent" as const,
+    ref,
+    session,
+    mark,
+    title: session?.title ?? tab.title,
+    workspaceName,
+  };
 }
 
 /**
@@ -433,8 +456,9 @@ function AgentTabLabel({
   agents: Agents;
   showWorkspace: boolean;
 }) {
-  const info = useAgentTabInfo(sessionKey, agents);
+  const info = useLocalTabInfo(sessionKey, agents);
   if (!info) return null;
+  if (info.kind === "file") return <EditorTabLabel tab={info.tab} showWorkspace={showWorkspace} />;
   const { ref, session, mark, title } = info;
   return (
     <>
@@ -442,9 +466,23 @@ function AgentTabLabel({
       <AgentMark session={mark} />
       <span className="min-w-0 truncate">{title}</span>
       {session && session.phase !== "idle" && (
-        <span role="img" aria-label={stateLabel(session)} className="inline-flex">
+        <span role="img" aria-label={stateLabel(session)} className="inline-flex shrink-0">
           <StateGlyph state={session.state} />
         </span>
+      )}
+    </>
+  );
+}
+
+function EditorTabLabel({ tab, showWorkspace }: { tab: EditorTab; showWorkspace: boolean }) {
+  const dirty = useTabDirty(tab);
+  return (
+    <>
+      {showWorkspace && <WorkspaceChip workspaceId={tab.props.workspaceId} />}
+      <TabIcon tab={tab} />
+      <span className="min-w-0 truncate">{basename(tab.props.filePath)}</span>
+      {dirty && (
+        <span aria-hidden className="size-2 shrink-0 rounded-full bg-[var(--tab-modified-dot)]" />
       )}
     </>
   );
@@ -466,18 +504,65 @@ function AgentTab({
   onSelect: () => void;
   onRemove: () => void;
 }) {
-  const info = useAgentTabInfo(key, agents);
+  const info = useLocalTabInfo(key, agents);
   if (!info) return null;
-  const { title, workspaceName } = info;
+  const title =
+    info.kind === "file"
+      ? info.tab.props.filePath
+      : info.workspaceName
+        ? `${info.title} · ${info.workspaceName}`
+        : info.title;
   return (
     <PanelTab
       sessionKey={key}
       active={active}
-      title={workspaceName ? `${title} · ${workspaceName}` : title}
+      title={title}
+      file={info.kind === "file"}
       onSelect={onSelect}
       onRemove={onRemove}
     >
       <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
+    </PanelTab>
+  );
+}
+
+function RemoteFileTabFace({ fileKey }: { fileKey: string }) {
+  const name = useAgentViewStore((s) => s.remoteFiles.get(fileKey)?.deviceName);
+  const file = parseRemoteFileKey(fileKey);
+  if (!file || name === undefined) return null;
+  const title = basename(toSlashPath(file.path));
+  return (
+    <>
+      <DeviceChip name={name} />
+      <FileIcon kind="file" name={title} size="sm" tone="muted" className="shrink-0" />
+      <span className="min-w-0 truncate">{title}</span>
+    </>
+  );
+}
+
+function RemoteFileTab({
+  fileKey,
+  active,
+  onSelect,
+  onRemove,
+}: {
+  fileKey: string;
+  active: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+}) {
+  const file = parseRemoteFileKey(fileKey);
+  if (!file) return null;
+  return (
+    <PanelTab
+      sessionKey={fileKey}
+      active={active}
+      title={file.path}
+      file
+      onSelect={onSelect}
+      onRemove={onRemove}
+    >
+      <RemoteFileTabFace fileKey={fileKey} />
     </PanelTab>
   );
 }
@@ -542,6 +627,7 @@ function PanelTab({
   sessionKey: key,
   active,
   title,
+  file,
   onSelect,
   onRemove,
   children,
@@ -549,6 +635,7 @@ function PanelTab({
   sessionKey: string;
   active: boolean;
   title: string;
+  file?: boolean;
   onSelect: () => void;
   onRemove: () => void;
   children: ReactNode;
@@ -573,13 +660,16 @@ function PanelTab({
         onAuxClick={(e) => {
           if (e.button === 1) onRemove();
         }}
-        onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
+        onDragStart={(e) => {
+          setAgentDrag(e.dataTransfer, key);
+          beginDragInFlight();
+        }}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {children}
       </button>
       <IconButton
-        label={t("agentView.pane.remove")}
+        label={t(file ? "agentView.pane.remove_file" : "agentView.pane.remove")}
         size="xs"
         onClick={onRemove}
         className={cn(
@@ -595,6 +685,7 @@ function PanelTab({
 
 /** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
 function goToTabLabel(type: string | undefined): string {
+  if (type === "editor") return "agentView.pane.show_file_tab";
   if (type === "claude") return "agentList.detail.show_claude_tab";
   if (type === "codex") return "agentList.detail.show_codex_tab";
   return "agentList.detail.show_terminal";

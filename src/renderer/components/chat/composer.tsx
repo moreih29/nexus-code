@@ -30,13 +30,16 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
+import { claudeModelLabel } from "../../services/chat/claude/settings-defaults";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
   completionAt,
   fileMention,
+  followTyped,
   isFolder,
   matchCommands,
+  type TypedToken,
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
@@ -44,6 +47,7 @@ import {
   currentModelInfo,
   type ImageBlock,
   isWaiting,
+  type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
 import { withRelayed } from "../../services/chat/relayed";
@@ -71,10 +75,12 @@ import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsTab, SessionInstructionsChip } from "./session-instructions-chip";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
   readonly key: string;
+  readonly claudeProfileDefaultModel?: string;
   /** The permission modes the mode chip offers; Claude Code's when left out. */
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
@@ -143,6 +149,9 @@ export interface ComposerController {
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
+  /** A local Claude tab can borrow its profile's options while its own list is missing. */
+  fallbackModels?: readonly ModelInfo[];
+  instructionsTab?: InstructionsTab;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
   /** The program runs on this machine, where an attached file's path can be read. */
@@ -218,6 +227,8 @@ function parked(area: HTMLElement): boolean {
 export const Composer = memo(function Composer({
   controller,
   state,
+  fallbackModels,
+  instructionsTab,
   relayed,
   local,
   placeholder,
@@ -248,6 +259,7 @@ export const Composer = memo(function Composer({
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
+  const models = model.init?.models ?? fallbackModels ?? [];
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
@@ -285,8 +297,8 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
-    FIT.TRUNCATE_MODE,
+    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
+    FIT.NO_ADD,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -301,13 +313,17 @@ export const Composer = memo(function Composer({
     area.setSelectionRange(at, at);
     setCaret(at);
   });
-  const edit = (next: string, at: number) => {
+  const edit = (next: string, at: number, typed: TypedToken | null = null) => {
+    typedRef.current = typed;
     setText(next);
     pendingCaret.current = at;
     areaRef.current?.focus();
   };
 
-  const completion = completionAt(text, caret);
+  // The `@` being typed, so one typed into a sentence opens the list while
+  // a caret moved into an existing mention does not.
+  const typedRef = useRef<TypedToken | null>(null);
+  const completion = completionAt(text, caret, typedRef.current?.start ?? null);
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
   const [dismissed, setDismissed] = useState<string | null>(null);
   // A menu put away stays away only while its word lasts: once the word is
@@ -316,19 +332,20 @@ export const Composer = memo(function Composer({
     if (completionKey === null) setDismissed(null);
   }, [completionKey]);
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
+  const cliCommands = model.init?.commands ?? model.slashCommands;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
     if (ownCommands) return matchCommands([...ownCommands], completion.query);
-    const cli = model.init?.commands ?? [];
+    const cli = cliCommands ?? [];
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
     return matchCommands([...listedCommands(cli), ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
+  }, [menuOpen, completion?.kind, completion?.query, cliCommands, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   // The program has not listed its commands yet: the list waits, rather
   // than say that none match.
-  const listing = !ownCommands && !model.init;
+  const listing = !ownCommands && !cliCommands;
   // The command box shows "no matching commands" when it has none to offer.
   const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
@@ -384,7 +401,7 @@ export const Composer = memo(function Composer({
         ? { kind: "command", name: item.key }
         : { kind: "file", path: item.key },
     );
-    edit(next.text, next.caret);
+    edit(next.text, next.caret, next.open);
   };
 
   /** Types a `/` or `@` at the caret, from the + menu. */
@@ -395,7 +412,8 @@ export const Composer = memo(function Composer({
     }
     const at = Math.min(caret, text.length);
     const space = at > 0 && !/\s/.test(text[at - 1]) ? " " : "";
-    edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, at + space.length + 1);
+    const token = { start: at + space.length, caret: at + space.length + 1 };
+    edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, token.caret, token);
   };
 
   // Fitted as what it holds or how it is written changes, not on every
@@ -831,10 +849,17 @@ export const Composer = memo(function Composer({
               ref={areaRef}
               value={text}
               onChange={(e) => {
+                const at = e.target.selectionStart;
+                typedRef.current = followTyped(text, e.target.value, at, typedRef.current);
                 setText(e.target.value);
-                setCaret(e.target.selectionStart);
+                setCaret(at);
               }}
-              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onSelect={(e) => {
+                const at = e.currentTarget.selectionStart;
+                // The caret went somewhere other than where the typing left it.
+                if (typedRef.current && typedRef.current.caret !== at) typedRef.current = null;
+                setCaret(at);
+              }}
               onFocus={() => {
                 setFocused(true);
                 dictation.onFocus();
@@ -862,33 +887,46 @@ export const Composer = memo(function Composer({
             )}
           </div>
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
-            <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            {fit < FIT.NO_MODE && (
+              <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            )}
             {(fit < FIT.NO_MODEL || kept("model")) && (
               <ModelChip
                 controller={controller}
                 state={state}
+                models={models}
                 short={fit >= FIT.SHORT_MODEL}
                 onMenu={onMenu("model")}
               />
             )}
             {(fit < FIT.NO_EFFORT || kept("effort")) && (
-              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+              <EffortChip
+                controller={controller}
+                state={state}
+                models={models}
+                onMenu={onMenu("effort")}
+              />
+            )}
+            {instructionsTab && (
+              <SessionInstructionsChip {...instructionsTab} compact={fit >= FIT.TRUNCATE_MODE} />
             )}
             <div className="flex-1" />
-            <AddMenu
-              onAttach={() => fileRef.current?.click()}
-              onMention={
-                controller.supports("file_suggestions")
-                  ? () => insertTrigger("@")
-                  : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
-              }
-              onCommand={
-                (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
-                  ? () => insertTrigger("/")
-                  : undefined
-              }
-              returnFocus={() => areaRef.current?.focus()}
-            />
+            {fit < FIT.NO_ADD && (
+              <AddMenu
+                onAttach={() => fileRef.current?.click()}
+                onMention={
+                  controller.supports("file_suggestions")
+                    ? () => insertTrigger("@")
+                    : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
+                }
+                onCommand={
+                  (ownCommands?.length ?? cliCommands?.length ?? 0) > 0
+                    ? () => insertTrigger("/")
+                    : undefined
+                }
+                returnFocus={() => areaRef.current?.focus()}
+              />
+            )}
             <input
               ref={fileRef}
               type="file"
@@ -899,7 +937,9 @@ export const Composer = memo(function Composer({
                 e.target.value = "";
               }}
             />
-            <MicButton dictation={dictation} compact={fit >= FIT.NO_MODEL} />
+            {(fit < FIT.NO_MIC || dictation.phase !== "idle") && (
+              <MicButton dictation={dictation} compact={fit >= FIT.NO_MODEL} />
+            )}
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}
@@ -937,8 +977,9 @@ function showError(err: Error): void {
 /**
  * What the row under the box leaves out, step by step, when it is too
  * narrow for all of it: the model's name loses its note, the send button
- * its key, then the effort goes, then the model, and last the mode's name
- * is cut. The mode, the + menu and send always stay.
+ * its key, then the effort goes, then the model, the mode's name is cut, and
+ * then the mode, the mic and the + menu go. Send (stop during a turn) always
+ * stays; the mic stays while dictating.
  */
 const FIT = {
   SHORT_MODEL: 1,
@@ -946,6 +987,9 @@ const FIT = {
   NO_EFFORT: 3,
   NO_MODEL: 4,
   TRUNCATE_MODE: 5,
+  NO_MODE: 6,
+  NO_MIC: 7,
+  NO_ADD: 8,
 } as const;
 
 /**
@@ -1012,15 +1056,19 @@ function AddMenu({
         }}
       >
         <DropdownMenuItem onSelect={onAttach}>
-          <Paperclip className="size-3.5" />
-          {t("chat.composer.attach_file")}
+          <span className="flex items-center gap-2">
+            <Paperclip className="size-3.5" />
+            {t("chat.composer.attach_file")}
+          </span>
         </DropdownMenuItem>
         {typeof onMention === "string" ? (
           <DropdownMenuItem disabled onSelect={() => {}}>
-            <AtSign className="size-3.5" />
-            <span className="flex flex-col">
-              {t("chat.composer.mention_file")}
-              <span className="text-app-micro text-muted-foreground">{onMention}</span>
+            <span className="flex items-center gap-2">
+              <AtSign className="size-3.5" />
+              <span className="flex flex-col">
+                {t("chat.composer.mention_file")}
+                <span className="text-app-micro text-muted-foreground">{onMention}</span>
+              </span>
             </span>
           </DropdownMenuItem>
         ) : (
@@ -1030,8 +1078,10 @@ function AddMenu({
               onMention();
             }}
           >
-            <AtSign className="size-3.5" />
-            {t("chat.composer.mention_file")}
+            <span className="flex items-center gap-2">
+              <AtSign className="size-3.5" />
+              {t("chat.composer.mention_file")}
+            </span>
             <DropdownMenuShortcut>@</DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
@@ -1042,8 +1092,10 @@ function AddMenu({
               onCommand();
             }}
           >
-            <Slash className="size-3.5" />
-            {t("chat.composer.command")}
+            <span className="flex items-center gap-2">
+              <Slash className="size-3.5" />
+              {t("chat.composer.command")}
+            </span>
             <DropdownMenuShortcut>/</DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
@@ -1313,17 +1365,39 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
+export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean) {
+  return models
+    .filter(({ value }) => !custom || value !== "default")
+    .map((model) => ({
+      model,
+      label: model.displayName ?? model.value,
+      detail:
+        custom && model.description === `Custom model (${model.value})`
+          ? undefined
+          : model.description,
+    }));
+}
+
 function ModelChip({
   controller,
   state,
+  models,
   short,
   onMenu,
-}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
+}: ChipProps & {
+  models: readonly ModelInfo[];
+  short: boolean;
+  onMenu: (open: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
-  const current = currentModelInfo(models, state.model.model, state.model.chosenModel);
-  const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
-  const ready = state.model.process === "running" && models.length > 0;
+  const profileDefault = controller.claudeProfileDefaultModel;
+  const options = modelPickerOptions(models, profileDefault !== undefined);
+  let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
+  if (profileDefault && (!current || current.value === "default"))
+    current = models.find(({ value }) => value === profileDefault);
+  const id = state.model.model ?? profileDefault;
+  const label = current?.displayName ?? (id ? claudeModelLabel(id) : t("chat.model.default"));
+  const ready = state.model.process === "running" && options.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
     state,
@@ -1346,15 +1420,15 @@ function ModelChip({
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.model.label")}</DropdownMenuLabel>
-        {models.map((m) => (
+        {options.map(({ model, label, detail }) => (
           <DropdownMenuItem
-            key={m.value}
-            onSelect={() => controller.setModel(m.value).catch((err: Error) => showError(err))}
+            key={model.value}
+            onSelect={() => controller.setModel(model.value).catch((err: Error) => showError(err))}
           >
-            <span className={cn(m === current && "font-medium")}>{m.displayName ?? m.value}</span>
-            {m.description && (
+            <span className={cn(model === current && "font-medium")}>{label}</span>
+            {detail && (
               <span className="ml-4 max-w-64 truncate text-app-micro text-muted-foreground">
-                {m.description}
+                {detail}
               </span>
             )}
           </DropdownMenuItem>
@@ -1367,10 +1441,10 @@ function ModelChip({
 function EffortChip({
   controller,
   state,
+  models,
   onMenu,
-}: ChipProps & { onMenu: (open: boolean) => void }) {
+}: ChipProps & { models: readonly ModelInfo[]; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
-  const models = state.model.init?.models ?? [];
   const levels =
     currentModelInfo(models, state.model.model, state.model.chosenModel)?.supportedEffortLevels ??
     [];

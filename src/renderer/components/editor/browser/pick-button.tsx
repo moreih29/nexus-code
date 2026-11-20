@@ -148,7 +148,7 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
         if (!open) setChoice(null);
       }}
     >
-      <div className="relative">
+      <div className="relative shrink-0">
         <IconButton
           label={label}
           size="md"

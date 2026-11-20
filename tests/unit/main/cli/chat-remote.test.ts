@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
-import type { CliDevice } from "../../../../src/main/features/cli/context";
+import type { CliCaller, CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
@@ -36,6 +36,11 @@ const SESSIONS: RemoteSession[] = [
   },
 ];
 
+function enablePeerCli(app: FakeApp) {
+  app.peers.devices = app.peers.devices.map((peer) =>
+    peer.id === MINI ? { ...peer, serves: [...peer.serves, "agents.cli"] } : peer,
+  );
+}
 const STATUS = {
   agent: "claude",
   title: "Review",
@@ -87,7 +92,15 @@ const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
 const FROM_SHELL = { kind: "terminal", ...USER };
 
-async function nexus(app: FakeApp, argv: string[], caller = USER, stdin?: string) {
+function unrestrictedCaller(app: FakeApp): CliCaller {
+  app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+    tab.id === CLAUDE_TAB ? { ...tab, type: "claude" } : tab,
+  );
+  app.uiAnswers.set("chat.mode", { agent: "claude", mode: "bypassPermissions" });
+  return { ...AGENT, verified: true };
+}
+
+async function nexus(app: FakeApp, argv: string[], caller: CliCaller = USER, stdin?: string) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
 }
 
@@ -152,12 +165,11 @@ describe("chat send --device", () => {
     expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
   });
 
-  test("--now goes into the turn there; --after is refused before anything is asked", async () => {
+  test("--now works across versions; --after needs a compatible peer", async () => {
     const app = withPeer({ "chat.send": () => ({ at: NOW }) });
     const now = await nexus(app, ["chat", "send", "Review", "--device", "Mac mini", "--now", "hi"]);
     expect(now.exitCode).toBe(0);
     expect(asked(app, "chat.send")).toEqual([expect.objectContaining({ text: "hi", when: "now" })]);
-    // That computer holds no agent's message for after the turn (it refuses chat.send `after`).
     const after = await nexus(app, [
       "chat",
       "send",
@@ -167,10 +179,27 @@ describe("chat send --device", () => {
       "--after",
       "x",
     ]);
-    expect(after.exitCode).toBe(2);
-    expect(after.stderr).toContain("--after goes to this computer's tabs");
+    expect(after.exitCode).toBe(3);
+    expect(after.stderr).toContain("Update NexusCode");
     expect(asked(app, "chat.send")).toHaveLength(1);
     expect(asked(app, "sessions.list")).toHaveLength(1);
+    const peer = app.peers.devices[1]!;
+    app.peers.devices[1] = { ...peer, serves: [...peer.serves, "agents.cli"] };
+    const queued = await nexus(app, [
+      "chat",
+      "send",
+      "Review",
+      "--device",
+      MINI,
+      "--after",
+      "later",
+    ]);
+    expect(queued.exitCode).toBe(0);
+    expect(asked(app, "chat.send")[1]).toMatchObject({
+      when: "after",
+      text: "later",
+      from: FROM_SHELL,
+    });
   });
 
   test("a tab is found among the computer's, in --workspace when given; . is this computer's", async () => {
@@ -308,6 +337,19 @@ describe("chat read --device", () => {
 describe("chat new --device", () => {
   test("opens a tab in a workspace there, sending the prompt as the agent's", async () => {
     const app = withPeer({ "chat.new": () => ({ tabId: "77777777-0000-4000-8000-000000000077" }) });
+    const older = await nexus(app, [
+      "chat",
+      "new",
+      "--device",
+      MINI,
+      "--workspace",
+      "site",
+      "--mode",
+      "plan",
+    ]);
+    expect(older.stderr).toContain("Update NexusCode");
+    expect(asked(app, "chat.new")).toEqual([]);
+    enablePeerCli(app);
     const result = await nexus(
       app,
       [
@@ -351,10 +393,26 @@ describe("chat new --device", () => {
         .stderr,
     ).toContain("--show is for this computer's tabs");
   });
+
+  test.each([
+    ["new", "--workspace", "site"],
+    ["set", "Review"],
+  ])("refuses an unrestricted mode for remote chat %s even from an unrestricted local tab", async (...args) => {
+    const app = withPeer();
+    const result = await nexus(
+      app,
+      ["chat", ...args, "--device", "Mac mini", "--mode", "bypassPermissions"],
+      unrestrictedCaller(app),
+    );
+    expect(result.stderr).toContain("only the user picks it");
+    expect(asked(app, "chat.new")).toEqual([]);
+    expect(asked(app, "chat.configure")).toEqual([]);
+    expect(app.uiCalls.some((call) => call.op === "chat.mode")).toBe(false);
+  });
 });
 
 describe("chat answer --device", () => {
-  test("answers the request a chat waits on there, by its id", async () => {
+  test("sends a verified unrestricted tab's answer to the other device as an agent request", async () => {
     const app = withPeer({
       "chat.read": () => ({
         status: { ...STATUS, permissions: [{ requestId: "req-9", toolName: "Bash", input: {} }] },
@@ -370,15 +428,16 @@ describe("chat answer --device", () => {
     const result = await nexus(
       app,
       ["chat", "answer", "Review", "deny", "--device", "Mac mini", "--message", "not now"],
-      AGENT,
+      unrestrictedCaller(app),
     );
     expect(result.stdout).toBe('Denied Bash in Review (1a2b3c4d) on "Mac mini".\n');
     expect(asked(app, "chat.answer")[0]).toMatchObject({
       requestId: "req-9",
       decision: "deny",
       message: "not now",
-      from: { kind: "terminal" },
+      from: { kind: "tab", agent: "claude" },
     });
+    expect(app.uiCalls.some((call) => call.op === "chat.mode")).toBe(false);
   });
 
   test("a terminal's Claude Code there is answered by its request's id", async () => {
@@ -443,11 +502,12 @@ describe("chat interrupt, set and tab close --device", () => {
     });
     const listed = await nexus(app, ["chat", "set", "Review", "--device", "Mac mini"]);
     expect(listed.stdout).toStartWith('Claude in Review on "Mac mini":\n  model   haiku\n');
-    const set = await nexus(
-      app,
-      ["chat", "set", "Review", "--device", "Mac mini", "--mode", "plan"],
-      AGENT,
-    );
+    const args = ["chat", "set", "Review", "--device", "Mac mini", "--mode", "plan"];
+    const old = await nexus(app, args, AGENT);
+    expect(old.stderr).toContain("Update NexusCode");
+    expect(asked(app, "chat.configure")).toEqual([]);
+    enablePeerCli(app);
+    const set = await nexus(app, args, AGENT);
     expect(set.stdout).toBe(
       'Review (1a2b3c4d) on "Mac mini" now runs with model haiku, effort (the model\'s default), mode plan.\n',
     );
@@ -455,10 +515,6 @@ describe("chat interrupt, set and tab close --device", () => {
       permissionMode: "plan",
       from: expect.objectContaining({ kind: "terminal" }),
     });
-    expect(
-      (await nexus(app, ["chat", "set", "Review", "--device", "Mac mini", "--profile", "Work"]))
-        .stderr,
-    ).toContain("--profile is for this computer's tabs");
   });
 
   test("tab close closes a terminal there, a running one with --force", async () => {
@@ -478,4 +534,85 @@ describe("chat interrupt, set and tab close --device", () => {
     ]);
     expect((await nexus(app, ["tab", "close", "--all", "--device", "Mac mini"])).exitCode).toBe(2);
   });
+});
+
+describe("expanded peer CLI reads", () => {
+  test("requires a compatible peer before discovery and forwards reads as the caller", async () => {
+    const app = withPeer({
+      "chat.instructions": () => ({ instructions: "Run the suite first." }),
+      "notes.transcript": () => ({ id: "note-1", title: "화자 기록", recordings: [] }),
+      "files.list": () => ({ path: "/w/site", entries: [{ name: "src", kind: "dir" }] }),
+    });
+    const command = ["chat", "instructions", "Review", "--show", "--device", MINI];
+    const old = await nexus(app, command);
+    expect(old.exitCode).toBe(3);
+    expect(old.stderr).toContain('Update NexusCode on "Mac mini"');
+    expect(app.peers.requests).toEqual([]);
+    const peer = app.peers.devices[1]!;
+    app.peers.devices[1] = { ...peer, serves: [...peer.serves, "agents.cli"], schema: "0.15.0" };
+
+    expect((await nexus(app, command)).stdout).toBe("Run the suite first.\n");
+    const note = await nexus(app, [
+      "note",
+      "transcript",
+      "Planning",
+      "--workspace",
+      "site",
+      "--device",
+      MINI,
+      "--json",
+    ]);
+    expect(JSON.parse(note.stdout)).toMatchObject({ id: "note-1", recordings: [] });
+    expect(note.stdout).toContain("화자 기록");
+    const folder = await nexus(app, [
+      "file",
+      "list",
+      "--workspace",
+      "site",
+      "--device",
+      MINI,
+      "--json",
+    ]);
+    expect(JSON.parse(folder.stdout)).toMatchObject({ entries: [{ name: "src", kind: "dir" }] });
+    for (const method of ["chat.instructions", "notes.transcript", "files.list"]) {
+      expect(asked(app, method)).toEqual([
+        expect.objectContaining({ workspaceId: SITE, from: FROM_SHELL }),
+      ]);
+    }
+  });
+});
+
+test("a peer slash command still has its execution budget after approval", async () => {
+  const app = withPeer({
+    "chat.command": () => ({
+      remoteControl: { enabled: true, url: "https://claude.ai/code/example" },
+    }),
+    "chat.send": () => ({ remoteControl: { enabled: false } }),
+  });
+  enablePeerCli(app);
+  const command = await nexus(app, ["chat", "command", "Review", "rc", "--device", MINI]);
+  const send = await nexus(app, ["chat", "send", "Review", "/remote-control", "--device", MINI]);
+  expect(command.stdout).toContain("Turned Remote Control on");
+  expect(send.stdout).toContain("Turned Remote Control off");
+  for (const method of ["chat.command", "chat.send"]) {
+    expect(
+      app.peers.requests.find((item) => item.method === method)?.timeoutMs,
+    ).toBeGreaterThanOrEqual(150_000);
+  }
+});
+
+test("a timed-out peer mutation reports that application is unknown", async () => {
+  const app = withPeer({
+    "chat.command": () => {
+      throw Object.assign(new Error("chat.command: no answer in time"), {
+        code: 1003,
+        data: { outcome: "unknown" },
+      });
+    },
+  });
+  enablePeerCli(app);
+  const result = await nexus(app, ["chat", "command", "Review", "rc", "--device", MINI, "--json"]);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain("the change may have been applied");
+  expect(JSON.parse(result.stdout)).toMatchObject({ error: "timeout", outcome: "unknown" });
 });

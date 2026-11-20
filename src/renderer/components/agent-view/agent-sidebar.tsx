@@ -36,6 +36,7 @@ import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { beginDragInFlight } from "@/utils/drag-in-flight";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
@@ -43,12 +44,17 @@ import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
+import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
+import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
+import { WorkspaceMenuContent } from "../workbench/workspace-menu";
+import { WorkspaceNameInput } from "../workbench/workspace-name-input";
+import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { RemoteSessions } from "./remote-sessions";
@@ -95,7 +101,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
             aria-label={t("agentView.list.group_by")}
             className="flex flex-wrap items-center gap-1"
           >
-            <span className="mr-0.5 text-app-micro text-muted-foreground">
+            <span className="mr-0.5 text-app-micro whitespace-nowrap text-muted-foreground">
               {t("agentView.list.group_by")}
             </span>
             {GROUPINGS.map((value) => (
@@ -254,7 +260,7 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
                 aria-expanded={!isFolded}
                 onClick={() => useAgentViewStore.getState().toggleFolded(key)}
                 className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
+                  "flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium whitespace-nowrap outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
                   GROUP_TINT[group],
                 )}
               >
@@ -365,7 +371,7 @@ function StateSummary({ sessions }: { sessions: readonly AgentSession[] }) {
   })).filter(({ count }) => count > 0);
   if (counts.length === 0) return null;
   return (
-    <span className="flex shrink-0 items-center gap-2 text-app-micro tabular-nums">
+    <span className="flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
       {counts.map(({ group, count }) => (
         <span
           key={group}
@@ -399,6 +405,9 @@ function FamilyGroup({
   const { t } = useTranslation();
   const root = family.root;
   const all = worktrees.flatMap(({ sessions }) => sessions);
+  const update = useWorkspaceUpdate(root);
+  const handoff = useContextMenuHandoff();
+  const rename = useWorkspaceRename(root, update);
   return (
     <section
       aria-label={root.name}
@@ -406,32 +415,56 @@ function FamilyGroup({
       className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
     >
-      <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
-        <button
-          type="button"
-          aria-expanded={!folded}
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {folded ? (
-            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span
-            aria-hidden
-            className="size-2 shrink-0 rounded-full"
-            style={{ background: workspaceColor(root.id, root.color) }}
-          />
-          <span className="min-w-0 truncate text-app-ui-sm font-medium text-foreground">
-            {root.name}
-          </span>
-          <WhereLabel workspace={root} />
-          <span className="flex-1" />
-          <StateSummary sessions={all} />
-        </button>
-        <NewAgentMenu workspace={root} />
-      </div>
+      <ContextMenuRoot>
+        <ContextMenuTrigger>
+          <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
+            {/* While renaming, the name is a field and the fold button gives way to a plain row,
+                so a click in the field never folds the group. */}
+            {rename.renaming ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch">
+                <FoldChevron folded={folded} />
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: workspaceColor(root.id, root.color) }}
+                />
+                <WorkspaceNameInput
+                  rename={rename}
+                  className="m-0 min-w-0 flex-1 border-0 bg-transparent p-0 text-app-ui-sm font-medium text-foreground outline-none"
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                aria-expanded={!folded}
+                onClick={onToggle}
+                className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <FoldChevron folded={folded} />
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: workspaceColor(root.id, root.color) }}
+                />
+                <span className="min-w-0 truncate text-app-ui-sm font-medium text-foreground">
+                  {root.name}
+                </span>
+                <WhereLabel workspace={root} />
+                <span className="flex-1" />
+                <StateSummary sessions={all} />
+              </button>
+            )}
+            {!rename.renaming && <NewAgentMenu workspace={root} />}
+          </div>
+        </ContextMenuTrigger>
+        <WorkspaceMenuContent
+          workspace={root}
+          handoff={handoff}
+          onTogglePin={() => update({ pinned: !root.pinned })}
+          onRename={rename.start}
+          onColor={(color) => update({ color })}
+        />
+      </ContextMenuRoot>
       {!folded &&
         worktrees.map(({ worktree, sessions }) => (
           <div
@@ -444,7 +477,7 @@ function FamilyGroup({
                 <span className="min-w-0 truncate">
                   {worktree.branch ?? worktree.workspace.name}
                 </span>
-                <span className="shrink-0 rounded-full border border-border px-1.5">
+                <span className="shrink-0 rounded-full border border-border px-1.5 whitespace-nowrap">
                   {t("agentView.list.worktree")}
                 </span>
                 <span className="flex-1" />
@@ -468,6 +501,11 @@ function FamilyGroup({
         ))}
     </section>
   );
+}
+
+function FoldChevron({ folded }: { folded: boolean }) {
+  const Icon = folded ? ChevronRight : ChevronDown;
+  return <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
 /** Where a remote workspace runs, with how its connection stands. */
@@ -625,6 +663,7 @@ const AgentItem = memo(function AgentItem({
         onDragStart={(e) => {
           setAgentDrag(e.dataTransfer, key);
           setListDrag(key);
+          beginDragInFlight();
         }}
         onDragEnd={() => setListDrag(null)}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -652,7 +691,7 @@ const AgentItem = memo(function AgentItem({
             {duration && (
               <span
                 className={cn(
-                  "text-app-micro tabular-nums",
+                  "text-app-micro whitespace-nowrap tabular-nums",
                   session.phase === "attention"
                     ? "text-(--state-warning-fg)"
                     : "text-muted-foreground",

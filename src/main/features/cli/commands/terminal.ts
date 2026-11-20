@@ -18,12 +18,16 @@ import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
+  askPeerCli,
   DEVICE_FLAG,
   deviceFlag,
+  deviceRef,
   listDevices,
   offline,
   peerSessions,
+  peerWorkspace,
   pickPeerWorkspace,
+  requirePeerCli,
   resolveDevice,
 } from "../remote";
 import {
@@ -203,7 +207,7 @@ function stateText(row: TerminalRow): string {
 
 const tabList: CliCommand = {
   path: ["tab", "list"],
-  summary: "List a workspace's tabs: terminals, editors, diffs and browsers",
+  summary: "List a workspace's tabs, including chats, notes and terminals",
   details: 'An editor with changes not saved is marked "(unsaved)".',
   flags: {
     workspace: WORKSPACE_FLAG,
@@ -339,12 +343,14 @@ const tabShow: CliCommand = {
   },
 };
 
-type BulkClose = "others" | "saved" | "all";
+type BulkClose = "others" | "right" | "saved" | "all";
 
 /** Which of --others, --saved and --all a tab close asks for; none for one tab. */
 function bulkCloseFlag(flags: ParsedArgs["flags"]): BulkClose | null {
-  const given = (["others", "saved", "all"] as const).filter((name) => flags[name] === true);
-  if (given.length > 1) throw new CliUsageError("give one of --others, --saved and --all");
+  const given = (["others", "right", "saved", "all"] as const).filter(
+    (name) => flags[name] === true,
+  );
+  if (given.length > 1) throw new CliUsageError("give one of --others, --right, --saved and --all");
   return given[0] ?? null;
 }
 
@@ -362,6 +368,10 @@ function bulkTargets(
   switch (bulk) {
     case "others":
       return scoped.filter((t) => t.id !== of?.id && t.pinned !== true);
+    case "right":
+      return scoped
+        .slice(scoped.findIndex((tab) => tab.id === of?.id) + 1)
+        .filter((tab) => !tab.pinned);
     case "saved":
       return scoped.filter((t) => t.type === "editor" && t.unsaved !== true);
     case "all":
@@ -412,12 +422,13 @@ const tabClose: CliCommand = {
   details:
     "A tab with unsaved changes is left open. So is a terminal running a program, unless --force.\n" +
     "--others closes the other tabs of TAB's group but the pinned ones; --saved, the editors\n" +
-    "with nothing unsaved; --all, every tab. --saved and --all without TAB close those of\n" +
+    "with nothing unsaved; --right, unpinned tabs to the right; --all, every tab. --saved and --all without TAB close those of\n" +
     "every group. This terminal is never closed; nexus exits 1 when it left another open.",
   flags: {
     workspace: WORKSPACE_FLAG,
     force: { type: "boolean", description: "Close a terminal even while a program runs in it" },
     others: { type: "boolean", description: "The other tabs of TAB's group, pinned ones aside" },
+    right: { type: "boolean", description: "The tabs to the right of TAB, pinned ones aside" },
     saved: { type: "boolean", description: "The editors with nothing unsaved" },
     all: { type: "boolean", description: "Every tab, pinned ones too" },
     device: DEVICE_FLAG,
@@ -436,8 +447,8 @@ const tabClose: CliCommand = {
         throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
       }
       const [selector] = positionals;
-      if (bulk === "others" && selector === undefined) {
-        throw new CliUsageError("missing <tab>: --others closes the other tabs of its group");
+      if ((bulk === "others" || bulk === "right") && selector === undefined) {
+        throw new CliUsageError(`missing <tab>: --${bulk} needs a tab in the group`);
       }
       const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
       const tabs = await workspaceTabs(ctx, workspace.id);
@@ -473,14 +484,60 @@ const tabClose: CliCommand = {
   },
 };
 
+const terminalReopen: CliCommand = {
+  path: ["terminal", "reopen"],
+  args: "<tab>",
+  summary: "Reopen an exited terminal using its saved shell and directory",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, selector);
+    if (!tab.dead) throw new CliError("that terminal has not exited");
+    await mayChange(ctx, workspace, { kind: "terminalNew", detail: tab.title });
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    await ctx.services.ui("terminal.reopen", ref, 40_000);
+    return output(`Reopened ${tab.title} (${shortId(tab.id)}).`, ref);
+  },
+};
+
 const terminalList: CliCommand = {
   path: ["terminal", "list"],
   summary: "List terminals and what runs in them",
   flags: {
     workspace: WORKSPACE_FLAG,
     all: { type: "boolean", description: "List every workspace's terminals" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { flags }) {
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      if (flags.all && flags.workspace) throw new CliUsageError("give --all or --workspace");
+      const { sessions, workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const workspace =
+        flags.workspace !== undefined
+          ? pickPeerWorkspace(device, workspaces, flags.workspace as string)
+          : undefined;
+      const rows = sessions
+        .filter(
+          (session) =>
+            session.kind === "terminal" && (!workspace || session.workspaceId === workspace.id),
+        )
+        .map((session) => ({
+          ...session,
+          workspace:
+            workspaces.find((item) => item.id === session.workspaceId)?.name ?? session.workspaceId,
+          device: deviceRef(device),
+        }));
+      return output(
+        table(
+          ["ID", "WORKSPACE", "TITLE", "STATE"],
+          rows.map((row) => [shortId(row.tabId), row.workspace, row.title, row.state]),
+        ) || "No terminals.",
+        rows,
+      );
+    }
     const workspaces = scope(ctx, flags);
     const rows = await terminalRows(ctx, workspaces);
     const text = table(
@@ -597,8 +654,27 @@ const terminalShells: CliCommand = {
     "The shells found on the computer NexusCode runs on and those added in Settings ›\n" +
     'Terminal, as the tab bar\'s "New terminal with" lists them. They are for local\n' +
     "workspaces only: an SSH or WSL workspace's terminals run the login shell of its machine.",
-  async run(ctx, { positionals }) {
+  flags: { device: DEVICE_FLAG, workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      requirePeerCli(ctx, device);
+      const workspace = await peerWorkspace(ctx, device, flags.workspace);
+      const { shells } = await askPeerCli(ctx, device, "terminal.shells", {
+        workspaceId: workspace.id,
+      });
+      return output(
+        table(
+          ["NAME", "ID"],
+          shells.map((shell) => [
+            shell.isDefault ? `${shell.name} (default)` : shell.name,
+            shell.id,
+          ]),
+        ),
+        { device: deviceRef(device), shells },
+      );
+    }
     const { shells } = await ctx.services.ui("terminal.shells", {});
     const text = table(
       ["NAME", "ID", "PATH"],
@@ -952,6 +1028,7 @@ export const terminalCommands: CliCommand[] = [
   tabSave,
   tabRevert,
   terminalList,
+  terminalReopen,
   terminalRead,
   terminalNew,
   terminalShells,

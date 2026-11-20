@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { defaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
@@ -29,7 +30,12 @@ import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
 import { runCodexCommand } from "../../services/chat/codex/run-command";
 import { filesThere } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
-import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import {
+  imageLook,
+  latestReadFile,
+  lookAtImage,
+  type ShownImage,
+} from "../../services/chat/image-look";
 import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
@@ -118,6 +124,7 @@ interface CodexTabViewProps {
 const SPLIT_FROM_PX = 900;
 
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
+  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -319,16 +326,21 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
       const current = latest.current.state.model as CodexModel;
       const shown = imagesOf(current.items, current.tools, cwd, current.agentItems);
+      const held = target.image ? latestReadFile(shown, target) : undefined;
+      if (held && showHeldLocalFile(workspaceId, held)) {
+        setLook(null);
+        return;
+      }
       void lookAtImage(shown, target, (files) =>
         filesThere(workspaceId, latest.current.rootPath, files),
       ).then((look) => {
+        for (const path of Object.values(look?.paths ?? {})) grant(path);
         const list = look ?? alone?.();
         if (list) setLook(list);
       });
     };
     /** Shows a file alone, as a diff when the session changed it and the agent kept its original. */
     const showAlone = (path: string, line?: LineAt) => {
-      grant(path);
       const current = latest.current.state.model as CodexModel;
       setLook({
         files: [path],
@@ -355,13 +367,21 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     return {
       openFile(target) {
         follow(target, ({ path, ...line }) => {
+          grant(path);
+          if (showHeldLocalFile(workspaceId, path, line)) {
+            setLook(null);
+            return;
+          }
           // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) !== "image") return showAlone(path, line);
-          grant(path);
           lookAt({ file: path });
         });
       },
-      openChange: (path) => showAlone(path),
+      openChange(path) {
+        grant(path);
+        if (showHeldLocalFile(workspaceId, path)) setLook(null);
+        else showAlone(path);
+      },
       openImages(images, index) {
         const image = images[index];
         if (image) lookAt({ image }, () => imageLook(images, index));
@@ -565,6 +585,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         fork,
         profileId,
         chosen: controller.inheritedChoice(),
+        ...controller.inheritedInstructions(),
       });
       if (item.kind === "user") {
         const draft = { text: item.text, images: item.images, nonce: Date.now() };
@@ -677,6 +698,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               reveal={callReveal ?? undefined}
               moves={props.moves}
               relayed={props.relayed}
+              historyTruncated={!shown && state.truncated}
               empty={
                 !shown && (state.phase === "ready" || state.phase === "ended") ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -747,6 +769,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             </div>
           )}
           <Composer
+            instructionsTab={instructionsTab}
             controller={controller}
             state={state}
             relayed={props.relayed}
@@ -878,6 +901,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
+          onOpenBeside={(path, { at }) => {
+            setLook(null);
+            placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+          }}
           onOpenTab={(path, at) => {
             setLook(null);
             links.openFileTab(path, at);
@@ -957,11 +984,5 @@ function PhaseBanner({ controller, state }: { controller: CodexController; state
         );
       break;
   }
-  if (!banner && !state.truncated) return null;
-  return (
-    <div className="shrink-0 pt-1">
-      {banner}
-      {state.truncated && <Banner variant="info" message={t("chat.phase.truncated")} />}
-    </div>
-  );
+  return banner ? <div className="shrink-0 pt-1">{banner}</div> : null;
 }

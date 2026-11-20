@@ -5,6 +5,11 @@
 import { gte, valid } from "semver";
 import { injectHarnessTerminalEnv } from "../pty/harness-env";
 
+/** The merged system prompt appended for a tab: the app's own, then the instructions. */
+export function claudeTabPrompt(instructions: string): string {
+  return [CLAUDE_TAB_PROMPT, instructions].filter(Boolean).join("\n\n");
+}
+
 /** The arguments every Claude tab runs `claude` with. */
 export const CLAUDE_TAB_ARGS: readonly string[] = [
   "-p",
@@ -48,24 +53,87 @@ export function takesThinkingDisplay(version: string | null): boolean {
   return version !== null && valid(version) !== null && gte(version, THINKING_DISPLAY_FROM);
 }
 
+/**
+ * A claude whose `--append-system-prompt-file` is documented: 2.1.69's
+ * changelog already speaks of it as an existing flag. An earlier release may
+ * take it too, but it is not measured, so an older or unknown claude keeps
+ * the prompt on the command line.
+ */
+export const APPEND_PROMPT_FILE_FROM = "2.1.69";
+
+/** Whether a claude of `version` reads its appended system prompt from a file. */
+export function takesAppendPromptFile(version: string | null): boolean {
+  return version !== null && valid(version) !== null && gte(version, APPEND_PROMPT_FILE_FROM);
+}
+
+/**
+ * CreateProcess takes a command line of at most 32,767 UTF-16 units,
+ * counting the terminating NUL.
+ */
+export const WINDOWS_COMMAND_LINE_MAX = 32_766;
+
+/** One argument as Go's os/exec (syscall.EscapeArg) quotes it for a Windows command line. */
+export function escapeWindowsArg(arg: string): string {
+  if (arg === "") return '""';
+  let needsQuotes = false;
+  let out = "";
+  let backslashes = 0;
+  for (const ch of arg) {
+    if (ch === "\\") {
+      backslashes++;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      out += `${"\\".repeat(backslashes + 1)}"`;
+    } else {
+      out += ch;
+    }
+    if (ch === " " || ch === "	") needsQuotes = true;
+    backslashes = 0;
+  }
+  if (!needsQuotes) return out;
+  return `"${out}${"\\".repeat(backslashes)}"`;
+}
+
+/** The length in UTF-16 units of the command line Windows gets for `program args`. */
+export function windowsCommandLineLength(program: string, args: readonly string[]): number {
+  return [program, ...args].map(escapeWindowsArg).join(" ").length;
+}
+
+/** Whether a Windows process cannot be started with that program and these arguments. */
+export function windowsCommandLineTooLong(program: string, args: readonly string[]): boolean {
+  return windowsCommandLineLength(program, args) > WINDOWS_COMMAND_LINE_MAX;
+}
+
 export interface ResumeOptions {
   readonly resume?: string;
   readonly fork?: boolean;
   readonly resumeAt?: string;
   /** Drop the tab's log before starting (a rewind). */
   readonly resetLog?: boolean;
+  readonly connectionChanged?: boolean;
 }
 
 /**
  * The program's arguments for a tab, going on with a session when asked.
  * A claude whose `version` takes it is asked for its thinking's summaries.
+ * With a `promptFile` (the merged prompt, already written there), the
+ * prompt is passed by that file rather than on the command line.
  */
 export function claudeTabArgs(
   options: ResumeOptions,
   hooksSettings?: string,
   version: string | null = null,
+  instructions = "",
+  promptFile?: string,
 ): string[] {
-  const args = [...CLAUDE_TAB_ARGS, "--append-system-prompt", CLAUDE_TAB_PROMPT];
+  const args = [
+    ...CLAUDE_TAB_ARGS,
+    ...(promptFile === undefined
+      ? ["--append-system-prompt", claudeTabPrompt(instructions)]
+      : ["--append-system-prompt-file", promptFile]),
+  ];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
   if (takesThinkingDisplay(version)) args.push("--thinking-display", "summarized");
   if (options.resume !== undefined) {

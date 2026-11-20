@@ -27,6 +27,9 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 const { ChatController } = await import(
   "../../../../../../src/renderer/services/chat/claude/controller"
 );
+const { useAgentProfilesStore } = await import(
+  "../../../../../../src/renderer/state/stores/agent-profiles"
+);
 const { useTabsStore } = await import("../../../../../../src/renderer/state/stores/tabs");
 type Controller = InstanceType<typeof ChatController>;
 
@@ -97,6 +100,53 @@ async function startUp(
 }
 
 describe("the model and effort picked in a Claude tab", () => {
+  test("uses the custom model ID for a saved or new default pick", async () => {
+    const { config, hydrate } = useAgentProfilesStore.getState();
+    const profileId = "gateway";
+    hydrate({
+      ...config,
+      profiles: [
+        ...config.profiles,
+        {
+          id: profileId,
+          name: "Gateway",
+          dir: "",
+          color: "blue",
+          agent: "claude",
+          connection: {
+            method: "custom",
+            baseUrl: "https://example.com",
+            defaultModel: "glm-5-plus",
+            models: [{ id: "glm-5-plus" }],
+            contextWindow: 200_000,
+          },
+        },
+      ],
+    });
+    try {
+      const c = new ChatController({
+        workspaceId: "ws-chosen",
+        tabId: `t${++seq}`,
+        cwd: "/p",
+        profileId,
+        chosen: { model: "default" },
+      });
+      live.push(c);
+      const asked = await startUp(c);
+      expect(asked.find((r) => r.subtype === "set_model")?.model).toBe("glm-5-plus");
+      const next = requests().length;
+      const pick = c.setModel("default");
+      expect(await answerNext(c, next)).toMatchObject({
+        subtype: "set_model",
+        model: "glm-5-plus",
+      });
+      await pick;
+      expect(c.inherited().chosen?.model).toBe("default");
+    } finally {
+      hydrate(config);
+    }
+  });
+
   test("are told to the tab to keep once taken, and one refused is not", async () => {
     const chosen: unknown[] = [];
     const c = new ChatController(

@@ -9,16 +9,37 @@
  */
 
 import i18next from "i18next";
-import { isDefaultProfileId, profileOf, profilesOf } from "../../../shared/agent-profiles/profiles";
+import {
+  isDefaultProfileId,
+  portableProfileDir,
+  profileOf,
+  profilesOf,
+} from "../../../shared/agent-profiles/profiles";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
-import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import {
+  currentSessionInstructions,
+  saveSessionInstructions,
+} from "../../state/stores/agent-instructions";
+import {
+  defaultFolderLabel,
+  resolveWorkspaceProfile,
+  tildePath,
+  useAgentProfilesStore,
+} from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { type AgentTabController, agentTabController, startAgentTab } from "../chat/agent-tab";
+import {
+  type AgentTabController,
+  agentInstructionsOf,
+  agentTabController,
+  startAgentTab,
+} from "../chat/agent-tab";
+import { conversationMarkdown } from "../chat/app-commands";
 import type { ForkPoint } from "../chat/claude/controller";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
@@ -317,11 +338,23 @@ async function applySettings(
   tabId: string,
   { agent, controller }: AgentTabController,
   wanted: CliChatSettings,
-  user = false,
+  allowDangerousMode = false,
+  expectedMode?: string,
 ): Promise<void> {
   await whenReady(workspaceId, tabId, agent);
-  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  if (!chat) throw new UiRequestError("that tab is gone");
+  const currentTab = () => {
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    if (
+      wanted.mode !== undefined &&
+      expectedMode !== undefined &&
+      chatChoicesOf(agent, chat.model).mode !== expectedMode
+    ) {
+      throw new UiRequestError("the tab's permission mode changed; run the command again");
+    }
+    return chat;
+  };
+  const chat = currentTab();
   let plan: ChatSettingsPlan;
   try {
     plan = planChatSettings(
@@ -329,7 +362,7 @@ async function applySettings(
       chat.model,
       wanted,
       controller.supports("apply_flag_settings"),
-      user,
+      allowDangerousMode,
     );
   } catch (err) {
     throw new UiRequestError((err as Error).message);
@@ -337,7 +370,10 @@ async function applySettings(
   // The model first: the effort is the new model's.
   if (plan.model !== undefined) await controller.setModel(plan.model);
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
-  if (plan.mode !== undefined) await controller.setPermissionMode(plan.mode);
+  if (plan.mode !== undefined) {
+    currentTab();
+    await controller.setPermissionMode(plan.mode);
+  }
   await whenShown(workspaceId, tabId, agent, plan);
 }
 
@@ -361,18 +397,30 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.profiles": async ({ agent }) => {
+  "chat.profiles": async ({ agent, workspaceId }) => {
     const config = useAgentProfilesStore.getState().config;
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (workspaceId !== undefined && !workspace) throw new UiRequestError("that workspace is gone");
     const agents: ChatAgent[] = agent ? [agent] : ["claude", "codex"];
     return {
-      profiles: agents.flatMap((a) =>
-        profilesOf(config, a).map((p) => ({
-          id: p.id,
-          name: cliProfileName(p),
+      profiles: agents.flatMap((a) => {
+        const defaultId = workspace && resolveWorkspaceProfile(a, workspace, workspaces).profile.id;
+        return profilesOf(config, a).map((profile) => ({
+          id: profile.id,
+          name: cliProfileName(profile),
           agent: a,
-          isDefault: isDefaultProfileId(p.id),
-        })),
-      ),
+          isDefault: isDefaultProfileId(profile.id),
+          ...(workspace
+            ? {
+                workspaceDefault: defaultId === profile.id,
+                path: profile.dir
+                  ? portableProfileDir(tildePath(profile.dir))
+                  : defaultFolderLabel(a),
+              }
+            : {}),
+        }));
+      }),
     };
   },
 
@@ -384,11 +432,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     placement,
     settings,
     profile,
+    instructions,
     from,
     user,
+    allowDangerousMode,
   }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
+      ...(instructions === undefined ? {} : { instructions }),
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
     });
     const tab =
@@ -405,7 +456,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
       await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, user);
+      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
       if (prompt.trim() !== "") {
         await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
       }
@@ -413,6 +464,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       return { tabId, error: (err as Error).message };
     }
     return { tabId };
+  },
+
+  "chat.instructions": async ({ workspaceId, tabId, text }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex") {
+      throw new UiRequestError("that tab is not a Claude or Codex tab");
+    }
+    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
+    return {
+      instructions: agentInstructionsOf(
+        workspaceId,
+        tab.type,
+        tab.props.profileId,
+        currentSessionInstructions(workspaceId, tabId),
+      ),
+    };
   },
 
   "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
@@ -565,14 +632,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { text: item.text };
   },
 
-  "chat.editHeld": async ({ workspaceId, tabId, id, text, device }) => {
+  "chat.editHeld": async ({ workspaceId, tabId, id, text, device, from }) => {
     const { controller } = await openedTab(workspaceId, tabId);
     const item = controller.state.queue.find((q) => q.id === id);
     if (!item) throw new UiRequestError(`no held message ${id}: it went`);
     if (!text.trim() && item.images.length === 0) {
       throw new UiRequestError("a message needs text or an image");
     }
-    if (!controller.editQueued(id, text, device))
+    if (!controller.editQueued(id, text, device, from))
       throw new UiRequestError(`no held message ${id}: it went`);
     return {};
   },
@@ -610,6 +677,19 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
     if (model.running && waiting) await controller.readHeldNow();
     return {};
+  },
+
+  "chat.export": async ({ workspaceId, tabId }) => {
+    const { agent } = await openedTab(workspaceId, tabId, true);
+    const { items, tools } = conversationOf(sourceOf(workspaceId, tabId, agent));
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    const cwd = tab?.type === "claude" || tab?.type === "codex" ? tab.props.cwd : "";
+    return {
+      markdown: conversationMarkdown(items, tools, (tool) => toolSummary(tool, cwd), {
+        user: i18next.t("chat.commands.export_user"),
+        assistant: agent === "claude" ? "Claude" : "Codex",
+      }),
+    };
   },
 
   "chat.entryItem": async ({ workspaceId, tabId, i }) => {
@@ -684,9 +764,40 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.settings": async ({ workspaceId, tabId, settings, user }) => {
+  "chat.mode": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== "claude" && tab?.type !== "codex") return null;
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    const model = chat?.model;
+    // A pending pick can already be shown in the composer. Require the program
+    // and the composer to agree before using a mode for delegation.
+    const mode =
+      chat?.phase === "ready" &&
+      model?.process === "running" &&
+      model.permissionMode === model.confirmedPermissionMode
+        ? model.confirmedPermissionMode
+        : undefined;
+    return { agent: tab.type, ...(mode === undefined ? {} : { mode }) };
+  },
+
+  "chat.settings": async ({
+    workspaceId,
+    tabId,
+    settings,
+    user,
+    allowDangerousMode,
+    expectedMode,
+  }) => {
     const target = await openedTab(workspaceId, tabId);
-    if (hasSettings(settings)) await applySettings(workspaceId, tabId, target, settings, user);
+    if (hasSettings(settings))
+      await applySettings(
+        workspaceId,
+        tabId,
+        target,
+        settings,
+        user || allowDangerousMode,
+        expectedMode,
+      );
     else await whenReady(workspaceId, tabId, target.agent);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
@@ -782,6 +893,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             fork,
             profileId: target.controller.profileId,
             chosen: target.controller.inheritedChoice(),
+            ...target.controller.inheritedInstructions(),
           }),
         },
         { background: true },
@@ -921,13 +1033,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model, phase } = controller.state;
     if (model.init && !model.init.remoteControl) {
+      if (enabled === false) return { enabled: false };
       throw new UiRequestError("its account cannot turn on Remote Control");
     }
-    if (phase !== "ready" || model.process !== "running") {
-      throw new UiRequestError("its program is not running");
+    if (!model.init || phase !== "ready" || model.process !== "running") {
+      throw new UiRequestError("its program is not ready");
     }
-    await controller.setRemoteControl(enabled);
-    return {};
+    return controller.setRemoteControl(enabled);
   },
 
   "chat.history": async ({ workspaceId, agent, query, limit, peer }) => {
@@ -960,7 +1072,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };
   },
 
-  "chat.resume": async ({ workspaceId, agent, sessionId, tabId }) => {
+  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly }) => {
     const open = tabWithSession(workspaceId, agent, sessionId);
     if (open) return { tabId: open };
     const cwd = workspaceRoot(workspaceId);
@@ -977,17 +1089,30 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             cwd,
             profilesOf(config, "codex").map((p) => p.id),
           );
-    const session = listed.find((s) => s.sessionId === sessionId);
+    const exact = listed.find((s) => s.sessionId === sessionId);
+    const matches = exact ? [exact] : listed.filter((s) => s.sessionId.startsWith(sessionId));
+    if (matches.length > 1) throw new UiRequestError("give more of the conversation id");
+    const session = matches[0];
     if (!session)
       throw new UiRequestError(`no conversation ${sessionId} in that workspace's folder`);
+    if (sessionId !== session.sessionId) {
+      const alreadyOpen = tabWithSession(workspaceId, agent, session.sessionId);
+      if (alreadyOpen) return { tabId: alreadyOpen };
+      sessionId = session.sessionId;
+    }
     if (tabId) {
       // In that tab, as its /resume and its empty conversation's list go on with one.
       const target = await openedTab(workspaceId, tabId);
       if (target.agent !== agent) throw new UiRequestError(`that tab is not a ${agent} tab`);
       if (target.agent === "claude") {
-        await target.controller.resumeSession(sessionId, session.profileId);
+        await target.controller.resumeSession(sessionId, session.profileId, emptyOnly);
       } else {
-        await target.controller.resumeThread(sessionId, session.title, session.profileId);
+        await target.controller.resumeThread(
+          sessionId,
+          session.title,
+          session.profileId,
+          emptyOnly,
+        );
       }
       return { tabId };
     }
@@ -1024,7 +1149,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const key = chatKey(workspaceId, tabId);
     // Claude lists its own when its program starts; a program that will not
     // start leaves the app's.
-    if (target.agent === "claude" && !useChatStore.getState().tabs[key]?.model.init) {
+    const model = useChatStore.getState().tabs[key]?.model;
+    if (target.agent === "claude" && !model?.init && !model?.slashCommands) {
       await whenReady(workspaceId, tabId, target.agent).catch(() => {});
     }
     const chat = useChatStore.getState().tabs[key];
@@ -1079,6 +1205,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     decision,
     message,
     expect,
+    byAgent,
     updatedInput,
     stop,
     always,
@@ -1093,6 +1220,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const request = asked.find((r) => r.requestId === expect);
     if (!request) {
       throw new UiRequestError("its request changed or was answered; read it again");
+    }
+    if (
+      byAgent &&
+      (request.toolName === "AskUserQuestion" || request.toolName === "ExitPlanMode")
+    ) {
+      throw new UiRequestError("that request is for the user to answer in the app");
     }
     if (decision === "allow" && always && always.length > 0) {
       // By the index chat.read words them: the same wording, so the same list.

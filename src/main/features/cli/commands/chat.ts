@@ -3,17 +3,33 @@
  * drives them. A tab's conversation is the renderer's; these ask it, read it
  * whole or a piece at a time, and wait on one or several tabs.
  */
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  ImageMediaTypeSchema,
+  MAX_ATTACHMENT_BYTES,
+  type RpcParams,
+} from "../../../../../packages/remote-protocol/src";
+import { INSTRUCTION_LIMIT, InstructionTextSchema } from "../../../../shared/chat/instructions";
 import type {
   CliChatEntry,
   CliChatInfo,
   CliChatSettings,
   CliTabInfo,
 } from "../../../../shared/cli/ui";
-import { CHAT_MODES, chatModeNamed, loosens } from "../../../../shared/sessions/chat-modes";
+import { createLogger } from "../../../../shared/log/main";
+import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import {
+  applyRemoteControl,
+  remoteControlCommand,
+  remoteControlOutput,
+} from "../../chat/remote-control";
+import { looksLike } from "../../remote/attachments";
+import { MAX_MESSAGE_BYTES } from "../../remote/room";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
+import type { ChangeRequest } from "../consent";
 import {
   type CliContext,
   type CliDevice,
@@ -25,15 +41,25 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
-import { absolutePath, callerPath } from "../paths";
+import { absolutePath, callerPath, onAppMachine } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
-import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
+import {
+  askPeerCli,
+  changePeerCli,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
   answerPeer,
   interruptPeer,
   newPeerChat,
+  peerChatTool,
+  peerCliChat,
   readPeerChat,
   sendToPeer,
   setPeerChat,
@@ -42,6 +68,8 @@ import {
 import { AGENT_NAMES, chatStateText, choicesText } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
+
+const log = createLogger("cli");
 
 /** The agent an --agent flag names: claude or codex. */
 export function chatAgentFlag(value: unknown, fallback: ChatAgent): ChatAgent {
@@ -251,12 +279,16 @@ const SETTING_FLAGS = {
     type: "string",
     value: "MODE",
     description:
-      "The permission mode: Claude's default, acceptEdits, plan or auto; Codex's readOnly or auto",
+      "Use plan, default, acceptEdits, auto or bypassPermissions for Claude, and readOnly, auto or fullAccess for Codex",
   },
 } as const;
 
 /** What --model, --effort and --mode ask, the mode checked against the agent's. */
-function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSettings {
+function settingsFlags(
+  agent: ChatAgent,
+  flags: ParsedArgs["flags"],
+  local = false,
+): CliChatSettings {
   const given = (name: string): string | undefined => {
     const value = flags[name] as string | undefined;
     if (value === undefined) return undefined;
@@ -272,15 +304,12 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
     const set = CHAT_MODES[agent];
     mode = chatModeNamed(agent, name);
     if (!mode) {
+      const modes = local ? set.modes : set.modes.filter((m) => m !== set.dangerous);
       throw new CliUsageError(
-        `${AGENT_NAMES[agent]} has no mode "${name}"; it has ${set.modes.filter((m) => m !== set.dangerous).join(", ")}`,
+        `${AGENT_NAMES[agent]} has no mode "${name}"; it has ${modes.join(", ")}`,
       );
     }
-    if (mode === set.dangerous) {
-      throw new CliError(
-        `${mode} lets every tool run without asking; only the user picks it, in the tab's mode menu`,
-      );
-    }
+    if (!local && mode === set.dangerous) throw dangerousModeError(mode);
   }
   return {
     ...(model !== undefined ? { model } : {}),
@@ -289,26 +318,81 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
   };
 }
 
+function dangerousModeError(mode: string): CliError {
+  return new CliError(
+    `${mode} lets every tool run without asking; only the user picks it, in the tab's mode menu`,
+  );
+}
+
+interface CallerMode {
+  readonly agent: ChatAgent;
+  readonly mode?: string;
+}
+
+async function verifiedChatMode(ctx: CliContext): Promise<CallerMode | null> {
+  const { workspaceId, tabId, verified } = ctx.caller;
+  if (verified !== true) return null;
+  const workspace = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
+  if (!workspace || workspace.location.kind === "ssh") return null;
+  return ctx.services.ui("chat.mode", { workspaceId, tabId }).catch(() => null);
+}
+
+function logDelegation(ctx: CliContext, tabId: string, caller: CallerMode, mode?: string): void {
+  const current =
+    caller.mode && CHAT_MODES[caller.agent].modes.includes(caller.mode) ? ` (${caller.mode})` : "";
+  const granted = mode === undefined ? "" : ` (${mode})`;
+  log.info(
+    `Delegated chat permission ${shortId(ctx.caller.tabId)}${current} → ${shortId(tabId)}${granted}`,
+  );
+}
+
 /**
- * Resolves when the user lets a tab go from mode `from` to `to`, a mode that
- * lets more run without asking: asked as an answer to a permission request
- * is, whatever the setting.
+ * Authorizes a mode change after the workspace policy. Returns the caller's
+ * mode when it delegated the new mode. The unrestricted mode always needs
+ * a grant, so its caller can omit the target's current mode.
  */
 async function mayLoosen(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   agent: ChatAgent,
-  tab: { readonly what: string; readonly name: string },
-  from: string,
+  name: string,
   to: string,
-): Promise<void> {
-  if (!loosens(agent, from, to)) return;
+  from?: string,
+): Promise<CallerMode | undefined> {
+  const dangerous = to === CHAT_MODES[agent].dangerous;
+  if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
+  const caller = await verifiedChatMode(ctx);
+  if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
+  if (dangerous) throw dangerousModeError(to);
   await ctx.services.askUser({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,
     toWorkspaceId: workspace.id,
-    change: { kind: "chatMode", detail: `${tab.name} (${from} → ${to})` },
+    change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
   });
+}
+
+export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
+  const where = callerPath(ctx, file);
+  const data = await ctx.services.readFile(ctx.caller.workspaceId, where);
+  if (data === null) throw new CliError(`no file ${where}`);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(data, "base64"));
+  } catch {
+    throw new CliUsageError("the instructions file must be UTF-8 text");
+  }
+  return checkedInstructions(text);
+}
+
+export function checkedInstructions(text: string): string {
+  if (text.length > INSTRUCTION_LIMIT)
+    throw new CliUsageError(
+      `instructions are limited to ${INSTRUCTION_LIMIT} characters per layer`,
+    );
+  if (!InstructionTextSchema.safeParse(text).success)
+    throw new CliUsageError("the instructions file contains a null character");
+  return text.trim() ? text : "";
 }
 
 const chatNew: CliCommand = {
@@ -318,11 +402,18 @@ const chatNew: CliCommand = {
     "The tab opens behind this terminal unless --show, in this directory unless --cwd. With\n" +
     "--prompt its program starts at once, shown or not, and is sent the prompt as its composer\n" +
     "sends it. Its id is printed for chat wait/read/send. --model, --effort and --mode are\n" +
-    "set before the prompt, as its composer's menus set them; a mode that lets more run\n" +
-    "without asking than the default is the user's to allow.",
+    "set before the prompt. A verified local chat tab can grant a mode up to its current\n" +
+    "permission level. Other local increases require user approval, and unrestricted modes\n" +
+    "require a grant from an unrestricted tab. --instructions-file reads the\n" +
+    "new tab's session instructions from a UTF-8 file on this computer.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
     prompt: { type: "string", value: "TEXT", description: "The first message" },
+    "instructions-file": {
+      type: "string",
+      value: "FILE",
+      description: "Set the new tab's session instructions from FILE",
+    },
     cwd: { type: "string", value: "DIR", description: "Run it in DIR (default: this directory)" },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     profile: {
@@ -336,10 +427,15 @@ const chatNew: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const instructionFile = flags["instructions-file"] as string | undefined;
+    if (instructionFile !== undefined && deviceFlag(flags) !== undefined) {
+      throw new CliUsageError("--instructions-file goes to this computer's tabs; omit --device");
+    }
     const agent = chatAgentFlag(flags.agent, "claude");
     const prompt = ((flags.prompt as string | undefined) ?? "").trim();
-    const settings = settingsFlags(agent, flags);
-    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const deviceSelector = deviceFlag(flags);
+    const settings = settingsFlags(agent, flags, deviceSelector === undefined);
+    const device = await resolveDevice(ctx, deviceSelector);
     if (device) {
       const folder = typeof flags.cwd === "string" ? flags.cwd : undefined;
       return newPeerChat(ctx, device, flags, {
@@ -357,16 +453,26 @@ const chatNew: CliCommand = {
         : workspace.id === ctx.caller.workspaceId
           ? ctx.invocation.cwd
           : workspace.rootPath;
+    const instructions =
+      instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
+    const body = [prompt, instructions].filter(Boolean).join("\n\n");
     await mayChange(ctx, workspace, {
       kind: "chatNew",
       detail: AGENT_NAMES[agent],
-      ...(prompt !== "" ? { body: prompt } : {}),
+      ...(body ? { body } : {}),
     });
-    if (settings.mode !== undefined) {
-      // A new tab's title is its agent's name until its first message.
-      const tab = { what: `a new ${AGENT_NAMES[agent]} tab`, name: `"${AGENT_NAMES[agent]}"` };
-      await mayLoosen(ctx, workspace, agent, tab, CHAT_MODES[agent].fallback, settings.mode);
-    }
+    const delegated =
+      settings.mode === undefined
+        ? undefined
+        : await mayLoosen(
+            ctx,
+            workspace,
+            agent,
+            `"${AGENT_NAMES[agent]}"`,
+            settings.mode,
+            CHAT_MODES[agent].fallback,
+          );
+    const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
     const { tabId, error } = await ctx.services.ui(
@@ -376,9 +482,11 @@ const chatNew: CliCommand = {
         agent,
         cwd,
         prompt,
+        ...(instructions === undefined ? {} : { instructions }),
         ...(from ? { from } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
+        ...(allowDangerousMode ? { allowDangerousMode } : {}),
         ...(typeof flags.profile === "string" && flags.profile.trim() !== ""
           ? { profile: flags.profile.trim() }
           : {}),
@@ -396,6 +504,7 @@ const chatNew: CliCommand = {
         { exitCode: 1 },
       );
     }
+    if (delegated) logDelegation(ctx, tabId, delegated, settings.mode);
     const text =
       prompt === ""
         ? `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}.`
@@ -442,9 +551,10 @@ const chatSet: CliCommand = {
   details:
     "As its composer's menus set them, for its next turn on. With no flag, prints what it runs\n" +
     "with and what it takes: the models its program lists, its model's efforts, the modes.\n" +
-    "Its program must run: a tab whose program ended starts it again with a message. A mode\n" +
-    "that lets more run without asking is the user's to allow; the one that lets\n" +
-    "everything run, only the user picks.\n" +
+    "Its program must run: a tab whose program ended starts it again with a message. A\n" +
+    "verified local chat tab can grant a mode up to its current permission level. Other\n" +
+    "local increases require user approval, and unrestricted modes require a grant from an\n" +
+    "unrestricted tab.\n" +
     "--profile runs it with another agent profile (another account or settings), as its\n" +
     "profile chip does: its conversation goes on there, or a new one starts with --new. The\n" +
     "user allows it; not while it works or asks the user.",
@@ -464,7 +574,7 @@ const chatSet: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     const agent: ChatAgent = tab.type === "codex" ? "codex" : "claude";
-    const settings = settingsFlags(agent, flags);
+    const settings = settingsFlags(agent, flags, true);
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const profile = typeof flags.profile === "string" ? flags.profile.trim() : undefined;
     if (flags.new === true && profile === undefined) {
@@ -489,20 +599,40 @@ const chatSet: CliCommand = {
       throw new CliError("that is this tab; its settings are the user's to change");
     }
     await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
+    let delegated: CallerMode | undefined;
+    const dangerous = settings.mode === CHAT_MODES[agent].dangerous;
+    let expectedMode: string | undefined;
     if (settings.mode !== undefined) {
-      const now = await ctx.services.ui(
-        "chat.settings",
-        { ...target, settings: {} },
-        SEND_TIMEOUT_MS,
-      );
-      const named = { what: `"${tab.title}"`, name: `"${tab.title}"` };
-      await mayLoosen(ctx, workspace, agent, named, now.mode, settings.mode);
+      if (dangerous) {
+        delegated = await mayLoosen(ctx, workspace, agent, `"${tab.title}"`, settings.mode);
+      }
+      expectedMode = (
+        await ctx.services.ui("chat.settings", { ...target, settings: {} }, SEND_TIMEOUT_MS)
+      ).mode;
+      if (!dangerous) {
+        delegated = await mayLoosen(
+          ctx,
+          workspace,
+          agent,
+          `"${tab.title}"`,
+          settings.mode,
+          expectedMode,
+        );
+      }
     }
     const choices = await ctx.services.ui(
       "chat.settings",
-      { ...target, settings },
+      {
+        ...target,
+        settings,
+        ...(expectedMode === undefined ? {} : { expectedMode }),
+        ...(dangerous ? { allowDangerousMode: true } : {}),
+      },
       SEND_TIMEOUT_MS,
     );
+    if (delegated && choices.mode === settings.mode) {
+      logDelegation(ctx, tab.id, delegated, settings.mode);
+    }
     const set = [
       `model ${choices.model ?? "(its default)"}`,
       `effort ${choices.effort ?? "(the model's default)"}`,
@@ -601,6 +731,11 @@ const chatRead: CliCommand = {
       value: "N",
       description: "Only the last N (default 20, or all with --since)",
     },
+    answer: {
+      type: "number",
+      value: "N",
+      description: "Print only the answer at the displayed message number #N",
+    },
     since: { type: "number", value: "I", description: "Only those after message #I" },
     all: { type: "boolean", description: "The whole conversation" },
     subagents: { type: "boolean", description: "Subagents' tool calls too" },
@@ -610,6 +745,37 @@ const chatRead: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    if (flags.answer !== undefined) {
+      const index = Number(flags.answer);
+      if (!Number.isSafeInteger(index) || index < 0)
+        throw new CliUsageError("--answer takes the displayed # of an answer");
+      if (
+        flags.device !== undefined ||
+        flags.since !== undefined ||
+        flags.messages !== undefined ||
+        flags.all === true
+      )
+        throw new CliUsageError(
+          "--answer reads one local answer; omit --device, --since, --messages and --all",
+        );
+      const found = await readChat(
+        ctx,
+        flags,
+        selector,
+        undefined,
+        index > 0 ? index - 1 : undefined,
+      );
+      const answer = found.entries.find(
+        (entry) => entry.i === index && entry.role === "agent" && !entry.parentToolUseId,
+      );
+      if (!answer) throw new CliError(`#${index} is not an answer in that tab`);
+      const text = cut(answer.text, maxCharsFlag(flags));
+      return output(text, {
+        workspaceId: found.workspaceId,
+        tabId: found.tab.id,
+        answer: { ...answer, text },
+      });
+    }
     const since = flags.since as number | undefined;
     if (since !== undefined && (!Number.isInteger(since) || since < 0)) {
       throw new CliUsageError("--since takes the # of a message");
@@ -675,7 +841,7 @@ const chatTool: CliCommand = {
     "<call> is the number chat read shows by the call (#i), given alone, or the call's id: a\n" +
     "shell drops a # and what follows. The input is printed as JSON, the output as the tool\n" +
     "gave it back.",
-  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG },
+  flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length === 1) {
       // `chat tool tab #3`: the shell took "#3" for a comment.
@@ -683,15 +849,19 @@ const chatTool: CliCommand = {
         "missing <call>: the number chat read shows by it, without its # (a shell drops a # and what follows)",
       );
     }
-    const [selector, ref] = exactArgs(positionals, "tab", "call") as [string, string];
+    const [selector, refArg] = exactArgs(positionals, "tab", "call") as [string, string];
     const maxChars = maxCharsFlag(flags);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveChat(ctx, workspace, selector);
-    const tool = await ctx.services.ui("chat.tool", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      ref: ref.replace(/^#/, ""),
-    });
+    const ref = refArg.replace(/^#/, "");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const found = device
+      ? await peerChatTool(ctx, device, flags, selector, ref)
+      : await (async () => {
+          const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+          const tab = await resolveChat(ctx, workspace, selector);
+          const target = { workspaceId: workspace.id, tabId: tab.id };
+          return { ref: target, tool: await ctx.services.ui("chat.tool", { ...target, ref }) };
+        })();
+    const tool = found.tool;
     const input = typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 2);
     const lines = [
       `#${tool.i} ${tool.name} (${tool.status})${tool.parentToolUseId ? " (subagent)" : ""}  ${tool.toolUseId}`,
@@ -705,7 +875,7 @@ const chatTool: CliCommand = {
       maxChars === undefined || !tool.result
         ? tool
         : { ...tool, result: { ...tool.result, text: cut(tool.result.text, maxChars) } };
-    return output(lines.join("\n"), { ...json, tabId: tab.id, workspaceId: workspace.id });
+    return output(lines.join("\n"), { ...json, ...found.ref });
   },
 };
 
@@ -733,6 +903,17 @@ function filesFlag(flags: ParsedArgs["flags"]): string[] {
   return files;
 }
 
+async function imageAttachment(ctx: CliContext, file: string) {
+  const [image] = await attachments(ctx, [file]);
+  if (!image) throw new CliUsageError("--image takes a path");
+  const bytes = Buffer.from(image.data, "base64");
+  if (bytes.length > MAX_ATTACHMENT_BYTES)
+    throw new CliUsageError(`the image exceeds ${MAX_ATTACHMENT_BYTES} bytes`);
+  const mediaType = ImageMediaTypeSchema.options.find((type) => looksLike(type, bytes));
+  if (!mediaType) throw new CliUsageError("--image needs a PNG, JPEG, GIF or WebP image");
+  return { mediaType, data: image.data };
+}
+
 const chatSend: CliCommand = {
   path: ["chat", "send"],
   summary: "Send a Claude or Codex tab a message",
@@ -745,8 +926,7 @@ const chatSend: CliCommand = {
     "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
     "path after the text. Refused while the tab waits for the user to answer a request.\n" +
     "--wait then waits as chat wait does and prints how it ended. Another computer's tab\n" +
-    "(--device) takes it as its composer sends it, or --now: it holds no agent's message for\n" +
-    "after the turn.",
+    "(--device) also accepts --now and --after. Held peer messages are dropped when its user disables control by agents.",
   flags: {
     now: { type: "boolean", description: "During a turn: into it at once" },
     after: { type: "boolean", description: "During a turn: held until it ends" },
@@ -756,6 +936,7 @@ const chatSend: CliCommand = {
       repeat: true,
       description: "Attach a file; give it again for more",
     },
+    image: { type: "string", value: "PATH", description: "Attach a PNG, JPEG, GIF or WebP image" },
     wait: { type: "boolean", description: "Then wait until it is done" },
     timeout: TIMEOUT_FLAG,
     workspace: WORKSPACE_FLAG,
@@ -773,21 +954,20 @@ const chatSend: CliCommand = {
       fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")
     ).trim();
     const files = filesFlag(flags);
+    const imagePath = typeof flags.image === "string" ? flags.image : undefined;
     // ⌘↩ on an empty composer: the messages sent during the turn are read now.
-    const hurry = when === "now" && words.length === 0 && files.length === 0;
-    if (text === "" && files.length === 0 && !hurry) throw new CliUsageError("nothing to send");
+    const hurry =
+      when === "now" && words.length === 0 && files.length === 0 && imagePath === undefined;
+    if (text === "" && files.length === 0 && imagePath === undefined && !hurry)
+      throw new CliUsageError("nothing to send");
     const timeoutMs = flags.wait === true ? waitTimeout(flags) : null;
     const device = await resolveDevice(ctx, deviceFlag(flags));
     if (device) {
       if (files.length > 0) throw new CliUsageError("--file goes to this computer's tabs");
       if (hurry) throw new CliUsageError("--now with no text goes to this computer's tabs");
-      // As that computer answers an agent's chat.send `after`, before it is asked.
-      if (when === "after") {
-        throw new CliUsageError(
-          "--after goes to this computer's tabs: another computer's does not hold an agent's message for after the turn; send it without --after, or with --now",
-        );
-      }
-      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when === "now");
+      if (when === "after" || imagePath !== undefined) requirePeerCli(ctx, device);
+      const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
+      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when, images);
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
@@ -795,6 +975,21 @@ const chatSend: CliCommand = {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
     const target = { workspaceId: workspace.id, tabId: tab.id };
+    if (
+      tab.type === "claude" &&
+      !files.length &&
+      imagePath === undefined &&
+      remoteControlCommand(text)
+    ) {
+      if (timeoutMs !== null || when === "after")
+        throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
+      await mayChange(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
+      return remoteControlOutput(
+        `${tab.title} (${shortId(tab.id)})`,
+        target,
+        await applyRemoteControl(ctx.services, target),
+      );
+    }
     if (hurry) {
       if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
       await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
@@ -802,11 +997,14 @@ const chatSend: CliCommand = {
       return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
     }
     const attached = await attachments(ctx, files);
+    const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
     const listed = attached.map((file) => `[${file.name}]`).join(" ");
     await mayChange(ctx, workspace, {
       kind: "chatInput",
       detail: tab.title,
-      body: [text, listed].filter(Boolean).join("\n\n"),
+      body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
+        .filter(Boolean)
+        .join("\n\n"),
     });
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
@@ -820,6 +1018,7 @@ const chatSend: CliCommand = {
         text,
         ...(from ? { from } : {}),
         ...(attached.length > 0 ? { files: attached } : {}),
+        ...(images.length ? { images } : {}),
         ...(when ? { when } : {}),
         ...(timeoutMs === null ? {} : { wait: {} }),
       },
@@ -885,6 +1084,32 @@ const ASKS_TO_RUN = "asks to run ";
 /** The tools whose requests are a question or a plan for the user, not a tool to allow. */
 const USERS_TO_ANSWER = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
+async function unrestrictedCaller(ctx: CliContext): Promise<CallerMode | undefined> {
+  const caller = await verifiedChatMode(ctx);
+  if (caller?.mode && caller.mode === CHAT_MODES[caller.agent].dangerous) return caller;
+}
+
+/** Authorizes one answer to the request as it was asked. */
+async function mayAnswer(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  change: ChangeRequest["change"],
+): Promise<CallerMode | undefined> {
+  let caller = await unrestrictedCaller(ctx);
+  if (caller && workspace.id !== ctx.caller.workspaceId) {
+    await mayChange(ctx, workspace, change);
+    // The workspace policy can wait for a user decision. Read the mode again.
+    caller = await unrestrictedCaller(ctx);
+  }
+  if (caller) return caller;
+  await ctx.services.askUser({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change,
+  });
+}
+
 /**
  * The tab chat answer answers in: a Claude or Codex tab, or else a
  * terminal whose Claude Code asks (a chat tab is named first).
@@ -932,15 +1157,10 @@ async function answerTerminal(
     throw new CliError(`${tab.title} asks the user; that is the user's to answer in the app`);
   }
   const what = [ask.tool, ask.target].filter(Boolean).join(" ");
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: {
-      kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
-      detail: `${ask.tool} (${tab.title})`,
-      body: what,
-    },
+  const delegated = await mayAnswer(ctx, workspace, {
+    kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+    detail: `${ask.tool} (${tab.title})`,
+    body: what,
   });
   const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
   if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
@@ -950,6 +1170,7 @@ async function answerTerminal(
         : "that request no longer waits for an answer",
     );
   }
+  if (delegated) logDelegation(ctx, tab.id, delegated);
   const target = { workspaceId: workspace.id, tabId: tab.id };
   return output(`${decision === "allow" ? "Allowed" : "Denied"} ${what} in ${tab.title}.`, {
     ...target,
@@ -966,7 +1187,9 @@ const chatAnswer: CliCommand = {
     "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
     "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
     "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
-    "to answer in the app. An agent answers with the user's leave.",
+    "to answer in the app. A verified local chat tab in an unrestricted mode can approve\n" +
+    "or deny a tool as requested, once. Other local callers need the user's approval.\n" +
+    "On another device, the receiving device's Remote agent policy applies.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     stop: { type: "boolean", description: "With deny: stop the turn too" },
@@ -1000,7 +1223,7 @@ const chatAnswer: CliCommand = {
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const info = await ctx.services.ui("chat.state", target);
     const asked = info.state === "asking" ? (info.message ?? "") : "";
-    if (!asked.startsWith(ASKS_TO_RUN) || !info.request) {
+    if (!asked.startsWith(ASKS_TO_RUN) || !info.request || USERS_TO_ANSWER.has(info.request.tool)) {
       throw new CliError(
         asked === ""
           ? `${tab.title} waits on no permission request`
@@ -1010,18 +1233,12 @@ const chatAnswer: CliCommand = {
     const tool = asked.slice(ASKS_TO_RUN.length);
     // What is answered is the request whole: a command's first line, as the
     // tab's row shows it, can hide what its next lines run.
-    const whole = info.request.input;
-    const request = {
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: workspace.id,
-      change: {
-        kind: decision === "allow" ? ("permissionAllow" as const) : ("permissionDeny" as const),
-        detail: `${info.request.tool} (${tab.title})`,
-        body: whole,
-      },
-    };
-    await ctx.services.askUser(request);
+    // The CLI only allows this answer once and sends the request's original input.
+    const delegated = await mayAnswer(ctx, workspace, {
+      kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+      detail: `${info.request.tool} (${tab.title})`,
+      body: info.request.input,
+    });
     await ctx.services.ui("chat.answer", {
       ...target,
       decision,
@@ -1029,6 +1246,7 @@ const chatAnswer: CliCommand = {
       ...(stop ? { stop } : {}),
       expect: info.request.id,
     });
+    if (delegated) logDelegation(ctx, tab.id, delegated);
     return output(`${decision === "allow" ? "Allowed" : "Denied"} ${tool} in ${tab.title}.`, {
       ...target,
       decision,
@@ -1037,9 +1255,167 @@ const chatAnswer: CliCommand = {
   },
 };
 
+const chatInstructions: CliCommand = {
+  path: ["chat", "instructions"],
+  summary: "View or edit a chat tab's instructions",
+  args: "<tab>",
+  details:
+    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message. Other devices support --show.",
+  flags: {
+    show: { type: "boolean", description: "Print the combined instructions for the tab" },
+    "set-file": {
+      type: "string",
+      value: "FILE",
+      description: "Replace the session layer with UTF-8 text from FILE",
+    },
+    clear: { type: "boolean", description: "Clear the session layer" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const show = flags.show === true;
+    const file = flags["set-file"] as string | undefined;
+    const clear = flags.clear === true;
+    if ([show, file !== undefined, clear].filter(Boolean).length !== 1) {
+      throw new CliUsageError("use exactly one of --show, --set-file FILE, or --clear");
+    }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const target = await peerCliChat(ctx, device, flags, selector);
+      const { instructions } = show
+        ? await askPeerCli(ctx, device, "chat.instructions", target.ref)
+        : await changePeerCli(ctx, device, "chat.instructions.set", {
+            ...target.ref,
+            text: file === undefined ? "" : await readInstructionsFile(ctx, file),
+          });
+      return output(show ? instructions : `Updated session instructions for ${target.title}.`, {
+        ...target.json,
+        instructions,
+      });
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    const text = file === undefined ? "" : await readInstructionsFile(ctx, file);
+    if (!show) {
+      await mayChange(ctx, workspace, {
+        kind: "chatSettings",
+        detail: tab.title,
+        ...(text ? { body: text } : {}),
+      });
+    }
+    const { instructions } = await ctx.services.ui(
+      "chat.instructions",
+      show ? target : { ...target, text },
+    );
+    return output(
+      show ? instructions : `Updated session instructions for ${tab.title} (${shortId(tab.id)}).`,
+      {
+        ...target,
+        instructions,
+      },
+    );
+  },
+};
+
+const chatImage: CliCommand = {
+  path: ["chat", "image"],
+  args: "<tab> [index]",
+  summary: "Read an image from a chat message, tool result, or held message",
+  details:
+    "Image indexes count from 1. Output is base64 by default. --out creates a new file on the app's machine.",
+  flags: {
+    message: {
+      type: "number",
+      value: "N",
+      description: "The user message number shown by chat read",
+    },
+    tool: { type: "string", value: "ID", description: "A tool call's id" },
+    held: { type: "string", value: "ID", description: "A held message's id" },
+    out: { type: "string", value: "FILE", description: "Write image bytes to a new file" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals: [selector, given = "1", ...extra], flags }) {
+    const index = Number(given) - 1;
+    if (!selector || extra.length || !Number.isInteger(index) || index < 0)
+      throw new CliUsageError("give a tab and a positive image index");
+    const message = typeof flags.message === "number" ? flags.message : undefined;
+    const tool = typeof flags.tool === "string" ? flags.tool : undefined;
+    const held = typeof flags.held === "string" ? flags.held : undefined;
+    if ([message, tool, held].filter((value) => value !== undefined).length !== 1)
+      throw new CliUsageError("give one of --message N, --tool ID, or --held ID");
+    if (message !== undefined && (!Number.isInteger(message) || message < 0))
+      throw new CliUsageError("--message takes the displayed message number");
+    if (flags.out !== undefined && !onAppMachine(ctx))
+      throw new CliUsageError("--out needs a shell on the app's machine; omit it to read base64");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const target = device
+      ? (await peerCliChat(ctx, device, flags, selector)).ref
+      : await localChatRef(ctx, flags, selector);
+    let ref: RpcParams<"chat.image">["ref"];
+    if (message !== undefined) {
+      const request = { ...target, i: message };
+      const item = device
+        ? await askPeerCli(ctx, device, "chat.entryItem", request)
+        : await ctx.services.ui("chat.entryItem", request);
+      if (item.kind !== "user") throw new CliError("that is not a user message");
+      ref = { kind: "user", itemKey: item.itemKey, index };
+    } else if (tool !== undefined) {
+      ref = { kind: "tool", toolUseId: tool, index };
+    } else {
+      ref = { kind: "held", id: held as string, index };
+    }
+    const image = device
+      ? await askPeerCli(ctx, device, "chat.image", { ...target, ref })
+      : await ctx.services.ui("chat.image", { ...target, ref, maxChars: MAX_MESSAGE_BYTES - 1024 });
+    if (!image.data) throw new CliError("there are no image bytes for that entry");
+    const { data, ...metadata } = image;
+    const out = typeof flags.out === "string" ? callerPath(ctx, flags.out) : undefined;
+    if (out) {
+      await writeFile(out, Buffer.from(data, "base64"), { flag: "wx" }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "EEXIST") throw new CliError("image output already exists");
+          throw new CliError(`could not save the image (${error.code ?? "write failed"})`);
+        },
+      );
+      return output(`Wrote ${out}.`, { ...metadata, path: out });
+    }
+    return output(data, { ...metadata, data });
+  },
+};
+
+async function localChatRef(ctx: CliContext, flags: ParsedArgs["flags"], selector: string) {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const tab = await resolveChat(ctx, workspace, selector);
+  return { workspaceId: workspace.id, tabId: tab.id };
+}
+
+const chatExport: CliCommand = {
+  path: ["chat", "export"],
+  args: "<tab>",
+  summary: "Print the conversation as Markdown",
+  flags: {
+    stdout: { type: "boolean", description: "Write the Markdown to standard output" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const ref = { workspaceId: workspace.id, tabId: tab.id };
+    const { markdown } = await ctx.services.ui("chat.export", ref);
+    return output(markdown, { ...ref, markdown });
+  },
+};
+
 export const chatCommands: CliCommand[] = [
   chatNew,
+  chatInstructions,
   chatRead,
+  chatExport,
+  chatImage,
   chatTool,
   chatSend,
   chatAnswer,

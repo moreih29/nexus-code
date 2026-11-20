@@ -138,7 +138,7 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
       }
       onClick={onToggle}
     >
-      <span className="flex-1 text-left">
+      <span className="min-w-0 flex-1 truncate text-left">
         {expanded
           ? t("git.panel.banners.collapse")
           : t("git.panel.banners.notifications", { count })}

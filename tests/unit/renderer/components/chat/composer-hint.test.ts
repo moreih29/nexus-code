@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import i18next from "i18next";
 
-const { composerHint, composerKeys } = await import(
+const { composerHint, composerKeys, modelPickerOptions } = await import(
   "../../../../../src/renderer/components/chat/composer"
 );
 
@@ -31,4 +31,26 @@ describe("the composer's hint", () => {
       `${send} after tool · ${nowKey} now (discards current response) · ${queueKey} after turn`,
     );
   });
+});
+
+test("hides Claude's duplicate default alias and generic description for a custom connection", () => {
+  const defaultModel = {
+    value: "default",
+    displayName: "Default (recommended)",
+    description: "Use the default model (currently glm-5-plus[1m])",
+    resolvedModel: "glm-5-plus[1m]",
+  };
+  const custom = {
+    value: "glm-5-plus",
+    displayName: "GLM 5 Plus",
+    description: "Custom model (glm-5-plus)",
+  };
+  const models = [defaultModel, custom];
+  expect(modelPickerOptions(models, true)).toEqual([{ model: custom, label: "GLM 5 Plus" }]);
+  expect(modelPickerOptions(models, false)[0]).toEqual({
+    model: defaultModel,
+    label: defaultModel.displayName,
+    detail: defaultModel.description,
+  });
+  expect(defaultModel.resolvedModel).toBe("glm-5-plus[1m]");
 });

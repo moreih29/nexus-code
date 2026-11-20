@@ -268,7 +268,13 @@ export function applyCodexLine(
   } else if (line.dir === "sys") {
     if (message.event === "exit" || message.event === "start") settleCommands(draft, at);
     applySys(draft, message, keySeq, at);
-    if (message.event === "start") draft.next.canonicalCwd = str(message.canonicalCwd);
+    if (message.event === "start") {
+      draft.next.canonicalCwd = str(message.canonicalCwd);
+      if (message.connectionChanged === true) {
+        draft.next.tokens = undefined;
+        draft.next.account = undefined;
+      }
+    }
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
@@ -517,6 +523,8 @@ function applyResponse(
       m.forkSource = undefined;
       if (
         !matchesProfileForkSettings(sent.request, result) ||
+        (typeof sent.request.modelProvider === "string" &&
+          result.modelProvider !== sent.request.modelProvider) ||
         !validCodexFork(
           fork,
           result,
@@ -531,7 +539,7 @@ function applyResponse(
         )
       )
         return;
-      if (m.threadId === threadId) {
+      if (m.threadId === threadId && typeof sent.request.modelProvider !== "string") {
         // A rewind replaces the displayed thread with its prefix copy. Keep
         // the process, outstanding RPCs and workspace file snapshots.
         const fresh = nextThreadModel(m);
@@ -562,8 +570,15 @@ function applyResponse(
       const turnId = str(rec(result.turn)?.id) ?? str(result.turnId);
       if (sent.subtype === "turn/start") {
         if (turnId && m.running) enterTurn(m, turnId);
-        if (sent.request.threadId === m.threadId)
+        if (sent.request.threadId === m.threadId) {
+          if (sent.request.sandboxPolicy !== undefined) {
+            m.confirmedPermissionMode = confirmedModeOf(
+              sent.request.sandboxPolicy,
+              sent.request.approvalPolicy,
+            );
+          }
           rememberCollaborationEffort(m, sent.request.effort);
+        }
       } else if (m.running && (turnId ?? sent.request.expectedTurnId) === m.turnId) {
         noteTurnActivity(m, at);
       }
@@ -789,6 +804,7 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
     effort: result.reasoningEffort,
     sandbox: result.sandbox,
   });
+  m.confirmedPermissionMode = confirmedModeOf(result.sandbox, result.approvalPolicy);
   if (result.collaborationMode) applyCollaboration(m, result.collaborationMode);
   else if (m.collaborationMode === undefined) {
     applyCollaboration(m, {
@@ -904,6 +920,12 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
       return "fullAccess";
   }
   return undefined;
+}
+
+/** The unrestricted preset disables both the sandbox and approval prompts. */
+function confirmedModeOf(sandbox: unknown, approvalPolicy: unknown): CodexMode | undefined {
+  const mode = modeOf(sandbox);
+  return mode === "fullAccess" && approvalPolicy !== "never" ? undefined : mode;
 }
 
 /** Thread notifications about the tab's own thread alone. */
@@ -1088,6 +1110,18 @@ function applyNotification(
           effort: settings.effort,
           sandbox: settings.sandboxPolicy,
         });
+        if (settings.sandboxPolicy !== undefined) {
+          m.confirmedPermissionMode = confirmedModeOf(
+            settings.sandboxPolicy,
+            settings.approvalPolicy,
+          );
+        } else if (
+          settings.approvalPolicy !== undefined &&
+          settings.approvalPolicy !== "never" &&
+          m.confirmedPermissionMode === "fullAccess"
+        ) {
+          m.confirmedPermissionMode = undefined;
+        }
         applyCollaboration(m, settings.collaborationMode);
       }
       return;

@@ -31,6 +31,8 @@ export const NOT_IN_ROOM = "this computer is not in the remote room (Settings â€
 
 /** How long a request an agent sends waits: the user there may be asked first. */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
+// Commands whose renderer work can take 60 seconds after the approval.
+const PEER_APPLY_MS = AGENT_CONSENT_MS + 70_000;
 /** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
 // The peer may need to verify a maximum-size upload and then commit it.
@@ -82,7 +84,7 @@ export async function resolveDevice(
  * The device a selector names, by id, id prefix or name; then by the name it
  * signed in with, which its alias is shown in place of.
  */
-function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
+export function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
   try {
     return pick(
       devices,
@@ -154,12 +156,19 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
       // This computer left its room, or the other one did.
       if (message === "not in the room" || message === "left the room") return notInRoom();
       if (message.includes("device is not in the room")) return offline(device, now);
-      if (/no answer in time/.test(message)) {
-        return new CliError(`"${device.name}" did not answer in time (${method})`, 3, {
-          error: "timeout",
-          device: ref,
-          method,
-        });
+      if (/(?:no answer|did not answer) in time/.test(message)) {
+        const outcome = (error as { data?: { outcome?: "unknown" | "rejected" } }).data?.outcome;
+        const uncertainty = outcome === "unknown" ? "; the change may have been applied" : "";
+        return new CliError(
+          `"${device.name}" did not answer in time (${method})${uncertainty}`,
+          3,
+          {
+            error: "timeout",
+            device: ref,
+            method,
+            ...(outcome ? { outcome } : {}),
+          },
+        );
       }
       return new CliError(`on "${device.name}": ${message}`, 1, {
         error: "unavailable",
@@ -189,6 +198,25 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "terminal.read",
   "terminal.wait",
   "events.read",
+  "chat.commands",
+  "chat.panel",
+  "chat.tool",
+  "chat.fileSuggestions",
+  "chat.instructions",
+  "chat.entryItem",
+  "chat.rewindPreview",
+  "chat.image",
+  "history.list",
+  "profiles.list",
+  "terminal.shells",
+  "notes.list",
+  "notes.read",
+  "notes.transcript",
+  "notes.voiceNames.list",
+  "notes.voiceSuggestions.list",
+  "layout.get",
+  "agentView.get",
+  "browser.permissions",
 ]);
 
 /**
@@ -224,17 +252,44 @@ export async function askDevice<M extends RpcMethod>(
       },
     );
   }
+  if (
+    from &&
+    (method === "chat.new" || method === "chat.configure") &&
+    (params as { permissionMode?: string }).permissionMode !== undefined
+  )
+    requirePeerCli(ctx, device);
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : from &&
-            !reads &&
-            (!isFileTransferMethod(method) ||
-              needsFileConsent(method, params as { anywhere?: true }))
-          ? AGENT_REQUEST_MS
-          : undefined;
+        : [
+              "worktree.new",
+              "worktree.remove",
+              "notes.speakers",
+              "notes.voiceSuggestions.list",
+              "notes.voiceSuggestions.change",
+            ].includes(method)
+          ? AGENT_REQUEST_MS + 5 * 60_000
+          : from &&
+              [
+                "chat.rewind",
+                "chat.command",
+                "chat.remoteControl",
+                "chat.send",
+                "chat.configure",
+                "chat.new",
+                "chat.profile",
+                "settings.instructions.set",
+                "notes.voiceNames.delete",
+              ].includes(method)
+            ? PEER_APPLY_MS
+            : from &&
+                !reads &&
+                (!isFileTransferMethod(method) ||
+                  needsFileConsent(method, params as { anywhere?: true }))
+              ? AGENT_REQUEST_MS
+              : undefined;
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {
@@ -243,6 +298,45 @@ export async function askDevice<M extends RpcMethod>(
     if (failure !== error) failure.cause = error;
     throw failure;
   }
+}
+
+/** An operation that needs the peer's expanded agent CLI contract. */
+export function requirePeerCli(ctx: CliContext, device: CliDevice): void {
+  if (!device.online) throw offline(device, ctx.services.clock.now());
+  if (!device.serves.includes("agents.cli")) {
+    throw new CliError(`Update NexusCode on "${device.name}" to use this command there`, 3, {
+      error: "older",
+      device: deviceRef(device),
+    });
+  }
+}
+
+/** Like askDevice for operations added to the expanded agent CLI contract. */
+export function askPeerCli<M extends RpcMethod>(
+  ctx: CliContext,
+  device: CliDevice,
+  method: M,
+  params: RpcParams<M>,
+): Promise<RpcResult<M>> {
+  requirePeerCli(ctx, device);
+  return askDevice(ctx, device, method, params, ctx.signal);
+}
+
+/** A CLI change on the receiving device, attributed to the caller. */
+export async function changePeerCli<M extends RpcMethod>(
+  ctx: CliContext,
+  device: CliDevice,
+  method: M,
+  params: Omit<RpcParams<M>, "from">,
+): Promise<RpcResult<M>> {
+  requirePeerCli(ctx, device);
+  return askDevice(
+    ctx,
+    device,
+    method,
+    { ...params, from: await agentSenderOf(ctx) } as RpcParams<M>,
+    ctx.signal,
+  );
 }
 
 /** A device's workspaces and sessions, as its sessions.list tells them. */
@@ -270,6 +364,11 @@ export function pickPeerWorkspace(
     (w) => w.name,
     `workspace on "${device.name}"`,
   );
+}
+
+export async function peerWorkspace(ctx: CliContext, device: CliDevice, selector: unknown) {
+  const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+  return pickPeerWorkspace(device, workspaces, typeof selector === "string" ? selector : undefined);
 }
 
 /** A session of another device, found as `<tab> --workspace <ws> --device <d>` names it. */

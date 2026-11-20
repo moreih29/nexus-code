@@ -38,7 +38,8 @@ type EventSink func(event string, payload any) error
 // Service is the workspace-bound filesystem handle. One is created per agent
 // process; root is fixed at startup and Resolve refuses anything escaping it.
 type Service struct {
-	root string
+	root          string
+	protectedRoot string
 
 	uploadMu     sync.Mutex
 	uploads      map[string]*fileUpload
@@ -65,11 +66,17 @@ func New(root string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	abs = filepath.Clean(abs)
+	protectedRoot, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		protectedRoot = abs
+	}
 	return &Service{
-		root:    filepath.Clean(abs),
-		uploads: make(map[string]*fileUpload),
-		watches: make(map[string]*watchEntry),
-		buffers: make(map[string]filewatch.FsChangeKind),
+		root:          abs,
+		protectedRoot: protectedRoot,
+		uploads:       make(map[string]*fileUpload),
+		watches:       make(map[string]*watchEntry),
+		buffers:       make(map[string]filewatch.FsChangeKind),
 	}, nil
 }
 
@@ -105,6 +112,9 @@ func (s *Service) Close() {
 // Register binds every fs.* method this package implements onto the dispatcher.
 func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readdir", fsys.Readdir)
+	d.Register("fs.readdirNoLinks", fsys.ReaddirNoLinks)
+	d.Register("fs.readFileNoLinks", fsys.ReadFileNoLinks)
+	d.Register("fs.readRangeNoLinks", fsys.ReadRangeNoLinks)
 	d.Register("fs.stat", fsys.Stat)
 	d.Register("fs.readFile", fsys.ReadFile)
 	d.Register("fs.readBinary", fsys.ReadBinary)
