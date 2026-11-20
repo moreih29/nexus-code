@@ -17,6 +17,12 @@
 
 import type { Logger, LogMeta, LogSource, NxLogMeta } from "./types";
 
+/**
+ * The size at which main.log is renamed to main.old.log and a new file starts.
+ * electron-log keeps one old file, so the two hold at most twice this.
+ */
+export const LOG_FILE_MAX_BYTES = 2 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -54,8 +60,10 @@ function configureFileTransport(
     resolvePathFn: unknown;
     level: string;
     format: unknown;
+    maxSize: number;
   };
 
+  fileTransport.maxSize = LOG_FILE_MAX_BYTES;
   fileTransport.resolvePathFn = () => nodePath.join(logsDir, "main.log");
   fileTransport.level = "debug";
 
