@@ -109,7 +109,7 @@ interface SettingLabelProps {
 function SettingLabel({ label, code, description, htmlFor, dirty, onReset }: SettingLabelProps) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className={cn("flex min-w-0 items-center gap-1.5", code && "flex-wrap gap-y-0.5")}>
         {htmlFor ? (
           <label
             htmlFor={htmlFor}
@@ -121,7 +121,7 @@ function SettingLabel({ label, code, description, htmlFor, dirty, onReset }: Set
           <span className="truncate text-app-body text-foreground">{label}</span>
         )}
         {code && (
-          <span className="shrink-0 rounded-(--radius-control) bg-muted px-1 font-mono text-app-micro text-muted-foreground">
+          <span className="min-w-0 break-all rounded-(--radius-control) bg-muted px-1 font-mono text-app-micro text-muted-foreground">
             {code}
           </span>
         )}

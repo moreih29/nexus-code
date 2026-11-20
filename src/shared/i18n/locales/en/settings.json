@@ -751,8 +751,7 @@
           "placeholder": "e.g. Korean"
         },
         "outputStyle": {
-          "label": "Output style",
-          "hint": ""
+          "label": "Output style"
         },
         "autoCompact": {
           "label": "Auto-compact",
@@ -797,8 +796,7 @@
           "placeholder": "e.g. 100000"
         },
         "verbosity": {
-          "label": "Answer length",
-          "hint": ""
+          "label": "Answer length"
         },
         "codexModel": {
           "label": "Starting model",

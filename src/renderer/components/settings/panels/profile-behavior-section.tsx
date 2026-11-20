@@ -26,6 +26,8 @@ import { SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
 
 const POLL_MS = 2000;
+/** The buttons of the fold are of the size of the dialog's small controls. */
+const SMALL_BUTTON = "h-7 px-2 text-app-ui-sm";
 /** Radix Select takes no empty item value: the default option is this. */
 const DEFAULT_VALUE = "__default";
 
@@ -68,7 +70,7 @@ export function ProfileBehaviorSection({
   onUnshared: (name: string) => Promise<void>;
   handleRef: Ref<BehaviorSectionHandle>;
 }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   const agent = profile.agent;
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<BehaviorFile | null>(null);
@@ -227,10 +229,11 @@ export function ProfileBehaviorSection({
   // ------------------------------------------------------------------
 
   const fieldLabel = (id: string) => t(`profiles.behavior.fields.${id}.label`);
-  const fieldHint = (id: string) => {
-    const hint = t(`profiles.behavior.fields.${id}.hint`);
-    return hint === "" ? undefined : hint;
-  };
+  /** A field's one line saying what it does; some have none. */
+  const fieldHint = (id: string) =>
+    i18n.exists(`settings:profiles.behavior.fields.${id}.hint`)
+      ? t(`profiles.behavior.fields.${id}.hint`)
+      : undefined;
   const optionLabel = (id: string, value: string) =>
     t(`profiles.behavior.options.${id}.${value}`, { defaultValue: value });
   const unsupported = (id: string) => file?.unsupported.includes(id) === true;
@@ -368,7 +371,13 @@ export function ProfileBehaviorSection({
             <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
               {t("profiles.behavior.shared.warn", { file: file.name })}
             </span>
-            <Button type="button" variant="outline" size="sm" onClick={() => void unshare()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={SMALL_BUTTON}
+              onClick={() => void unshare()}
+            >
               {t("profiles.behavior.shared.unshare")}
             </Button>
           </div>
@@ -376,7 +385,13 @@ export function ProfileBehaviorSection({
         {latest && (
           <div className="flex items-center justify-between gap-3 rounded-(--radius-control) border border-border px-2.5 py-1.5">
             <span className="text-app-ui-sm">{t("profiles.behavior.outside")}</span>
-            <Button type="button" variant="outline" size="sm" onClick={reload}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={SMALL_BUTTON}
+              onClick={reload}
+            >
               {t("profiles.behavior.reload")}
             </Button>
           </div>
@@ -431,27 +446,45 @@ export function ProfileBehaviorSection({
   const name = file?.name ?? (agent === "claude" ? "settings.json" : "config.toml");
   return (
     <div className="flex flex-col gap-2" data-testid="profile-behavior">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-app-ui-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-app-ui-sm text-foreground"
         >
           <ChevronRight
-            className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
             aria-hidden="true"
           />
-          <span className="text-foreground">{t("profiles.behavior.title")}</span>
-          {open && file && <span className="font-mono text-app-micro">{tildePath(file.path)}</span>}
-          {open && ownBadge && (
-            <span className="rounded-full border border-[var(--state-success-fg)]/50 px-1.5 text-app-micro text-[var(--state-success-fg)]">
-              {t("profiles.behavior.shared.own")}
-            </span>
-          )}
+          {t("profiles.behavior.title")}
         </button>
+        {open && ownBadge && (
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-[var(--state-success-fg)]/50 px-1.5 text-app-micro text-[var(--state-success-fg)]">
+            {t("profiles.behavior.shared.own")}
+          </span>
+        )}
+        {open && file ? (
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-app-micro text-muted-foreground"
+            title={file.path}
+          >
+            {tildePath(file.path)}
+          </span>
+        ) : (
+          <span className="flex-1" />
+        )}
         {open && file && (
-          <Button type="button" variant="outline" size="sm" onClick={openFile}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(SMALL_BUTTON, "shrink-0")}
+            onClick={openFile}
+          >
             {t("profiles.behavior.openFile", { file: name })}
           </Button>
         )}

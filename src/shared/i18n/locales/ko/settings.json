@@ -751,8 +751,7 @@
           "placeholder": "예: 한국어"
         },
         "outputStyle": {
-          "label": "출력 스타일",
-          "hint": ""
+          "label": "출력 스타일"
         },
         "autoCompact": {
           "label": "자동 압축",
@@ -797,8 +796,7 @@
           "placeholder": "예: 100000"
         },
         "verbosity": {
-          "label": "답 길이",
-          "hint": ""
+          "label": "답 길이"
         },
         "codexModel": {
           "label": "시작 모델",
