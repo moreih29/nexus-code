@@ -2119,7 +2119,7 @@ export const RPC_METHODS = {
   },
   "browser.devtools": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, ...ReadBy }),
+    params: z.object({ ...TabRef, from: AgentSenderSchema }),
     result: Ok,
   },
   "settings.instructions.set": {
@@ -2128,7 +2128,7 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       layer: z.enum(["all", "claude", "codex", "workspace"]),
       text: z.string().max(5000),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: Ok,
   },
@@ -2160,7 +2160,7 @@ export const RPC_METHODS = {
           participants: z.union([z.literal("auto"), z.number().int().min(1).max(50)]),
         }),
       ]),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: z.object({ noteId: z.string(), recordingId: z.string() }),
   },
@@ -2177,7 +2177,7 @@ export const RPC_METHODS = {
         speaker: z.string().min(1).max(100),
         name: z.string().trim().min(1).max(80),
       }),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: VoiceSuggestionsResult,
   },
@@ -2191,7 +2191,7 @@ export const RPC_METHODS = {
     params: z.object({
       workspaceId: z.string(),
       name: z.string().trim().min(1).max(80).optional(),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: Ok,
   },
@@ -2202,7 +2202,11 @@ export const RPC_METHODS = {
   },
   "layout.change": {
     capability: "chat.control",
-    params: z.object({ workspaceId: z.string(), change: LayoutChangeSchema, ...ReadBy }),
+    params: z.object({
+      workspaceId: z.string(),
+      change: LayoutChangeSchema,
+      from: AgentSenderSchema,
+    }),
     result: z.object({
       groupId: z.string().optional(),
       closed: z.number().int().nonnegative().optional(),
@@ -2215,7 +2219,11 @@ export const RPC_METHODS = {
   },
   "agentView.change": {
     capability: "chat.control",
-    params: z.object({ workspaceId: z.string(), change: AgentViewChangeSchema, ...ReadBy }),
+    params: z.object({
+      workspaceId: z.string(),
+      change: AgentViewChangeSchema,
+      from: AgentSenderSchema,
+    }),
     result: z.object({
       panelId: z.string().optional(),
       removed: z.number().int().nonnegative().optional(),
@@ -2231,7 +2239,7 @@ export const RPC_METHODS = {
       prompt: z.string().max(50000),
       start: TaskStartSchema.optional(),
       show: z.boolean(),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: z.object({
       workspaceId: z.string(),
@@ -2245,7 +2253,7 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       force: z.boolean(),
       deleteBranch: z.boolean(),
-      ...ReadBy,
+      from: AgentSenderSchema,
     }),
     result: Ok,
   },
@@ -2256,7 +2264,7 @@ export const RPC_METHODS = {
   },
   "chat.instructions.set": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, text: z.string().max(5000), ...ReadBy }),
+    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema }),
     result: z.object({ instructions: z.string() }),
   },
   "chat.instructions": {

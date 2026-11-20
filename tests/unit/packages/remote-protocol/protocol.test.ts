@@ -676,17 +676,50 @@ test("peer view changes take a declared action and validated arguments", () => {
     { op: "place", tab: { key: "peer:d:t" }, show: true, index: -1 },
     { op: "ratios", ratios: [{ splitId: "s", ratio: 2 }] },
   ]) {
-    expect(params.safeParse({ workspaceId: "w", change }).success).toBe(false);
+    expect(
+      params.safeParse({
+        workspaceId: "w",
+        change,
+        from: { kind: "tab", workspaceId: "source", tabId: "t" },
+      }).success,
+    ).toBe(false);
   }
 });
 
 test("peer instruction writes exclude profile editing; remembered voice results expose names only", () => {
   const set = RPC_METHODS["settings.instructions.set"].params;
-  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt" }).success).toBe(false);
+  const from = { kind: "tab", workspaceId: "source", tabId: "t" };
+  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt", from }).success).toBe(
+    false,
+  );
   const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
     noteId: "note",
     recordingId: "rec",
     suggestions: [{ speaker: "s1", name: "Alex", embedding: [0.5], score: 0.98 }],
   });
   expect(suggestions.suggestions).toEqual([{ speaker: "s1", name: "Alex" }]);
+});
+
+test.each([
+  ["browser.devtools", { tabId: "t" }],
+  ["settings.instructions.set", { layer: "workspace", text: "prompt" }],
+  ["notes.speakers", { note: "n", change: { op: "regroup", participants: "auto" } }],
+  [
+    "notes.voiceSuggestions.change",
+    { note: "n", action: { op: "reject", speaker: "s", name: "Alex" } },
+  ],
+  ["notes.voiceNames.delete", {}],
+  ["layout.change", { change: { op: "focus", groupId: "g" } }],
+  ["agentView.change", { change: { op: "show", view: "agents" } }],
+  ["worktree.new", { name: "work", prompt: "", show: false }],
+  ["worktree.remove", { force: false, deleteBranch: false }],
+  ["chat.instructions.set", { tabId: "t", text: "prompt" }],
+] as const)("%s requires an agent sender", (method, args) => {
+  const { params } = RPC_METHODS[method];
+  const request = { workspaceId: "w", ...args };
+  expect(params.safeParse(request).success).toBe(false);
+  expect(
+    params.safeParse({ ...request, from: { kind: "tab", workspaceId: "source", tabId: "t" } })
+      .success,
+  ).toBe(true);
 });

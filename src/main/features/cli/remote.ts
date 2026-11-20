@@ -317,10 +317,16 @@ export async function changePeerCli<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
   method: M,
-  params: RpcParams<M> & { from?: AgentSender },
+  params: Omit<RpcParams<M>, "from">,
 ): Promise<RpcResult<M>> {
   requirePeerCli(ctx, device);
-  return askPeerCli(ctx, device, method, { ...params, from: await agentSenderOf(ctx) });
+  return askDevice(
+    ctx,
+    device,
+    method,
+    { ...params, from: await agentSenderOf(ctx) } as RpcParams<M>,
+    ctx.signal,
+  );
 }
 
 /** A device's workspaces and sessions, as its sessions.list tells them. */
