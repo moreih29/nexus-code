@@ -25,6 +25,7 @@ import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
 import { findNote } from "./notes";
 import { RpcFailure } from "./room";
+import { unavailable } from "./serving/common";
 
 const MINUTE_MS = 60_000;
 
@@ -429,16 +430,27 @@ async function changeOf(
         detail: `"${await title()}" (${profiles.from} → ${profiles.to})`,
       };
     }
-    case "settings.instructions.set":
+    case "settings.instructions.set": {
+      const { layer, profileId, text } = params;
+      let detail: string | undefined;
+      if (layer === "profile") {
+        const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
+        const profile = profiles.find(({ id }) => id === profileId);
+        if (!profile) throw new RpcFailure(RpcErrorCode.NotFound, "no such profile");
+        detail = `${profile.agent} profile "${profile.name}" (${profile.id})`;
+      } else {
+        detail =
+          layer === "workspace"
+            ? services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name
+            : (AGENT_NAMES[String(layer)] ?? "Shared");
+      }
       return {
         kind: "instructionsEdit",
-        detail:
-          params.layer === "workspace"
-            ? services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name
-            : (AGENT_NAMES[String(params.layer)] ?? "Shared"),
-        body: String(params.text || "Clear this layer"),
+        detail,
+        body: String(text || "Clear this layer"),
         ...(eachTime ? { eachTime: true } : {}),
       };
+    }
     case "notes.speakers": {
       const action = params.change as Record<string, unknown>;
       return {

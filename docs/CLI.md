@@ -523,7 +523,10 @@ nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 
 nexus settings reset editor.fontSize        # 기본값으로
 nexus settings instructions show --workspace WS --agent codex --json
 nexus settings instructions show --device "Mac mini" --workspace WS --agent codex --json
+nexus settings instructions show --workspace WS --profile Work --json
 nexus settings instructions set codex --file rules.md
+nexus settings instructions set profile --profile Work --file -
+nexus settings instructions set profile --profile codex-default --device "Mac mini" --clear
 nexus settings instructions set workspace --workspace WS --clear
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
@@ -535,8 +538,9 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.
 - `terminal.shell` 은 로컬 워크스페이스의 새 터미널이 여는 셸입니다. `nexus terminal shells` 의 이름이나 id, 또는 `system`(시스템 기본)입니다.
 - `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
-- `settings instructions show` 는 새 채팅에 적용될 지시의 출처와 합친 텍스트를 보여줍니다. 에이전트 기본값은 Claude이며 프로필은 워크스페이스 규칙에서 정합니다. `--device`로 조회할 때 `--workspace`를 생략하면 상대 기기 사이드바의 첫 워크스페이스를 사용합니다. 상대 앱은 원격 스키마 0.16.0 이상에서 이 기능을 지원하며 에이전트 요청을 허용해야 합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
-- 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
+- `settings instructions show` 는 새 채팅에 적용될 지시의 출처와 합친 텍스트를 보여줍니다. 기본 에이전트는 Claude이고 워크스페이스 규칙이 프로필을 정합니다. `--profile`을 주면 그 프로필을 쓰며, `--agent`를 생략하면 프로필의 에이전트를 사용합니다. `--device`로 조회할 때 `--workspace`를 생략하면 상대 기기 사이드바의 첫 워크스페이스를 사용합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
+- 조회와 `settings instructions set profile`의 `--profile`은 `chat profiles`에 표시되는 ID 또는 이름을 받습니다. 이름이 겹치면 ID를 쓰세요. 프로필 레이어를 바꾸려면 `--file FILE` 또는 `--file -`로 새 텍스트를 주고, 비우려면 `--clear`를 씁니다. 원격 조회와 프로필 편집에는 에이전트 요청을 받는 원격 스키마 0.16.0 이상 기기가 필요합니다. 편집에는 대상 기기의 채팅 제어도 필요합니다.
+- 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex·프로필 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
 - `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 

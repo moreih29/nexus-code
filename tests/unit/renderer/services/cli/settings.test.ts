@@ -4,6 +4,7 @@
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { WorkspaceMetaSchema } from "../../../../../src/shared/types/workspace";
 
 const writes: unknown[] = [];
 
@@ -40,6 +41,12 @@ afterAll(() => {
 });
 
 const { settingsHandlers } = await import("../../../../../src/renderer/services/cli/settings");
+const { useAgentInstructionsStore } = await import(
+  "../../../../../src/renderer/state/stores/agent-instructions"
+);
+const { useAgentProfilesStore } = await import(
+  "../../../../../src/renderer/state/stores/agent-profiles"
+);
 const { useEditorFontStore } = await import("../../../../../src/renderer/state/stores/editor-font");
 const { useNotificationsStore } = await import(
   "../../../../../src/renderer/state/stores/notifications"
@@ -50,6 +57,7 @@ const { usePreviewDefaultsStore } = await import(
   "../../../../../src/renderer/state/stores/preview-defaults"
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
+const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
 
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 const get = async (key: string) => (await settingsHandlers["settings.list"]({ key })).settings[0];
@@ -80,6 +88,53 @@ beforeEach(() => {
 
 afterEach(() => {
   usePreviewDefaultsStore.getState().hydrate({});
+});
+
+it("an explicit profile overrides workspace rules in an instruction preview", async () => {
+  const profiles = useAgentProfilesStore.getState().config;
+  const instructions = useAgentInstructionsStore.getState().config;
+  const { workspaces } = useWorkspacesStore.getState();
+  const workspace = WorkspaceMetaSchema.parse({
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Site",
+    rootPath: "/site",
+    pinned: false,
+    tabs: [],
+  });
+  try {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useAgentProfilesStore.getState().hydrate({
+      profiles: [{ id: "work", name: "Work", agent: "codex", color: "cyan", dir: "/codex-work" }],
+      rules: [
+        { id: "rule", target: { kind: "workspace", workspaceId: workspace.id }, codex: "work" },
+      ],
+      defaults: {},
+    });
+    useAgentInstructionsStore.setState({
+      config: {
+        profiles: { work: "Use bun.", "codex-default": "Use npm." },
+        workspaces: { [workspace.id]: "Use fixtures." },
+      },
+    });
+    const preview = settingsHandlers["settings.instructions"];
+    const target = { workspaceId: workspace.id, agent: "codex" as const };
+    expect((await preview(target)).instructions).toContain("## Profile: Work\nUse bun.");
+    const override = await preview({ ...target, profileId: "codex-default" });
+    expect(override.layers).toContainEqual({
+      scope: { kind: "profile", id: "codex-default" },
+      title: "Profile: Default",
+      text: "Use npm.",
+    });
+    expect(override.instructions).toContain("## Profile: Default\nUse npm.");
+    expect(override.instructions).toContain("## Workspace: Site\nUse fixtures.");
+    await expect(preview({ ...target, profileId: "gone" })).rejects.toThrow(
+      'no codex profile with id "gone"',
+    );
+  } finally {
+    useWorkspacesStore.setState({ workspaces });
+    useAgentProfilesStore.getState().hydrate(profiles);
+    useAgentInstructionsStore.setState({ config: instructions });
+  }
 });
 
 describe("settings.set", () => {

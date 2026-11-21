@@ -147,6 +147,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
     "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
     "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
+    "Use settings instructions show --profile PROFILE for a profile's layers and",
+    "settings instructions set profile --profile PROFILE to edit its layer. chat profiles lists ids and names.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",

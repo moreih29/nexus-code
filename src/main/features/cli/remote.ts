@@ -328,12 +328,14 @@ export function askPeerCli<M extends RpcMethod>(
   return askDevice(ctx, device, method, params, ctx.signal);
 }
 
+type WithoutSender<T> = T extends unknown ? Omit<T, "from"> : never;
+
 /** A CLI change on the receiving device, attributed to the caller. */
 export async function changePeerCli<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
   method: M,
-  params: Omit<RpcParams<M>, "from">,
+  params: WithoutSender<RpcParams<M>>,
 ): Promise<RpcResult<M>> {
   requirePeerCli(ctx, device);
   return askDevice(

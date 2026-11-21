@@ -415,6 +415,12 @@ export type AgentSender = z.infer<typeof AgentSenderSchema>;
  * with it, so it goes only to one of 0.12.0 or later.
  */
 const ReadBy = { from: AgentSenderSchema.optional() };
+const InstructionProfileId = z.string().min(1).max(64);
+const InstructionWrite = z.object({
+  workspaceId: z.string(),
+  text: z.string().max(5000),
+  from: AgentSenderSchema,
+});
 
 /** The keys terminal.input presses by name, as `nexus terminal key` names them. */
 export const TERMINAL_KEYS = [
@@ -2130,6 +2136,7 @@ export const RPC_METHODS = {
     params: z.object({
       workspaceId: z.string(),
       agent: z.enum(["claude", "codex"]),
+      profileId: InstructionProfileId.optional(),
       from: AgentSenderSchema,
     }),
     result: z.object({
@@ -2150,12 +2157,10 @@ export const RPC_METHODS = {
   },
   "settings.instructions.set": {
     capability: "chat.control",
-    params: z.object({
-      workspaceId: z.string(),
-      layer: z.enum(["all", "claude", "codex", "workspace"]),
-      text: z.string().max(5000),
-      from: AgentSenderSchema,
-    }),
+    params: z.discriminatedUnion("layer", [
+      InstructionWrite.extend({ layer: z.enum(["all", "claude", "codex", "workspace"]) }),
+      InstructionWrite.extend({ layer: z.literal("profile"), profileId: InstructionProfileId }),
+    ]),
     result: Ok,
   },
   "notes.speakers": {

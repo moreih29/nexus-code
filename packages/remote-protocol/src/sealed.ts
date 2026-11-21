@@ -106,7 +106,7 @@ export const CAPABILITIES = [
   "agents",
   /** Extended agent CLI operations, since 0.15.0. */
   "agents.cli",
-  /** Read the instruction layers for a new chat, since 0.16.0. */
+  /** Read the layers for a new chat and edit profile layers, since 0.16.0. */
   "settings.instructions",
 ] as const;
 export const CapabilitySchema = z.string();

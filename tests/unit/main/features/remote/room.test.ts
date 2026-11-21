@@ -1316,7 +1316,7 @@ test("serves persistent instruction previews as agent reads under the receiving 
   try {
     await flushRelay();
     expect(peer.state().peers[0]?.serves).toContain("settings.instructions");
-    const target = { workspaceId, agent: "codex" as const };
+    const target = { workspaceId, agent: "codex" as const, profileId: "work" };
     const params = { ...target, from: { kind: "tab" as const, workspaceId: "other", tabId: "t" } };
     const read = () => peer.request("host", "settings.instructions", params);
     await expect(read()).resolves.toEqual(preview);
@@ -1327,6 +1327,62 @@ test("serves persistent instruction previews as agent reads under the receiving 
     await expect(read()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     expect(app.uiCalls).toEqual([{ op: "settings.instructions", args: target }]);
     expect(app.asked).toEqual([]);
+  } finally {
+    host.stop();
+    peer.stop();
+  }
+});
+
+test("profile instruction writes pin the profile id and need a fresh approval", async () => {
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const app = fakeApp();
+  const workspaceId = app.workspaces[0]!.id;
+  const profile = { id: "work", name: "Work", agent: "codex", isDefault: false };
+  app.uiAnswers.set("chat.profiles", { profiles: [profile] });
+  app.uiAnswers.set("settings.instructions.set", {});
+  app.uiAnswers.set("consent.ask", { answer: "once" });
+  const host = device(relay, "host", key, {
+    serves: servesWith(true, false, true),
+    serve: serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => "allow" }),
+    }),
+  }).room;
+  const peer = device(relay, "peer", key).room;
+  host.start();
+  peer.start();
+  try {
+    await flushRelay();
+    const set = (profileId: string, text: string) =>
+      peer.request("host", "settings.instructions.set", {
+        workspaceId,
+        layer: "profile",
+        profileId,
+        text,
+        from: { kind: "tab", workspaceId: "other", tabId: "t" },
+      });
+    await expect(set("missing", "Use bun.")).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(set(profile.id, "Use bun.")).resolves.toEqual({});
+    app.uiAnswers.set("consent.ask", { answer: "session" });
+    await expect(set(profile.id, "")).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(app.uiCalls.filter(({ op }) => op === "consent.ask").map(({ args }) => args)).toEqual(
+      ["Use bun.", "Clear this layer"].map((body) =>
+        expect.objectContaining({
+          change: {
+            kind: "instructionsEdit",
+            body,
+            detail: 'codex profile "Work" (work)',
+            eachTime: true,
+          },
+        }),
+      ),
+    );
+    expect(app.uiCalls.filter(({ op }) => op === "settings.instructions.set")).toEqual([
+      {
+        op: "settings.instructions.set",
+        args: { scope: { kind: "profile", id: profile.id }, text: "Use bun." },
+      },
+    ]);
   } finally {
     host.stop();
     peer.stop();

@@ -1343,7 +1343,7 @@ export interface CliUiOps {
   };
   /** The persistent instruction layers that apply when starting a new chat. */
   "settings.instructions": {
-    args: { workspaceId: string; agent: ChatAgent };
+    args: { workspaceId: string; agent: ChatAgent; profileId?: string };
     result: {
       layers: { scope: InstructionScope; title: string; text: string }[];
       instructions: string;
@@ -1362,7 +1362,7 @@ export interface CliUiOps {
     };
   };
   "settings.instructions.set": {
-    args: { scope: Exclude<InstructionScope, { kind: "profile" }>; text: string };
+    args: { scope: InstructionScope; text: string };
     result: Record<string, never>;
   };
   /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */

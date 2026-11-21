@@ -13,8 +13,9 @@ import {
   settingsPageNamed,
 } from "../../../../shared/cli/settings";
 import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
+import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
+import { type CliContext, type CliDevice, CliError, mayChange, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import {
@@ -140,15 +141,49 @@ const settingsOpen: CliCommand = {
   },
 };
 
+const INSTRUCTION_PROFILE_FLAG = {
+  type: "string",
+  value: "PROFILE",
+  description: "A profile id or name from nexus chat profiles",
+} as const;
+
+async function instructionProfile(
+  ctx: CliContext,
+  device: CliDevice | null,
+  selector: string,
+  agent?: ChatAgent,
+) {
+  const filter = agent ? { agent } : {};
+  const { profiles } = device
+    ? await askDevice(ctx, device, "profiles.list", filter, ctx.signal)
+    : await ctx.services.ui("chat.profiles", filter);
+  const exact = profiles.find((profile) => profile.id === selector);
+  if (exact) return exact;
+  const wanted = selector.trim().toLowerCase();
+  const [match, ...others] = profiles.filter(
+    ({ id, name }) => id.toLowerCase() === wanted || name.toLowerCase() === wanted,
+  );
+  if (others.length > 0)
+    throw new CliError(
+      `more than one profile matches "${selector}". Use its id from nexus chat profiles.`,
+    );
+  if (!match)
+    throw new CliError(
+      `no ${agent ? `${agent} ` : ""}profile "${selector}". See nexus chat profiles.`,
+    );
+  return match;
+}
+
 const settingsInstructions: CliCommand = {
   path: ["settings", "instructions", "show"],
   summary: "Show the instruction layers for a new chat and their combined text",
   details:
-    "The profile comes from the workspace's rules. The agent defaults to Claude. With --device, " +
-    "--workspace defaults to that computer's first listed workspace.",
+    "The profile comes from the workspace's rules unless you give --profile. The agent defaults to Claude " +
+    "or to the selected profile's agent. With --device, --workspace defaults to that computer's first listed workspace.",
   flags: {
     workspace: WORKSPACE_FLAG,
-    agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
+    agent: { type: "string", value: "AGENT", description: "claude or codex" },
+    profile: INSTRUCTION_PROFILE_FLAG,
     device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
@@ -166,7 +201,16 @@ const settingsInstructions: CliCommand = {
     } else {
       workspaceId = resolveWorkspace(ctx, selector).id;
     }
-    const target = { workspaceId, agent: chatAgentFlag(flags.agent, "claude") };
+    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const profile =
+      typeof flags.profile === "string"
+        ? await instructionProfile(ctx, device, flags.profile, agent)
+        : undefined;
+    const target = {
+      workspaceId,
+      agent: profile?.agent ?? agent ?? "claude",
+      ...(profile ? { profileId: profile.id } : {}),
+    };
     const result = device
       ? await askDevice(
           ctx,
@@ -188,10 +232,11 @@ const settingsInstructions: CliCommand = {
 
 const settingsInstructionsSet: CliCommand = {
   path: ["settings", "instructions", "set"],
-  args: "<all|claude|codex|workspace>",
+  args: "<all|claude|codex|profile|workspace>",
   summary: "Replace or clear a persistent instruction layer",
   details:
-    "All, Claude, and Codex changes need approval each time. Workspace changes follow the workspace policy.",
+    "All, Claude, Codex, and profile changes need approval each time. Give --profile for the profile layer. " +
+    "Workspace changes follow the workspace policy.",
   flags: {
     file: {
       type: "string",
@@ -199,15 +244,27 @@ const settingsInstructionsSet: CliCommand = {
       description: "Read the new layer from UTF-8 FILE or - for stdin",
     },
     clear: { type: "boolean", description: "Clear the layer" },
+    profile: INSTRUCTION_PROFILE_FLAG,
     workspace: WORKSPACE_FLAG,
     device: DEVICE_FLAG,
   },
   async run(ctx, { flags, positionals }) {
     const [layer] = exactArgs(positionals, "layer") as [string];
-    if (layer !== "all" && layer !== "claude" && layer !== "codex" && layer !== "workspace")
-      throw new CliUsageError("choose all, claude, codex, or workspace");
+    if (
+      layer !== "all" &&
+      layer !== "claude" &&
+      layer !== "codex" &&
+      layer !== "profile" &&
+      layer !== "workspace"
+    )
+      throw new CliUsageError("choose all, claude, codex, profile, or workspace");
     if (flags.workspace !== undefined && layer !== "workspace")
       throw new CliUsageError("--workspace goes with the workspace layer");
+    const profileSelector = typeof flags.profile === "string" ? flags.profile : "";
+    if (layer === "profile" && !profileSelector.trim())
+      throw new CliUsageError("give --profile for the profile layer");
+    if (layer !== "profile" && flags.profile !== undefined)
+      throw new CliUsageError("--profile goes with the profile layer");
     const file = typeof flags.file === "string" ? flags.file : undefined;
     if ((file !== undefined) === (flags.clear === true))
       throw new CliUsageError("give --file or --clear");
@@ -218,41 +275,52 @@ const settingsInstructionsSet: CliCommand = {
           ? ""
           : await readInstructionsFile(ctx, file);
     const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device)
+      requirePeerCli(ctx, device, layer === "profile" ? "settings.instructions" : undefined);
+    const edit =
+      layer === "profile"
+        ? ({ layer, profile: await instructionProfile(ctx, device, profileSelector) } as const)
+        : ({ layer } as const);
     if (device) {
-      requirePeerCli(ctx, device);
       const workspace =
         layer === "workspace"
           ? await peerWorkspace(ctx, device, flags.workspace)
           : (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
       if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      const target =
+        edit.layer === "profile" ? { layer: edit.layer, profileId: edit.profile.id } : edit;
       await changePeerCli(ctx, device, "settings.instructions.set", {
         workspaceId: workspace.id,
-        layer,
+        ...target,
         text,
       });
       return output(`Updated the ${layer} instruction layer on "${device.name}".`, {
-        layer,
+        ...target,
         device: deviceRef(device),
         text,
       });
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const scope: Exclude<InstructionScope, { kind: "profile" }> =
-      layer === "workspace"
-        ? { kind: "workspace", id: workspace.id }
-        : layer === "all"
-          ? { kind: "all" }
-          : { kind: "agent", agent: layer };
+    const scope: InstructionScope =
+      edit.layer === "profile"
+        ? { kind: "profile", id: edit.profile.id }
+        : edit.layer === "workspace"
+          ? { kind: "workspace", id: workspace.id }
+          : edit.layer === "all"
+            ? { kind: "all" }
+            : { kind: "agent", agent: edit.layer };
     const change: CliChange = {
       kind: "instructionsEdit",
       detail:
-        layer === "workspace"
-          ? workspace.name
-          : layer === "all"
-            ? "Shared"
-            : layer === "claude"
-              ? "Claude"
-              : "Codex",
+        edit.layer === "profile"
+          ? `${edit.profile.agent} profile "${edit.profile.name}" (${edit.profile.id})`
+          : layer === "workspace"
+            ? workspace.name
+            : layer === "all"
+              ? "Shared"
+              : layer === "claude"
+                ? "Claude"
+                : "Codex",
       body: text || "Clear this layer",
     };
     if (layer === "workspace") await mayChange(ctx, workspace, change);

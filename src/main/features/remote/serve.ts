@@ -298,21 +298,26 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
       case "settings.instructions": {
-        const { workspaceId, agent } = params as RpcParams<"settings.instructions">;
+        const { workspaceId, agent, profileId } = params as RpcParams<"settings.instructions">;
         if (!workspaceOf(s, workspaceId))
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-        return s.ui("settings.instructions", { workspaceId, agent }).catch(unavailable);
+        return s
+          .ui("settings.instructions", { workspaceId, agent, ...(profileId ? { profileId } : {}) })
+          .catch(unavailable);
       }
       case "settings.instructions.set": {
-        const { workspaceId, layer, text } = params as RpcParams<"settings.instructions.set">;
+        const edit = params as RpcParams<"settings.instructions.set">;
+        const { workspaceId, text } = edit;
         if (!workspaceOf(s, workspaceId))
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         const scope =
-          layer === "all"
-            ? { kind: "all" as const }
-            : layer === "workspace"
-              ? { kind: "workspace" as const, id: workspaceId }
-              : { kind: "agent" as const, agent: layer };
+          edit.layer === "profile"
+            ? { kind: "profile" as const, id: edit.profileId }
+            : edit.layer === "all"
+              ? { kind: "all" as const }
+              : edit.layer === "workspace"
+                ? { kind: "workspace" as const, id: workspaceId }
+                : { kind: "agent" as const, agent: edit.layer };
         return s.ui("settings.instructions.set", { scope, text }).catch(unavailable);
       }
       case "notes.speakers": {

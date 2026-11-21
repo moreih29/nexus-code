@@ -689,12 +689,21 @@ test("peer view changes take a declared action and validated arguments", () => {
   }
 });
 
-test("peer instruction writes exclude profile editing; remembered voice results expose names only", () => {
+test("peer profile instruction reads and writes carry a valid profile id", () => {
   const set = RPC_METHODS["settings.instructions.set"].params;
   const from = { kind: "tab", workspaceId: "source", tabId: "t" };
-  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt", from }).success).toBe(
-    false,
-  );
+  const write = { workspaceId: "w", layer: "profile", text: "prompt", from };
+  expect(set.safeParse(write).success).toBe(false);
+  expect(set.safeParse({ ...write, profileId: "" }).success).toBe(false);
+  expect(set.parse({ ...write, profileId: "codex-default" })).toEqual({
+    ...write,
+    profileId: "codex-default",
+  });
+  const read = { workspaceId: "w", agent: "codex", from, profileId: "codex-default" };
+  expect(RPC_METHODS["settings.instructions"].params.parse(read)).toEqual(read);
+});
+
+test("remembered voice results expose names only", () => {
   const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
     noteId: "note",
     recordingId: "rec",
@@ -707,6 +716,7 @@ test.each([
   ["browser.devtools", { tabId: "t" }],
   ["settings.instructions", { agent: "codex" }],
   ["settings.instructions.set", { layer: "workspace", text: "prompt" }],
+  ["settings.instructions.set", { layer: "profile", profileId: "codex-default", text: "" }],
   ["notes.speakers", { note: "n", change: { op: "regroup", participants: "auto" } }],
   [
     "notes.voiceSuggestions.change",
