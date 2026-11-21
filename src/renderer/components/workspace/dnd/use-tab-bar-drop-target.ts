@@ -23,6 +23,7 @@
  * — while the indicator stays anchored to the actual tab strip.
  */
 import { useCallback, useEffect, useState } from "react";
+import { requestTabFocus } from "@/services/tab-focus";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
 import { MIME_FILE } from "../../../types/workbench-dnd";
 import { hasSupportedMime, parseDragPayload } from "../../../utils/workbench-dnd-payload";
@@ -150,11 +151,12 @@ export function useTabBarDropTarget(opts: UseTabBarDropTargetOptions): UseTabBar
       try {
         if (parsed.kind === "tab") {
           if (parsed.payload.workspaceId !== workspaceId) return;
-          moveTabToZone(workspaceId, parsed.payload.tabId, {
+          const moved = moveTabToZone(workspaceId, parsed.payload.tabId, {
             groupId: leafId,
             zone: "center",
             index: next.index,
           });
+          if (moved) requestTabFocus(moved.tabId);
         } else {
           if (parsed.payload.workspaceId !== workspaceId) return;
           // Multi-select drag onto the tab bar opens only the primary file.
