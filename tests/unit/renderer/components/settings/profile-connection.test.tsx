@@ -53,7 +53,7 @@ describe("custom profile reasoning controls", () => {
     );
 
     expect(html.match(/aria-label="Max effort"/g)).toHaveLength(2);
-    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]");
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_3rem_1.5rem]");
     expect(html).toContain('<option value="auto">Auto</option>');
     expect(html).toContain('<option value="none">Unsupported</option>');
     expect(html).toContain('<option value="high">high</option>');
@@ -66,7 +66,7 @@ describe("custom profile reasoning controls", () => {
       <ProfileConnectionSection agent="codex" draft={draftOf("codex")} />,
     );
 
-    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]");
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_7rem_3rem_1.5rem]");
     expect(html).toContain('<option value="xhigh">xhigh</option>');
   });
 
