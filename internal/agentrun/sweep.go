@@ -38,7 +38,7 @@ const staleLogRetention = 7 * 24 * time.Hour
 //
 // Best-effort: I/O errors skip the entry. Returns the removed paths so the
 // caller can log them.
-func SweepStale(runDir, ownWsID string) []string {
+func SweepStale(runDir, socketDir, ownWsID string) []string {
 	entries, err := os.ReadDir(runDir)
 	if err != nil {
 		return nil
@@ -56,7 +56,7 @@ func SweepStale(runDir, ownWsID string) []string {
 			continue
 		}
 		seen[id] = true
-		removed = append(removed, sweepWorkspace(runDir, id)...)
+		removed = append(removed, sweepWorkspace(runDir, socketDir, id)...)
 	}
 	return removed
 }
@@ -78,7 +78,7 @@ func isWsID(s string) bool {
 
 // sweepWorkspace probes one foreign workspace's lock and, when its daemon is
 // provably dead, removes the stale socket and any over-retention log.
-func sweepWorkspace(runDir, id string) []string {
+func sweepWorkspace(runDir, socketDir, id string) []string {
 	lockPath := filepath.Join(runDir, id+".lock")
 	// O_CREATE is deliberately absent: probing must not manufacture new
 	// lock files for workspaces that never had one.
@@ -95,11 +95,11 @@ func sweepWorkspace(runDir, id string) []string {
 	}
 
 	var removed []string
-	sockPath := filepath.Join(runDir, id+".sock")
+	sockPath := filepath.Join(socketDir, id+".sock")
 	if err := os.Remove(sockPath); err == nil {
 		removed = append(removed, sockPath)
 	}
-	authSockPath := filepath.Join(runDir, id+".agent")
+	authSockPath := filepath.Join(socketDir, id+".agent")
 	if err := os.Remove(authSockPath); err == nil {
 		removed = append(removed, authSockPath)
 	}

@@ -7,7 +7,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildRemoteAgentCommand,
-  computeWsId,
   ensureRemoteAgent,
   ensureRemoteLspServer,
   parseUname,
@@ -307,7 +306,7 @@ describe("ssh-bootstrap", () => {
     expect(result.uploaded).toBe(false);
     expect(result.platform).toEqual({ os: "linux", arch: "amd64" });
     expect(result.remoteCommand).toBe(
-      buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo", "0.1.0"),
+      buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
     );
     // uname -ms + printf "$HOME" + echo "$SHELL" + cat manifest.json + the
     // nexus launcher + the codex wrapper — no upload round trip. The echo
@@ -1057,24 +1056,18 @@ describe("ssh-bootstrap", () => {
 
 describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
   it("rejects relative remote paths", () => {
-    expect(() =>
-      buildRemoteAgentCommand("/usr/local/bin/agent", "relative/path", "0.9.0"),
-    ).toThrow();
-    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "~/repo", "0.9.0")).toThrow();
+    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "relative/path")).toThrow();
+    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "~/repo")).toThrow();
   });
 
   it("contains daemon background start and dial retry loop", () => {
-    const cmd = buildRemoteAgentCommand(
-      "/home/user/.nexus-code/bin/agent",
-      "/home/user/repo",
-      "0.9.0",
-    );
+    const cmd = buildRemoteAgentCommand("/home/user/.nexus-code/bin/agent", "/home/user/repo");
     // Must wrap in bash -lc
     expect(cmd).toMatch(/^bash -lc/);
     // Must include --daemon flag (started as grandchild via subshell)
     expect(cmd).toContain("--daemon");
-    // Must include --dial flag (dialer as plain shell child, no exec)
-    expect(cmd).toContain("--dial");
+    // Must include --dial-workspace flag (dialer as plain shell child, no exec)
+    expect(cmd).toContain("--dial-workspace");
     // Daemon must be started in a subshell for fd isolation and detachment
     expect(cmd).toContain("( ");
     expect(cmd).toContain("& )");
@@ -1091,58 +1084,24 @@ describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
     expect(cmd).not.toContain("wait ");
   });
 
-  it("embeds the wsId-derived socket path matching computeWsId output", () => {
-    const remotePath = "/home/user/my-project";
-    const wsId = computeWsId(remotePath, "0.9.0");
-    expect(wsId).toHaveLength(16);
-    expect(wsId).toMatch(/^[0-9a-f]{16}$/);
-
-    const cmd = buildRemoteAgentCommand("/usr/bin/agent", remotePath, "0.9.0");
-    expect(cmd).toContain(wsId);
-    expect(cmd).toContain(".sock");
-  });
-
-  it.skipIf(process.platform === "win32")(
-    "passes a socket under a home with spaces as one argument",
-    () => {
-      const bin = path.join(tmpDir, "fake agent");
-      const home = path.join(tmpDir, "remote home");
-      const root = "/project";
-      const version = "0.9.0";
-      fs.writeFileSync(
-        bin,
-        '#!/bin/sh\nif [ "$1" = --dial ]; then printf "%s\\n" "$#" "$2"; fi\n',
-        { mode: 0o755 },
-      );
-
-      // Run the generated script without local login profiles overriding the remote HOME.
-      const command = buildRemoteAgentCommand(bin, root, version).replace(
-        /^bash -lc /,
-        "/bin/bash --noprofile -c ",
-      );
-      const result = spawnSync("/bin/sh", ["-c", command], {
-        cwd: tmpDir,
-        env: { ...process.env, HOME: home },
-        encoding: "utf8",
-      });
-
-      expect(result.status).toBe(0);
-      expect(result.stdout).toBe(`2\n${home}/.nexus-code/run/${computeWsId(root, version)}.sock\n`);
-    },
-  );
-
-  it("computeWsId matches Go agentrun.WsID (TestWsIDMatchesClient)", () => {
-    expect(computeWsId("/home/user/repo", "0.9.0")).toBe("750ec38c28740580");
-  });
-
-  it("gives each agent version of a workspace its own daemon socket", () => {
-    // A daemon outlives the app; an updated app must not reach the old one.
-    const before = buildRemoteAgentCommand("/usr/bin/agent", "/home/user/repo", "0.8.2");
-    const after = buildRemoteAgentCommand("/usr/bin/agent", "/home/user/repo", "0.9.0");
-    expect(computeWsId("/home/user/repo", "0.9.0")).not.toBe(
-      computeWsId("/home/user/repo", "0.8.2"),
+  it.skipIf(process.platform === "win32")("passes the complete workspace root to the host", () => {
+    const binary = path.join(tmpDir, "fake agent");
+    fs.writeFileSync(
+      binary,
+      '#!/bin/sh\nif [ "$1" = "--dial-workspace" ]; then printf "%s\\n" "$#" "$2"; fi\n',
+      { mode: 0o700 },
     );
-    expect(after).toContain(`run/${computeWsId("/home/user/repo", "0.9.0")}.sock`);
-    expect(before).not.toContain(computeWsId("/home/user/repo", "0.9.0"));
+    const remotePath = "/home/remote user/project space";
+    const command = buildRemoteAgentCommand(binary, remotePath).replace(
+      /^bash -lc /,
+      "/bin/bash --noprofile -c ",
+    );
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      cwd: tmpDir,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(`2\n${remotePath}\n`);
+    expect(command).not.toContain(".sock");
   });
 });

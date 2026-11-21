@@ -61,6 +61,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -212,7 +213,12 @@ func runDaemon(root string) {
 	// by flock probing (acquired = provably dead), so a live daemon's files
 	// are never touched; see agentrun.SweepStale. Runs after our own lock is
 	// held so only one legitimate daemon per workspace ever sweeps.
-	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
+	if err := paths.EnsureSocketDir(); err != nil {
+		agentLogger.Error("daemon socket directory unavailable", "err", err)
+		lock.Unlock()
+		os.Exit(1)
+	}
+	if removed := agentrun.SweepStale(runDir, filepath.Dir(paths.Sock), agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
 		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
 

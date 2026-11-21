@@ -40,7 +40,7 @@ func TestSweepStaleRemovesDeadDaemonFiles(t *testing.T) {
 	dir := t.TempDir()
 	lock, sock, log := mkRunFiles(t, dir, "aaaaaaaaaaaaaaaa", staleLogRetention+time.Hour)
 
-	removed := SweepStale(dir, "1111111111111111")
+	removed := SweepStale(dir, dir, "1111111111111111")
 
 	if exists(sock) {
 		t.Error("dead daemon's socket should be removed")
@@ -66,7 +66,7 @@ func TestSweepStaleRemovesDeadDaemonAgentLink(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	SweepStale(dir, "1111111111111111")
+	SweepStale(dir, dir, "1111111111111111")
 
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
 		t.Errorf("dead daemon's agent link should be removed (err=%v)", err)
@@ -79,7 +79,7 @@ func TestSweepStaleKeepsRecentLog(t *testing.T) {
 	dir := t.TempDir()
 	_, sock, log := mkRunFiles(t, dir, "bbbbbbbbbbbbbbbb", time.Hour)
 
-	SweepStale(dir, "1111111111111111")
+	SweepStale(dir, dir, "1111111111111111")
 
 	if exists(sock) {
 		t.Error("dead daemon's socket should be removed")
@@ -101,7 +101,7 @@ func TestSweepStaleSkipsLiveDaemon(t *testing.T) {
 	}
 	defer held.Unlock()
 
-	removed := SweepStale(dir, "1111111111111111")
+	removed := SweepStale(dir, dir, "1111111111111111")
 
 	if !exists(sock) || !exists(log) {
 		t.Error("live daemon's files must not be touched")
@@ -117,7 +117,7 @@ func TestSweepStaleSkipsOwnWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	_, sock, _ := mkRunFiles(t, dir, "dddddddddddddddd", staleLogRetention+time.Hour)
 
-	removed := SweepStale(dir, "dddddddddddddddd")
+	removed := SweepStale(dir, dir, "dddddddddddddddd")
 
 	if !exists(sock) {
 		t.Error("own workspace files must not be swept")
@@ -136,7 +136,7 @@ func TestSweepStaleSkipsWithoutLockFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	SweepStale(dir, "1111111111111111")
+	SweepStale(dir, dir, "1111111111111111")
 
 	if !exists(sock) {
 		t.Error("unprovable liveness → socket must be kept")
@@ -160,7 +160,7 @@ func TestSweepStaleIgnoresForeignNames(t *testing.T) {
 		}
 	}
 
-	SweepStale(dir, "1111111111111111")
+	SweepStale(dir, dir, "1111111111111111")
 
 	for _, name := range foreign {
 		if !exists(filepath.Join(dir, name)) {
