@@ -90,6 +90,14 @@ export const TranscriptRecordingSchema = z.object({
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
 
+/** One recording changed against the version the editor last read or saved. */
+export const TranscriptEditSchema = z.object({
+  id: z.string().regex(RECORDING_ID_RE),
+  before: TranscriptRecordingSchema.optional(),
+  after: TranscriptRecordingSchema.optional(),
+});
+export type TranscriptEdit = z.infer<typeof TranscriptEditSchema>;
+
 export const TranscriptFileSchema = z.object({
   version: z.literal(TRANSCRIPT_VERSION),
   recordings: z.array(TranscriptRecordingSchema),

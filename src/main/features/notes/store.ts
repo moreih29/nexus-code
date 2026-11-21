@@ -16,17 +16,21 @@
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { createLogger } from "../../../shared/log/main";
 import { withBlocks } from "../../../shared/notes/insert";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
   EMPTY_TRANSCRIPT,
+  numberSpeakers,
   peopleIn,
   RECORDING_ID_RE,
   recordingMs,
   TAKE_FILE_RE,
+  type TranscriptEdit,
   type TranscriptFile,
   TranscriptFileSchema,
+  type TranscriptRecording,
   transcriptMarkdown,
 } from "../../../shared/notes/transcript";
 import {
@@ -53,7 +57,7 @@ export const PRUNE_AFTER_MS = 10 * 60 * 1000;
 
 export class NoteError extends Error {
   constructor(
-    readonly code: "not-found" | "bad-request",
+    readonly code: "not-found" | "bad-request" | "conflict",
     message: string,
   ) {
     super(message);
@@ -75,6 +79,7 @@ export function newSketchId(now = Date.now()): string {
 export class NotesStore {
   /** By note folder: the blocks going into that note's document now, which the next wait for. */
   private readonly appendTurns = new Map<string, Promise<void>>();
+  private readonly transcriptTurns = new Map<string, Promise<void>>();
 
   constructor(
     /** The notes folder: <app data>/notes. */
@@ -278,6 +283,48 @@ export class NotesStore {
   /** Writes transcript.json, and transcript.md (with the note's title) beside it. */
   async saveTranscript(location: NoteLocation, id: string, file: TranscriptFile): Promise<void> {
     const dir = this.noteDir(location, id);
+    await this.transcriptTurn(dir, () => this.writeTranscript(dir, id, file));
+  }
+
+  /** Applies only changed recordings to the latest file, across all windows and aliases. */
+  async editTranscript(
+    location: NoteLocation,
+    id: string,
+    edits: readonly TranscriptEdit[],
+  ): Promise<void> {
+    if (!edits.length) return;
+    const dir = this.noteDir(location, id);
+    await this.transcriptTurn(dir, async () => {
+      const file = await readTranscript(dir);
+      const recordings = new Map(file.recordings.map((recording) => [recording.id, recording]));
+      for (const { id: recordingId, before, after } of edits) {
+        if ((before && before.id !== recordingId) || (after && after.id !== recordingId))
+          throw new NoteError("bad-request", "transcript edit has a different recording ID");
+        const current = recordings.get(recordingId);
+        if (sameRecording(current, after)) continue;
+        if (!sameRecording(current, before))
+          throw new NoteError("conflict", "The recording was changed in another window.");
+        if (after) recordings.set(recordingId, after);
+        else recordings.delete(recordingId);
+      }
+      await this.writeTranscript(dir, id, { ...file, recordings: [...recordings.values()] });
+    });
+  }
+
+  private transcriptTurn<T>(dir: string, work: () => Promise<T>): Promise<T> {
+    const turn = (this.transcriptTurns.get(dir) ?? Promise.resolve()).then(work);
+    const settled = turn.then(
+      () => {},
+      () => {},
+    );
+    this.transcriptTurns.set(dir, settled);
+    void settled.then(() => {
+      if (this.transcriptTurns.get(dir) === settled) this.transcriptTurns.delete(dir);
+    });
+    return turn;
+  }
+
+  private async writeTranscript(dir: string, id: string, file: TranscriptFile): Promise<void> {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
@@ -329,19 +376,21 @@ export class NotesStore {
     if (!RECORDING_ID_RE.test(recordingId))
       throw new NoteError("bad-request", `not a recording id: ${recordingId}`);
     const dir = this.noteDir(location, id);
-    const file = await readTranscript(dir);
-    for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
-      if (name.startsWith(`${recordingId}-`))
-        await this.discard(path.join(dir, NOTE_DIRS.recordings, name));
-    }
-    const next: TranscriptFile = {
-      ...file,
-      recordings: text
-        ? file.recordings.filter((r) => r.id !== recordingId)
-        : file.recordings.map((r) => (r.id === recordingId ? { ...r, audioRemoved: true } : r)),
-    };
-    await this.saveTranscript(location, id, next);
-    return next;
+    return this.transcriptTurn(dir, async () => {
+      const file = await readTranscript(dir);
+      for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
+        if (name.startsWith(`${recordingId}-`))
+          await this.discard(path.join(dir, NOTE_DIRS.recordings, name));
+      }
+      const next: TranscriptFile = {
+        ...file,
+        recordings: text
+          ? file.recordings.filter((r) => r.id !== recordingId)
+          : file.recordings.map((r) => (r.id === recordingId ? { ...r, audioRemoved: true } : r)),
+      };
+      await this.writeTranscript(dir, id, next);
+      return next;
+    });
   }
 
   /**
@@ -513,6 +562,12 @@ function summaryOf(note: NoteFile, recording?: NoteRecordingSummary): NoteSummar
     excerpt: excerptOf(note.doc),
     ...(recording ? { recording } : {}),
   };
+}
+
+function sameRecording(current?: TranscriptRecording, expected?: TranscriptRecording): boolean {
+  if (current && !current.speakerNumbers && expected?.speakerNumbers)
+    return isDeepStrictEqual(numberSpeakers(current), expected);
+  return isDeepStrictEqual(current, expected);
 }
 
 const TRANSCRIPT_JSON = "transcript.json";

@@ -1,6 +1,6 @@
 /** The notes channel's arguments and results (see shared/notes/types.ts). */
 import { z } from "zod";
-import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptFileSchema } from "../notes/transcript";
+import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptEditSchema } from "../notes/transcript";
 import { NOTE_ID_RE, SKETCH_ID_RE } from "../notes/types";
 import { WorkspaceIdSchema } from "./workspace-id";
 
@@ -102,7 +102,7 @@ export const NotesArgs = {
   hasRecordingAudio: z.object({ ...note, files: z.array(z.string().regex(TAKE_FILE_RE)) }),
   saveTranscript: z.object({
     ...note,
-    transcript: TranscriptFileSchema,
+    edits: z.array(TranscriptEditSchema),
     /** Tells the windows the note changed (a recording ended): its row recounts. */
     announce: z.boolean().optional(),
   }),

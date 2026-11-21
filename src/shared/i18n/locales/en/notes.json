@@ -238,6 +238,7 @@
       "description": "Its file moves to the Trash and its transcript is deleted.",
       "confirm": "Delete"
     },
+    "saveConflict": "This recording was changed elsewhere. Your latest changes could not be saved.",
     "saveFailed": "The transcript could not be saved: {{message}}",
     "passFailed": {
       "signed-out": "Sign in to NexusCode to transcribe again.",

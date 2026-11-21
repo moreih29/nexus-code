@@ -3,7 +3,7 @@
  * URLs the editor shows a note's pictures by.
  */
 import type { DocNode } from "../../../shared/notes/markdown";
-import type { TranscriptFile } from "../../../shared/notes/transcript";
+import type { TranscriptEdit, TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { NoteBlocksAdded, NoteChanged, NotePhotoAdded } from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
@@ -91,10 +91,10 @@ export const notesApi = {
   saveTranscript: (
     workspaceId: string,
     noteId: string,
-    transcript: TranscriptFile,
+    edits: TranscriptEdit[],
     announce = false,
   ): Promise<void> =>
-    call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, transcript, announce })),
+    call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, edits, announce })),
   appendAudio: (workspaceId: string, noteId: string, file: string, audio: Uint8Array) =>
     call(ipcCallResult("notes", "appendAudio", { workspaceId, noteId, file, audio })),
   hasRecordingAudio: (workspaceId: string, noteId: string, files: string[]) =>

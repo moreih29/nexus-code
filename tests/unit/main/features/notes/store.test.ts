@@ -395,6 +395,28 @@ describe("a note's recordings", () => {
     expect((await store.read(here, note.id)).recording?.people).toBe(2);
   });
 
+  test("a stale rename preserves independently added recordings and rejects a conflicting rename", async () => {
+    const note = await store.create(here);
+    const initial = transcript();
+    const [before] = initial.recordings;
+    if (!before) throw new Error("missing recording fixture");
+    const added = { ...before, id: "rmhz00cc0abce" };
+    const after = { ...before, speakers: { "1": "Pat" } };
+    await store.saveTranscript(here, note.id, initial);
+    await Promise.all([
+      store.editTranscript(here, note.id, [{ id: added.id, after: added }]),
+      store.editTranscript(here, note.id, [{ id: before.id, before, after }]),
+    ]);
+
+    expect((await store.readTranscript(here, note.id)).recordings).toEqual([after, added]);
+    await expect(
+      store.editTranscript(here, note.id, [
+        { id: before.id, before, after: { ...before, speakers: { "1": "Alex" } } },
+      ]),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect((await store.readTranscript(here, note.id)).recordings).toEqual([after, added]);
+  });
+
   test("a take's audio is written piece by piece, only under recordings/", async () => {
     const note = await store.create(here, "");
     expect(await store.hasRecordingAudio(here, note.id, [])).toBe(false);

@@ -1,18 +1,20 @@
 /**
  * Notes' transcripts in the renderer: loaded once per note, changed here
  * (by the recorder as words come, by the user naming voices), and written
- * back to transcript.json a moment after each change. One window records;
- * the others read the file when they open the note.
+ * back to transcript.json a moment after each change. A task and its parent
+ * share a cache, and writes only replace the recordings changed here.
  */
 import i18next from "i18next";
 import { create } from "zustand";
 import {
   EMPTY_TRANSCRIPT,
   numberSpeakers,
+  type TranscriptEdit,
   type TranscriptFile,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
 import { showToast } from "../../components/ui/toast";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { notesApi } from "./api";
 
 /** How long after a change the transcript is written. */
@@ -26,12 +28,17 @@ interface TranscriptsState {
 export const useTranscriptsStore = create<TranscriptsState>(() => ({ byNote: {} }));
 
 export function transcriptKey(workspaceId: string, noteId: string): string {
-  return `${workspaceId}/${noteId}`;
+  const workspaces = useWorkspacesStore.getState().workspaces;
+  const parentId = workspaces.find((workspace) => workspace.id === workspaceId)?.task?.parentId;
+  const owner =
+    parentId && workspaces.some((workspace) => workspace.id === parentId) ? parentId : workspaceId;
+  return `${owner}/${noteId}`;
 }
 
 const loading = new Map<string, Promise<TranscriptFile>>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const writes = new Map<string, Promise<void>>();
+const savedFiles = new Map<string, TranscriptFile>();
 let toldSaveFailure = false;
 
 /** The note's transcript, read from its folder the first time. */
@@ -53,6 +60,7 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
           ...file,
           recordings: file.recordings.map((r) => (r.speakerNumbers ? r : numberSpeakers(r))),
         };
+        savedFiles.set(key, numbered);
         useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: numbered } }));
         return numbered;
       })
@@ -118,7 +126,14 @@ export function flushTranscript(
   const file = useTranscriptsStore.getState().byNote[key];
   const before = writes.get(key) ?? Promise.resolve();
   if (!file) return before;
-  const write = before.then(() => notesApi.saveTranscript(workspaceId, noteId, file, announce));
+  const write = before.then(async () => {
+    if (!useTranscriptsStore.getState().byNote[key]) return;
+    const saved = savedFiles.get(key) ?? EMPTY_TRANSCRIPT;
+    const edits = changedRecordings(saved, file);
+    if (!edits.length && !announce) return;
+    await notesApi.saveTranscript(workspaceId, noteId, edits, announce);
+    if (useTranscriptsStore.getState().byNote[key]) savedFiles.set(key, file);
+  });
   const reported = write.then(
     () => {
       toldSaveFailure = false;
@@ -129,14 +144,32 @@ export function flushTranscript(
       toldSaveFailure = true;
       showToast({
         kind: "error",
-        message: i18next.t("notes:transcript.saveFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
+        message:
+          error instanceof Error && "kind" in error && error.kind === "conflict"
+            ? i18next.t("notes:transcript.saveConflict")
+            : i18next.t("notes:transcript.saveFailed", {
+                message: error instanceof Error ? error.message : String(error),
+              }),
       });
     },
   );
   writes.set(key, reported);
+  void reported.then(() => {
+    if (writes.get(key) === reported) writes.delete(key);
+  });
   return reportFailure ? write : reported;
+}
+
+function changedRecordings(saved: TranscriptFile, file: TranscriptFile): TranscriptEdit[] {
+  const previous = new Map(saved.recordings.map((recording) => [recording.id, recording]));
+  const edits: TranscriptEdit[] = [];
+  for (const after of file.recordings) {
+    const before = previous.get(after.id);
+    previous.delete(after.id);
+    if (before !== after) edits.push({ id: after.id, ...(before && { before }), after });
+  }
+  for (const [id, before] of previous) edits.push({ id, before });
+  return edits;
 }
 
 /** Names a voice of a recording (an empty name takes the name away). */
@@ -164,9 +197,10 @@ export async function removeRecording(
   recordingId: string,
   text: boolean,
 ): Promise<void> {
-  await flushTranscript(workspaceId, noteId);
+  await flushTranscript(workspaceId, noteId, false, true);
   const next = await notesApi.removeRecording(workspaceId, noteId, recordingId, text);
   const key = transcriptKey(workspaceId, noteId);
+  savedFiles.set(key, next);
   useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: next } }));
 }
 
@@ -174,6 +208,7 @@ export async function removeRecording(
 export function dropTranscript(workspaceId: string, noteId: string): void {
   const key = transcriptKey(workspaceId, noteId);
   loading.delete(key);
+  savedFiles.delete(key);
   clearTimeout(timers.get(key));
   timers.delete(key);
   useTranscriptsStore.setState((s) => {
