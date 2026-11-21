@@ -157,7 +157,7 @@ export class GitRepository {
   stage(relPaths: readonly string[], signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       if (relPaths.length === 0) return;
-      await this.run(["add", "--", ...relPaths], queuedSignal);
+      await this.runForPaths(["add"], relPaths, queuedSignal);
     }, signal);
   }
 
@@ -167,7 +167,7 @@ export class GitRepository {
   unstage(relPaths: readonly string[], signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       if (relPaths.length === 0) return;
-      await this.run(["reset", "-q", "--", ...relPaths], queuedSignal);
+      await this.runForPaths(["reset", "-q"], relPaths, queuedSignal);
     }, signal);
   }
 
@@ -204,26 +204,28 @@ export class GitRepository {
       const pathsets = collectDiscardPathsets(status, relPaths, options);
 
       if (pathsets.resetIndexPaths.length > 0) {
-        await this.run(["reset", "-q", "--", ...pathsets.resetIndexPaths], queuedSignal);
+        await this.runForPaths(["reset", "-q"], pathsets.resetIndexPaths, queuedSignal);
       }
       if (pathsets.restoreWorktreePaths.length > 0) {
-        await this.run(
-          ["restore", "--worktree", "--", ...pathsets.restoreWorktreePaths],
+        await this.runForPaths(
+          ["restore", "--worktree"],
+          pathsets.restoreWorktreePaths,
           queuedSignal,
         );
       }
       if (pathsets.restoreAllPaths.length > 0) {
-        await this.run(
-          ["restore", "--staged", "--worktree", "--", ...pathsets.restoreAllPaths],
+        await this.runForPaths(
+          ["restore", "--staged", "--worktree"],
+          pathsets.restoreAllPaths,
           queuedSignal,
         );
       }
       if (pathsets.resetThenCleanPaths.length > 0) {
-        await this.run(["reset", "-q", "--", ...pathsets.resetThenCleanPaths], queuedSignal);
-        await this.run(["clean", "-f", "--", ...pathsets.resetThenCleanPaths], queuedSignal);
+        await this.runForPaths(["reset", "-q"], pathsets.resetThenCleanPaths, queuedSignal);
+        await this.runForPaths(["clean", "-f"], pathsets.resetThenCleanPaths, queuedSignal);
       }
       if (pathsets.cleanPaths.length > 0) {
-        await this.run(["clean", "-f", "--", ...pathsets.cleanPaths], queuedSignal);
+        await this.runForPaths(["clean", "-f"], pathsets.cleanPaths, queuedSignal);
       }
     }, signal);
   }
@@ -1095,14 +1097,20 @@ export class GitRepository {
         // utf-8 bytes we sent in. Filenames containing literal `\n` would
         // still defeat the parser; those are vanishingly rare in real repos
         // and would already break most Git tooling.
+        // check-ignore accepts filenames but rejects --literal-pathspecs.
+        // A leading ./ keeps colon-prefixed names out of its magic parser.
+        const checkedPaths = new Map(
+          relPaths.map((file) => [file.startsWith(":") ? `./${file}` : file, file]),
+        );
         const { stdout } = await this.run(
-          ["-c", "core.quotePath=false", "check-ignore", "--", ...relPaths],
+          ["-c", "core.quotePath=false", "check-ignore", "--", ...checkedPaths.keys()],
           queuedSignal,
         );
         return stdout
           .split("\n")
           .map((line) => line.trimEnd()) // strip CR on Windows
-          .filter((p) => p.length > 0);
+          .filter((p) => p.length > 0)
+          .map((file) => checkedPaths.get(file) ?? file);
       } catch (err) {
         if (err instanceof GitError && err.exitCode === 1) return [];
         throw err;
@@ -1275,15 +1283,29 @@ export class GitRepository {
   /**
    * Runs a buffered git command within the already-acquired queue slot.
    */
-  private run(args: readonly string[], signal: AbortSignal): Promise<RunGitResult> {
+  private run(
+    args: readonly string[],
+    signal: AbortSignal,
+    env?: NodeJS.ProcessEnv,
+  ): Promise<RunGitResult> {
     throwIfAborted(signal);
     return this.executor.run({
       bin: this.binPath,
       cwd: this.topLevel,
       args,
+      ...(env ? { env } : {}),
       interactive: false,
       signal,
     });
+  }
+
+  /** Runs Git on selected filenames without interpreting them as pathspec patterns. */
+  private runForPaths(
+    args: readonly string[],
+    paths: readonly string[],
+    signal: AbortSignal,
+  ): Promise<RunGitResult> {
+    return this.run([...args, "--", ...paths], signal, { GIT_LITERAL_PATHSPECS: "1" });
   }
 
   /**

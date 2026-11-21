@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AgentBackedProvider } from "../../../../../../src/main/features/fs/bridge/provider";
 import { AgentGitExecutor } from "../../../../../../src/main/features/git/bridge/agent-executor";
+import { GitRepository } from "../../../../../../src/main/features/git/domain/repository";
 import {
   GIT_BLOB_CHUNK_EVENT,
   GIT_BLOB_METHOD,
@@ -9,6 +10,7 @@ import {
   GIT_DIFF_METHOD,
   GIT_LOG_BATCH_EVENT,
   GIT_LOG_METHOD,
+  GIT_RUN_METHOD,
   GIT_STATUS_METHOD,
   GIT_STREAM_CHUNK_EVENT,
   GIT_STREAM_METHOD,
@@ -18,6 +20,31 @@ import {
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
 } from "../../../../../../src/shared/git/types";
+
+import { stubMetadataReader } from "../helpers/local-semantic-executor";
+
+test("selected path mutations carry the literal option through git.run", async () => {
+  const call = mock(async () => ({ stdout: "", stderr: "", code: 0 }));
+  const repo = new GitRepository(
+    "workspace",
+    "/repo",
+    "/repo/.git",
+    "git",
+    new AgentGitExecutor(fakeProvider(call)),
+    stubMetadataReader,
+  );
+
+  await repo.stage(["[id].ts"]);
+
+  expect(call).toHaveBeenCalledWith(
+    GIT_RUN_METHOD,
+    expect.objectContaining({
+      args: ["add", "--", "[id].ts"],
+      env: { GIT_LITERAL_PATHSPECS: "1" },
+    }),
+    undefined,
+  );
+});
 
 describe("AgentGitExecutor.status", () => {
   test("calls git.status and validates the GitStatus result schema", async () => {
@@ -98,14 +125,22 @@ describe("AgentGitExecutor semantic streams", () => {
       if (method === GIT_CANCEL_METHOD) return {};
       expect(method).toBe(GIT_LOG_METHOD);
       const streamId = readStreamId(params);
-      expect(params).toMatchObject({ cwd: "/repo", scope: "ref", skip: 3, limit: 1 });
+      expect(params).toMatchObject({
+        cwd: "/repo",
+        scope: "ref",
+        skip: 3,
+        limit: 1,
+        paths: ["[id].ts"],
+      });
       emit(GIT_LOG_BATCH_EVENT, { streamId: "other", entries: [logEntry("wrong")] });
       emit(GIT_LOG_BATCH_EVENT, { streamId, entries: [logEntry("right")] });
       return { count: 1, hasMore: false, totalScanned: 2 };
     });
     const executor = new AgentGitExecutor(provider);
 
-    const actual = await drain(executor.log({ cwd: "/repo", scope: "ref", skip: 3, limit: 1 }));
+    const actual = await drain(
+      executor.log({ cwd: "/repo", scope: "ref", skip: 3, limit: 1, paths: ["[id].ts"] }),
+    );
 
     expect(actual.chunks.map((chunk) => chunk.entries.map((entry) => entry.sha))).toEqual([
       ["right"],
@@ -118,14 +153,16 @@ describe("AgentGitExecutor semantic streams", () => {
       if (method === GIT_CANCEL_METHOD) return {};
       expect(method).toBe(GIT_DIFF_METHOD);
       const streamId = readStreamId(params);
-      expect(params).toMatchObject({ cwd: "/repo", cached: true });
+      expect(params).toMatchObject({ cwd: "/repo", cached: true, paths: ["[id].ts"] });
       emit(GIT_DIFF_CHUNK_EVENT, { streamId: "other", text: "wrong" });
       emit(GIT_DIFF_CHUNK_EVENT, { streamId, text: "right" });
       return { bytes: 5, truncated: false };
     });
     const executor = new AgentGitExecutor(provider);
 
-    const actual = await drain(executor.diff({ cwd: "/repo", spec: { kind: "index-vs-head" } }));
+    const actual = await drain(
+      executor.diff({ cwd: "/repo", spec: { kind: "index-vs-head", relPath: "[id].ts" } }),
+    );
 
     expect(actual.chunks).toEqual([{ text: "right" }]);
     expect(actual.complete).toEqual({ bytes: 5, truncated: false });

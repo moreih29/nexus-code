@@ -46,6 +46,39 @@ function makeLocalWorkspace(): WorkspaceMeta {
 }
 
 describe("trashHandler", () => {
+  it.skipIf(process.platform === "win32")(
+    "sends a dangling symlink to the trash bridge",
+    async () => {
+      const link = path.join(tmpRoot, "link");
+      await fs.promises.symlink("missing-target", link);
+      const shell = { trashItem: mock(async (_abs: string) => {}) };
+
+      await trashHandler(
+        makeManager(makeLocalWorkspace()) as never,
+        shell,
+      )({
+        workspaceId: WORKSPACE_ID,
+        relPath: "link",
+      });
+
+      expect(shell.trashItem).toHaveBeenCalledWith(link);
+    },
+  );
+
+  it("keeps a missing directory entry idempotent", async () => {
+    const shell = { trashItem: mock(async (_abs: string) => {}) };
+
+    await trashHandler(
+      makeManager(makeLocalWorkspace()) as never,
+      shell,
+    )({
+      workspaceId: WORKSPACE_ID,
+      relPath: "already-removed",
+    });
+
+    expect(shell.trashItem).not.toHaveBeenCalled();
+  });
+
   it("refuses SSH workspaces with UNSUPPORTED_REMOTE", async () => {
     const shell = { trashItem: mock(async (_abs: string) => {}) };
     const workspace: WorkspaceMeta = {

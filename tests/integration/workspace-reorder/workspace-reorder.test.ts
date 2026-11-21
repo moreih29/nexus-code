@@ -24,6 +24,7 @@ import { applyMigrations } from "../../../src/main/infra/storage/migrations";
 import { StateService } from "../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-storage";
 import { createWorkspacesStore } from "../../../src/renderer/state/stores/workspaces";
+import { WorkspaceReorderedEventSchema } from "../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -411,9 +412,8 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     expect(ch).toBe("workspace");
     expect(ev).toBe("reordered");
 
-    // The reordered event must carry an array of all rows in the group.
-    expect(Array.isArray(args)).toBe(true);
-    const orders = args as Array<{ id: string; sortOrder: number }>;
+    // The reordered event must carry all rows in the group in the IPC envelope.
+    const { orders } = WorkspaceReorderedEventSchema.parse(args);
     expect(orders.length).toBeGreaterThanOrEqual(3);
 
     // After rebalance, uuid(101) and uuid(102) get step-1024 positions.

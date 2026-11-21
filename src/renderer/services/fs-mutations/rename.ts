@@ -7,7 +7,7 @@ import { retargetEditorTabs } from "@/services/editor/tabs";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { basename, relPath } from "@/utils/path";
-import { FS_ERROR } from "../../../shared/fs/errors";
+import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import { listDirNames } from "./dir-listing";
 import { toFsToast } from "./errors";
 
@@ -85,38 +85,35 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     return false;
   }
 
-  // Pre-check the destination directory for a name collision. Doing it
-  // ourselves (rather than letting the agent's rename throw ALREADY_EXISTS)
-  // keeps the main-process IPC log clean AND lets us prompt the user the way
-  // VSCode does. If the readdir itself fails we fall through and let the
-  // rename surface the genuine error.
-  let overwrite = false;
-  try {
-    const dstDirRel = relPath(input.dstDirAbsPath, input.workspaceRootPath);
-    const existing = await listDirNames(input.workspaceId, dstDirRel);
-    if (existing.has(name)) {
-      const ok = await showConfirmDialog({
-        title: i18next.t("files:fileTree.move.replaceTitle"),
-        description: i18next.t("files:fileTree.move.replaceDescription", { name }),
-        confirmLabel: i18next.t("files:fileTree.move.replace"),
-        variant: "destructive",
-      });
-      if (!ok) return false;
-      overwrite = true;
-    }
-  } catch {
-    // readdir failed (e.g. permission) — proceed and let rename report it.
-  }
+  const confirmReplace = () =>
+    showConfirmDialog({
+      title: i18next.t("files:fileTree.move.replaceTitle"),
+      description: i18next.t("files:fileTree.move.replaceDescription", { name }),
+      confirmLabel: i18next.t("files:fileTree.move.replace"),
+      variant: "destructive",
+    });
+  const rename = (overwrite: boolean) =>
+    ipcCallResult("fs", "rename", {
+      workspaceId: input.workspaceId,
+      fromRelPath: fromRel,
+      toRelPath: toRel,
+      overwrite,
+    }).then(unwrapIpcResult);
 
   try {
-    unwrapIpcResult(
-      await ipcCallResult("fs", "rename", {
-        workspaceId: input.workspaceId,
-        fromRelPath: fromRel,
-        toRelPath: toRel,
-        overwrite,
-      }),
-    );
+    const dstDirRel = relPath(input.dstDirAbsPath, input.workspaceRootPath);
+    const existing = await listDirNames(input.workspaceId, dstDirRel).catch(() => null);
+    const overwrite = existing?.has(name) ?? false;
+    if (overwrite && !(await confirmReplace())) return false;
+
+    try {
+      await rename(overwrite);
+    } catch (error) {
+      // The destination filesystem may match names the listing did not.
+      if (overwrite || !hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) throw error;
+      if (!(await confirmReplace())) return false;
+      await rename(true);
+    }
   } catch (e: unknown) {
     toFsToast(e, {
       fallback: i18next.t("files:fileTree.move.failed"),

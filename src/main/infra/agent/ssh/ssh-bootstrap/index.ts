@@ -436,7 +436,7 @@ export function buildRemoteAgentCommand(
   const script =
     `p=0; while :; do ` +
     `( ${bin} --daemon ${root} </dev/null >/dev/null 2>&1 & ); ` +
-    `${bin} --dial ${sockPath}; rc=$?; ` +
+    `${bin} --dial "${sockPath}"; rc=$?; ` +
     `if [ $rc -ne 4 ]; then exit $rc; fi; ` +
     `p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2; ` +
     `done`;

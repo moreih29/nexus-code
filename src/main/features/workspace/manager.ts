@@ -876,14 +876,16 @@ export class WorkspaceManager {
 
     // Broadcast outside the transaction so IPC calls never run inside a DB lock.
     if (result.rebalancedRows) {
-      // Merge the reordered workspace's new values into the rebalanced set so
-      // every row in the group is accounted for in the bulk event.
-      const merged = result.rebalancedRows.map((r) =>
-        r.id === id
-          ? { id: r.id, sortOrder: finalMeta.sortOrder, pinnedSortOrder: finalMeta.pinnedSortOrder }
-          : r,
+      const orders = new Map(
+        result.rebalancedRows.map((row) => [row.id, { ...row, pinned: finalMeta.pinned }]),
       );
-      this.broadcastFn("workspace", "reordered", merged);
+      orders.set(id, {
+        id,
+        sortOrder: finalMeta.sortOrder,
+        pinnedSortOrder: finalMeta.pinnedSortOrder,
+        pinned: finalMeta.pinned,
+      });
+      this.broadcastFn("workspace", "reordered", { orders: [...orders.values()] });
     } else {
       this.broadcastFn("workspace", "changed", finalMeta);
     }

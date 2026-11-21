@@ -1,3 +1,4 @@
+import { createAbortError } from "../../../../shared/abort";
 import { createLogger } from "../../../../shared/log/main";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import type { AgentChannel } from "../../../infra/agent/channel";
@@ -110,52 +111,50 @@ export class LocalWorkspaceConnections {
       this.handleLocalChannelLifecycle(meta.id, channel, event);
     });
 
+    const ownsChannel = () => this.localChannels.get(meta.id) === channel;
+    const checkBoot = () => {
+      if (!this.state.isLiveContext(meta.id, ctx)) throw createWorkspaceRemovedError(meta.id);
+      if (!ownsChannel())
+        throw createAbortError(`Agent changed while workspace ${meta.id} was starting`);
+    };
+    let shimStarted = false;
     try {
       await channel.ready;
+      checkBoot();
+
+      let info: HookInfo | null;
+      try {
+        info = await this.hooks.readHookInfo(meta.id, channel);
+      } catch (error) {
+        checkBoot();
+        log.warn(`agent hook setup failed for ${meta.id}: ${(error as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(error as Error).message}`, { cause: error });
+      }
+      checkBoot();
+      if (!this.localHookRefreshes.has(channel)) this.hooks.cacheHookInfo(meta.id, info);
+
+      shimStarted = true;
+      try {
+        await this.state.writeShimFiles(meta.id);
+      } catch (error) {
+        log.warn(
+          `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(error as Error).message}`,
+        );
+      }
+      checkBoot();
     } catch (error) {
       disposeLifecycleListener();
-      if (this.localChannels.get(meta.id) === channel) {
-        this.localChannels.delete(meta.id);
-      }
-      channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(meta));
-      throw error;
-    }
-
-    try {
-      const info = await this.hooks.readHookInfo(meta.id, channel);
-      if (this.localChannels.get(meta.id) === channel && !this.localHookRefreshes.has(channel)) {
-        this.hooks.cacheHookInfo(meta.id, info);
-      }
-    } catch (err) {
-      disposeLifecycleListener();
-      if (this.localChannels.get(meta.id) === channel) {
-        this.localChannels.delete(meta.id);
-      }
       this.finishLocalHookRefresh(channel);
+      if (ownsChannel()) {
+        this.localChannels.delete(meta.id);
+        this.hooks.clear(meta.id);
+      }
       channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(meta));
-      log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
-      throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
-    }
-
-    // Write the PTY shim files into the workspace-specific directory.
-    // On failure only the PATH priority breaks (the hook itself works via the absolute path in settings.json),
-    // so warn gracefully and continue booting.
-    try {
-      await this.state.writeShimFiles(meta.id);
-    } catch (shimErr) {
-      log.warn(
-        `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
-      );
-    }
-
-    if (!this.state.isLiveContext(meta.id, ctx)) {
-      disposeLifecycleListener();
-      channel.dispose();
-      // remove() already deleted the shim dir; this boot rewrote it.
-      this.state.removeShimDirQuietly(meta.id);
-      throw createWorkspaceRemovedError(meta.id);
+      if (shimStarted && !this.state.isLiveContext(meta.id, ctx)) {
+        // The workspace was removed before its pending shim write finished.
+        this.state.removeShimDirQuietly(meta.id);
+      }
+      throw error;
     }
 
     const provider = new AgentFsProvider("local", channel);
@@ -164,10 +163,10 @@ export class LocalWorkspaceConnections {
       this.finishLocalHookRefresh(channel);
       provider.dispose();
       channel.dispose();
-      if (this.localChannels.get(meta.id) === channel) {
+      if (ownsChannel()) {
         this.localChannels.delete(meta.id);
+        this.localProviderReady.delete(meta.id);
       }
-      this.localProviderReady.delete(meta.id);
     });
     this.state.notifyProviderReady(meta.id, provider);
   }

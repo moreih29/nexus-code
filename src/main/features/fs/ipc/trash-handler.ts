@@ -46,12 +46,13 @@ export function trashHandler(
       throw e;
     }
 
-    // Pre-check existence. Without this, `shell.trashItem` on a missing
+    // Check the directory entry itself so dangling symlinks can be trashed.
+    // Without this check, `shell.trashItem` on a missing
     // path surfaces as a generic "Failed to move … to trash" message that
     // hasFsErrorCode cannot classify. We mirror `fs.removeAll`'s
     // idempotent-missing posture instead.
     try {
-      await fs.promises.access(abs);
+      await fs.promises.lstat(abs);
     } catch (e: unknown) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return; // idempotent no-op

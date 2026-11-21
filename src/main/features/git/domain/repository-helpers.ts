@@ -41,6 +41,7 @@ export function buildDiffArgs(spec: DiffSpec): string[] {
 
   const pathspecs = collectDiffPathspecs(spec);
   if (pathspecs.length > 0) {
+    args.unshift("--literal-pathspecs");
     args.push("--", ...pathspecs);
   }
 

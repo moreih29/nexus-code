@@ -159,6 +159,45 @@ function makeSshMeta(
   });
 }
 
+test("first SSH bootstrap preserves metadata edited while connecting", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const platform = { os: "linux", arch: "amd64" } as const;
+  const channel = new StubChannel();
+  channel.resolveChannel();
+  const { manager, broadcasts } = makeManager({
+    sshBootstrap: async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        remoteCommand: "exec agent",
+        remoteHome: "/home/user",
+        remoteBinDir: "/home/user/bin",
+        uploaded: false,
+        platform,
+      };
+    },
+    sshChannelFactory: () => channel as never,
+  });
+
+  try {
+    const meta = makeSshMeta(manager);
+    const connecting = manager.connect(meta.id);
+    await started.promise;
+    manager.update(meta.id, { name: "renamed", pinned: true });
+    release.resolve();
+    await connecting;
+
+    const expected = { name: "renamed", pinned: true, location: { remoteArch: platform } };
+    expect(manager.requireContext(meta.id).getMeta()).toMatchObject(expected);
+    expect(broadcasts.filter(({ event }) => event === "changed").at(-1)?.args).toMatchObject(
+      expected,
+    );
+  } finally {
+    manager.close();
+  }
+});
+
 test("a slow SSH connection cannot replace the most recently selected workspace", async () => {
   const slow = new StubChannel();
   const fast = new StubChannel();
