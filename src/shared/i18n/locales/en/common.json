@@ -1911,6 +1911,7 @@
     },
     "remote": {
       "title": "Other computers",
+      "needsSignIn": "Sign in to see your other computers here",
       "loading": "Loading…",
       "unavailable": "No remote response",
       "empty": "No sessions",

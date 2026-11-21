@@ -1911,6 +1911,7 @@
     },
     "remote": {
       "title": "다른 컴퓨터",
+      "needsSignIn": "로그인하면 다른 컴퓨터가 여기에 표시됩니다",
       "loading": "불러오는 중…",
       "unavailable": "원격 응답 없음",
       "empty": "세션 없음",

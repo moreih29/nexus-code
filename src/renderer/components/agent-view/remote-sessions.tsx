@@ -45,6 +45,7 @@ import type { RoomPeer } from "../../../shared/remote/room";
 import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
+import { useRemoteAccount } from "../../services/remote/account";
 import {
   offlinePeers,
   type PeerSessions,
@@ -58,12 +59,14 @@ import {
 } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
+import { Button } from "../ui/button";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -197,30 +200,21 @@ function toggleWorkspace(current: ReadonlySet<string>, id: string): ReadonlySet<
 
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
   const { t } = useTranslation();
+  const signedOut = useRemoteAccount()?.status === "signed-out";
   const room = useRemoteRoom();
+  const outdated = room?.status === "outdated";
   // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
   const seen = useShownRoom(room);
   const peers = servingPeers(seen);
   // Searching, an offline computer has no sessions to find.
-  const away = query.trim() ? [] : offlinePeers(seen);
+  const searching = query.trim() !== "";
+  const away = searching ? [] : offlinePeers(seen);
   const lists = usePeerSessions(
     servingPeers(room).map((p) => p.id),
     shown,
   );
-  if (room?.status === "outdated") {
-    return (
-      <section
-        className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
-        data-testid="remote-sessions"
-      >
-        <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
-          {t("agentView.remote.title")}
-        </h3>
-        <OutdatedLine />
-      </section>
-    );
-  }
-  if (peers.length === 0 && away.length === 0) return null;
+  if (signedOut && searching) return null;
+  if (!signedOut && !outdated && peers.length === 0 && away.length === 0) return null;
   return (
     // A line apart from this computer's, and between the computers: a space
     // only between workspaces, a line between the larger groups.
@@ -231,14 +225,33 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
       <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
         {t("agentView.remote.title")}
       </h3>
-      <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
-        {peers.map((peer) => (
-          <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
-        ))}
-        {away.map((peer) => (
-          <OfflinePeer key={peer.id} peer={peer} />
-        ))}
-      </div>
+      {signedOut ? (
+        <div className="flex items-baseline gap-1.5 px-2 py-1">
+          <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
+            {t("agentView.remote.needsSignIn")}
+          </span>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-6 px-0 text-app-micro"
+            onClick={() => useSettingsUIStore.getState().openSettingsAt("remote")}
+          >
+            {t("voice.signIn")}
+          </Button>
+        </div>
+      ) : outdated ? (
+        <OutdatedLine />
+      ) : (
+        <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+          {peers.map((peer) => (
+            <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
+          ))}
+          {away.map((peer) => (
+            <OfflinePeer key={peer.id} peer={peer} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
