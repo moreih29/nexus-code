@@ -78,7 +78,7 @@ export async function peerChatTool(
 }
 
 const CHATS: readonly RemoteSession["kind"][] = ["claude", "codex"];
-/** Most items chat read --all or --since reads back through, a page at a time. */
+/** Most items one chat read returns, across all its pages. */
 const MAX_ITEMS = 5_000;
 
 /** Where a remote tab is, as JSON names it. */
@@ -271,7 +271,6 @@ export async function waitOnPeer(
 export interface PeerReadQuery {
   readonly messages?: number;
   readonly since?: number;
-  readonly all: boolean;
   readonly subagents: boolean;
 }
 
@@ -291,6 +290,7 @@ export async function readPeerChat(
   info: CliChatInfo;
   entries: CliChatEntry[];
   end: number;
+  nextSince?: number;
 }> {
   const peer = await resolvePeerTab(
     ctx,
@@ -299,39 +299,45 @@ export async function readPeerChat(
     selector,
     CHATS,
   );
-  const back = query.all || query.since !== undefined;
-  let page = await askDevice(ctx, device, "chat.read", {
-    ...target(peer),
-    limit: back ? MAX_READ_ITEMS : Math.min(query.messages ?? 20, MAX_READ_ITEMS),
-  });
-  // Cleared or rewound since #since: from its start, as here.
-  const end = page.total - 1;
+  const readPage = (limit: number, before?: number) =>
+    askDevice(
+      ctx,
+      device,
+      "chat.read",
+      { ...target(peer), limit, ...(before === undefined ? {} : { before }) },
+      ctx.signal,
+    );
+  let page = await readPage(Math.min(query.messages ?? MAX_READ_ITEMS, MAX_READ_ITEMS));
+  const { total } = page;
+  const end = total - 1;
+  // A cursor past the end belongs to a conversation that was cleared or rewound.
   const since = query.since !== undefined && query.since <= end ? query.since : -1;
-  if (back) {
-    let read = page.items.length;
-    while (page.start > since + 1 && page.start > 0 && read < MAX_ITEMS) {
-      const before = await askDevice(ctx, device, "chat.read", {
-        ...target(peer),
-        before: page.start,
-        limit: MAX_READ_ITEMS,
-      });
-      if (before.items.length === 0) break;
-      read += before.items.length;
-      page = {
-        ...page,
-        start: before.start,
-        items: [...before.items, ...page.items],
-        tools: { ...before.tools, ...page.tools },
-      };
+  const first = Math.max(since + 1, total - (query.messages ?? total));
+  const stop = Math.min(total, first + MAX_ITEMS);
+  const readBefore = async (before: number) => {
+    const previous = await readPage(Math.min(before - first, MAX_READ_ITEMS), before);
+    if (previous.items.length === 0 || previous.start + previous.items.length !== before) {
+      throw new CliError("the remote conversation changed while reading; run chat read again");
     }
+    return previous;
+  };
+  // Start at the first batch of the requested range so its cursor can be resumed.
+  if (stop < total) page = await readBefore(stop);
+  while (page.start > first) {
+    const before = await readBefore(page.start);
+    page = {
+      ...page,
+      start: before.start,
+      items: [...before.items, ...page.items],
+      tools: { ...before.tools, ...page.tools },
+    };
   }
   const { entries: all } = await ctx.services.ui("chat.pageEntries", {
     page,
     ...(query.subagents ? { subagents: true } : {}),
   });
-  const after = all.filter((entry) => entry.i > since);
-  const entries =
-    query.messages === undefined ? after : after.slice(Math.max(0, after.length - query.messages));
+  const selected = all.filter((entry) => entry.i >= first);
+  const entries = query.messages === undefined ? selected : selected.slice(-query.messages);
   const now = await askDevice(ctx, device, "chat.wait", { ...target(peer), timeoutMs: 1 });
   const info: CliChatInfo = {
     agent: page.status.agent,
@@ -341,7 +347,7 @@ export async function readPeerChat(
     ...(peer.session.since !== undefined ? { since: peer.session.since } : {}),
     ...(peer.session.profile ? { profile: peer.session.profile } : {}),
   };
-  return { peer, info, entries, end };
+  return { peer, info, entries, end, ...(stop < total ? { nextSince: stop - 1 } : {}) };
 }
 
 /** chat new --device: a tab in a workspace of the other computer, sent the prompt if given. */

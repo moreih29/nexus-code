@@ -276,7 +276,10 @@ describe("chat read --device", () => {
 
   test("tells the page as chat read does, with where it stands and the computer in JSON", async () => {
     const app = withPeer({
-      "chat.read": () => page(28, ["Review it", "Looks fine."]),
+      "chat.read": ({ before }) =>
+        before === undefined
+          ? page(28, ["Review it", "Looks fine."])
+          : { ...page(10, []), items: Array.from({ length: 18 }, () => ({ kind: "notice" })) },
       "chat.wait": () => ({ done: true, state: "idle", message: "Looks fine." }),
     });
     const result = await nexus(app, ["chat", "read", "Review", "--device", "Mac mini"]);
@@ -306,9 +309,7 @@ describe("chat read --device", () => {
   test("--since reads back a page at a time to after #I", async () => {
     const app = withPeer({
       "chat.read": (params) =>
-        params.before === undefined
-          ? page(26, ["c", "d", "e", "f"])
-          : page(22, ["a", "b", "x", "y"]),
+        params.before === undefined ? page(26, ["c", "d", "e", "f"]) : page(24, ["x", "y"]),
       "chat.wait": () => ({ done: false, state: "working" }),
     });
     const result = await nexus(app, [
@@ -329,8 +330,78 @@ describe("chat read --device", () => {
     expect(lines.at(-1)).toMatchObject({ state: "working" });
     expect(asked(app, "chat.read")).toEqual([
       { workspaceId: SITE, tabId: REVIEW, limit: 500, from: expect.any(Object) },
-      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 500, from: expect.any(Object) },
+      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 2, from: expect.any(Object) },
     ]);
+  });
+  function withLongChat() {
+    const total = 5200;
+    return withPeer({
+      "chat.read": ({ before, limit }) => {
+        const stop = Number(before ?? total);
+        const start = Math.max(0, stop - Number(limit));
+        return {
+          ...page(start, []),
+          total,
+          items: Array.from({ length: stop - start }, (_, i) => ({
+            kind: "user",
+            key: String(start + i),
+            text: `Message ${start + i}`,
+            images: [],
+          })),
+        };
+      },
+      "chat.wait": () => ({ done: true, state: "idle" }),
+    });
+  }
+
+  test("reads more than one page for --messages", async () => {
+    const app = withLongChat();
+    const result = await nexus(app, [
+      "chat",
+      "read",
+      "Review",
+      "--device",
+      "Mac mini",
+      "--messages",
+      "600",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    const { entries, last, more } = JSON.parse(result.stdout);
+    expect(entries.map((entry: { i: number }) => entry.i)).toEqual(
+      Array.from({ length: 600 }, (_, i) => i + 4600),
+    );
+    expect(last).toBe(5199);
+    expect(more).toBeUndefined();
+  });
+
+  test.each([
+    [["--all"], 0],
+    [["--since", "0"], 1],
+    [["--messages", "5100"], 100],
+  ] as const)("returns a resumable cursor at the read cap with %j", async (flags, first) => {
+    const app = withLongChat();
+    const command = ["chat", "read", "Review", "--device", "Mac mini"];
+    const result = await nexus(app, [...command, ...flags, "--jsonl"]);
+    expect(result.exitCode).toBe(0);
+    const rows = result.stdout
+      .trimEnd()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const last = first + 4999;
+    expect(rows.at(-1)).toMatchObject({ more: true, last });
+    expect(rows.slice(0, -1).map((entry) => entry.i)).toEqual(
+      Array.from({ length: 5000 }, (_, i) => i + first),
+    );
+
+    const continued = await nexus(app, [...command, "--since", String(last), "--json"]);
+    expect(continued.exitCode).toBe(0);
+    const json = JSON.parse(continued.stdout);
+    expect(json.last).toBe(5199);
+    expect(json.entries.map((entry: { i: number }) => entry.i)).toEqual(
+      Array.from({ length: 5199 - last }, (_, i) => last + 1 + i),
+    );
+    expect(json.more).toBeUndefined();
   });
 });
 

@@ -791,11 +791,10 @@ const chatRead: CliCommand = {
     }
     const maxChars = maxCharsFlag(flags);
     const device = await resolveDevice(ctx, deviceFlag(flags));
-    const { tab, workspaceId, entries, end, info } = device
+    const read = device
       ? await readPeerChat(ctx, device, flags, selector, {
           ...(messages !== undefined ? { messages } : {}),
           ...(since !== undefined ? { since } : {}),
-          all: flags.all === true,
           subagents: flags.subagents === true,
         }).then((read) => ({
           tab: { id: read.peer.session.tabId, title: read.peer.session.title },
@@ -803,6 +802,8 @@ const chatRead: CliCommand = {
           ...read,
         }))
       : await readChat(ctx, flags, selector, messages, since);
+    const { tab, workspaceId, entries, end, info } = read;
+    const nextSince = "nextSince" in read ? read.nextSince : undefined;
     const shown =
       maxChars === undefined
         ? entries
@@ -816,10 +817,11 @@ const chatRead: CliCommand = {
     }${about ? `\n${about}` : ""}`;
     // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
-    const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
+    const last = nextSince ?? entries.at(-1)?.i ?? (restarted ? undefined : since);
     const stands = {
       ...infoJson(tab, workspaceId, info, device ?? undefined),
       ...(restarted ? { restarted } : {}),
+      ...(nextSince === undefined ? {} : { more: true, last: nextSince }),
     };
     const json = { ...stands, entries: shown, ...(last !== undefined ? { last } : {}) };
     const before = restarted
@@ -827,9 +829,15 @@ const chatRead: CliCommand = {
       : since !== undefined && entries.length === 0
         ? `Nothing after #${since}.\n`
         : "";
-    return output(transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`, json, {
-      records: [...shown, stands],
-    });
+    const more =
+      nextSince === undefined
+        ? ""
+        : `\nMore messages remain. Continue with --since ${nextSince}, omitting --all and --messages.`;
+    return output(
+      `${transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`}${more}`,
+      json,
+      { records: [...shown, stands] },
+    );
   },
 };
 
