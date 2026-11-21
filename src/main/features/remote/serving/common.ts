@@ -19,6 +19,7 @@ export const SERVES: readonly Capability[] = [
   "agents.cli",
   "settings.instructions",
   "profiles.usage",
+  "push",
 ];
 
 /**
@@ -31,13 +32,15 @@ export function servesWith(
   allowControl: boolean,
   allowTerminal = false,
   allowAgents = false,
+  allowPush = false,
 ): readonly Capability[] {
   return SERVES.filter(
     (c) =>
       ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
       (c !== "files.write" || (allowControl && allowAgents)) &&
       (c !== "terminal.control" || allowTerminal) &&
-      (c !== "agents" || allowAgents),
+      (c !== "agents" || allowAgents) &&
+      (c !== "push" || allowPush),
   );
 }
 

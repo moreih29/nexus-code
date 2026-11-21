@@ -263,6 +263,8 @@ export interface RemoteRoomDeps {
   onChange(state: RoomState): void;
   /** Drop device-owned work when a peer disconnects, or all work when this device does. */
   onDisconnect?(peer?: string): void;
+  /** The account's other devices, including those whose sockets are offline. */
+  onPresence?(peers: readonly RoomPeer[]): void;
   onNotification?(from: string, method: string, params: unknown): void;
   /**
    * A message sealed with a newer version of the account key came: it may
@@ -832,6 +834,7 @@ export class RemoteRoom {
       }
       const previous = this.peers;
       this.peers = next;
+      this.deps.onPresence?.([...next.values()]);
       for (const id of this.helloRetryAt.keys()) if (!next.has(id)) this.helloRetryAt.delete(id);
       this.cancelQueuedReads();
       if (!this.greeted) {

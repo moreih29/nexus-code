@@ -111,6 +111,7 @@ export interface SetupCliFeatureOptions {
   };
   /** The user's other computers, once the remote is set up; none before. */
   remote?: () => CliRemote | null;
+  onConsentsChanged?: () => void;
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
@@ -175,6 +176,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     ask: (args, timeoutMs, signal) => bridge.ask("consent.ask", args, timeoutMs, signal),
     settle: async (id, answer, by) =>
       (await bridge.ask("consent.settle", { id, answer, by })).settled,
+    onChange: () => options.onConsentsChanged?.(),
   });
   const askConsent = async (request: ChangeRequest, timeoutMs: number, signal?: AbortSignal) =>
     (await consents.ask({ ...request, timeoutMs }, undefined, signal)).answer;

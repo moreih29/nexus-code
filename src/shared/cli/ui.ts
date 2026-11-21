@@ -1007,8 +1007,9 @@ export interface CliUiOps {
       peek?: boolean;
       submissionId?: string;
       after?: number;
+      includeWaitingId?: boolean;
     };
-    result: CliChatInfo & { trackedSubmission?: boolean };
+    result: CliChatInfo & { trackedSubmission?: boolean; waitingId?: string };
   };
   /**
    * A Claude or Codex tab's messages, and where it stands: those after

@@ -217,6 +217,44 @@ describe("the way to the server", () => {
     expect(await account.devices()).toHaveLength(1);
     expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787"]);
   });
+
+  test("a push uses the signed-in route and leaves the retry to the sender", async () => {
+    const requests: { url: string; method?: string; auth?: string; body: unknown }[] = [];
+    const body = { id: "a".repeat(22), kind: "request", ttl: 600, to: ["phone"] } as const;
+    const payload = { ...body, to: [...body.to] };
+    const fetchFn = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({
+        url: url.href,
+        method: init?.method,
+        auth: new Headers(init?.headers).get("authorization") ?? undefined,
+        body: JSON.parse(String(init?.body)),
+      });
+      if (url.origin === PROXY) throw new TypeError("offline");
+      return Response.json({ duplicate: true });
+    }) as typeof fetch;
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: fetchFn,
+      now: () => 0,
+    });
+    await account.restore();
+    const { signal } = new AbortController();
+    await expect(account.sendPush(payload, signal, 5_000)).rejects.toThrow("did not answer");
+    expect(requests).toHaveLength(1);
+    await expect(account.sendPush(payload, signal, 5_000)).resolves.toEqual({ duplicate: true });
+    expect(requests).toEqual(
+      [PROXY, SERVER].map((origin) => ({
+        url: `${origin}/push/send?v=1`,
+        method: "POST",
+        auth: "Bearer tok",
+        body: payload,
+      })),
+    );
+  });
 });
 
 describe("the account", () => {

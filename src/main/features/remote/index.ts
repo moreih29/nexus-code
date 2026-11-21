@@ -15,7 +15,7 @@ import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
-import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
+import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
@@ -34,6 +34,7 @@ import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
+import { PhonePush, type PhonePushActivity } from "./phone-push";
 import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
@@ -173,6 +174,11 @@ export async function registerRemoteChannel(options: {
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
   /** Whether agents on the user's other computers may act here: ask (the default), allow or deny. */
   agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
+  phonePush: {
+    get(): PhonePushPolicy;
+    set(policy: PhonePushPolicy): void;
+    activity: PhonePushActivity;
+  };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
@@ -192,6 +198,7 @@ export async function registerRemoteChannel(options: {
   keys: AccountKeys;
   /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
+  consentsChanged(): void;
   /** Drops the removed workspace's cached Git facts. */
   forgetWorkspace(workspaceId: string): void;
   /** The user's other computers, for the nexus command's --device. */
@@ -257,6 +264,7 @@ export async function registerRemoteChannel(options: {
     peerFiles.updateRoom(state);
     // A device that left, or this one leaving, ends the watches it had.
     if (state.status !== "online") {
+      push.presenceLost();
       void watches.dropAll();
       sessionWatches.dropAll();
       void terminalWatches.dropAll();
@@ -281,10 +289,19 @@ export async function registerRemoteChannel(options: {
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
     onChange: (state) => {
+      push.accountChanged();
       broadcast("remote", "accountChanged", state);
       void keys?.accountChanged(state).catch(() => {});
       syncRoom();
     },
+  });
+  const push = new PhonePush({
+    account,
+    services: options.services,
+    controls,
+    policy: options.phonePush.get,
+    activity: options.phonePush.activity,
+    onEnabledChanged: () => room?.announce(),
   });
   await account.restore();
   void account.syncDeviceName();
@@ -369,6 +386,7 @@ export async function registerRemoteChannel(options: {
           options.allowControl.get(),
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
+          push.enabled(),
         ),
       connect: (handlers) => {
         relay = new RelayConnection({
@@ -407,6 +425,7 @@ export async function registerRemoteChannel(options: {
         controls,
       }),
       onChange: setRoomState,
+      onPresence: (peers) => push.presence(peers),
       // Also a device back with a new connection the room never showed gone:
       // the watches its old one opened end here, as setRoomState cannot see.
       onDisconnect: (peer) =>
@@ -478,7 +497,12 @@ export async function registerRemoteChannel(options: {
         const provider = validateArgs(c.signIn.args, args)?.provider;
         return ipcOk(await account.signIn(provider));
       },
-      serverInfo: () => ask(() => account.info()),
+      serverInfo: () =>
+        ask(async () => {
+          const info = await account.info();
+          push.serverInfo(info);
+          return info;
+        }),
       cancelSignIn: async () => {
         account.cancelSignIn();
         return ipcOk(undefined);
@@ -512,6 +536,7 @@ export async function registerRemoteChannel(options: {
           ask(async () => {
             await accountKeys.removeDevices([id], password, { keepKey });
             peerFiles.invalidateDevice(id);
+            push.deviceRemoved(id);
           }),
         ).then((result) => (result.ok ? result.value : result));
       },
@@ -520,6 +545,7 @@ export async function registerRemoteChannel(options: {
       setAllowControl: async (args: unknown) => {
         const { allowed } = validateArgs(c.setAllowControl.args, args);
         options.allowControl.set(allowed);
+        push.controlsChanged();
         // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
         // What they held for after a turn goes no more.
@@ -534,6 +560,7 @@ export async function registerRemoteChannel(options: {
       setAllowTerminal: async (args: unknown) => {
         const { allowed } = validateArgs(c.setAllowTerminal.args, args);
         options.allowTerminal.set(allowed);
+        push.controlsChanged();
         room?.announce();
         return ipcOk(allowed);
       },
@@ -550,6 +577,13 @@ export async function registerRemoteChannel(options: {
             ?.ui("chat.dropHeld", { agentsOnly: true })
             .catch(() => {});
         }
+        return ipcOk(policy);
+      },
+      phonePushPolicy: async () => ipcOk(options.phonePush.get()),
+      setPhonePushPolicy: async (args: unknown) => {
+        const { policy } = validateArgs(c.setPhonePushPolicy.args, args);
+        options.phonePush.set(policy);
+        push.policyChanged();
         return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {
@@ -940,6 +974,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    consentsChanged: () => push.consentsChanged(),
     forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {
       try {
@@ -995,6 +1030,7 @@ export async function registerRemoteChannel(options: {
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      push.dispose();
       proxyProbe.stop();
       pairing.stop();
       account.cancelSignIn();

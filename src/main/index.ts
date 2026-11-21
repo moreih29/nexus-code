@@ -225,6 +225,7 @@ let profileConnectionKeys: ConnectionKeys | undefined;
 
 let remote: {
   themeChanged(): void;
+  consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
   peerFiles: PeerFileReader;
@@ -745,6 +746,8 @@ app.whenReady().then(async () => {
   );
   pruneProfileKeys();
 
+  const awayAfterSeconds = 30;
+  let screenLocked = false;
   // The NexusCode account the remote runs on. A failure there leaves the
   // app without the remote, never without its window.
   remote = await registerRemoteChannel({
@@ -761,6 +764,33 @@ app.whenReady().then(async () => {
     agents: {
       get: () => stateService.getState().remoteAgents ?? "ask",
       set: (policy) => stateService.setState({ remoteAgents: policy }),
+    },
+    phonePush: {
+      get: () => stateService.getState().phonePush,
+      set: (policy) => stateService.setState({ phonePush: policy }),
+      activity: {
+        away: () => screenLocked || powerMonitor.getSystemIdleTime() >= awayAfterSeconds,
+        onScreenLockChanged:
+          isMac() || isWindows()
+            ? (listener) => {
+                screenLocked = powerMonitor.getSystemIdleState(awayAfterSeconds) === "locked";
+                const lock = () => {
+                  screenLocked = true;
+                  listener();
+                };
+                const unlock = () => {
+                  screenLocked = false;
+                  listener();
+                };
+                powerMonitor.on("lock-screen", lock);
+                powerMonitor.on("unlock-screen", unlock);
+                return () => {
+                  powerMonitor.removeListener("lock-screen", lock);
+                  powerMonitor.removeListener("unlock-screen", unlock);
+                };
+              }
+            : undefined,
+      },
     },
     gitStatus: async (workspaceId) => {
       const repository = await gitRegistry?.getOrDetect(workspaceId);
@@ -805,6 +835,7 @@ app.whenReady().then(async () => {
     claudeActivity: claudeSetup.activity,
     claudeAsks: claudeSetup.asks,
     remote: () => remote?.cli ?? null,
+    onConsentsChanged: () => remote?.consentsChanged(),
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),

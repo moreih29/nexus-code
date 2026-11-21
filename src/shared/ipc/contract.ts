@@ -165,7 +165,11 @@ import {
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { SystemStatsSchema } from "../system/stats";
-import { AppStateSchema, RemoteAgentsPolicySchema } from "../types/app-state";
+import {
+  AppStateSchema,
+  PhonePushPolicySchema,
+  RemoteAgentsPolicySchema,
+} from "../types/app-state";
 import {
   ConnectionProfileFavoriteArgsSchema,
   ConnectionProfileIdArgsSchema,
@@ -2687,6 +2691,9 @@ const remoteContracts = {
         z.object({ policy: RemoteAgentsPolicySchema }),
         RemoteAgentsPolicySchema,
       ),
+      /** When to notify the account's phones about requests. */
+      phonePushPolicy: call(z.void(), PhonePushPolicySchema),
+      setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
       peerSessionsWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }),

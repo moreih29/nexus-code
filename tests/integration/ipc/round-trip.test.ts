@@ -393,6 +393,7 @@ describe("remote shutdown", () => {
         allowControl: off,
         allowTerminal: off,
         agents: { get: () => "deny", set: () => {} },
+        phonePush: { get: () => "off", set: () => {}, activity: { away: () => false } },
       });
       try {
         const start = getHandler()({}, "remote", "pairStart", undefined);
