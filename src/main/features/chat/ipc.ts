@@ -42,6 +42,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           resumeAt,
           resetLog,
           connectionChanged,
+          usageOnly,
           profileId,
           instructions,
         } = validateArgs(c.start.args, args);
@@ -50,7 +51,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
             workspaceId,
             tabId,
             cwd,
-            { resume, fork, resumeAt, resetLog, connectionChanged },
+            { resume, fork, resumeAt, resetLog, connectionChanged, usageOnly },
             profileId,
             instructions,
           ),

@@ -323,7 +323,7 @@ export class CodexController {
       ready: () =>
         this.limitsReadable && this.state.phase === "ready" && this.model.process === "running",
       busy: () => this.model.running,
-      fetchUsage: () => this.request("account/rateLimits/read", {}),
+      fetchUsage: () => this.readPlanUsage(),
     });
   }
 
@@ -910,6 +910,23 @@ export class CodexController {
     } finally {
       await controller.close();
     }
+  }
+
+  /** Introduces app-server and asks for plan limits without starting a thread. */
+  static async probePlanUsage(target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">) {
+    const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
+    try {
+      if (!(await controller.start({}, true))) {
+        throw new Error(controller.state.error ?? "Codex could not read plan usage");
+      }
+      return await controller.readPlanUsage();
+    } finally {
+      await controller.close();
+    }
+  }
+
+  private readPlanUsage(): Promise<Record<string, unknown>> {
+    return this.request("account/rateLimits/read", {});
   }
 
   /**

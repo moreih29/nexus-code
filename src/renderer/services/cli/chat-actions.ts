@@ -93,6 +93,7 @@ import {
 } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
+import { profileUsage } from "./profile-usage";
 
 type ChatOp = Extract<CliUiOp, `chat.${string}`>;
 
@@ -432,6 +433,7 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
+  "chat.usage": profileUsage,
   "chat.profiles": async ({ agent, workspaceId }) => {
     const config = useAgentProfilesStore.getState().config;
     const { workspaces } = useWorkspacesStore.getState();

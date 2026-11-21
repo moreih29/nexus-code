@@ -161,14 +161,14 @@ describe("changing another workspace", () => {
     browser permissions | browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
     note list | note voice suggestions list nmhz00cc | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee | chat files eeee
-    settings lsp status | chat history | chat profiles | chat instructions eeee --show | settings instructions show`;
+    settings lsp status | chat history | chat profiles | chat usage --refresh | chat instructions eeee --show | settings instructions show`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
     panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
     page.pick page.network chat.entryItem chat.rewindPreview chat.panel chat.commands
-    chat.history chat.image browser.permissions chat.export chat.profiles chat.fileSuggestions terminal.shells settings.instructions settings.lspStatus note.voiceSuggestions`.split(
+    chat.history chat.image browser.permissions chat.export chat.profiles chat.usage chat.fileSuggestions terminal.shells settings.instructions settings.lspStatus note.voiceSuggestions`.split(
       /\s+/,
     ),
   );
@@ -326,6 +326,7 @@ function apiAtWork(): FakeApp {
   app.uiAnswers.set("chat.history", {
     sessions: [{ sessionId: "5f2a-1", title: "Login", at: 0, cwd: "/w/api", profile: "default" }],
   });
+  app.uiAnswers.set("chat.usage", { profiles: [] });
   return app;
 }
 

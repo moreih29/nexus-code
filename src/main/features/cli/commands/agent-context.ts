@@ -127,6 +127,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
     "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
+    "Use nexus chat usage --json to check subscription limits by profile before assigning work.",
+    "It shows when each limit was observed. Use --refresh to ask the program without opening a tab.",
     "chat profiles lists choices. On this computer, chat profiles add creates a profile with the user's",
     "approval. Give API keys through --key-file FILE or --key-file - for stdin. Custom models accept",
     "repeatable --reasoning MODEL=LEVEL (none, high, xhigh, max; Claude also auto).",

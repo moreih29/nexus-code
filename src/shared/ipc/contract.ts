@@ -1024,6 +1024,8 @@ const coreIpcContract = {
           /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
           connectionChanged: z.boolean().optional(),
+          /** Start a disposable program for the profile's plan usage. */
+          usageOnly: z.boolean().optional(),
           /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),

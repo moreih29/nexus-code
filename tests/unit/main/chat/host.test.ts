@@ -351,6 +351,34 @@ describe("Claude instruction history", () => {
 });
 
 describe("chat launch", () => {
+  test("the Claude usage probe starts the profile directly without session hooks or persistence", async () => {
+    const { host, channel } = setup({}, undefined, undefined, (id) => ({
+      agent: "claude",
+      id,
+      name: "",
+      color: "",
+      dir: "",
+      env: { PROFILE_MARKER: "account" },
+    }));
+    try {
+      expect(await host.start(WS, TAB, "/repo", { usageOnly: true })).toMatchObject({ ok: true });
+      const call = channel.calls.find(({ method }) => method === "chat.start");
+      expect(call?.params).toMatchObject({
+        program: channel.found.path,
+        args: [
+          ...CLAUDE_TAB_ARGS,
+          "--no-session-persistence",
+          "--strict-mcp-config",
+          "--settings",
+          '{"disableAllHooks":true}',
+        ],
+        env: { PROFILE_MARKER: "account" },
+      });
+    } finally {
+      await host.call("close", { workspaceId: WS, tabId: TAB });
+    }
+  });
+
   test("Claude launches and Codex turns in a task use the parent workspace layer", async () => {
     const defaults = { pinned: false, tabs: [] };
     const parent = WorkspaceMetaSchema.parse({

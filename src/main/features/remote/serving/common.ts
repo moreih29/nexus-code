@@ -18,6 +18,7 @@ export const SERVES: readonly Capability[] = [
   "agents",
   "agents.cli",
   "settings.instructions",
+  "profiles.usage",
 ];
 
 /**
