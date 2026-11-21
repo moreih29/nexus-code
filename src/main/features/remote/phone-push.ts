@@ -52,12 +52,17 @@ function cancelSend(event: PushEvent): void {
   }
 }
 
+export interface PhonePushActivity {
+  away(): boolean;
+  onScreenLockChanged?(listener: () => void): () => void;
+}
+
 interface PhonePushDeps {
   account: Pick<RemoteAccount, "token" | "info" | "devices" | "sendPush">;
   services: () => CliServices | null;
   controls: () => ConsentControls;
   policy: () => PhonePushPolicy;
-  away: () => boolean;
+  activity: PhonePushActivity;
   onEnabledChanged(): void;
   now?: () => number;
 }
@@ -65,6 +70,7 @@ interface PhonePushDeps {
 /** Observes pending work locally. Only the delivery envelope goes to the server. */
 export class PhonePush {
   private readonly now: () => number;
+  private readonly stopScreenLockListener: (() => void) | undefined;
   private token: string | undefined;
   private discovering: string | undefined;
   private supported = false;
@@ -82,6 +88,7 @@ export class PhonePush {
 
   constructor(private readonly deps: PhonePushDeps) {
     this.now = deps.now ?? Date.now;
+    this.stopScreenLockListener = deps.activity.onScreenLockChanged?.(() => this.consentsChanged());
   }
 
   enabled(): boolean {
@@ -137,7 +144,6 @@ export class PhonePush {
     this.consentsChanged();
   }
 
-  /** Called also on lock/unlock, to reconsider any consent whose grace has elapsed. */
   consentsChanged(): void {
     clearTimeout(this.consentTimer);
     this.consentTimer = undefined;
@@ -152,7 +158,7 @@ export class PhonePush {
     if (pending.length === 0) return;
 
     const now = this.now();
-    const away = this.deps.away();
+    const away = this.deps.activity.away();
     const controls = this.deps.controls();
     let next = Infinity;
     for (const prompt of pending) {
@@ -178,7 +184,9 @@ export class PhonePush {
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
+    this.stopScreenLockListener?.();
     for (const event of this.consents.values()) cancelSend(event);
     this.policyChanged();
   }
@@ -281,7 +289,7 @@ export class PhonePush {
         if (!incompleteWorkspaces.has(event.workspaceId)) this.requests.delete(key);
       }
       const now = this.now();
-      const ready = this.deps.policy() === "always" || this.deps.away();
+      const ready = this.deps.policy() === "always" || this.deps.activity.away();
       for (const { key, workspaceId } of waitingRequests) {
         let event = this.requests.get(key);
         if (!event) {

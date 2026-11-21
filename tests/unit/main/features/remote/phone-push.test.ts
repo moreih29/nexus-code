@@ -52,6 +52,7 @@ function setup(
   let token = options.signedOut ? undefined : "token";
   let policy = options.mode ?? "always";
   let away = false;
+  let screenLockChanged: (() => void) | undefined;
   let chatWait: { id: string; kind: CliChatWaiting["kind"] } | undefined;
   let chatReadable = true;
   let terminalWait: string | undefined;
@@ -90,12 +91,21 @@ function setup(
     claudeAgents: { list: () => [] },
   } as unknown as CliServices;
   const enabledChanged = mock(() => {});
+  const stopScreenLockListener = mock(() => {
+    screenLockChanged = undefined;
+  });
   const sender = new PhonePush({
     account: { token: () => token, info: serverInfo, devices, sendPush: send },
     services: () => services,
     controls: () => controls,
     policy: () => policy,
-    away: () => away,
+    activity: {
+      away: () => away,
+      onScreenLockChanged: (listener) => {
+        screenLockChanged = listener;
+        return stopScreenLockListener;
+      },
+    },
     now: () => now,
     onEnabledChanged: enabledChanged,
   });
@@ -112,6 +122,8 @@ function setup(
     setAway: (yes: boolean) => {
       away = yes;
     },
+    screenLockChanged: () => screenLockChanged?.(),
+    stopScreenLockListener,
     setPolicy: (mode: PhonePushPolicy) => {
       policy = mode;
       sender.policyChanged();
@@ -227,7 +239,7 @@ describe("consent notifications", () => {
     await tick(13_000);
     expect(app.send).not.toHaveBeenCalled();
     app.setAway(true);
-    app.sender.consentsChanged();
+    app.screenLockChanged();
     expect(app.send).not.toHaveBeenCalled();
     app.setAway(false);
     app.consent();
@@ -237,6 +249,20 @@ describe("consent notifications", () => {
     await tick(3_000);
     expect(app.send).toHaveBeenCalledTimes(1);
     expect(app.send.mock.calls[0]?.[0].ttl).toBe(75);
+  });
+
+  test("screen lock rechecks a consent after grace and shutdown removes the listener", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.consent();
+    await tick(10_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    app.screenLockChanged();
+    expect(app.send).toHaveBeenCalledTimes(1);
+    app.sender.dispose();
+    app.sender.dispose();
+    expect(app.stopScreenLockListener).toHaveBeenCalledTimes(1);
   });
 
   test("skips under five seconds of delivery TTL and accepts exactly five", async () => {

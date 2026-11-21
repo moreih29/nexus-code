@@ -1,7 +1,7 @@
 // The remote IPC channel: the NexusCode account the remote runs on.
 
 import { join } from "node:path";
-import { app, nativeImage, powerMonitor, shell, systemPreferences } from "electron";
+import { app, nativeImage, shell, systemPreferences } from "electron";
 import { renderSVG } from "uqr";
 import {
   RELAY_VERSION,
@@ -34,7 +34,7 @@ import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
-import { PhonePush } from "./phone-push";
+import { PhonePush, type PhonePushActivity } from "./phone-push";
 import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
@@ -174,7 +174,11 @@ export async function registerRemoteChannel(options: {
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
   /** Whether agents on the user's other computers may act here: ask (the default), allow or deny. */
   agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
-  phonePush: { get(): PhonePushPolicy; set(policy: PhonePushPolicy): void };
+  phonePush: {
+    get(): PhonePushPolicy;
+    set(policy: PhonePushPolicy): void;
+    activity: PhonePushActivity;
+  };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
@@ -291,24 +295,14 @@ export async function registerRemoteChannel(options: {
       syncRoom();
     },
   });
-  const lockEvents = process.platform === "darwin" || process.platform === "win32";
-  let locked = lockEvents && powerMonitor.getSystemIdleState(30) === "locked";
   const push = new PhonePush({
     account,
     services: options.services,
     controls,
     policy: options.phonePush.get,
-    away: () => locked || powerMonitor.getSystemIdleTime() >= 30,
+    activity: options.phonePush.activity,
     onEnabledChanged: () => room?.announce(),
   });
-  const lock = () => {
-    locked = true;
-    push.consentsChanged();
-  };
-  const unlock = () => {
-    locked = false;
-    push.consentsChanged();
-  };
   await account.restore();
   void account.syncDeviceName();
   const accountKeys = new AccountKeys({
@@ -976,10 +970,6 @@ export async function registerRemoteChannel(options: {
     },
   });
 
-  if (lockEvents) {
-    powerMonitor.on("lock-screen", lock);
-    powerMonitor.on("unlock-screen", unlock);
-  }
   return {
     account,
     keys: accountKeys,
@@ -1040,10 +1030,6 @@ export async function registerRemoteChannel(options: {
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      if (lockEvents) {
-        powerMonitor.removeListener("lock-screen", lock);
-        powerMonitor.removeListener("unlock-screen", unlock);
-      }
       push.dispose();
       proxyProbe.stop();
       pairing.stop();

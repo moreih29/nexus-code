@@ -746,6 +746,8 @@ app.whenReady().then(async () => {
   );
   pruneProfileKeys();
 
+  const awayAfterSeconds = 30;
+  let screenLocked = false;
   // The NexusCode account the remote runs on. A failure there leaves the
   // app without the remote, never without its window.
   remote = await registerRemoteChannel({
@@ -766,6 +768,29 @@ app.whenReady().then(async () => {
     phonePush: {
       get: () => stateService.getState().phonePush,
       set: (policy) => stateService.setState({ phonePush: policy }),
+      activity: {
+        away: () => screenLocked || powerMonitor.getSystemIdleTime() >= awayAfterSeconds,
+        onScreenLockChanged:
+          isMac() || isWindows()
+            ? (listener) => {
+                screenLocked = powerMonitor.getSystemIdleState(awayAfterSeconds) === "locked";
+                const lock = () => {
+                  screenLocked = true;
+                  listener();
+                };
+                const unlock = () => {
+                  screenLocked = false;
+                  listener();
+                };
+                powerMonitor.on("lock-screen", lock);
+                powerMonitor.on("unlock-screen", unlock);
+                return () => {
+                  powerMonitor.removeListener("lock-screen", lock);
+                  powerMonitor.removeListener("unlock-screen", unlock);
+                };
+              }
+            : undefined,
+      },
     },
     gitStatus: async (workspaceId) => {
       const repository = await gitRegistry?.getOrDetect(workspaceId);
