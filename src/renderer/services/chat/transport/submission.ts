@@ -3,7 +3,7 @@ import { createLogger } from "../../../../shared/log/renderer";
 import { useTabsStore } from "../../../state/stores/tabs";
 import type { AgentTabController } from "../agent-tab";
 import type { ImageBlock } from "../model";
-import { chatKey, useChatStore } from "../store";
+import { chatKey, unseenSends, useChatStore } from "../store";
 
 const log = createLogger("chat");
 
@@ -13,13 +13,6 @@ export interface PeerSubmission {
   /** A Claude stdin write has returned successfully. */
   written?: boolean;
 }
-
-/**
- * Messages sent to tabs that their conversation does not show yet, by chat
- * key: how many messages of the user's it showed when one was sent. Until it
- * shows more, the tab counts as working, though no turn has begun.
- */
-const unseenSends = new Map<string, number>();
 
 const receiptIds = new Map<string, { id: string; expiresAt: number }>();
 
@@ -54,9 +47,9 @@ function userMessages(key: string): number {
 /** Whether a message sent to the tab is yet to show in its conversation. */
 export function sendUnseen(workspaceId: string, tabId: string): boolean {
   const key = chatKey(workspaceId, tabId);
-  const before = unseenSends.get(key);
-  if (before === undefined) return false;
-  if (userMessages(key) <= before) return true;
+  const send = unseenSends.get(key);
+  if (!send) return false;
+  if (userMessages(key) <= send.before) return true;
   unseenSends.delete(key);
   return false;
 }
@@ -83,27 +76,33 @@ export async function sendToAgentTab(
   // Working from now, though the program may be starting and a conversation
   // resumed after a restart still coming in: its messages are counted only
   // once it is in, or they would pass for the one sent.
-  unseenSends.set(key, Number.POSITIVE_INFINITY);
+  const unseen = { before: Number.POSITIVE_INFINITY };
+  unseenSends.set(key, unseen);
+  const clear = () => {
+    if (unseenSends.get(key) === unseen) unseenSends.delete(key);
+  };
   try {
     await controller.prepareSend();
-    unseenSends.set(key, userMessages(key));
+    unseen.before = userMessages(key);
     const id = submission || wait ? crypto.randomUUID() : undefined;
     const tracked = wait && id ? { submissionId: id } : {};
     if (id && wait?.receiptAt !== undefined) rememberReceipt(key, wait.receiptAt, id);
     if (id && submission) {
-      useTabsStore.getState().addChatPeerSubmission(workspaceId, tabId, id, submission);
-      const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-      const recent =
-        tab?.type === "claude" || tab?.type === "codex" ? tab.props.peerSubmissions : undefined;
+      const tabs = useTabsStore.getState();
+      const tab = tabs.byWorkspace[workspaceId]?.[tabId];
+      if (tab?.type !== target.agent) throw new Error("the tab closed");
+      tabs.addChatPeerSubmission(workspaceId, tabId, id, submission);
+      const updated = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+      if (updated?.type !== target.agent) throw new Error("the tab closed");
       useChatStore.getState().update(key, (prev) => ({
         ...prev,
-        peerSubmissions: recent ?? { [id]: submission },
+        peerSubmissions: updated.props.peerSubmissions ?? { [id]: submission },
       }));
     }
     if (when === "after" && (!id || controller.state.model.running)) {
       const heldId = controller.enqueue(text, images, from, device, id);
       // Held, it is not sent yet: the chat is not waiting on it.
-      if (heldId) unseenSends.delete(key);
+      if (heldId) clear();
       return heldId ? { heldId, ...tracked } : tracked;
     }
     if (target.agent === "codex") {
@@ -116,7 +115,7 @@ export async function sendToAgentTab(
         id,
       );
       if (heldId) {
-        unseenSends.delete(key);
+        clear();
         return { heldId, ...tracked };
       }
     } else if (when === "now") {
@@ -128,7 +127,7 @@ export async function sendToAgentTab(
       ? { itemKey: `u-peer-${id}`, ...tracked }
       : tracked;
   } catch (err) {
-    unseenSends.delete(key);
+    clear();
     throw err;
   }
 }
@@ -149,12 +148,15 @@ export async function sendFirstMessage(
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
   // Working from now: opening the program comes before the message.
-  unseenSends.set(key, 0);
+  const opening = { before: Number.POSITIVE_INFINITY };
+  unseenSends.set(key, opening);
   try {
     await target.controller.open();
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type !== target.agent) throw new Error("the tab closed");
     await sendToAgentTab(workspaceId, tabId, target, text, from);
   } catch (error) {
-    unseenSends.delete(key);
+    if (unseenSends.get(key) === opening) unseenSends.delete(key);
     log.warn(`first message to ${target.agent} tab not sent: ${(error as Error).message}`);
     throw error;
   }

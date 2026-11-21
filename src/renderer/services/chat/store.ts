@@ -123,18 +123,23 @@ interface ChatStore {
   remove: (key: string) => void;
 }
 
+/** Tracks the user-message count at submission until the prompt is visible. */
+export const unseenSends = new Map<string, { before: number }>();
+
 export const useChatStore = create<ChatStore>((set) => ({
   tabs: {},
   update: (key, update) =>
     set((state) => ({
       tabs: { ...state.tabs, [key]: update(state.tabs[key] ?? emptyTabState()) },
     })),
-  remove: (key) =>
+  remove: (key) => {
+    unseenSends.delete(key);
     set((state) => {
       if (!(key in state.tabs)) return state;
       const { [key]: _removed, ...rest } = state.tabs;
       return { tabs: rest };
-    }),
+    });
+  },
 }));
 
 /** Asks the tab with `key` to show one of its parts. */
