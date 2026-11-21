@@ -72,7 +72,7 @@ import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
-import { maxTextHeight } from "./composer-height";
+import { fitTextHeight, observeTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
 import { type InstructionsTab, SessionInstructionsChip } from "./session-instructions-chip";
@@ -205,20 +205,6 @@ const SUGGEST_RETRY_MS = 500;
 
 let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-/**
- * Grows the text box with its text, from the two rows it starts at up to
- * its cap in the column the composer sits in (composer-height).
- */
-function fitHeight(area: HTMLTextAreaElement, column: HTMLElement | null | undefined): void {
-  area.style.height = "auto";
-  area.style.height = `${Math.min(area.scrollHeight, maxTextHeight(column?.clientHeight ?? 0))}px`;
-}
-
-/** In the background, a few pixels wide and inert: a height fitted there is wrong once it shows. */
-function parked(area: HTMLElement): boolean {
-  return area.clientWidth === 0 || area.closest("[inert]") !== null;
-}
-
 /**
  * Memoized: the Claude tab gives it the state beside a streaming reply
  * (beside-stream) and functions that keep their identity, so a chunk of
@@ -425,28 +411,13 @@ export const Composer = memo(function Composer({
   // biome-ignore lint/correctness/useExhaustiveDependencies: fits again as the text, placeholder or font changes
   useLayoutEffect(() => {
     const area = areaRef.current;
-    if (area && !parked(area)) fitHeight(area, rootRef.current?.parentElement);
+    if (area) fitTextHeight(area, rootRef.current?.parentElement);
   }, [text, hint, font]);
-  // A tab in the background lays out at no width, where the placeholder
-  // wraps a word to a line: the height it got there is wrong once the tab
-  // shows, so a new width fits it again. The cap follows the column's
-  // height, so a panel resized taller or shorter fits it again too.
+  // Refit when the textarea's width or its column's height changes, including
+  // when a parked tab is shown.
   useEffect(() => {
     const area = areaRef.current;
-    const column = rootRef.current?.parentElement;
-    if (!area) return;
-    let width = area.clientWidth;
-    let height = column?.clientHeight ?? 0;
-    const observer = new ResizeObserver(() => {
-      const nextHeight = column?.clientHeight ?? 0;
-      if (area.clientWidth === width && nextHeight === height) return;
-      width = area.clientWidth;
-      height = nextHeight;
-      if (!parked(area)) fitHeight(area, column);
-    });
-    observer.observe(area);
-    if (column) observer.observe(column);
-    return () => observer.disconnect();
+    if (area) return observeTextHeight(area, rootRef.current?.parentElement);
   }, []);
 
   const clear = () => {
