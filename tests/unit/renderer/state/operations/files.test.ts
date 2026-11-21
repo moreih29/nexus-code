@@ -431,3 +431,24 @@ it("discards a delayed listing when the workspace tree has been recreated", asyn
     `${ROOT}/fresh.ts`,
   ]);
 });
+
+it.each(["/", "C:/"])("restores and watches a child at filesystem root %s", async (root) => {
+  const responses = { "": [dirEntry("lib", "dir")], lib: [] as DirEntry[] };
+  setupReaddir(responses);
+  mockIpcCallResult.mockImplementationOnce(async () => ({
+    ok: true,
+    value: { relPaths: ["/lib"] }, // A path saved by the previous implementation.
+  }));
+  await ensureRoot(WS_ID, root);
+  const folder = `${root}lib`;
+  const tree = () => useFilesStore.getState().trees.get(WS_ID);
+  expect(tree()?.expanded.has(folder)).toBe(true);
+  expect(tree()?.nodes.get(folder)?.childrenLoaded).toBe(true);
+  const watched = callsOf("watch").map(([, , args]) => (args as { relPath: string }).relPath);
+  expect(watched).toEqual(["", "lib"]);
+
+  responses.lib = [dirEntry("new.ts")];
+  handleFsChanged({ workspaceId: WS_ID, changes: [{ relPath: "lib/new.ts", kind: "added" }] });
+  await flush();
+  expect(tree()?.nodes.get(folder)?.children).toEqual([`${folder}/new.ts`]);
+});

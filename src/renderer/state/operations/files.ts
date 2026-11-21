@@ -12,7 +12,7 @@ import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { relPath } from "../../utils/path";
-import { getAncestors } from "../stores/files/helpers";
+import { getAncestors, joinPath } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
 
 /**
@@ -118,7 +118,8 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
     let persistedRelPaths: string[] = [];
     try {
       const result = unwrapIpcResult(await ipcCallResult("fs", "getExpanded", { workspaceId }));
-      persistedRelPaths = result.relPaths;
+      // Older trees saved a leading slash for paths under a filesystem root.
+      persistedRelPaths = [...new Set(result.relPaths.map((path) => path.replace(/^\/+/, "")))];
     } catch {
       // Non-fatal — proceed with empty expanded set.
     }
@@ -156,7 +157,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
       if (!group) continue;
       await Promise.all(
         group.map(async (rel) => {
-          const abs = `${rootAbsPath}/${rel}`;
+          const abs = joinPath(rootAbsPath, rel);
           const node = useFilesStore.getState().trees.get(workspaceId)?.nodes.get(abs);
           if (node && node.type === "dir" && !node.childrenLoaded) {
             await loadChildren(workspaceId, abs);
@@ -183,7 +184,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
     if (staleRels.size > 0) {
       const store = useFilesStore.getState();
       for (const rel of staleRels) {
-        store.collapseDir(workspaceId, `${rootAbsPath}/${rel}`);
+        store.collapseDir(workspaceId, joinPath(rootAbsPath, rel));
       }
       const tree = useFilesStore.getState().trees.get(workspaceId);
       if (tree) {
