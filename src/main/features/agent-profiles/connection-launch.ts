@@ -50,14 +50,14 @@ function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): s
 }
 
 /**
- * Claude Code's custom-endpoint capability rules. An unset rule enables every
- * effort level on unknown models, so opt out globally and enable each configured
- * model explicitly. The grammar has no escaping for these model-ID delimiters.
+ * Claude Code's custom-endpoint capability rules. A blank reasoning leaves the
+ * model's launch environment untouched for compatibility with existing profiles.
+ * The rule grammar has no escaping for these model-ID delimiters.
  */
-function claudeModelCapabilities(models: readonly ConnectionModel[]): string {
-  const rules = [NO_CLAUDE_EFFORT];
+function claudeModelCapabilities(models: readonly ConnectionModel[]): string | undefined {
+  const rules: string[] = [];
   for (const model of models) {
-    if (!model.reasoning || model.reasoning === "none") continue;
+    if (!model.reasoning) continue;
     const id = model.id.replace(/\[1m\]$/i, "").toLowerCase();
     if (/[;,=]/.test(id) || id.endsWith("*")) {
       throw new Error(
@@ -67,7 +67,7 @@ function claudeModelCapabilities(models: readonly ConnectionModel[]): string {
     }
     rules.push(`${id}=${claudeReasoningCapabilities(model.reasoning)}`);
   }
-  return rules.join(";");
+  return rules.length ? rules.join(";") : undefined;
 }
 
 export function claudeConnectionEnv(
@@ -101,8 +101,9 @@ export function claudeConnectionEnv(
     ANTHROPIC_API_KEY: connection.auth === "x-api-key" ? token : "",
     ANTHROPIC_MODEL: defaultModel,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "0",
-    CLAUDE_CODE_MODEL_CAPABILITIES: claudeModelCapabilities(models),
   };
+  const capabilities = claudeModelCapabilities(models);
+  if (capabilities) env.CLAUDE_CODE_MODEL_CAPABILITIES = capabilities;
   for (const [tier, id] of [
     ["OPUS", defaultModel],
     ["SONNET", defaultModel],

@@ -921,6 +921,7 @@
       "lightHint": "대화 제목과 요약 등 백그라운드 작업",
       "reasoning": "추론 강도",
       "effort": {
+        "auto": "자동",
         "none": "없음",
         "high": "low~high",
         "xhigh": "low~xhigh",

@@ -167,8 +167,7 @@ describe("profile connections", () => {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "main/model",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "main/model",
       ANTHROPIC_DEFAULT_FABLE_MODEL: "main/model",
-      CLAUDE_CODE_MODEL_CAPABILITIES:
-        "-effort,-xhigh_effort,-max_effort;small=effort,-xhigh_effort,-max_effort",
+      CLAUDE_CODE_MODEL_CAPABILITIES: "small=effort,-xhigh_effort,-max_effort",
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: "65536",
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
       CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
@@ -192,6 +191,23 @@ describe("profile connections", () => {
     expect(claudeModelPicker(undefined)).toBeUndefined();
   });
 
+  test("leaves existing Claude profiles on Claude Code defaults until reasoning is explicit", () => {
+    const automatic: CustomConnection = {
+      ...connection,
+      defaultModel: "main/model",
+      models: [{ id: "main/model" }],
+    };
+    expect(claudeConnectionEnv(automatic, undefined)).not.toHaveProperty(
+      "CLAUDE_CODE_MODEL_CAPABILITIES",
+    );
+    expect(
+      claudeConnectionEnv(
+        { ...automatic, models: [{ id: "main/model", reasoning: "none" }] },
+        undefined,
+      ).CLAUDE_CODE_MODEL_CAPABILITIES,
+    ).toBe("main/model=-effort,-xhigh_effort,-max_effort");
+  });
+
   test("bounds Claude effort per model without confusing capability-rule delimiters", () => {
     const custom: CustomConnection = {
       ...connection,
@@ -199,22 +215,24 @@ describe("profile connections", () => {
       models: [{ id: "UPPER[1m]", reasoning: "xhigh" }],
     };
     expect(claudeConnectionEnv(custom, undefined).CLAUDE_CODE_MODEL_CAPABILITIES).toBe(
-      "-effort,-xhigh_effort,-max_effort;upper=effort,xhigh_effort,-max_effort",
+      "upper=effort,xhigh_effort,-max_effort",
     );
     expect(
       claudeConnectionEnv({ ...custom, models: [{ id: "UPPER[1m]", reasoning: "max" }] }, undefined)
         .CLAUDE_CODE_MODEL_CAPABILITIES,
-    ).toBe("-effort,-xhigh_effort,-max_effort;upper=effort,xhigh_effort,max_effort");
+    ).toBe("upper=effort,xhigh_effort,max_effort");
     for (const id of ["model;other", "model,other", "model=other", "model*"]) {
-      expect(() =>
-        claudeConnectionEnv(
-          { ...custom, defaultModel: id, models: [{ id, reasoning: "high" }] },
-          undefined,
-        ),
-      ).toThrow("cannot configure reasoning");
-      expect(() =>
+      for (const reasoning of ["none", "high"] as const) {
+        expect(() =>
+          claudeConnectionEnv(
+            { ...custom, defaultModel: id, models: [{ id, reasoning }] },
+            undefined,
+          ),
+        ).toThrow("cannot configure reasoning");
+      }
+      expect(
         claudeConnectionEnv({ ...custom, defaultModel: id, models: [{ id }] }, undefined),
-      ).not.toThrow();
+      ).not.toHaveProperty("CLAUDE_CODE_MODEL_CAPABILITIES");
     }
   });
 

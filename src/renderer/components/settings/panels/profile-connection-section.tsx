@@ -391,14 +391,17 @@ function ProfileConnectionModels({
           )}
           <select
             aria-label={t("profiles.connection.reasoning")}
-            value={row.reasoning ?? "none"}
+            value={row.reasoning ?? (claude ? "auto" : "none")}
             className={cn(inputClass, "px-1")}
-            onChange={(event) =>
+            onChange={(event) => {
+              const value = event.target.value;
               draft.updateModel(row.rowId, {
-                reasoning: event.target.value as ConnectionModel["reasoning"],
-              })
-            }
+                reasoning:
+                  claude && value === "auto" ? undefined : (value as ConnectionModel["reasoning"]),
+              });
+            }}
           >
+            {claude && <option value="auto">{t("profiles.connection.effort.auto")}</option>}
             {CONNECTION_REASONING.map((value) => (
               <option key={value} value={value}>
                 {t(`profiles.connection.effort.${value}`)}

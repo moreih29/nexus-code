@@ -921,6 +921,7 @@
       "lightHint": "Background work such as chat titles and summaries",
       "reasoning": "Reasoning",
       "effort": {
+        "auto": "Auto",
         "none": "None",
         "high": "low–high",
         "xhigh": "low–xhigh",

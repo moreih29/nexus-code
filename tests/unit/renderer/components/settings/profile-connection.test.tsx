@@ -53,6 +53,7 @@ describe("custom profile reasoning controls", () => {
     );
 
     expect(html.match(/aria-label="Reasoning"/g)).toHaveLength(2);
+    expect(html).toContain('<option value="auto">Auto</option>');
     expect(html).toContain('<option value="none">None</option>');
     expect(html).toContain('<option value="high">low–high</option>');
     expect(html).toContain('<option value="xhigh">low–xhigh</option>');
