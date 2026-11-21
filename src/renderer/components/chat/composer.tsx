@@ -71,6 +71,7 @@ import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
+import { COMPOSER_CHIP_CLASS } from "./composer-chip";
 import { fitTextHeight, observeTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
@@ -1205,10 +1206,6 @@ function SendButton({
   );
 }
 
-// One line each: in a narrow panel the row leaves chips out instead (useFitStep).
-const CHIP_CLASS =
-  "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
-
 /** Claude Code's permission modes; keys 1 to 5 pick them. */
 const CLAUDE_MODES = CHAT_MODES.claude;
 
@@ -1281,7 +1278,7 @@ export function ModeChip({
         <button
           type="button"
           className={cn(
-            CHIP_CLASS,
+            COMPOSER_CHIP_CLASS,
             MODE_TINT[mode],
             mode === bypass && "text-destructive hover:text-destructive",
             truncate && "min-w-0 shrink",
@@ -1379,7 +1376,7 @@ function ModelChip({
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={CHIP_CLASS}
+          className={COMPOSER_CHIP_CLASS}
           disabled={!ready}
           title={`${t("chat.model.aria")} · ${label}`}
           aria-label={t("chat.model.aria")}
@@ -1435,7 +1432,7 @@ function EffortChip({
     return (
       <button
         type="button"
-        className={CHIP_CLASS}
+        className={COMPOSER_CHIP_CLASS}
         disabled
         title={`${t("chat.effort.aria")} · ${note}`}
       >
@@ -1448,7 +1445,7 @@ function EffortChip({
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={CHIP_CLASS}
+          className={COMPOSER_CHIP_CLASS}
           disabled={state.model.process !== "running"}
           title={t("chat.effort.aria")}
           aria-label={t("chat.effort.aria")}
