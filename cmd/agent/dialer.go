@@ -57,7 +57,7 @@ func runDialer(sockPath string) {
 
 	// Hand this connection's forwarded SSH agent to the daemon's children,
 	// which reach it through the link the daemon exported (runDaemon).
-	_ = agentrun.PointAuthSock(agentrun.AuthSockFor(sockPath), os.Getenv("SSH_AUTH_SOCK"))
+	_ = agentrun.SetConnectionAuthSock(agentrun.AuthSockFor(sockPath), os.Getenv("SSH_AUTH_SOCK"))
 
 	// A write to an output no one reads any more fails rather than killing
 	// the dialer: it still has to read what the daemon sends (below).

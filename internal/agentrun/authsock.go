@@ -3,6 +3,7 @@
 package agentrun
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,17 +52,27 @@ func PointAuthSock(link, target string) error {
 	return nil
 }
 
-// AdoptAuthSock points link at the process's $SSH_AUTH_SOCK and, when that
-// worked, exports link as $SSH_AUTH_SOCK so every child (terminals, git, ssh)
-// follows the link instead of the starting connection's socket. Without a
-// forwarded agent, or when link would not fit in sun_path, the environment
-// is left alone.
+// SetConnectionAuthSock records the current dialer's forwarding state.
+// A non-forwarding connection must not keep using the previous socket.
+func SetConnectionAuthSock(link, target string) error {
+	if target != "" {
+		return PointAuthSock(link, target)
+	}
+	if _, err := os.Readlink(link); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return os.Remove(link)
+}
+
+// AdoptAuthSock exports the stable socket pathname. Children can inherit
+// it before the first forwarding connection supplies a target.
 func AdoptAuthSock(link string) bool {
-	target := os.Getenv("SSH_AUTH_SOCK")
-	if target == "" || len(link) >= maxSunPath {
+	if len(link) >= maxSunPath {
 		return false
 	}
-	if err := PointAuthSock(link, target); err != nil {
+	if err := SetConnectionAuthSock(link, os.Getenv("SSH_AUTH_SOCK")); err != nil {
 		return false
 	}
 	return os.Setenv("SSH_AUTH_SOCK", link) == nil
