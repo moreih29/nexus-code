@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "../../../../src/main/features/cli/args";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import { commandHelp } from "../../../../src/main/features/cli/registry";
 
 const doc = readFileSync(join(import.meta.dir, "../../../../docs/CLI.md"), "utf8");
 
@@ -33,6 +34,9 @@ test.each([
   "note transcript NOTE --recording RECORDING --json",
   "note record NOTE --participants 3",
   "settings instructions show --workspace WS --agent codex --json",
+  'chat instructions 1a2b --show --device "Mac mini"',
+  'chat instructions 1a2b --set-file rules.md --device "Mac mini"',
+  'chat instructions 1a2b --clear --device "Mac mini"',
   "chat read 3fa2 --answer 12",
   "chat export 3fa2 --stdout",
   "chat image 3fa2 --message 12 --out attachment.png",
@@ -52,11 +56,20 @@ test.each([
   "browser permissions --workspace site --device Mini --json",
 ])("docs example uses registered syntax for %s", (example) => {
   expect(doc).toContain(example);
-  const argv = example.split(" ");
+  const argv = example.match(/"[^"]*"|\S+/g)?.map((word) => word.replace(/^"|"$/g, "")) ?? [];
   const command = CLI_COMMANDS.filter((entry) =>
     entry.path.every((word, index) => argv[index] === word),
   ).sort((a, b) => b.path.length - a.path.length)[0];
   expect(command).toBeDefined();
   if (!command) return;
   expect(() => parseArgs(argv.slice(command.path.length), command.flags ?? {})).not.toThrow();
+});
+
+test("chat instructions help includes all three actions for a peer device", () => {
+  const command = CLI_COMMANDS.find(({ path }) => path.join(" ") === "chat instructions");
+  expect(command).toBeDefined();
+  if (!command) return;
+  expect(commandHelp(command)).toContain(
+    "Use exactly one of --show, --set-file FILE, or --clear. All three work with --device.",
+  );
 });

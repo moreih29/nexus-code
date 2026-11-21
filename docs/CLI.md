@@ -183,7 +183,7 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - `chat history [검색어]` 는 워크스페이스 폴더의 지난 대화를 최신순으로 보여주고(`--agent codex`, `--limit N`), `chat resume <id>` 는 그 대화를 새 탭(뒤쪽)에서 이어갑니다. id 는 앞부분만 줘도 됩니다. 이미 열린 탭이 있으면 그 탭을 알려주고, `--tab` 이면 대화가 없는 그 탭에서 이어갑니다.
 - 다른 컴퓨터에서도 `chat send --after` 를 쓸 수 있습니다. 수신 기기에서 에이전트 제어를 끄면 에이전트가 보류한 메시지는 취소됩니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
-- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. `chat instructions`는 `--device`로 다른 기기의 세션 지시도 읽거나 수정할 수 있습니다.
+- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. `chat instructions`의 `--show`, `--set-file`, `--clear`는 모두 `--device`로 다른 기기에서도 쓸 수 있습니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 확인된 로컬 채팅 탭은 자기 권한 수준까지 다른 탭에 부여할 수 있습니다. 더 넓은 모드를 부여할 때는 사용자에게 묻습니다. 제한 없는 모드(`bypassPermissions`, `fullAccess`)를 CLI로 부여할 수 있는 것은 이미 그 모드로 실행 중인 로컬 채팅 탭입니다. 자기 탭의 설정은 바꾸지 않습니다.
@@ -239,6 +239,7 @@ nexus chat tool 1a2b 4 --device "Mac mini"
 nexus chat files 1a2b report --device "Mac mini" --json
 nexus chat instructions 1a2b --show --device "Mac mini"
 nexus chat instructions 1a2b --set-file rules.md --device "Mac mini"
+nexus chat instructions 1a2b --clear --device "Mac mini"
 nexus chat rewind 1a2b 5 --device "Mac mini" --preview
 nexus chat set 1a2b --profile Work --device "Mac mini"
 nexus chat send 1a2b --after --image screenshot.png --device "Mac mini" "확인해 주세요"

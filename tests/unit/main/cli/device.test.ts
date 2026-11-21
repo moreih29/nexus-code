@@ -345,6 +345,7 @@ describe("nexus agent-context", () => {
       "Make worktrees with nexus worktree new, not git worktree add",
     );
     expect(note()?.status).toContain("--device NAME");
+    expect(note()?.status).toContain("chat instructions TAB --show, --set-file FILE, or --clear");
     app.peers.inRoom = false;
     expect(note()?.status).toContain("outside a Nexus remote room");
     current.agentContext = false;
