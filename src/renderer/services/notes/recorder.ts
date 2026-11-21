@@ -111,6 +111,7 @@ interface Active {
   /** Where the take starts in the recording. */
   offsetMs: number;
   takeSince: number;
+  takeLengthMs: number | null;
   ending: Ending | null;
   /** The take's audio, written in order. */
   writes: Promise<void>;
@@ -252,7 +253,7 @@ function onEvent({ id, event }: VoiceEvent): void {
       const text = event.text.trim();
       set({ partial: null });
       if (!text) return;
-      const now = Date.now() - a.takeSince;
+      const now = a.takeLengthMs ?? Date.now() - a.takeSince;
       const label = event.speaker ?? "1";
       const startMs = event.startMs ?? Math.max(0, now - 2000);
       const endMs = event.endMs ?? now;
@@ -354,6 +355,7 @@ export async function startRecording(
     startingVoice: null,
     offsetMs: 0,
     takeSince: 0,
+    takeLengthMs: null,
     ending: null,
     writes: Promise.resolve(),
     mediaDone: Promise.resolve(),
@@ -516,6 +518,7 @@ async function startVoiceTake(
   // The first take starts the recording; the next go on where the last ended.
   a.offsetMs = a.take === 0 ? 0 : useRecorderStore.getState().baseMs;
   a.takeSince = Date.now();
+  a.takeLengthMs = null;
   const file = takeFile(a.recordingId, a.take);
   a.media = recordAudio(a, stream, file);
   update((r) => ({
@@ -570,12 +573,7 @@ function recordAudio(a: Active, stream: MediaStream, file: string): MediaRecorde
 function endTake(ending: Ending): void {
   const a = active;
   if (!a?.sessionId || a.ending) return;
-  a.ending = ending;
-  stopCapture(a);
-  const elapsed = Date.now() - a.takeSince;
-  setTake((tk) => ({ ...tk, seconds: Math.max(tk.seconds, elapsed / 1000) }));
-  if (ending === "chain") set({ partial: null });
-  else set({ phase: ending === "pause" ? "pausing" : "stopping", level: 0 });
+  endTakeAudio(a, ending);
   const id = a.sessionId;
   void ipcCallResult("remote", "voiceStop", { id });
   a.endTimer = setTimeout(() => {
@@ -584,6 +582,21 @@ function endTake(ending: Ending): void {
       void finishTake(a);
     }
   }, TAKE_END_TIMEOUT_MS);
+}
+
+function endTakeAudio(a: Active, ending: Ending): void {
+  a.ending = ending;
+  const elapsed = Math.max(0, Date.now() - a.takeSince);
+  a.takeLengthMs = elapsed;
+  stopCapture(a);
+  if (ending !== "chain") releaseMicrophone(a);
+  setTake((tk) => ({ ...tk, seconds: Math.max(tk.seconds, elapsed / 1000) }));
+  set({
+    phase: ending === "chain" ? "starting" : ending === "pause" ? "pausing" : "stopping",
+    baseMs: a.offsetMs + elapsed,
+    takeSince: null,
+    level: 0,
+  });
 }
 
 function stopCapture(a: Active): void {
@@ -605,13 +618,8 @@ async function finishTake(a: Active): Promise<void> {
   clearTimeout(a.endTimer);
   // Closed without being ended (it dropped): what was heard is kept, and the recording pauses.
   const ending = a.ending ?? "pause";
-  if (!a.ending) {
-    a.ending = ending;
-    stopCapture(a);
-    const elapsed = Date.now() - a.takeSince;
-    setTake((tk) => ({ ...tk, seconds: Math.max(tk.seconds, elapsed / 1000) }));
-  }
-  const length = Date.now() - a.takeSince;
+  if (!a.ending) endTakeAudio(a, ending);
+  const baseMs = a.offsetMs + (a.takeLengthMs ?? 0);
   await a.mediaDone;
   await a.writes;
   a.media = null;
@@ -622,18 +630,15 @@ async function finishTake(a: Active): Promise<void> {
     if (active !== a) return;
     if (regrouped(a, a.voices.regroup(recordingOf(a)?.speakers ?? {}))) clearVoiceSuggestions(a);
   }
-  const baseMs = a.offsetMs + length;
   if (ending !== "stop") refreshLiveNames(a, baseMs, true);
   if (ending === "chain") {
-    set({ baseMs, takeSince: null });
-    set({ phase: "starting" });
+    set({ partial: null });
     if (!(await startTake(a)) && active === a) {
       releaseMicrophone(a);
       set({ phase: "paused", level: 0 });
     }
     return;
   }
-  releaseMicrophone(a);
   if (ending === "pause") {
     set({ phase: "paused", baseMs, takeSince: null, partial: null, level: 0 });
     await flushTranscript(a.workspaceId, a.noteId, true);

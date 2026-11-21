@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
 import {
   dropRecording,
+  pauseRecording,
+  resumeRecording,
   startRecording,
   useRecorderStore,
 } from "../../../../../src/renderer/services/notes/recorder";
@@ -180,6 +182,42 @@ test.each([
     expect(hardware.stopCapture).toHaveBeenCalledTimes(before === "capture" ? 1 : 0);
     expect(useRecorderStore.getState().phase).toBe("idle");
   } finally {
+    hardware.restore();
+  }
+});
+
+test("pause releases the microphone and excludes waiting for the server from the next take", async () => {
+  const hardware = mockHardware();
+  const clock = spyOn(Date, "now").mockReturnValue(10_000);
+  const paused = Promise.withResolvers<void>();
+  const unsubscribe = useRecorderStore.subscribe((state) => {
+    if (state.phase === "paused") paused.resolve();
+  });
+  try {
+    await startRecording(workspaceId, noteId, "en");
+    clock.mockReturnValue(15_000);
+    pauseRecording();
+
+    expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
+    expect(useRecorderStore.getState()).toMatchObject({
+      phase: "pausing",
+      baseMs: 5000,
+      takeSince: null,
+    });
+    if (!voiceEvent) throw new Error("missing voice listener");
+    clock.mockReturnValue(18_000);
+    voiceEvent({ id: ready.id, event: { t: "done", seconds: 5 } });
+    voiceEvent({ id: ready.id, event: { t: "closed", code: 1000 } });
+    await paused.promise;
+    await resumeRecording();
+
+    expect(useTranscriptsStore.getState().byNote[key]?.recordings[0]?.takes).toMatchObject([
+      { seconds: 5, offsetMs: 0 },
+      { offsetMs: 5000 },
+    ]);
+  } finally {
+    unsubscribe();
+    clock.mockRestore();
     hardware.restore();
   }
 });
