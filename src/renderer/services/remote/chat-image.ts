@@ -51,35 +51,41 @@ export interface ImageLimits {
   maxEdge?: number;
 }
 
-/**
- * The image, as it is or drawn smaller: its base64 at most `maxChars`, its
- * longer side at most `maxEdge` pixels. Its size in pixels goes with it.
- */
-export async function fitImage(
-  image: ImageBlock,
-  { maxChars, maxEdge }: ImageLimits,
-  shrink: Shrink = shrinkOnCanvas,
-): Promise<Required<CliChatImage>> {
+function planImageFit(image: ImageBlock, { maxChars, maxEdge }: ImageLimits) {
   const bytes = bytesOf(image.data);
   const size = decodable(bytes) ? pixelSizeOf(bytes) : null;
   if (!size) {
     throw new UiRequestError("the image is too big to draw, by its header, or not one read here");
   }
   const edge = Math.max(size.width, size.height);
-  // Asked no bigger than it is, it is drawn at that size first.
-  const first = maxEdge !== undefined && edge > maxEdge ? maxEdge / edge : 1;
-  if (first === 1 && SENT_AS_IS.has(image.mediaType) && image.data.length <= maxChars) {
+  const scale = maxEdge !== undefined && edge > maxEdge ? maxEdge / edge : 1;
+  const sendAsIs = scale === 1 && SENT_AS_IS.has(image.mediaType) && image.data.length <= maxChars;
+  return { size, scale, sendAsIs };
+}
+
+/**
+ * The image, as it is or drawn smaller: its base64 at most `maxChars`, its
+ * longer side at most `maxEdge` pixels. Its size in pixels goes with it.
+ */
+export async function fitImage(
+  image: ImageBlock,
+  limits: ImageLimits,
+  shrink: Shrink = shrinkOnCanvas,
+): Promise<Required<CliChatImage>> {
+  const { maxChars } = limits;
+  const plan = planImageFit(image, limits);
+  if (plan.sendAsIs) {
     return {
       mediaType: image.mediaType as CliChatImage["mediaType"],
       data: image.data,
-      width: size.width,
-      height: size.height,
+      width: plan.size.width,
+      height: plan.size.height,
     };
   }
   // A JPEG may take far less than the PNG it was. Then smaller as its
   // base64 grows with the pixels, by the square root of the share to lose,
   // and a little more.
-  let scale = first;
+  let scale = plan.scale;
   for (let tries = 0; tries < MAX_TRIES; tries++) {
     const shrunk = await shrink(image, scale);
     if (shrunk.data.length <= maxChars) return shrunk;
@@ -92,10 +98,11 @@ export async function fitImage(
 export async function readChatImage(
   image: ImageBlock,
   limits: ImageLimits & { versioned?: true; ifVersion?: string },
+  shrink: Shrink = shrinkOnCanvas,
 ): Promise<CliChatImage & { version?: string; notModified?: true }> {
   const { versioned, ifVersion, maxChars, maxEdge } = limits;
   if ((!versioned && ifVersion === undefined) || !globalThis.crypto?.subtle) {
-    return fitImage(image, limits);
+    return fitImage(image, limits, shrink);
   }
   const source = new TextEncoder().encode(
     JSON.stringify([1, image.mediaType, maxChars, maxEdge]) + image.data,
@@ -105,12 +112,12 @@ export async function readChatImage(
     byte.toString(16).padStart(2, "0"),
   ).join("");
   if (version === ifVersion) {
-    const mediaType = SENT_AS_IS.has(image.mediaType)
+    const mediaType = planImageFit(image, limits).sendAsIs
       ? (image.mediaType as CliChatImage["mediaType"])
       : "image/jpeg";
     return { mediaType, data: "", version, notModified: true };
   }
-  return { ...(await fitImage(image, limits)), version };
+  return { ...(await fitImage(image, limits, shrink)), version };
 }
 
 function base64Of(bytes: Uint8Array): string {

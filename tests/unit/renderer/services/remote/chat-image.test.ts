@@ -115,6 +115,57 @@ describe("an image of a chat", () => {
     expect(await readChatImage(image, limits)).not.toHaveProperty("version");
   });
 
+  test.each([
+    {
+      name: "a PNG over the edge limit",
+      image: pic(pngData(400, 800)),
+      limits: { maxChars: 100, maxEdge: 360 },
+      mediaType: "image/jpeg",
+    },
+    {
+      name: "a PNG over the base64 limit",
+      image: pic(pngData(10, 10, 200)),
+      limits: { maxChars: 100 },
+      mediaType: "image/jpeg",
+    },
+    {
+      name: "a PNG within both limits",
+      image: pic(pngData(360, 100)),
+      limits: { maxChars: 40, maxEdge: 360 },
+      mediaType: "image/png",
+    },
+    {
+      name: "a BMP within both limits",
+      image: pic(bmpData(4, 4), "image/bmp"),
+      limits: { maxChars: 100, maxEdge: 360 },
+      mediaType: "image/jpeg",
+    },
+  ])("keeps the first response's media type when revalidating $name", async ({
+    image,
+    limits,
+    mediaType,
+  }) => {
+    const shrink: Shrink = async () => ({
+      mediaType: "image/jpeg",
+      data: "anBn",
+      width: 1,
+      height: 1,
+    });
+    const first = await readChatImage(image, { ...limits, versioned: true }, shrink);
+    expect(first.mediaType).toBe(mediaType);
+    expect(first.version).toBeDefined();
+
+    const never: Shrink = async () => {
+      throw new Error("drawn during revalidation");
+    };
+    expect(await readChatImage(image, { ...limits, ifVersion: first.version }, never)).toEqual({
+      mediaType: first.mediaType,
+      data: "",
+      version: first.version,
+      notModified: true,
+    });
+  });
+
   test("asked for one no bigger than it is, goes as it is", async () => {
     const never: Shrink = async () => {
       throw new Error("drawn");
