@@ -694,6 +694,8 @@
     "turnFailed": "오류로 Claude가 멈췄습니다"
   },
   "saveConfirm": {
+    "replaceTitle": "파일 덮어쓰기",
+    "replaceDescription": "이 워크스페이스에 “{{path}}” 파일이 이미 있습니다. 덮어쓰시겠습니까?",
     "title": "“{{filename}}”의 변경을 저장할까요?",
     "description": "저장하지 않으면 변경사항이 사라집니다.",
     "dont_save": "저장 안 함"

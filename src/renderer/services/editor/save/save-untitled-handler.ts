@@ -3,9 +3,8 @@
 // saveUntitledModel orchestrates the full "Untitled → saved file" flow:
 //   1. Show the native save-file dialog.
 //   2. User cancels → silent return (untitled tab preserved).
-//   3. User picks a path → write buffer content with fs.writeFile. The
-//      dialog already confirmed replacing an existing file, so one is
-//      overwritten (and its open tab, if any, reloaded).
+//   3. User picks a path → write a new file or confirm a collision in the
+//      target workspace before replacing it.
 //   4. On write success → acquireModel with the new path, replace the tab,
 //      then releaseModel on the old untitled entry (and, once the tab's
 //      editor holds the new model, on the new one).
@@ -17,6 +16,7 @@
 
 import i18next from "i18next";
 import { toSlashPath } from "../../../../shared/fs/drive-path";
+import { showConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useTabsStore } from "../../../state/stores/tabs";
@@ -97,7 +97,9 @@ export async function saveUntitledModel(
     });
     return "failed";
   }
-  const content = resolved.model.getValue();
+  const sourceModel = resolved.model;
+  const savedVersion = sourceModel.getVersionId();
+  const content = sourceModel.getValue();
 
   // Determine workspace-relative path for writeFile. The agent joins every
   // relPath under the workspace root, so a path outside it would be written
@@ -122,21 +124,31 @@ export async function saveUntitledModel(
     filePath: chosenPath,
     origin: "workspace",
   };
-  // A file the dialog let the user replace may already be open in a tab.
+  // The target may already be open in a tab.
   const replacingOpenFile = getModelSnapshot(newInput) !== null;
 
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
   let writeFileResult;
   try {
-    writeFileResult = await writeConfirmedSaveTarget(async (expected) =>
-      unwrapIpcResult(
-        await ipcCallResult("fs", "writeFile", {
-          workspaceId,
-          relPath: writeRelPath,
-          content,
-          expected,
-        }),
-      ),
+    writeFileResult = await writeConfirmedSaveTarget(
+      async (expected) =>
+        unwrapIpcResult(
+          await ipcCallResult("fs", "writeFile", {
+            workspaceId,
+            relPath: writeRelPath,
+            content,
+            expected,
+          }),
+        ),
+      async () => {
+        const confirmed = await showConfirmDialog({
+          title: i18next.t("saveConfirm.replaceTitle"),
+          description: i18next.t("saveConfirm.replaceDescription", { path: chosenPath }),
+          confirmLabel: i18next.t("conflictDialog.overwrite"),
+          variant: "destructive",
+        });
+        return confirmed && getResolvedModel(untitledInput)?.model === sourceModel;
+      },
     );
   } catch (error) {
     showToast({
@@ -145,6 +157,8 @@ export async function saveUntitledModel(
     });
     return "failed";
   }
+
+  if (!writeFileResult) return "cancelled";
 
   if (writeFileResult.kind === "conflict") {
     showToast({
@@ -171,7 +185,7 @@ export async function saveUntitledModel(
 
   // An open tab of the replaced file still holds its old content; load what
   // was just written, as replacing the file in the dialog asked for.
-  if (replacingOpenFile) await reloadModelFromDisk(newInput);
+  const targetReady = !replacingOpenFile || (await reloadModelFromDisk(newInput));
 
   // Set savePoint on the new model's dirty tracker so it starts clean.
   const newResolved = getResolvedModel(newInput);
@@ -183,6 +197,37 @@ export async function saveUntitledModel(
       loadedMtime: mtime,
       loadedSize: size,
     });
+  }
+
+  if (
+    getResolvedModel(untitledInput)?.model !== sourceModel ||
+    useTabsStore.getState().byWorkspace[workspaceId]?.[tabId]?.type !== "untitled"
+  ) {
+    releaseModel(newInput);
+    return "cancelled";
+  }
+
+  // The write saved a snapshot. Carry edits made after that snapshot onto the
+  // saved model as an undoable edit, leaving its disk baseline untouched.
+  if (sourceModel.getVersionId() !== savedVersion) {
+    if (!targetReady || !newResolved) {
+      releaseModel(newInput);
+      showToast({
+        kind: "error",
+        message: i18next.t("errors:save.failed", {
+          reason: i18next.t("errors:save.buffer_unavailable"),
+        }),
+      });
+      return "failed";
+    }
+    const latest = sourceModel.getValue();
+    if (newResolved.model.getValue() !== latest) {
+      newResolved.model.pushEditOperations(
+        [],
+        [{ range: newResolved.model.getFullModelRange(), text: latest }],
+        () => null,
+      );
+    }
   }
 
   // Replace the untitled tab with the editor tab (tab id preserved).

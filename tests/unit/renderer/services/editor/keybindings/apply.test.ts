@@ -133,6 +133,15 @@ describe("applyEditorKeybindingOverrides reconciler", () => {
     expect(added).toEqual([]);
   });
 
+  test("reset restores a default shortcut after an explicit unbind", () => {
+    applyEditorKeybindingOverrides([{ command: COMMENT, primary: null }]);
+    expect(keysFor(COMMENT)).toEqual([]);
+
+    applyEditorKeybindingOverrides([]);
+    expect(keysFor(COMMENT)).toEqual([kb(DEFAULT_KEY)]);
+    expect(added).toEqual([]);
+  });
+
   test("overrides for unknown (non-curated) command ids are ignored", () => {
     applyEditorKeybindingOverrides([
       { command: "editor.action.notCurated", primary: "CmdOrCtrl+J" },

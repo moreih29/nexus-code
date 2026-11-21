@@ -114,7 +114,9 @@ export function moveTabToZone(
       }
     }
 
-    useLayoutStore.getState().moveTab(workspaceId, tabId, destLeaf.id, target.index);
+    const layoutStore = useLayoutStore.getState();
+    layoutStore.moveTab(workspaceId, tabId, destLeaf.id, target.index);
+    if (isCrossGroup) layoutStore.setActiveGroup(workspaceId, destLeaf.id);
     // A tab dropped across the pinned/unpinned boundary snaps back to its
     // own side, where the tab bar draws it.
     normalizeGroupTabOrder(workspaceId, destLeaf.id);

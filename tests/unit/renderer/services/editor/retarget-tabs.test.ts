@@ -2,7 +2,8 @@
  * retargetEditorTabs — editor tabs follow a renamed or moved file, and
  * unsaved text moves with them.
  */
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { workingFileOfDiff } from "../../../../../src/renderer/services/editor/tabs/diff-working-file";
 import {
   movedFilePath,
   type RetargetEditorTabsDeps,
@@ -10,6 +11,7 @@ import {
 } from "../../../../../src/renderer/services/editor/tabs/retarget-tabs";
 import type { EditorInput } from "../../../../../src/renderer/services/editor/types";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
+import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 
 const WS = "ws-retarget";
 
@@ -51,6 +53,8 @@ function cleanDeps(): RetargetEditorTabsDeps {
 beforeEach(() => {
   useTabsStore.setState({ byWorkspace: {} });
 });
+
+afterEach(() => useWorkspacesStore.getState().remove(WS));
 
 describe("movedFilePath", () => {
   it("moves the file itself and anything under a moved folder", () => {
@@ -101,6 +105,46 @@ describe("retargetEditorTabs", () => {
     ]);
     expect(model.getValue()).toBe("edited");
     expect(released).toEqual([{ workspaceId: WS, filePath: "/r/b.ts" }]);
+  });
+
+  it("moves an editable diff and its unsaved text while retaining a staged diff", async () => {
+    useWorkspacesStore.getState().upsert({
+      id: WS,
+      rootPath: "/r",
+      name: "Test",
+      location: { kind: "local", rootPath: "/r" },
+      color: "auto",
+      pinned: false,
+      sortOrder: 1,
+      pinnedSortOrder: 0,
+      tabs: [],
+    });
+    const store = useTabsStore.getState();
+    const props = { workspaceId: WS, relPath: "dir/a.ts", leftRef: "INDEX", rightRef: "WORKING" };
+    const editable = store.createTab(WS, { type: "editor.diff", props });
+    const staged = store.createTab(WS, {
+      type: "editor.diff",
+      props: { ...props, leftRef: "HEAD", rightRef: "INDEX" },
+    });
+    const model = fakeModel("on disk");
+    const acquired: EditorInput[] = [];
+
+    await retargetEditorTabs(WS, "/r/dir", "/r/lib", {
+      readUnsavedText: (input) => (input.filePath === "/r/dir/a.ts" ? "edited" : null),
+      acquireModel: async (input) => {
+        acquired.push(input);
+        return { phase: "ready", model, readOnly: false } as never;
+      },
+      releaseModel: () => {},
+    });
+
+    const tabs = useTabsStore.getState().byWorkspace[WS];
+    const moved = tabs?.[editable.id];
+    if (moved?.type !== "editor.diff") throw new Error("Missing editable diff");
+    expect(workingFileOfDiff(moved.props)).toBe("/r/lib/a.ts");
+    expect(tabs?.[staged.id]).toBe(staged);
+    expect(acquired).toEqual([{ workspaceId: WS, filePath: "/r/lib/a.ts" }]);
+    expect(model.getValue()).toBe("edited");
   });
 
   it("releases nothing when the new path fails to load", async () => {

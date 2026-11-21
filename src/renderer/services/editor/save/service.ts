@@ -141,8 +141,11 @@ export async function saveModelInteractive(
   }
 
   if (choice === "reload") {
-    const applied = await reloadModelFromDisk(input);
-    return { kind: applied ? "not-dirty" : "superseded" };
+    let failure: SaveResult | undefined;
+    const applied = await reloadModelFromDisk(input, undefined, (error) => {
+      failure = { kind: "error", message: fsErrorReason(error) };
+    });
+    return failure ?? { kind: applied ? "not-dirty" : "superseded" };
   }
 
   // choice === "overwrite": sync dirty-tracker metadata to the actual disk
@@ -196,11 +199,11 @@ export async function saveModel(
   input: EditorInput,
   options: SaveOptions = {},
 ): Promise<SaveResult> {
-  const resolved = getResolvedModel(input);
-  if (!resolved) return { kind: "no-model" };
+  const initial = getResolvedModel(input);
+  if (!initial) return { kind: "no-model" };
 
   // Read-only guard — must short-circuit before any dirty-tracker access.
-  if (resolved.readOnly) {
+  if (initial.readOnly) {
     showToast({ kind: "info", message: i18next.t("errors:save.read_only") });
     return { kind: "read-only" };
   }
@@ -210,16 +213,19 @@ export async function saveModel(
   // SaveReason.EXPLICIT before invoking the model's save. saveModel is
   // only called from explicit user gestures (Cmd+S, close-confirm), so
   // every entry counts as EXPLICIT.
-  promoteAllPreviewTabsForFile(resolved.workspaceId, resolved.filePath);
+  promoteAllPreviewTabsForFile(initial.workspaceId, initial.filePath);
 
-  const dirtyEntry = getDirtyEntry(resolved.cacheUri);
+  const dirtyEntry = getDirtyEntry(initial.cacheUri);
   if (!dirtyEntry) return { kind: "no-model" };
 
   const force = options.encoding !== undefined;
   if (!dirtyEntry.isDirty && !force) return { kind: "not-dirty" };
 
   try {
-    return await sequentializer.run(resolved.cacheUri, async () => {
+    return await sequentializer.run(initial.cacheUri, async () => {
+      // A preceding queued write may have changed the model's encoding.
+      const resolved = getResolvedModel(input);
+      if (!resolved) return { kind: "no-model" } satisfies SaveResult;
       // Re-read the entry inside the gate — by the time we got here the
       // user could have undone back to the saved baseline (dirty=false).
       const dirtyEntryNow = getDirtyEntry(resolved.cacheUri);

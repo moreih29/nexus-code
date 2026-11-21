@@ -694,6 +694,8 @@
     "turnFailed": "Claude stopped on an error"
   },
   "saveConfirm": {
+    "replaceTitle": "Replace file",
+    "replaceDescription": "“{{path}}” already exists in this workspace. Replace it?",
     "title": "Save changes to “{{filename}}”?",
     "description": "Your changes will be lost if you don't save them.",
     "dont_save": "Don't Save"

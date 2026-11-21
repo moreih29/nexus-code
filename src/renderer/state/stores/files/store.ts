@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { registerWorkspaceCleanup } from "../../workspace-cleanup";
-import { cloneTree, setTree, sortEntries } from "./helpers";
+import { cloneTree, joinPath, setTree, sortEntries } from "./helpers";
 import {
   emptySelection,
   extendSelection,
@@ -152,15 +152,13 @@ export const useFilesStore = create<FilesState>((set, get) => {
       const expandedSet = new Set<string>([rootAbsPath]);
       const sortedRel = [...persistedRelPaths].sort((a, b) => a.length - b.length);
       for (const rel of sortedRel) {
-        const abs = rel ? `${rootAbsPath}/${rel}` : rootAbsPath;
         const parts = rel.split("/");
         let cur = rootAbsPath;
         for (const part of parts) {
           if (!part) continue;
-          cur = `${cur}/${part}`;
+          cur = joinPath(cur, part);
           expandedSet.add(cur);
         }
-        expandedSet.add(abs);
       }
 
       const tree: WorkspaceTree = {
@@ -199,7 +197,7 @@ export const useFilesStore = create<FilesState>((set, get) => {
         const previousChildren = new Set(next.nodes.get(absPath)?.children ?? []);
         const childAbsPaths: string[] = [];
         for (const entry of sorted) {
-          const childAbsPath = `${absPath}/${entry.name}`;
+          const childAbsPath = joinPath(absPath, entry.name);
           childAbsPaths.push(childAbsPath);
           const existing = next.nodes.get(childAbsPath);
           if (!existing || existing.type !== entry.type || !previousChildren.has(childAbsPath)) {
@@ -218,7 +216,8 @@ export const useFilesStore = create<FilesState>((set, get) => {
           next.nodes.set(absPath, {
             ...parentNode,
             children: childAbsPaths,
-            childrenLoaded: true,
+            // A late read may have started before this directory lost its watch.
+            childrenLoaded: next.expanded.has(absPath),
           });
         }
 

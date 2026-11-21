@@ -22,11 +22,13 @@ import {
   toggleExpand,
 } from "../../../state/operations/files";
 import { parentOf, selectFlat, selectIsSelected, useFilesStore } from "../../../state/stores/files";
+import { joinPath } from "../../../state/stores/files/helpers";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { useTabsStore } from "../../../state/stores/tabs";
+import { relPath } from "../../../utils/path";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
@@ -117,7 +119,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (!tab) return null;
     if (tab.type === "editor") return tab.props.filePath;
     if (tab.type === "editor.diff" && tab.props.relPath) {
-      return `${rootAbsPath}/${tab.props.relPath}`;
+      return joinPath(rootAbsPath, tab.props.relPath);
     }
     return null;
   }, [layoutForWs, tabsForWs, rootAbsPath]);
@@ -247,9 +249,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // even if the user collapses the parent and flat loses the leaf again — VSCode parity.
   useEffect(() => {
     if (!activeEditorAbsPath) return;
-    if (activeEditorAbsPath !== rootAbsPath && !activeEditorAbsPath.startsWith(`${rootAbsPath}/`)) {
-      return;
-    }
+    if (relPath(activeEditorAbsPath, rootAbsPath) === activeEditorAbsPath) return;
     if (lastRevealedRef.current === activeEditorAbsPath) return;
     if (flat.some((f) => f.absPath === activeEditorAbsPath)) return;
     void reveal(workspaceId, activeEditorAbsPath);

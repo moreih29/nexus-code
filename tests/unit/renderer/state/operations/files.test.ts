@@ -21,6 +21,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 import {
   __cancelPendingSavesForTests,
   ensureRoot,
+  loadChildren,
+  refresh,
   retainPanelDirectoryWatch,
   reveal,
   toggleExpand,
@@ -262,6 +264,33 @@ describe("collapse → re-expand re-reads the folder", () => {
   });
 });
 
+it("does not trust a listing that arrives after the folder is collapsed", async () => {
+  const responses = { "": [dirEntry("lib", "dir")], lib: [dirEntry("new.ts")] };
+  setupReaddir(responses);
+  await ensureRoot(WS_ID, ROOT);
+  const lib = `${ROOT}/lib`;
+  const first = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  const original = mockIpcCallResult.getMockImplementation();
+  mockIpcCallResult.mockImplementation((_channel, method, args) => {
+    if (method === "readdir") {
+      mockIpcCallResult.mockImplementation(original);
+      return first.promise;
+    }
+    return original(_channel, method, args);
+  });
+
+  const expanding = toggleExpand(WS_ID, lib);
+  await toggleExpand(WS_ID, lib);
+  first.resolve({ ok: true, value: [dirEntry("old.ts")] });
+  await expanding;
+
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.childrenLoaded).toBe(false);
+  await toggleExpand(WS_ID, lib);
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.children).toEqual([
+    `${lib}/new.ts`,
+  ]);
+});
+
 describe("watch/unwatch for one folder reach the agent in call order", () => {
   it("holds a re-expand's watch until the collapse's unwatch has answered", async () => {
     setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
@@ -355,4 +384,71 @@ describe("fs.changed during a folder's first listing", () => {
     const lib = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(libAbs);
     expect(lib?.children).toEqual([`${libAbs}/new.ts`]);
   });
+});
+
+it("refresh waits for an ongoing root listing before loading expanded descendants", async () => {
+  const rootEntries = [dirEntry("lib", "dir")];
+  const responses = { "": rootEntries, lib: [dirEntry("old.ts")] };
+  setupReaddir(responses);
+  await ensureRoot(WS_ID, ROOT);
+  const lib = `${ROOT}/lib`;
+  await toggleExpand(WS_ID, lib);
+  await flush();
+
+  const first = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  mockIpcCallResult.mockImplementationOnce(() => first.promise);
+  const reading = loadChildren(WS_ID, ROOT);
+  responses.lib = [dirEntry("new.ts")];
+  let completed = false;
+  const refreshing = refresh(WS_ID).then(() => {
+    completed = true;
+  });
+  await flush();
+  const completedEarly = completed;
+  first.resolve({ ok: true, value: rootEntries });
+
+  await Promise.all([reading, refreshing]);
+  expect(completedEarly).toBe(false);
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.children).toEqual([
+    `${lib}/new.ts`,
+  ]);
+});
+
+it("discards a delayed listing when the workspace tree has been recreated", async () => {
+  const state = useFilesStore.getState();
+  setupReaddir({ "": [dirEntry("fresh.ts")] });
+  await ensureRoot(WS_ID, ROOT);
+  const old = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  mockIpcCallResult.mockImplementationOnce(() => old.promise);
+  const reading = loadChildren(WS_ID, ROOT);
+
+  state.closeAllForWorkspace(WS_ID);
+  await ensureRoot(WS_ID, ROOT);
+  old.resolve({ ok: true, value: [dirEntry("stale.ts")] });
+  await reading;
+
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(ROOT)?.children).toEqual([
+    `${ROOT}/fresh.ts`,
+  ]);
+});
+
+it.each(["/", "C:/"])("restores and watches a child at filesystem root %s", async (root) => {
+  const responses = { "": [dirEntry("lib", "dir")], lib: [] as DirEntry[] };
+  setupReaddir(responses);
+  mockIpcCallResult.mockImplementationOnce(async () => ({
+    ok: true,
+    value: { relPaths: ["/lib"] }, // A path saved by the previous implementation.
+  }));
+  await ensureRoot(WS_ID, root);
+  const folder = `${root}lib`;
+  const tree = () => useFilesStore.getState().trees.get(WS_ID);
+  expect(tree()?.expanded.has(folder)).toBe(true);
+  expect(tree()?.nodes.get(folder)?.childrenLoaded).toBe(true);
+  const watched = callsOf("watch").map(([, , args]) => (args as { relPath: string }).relPath);
+  expect(watched).toEqual(["", "lib"]);
+
+  responses.lib = [dirEntry("new.ts")];
+  handleFsChanged({ workspaceId: WS_ID, changes: [{ relPath: "lib/new.ts", kind: "added" }] });
+  await flush();
+  expect(tree()?.nodes.get(folder)?.children).toEqual([`${folder}/new.ts`]);
 });
