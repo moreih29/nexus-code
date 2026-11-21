@@ -18,6 +18,7 @@ import {
   type Hello,
   isRpcMethod,
   MAX_FRAME_BYTES,
+  olderConnection,
   PAIR_KID,
   PROTOCOL_VERSION,
   type RelayError,
@@ -33,6 +34,7 @@ import {
   type RpcResult,
   SCHEMA_VERSION,
   type SealedMessage,
+  type SenderConnection,
   type ServerFrame,
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
@@ -309,8 +311,20 @@ export class RemoteRoom {
   private readonly pending = new Map<number, Pending>();
   /** This connection's epoch: a message is taken only when sealed for it. */
   private epoch = newEpoch();
-  /** Each other device's epoch now, and the seq of the last message taken of it. */
-  private readonly heard = new Map<string, { epoch: string; seq: number }>();
+  /**
+   * Which of this room's connections it is, told in each envelope: a run of
+   * its own, and a number each new epoch raises, so another device takes
+   * nothing of an older one sent on late.
+   */
+  private conn: SenderConnection = { boot: newEpoch(), n: 1 };
+  /**
+   * Each other device's epoch now, the seq of the last message taken of it,
+   * and the connection it said it was (none before 0.18.0).
+   */
+  private readonly heard = new Map<
+    string,
+    { epoch: string; seq: number; conn?: SenderConnection }
+  >();
   /** Others' epochs it took a newer one of, as "device|epoch": none of their messages is taken. */
   private readonly past = new Set<string>();
   private outbox = this.makeOutbox();
@@ -395,6 +409,7 @@ export class RemoteRoom {
     this.interruptRequests(why, "local-reconnected");
     this.deps.onDisconnect?.();
     this.epoch = newEpoch();
+    this.conn = { boot: this.conn.boot, n: this.conn.n + 1 };
     this.heard.clear();
     this.past.clear();
     this.helloRetryAt.clear();
@@ -633,7 +648,7 @@ export class RemoteRoom {
       onSending?: (seq: number) => void;
     } = { kind: "hello", priority: FramePriority.Hello },
   ): Promise<number | null> {
-    const epoch = this.epoch;
+    const { epoch, conn } = this;
     const sent = this.outbox.push({
       kind: options.kind,
       priority: options.priority,
@@ -646,7 +661,7 @@ export class RemoteRoom {
           from: this.deps.self.id,
           to,
           seq,
-          envelope: { epoch, peer, message },
+          envelope: { epoch, conn, peer, message },
         });
         if (!current()) return null;
         options.onSending?.(seq);
@@ -929,7 +944,7 @@ export class RemoteRoom {
       }
       return;
     }
-    if (!this.fresh(frame.from, envelope.epoch, frame.seq)) return;
+    if (!this.fresh(frame.from, envelope.epoch, frame.seq, envelope.conn)) return;
     void this.handle(frame.from, envelope.epoch, message, this.epoch).catch(() => {
       this.warnOccasionally("relay-error", "Could not handle a remote room message");
     });
@@ -938,17 +953,21 @@ export class RemoteRoom {
   /**
    * Whether a message of the sender's epoch with this seq is one not taken
    * yet; it takes note of it. Once a sender's newer epoch is heard, none of
-   * an older one is taken.
+   * an older one is taken, nor one of an older connection of the same run
+   * (`conn`), heard before or not.
    */
-  private fresh(from: string, epoch: string, seq: number): boolean {
+  private fresh(from: string, epoch: string, seq: number, conn?: SenderConnection): boolean {
     const heard = this.heard.get(from);
     if (heard?.epoch === epoch) {
       if (seq <= heard.seq) return false;
     } else {
       if (this.past.has(`${from}|${epoch}`)) return false;
+      // Held by the relay and sent on after the newer one's: taking it would
+      // leave the sender's messages of now dropped as past.
+      if (olderConnection(conn, heard?.conn)) return false;
       if (heard) this.past.add(`${from}|${heard.epoch}`);
     }
-    this.heard.set(from, { epoch, seq });
+    this.heard.set(from, { epoch, seq, ...(conn ? { conn } : {}) });
     if (this.past.size > MAX_PAST_EPOCHS) {
       // Too many to keep: a new epoch of its own, which nothing sealed before names.
       this.renew("the room started over");

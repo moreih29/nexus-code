@@ -18,11 +18,18 @@ import {
   MAX_IMAGE_EDGE,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
+  olderConnection,
+  PUSH_VERSION,
+  PushPayloadSchema,
+  PushRegistrationSchema,
+  PushSendResultSchema,
+  PushSendSchema,
   RPC_METHODS,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
   SealedMessageSchema,
   ServerFrameSchema,
+  ServerInfoSchema,
   ViewItemSchema,
 } from "../../../../packages/remote-protocol/src";
 
@@ -106,6 +113,35 @@ describe("a sealed message", () => {
     expect(SealedEnvelopeSchema.safeParse(message).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, epoch: "short" }).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: undefined }).success).toBe(false);
+  });
+
+  test("says its sender's connection, since 0.18.0: a run and a number above 0", () => {
+    const message = { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} };
+    const envelope = { epoch: "A".repeat(22), peer: "B".repeat(22), message };
+    const conn = { boot: "C".repeat(22), n: 1 };
+    expect(SealedEnvelopeSchema.parse({ ...envelope, conn })).toEqual({ ...envelope, conn });
+    expect(SealedEnvelopeSchema.parse(envelope)).toEqual(envelope);
+    for (const bad of [
+      { ...conn, n: 0 },
+      { ...conn, n: 1.5 },
+      { ...conn, boot: "short" },
+      { n: 1 },
+    ]) {
+      expect(SealedEnvelopeSchema.safeParse({ ...envelope, conn: bad }).success).toBe(false);
+    }
+  });
+
+  const run = "R".repeat(22);
+  const other = "S".repeat(22);
+  test.each([
+    ["an older connection of the same run", { boot: run, n: 2 }, { boot: run, n: 3 }, true],
+    ["the same connection number again", { boot: run, n: 3 }, { boot: run, n: 3 }, true],
+    ["a newer connection of the same run", { boot: run, n: 4 }, { boot: run, n: 3 }, false],
+    ["a lower number of another run", { boot: other, n: 1 }, { boot: run, n: 3 }, false],
+    ["no connection said (before 0.18.0)", undefined, { boot: run, n: 3 }, false],
+    ["none heard (before 0.18.0)", { boot: run, n: 1 }, undefined, false],
+  ] as const)("%s: older is %p", (_, conn, heard, older) => {
+    expect(olderConnection(conn, heard)).toBe(older);
   });
 });
 
@@ -628,6 +664,67 @@ describe("the voice socket", () => {
       expect(TranscriptionSchema.parse(t)).toEqual(t as never);
     }
     expect(TranscriptionSchema.safeParse({ id: "tr_1", status: "done" }).success).toBe(false);
+  });
+});
+
+describe("push notifications", () => {
+  test("a phone registers its APNs token and notification kinds", () => {
+    const registration = {
+      service: "apns",
+      token: "a0".repeat(16),
+      environment: "sandbox",
+      locale: "ko",
+      kinds: ["consent", "request"],
+    };
+    expect(PushRegistrationSchema.parse(registration)).toEqual(registration);
+    expect(
+      PushRegistrationSchema.safeParse({ ...registration, token: "A0".repeat(16) }).success,
+    ).toBe(false);
+    expect(PushRegistrationSchema.safeParse({ ...registration, kinds: [] }).success).toBe(false);
+  });
+
+  test("a computer sends one event with a relative TTL and up to 20 recipients", () => {
+    const send = { id: "AbCdEf0123456789_-wxyz", kind: "consent", ttl: 85, to: ["dev-a"] };
+    expect(PushSendSchema.parse(send)).toEqual(send);
+    const all = { id: send.id, kind: send.kind, ttl: 1 };
+    expect(PushSendSchema.parse(all)).toEqual(all);
+    expect(PushSendSchema.parse({ ...send, ttl: 1801 }).ttl).toBe(1801);
+    expect(PushSendSchema.safeParse({ ...send, ttl: 1.5 }).success).toBe(false);
+    for (const id of ["too-short", "A".repeat(44), `${send.id}=`]) {
+      expect(PushSendSchema.safeParse({ ...send, id }).success).toBe(false);
+    }
+    expect(PushSendSchema.safeParse({ ...send, to: [] }).success).toBe(false);
+    expect(PushSendSchema.safeParse({ ...send, to: [""] }).success).toBe(false);
+    const recipients = Array.from({ length: 21 }, (_, index) => `dev-${index}`);
+    expect(PushSendSchema.safeParse({ ...send, to: recipients.slice(0, 20) }).success).toBe(true);
+    expect(PushSendSchema.safeParse({ ...send, to: recipients }).success).toBe(false);
+  });
+
+  test("a send returns counts or reports a duplicate event", () => {
+    const counts = { sent: 1, skipped: 2, reasons: { no_registration: 1, another_reason: 1 } };
+    expect(PushSendResultSchema.parse(counts)).toEqual(counts);
+    expect(PushSendResultSchema.parse({ sent: 1, skipped: 0 })).toEqual({ sent: 1, skipped: 0 });
+    expect(PushSendResultSchema.parse({ duplicate: true })).toEqual({ duplicate: true });
+    expect(PushSendResultSchema.safeParse({ duplicate: false }).success).toBe(false);
+  });
+
+  test("a notification's app data names its version and kind", () => {
+    expect(PUSH_VERSION).toBe(1);
+    expect(CAPABILITIES).toContain("push");
+    expect(PushPayloadSchema.parse({ v: 1, k: "result" })).toEqual({ v: 1, k: "result" });
+    expect(PushPayloadSchema.safeParse({ v: 2, k: "consent" }).success).toBe(false);
+  });
+
+  test("server info keeps push absent, unavailable, or advertised", () => {
+    const older = { signIn: ["apple"], relay: { version: 2 }, voice: null };
+    expect(ServerInfoSchema.parse(older)).toEqual(older);
+    const unavailable = { ...older, push: null };
+    expect(ServerInfoSchema.parse(unavailable)).toEqual(unavailable);
+    const supported = {
+      ...older,
+      push: { version: PUSH_VERSION, environments: ["production", "sandbox", "future"] },
+    };
+    expect(ServerInfoSchema.parse(supported)).toEqual(supported);
   });
 });
 
