@@ -370,6 +370,32 @@ describe("nexus session list", () => {
     expect(result.stderr).toBe('nexus: "Office PC" is offline (last seen 2h ago)\n');
   });
 
+  test.each([
+    [["--json=true"], "json"],
+    [["--jsonl=true"], "jsonl"],
+    [["--json", "--json=false"], "text"],
+    [["--json", "--jsonl"], "jsonl"],
+    [["--jsonl"], "jsonl"],
+  ] as const)("an offline device formats errors using parsed flags %j", async (flags, format) => {
+    const result = await nexus(withDevices(), [
+      "session",
+      "list",
+      "--device",
+      "Office PC",
+      ...flags,
+    ]);
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toContain("is offline");
+    if (format === "text") {
+      expect(result.stdout).toBe("");
+    } else {
+      expect(JSON.parse(result.stdout)).toMatchObject({ error: "offline" });
+      const lines = result.stdout.trimEnd().split("\n");
+      if (format === "jsonl") expect(lines).toHaveLength(1);
+      else expect(lines.length).toBeGreaterThan(1);
+    }
+  });
+
   test("--device all has this computer's too, and the offline ones counted in a line", async () => {
     const result = await nexus(withDevices(), ["session", "list", "--device", "all"]);
     expect(result.exitCode).toBe(0);
