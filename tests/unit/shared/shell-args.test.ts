@@ -34,3 +34,10 @@ describe("joinShellArgs", () => {
     expect(splitShellArgs(joinShellArgs(args))).toEqual(args);
   });
 });
+
+test("preserves a quoted PowerShell command when editing a saved shell", () => {
+  const args = ["-Command", 'Write-Output "회의 기록"', '""', "C:\\My Config\\", ""];
+  const text = joinShellArgs(args);
+  expect(text).toContain('"Write-Output ""회의 기록"""');
+  expect(splitShellArgs(text)).toEqual(args);
+});
