@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
+import { hydrateLayoutSnapshots } from "../../../../../src/renderer/state/persistence";
+import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 import type { WriteFileResult } from "../../../../../src/shared/fs/types";
@@ -132,6 +134,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  useLayoutStore.getState().closeAllForWorkspace(workspaceId);
   useTabsStore.getState().closeAllForWorkspace(workspaceId);
   for (const file of acquired.splice(0).reverse()) releaseModel(file);
   useWorkspacesStore.getState().remove(workspaceId);
@@ -228,4 +231,39 @@ test("first save asks before replacing a file only the SSH workspace can see", a
   );
   expect(findTab(tab.id)?.type).toBe("untitled");
   expect(model.getValue()).toBe("new text");
+});
+
+test("a restored background diff retains unsaved edits before its view mounts", async () => {
+  const tabs = useTabsStore.getState();
+  const props = { workspaceId, relPath: "a.txt", leftRef: "INDEX", rightRef: "WORKING" };
+  const first = tabs.createTab(workspaceId, { type: "editor.diff", props });
+  const second = tabs.createTab(workspaceId, { type: "editor.diff", props });
+  const unrelated = tabs.createTab(workspaceId, {
+    type: "editor",
+    props: { workspaceId, filePath: "/repo/other.txt" },
+  });
+  const layout = useLayoutStore.getState();
+  layout.ensureLayout(workspaceId);
+  const left = useLayoutStore.getState().byWorkspace[workspaceId]!.activeGroupId;
+  const right = layout.splitGroup(workspaceId, left, "horizontal", "after");
+  layout.attachTab(workspaceId, left, first.id);
+  layout.attachTab(workspaceId, right, second.id);
+  layout.attachTab(workspaceId, right, unrelated.id);
+  const snapshot = {
+    ...useLayoutStore.getState().byWorkspace[workspaceId]!,
+    tabs: [first, second, unrelated],
+  };
+  layout.closeAllForWorkspace(workspaceId);
+  tabs.closeAllForWorkspace(workspaceId);
+  hydrateLayoutSnapshots({ [workspaceId]: snapshot });
+
+  const model = await openModel(); // Only the visible diff has mounted.
+  model.setValue("unsaved in first diff");
+  expect(await closeDiffWithConfirm(workspaceId, first.id)).toBe("closed");
+  releaseModel(input);
+
+  expect(model.isDisposed()).toBe(false);
+  expect(await openModel()).toBe(model);
+  expect(model.getValue()).toBe("unsaved in first diff");
+  expect(isDirty(cacheUriFor(workspaceId, input.filePath))).toBe(true);
 });
