@@ -6,6 +6,7 @@
     "IS_DIRECTORY": "Cannot open a directory as a file.",
     "NOT_DIRECTORY": "Path is not a folder.",
     "TOO_LARGE": "File too large to open.",
+    "TRANSFER_TOO_LARGE": "This file is too large to transfer.",
     "OUT_OF_WORKSPACE": "This path is outside the workspace.",
     "NOT_EMPTY": "Folder is not empty.",
     "CROSS_DEVICE": "Can't move across filesystems.",

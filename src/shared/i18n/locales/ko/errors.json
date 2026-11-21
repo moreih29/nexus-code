@@ -6,6 +6,7 @@
     "IS_DIRECTORY": "디렉터리를 파일로 열 수 없습니다.",
     "NOT_DIRECTORY": "경로가 폴더가 아닙니다.",
     "TOO_LARGE": "파일이 너무 커서 열 수 없습니다.",
+    "TRANSFER_TOO_LARGE": "파일이 너무 커서 전송할 수 없습니다.",
     "OUT_OF_WORKSPACE": "이 경로는 워크스페이스 밖에 있습니다.",
     "NOT_EMPTY": "폴더가 비어 있지 않습니다.",
     "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다.",
