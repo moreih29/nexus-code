@@ -6,6 +6,7 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
+import i18next from "i18next";
 import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
 import {
   defaultProfileId,
@@ -1189,23 +1190,26 @@ export class ChatController {
    * and left as it was there.
    */
   async resumeSession(sessionId: string, profileId?: string, emptyOnly = false): Promise<void> {
-    const checkTarget = emptyOnly
-      ? () => {
-          if (profileId !== undefined && !sameProfile(profileId, this.target.profileId))
-            throw new Error("use a tab with the conversation's profile, or resume in a new tab");
-          if (
-            this.target.sessionId ||
-            this.target.fork ||
-            this.state.model.items.some(
-              (item) => item.kind === "user" || item.kind === "assistant",
-            ) ||
-            this.state.queue.length > 0 ||
-            this.transcriptPages
-          )
-            throw new Error("resume --tab requires an empty tab");
-        }
-      : undefined;
-    if (this.state.model.running) throw new Error("a turn is running");
+    const checkTarget = () => {
+      if (this.state.model.running) throw new Error("a turn is running");
+      const same = profileId === undefined || sameProfile(profileId, this.target.profileId);
+      if (emptyOnly) {
+        if (!same)
+          throw new Error("use a tab with the conversation's profile, or resume in a new tab");
+        if (
+          this.target.sessionId ||
+          this.target.fork ||
+          this.state.model.items.some(
+            (item) => item.kind === "user" || item.kind === "assistant",
+          ) ||
+          this.state.queue.length > 0 ||
+          this.transcriptPages
+        )
+          throw new Error("resume --tab requires an empty tab");
+      } else if (this.state.queue.length > 0 && (this.sessionId !== sessionId || !same)) {
+        throw new Error(i18next.t("chat.sessions.resume_queued"));
+      }
+    };
     await this.changeSession(async () => {
       const from =
         profileId !== undefined && !sameProfile(profileId, this.target.profileId)
@@ -1669,6 +1673,7 @@ export class ChatController {
     device?: string,
     id?: string,
   ): string | undefined {
+    if (this.changingSession) throw new Error("Claude is changing the conversation");
     const item: QueuedMessage = {
       id: id ?? nextRequestId(),
       text,

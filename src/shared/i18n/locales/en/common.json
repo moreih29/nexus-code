@@ -1362,6 +1362,7 @@
       "title": "Earlier conversations",
       "open": "Open in a tab",
       "more": "Show {{count}} more",
+      "resume_queued": "Take back the queued messages before resuming another conversation.",
       "resume_failed": "Couldn’t resume the conversation. {{message}}",
       "show": "Resume a conversation · {{count}}",
       "all_profiles": "All",
