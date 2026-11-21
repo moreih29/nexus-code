@@ -300,7 +300,7 @@ func optionLike(value string) bool {
 }
 
 func normalizeRelPath(relPath string) (string, error) {
-	slashPath := strings.TrimPrefix(strings.ReplaceAll(relPath, "\\", "/"), "./")
+	slashPath := strings.TrimPrefix(filepath.ToSlash(relPath), "./")
 	parts := strings.Split(slashPath, "/")
 	cleaned := make([]string, 0, len(parts))
 	for _, part := range parts {
