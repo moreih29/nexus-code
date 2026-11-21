@@ -33,8 +33,8 @@ const _ensureRootPromises = new Map<string, Promise<void>>();
 // Tail of the watch/unwatch chain per `${workspaceId}\0${relPath}`.
 const _watchChains = new Map<string, Promise<unknown>>();
 const panelWatches = new Map<string, { count: number; ready: Promise<boolean> }>();
-// Directories whose reload was requested while a readdir was already in flight.
-const _pendingReloads = new Set<string>();
+// Each directory shares the completion of its current and queued reads.
+const childLoads = new Map<string, { reload: boolean; done: Promise<void> }>();
 
 /**
  * Sends fs.watch / fs.unwatch for one directory strictly in call order. The
@@ -211,34 +211,52 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
 
-  // A change that lands while a readdir is in flight may postdate that read,
-  // so remember it and read again once the current one settles rather than
-  // dropping it (the older listing would otherwise stick).
-  const pendingKey = `${workspaceId}\0${absPath}`;
-  if (tree.loading.has(absPath)) {
-    _pendingReloads.add(pendingKey);
-    return;
+  const key = `${workspaceId}\0${absPath}`;
+  const active = childLoads.get(key);
+  if (active && tree.loading.has(absPath)) {
+    // The request may reflect a change after the current read took its snapshot.
+    active.reload = true;
+    return active.done;
   }
 
-  const { rootAbsPath } = tree;
-  const rel = relPath(absPath, rootAbsPath);
+  const completion = Promise.withResolvers<void>();
+  const load = { reload: false, done: completion.promise };
+  childLoads.set(key, load);
+  const rel = relPath(absPath, tree.rootAbsPath);
+  const ownsLoad = () => childLoads.get(key) === load;
+  // A workspace can be removed and restored under the same ID while IPC is pending.
+  const listingIsStillLoading = () =>
+    ownsLoad() && useFilesStore.getState().trees.get(workspaceId)?.loading.has(absPath);
 
-  useFilesStore.getState().markChildrenLoading(workspaceId, absPath);
-
-  try {
-    const entries = unwrapIpcResult(
-      await ipcCallResult("fs", "readdir", { workspaceId, relPath: rel }),
-    );
-    useFilesStore.getState().setChildren(workspaceId, absPath, entries);
-  } catch (err) {
-    useFilesStore
-      .getState()
-      .setChildrenError(workspaceId, absPath, err instanceof Error ? err.message : String(err));
+  async function readUntilCurrent(): Promise<void> {
+    try {
+      do {
+        load.reload = false;
+        useFilesStore.getState().markChildrenLoading(workspaceId, absPath);
+        try {
+          const entries = unwrapIpcResult(
+            await ipcCallResult("fs", "readdir", { workspaceId, relPath: rel }),
+          );
+          if (!listingIsStillLoading()) return;
+          useFilesStore.getState().setChildren(workspaceId, absPath, entries);
+        } catch (error) {
+          if (!listingIsStillLoading()) return;
+          useFilesStore
+            .getState()
+            .setChildrenError(
+              workspaceId,
+              absPath,
+              error instanceof Error ? error.message : String(error),
+            );
+        }
+      } while (load.reload && ownsLoad() && useFilesStore.getState().trees.has(workspaceId));
+    } finally {
+      if (ownsLoad()) childLoads.delete(key);
+    }
   }
 
-  if (_pendingReloads.delete(pendingKey)) {
-    await loadChildren(workspaceId, absPath);
-  }
+  void readUntilCurrent().then(completion.resolve, completion.reject);
+  return load.done;
 }
 
 export async function toggleExpand(workspaceId: string, absPath: string): Promise<void> {

@@ -21,6 +21,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 import {
   __cancelPendingSavesForTests,
   ensureRoot,
+  loadChildren,
+  refresh,
   retainPanelDirectoryWatch,
   reveal,
   toggleExpand,
@@ -355,4 +357,50 @@ describe("fs.changed during a folder's first listing", () => {
     const lib = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(libAbs);
     expect(lib?.children).toEqual([`${libAbs}/new.ts`]);
   });
+});
+
+it("refresh waits for an ongoing root listing before loading expanded descendants", async () => {
+  const rootEntries = [dirEntry("lib", "dir")];
+  const responses = { "": rootEntries, lib: [dirEntry("old.ts")] };
+  setupReaddir(responses);
+  await ensureRoot(WS_ID, ROOT);
+  const lib = `${ROOT}/lib`;
+  await toggleExpand(WS_ID, lib);
+  await flush();
+
+  const first = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  mockIpcCallResult.mockImplementationOnce(() => first.promise);
+  const reading = loadChildren(WS_ID, ROOT);
+  responses.lib = [dirEntry("new.ts")];
+  let completed = false;
+  const refreshing = refresh(WS_ID).then(() => {
+    completed = true;
+  });
+  await flush();
+  const completedEarly = completed;
+  first.resolve({ ok: true, value: rootEntries });
+
+  await Promise.all([reading, refreshing]);
+  expect(completedEarly).toBe(false);
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.children).toEqual([
+    `${lib}/new.ts`,
+  ]);
+});
+
+it("discards a delayed listing when the workspace tree has been recreated", async () => {
+  const state = useFilesStore.getState();
+  setupReaddir({ "": [dirEntry("fresh.ts")] });
+  await ensureRoot(WS_ID, ROOT);
+  const old = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  mockIpcCallResult.mockImplementationOnce(() => old.promise);
+  const reading = loadChildren(WS_ID, ROOT);
+
+  state.closeAllForWorkspace(WS_ID);
+  await ensureRoot(WS_ID, ROOT);
+  old.resolve({ ok: true, value: [dirEntry("stale.ts")] });
+  await reading;
+
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(ROOT)?.children).toEqual([
+    `${ROOT}/fresh.ts`,
+  ]);
 });
