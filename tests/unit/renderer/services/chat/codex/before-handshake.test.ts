@@ -754,3 +754,40 @@ test("peer history filter requests share eight real catalog lifecycles", async (
     wire.mockRestore();
   }
 });
+
+test("replaying a Codex turn reply settles the tracked send without repeating server requests", async () => {
+  const c = tab();
+  const line = (dir: "sys" | "in" | "out", message: Message, replay = false) =>
+    c.receive({ seq: ++lineSeq, dir, message, replay });
+  onStart = () => line("sys", { event: "start" });
+  await c.prepareSend();
+
+  const wrote = Promise.withResolvers<Message>();
+  codex = (message) => {
+    sent.push(message);
+    if (message.method === "turn/start") {
+      line("in", message);
+      wrote.resolve(message);
+    }
+  };
+  const sending = c.sendWithTiming("Tracked turn", [], "next", undefined, undefined, "tracked-id");
+  const request = await wrote.promise;
+  c.held();
+  replayResponse = () => {
+    line("out", { id: request.id, result: { turn: { id: "accepted" } } }, true);
+    line("out", { id: "old-ask", method: "mcpServer/elicitation/request" }, true);
+    return { found: true, running: true, truncated: false, lastSeq: lineSeq };
+  };
+
+  await c.resync();
+  expect(await Promise.race([sending, Bun.sleep(100).then(() => "still pending")])).toBeUndefined();
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({
+      kind: "user",
+      text: "Tracked turn",
+      state: "taken",
+      turnId: "accepted",
+    }),
+  );
+  expect(sent.some(({ id }) => id === "old-ask")).toBe(false);
+});

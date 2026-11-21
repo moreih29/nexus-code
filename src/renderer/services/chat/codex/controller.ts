@@ -2266,14 +2266,14 @@ export class CodexController {
   /** A line from the agent, buffered for the next frame. */
   receive(line: ChatLine): void {
     if (this.disposed) return;
-    if (!line.replay) this.inspectLive(line);
+    this.inspectLine(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
     if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
-  /** What a live line asks of the controller, beyond the model. */
-  private inspectLive(line: ChatLine): void {
+  /** Settles pending replies on replay and handles live server notifications. */
+  private inspectLine(line: ChatLine): void {
     const message = line.message as Record<string, unknown> | undefined;
     if (line.dir !== "out" || !message) return;
     const key = idKey(message.id);
@@ -2293,6 +2293,7 @@ export class CodexController {
       } else entry.resolve((message.result as Record<string, unknown>) ?? {});
       return;
     }
+    if (line.replay) return;
     if (key && method && !CARD_REQUESTS.has(method)) {
       // Requests no card answers are refused, so the turn does not wait on them.
       const reply =
