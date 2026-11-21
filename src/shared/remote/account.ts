@@ -153,6 +153,7 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  * - signed-out: the sign-in ended;
  * - too-heavy: the bundle is locked with heavier settings than this app
  *   opens one with (MAX_OPEN_KDF): a newer app's, or a server's doing;
+ * - weak-kdf: the server requires stronger settings for a new bundle;
  * - account-auth: the password opened the bundle, but the server did not
  *   take its proof (its verifier is another's: a reset sets it anew);
  * - device-key: a device's key does not check under the account key, so
@@ -168,6 +169,7 @@ export const KEY_FAILURES = [
   "unavailable",
   "signed-out",
   "too-heavy",
+  "weak-kdf",
   "account-auth",
   "device-key",
   "reset-pending",

@@ -2,7 +2,7 @@
  * Signing the app in to its NexusCode account: PKCE, the loopback the
  * browser comes back to, and the token traded for its code.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { SavedAccount } from "../../../../../src/main/features/remote/account";
 import {
   RemoteAccount,
@@ -87,6 +87,34 @@ function browser(back: (start: URL) => Record<string, string>) {
 const accounts: RemoteAccount[] = [];
 afterEach(() => {
   for (const a of accounts.splice(0)) a.cancelSignIn();
+});
+
+test.each([
+  ["60", 60],
+  ["Thu, 01 Jan 2026 00:01:00 GMT", 60],
+  [undefined, undefined],
+  ["1.5", undefined],
+] as const)("preserves Retry-After %s from a ticket 429", async (header, retryAfter) => {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1));
+  const account = new RemoteAccount({
+    server: SERVER,
+    store: memoryStore({ server: SERVER, token: "mock", user, device }),
+    openExternal: async () => {},
+    fetch: (async () =>
+      Response.json(
+        { error: "rate_limited" },
+        {
+          status: 429,
+          headers: header === undefined ? {} : { "Retry-After": header },
+        },
+      )) as unknown as typeof fetch,
+  });
+  try {
+    await account.restore();
+    await expect(askTicket(account)).rejects.toMatchObject({ status: 429, retryAfter });
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 describe("PKCE", () => {
@@ -367,6 +395,34 @@ describe("the account", () => {
     await expect(gone.devices()).rejects.toBeInstanceOf(SignedOutError);
     expect(gone.state().status).toBe("signed-out");
     expect(store.value).toBeNull();
+  });
+
+  test("simultaneous socket revocations recheck /me once and a 401 clears the sign-in", async () => {
+    const store = memoryStore({ server: SERVER, token: "tok", user, device });
+    const response = Promise.withResolvers<Response>();
+    const signedOut = Promise.withResolvers<void>();
+    const paths: string[] = [];
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      fetch: ((url: URL) => {
+        paths.push(url.pathname);
+        return response.promise;
+      }) as typeof fetch,
+      onChange: (state) => {
+        if (state.status === "signed-out") signedOut.resolve();
+      },
+    });
+    await account.restore();
+    account.recheckSignIn();
+    account.recheckSignIn();
+    expect(paths).toEqual(["/me"]);
+    response.resolve(new Response(null, { status: 401 }));
+    await signedOut.promise;
+    expect(store.value).toBeNull();
+    account.recheckSignIn();
+    expect(paths).toEqual(["/me"]);
   });
 
   test("a 403 not_invited signs it out and says why; another 403 does not", async () => {

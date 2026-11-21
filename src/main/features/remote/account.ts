@@ -23,6 +23,7 @@ import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
+import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
 
@@ -100,6 +101,7 @@ export interface RemoteAccountDeps {
 export class RemoteAccount {
   private saved: SavedAccount | null = null;
   private signingIn: LoopbackListener | null = null;
+  private recheckingToken: string | undefined;
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
   private readonly fetch: typeof fetch;
@@ -205,6 +207,18 @@ export class RemoteAccount {
     if (!this.saved) return;
     await this.call("POST", "/auth/logout").catch(() => {});
     this.forget();
+  }
+
+  /** A socket says the sign-in ended. Let the authenticated request confirm it. */
+  recheckSignIn(): void {
+    const token = this.token();
+    if (!token || this.recheckingToken === token) return;
+    this.recheckingToken = token;
+    void this.request("GET", "/me")
+      .catch(() => {})
+      .finally(() => {
+        if (this.recheckingToken === token) this.recheckingToken = undefined;
+      });
   }
 
   /** What the server offers: its sign-ins, and whether it has the relay and voice. */
@@ -370,10 +384,13 @@ export class RemoteAccount {
       if (signedInAsSent()) this.forget();
       throw new SignedOutError();
     }
+    const retryAfter = retryAfterSeconds(res.headers.get("retry-after"));
     const text = await readResponseText(res).catch((error: unknown) => {
       if (error instanceof ResponseTooLargeError) {
-        throw new ServerError(res.status, error.code, `${method} ${path}`);
+        throw new ServerError(res.status, error.code, `${method} ${path}`, retryAfter);
       }
+      if (res.status === 429)
+        throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
       throw error;
     });
     signal?.throwIfAborted();
@@ -389,13 +406,7 @@ export class RemoteAccount {
         }
         throw new SignedOutError();
       }
-      const retryAfter = Number(res.headers.get("retry-after"));
-      throw new ServerError(
-        res.status,
-        code,
-        `${method} ${path}`,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-      );
+      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter);
     }
     return answer ?? {};
   }

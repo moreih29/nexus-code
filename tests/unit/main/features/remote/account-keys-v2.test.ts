@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   ACCOUNT_AUTH_HEADER,
+  DEFAULT_KDF,
   type DeviceKey,
   type KeyBundle,
   type KeyEnvelope,
@@ -42,6 +43,7 @@ function v2Server() {
     envelopes: new Map<string, KeyEnvelope[]>(),
     rotations: [] as unknown[],
     deletes: [] as string[],
+    refusal: null as { route: string; error: ServerError } | null,
     now: 1_000,
   };
   const forbidden = () => new ServerError(403, "account-auth", "request");
@@ -60,6 +62,7 @@ function v2Server() {
     ) => {
       if (!s.devices.has(deviceId)) throw new ServerError(401, "unauthorized", "request");
       const route = `${method} ${path}`;
+      if (s.refusal?.route === route) throw s.refusal.error;
       if (route === "GET /account/key-bundle") {
         if (!s.bundle) throw new ServerError(404, "not_found", route);
         return {
@@ -169,7 +172,7 @@ function v2Server() {
   return { s, requestAs };
 }
 
-function device(server: ReturnType<typeof v2Server>, deviceId: string) {
+function device(server: ReturnType<typeof v2Server>, deviceId: string, useDefaultKdf = false) {
   const store = keptInMemory<SavedKey>();
   const account: RemoteAccountState = {
     status: "signed-in",
@@ -181,7 +184,7 @@ function device(server: ReturnType<typeof v2Server>, deviceId: string) {
   const keys = new AccountKeys({
     account: { state: () => account, request: server.requestAs(deviceId) },
     store,
-    kdf,
+    ...(useDefaultKdf ? {} : { kdf }),
     onChange: (state) => states.push(state),
     now: () => server.s.now,
   });
@@ -204,6 +207,39 @@ async function threeDevices() {
 }
 
 describe("account keys v2", () => {
+  test("a new bundle uses the protocol's default KDF settings", async () => {
+    const server = v2Server();
+    const { keys } = device(server, "dev-a", true);
+    await keys.create(PASSWORD);
+    expect(server.s.bundle?.bundle.kdf).toMatchObject(DEFAULT_KDF);
+  });
+
+  test("weak_kdf is a form error on bundle writes, resets, and rotations", async () => {
+    const { server, a } = await threeDevices();
+    const before = structuredClone(server.s.bundle);
+    for (const [route, submit] of [
+      ["PUT /account/key-bundle", () => a.keys.changePassword(PASSWORD, OTHER)],
+      ["POST /account/key-reset", () => a.keys.reset(OTHER)],
+      ["POST /account/key-rotation", () => a.keys.removeDevices(["dev-b"], PASSWORD)],
+    ] as const) {
+      server.s.refusal = { route, error: new ServerError(400, "weak_kdf", route) };
+      await expect(submit()).rejects.toMatchObject({ failure: "weak-kdf" });
+      expect(server.s.bundle).toEqual(before);
+      expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1 });
+    }
+  });
+
+  test("a 429 from a password proof remains a retryable form error", async () => {
+    const { server, a } = await threeDevices();
+    const route = "PUT /account/key-bundle";
+    server.s.refusal = { route, error: new ServerError(429, "rate_limited", route, 600) };
+    await expect(a.keys.changePassword(PASSWORD, OTHER)).rejects.toMatchObject({
+      failure: "unavailable",
+      retryAt: server.s.now + 600_000,
+    });
+    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1 });
+  });
+
   test("the first device puts the verifier with the bundle, and each device registers its key", async () => {
     const { server, a, b } = await threeDevices();
     const { s } = server;

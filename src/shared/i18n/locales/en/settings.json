@@ -1167,6 +1167,7 @@
         "unavailable": "Can't reach the server. Try again shortly.",
         "signed-out": "You were signed out. Sign in again.",
         "too-heavy": "This app can't open the key as the server locked it. Update NexusCode.",
+        "weak-kdf": "Your account key protection is below the server's minimum. Update NexusCode.",
         "failed": "That didn't work. Try again.",
         "account-auth": "The server did not take this password. It may have been changed on another device. If this goes on, reset the password.",
         "device-key": "A device's key could not be checked, so the account key was not changed. Try again in a while.",

@@ -23,6 +23,8 @@ export const VOICE_FAILURES = [
   "quota",
   /** The account has as many voice sessions open as it may (429 too_many_sessions). */
   "busy",
+  /** Ticket requests or socket upgrades must wait after an HTTP 429. */
+  "rate-limited",
   /** The server could not be reached, or the socket failed before it was ready. */
   "network",
   /** Another voice session of this app is still open. */
@@ -36,6 +38,9 @@ export const VOICE_FAILURES = [
 ] as const;
 export const VoiceFailureSchema = z.enum(VOICE_FAILURES);
 export type VoiceFailure = z.infer<typeof VoiceFailureSchema>;
+
+/** The voice socket's sign-in ended. */
+export const VOICE_CLOSE_SIGNED_OUT = 4001;
 
 /** How many recognition terms an account keeps (GET/PUT /voice/terms). */
 export const MAX_VOICE_TERMS = 300;
