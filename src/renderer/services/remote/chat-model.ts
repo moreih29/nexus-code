@@ -13,6 +13,7 @@ import type {
   ViewItem,
 } from "../../../../packages/remote-protocol/src";
 import type { ReceivedItemSchema } from "../../../../packages/remote-protocol/src/view";
+import type { RetryReason } from "../chat/api-errors";
 import {
   type AssistantItem,
   type ChatItem,
@@ -23,6 +24,7 @@ import {
   type StreamingBlock,
   type TaskInfo,
   type ToolCall,
+  type TurnRetry,
 } from "../chat/model";
 
 /**
@@ -38,6 +40,29 @@ export interface PageSource {
 }
 
 type ViewSender = z.infer<typeof ReceivedItemSchema>["from"];
+
+const RETRY_REASONS: ReadonlySet<string> = new Set<RetryReason>([
+  "rate_limit",
+  "overloaded",
+  "server",
+  "connection",
+  "auth",
+  "other",
+]);
+
+/** A retry as the serving app tells it; a reason this version does not know reads as other. */
+function retryOf(retry: {
+  attempt: number;
+  maxRetries?: number;
+  delayMs?: number;
+  at?: number;
+  status?: number;
+  reason?: string;
+}): TurnRetry {
+  const { reason, ...rest } = retry;
+  if (reason === undefined) return rest;
+  return { ...rest, reason: RETRY_REASONS.has(reason) ? (reason as RetryReason) : "other" };
+}
 
 /** Who sent a message, as this computer's message list names its own senders. */
 export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
@@ -161,7 +186,7 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
           outputTokens: status.turn.outputTokens,
           thinkingTokens: status.turn.thinkingTokens ?? 0,
           ...(status.turn.status ? { status: status.turn.status } : {}),
-          ...(status.turn.retry ? { retry: status.turn.retry } : {}),
+          ...(status.turn.retry ? { retry: retryOf(status.turn.retry) } : {}),
         }
       : null,
     tasks: page.tasks as Record<string, TaskInfo>,

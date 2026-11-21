@@ -448,6 +448,37 @@ describe("the methods", () => {
     );
   });
 
+  test("a chat's panel and session tell when its app goes on after the usage limit (0.19.0)", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    const resume = { state: "waiting", at: 1_763_200_060_000, resetsAt: 1_763_200_000_000 };
+    expect(ChatPanelSchema.parse({ ...panel, limitResume: resume }).limitResume).toEqual(resume);
+    // One this version cannot read is left out, not the panel.
+    expect(ChatPanelSchema.parse({ ...panel, limitResume: { at: "soon" } })).toEqual(panel);
+    const session = {
+      workspaceId: "w",
+      tabId: "a",
+      kind: "claude",
+      title: "chat",
+      state: "idle",
+    };
+    const list = RPC_METHODS["sessions.list"].result.parse({
+      workspaces: [{ id: "w", name: "ws", path: "/w" }],
+      sessions: [
+        { ...session, limitWait: { at: 5 } },
+        { ...session, tabId: "b", limitWait: { at: "soon" } },
+      ],
+    });
+    expect(list.sessions.map((s) => s.limitWait)).toEqual([{ at: 5 }, undefined]);
+    expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "b"]);
+  });
+
   test("a session list leaves out what a newer version adds that this one cannot read", () => {
     const agent = (id: string, state = "running") => ({
       id,

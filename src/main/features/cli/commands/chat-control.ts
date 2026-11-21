@@ -17,7 +17,7 @@ import {
 } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
-import { ago, oneLine } from "../format";
+import { ago, clockAt, oneLine } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
   askPeerCli,
@@ -159,6 +159,8 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
         : "";
     usage.push(`Rate limit: ${panel.rateLimit.status}${resets}`);
   }
+  const going = panel.limitResume && limitResumeLine(panel.limitResume, now);
+  if (going) usage.push(`Usage limit: ${going}`);
   if (usage.length > 0) blocks.push(usage.join("\n"));
   if (panel.mcp && panel.mcp.length > 0) {
     blocks.push(
@@ -181,6 +183,28 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
     }),
   );
   return blocks.length > 0 ? `${title}\n\n${blocks.join("\n\n")}` : `${title}: its panel is empty.`;
+}
+
+/** Going on after the usage limit, as chat panel says it; undefined for a state it does not know. */
+function limitResumeLine(
+  resume: NonNullable<ChatPanel["limitResume"]>,
+  now: number,
+): string | undefined {
+  const resets = resume.resetsAt !== undefined ? `, resets ${clockAt(resume.resetsAt, now)}` : "";
+  switch (resume.state) {
+    case "waiting":
+      return resume.at !== undefined
+        ? `reached; the app sends a message to go on at ${clockAt(resume.at, now)}`
+        : `reached${resets}`;
+    case "unknown":
+      return "reached; when it resets is not known, so nothing goes on by itself";
+    case "cancelled":
+      return `reached${resets}; going on by itself was cancelled`;
+    case "gave_up":
+      return `still reached after ${resume.tries ?? 0} tries${resets}; the app no longer goes on by itself`;
+    default:
+      return undefined;
+  }
 }
 
 /** The panel without the account its program is signed in with: not the agent's to read. */

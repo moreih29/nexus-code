@@ -235,6 +235,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
     goal: goal ? viewGoalOf(goal) : null,
     ...(codex ? codexExtrasOf(source, codex) : claudeExtrasOf(source)),
     ...(moves.length > 0 ? { moves } : {}),
+    ...limitResumeOf(source),
     ...(source.can
       ? { can: { ...source.can, clientNonce: true, ...(codex ? { mcpStatus: true } : {}) } }
       : {}),
@@ -245,6 +246,19 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
           ),
         }
       : {}),
+  };
+}
+
+/** Going on after the usage limit, as the panel tells it; none once the app's message went. */
+function limitResumeOf({ limitResume: record }: ChatSource): Pick<ChatPanel, "limitResume"> {
+  if (!record || record.state === "sent") return {};
+  return {
+    limitResume: {
+      state: record.state,
+      ...(record.at !== undefined ? { at: record.at } : {}),
+      ...(record.resetsAt !== undefined ? { resetsAt: record.resetsAt } : {}),
+      ...(record.tries > 0 ? { tries: record.tries } : {}),
+    },
   };
 }
 

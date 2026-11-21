@@ -352,6 +352,7 @@ export function tabSource(
     ...(relayed ? { relayed } : {}),
     ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
     ...(moves && moves.length > 0 ? { moves } : {}),
+    ...(tab.props.limitResume ? { limitResume: tab.props.limitResume } : {}),
     ...(tab.type === "claude"
       ? {
           can: {

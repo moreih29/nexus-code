@@ -130,6 +130,9 @@ async function chatSession(
     ...(info.state === "asking" && info.waiting
       ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
       : {}),
+    ...(info.limitResume?.state === "waiting" && info.limitResume.at !== undefined
+      ? { limitWait: { at: info.limitResume.at } }
+      : {}),
     ...agentsField(services, workspaceId, tab.id),
   };
 }

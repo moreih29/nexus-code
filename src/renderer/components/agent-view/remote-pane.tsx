@@ -91,6 +91,7 @@ import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint, composerKeys } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
+import { LimitResumeView, showsLimitResume } from "../chat/limit-resume-banner";
 import {
   type CallReveal,
   type MessageActions,
@@ -1269,7 +1270,12 @@ function RemoteControls({
           </div>
         </div>
       )}
-      <RateLimitBanner limit={limit} />
+      {/* The serving app goes on in it by itself, as it tells (from 0.19.0). */}
+      {showsLimitResume(page.panel?.limitResume) ? (
+        <LimitResumeView record={page.panel?.limitResume} />
+      ) : (
+        <RateLimitBanner limit={limit} />
+      )}
       <Composer
         controller={composer.controller}
         composition={composition}
