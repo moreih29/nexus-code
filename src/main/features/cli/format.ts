@@ -50,6 +50,26 @@ export function ago(at: number, now: number = Date.now()): string {
   return `${Math.round(minutes / 60)}h ago`;
 }
 
+/**
+ * A time as this computer's clock reads it, and how far off: "15:01 (in
+ * 38m)"; a day or more ahead, with its date ("11/23 15:01 (in 2d)").
+ */
+export function clockAt(at: number, now: number = Date.now()): string {
+  const date = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = at - now >= 24 * 3_600_000 ? `${date.getMonth() + 1}/${date.getDate()} ` : "";
+  const minutes = Math.round((at - now) / 60_000);
+  const off =
+    minutes <= 0
+      ? "now"
+      : minutes < 60
+        ? `in ${minutes}m`
+        : minutes < 48 * 60
+          ? `in ${Math.round(minutes / 60)}h`
+          : `in ${Math.round(minutes / 1440)}d`;
+  return `${day}${pad(date.getHours())}:${pad(date.getMinutes())} (${off})`;
+}
+
 /** Cuts text to one line of at most `max` characters. */
 export function oneLine(text: string, max = 80): string {
   const flat = text.replace(/\s+/g, " ").trim();
