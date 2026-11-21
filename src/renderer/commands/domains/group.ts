@@ -85,7 +85,7 @@ export function registerGroupCommands(): Array<() => void> {
       const tabs = useTabsStore.getState().byWorkspace[wsId] ?? {};
       for (const id of [...leaf.tabIds]) {
         const type = tabs[id]?.type;
-        if (type !== "editor" && type !== "untitled") continue;
+        if (type !== "editor" && type !== "untitled" && type !== "editor.diff") continue;
         const outcome = await closeTabWithConfirm(wsId, id);
         if (outcome !== "closed") return;
       }
