@@ -31,7 +31,7 @@ func TestAddToGitignorePreservesMode(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("replacement mode is %o, want 600", got)
 	}
-	if content := readFile(t, path); !strings.Contains(content, "existing.log\nnew.log\n") {
+	if content := readFile(t, path); !strings.Contains(content, "existing.log\n/new.log\n") {
 		t.Fatalf("unexpected ignore content %q", content)
 	}
 }

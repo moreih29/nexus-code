@@ -95,3 +95,28 @@ func TestSelectedGitDiffTreatsBracketsLiterally(t *testing.T) {
 		t.Fatalf("caller-provided literal pathspec option: %#v", raw)
 	}
 }
+
+func TestAddToGitignoreEscapesAndAnchorsSelectedName(t *testing.T) {
+	root := gitRepo(t)
+	const selected = "report[1].txt"
+	for _, path := range []string{selected, "report1.txt"} {
+		writeText(t, root, path, "untracked")
+	}
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeText(t, root, "nested/"+selected, "untracked")
+	service := agentgit.New(root)
+	params := agentgit.AddToGitignoreParams{RelPath: selected}
+	if result := call(t, service.AddToGitignore, params).(agentgit.AddToGitignoreResult); !result.Added {
+		t.Fatalf("add result = %#v", result)
+	}
+	if result := call(t, service.AddToGitignore, params).(agentgit.AddToGitignoreResult); !result.AlreadyIgnored || result.Added {
+		t.Fatalf("duplicate result = %#v", result)
+	}
+
+	ignored := gitRun(t, root, "check-ignore", "--", selected, "report1.txt", "nested/"+selected)
+	if ignored != selected+"\n" {
+		t.Fatalf("ignored paths = %q", ignored)
+	}
+}
