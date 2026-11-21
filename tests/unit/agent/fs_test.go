@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nexus-code/nexus-code/internal/filewatch"
 
 	"github.com/nexus-code/nexus-code/internal/fs"
 )
@@ -99,5 +102,34 @@ func TestWriteFileWithLongBasename(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != "after" {
 		t.Fatalf("saved content = %q, err = %v", got, err)
+	}
+}
+
+func TestWatchReportsCreateFollowedByWriteAsAdded(t *testing.T) {
+	root, service := filesystem(t)
+	changes := make(chan filewatch.FsChange, 4)
+	service.SetEventSink(func(_ string, payload any) error {
+		for _, change := range payload.(filewatch.FsChangedPayload).Changes {
+			changes <- change
+		}
+		return nil
+	})
+	call(t, service.Watch, fs.WatchParams{RelPath: "."})
+	file, err := os.Create(filepath.Join(root, "new.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	time.Sleep(50 * time.Millisecond)
+	if _, err := file.WriteString("new content"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case change := <-changes:
+		if change.RelPath != "new.txt" || change.Kind != filewatch.FsChangeAdded {
+			t.Fatalf("create and write notified as %#v", change)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no creation event")
 	}
 }

@@ -271,7 +271,11 @@ func (s *Service) bufferChange(relPath string, kind filewatch.FsChangeKind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.buffers[relPath] = kind
+	// A file created and then written in the same batch is still new to
+	// subscribers. Keep a subsequent delete or recreate visible as such.
+	if kind != filewatch.FsChangeModified || s.buffers[relPath] != filewatch.FsChangeAdded {
+		s.buffers[relPath] = kind
+	}
 	if s.timer != nil {
 		return
 	}
