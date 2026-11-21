@@ -10,25 +10,25 @@ import {
   failedResume,
   type LimitTabView,
   limitStopOf,
-  MAX_TRIES,
   planBlockedUntil,
   planResume,
-  RESUME_AFTER_MS,
   RETRY_MS,
   reconcileResume,
   resumeDue,
   resumeTimeText,
-  STALE_STOP_MS,
   sentResume,
   withResetTime,
 } from "../../../../../src/renderer/services/chat/limit-resume";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
 import type { PlanUsage } from "../../../../../src/renderer/services/chat/plan-usage";
+import { LIMIT_RESUME_DEFAULTS as defaults } from "../../../../../src/shared/chat/limit-resume-settings";
 import type { LimitResume } from "../../../../../src/shared/types/layout";
 import { ClaudeTabPropsSchema } from "../../../../../src/shared/types/layout";
 
 const STOP = Date.parse("2026-11-22T14:00:00+09:00");
 const RESET = Date.parse("2026-11-22T15:00:00+09:00");
+const RESUME_AFTER_MS = 60_000;
+const STALE_STOP_MS = 12 * 3_600_000;
 
 /** A Claude conversation the 5-hour limit stopped at STOP, which resets at RESET. */
 function claudeStopped(extra: Partial<ChatModel> = {}): ChatModel {
@@ -141,13 +141,17 @@ describe("the plan's usage tells the reset", () => {
 
 describe("when to go on", () => {
   test("a minute after the reset; one already past, a minute from now", () => {
-    expect(planResume({ stopAt: STOP, resetsAt: RESET }, STOP, 0, "s-1")).toEqual(waiting);
+    expect(planResume({ stopAt: STOP, resetsAt: RESET }, STOP, defaults, 0, "s-1")).toEqual(
+      waiting,
+    );
     const late = RESET + 3_600_000;
-    expect(planResume({ stopAt: STOP, resetsAt: RESET }, late).at).toBe(late + RESUME_AFTER_MS);
+    expect(planResume({ stopAt: STOP, resetsAt: RESET }, late, defaults).at).toBe(
+      late + RESUME_AFTER_MS,
+    );
   });
 
   test("with no reset told, nothing is scheduled", () => {
-    expect(planResume({ stopAt: STOP }, STOP)).toEqual({
+    expect(planResume({ stopAt: STOP }, STOP, defaults)).toEqual({
       stopAt: STOP,
       tries: 0,
       state: "unknown",
@@ -155,10 +159,10 @@ describe("when to go on", () => {
   });
 
   test("a reset the plan's usage tells later schedules it", () => {
-    const unknown = planResume({ stopAt: STOP }, STOP);
-    expect(withResetTime(unknown, RESET, STOP).state).toBe("waiting");
-    expect(withResetTime(unknown, STOP - 1, STOP)).toBe(unknown);
-    expect(withResetTime(unknown, undefined, STOP)).toBe(unknown);
+    const unknown = planResume({ stopAt: STOP }, STOP, defaults);
+    expect(withResetTime(unknown, RESET, STOP, defaults).state).toBe("waiting");
+    expect(withResetTime(unknown, STOP - 1, STOP, defaults)).toBe(unknown);
+    expect(withResetTime(unknown, undefined, STOP, defaults)).toBe(unknown);
   });
 
   test("is due at its time, and only waiting", () => {
@@ -181,26 +185,30 @@ describe("when to go on", () => {
 
 describe("what the tab keeps as its conversation goes", () => {
   test("a stop of a subscription's tab is kept, for its session", () => {
-    expect(reconcileResume(undefined, view(claudeStopped()))).toEqual(waiting);
+    expect(reconcileResume(undefined, view(claudeStopped()), defaults)).toEqual(waiting);
   });
 
   test("none for an API key's profile, the setting off, or a stop of long ago", () => {
     expect(
-      reconcileResume(undefined, view(claudeStopped(), { subscription: false })),
+      reconcileResume(undefined, view(claudeStopped(), { subscription: false }), defaults),
     ).toBeUndefined();
-    expect(reconcileResume(undefined, view(claudeStopped(), { enabled: false }))).toBeUndefined();
     expect(
-      reconcileResume(undefined, view(claudeStopped(), { now: STOP + STALE_STOP_MS })),
+      reconcileResume(undefined, view(claudeStopped(), { enabled: false }), defaults),
+    ).toBeUndefined();
+    expect(
+      reconcileResume(undefined, view(claudeStopped(), { now: STOP + STALE_STOP_MS }), defaults),
     ).toBeUndefined();
   });
 
   test("the same record while nothing changed, and after a restart replays the stop", () => {
-    expect(reconcileResume(waiting, view(claudeStopped()))).toBe(waiting);
-    expect(reconcileResume(waiting, view(undefined))).toBe(waiting);
+    expect(reconcileResume(waiting, view(claudeStopped()), defaults)).toBe(waiting);
+    expect(reconcileResume(waiting, view(undefined), defaults)).toBe(waiting);
   });
 
   test("a stop let go of is not kept again", () => {
-    expect(reconcileResume(undefined, view(claudeStopped(), { handledAt: STOP }))).toBeUndefined();
+    expect(
+      reconcileResume(undefined, view(claudeStopped(), { handledAt: STOP }), defaults),
+    ).toBeUndefined();
   });
 
   test("a turn the user starts calls it off; a turn replayed from before does not", () => {
@@ -209,14 +217,18 @@ describe("what the tab keeps as its conversation goes", () => {
         running: true,
         turn: { outputTokens: 0, thinkingTokens: 0, ...(startedAt ? { startedAt } : {}) },
       });
-    expect(reconcileResume(waiting, view(running(STOP + 5000)))).toBeUndefined();
-    expect(reconcileResume(waiting, view(running(STOP - 5000)))).toBe(waiting);
-    expect(reconcileResume(waiting, view(running(undefined)))).toBe(waiting);
+    expect(reconcileResume(waiting, view(running(STOP + 5000)), defaults)).toBeUndefined();
+    expect(reconcileResume(waiting, view(running(STOP - 5000)), defaults)).toBe(waiting);
+    expect(reconcileResume(waiting, view(running(undefined)), defaults)).toBe(waiting);
   });
 
   test("another session, or the setting turned off, calls it off", () => {
-    expect(reconcileResume(waiting, view(claudeStopped(), { session: "s-2" }))).toBeUndefined();
-    expect(reconcileResume(waiting, view(claudeStopped(), { enabled: false }))).toBeUndefined();
+    expect(
+      reconcileResume(waiting, view(claudeStopped(), { session: "s-2" }), defaults),
+    ).toBeUndefined();
+    expect(
+      reconcileResume(waiting, view(claudeStopped(), { enabled: false }), defaults),
+    ).toBeUndefined();
   });
 
   test("the app's message keeps it while it runs, and lets it go once a turn ends", () => {
@@ -227,11 +239,11 @@ describe("what the tab keeps as its conversation goes", () => {
       running: true,
       turn: { startedAt: RESET + RESUME_AFTER_MS, outputTokens: 0, thinkingTokens: 0 },
     });
-    expect(reconcileResume(sent, view(going))).toBe(sent);
+    expect(reconcileResume(sent, view(going), defaults)).toBe(sent);
     const done = claudeStopped({
       lastResult: { subtype: "success", isError: false, at: RESET + 120_000 },
     });
-    expect(reconcileResume(sent, view(done, { now: RESET + 120_000 }))).toBeUndefined();
+    expect(reconcileResume(sent, view(done, { now: RESET + 120_000 }), defaults)).toBeUndefined();
   });
 
   test("stopped at the limit again after it, it counts a try more, and gives up at the most", () => {
@@ -246,13 +258,15 @@ describe("what the tab keeps as its conversation goes", () => {
       rateLimit: { status: "rejected", resetsAt: (later + 3_600_000) / 1000 },
     });
     const sent = sentResume(waiting, RESET + RESUME_AFTER_MS);
-    expect(reconcileResume(sent, view(again, { now: later }))).toMatchObject({
+    expect(reconcileResume(sent, view(again, { now: later }), defaults)).toMatchObject({
       state: "waiting",
       tries: 1,
       stopAt: later,
     });
-    const last = { ...sent, tries: MAX_TRIES };
-    expect(reconcileResume(last, view(again, { now: later }))).toMatchObject({ state: "gave_up" });
+    const last = { ...sent, tries: defaults.chatLimitResumeMaxTries };
+    expect(reconcileResume(last, view(again, { now: later }), defaults)).toMatchObject({
+      state: "gave_up",
+    });
   });
 });
 
@@ -260,28 +274,39 @@ describe("at the time to send", () => {
   const due = RESET + RESUME_AFTER_MS;
 
   test("sends once the limit no longer holds, or usage was not heard just now", () => {
-    expect(afterRecheck(waiting, undefined, true, due)).toBe("send");
-    expect(afterRecheck(waiting, RESET, true, due)).toBe("send");
-    expect(afterRecheck(waiting, RESET + 3_600_000, false, due)).toBe("send");
+    expect(afterRecheck(waiting, undefined, true, due, defaults)).toBe("send");
+    expect(afterRecheck(waiting, RESET, true, due, defaults)).toBe("send");
+    expect(afterRecheck(waiting, RESET + 3_600_000, false, due, defaults)).toBe("send");
   });
 
   test("puts it off to the reset the plan tells now, up to the most tries", () => {
     const next = RESET + 3_600_000;
-    expect(afterRecheck(waiting, next, true, due)).toMatchObject({
+    expect(afterRecheck(waiting, next, true, due, defaults)).toMatchObject({
       state: "waiting",
       tries: 1,
       resetsAt: next,
       at: next + RESUME_AFTER_MS,
     });
-    const last = afterRecheck({ ...waiting, tries: MAX_TRIES - 1 }, next, true, due);
-    expect(last).toMatchObject({ state: "gave_up", tries: MAX_TRIES });
+    const last = afterRecheck(
+      { ...waiting, tries: defaults.chatLimitResumeMaxTries - 1 },
+      next,
+      true,
+      due,
+      defaults,
+    );
+    expect(last).toMatchObject({ state: "gave_up", tries: defaults.chatLimitResumeMaxTries });
     expect(last !== "send" && last.at).toBeUndefined();
   });
 
   test("a message that could not go is tried again later", () => {
     const sent = sentResume(waiting, due);
-    expect(failedResume(sent, due)).toMatchObject({ state: "waiting", at: due + RETRY_MS });
-    expect(failedResume({ ...sent, tries: MAX_TRIES - 1 }, due).state).toBe("gave_up");
+    expect(failedResume(sent, due, defaults)).toMatchObject({
+      state: "waiting",
+      at: due + RETRY_MS,
+    });
+    expect(
+      failedResume({ ...sent, tries: defaults.chatLimitResumeMaxTries - 1 }, due, defaults).state,
+    ).toBe("gave_up");
   });
 });
 

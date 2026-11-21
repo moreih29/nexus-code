@@ -5,9 +5,13 @@
  * Code sessions are told about it when they start.
  */
 
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../../shared/agent-list/view";
+import {
+  LIMIT_RESUME_BOUNDS,
+  LIMIT_RESUME_DEFAULTS,
+} from "../../../../shared/chat/limit-resume-settings";
 import { DEFAULT_TASK_AGENT } from "../../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../../ipc/client";
 import {
@@ -23,7 +27,13 @@ import { useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
 import { taskAgentOptions } from "../../workspace/task-agent-options";
 import { FontFamilyRow } from "../font-family-row";
-import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
+import {
+  SettingsGroup,
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+} from "../section";
 import { SegmentedControl } from "../segmented-control";
 
 export function AgentPanel() {
@@ -36,7 +46,6 @@ export function AgentPanel() {
   const crossWorkspace = useAgentCliStore((s) => s.crossWorkspace);
   const agentContext = useAgentCliStore((s) => s.agentContext);
   const setLocal = useAgentCliStore((s) => s.set);
-  const limitResume = useNotificationsStore((s) => s.limitResume);
 
   const policyLabel = t("agentCli.crossWorkspace.label");
   const policies: { value: CrossWorkspacePolicy; label: string }[] = [
@@ -84,18 +93,7 @@ export function AgentPanel() {
 
       <ChatFontGroup />
 
-      <SettingsGroup title={t("chat.limits")}>
-        {/* A subscription's tab the plan's usage limit stopped goes on once it resets. */}
-        <SettingsSwitch
-          label={t("chat.limitResume.label")}
-          description={t("chat.limitResume.description")}
-          checked={limitResume}
-          onChange={(next) => {
-            useNotificationsStore.getState().setLimitResume(next);
-            void ipcCallResult("appState", "set", { chatLimitResume: next });
-          }}
-        />
-      </SettingsGroup>
+      <LimitResumeGroup />
 
       <SettingsGroup title={t("agentCli.heading")}>
         <SettingsSwitch
@@ -131,6 +129,107 @@ export function AgentPanel() {
         />
       </SettingsGroup>
     </SettingsPage>
+  );
+}
+
+function LimitResumeGroup() {
+  const { t } = useTranslation("settings");
+  const enabled = useNotificationsStore((s) => s.limitResume);
+  const options = useNotificationsStore((s) => s.limitResumeOptions);
+  const setOptions = useNotificationsStore((s) => s.setLimitResumeOptions);
+  const message = options.chatLimitResumeMessage;
+  const messageId = useId();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  function setEnabled(next: boolean) {
+    useNotificationsStore.getState().setLimitResume(next);
+    void ipcCallResult("appState", "set", { chatLimitResume: next });
+  }
+
+  const numbers: {
+    key: keyof typeof LIMIT_RESUME_BOUNDS;
+    label: string;
+    description?: string;
+    suffix: string;
+  }[] = [
+    {
+      key: "chatLimitResumeDelayMinutes",
+      label: t("chat.limitResume.delay"),
+      suffix: t("chat.limitResume.minutes"),
+    },
+    {
+      key: "chatLimitResumeMaxTries",
+      label: t("chat.limitResume.maxTries"),
+      suffix: t("chat.limitResume.checks"),
+    },
+    {
+      key: "chatLimitResumeDeadlineHours",
+      label: t("chat.limitResume.deadline"),
+      description: t("chat.limitResume.deadlineHint"),
+      suffix: t("chat.limitResume.hours"),
+    },
+  ];
+
+  return (
+    <SettingsGroup title={t("chat.limits")}>
+      <SettingsSwitch
+        label={t("chat.limitResume.label")}
+        description={t("chat.limitResume.description")}
+        checked={enabled}
+        onChange={setEnabled}
+        dirty={!enabled}
+        onReset={() => setEnabled(true)}
+      />
+      <fieldset disabled={!enabled} className="flex min-w-0 flex-col gap-3.5 disabled:opacity-50">
+        {numbers.map(({ key, label, description, suffix }) => (
+          <SettingsRow
+            key={key}
+            label={label}
+            description={description}
+            dirty={options[key] !== LIMIT_RESUME_DEFAULTS[key]}
+            onReset={() => setOptions({ [key]: LIMIT_RESUME_DEFAULTS[key] })}
+          >
+            <NumberInput
+              {...LIMIT_RESUME_BOUNDS[key]}
+              value={options[key]}
+              onChange={(value) => setOptions({ [key]: value })}
+              suffix={suffix}
+              ariaLabel={label}
+            />
+          </SettingsRow>
+        ))}
+        <SettingsSection
+          label={t("chat.limitResume.message")}
+          htmlFor={messageId}
+          dirty={message.trim() !== LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage}
+          onReset={() => {
+            setDraft(null);
+            setOptions({ chatLimitResumeMessage: LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage });
+          }}
+        >
+          <input
+            id={messageId}
+            type="text"
+            className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            placeholder={t("common:chat.limit_resume.prompt")}
+            value={draft ?? message}
+            onChange={(event) =>
+              setDraft(event.currentTarget.value.replace(/[\u2028\u2029]/gu, " "))
+            }
+            onBlur={() => {
+              if (draft !== null && draft.trim() !== message) {
+                setOptions({ chatLimitResumeMessage: draft.trim() });
+              }
+              setDraft(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing)
+                event.currentTarget.blur();
+            }}
+          />
+        </SettingsSection>
+      </fieldset>
+    </SettingsGroup>
   );
 }
 

@@ -11,6 +11,11 @@
 // Persisted back to main via `appState.set` from the Notifications panel.
 
 import { create } from "zustand";
+import {
+  LIMIT_RESUME_DEFAULTS,
+  type LimitResumeOptions,
+} from "../../../shared/chat/limit-resume-settings";
+import { ipcCallResult } from "../../ipc/client";
 
 interface NotificationsState {
   /** OS notifications master toggle. Defaults to true until hydrated. */
@@ -19,18 +24,22 @@ interface NotificationsState {
   rateLimitWarnings: boolean;
   /** Whether a chat tab goes on by itself once the plan's usage limit resets. */
   limitResume: boolean;
+  limitResumeOptions: LimitResumeOptions;
   /** The usage-limit warnings closed, by services/chat/rate-limit's key. */
   dismissedRateLimits: ReadonlySet<string>;
   /** Hydrate from persisted appState on bootstrap. */
-  hydrate(state: {
-    osNotificationsEnabled?: boolean;
-    rateLimitWarnings?: boolean;
-    chatLimitResume?: boolean;
-  }): void;
+  hydrate(
+    state: Partial<LimitResumeOptions> & {
+      osNotificationsEnabled?: boolean;
+      rateLimitWarnings?: boolean;
+      chatLimitResume?: boolean;
+    },
+  ): void;
   /** Set toggle locally (component calls this for optimistic updates). */
   setOsEnabled(enabled: boolean): void;
   setRateLimitWarnings(enabled: boolean): void;
   setLimitResume(enabled: boolean): void;
+  setLimitResumeOptions(patch: Partial<LimitResumeOptions>): void;
   dismissRateLimit(key: string): void;
 }
 
@@ -38,13 +47,26 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   osEnabled: true,
   rateLimitWarnings: true,
   limitResume: true,
+  limitResumeOptions: LIMIT_RESUME_DEFAULTS,
   dismissedRateLimits: new Set(),
 
   hydrate(state) {
+    const {
+      chatLimitResumeDelayMinutes = LIMIT_RESUME_DEFAULTS.chatLimitResumeDelayMinutes,
+      chatLimitResumeMaxTries = LIMIT_RESUME_DEFAULTS.chatLimitResumeMaxTries,
+      chatLimitResumeDeadlineHours = LIMIT_RESUME_DEFAULTS.chatLimitResumeDeadlineHours,
+      chatLimitResumeMessage = LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage,
+    } = state;
     set({
       osEnabled: state.osNotificationsEnabled ?? true,
       rateLimitWarnings: state.rateLimitWarnings ?? true,
       limitResume: state.chatLimitResume ?? true,
+      limitResumeOptions: {
+        chatLimitResumeDelayMinutes,
+        chatLimitResumeMaxTries,
+        chatLimitResumeDeadlineHours,
+        chatLimitResumeMessage,
+      },
     });
   },
 
@@ -58,6 +80,11 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
 
   setLimitResume(limitResume) {
     set({ limitResume });
+  },
+
+  setLimitResumeOptions(patch) {
+    set((state) => ({ limitResumeOptions: { ...state.limitResumeOptions, ...patch } }));
+    void ipcCallResult("appState", "set", patch);
   },
 
   dismissRateLimit(key) {

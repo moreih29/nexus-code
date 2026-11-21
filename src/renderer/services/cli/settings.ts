@@ -35,6 +35,11 @@ import {
   persistentInstructionLayers,
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
+import {
+  LIMIT_RESUME_BOUNDS,
+  LIMIT_RESUME_DEFAULTS,
+  LIMIT_RESUME_MESSAGE_LINE,
+} from "../../../shared/chat/limit-resume-settings";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
@@ -81,6 +86,27 @@ export interface CliSetting extends CliSettingShape {
 /** Settings whose store the dialog's panel, not the store, saves. */
 function save(patch: Partial<AppState>): void {
   void ipcCallResult("appState", "set", patch);
+}
+
+function limitResumeNumber(
+  key: string,
+  field: keyof typeof LIMIT_RESUME_BOUNDS,
+  summary: string,
+): CliSetting {
+  const defaultValue = LIMIT_RESUME_DEFAULTS[field];
+  return {
+    key,
+    summary,
+    type: "integer",
+    ...LIMIT_RESUME_BOUNDS[field],
+    get: () => {
+      const value = useNotificationsStore.getState().limitResumeOptions[field];
+      return { value, changed: value !== defaultValue };
+    },
+    set: (value) =>
+      useNotificationsStore.getState().setLimitResumeOptions({ [field]: value as number }),
+    reset: () => useNotificationsStore.getState().setLimitResumeOptions({ [field]: defaultValue }),
+  };
 }
 
 const FONT_SIZE = { min: 8, max: 32 } as const;
@@ -411,6 +437,41 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
       useNotificationsStore.getState().setLimitResume(true);
       save({ chatLimitResume: true });
     },
+  },
+  limitResumeNumber(
+    "chat.limitResumeDelayMinutes",
+    "chatLimitResumeDelayMinutes",
+    "Minutes to wait after the usage limit resets",
+  ),
+  limitResumeNumber(
+    "chat.limitResumeMaxTries",
+    "chatLimitResumeMaxTries",
+    "Maximum attempts to resume after a usage limit",
+  ),
+  limitResumeNumber(
+    "chat.limitResumeDeadlineHours",
+    "chatLimitResumeDeadlineHours",
+    "Hours after a stop during which the app may resume automatically",
+  ),
+  {
+    key: "chat.limitResumeMessage",
+    summary: 'The resume message; "" for the default in the app\'s language',
+    type: "text",
+    pattern: { test: LIMIT_RESUME_MESSAGE_LINE, says: "the message must be on one line" },
+    get: () => {
+      const value = useNotificationsStore
+        .getState()
+        .limitResumeOptions.chatLimitResumeMessage.trim();
+      return { value, changed: value !== LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage };
+    },
+    set: (value) =>
+      useNotificationsStore
+        .getState()
+        .setLimitResumeOptions({ chatLimitResumeMessage: String(value).trim() }),
+    reset: () =>
+      useNotificationsStore.getState().setLimitResumeOptions({
+        chatLimitResumeMessage: LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage,
+      }),
   },
   {
     key: "sessions.defaultView",

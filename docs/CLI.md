@@ -169,7 +169,7 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - 상태는 `working`(일하는 중, 보낸 메시지를 아직 받지 않은 때 포함), `asking`(사용자의 도구 허용 · 질문 답변을 기다림), `idle`, `error` 입니다.
 - `chat wait` 는 턴이 끝나거나(마지막 답변 출력), 사용자를 기다리거나, 오류로 멈추면 끝납니다. 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
 - API 오류로 멈춘 탭은 `chat wait` · `chat read` 가 무엇이 필요한지 한 줄 더 알려줍니다. `--json` 의 `failure` 는 `usage_limit`(플랜 사용량 한도), `transient`(429 · 5xx · 연결 끊김이 CLI 자체 재시도를 넘김, 이어하기 메시지로 다시 시도 가능), `auth`(로그인 · API 키 거부), `request`(400 등 요청 자체 거부), `other` 입니다.
-- 사용량 한도로 멈춘 구독 프로필 탭은 한도가 풀리고 1분 뒤 앱이 이어하기 메시지를 보냅니다(설정 › 에이전트 › 사용량 한도, `chat.limitResume`). `chat wait` 는 한도로 멈춘 턴을 끝난 것으로 보고 언제 이어지는지 알려줍니다. `--json` 의 `limitResume` 은 `{state, at, resetsAt, tries}` 이고 state 는 `waiting`(at 에 전송) · `unknown`(해제 시각을 몰라 예약하지 않음) · `cancelled` · `gave_up`(3회 확인 후 중단) 입니다. 그 전에 메시지를 보내면 예약은 취소됩니다.
+- 사용량 한도로 멈춘 구독 프로필 탭은 한도가 풀리고 설정한 대기 시간(기본 1분) 뒤 앱이 이어하기 메시지를 보냅니다(설정 › 에이전트 › 사용량 한도). `chat wait` 는 한도로 멈춘 턴을 끝난 것으로 보고 언제 이어지는지 알려줍니다. `--json` 의 `limitResume` 은 `{state, at, resetsAt, tries}` 이고 state 는 `waiting`(at 에 전송) · `unknown`(해제 시각을 몰라 예약하지 않음) · `cancelled` · `gave_up`(최대 확인 횟수에 도달해 중단) 입니다. 그 전에 메시지를 보내면 예약은 취소됩니다.
 - `chat send` 는 턴 중이면 에이전트가 지금 도구 다음에 읽습니다. 프로그램이 꺼져 있으면 다시 켜고 보냅니다. 사용자를 기다리는 탭에는 보내지 않습니다. 허용 여부는 사용자가 정합니다.
   - 입력창의 키와 같습니다. `--now` 는 ⌘↩(Claude 탭만), `--after` 는 ⌘⇧↩ 입니다. 텍스트 없이 `--now` 만 주면 아직 안 읽은 메시지를 바로 읽게 합니다(빈 입력창의 ⌘↩).
   - `--after` 로 보류한 메시지는 id 가 출력됩니다. `chat unsend` 로 회수하고, `chat edit` 로 고칩니다.
@@ -558,6 +558,8 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
 - 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어를 바꿀 수 있습니다.
 - `chat.limitResume` 은 구독 프로필 탭이 사용량 한도로 멈췄을 때 한도가 풀리면 앱이 이어하기 메시지를 보낼지입니다(기본 `on`).
+- `chat.limitResumeDelayMinutes` 는 해제 후 대기(0~60분, 기본 1분) · `chat.limitResumeMaxTries` 는 최대 확인 횟수(1~10회, 기본 3회) · `chat.limitResumeDeadlineHours` 는 멈춘 뒤 자동으로 이어할 수 있는 기한(1~168시간, 기본 12시간)입니다.
+- `chat.limitResumeMessage` 는 한 줄 메시지입니다. `""` 로 두면 앱 언어의 기본 문구를 보냅니다.
 - 채팅 글꼴(`chat.fontSize` · `chat.fontFamily`)은 Claude · Codex 탭의 글꼴입니다. 크기는 답변 글자 크기(10~24, 기본 14)이고 탭의 다른 글자도 같은 비율로 바뀝니다. 글꼴을 빈 값으로 두면 앱 기본(Pretendard), `system-ui` 면 시스템 글꼴입니다.
 - 켜고 끄는 값은 `on` / `off`, 숫자는 범위 안, 고르는 값은 목록 중 하나입니다.
 - `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.

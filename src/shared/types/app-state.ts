@@ -10,6 +10,11 @@ import {
   ChatInstructionHistorySchema,
   ClaudeInstructionDigestsSchema,
 } from "../chat/instructions";
+import {
+  LIMIT_RESUME_BOUNDS,
+  LIMIT_RESUME_DEFAULTS,
+  LIMIT_RESUME_MESSAGE_LINE,
+} from "../chat/limit-resume-settings";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
@@ -256,6 +261,25 @@ export const AppStateSchema = z.object({
   // itself once the plan's usage limit that stopped it resets: the app sends
   // the agent a message to go on (services/chat/limit-resume).
   chatLimitResume: z.boolean().default(true),
+  chatLimitResumeDelayMinutes: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeDelayMinutes.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeDelayMinutes.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeDelayMinutes),
+  chatLimitResumeMaxTries: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeMaxTries.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeMaxTries.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeMaxTries),
+  chatLimitResumeDeadlineHours: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeDeadlineHours.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeDeadlineHours.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeDeadlineHours),
+  chatLimitResumeMessage: z
+    .string()
+    .regex(LIMIT_RESUME_MESSAGE_LINE)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage),
 
   // The language voice input listens for: the app's ("app", ko or en), or
   // "multi", which lets the server tell the language as the user speaks.

@@ -4,8 +4,8 @@
  * limit, and neither program tries again: Claude Code tells when the limit
  * resets (a rate_limit_event, rejected, with resetsAt), Codex shows the
  * window used up and when it resets (account/rateLimits/updated). The tab
- * keeps when to go on, a minute after the reset, and then the app sends
- * the agent one message to go on, marked as the app's: one message goes
+ * keeps when to go on, after the reset and a configurable delay. The app
+ * sends the agent one message to go on, marked as the app's: one message goes
  * on with the work, whether the limit stopped it mid-turn or at its first
  * request (Claude Code 2.1, Codex 0.170).
  *
@@ -13,6 +13,7 @@
  * limit-resume-scheduler runs it.
  */
 
+import type { LimitResumeOptions } from "../../../shared/chat/limit-resume-settings";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { LimitResume } from "../../../shared/types/layout";
 import { usageLimitsOf } from "./claude/usage-limits";
@@ -21,14 +22,8 @@ import type { ChatModel } from "./model";
 import type { PlanUsage } from "./plan-usage";
 import { resetParts } from "./usage-line";
 
-/** The message goes this long after the reset: the plan's clock and ours differ a little. */
-export const RESUME_AFTER_MS = 60_000;
 /** Tabs of one profile go this far apart, not all at once. */
 export const STAGGER_MS = 5_000;
-/** The most times one limit is waited out: put off as it held, or the message sent. */
-export const MAX_TRIES = 3;
-/** A stop older than this is not gone on from: the app opened again a day later. */
-export const STALE_STOP_MS = 12 * 60 * 60_000;
 /** The plan's usage heard this recently tells whether the limit still holds. */
 export const FRESH_PLAN_MS = 2 * 60_000;
 /** A message that could not be sent is tried again this long after. */
@@ -96,18 +91,26 @@ export function planBlockedUntil(
 }
 
 /**
- * What a tab keeps for a stop: to go on a minute after the reset, or, with
+ * What a tab keeps for a stop: to go on after the reset and delay, or, with
  * no reset told, nothing to send. `tries`: the times the same limit was
  * waited out before; past the most, it gives up.
  */
-export function planResume(stop: LimitStop, now: number, tries = 0, session?: string): LimitResume {
+export function planResume(
+  stop: LimitStop,
+  now: number,
+  options: LimitResumeOptions,
+  tries = 0,
+  session?: string,
+): LimitResume {
   const base = { stopAt: stop.stopAt, tries, ...(session ? { session } : {}) };
   if (stop.resetsAt === undefined) return { ...base, state: "unknown" };
-  if (tries >= MAX_TRIES) return { ...base, resetsAt: stop.resetsAt, state: "gave_up" };
+  if (tries >= options.chatLimitResumeMaxTries) {
+    return { ...base, resetsAt: stop.resetsAt, state: "gave_up" };
+  }
   return {
     ...base,
     resetsAt: stop.resetsAt,
-    at: Math.max(stop.resetsAt, now) + RESUME_AFTER_MS,
+    at: Math.max(stop.resetsAt, now) + options.chatLimitResumeDelayMinutes * 60_000,
     state: "waiting",
   };
 }
@@ -138,9 +141,19 @@ export interface LimitTabView {
 export function reconcileResume(
   record: LimitResume | undefined,
   view: LimitTabView,
+  options: LimitResumeOptions,
 ): LimitResume | undefined {
   if (record && record.state !== "sent" && !view.enabled) return undefined;
   if (record?.session && view.session && record.session !== view.session) return undefined;
+  if (
+    (record?.state === "waiting" || record?.state === "unknown") &&
+    resumeExpired(record.stopAt, view.now, options)
+  ) {
+    record = undefined;
+  }
+  if (record?.state === "waiting" && record.tries >= options.chatLimitResumeMaxTries) {
+    record = giveUpResume(record);
+  }
   const { model } = view;
   if (!model) return record;
   if (model.running) {
@@ -155,11 +168,17 @@ export function reconcileResume(
   if (record && at <= record.stopAt) return record;
   if (!record && view.handledAt !== undefined && at <= view.handledAt) return record;
   const stop =
-    view.enabled && view.subscription && view.now - at < STALE_STOP_MS
+    view.enabled && view.subscription && !resumeExpired(at, view.now, options)
       ? limitStopOf(model, view.agent)
       : null;
   if (!stop) return undefined;
-  return planResume(stop, view.now, record?.state === "sent" ? record.tries : 0, view.session);
+  return planResume(
+    stop,
+    view.now,
+    options,
+    record?.state === "sent" ? record.tries : 0,
+    view.session,
+  );
 }
 
 /** A record with no reset told, once the plan's usage tells one after its stop. */
@@ -167,11 +186,27 @@ export function withResetTime(
   record: LimitResume,
   resetsAt: number | undefined,
   now: number,
+  options: LimitResumeOptions,
 ): LimitResume {
   if (record.state !== "unknown" || resetsAt === undefined || resetsAt <= record.stopAt) {
     return record;
   }
-  return planResume({ stopAt: record.stopAt, resetsAt }, now, record.tries, record.session);
+  return planResume(
+    { stopAt: record.stopAt, resetsAt },
+    now,
+    options,
+    record.tries,
+    record.session,
+  );
+}
+
+function resumeExpired(stopAt: number, now: number, options: LimitResumeOptions): boolean {
+  return now - stopAt >= options.chatLimitResumeDeadlineHours * 3_600_000;
+}
+
+function giveUpResume(record: LimitResume): LimitResume {
+  const { at: _was, ...rest } = record;
+  return { ...rest, state: "gave_up" };
 }
 
 /** Whether the time to send has come. */
@@ -189,12 +224,21 @@ export function afterRecheck(
   blockedUntil: number | undefined,
   fresh: boolean,
   now: number,
+  options: LimitResumeOptions,
 ): LimitResume | "send" {
+  if (record.tries >= options.chatLimitResumeMaxTries) return giveUpResume(record);
   if (!fresh || blockedUntil === undefined || blockedUntil <= now) return "send";
   const tries = record.tries + 1;
   const { at: _was, ...rest } = record;
-  if (tries >= MAX_TRIES) return { ...rest, tries, resetsAt: blockedUntil, state: "gave_up" };
-  return { ...rest, tries, resetsAt: blockedUntil, at: blockedUntil + RESUME_AFTER_MS };
+  if (tries >= options.chatLimitResumeMaxTries) {
+    return { ...rest, tries, resetsAt: blockedUntil, state: "gave_up" };
+  }
+  return {
+    ...rest,
+    tries,
+    resetsAt: blockedUntil,
+    at: blockedUntil + options.chatLimitResumeDelayMinutes * 60_000,
+  };
 }
 
 /** The record once the message went. */
@@ -204,10 +248,14 @@ export function sentResume(record: LimitResume, now: number): LimitResume {
 }
 
 /** The record once the message could not be sent: tried again later, up to the most tries. */
-export function failedResume(record: LimitResume, now: number): LimitResume {
+export function failedResume(
+  record: LimitResume,
+  now: number,
+  options: LimitResumeOptions,
+): LimitResume {
   const tries = record.tries + 1;
   const { at: _was, sentAt: _sent, ...rest } = record;
-  if (tries >= MAX_TRIES) return { ...rest, tries, state: "gave_up" };
+  if (tries >= options.chatLimitResumeMaxTries) return { ...rest, tries, state: "gave_up" };
   return { ...rest, tries, state: "waiting", at: now + RETRY_MS };
 }
 
