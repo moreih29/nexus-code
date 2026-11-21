@@ -328,8 +328,8 @@ export class NotesStore {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
-    await writeAtomic(path.join(dir, TRANSCRIPT_JSON), `${JSON.stringify(file)}\n`);
     await writeAtomic(path.join(dir, TRANSCRIPT_MD), transcriptMarkdown(file, note.title));
+    await writeAtomic(path.join(dir, TRANSCRIPT_JSON), `${JSON.stringify(file)}\n`);
   }
 
   async hasRecordingAudio(
