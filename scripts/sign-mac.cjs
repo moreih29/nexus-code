@@ -15,6 +15,7 @@
  *   NEXUS_MAC_SIGN_KEYCHAIN  that keychain
  *   NEXUS_MAC_TEAM_ID        optional Apple Team ID for the bridge requirement
  * Without them (local builds) the app stays unsigned, as Electron ships it.
+ * The Developer ID path uses electron-builder's default signer instead.
  *
  * Only nested code (frameworks, helper apps) is signed besides the app. The
  * Mach-O files under Resources — the agent binaries, native modules — are
@@ -78,7 +79,6 @@ exports.sign = async function sign(configuration) {
 function verifyLegacySignature(app) {
   const identity = process.env.NEXUS_MAC_SIGN_IDENTITY;
   const teamId = process.env.NEXUS_MAC_TEAM_ID;
-  execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "inherit" });
   // Evaluate a separate, legacy-only requirement against the actual signer.
   // Testing for the hash in the bridge's DR alone would also accept its other branch.
   execFileSync(
@@ -107,9 +107,22 @@ function verifyLegacySignature(app) {
   }
 }
 
+function verifyDeveloperSignature(app) {
+  const requirement = `${appId} and ${developerCertificate(process.env.NEXUS_MAC_TEAM_ID)}`;
+  execFileSync("codesign", ["--verify", "--strict", `-R=${requirement}`, app], {
+    stdio: "inherit",
+  });
+  execFileSync("codesign", ["-dvv", "-r-", app], { stdio: "inherit" });
+}
+
 if (require.main === module) {
   const [command, app] = process.argv.slice(2);
-  if (command !== "--verify" || !app)
-    throw new Error("Usage: node scripts/sign-mac.cjs --verify <app>");
-  verifyLegacySignature(app);
+  if (!app || (command !== "--verify" && command !== "--verify-developer-id")) {
+    throw new Error("Usage: node scripts/sign-mac.cjs <--verify|--verify-developer-id> <app>");
+  }
+  execFileSync("codesign", ["--verify", "--deep", "--strict", "--all-architectures", app], {
+    stdio: "inherit",
+  });
+  if (command === "--verify-developer-id") verifyDeveloperSignature(app);
+  else verifyLegacySignature(app);
 }

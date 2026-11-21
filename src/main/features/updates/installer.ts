@@ -7,10 +7,12 @@
  * The bridge release uses the original certificate with a DR that also accepts
  * Developer ID Application signatures from our Apple team. An older install
  * must go through the bridge to update in place. If verification fails, the
- * user is pointed at the release page. The app downloads the update itself, so the new bundle carries
- * no quarantine attribute and opens without a Gatekeeper prompt. On Linux the
- * new AppImage replaces the running one, and a deb is installed with the
- * user's admin password (electron-update-backend.ts).
+ * user is pointed at the release page. The app downloads the update itself,
+ * so the new bundle carries no quarantine attribute and opens without a
+ * Gatekeeper prompt. See docs/MAC_RELEASE_SIGNING.md for the rollout and
+ * Squirrel.Mac source. On Linux the new AppImage replaces the running one,
+ * and a deb is installed with the user's admin password
+ * (electron-update-backend.ts).
  *
  * STATES
  * ------
