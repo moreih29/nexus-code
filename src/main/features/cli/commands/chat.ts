@@ -52,6 +52,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { callerSandboxLevel, mayExecute, sandboxLevel } from "../sandbox";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
@@ -378,21 +379,25 @@ async function mayLoosen(
   to: string,
   from?: string,
   signal?: AbortSignal,
+  body?: string,
 ): Promise<CallerMode | undefined> {
   const dangerous = to === CHAT_MODES[agent].dangerous;
   if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
   const caller = await verifiedChatMode(ctx);
-  if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
-  if (dangerous) throw dangerousModeError(to);
-  await ctx.services.askUser(
+  const delegated = caller && grants(caller.agent, caller.mode, agent, to) ? caller : undefined;
+  if (dangerous && !delegated) throw dangerousModeError(to);
+  signal?.throwIfAborted();
+  await mayExecute(
+    ctx,
+    workspace,
     {
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: workspace.id,
-      change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
+      kind: "chatMode",
+      detail: `${name} (${from} → ${to})`,
+      ...(body ? { body } : {}),
     },
-    signal,
+    { level: sandboxLevel(agent, to), alwaysAsk: !delegated, skipWorkspacePolicy: true },
   );
+  return delegated;
 }
 
 export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
@@ -479,17 +484,18 @@ const chatNew: CliCommand = {
     const instructions =
       instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
     const body = [prompt, instructions].filter(Boolean).join("\n\n");
-    await mayChange(
-      ctx,
-      workspace,
-      {
-        kind: "chatNew",
-        detail: AGENT_NAMES[agent],
-        ...(body ? { body } : {}),
-      },
-      ctx.signal,
-    );
-    ctx.signal?.throwIfAborted();
+    const level = sandboxLevel(agent, settings.mode);
+    const needsModeGrant =
+      settings.mode !== undefined &&
+      (settings.mode === CHAT_MODES[agent].dangerous ||
+        loosens(agent, CHAT_MODES[agent].fallback, settings.mode));
+    const change: ChangeRequest["change"] = {
+      kind: "chatNew",
+      detail: AGENT_NAMES[agent],
+      ...(body ? { body } : {}),
+    };
+    if (needsModeGrant) await mayChange(ctx, workspace, change, ctx.signal);
+    else await mayExecute(ctx, workspace, change, { level });
     const delegated =
       settings.mode === undefined
         ? undefined
@@ -501,6 +507,7 @@ const chatNew: CliCommand = {
             settings.mode,
             CHAT_MODES[agent].fallback,
             ctx.signal,
+            body,
           );
     const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
@@ -700,15 +707,15 @@ async function setProfile(
     fresh,
     dryRun: true,
   });
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: {
+  await mayExecute(
+    ctx,
+    workspace,
+    {
       kind: fresh ? "chatProfileNew" : "chatProfile",
       detail: `"${tab.title}" (${names.from} → ${names.to})`,
     },
-  });
+    { alwaysAsk: true },
+  );
   const { from, to } = await ctx.services.ui(
     "chat.profile",
     { ...target, profile, fresh },
@@ -1023,7 +1030,7 @@ const chatSend: CliCommand = {
     ) {
       if (timeoutMs !== null || when === "after")
         throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
-      await mayChange(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
+      await mayExecute(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
       return remoteControlOutput(
         `${tab.title} (${shortId(tab.id)})`,
         target,
@@ -1032,20 +1039,25 @@ const chatSend: CliCommand = {
     }
     if (hurry) {
       if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
-      await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
+      await mayExecute(ctx, workspace, { kind: "chatInput", detail: tab.title }, { target: tab });
       await ctx.services.ui("chat.hurry", target);
       return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
     }
     const attached = await attachments(ctx, files);
     const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
     const listed = attached.map((file) => `[${file.name}]`).join(" ");
-    await mayChange(ctx, workspace, {
-      kind: "chatInput",
-      detail: tab.title,
-      body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
-        .filter(Boolean)
-        .join("\n\n"),
-    });
+    await mayExecute(
+      ctx,
+      workspace,
+      {
+        kind: "chatInput",
+        detail: tab.title,
+        body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+      { target: tab },
+    );
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
     const sender = await senderOf(ctx);
@@ -1141,13 +1153,26 @@ async function mayAnswer(
     // The workspace policy can wait for a user decision. Read the mode again.
     caller = await unrestrictedCaller(ctx);
   }
-  if (caller) return caller;
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change,
-  });
+  if (
+    caller &&
+    (await callerSandboxLevel(ctx)) ===
+      sandboxLevel(caller.agent, CHAT_MODES[caller.agent].dangerous)
+  ) {
+    return caller;
+  }
+  if (change.kind === "permissionAllow") {
+    await mayExecute(ctx, workspace, change, { alwaysAsk: true });
+  } else {
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change,
+      },
+      ctx.signal,
+    );
+  }
 }
 
 /**
@@ -1344,11 +1369,16 @@ const chatInstructions: CliCommand = {
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const text = file === undefined ? "" : await readInstructionsFile(ctx, file);
     if (!show) {
-      await mayChange(ctx, workspace, {
-        kind: "chatSettings",
-        detail: tab.title,
-        ...(text ? { body: text } : {}),
-      });
+      await mayExecute(
+        ctx,
+        workspace,
+        {
+          kind: "chatSettings",
+          detail: tab.title,
+          ...(text ? { body: text } : {}),
+        },
+        { target: tab },
+      );
     }
     const { instructions } = await ctx.services.ui(
       "chat.instructions",

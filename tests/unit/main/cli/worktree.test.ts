@@ -34,6 +34,9 @@ function uiArgs(app: FakeApp, op: string): unknown {
 describe("worktree new", () => {
   test("from a worktree, branches off the workspace it belongs to", async () => {
     const app = fakeApp();
+    app.tabs[FIX] = [
+      { id: IN_FIX.tabId, type: "terminal", title: "zsh", groupId: "g4", shown: true },
+    ];
     app.answers.push("once");
     await nexus(app, ["worktree", "new", "pay"], IN_FIX);
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP });
@@ -89,9 +92,17 @@ describe("worktree claude-create", () => {
 
   test("from a Claude Code inside a task, makes the worktree beside it once the user allows", async () => {
     const app = fakeApp();
+    app.tabs[FIX] = [
+      { id: IN_FIX.tabId, type: "terminal", title: "zsh", groupId: "g4", shown: true },
+    ];
+    app.foreground.set(IN_FIX.tabId, "claude");
     app.answers.push("once");
     expect((await hook(app, JSON.stringify({ name: "agent-b1" }), IN_FIX)).exitCode).toBe(0);
-    expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "agent-b1" });
+    expect(app.asked[0]?.change).toEqual({
+      kind: "worktreeNew",
+      detail: "agent-b1",
+      body: "agent-b1",
+    });
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP, name: "agent-b1" });
   });
 
@@ -147,7 +158,7 @@ describe("worktree claude-remove", () => {
       const app = fakeApp();
       app.answers.push("once");
       expect((await hook(app, payload(FIX_FOLDER), madeBy)).exitCode).toBe(0);
-      expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemove" });
+      expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemove", body: FIX_FOLDER });
       expect(uiArgs(app, "task.remove")).toMatchObject({ taskId: FIX });
 
       const declined = fakeApp();

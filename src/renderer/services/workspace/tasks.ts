@@ -4,7 +4,7 @@
  * its coding agent, in a Claude or Codex tab or a terminal.
  */
 
-import type { RelaySender } from "../../../shared/chat/relay";
+import type { RelaySender, TerminalOpener } from "../../../shared/chat/relay";
 import type { ChatAgent, TaskAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
@@ -76,6 +76,7 @@ export async function startTask(
   start: TaskStart,
   createdBy?: WorkspaceTask["createdBy"],
   from?: RelaySender,
+  openedBy?: TerminalOpener,
 ): Promise<StartedTask | TaskFailure> {
   const result = await ipcCallResult("task", "create", {
     parentId,
@@ -96,7 +97,7 @@ export async function startTask(
   }
   const command = start.command.trim();
   if (command === "") return { task, tabId: null, start: { command } };
-  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
+  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath, openedBy });
   queueStartupInput(
     task.id,
     tabId,

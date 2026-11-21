@@ -100,6 +100,8 @@ interface LiveCommand {
 export interface CodexModel extends ChatModel {
   /** Keeps sequence-based item keys unique across the tab's agent logs. */
   logSeqOffset?: number;
+  /** The sandbox the program reports independently of its approval policy. */
+  sandboxMode?: CodexMode | null;
   /** The thread the program runs, once it started or resumed one. */
   threadId?: string;
   appServerVersion?: string;
@@ -279,6 +281,7 @@ export function applyCodexLine(
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
+      draft.next.sandboxMode = undefined;
       draft.next.blocks = {};
       draft.next.forkSource = undefined;
       draft.next.turnId = undefined;
@@ -575,6 +578,7 @@ function applyResponse(
         if (turnId && m.running) enterTurn(m, turnId);
         if (sent.request.threadId === m.threadId) {
           if (sent.request.sandboxPolicy !== undefined) {
+            m.sandboxMode = modeOf(sent.request.sandboxPolicy) ?? null;
             m.confirmedPermissionMode = confirmedModeOf(
               sent.request.sandboxPolicy,
               sent.request.approvalPolicy,
@@ -807,6 +811,7 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
     effort: result.reasoningEffort,
     sandbox: result.sandbox,
   });
+  m.sandboxMode = result.sandbox === undefined ? undefined : (modeOf(result.sandbox) ?? null);
   m.confirmedPermissionMode = confirmedModeOf(result.sandbox, result.approvalPolicy);
   if (result.collaborationMode) applyCollaboration(m, result.collaborationMode);
   else if (m.collaborationMode === undefined) {
@@ -1122,6 +1127,7 @@ function applyNotification(
           sandbox: settings.sandboxPolicy,
         });
         if (settings.sandboxPolicy !== undefined) {
+          m.sandboxMode = modeOf(settings.sandboxPolicy) ?? null;
           m.confirmedPermissionMode = confirmedModeOf(
             settings.sandboxPolicy,
             settings.approvalPolicy,

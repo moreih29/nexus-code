@@ -406,8 +406,11 @@ describe("codex model", () => {
     ]);
     expect(pending.permissionMode).toBe("fullAccess");
     expect(pending.confirmedPermissionMode).toBe("auto");
+    expect(pending.sandboxMode).toBe("auto");
     const running = run([out({ id: "app-turn", result: { turn: { id: "t1" } } })], pending);
     expect(running.confirmedPermissionMode).toBe("fullAccess");
+    expect(running.sandboxMode).toBe("fullAccess");
+    expect(run([sys({ event: "start", pid: 2 })], running).sandboxMode).toBeUndefined();
     expect(run([sys({ event: "start", pid: 2 })], running).confirmedPermissionMode).toBeUndefined();
     const stillAsks = run(
       [
@@ -422,6 +425,7 @@ describe("codex model", () => {
       running,
     );
     expect(stillAsks.confirmedPermissionMode).toBeUndefined();
+    expect(stillAsks.sandboxMode).toBe("fullAccess");
   });
 
   test("a turn: the message, streamed thinking and answer, a command", () => {

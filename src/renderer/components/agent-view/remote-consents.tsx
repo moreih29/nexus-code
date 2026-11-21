@@ -69,9 +69,11 @@ export function consentSentenceOf(
       fromTab: from.name ?? from.tabId.slice(0, 8),
       ...(from.device ? { fromDevice: from.device.name } : {}),
       toWorkspace: to,
+      sameWorkspace: !from.device && from.workspaceId === consent.workspaceId,
     },
     action,
     namesTarget,
+    consent.change.kind === "sandboxExecution",
   );
 }
 

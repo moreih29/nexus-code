@@ -19,7 +19,7 @@ import {
 import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, type CliDevice, CliError, mayChange, resolveWorkspace } from "../context";
+import { type CliContext, type CliDevice, CliError, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import {
@@ -34,6 +34,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { mayExecute } from "../sandbox";
 import { chatAgentFlag, checkedInstructions, readInstructionsFile } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -340,14 +341,16 @@ const settingsInstructionsSet: CliCommand = {
       },
       body: text,
     };
-    if (layer === "workspace") await mayChange(ctx, workspace, change);
-    else
-      await ctx.services.askUser({
-        fromWorkspaceId: ctx.caller.workspaceId,
-        fromTabId: ctx.caller.tabId,
-        toWorkspaceId: workspace.id,
-        change: { ...change, eachTime: true },
-      });
+    const shared = layer !== "workspace";
+    await mayExecute(
+      ctx,
+      workspace,
+      {
+        ...change,
+        ...(shared ? { eachTime: true } : {}),
+      },
+      { alwaysAsk: shared },
+    );
     await ctx.services.ui("settings.instructions.set", { scope, text });
     const target = layer === "workspace" ? ` for "${workspace.name}"` : "";
     return output(`${text ? "Updated" : "Cleared"} the ${layer} instruction layer${target}.`, {

@@ -1,7 +1,9 @@
+import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import type { AnsiScreen } from "./buffer-ansi";
 
 export interface TerminalInput {
+  openedBy?: TerminalOpener;
   workspaceId: string;
   cwd: string;
   /** The shell to open with; absent = the default shell setting. */

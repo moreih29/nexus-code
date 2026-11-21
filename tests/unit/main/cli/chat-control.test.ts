@@ -383,6 +383,8 @@ describe("chat background, stop-task and remote-control", () => {
     expect(app.asked).toHaveLength(0);
 
     const remoteWorkspace = ["chat", ...argv, "--workspace", APP];
+    const shell = app.tabs[APP]?.find((tab) => tab.id === SHELL_TAB);
+    if (shell) app.tabs[API]?.push(shell);
     const caller = { workspaceId: API, tabId: SHELL_TAB };
     app.settings.crossWorkspace = "deny";
     expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(1);

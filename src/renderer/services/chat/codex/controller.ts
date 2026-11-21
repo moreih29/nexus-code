@@ -83,6 +83,7 @@ import {
   idKey,
   isThreadStatusChanged,
   loseCodexLog,
+  modeOf,
   nextThreadModel,
   shownUserText,
 } from "./model";
@@ -1989,6 +1990,30 @@ export class CodexController {
       this.model.model,
       codexServerVersion(this.model, this.state.version),
     );
+  }
+
+  /** Reads the running thread's sandbox and, when needed, its effective profile config. */
+  async cliSandbox() {
+    this.flushNow();
+    if (this.state.phase !== "ready" || this.model.process !== "running") return null;
+    const ready = this.ready;
+    let current = this.model.sandboxMode;
+    if (current === undefined) {
+      const { config } = await this.request("config/read", { cwd: this.target.cwd });
+      const effective = config as { sandbox_mode?: unknown; default_permissions?: unknown } | null;
+      this.flushNow();
+      if (this.ready !== ready || this.model.process !== "running") return null;
+      current = this.model.sandboxMode;
+      if (current === undefined && effective?.default_permissions == null) {
+        current = modeOf(effective?.sandbox_mode);
+      }
+    }
+    return {
+      agent: "codex" as const,
+      current: current ?? undefined,
+      next: this.pickedPermissionMode ?? current ?? undefined,
+      running: this.model.running,
+    };
   }
 
   /** Defaults for this Codex home as seen from the tab's working directory. */

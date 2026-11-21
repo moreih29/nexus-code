@@ -42,6 +42,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { mayExecute } from "../sandbox";
 import { chatAgentFlag, readInstructionsFile } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -134,6 +135,14 @@ export const chatUsage: CliCommand = {
       ...(workspace ? { workspaceId: workspace.id } : {}),
       ...(refresh ? { refresh } : {}),
     };
+    if (!device && refresh) {
+      await mayExecute(
+        ctx,
+        resolveWorkspace(ctx, flags.workspace as string | undefined),
+        { kind: "chatSettings" },
+        { skipWorkspacePolicy: true },
+      );
+    }
     const result = device
       ? await askDevice(ctx, device, "profiles.usage", params, ctx.signal)
       : await ctx.services.ui(
