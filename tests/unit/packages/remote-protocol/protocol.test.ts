@@ -18,6 +18,7 @@ import {
   MAX_IMAGE_EDGE,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
+  olderConnection,
   PUSH_VERSION,
   PushPayloadSchema,
   PushRegistrationSchema,
@@ -112,6 +113,35 @@ describe("a sealed message", () => {
     expect(SealedEnvelopeSchema.safeParse(message).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, epoch: "short" }).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: undefined }).success).toBe(false);
+  });
+
+  test("says its sender's connection, since 0.18.0: a run and a number above 0", () => {
+    const message = { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} };
+    const envelope = { epoch: "A".repeat(22), peer: "B".repeat(22), message };
+    const conn = { boot: "C".repeat(22), n: 1 };
+    expect(SealedEnvelopeSchema.parse({ ...envelope, conn })).toEqual({ ...envelope, conn });
+    expect(SealedEnvelopeSchema.parse(envelope)).toEqual(envelope);
+    for (const bad of [
+      { ...conn, n: 0 },
+      { ...conn, n: 1.5 },
+      { ...conn, boot: "short" },
+      { n: 1 },
+    ]) {
+      expect(SealedEnvelopeSchema.safeParse({ ...envelope, conn: bad }).success).toBe(false);
+    }
+  });
+
+  const run = "R".repeat(22);
+  const other = "S".repeat(22);
+  test.each([
+    ["an older connection of the same run", { boot: run, n: 2 }, { boot: run, n: 3 }, true],
+    ["the same connection number again", { boot: run, n: 3 }, { boot: run, n: 3 }, true],
+    ["a newer connection of the same run", { boot: run, n: 4 }, { boot: run, n: 3 }, false],
+    ["a lower number of another run", { boot: other, n: 1 }, { boot: run, n: 3 }, false],
+    ["no connection said (before 0.18.0)", undefined, { boot: run, n: 3 }, false],
+    ["none heard (before 0.18.0)", { boot: run, n: 1 }, undefined, false],
+  ] as const)("%s: older is %p", (_, conn, heard, older) => {
+    expect(olderConnection(conn, heard)).toBe(older);
   });
 });
 

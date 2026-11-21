@@ -21,6 +21,15 @@
  *   a seq no higher than the last it took of that sender's epoch is not
  *   taken; once it took one of a sender's newer epoch, it takes none of an
  *   older one.
+ * - Since 0.18.0 an envelope also says which of its sender's connections
+ *   it comes in (`conn`: the sender's run, and its connections counted in
+ *   that run). A device takes nothing of a sender's connection older than
+ *   one it took of the same run, even one it never heard before: else a
+ *   relay that held an older connection's messages, and sent them on after
+ *   the newer's, would turn the device back to the older epoch, and it
+ *   would drop all of the newer till one of the two connected again. Of
+ *   another run, or with no `conn` (a device before 0.18.0), it goes by
+ *   the epochs alone, as before.
  *
  * A device learns another's epoch from a hello sent to it, in three steps:
  * 1. As it joins, A sends ALL_DEVICES its hello with `peer: null`. No one
@@ -159,10 +168,36 @@ export const EPOCH_BYTES = 16;
 /** A connection's epoch (see the top of this file). */
 export const EpochSchema = Base64UrlSchema.min(22).max(64);
 
+/**
+ * Which of its sender's connections a message comes in (see the top of
+ * this file). Since 0.18.0.
+ */
+export const SenderConnectionSchema = z.object({
+  /** The sender's run: random, as an epoch is, made once as its room starts. */
+  boot: EpochSchema,
+  /** The connection's number in that run, counted from 1: each new one is higher. */
+  n: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+export type SenderConnection = z.infer<typeof SenderConnectionSchema>;
+
+/**
+ * Whether a message of a sender's epoch not heard yet comes in a connection
+ * older than the one of the epoch heard of it now, so it is not taken: only
+ * when both say their connection, of the same run.
+ */
+export function olderConnection(
+  conn: SenderConnection | undefined,
+  heard: SenderConnection | undefined,
+): boolean {
+  return conn !== undefined && heard !== undefined && conn.boot === heard.boot && conn.n <= heard.n;
+}
+
 /** What is sealed: a message, with the epochs that tell it fresh (see the top of this file). */
 export const SealedEnvelopeSchema = z.object({
   /** The sender's epoch now. */
   epoch: EpochSchema,
+  /** The sender's connection it comes in; absent before 0.18.0. */
+  conn: SenderConnectionSchema.optional(),
   /** The receiver's epoch, as it told it; null only in a hello to ALL_DEVICES. */
   peer: EpochSchema.nullable(),
   message: SealedMessageSchema,

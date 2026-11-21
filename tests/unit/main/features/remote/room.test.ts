@@ -17,6 +17,7 @@ import {
   RpcErrorCode,
   type RpcParams,
   SCHEMA_VERSION,
+  SealedEnvelopeSchema,
 } from "../../../../../packages/remote-protocol/src";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remote/account-key";
@@ -31,7 +32,11 @@ import {
   type RemoteRoomDeps,
   RpcFailure,
 } from "../../../../../src/main/features/remote/room";
-import { openMessage, type RoomKey } from "../../../../../src/main/features/remote/seal";
+import {
+  openMessage,
+  type RoomKey,
+  sealMessage,
+} from "../../../../../src/main/features/remote/seal";
 
 import { servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
@@ -104,6 +109,11 @@ class MockRelay {
         });
       return;
     }
+    this.pass(from, frame);
+  }
+
+  /** Routes a frame `from` sent, as it does any it does not drop. */
+  pass(from: string, frame: ClientFrame) {
     const targets =
       frame.to === "*"
         ? [...this.online.keys()].filter((id) => id !== from)
@@ -957,6 +967,135 @@ describe("what the relay keeps and sends again", () => {
     });
     expect(await a.room.notify("x", "sessions.update", { watchId: "w" } as never)).toBe(false);
     expect(relay.kept).toEqual([]);
+  });
+});
+
+describe("a sender's older connection, sent on late", () => {
+  async function pair() {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    return { relay, key, a, b };
+  }
+
+  /** Holds every frame `from` sends `to` alone: the frames held, as they would have come. */
+  function hold(relay: MockRelay, from: string, to: string): Delivered[] {
+    const held: Delivered[] = [];
+    relay.drop = (sender, frame) => {
+      if (sender !== from || frame.to !== to) return undefined;
+      held.push({ ...frame, t: "message", from });
+      return "silent";
+    };
+    return held;
+  }
+
+  /**
+   * Seals what `from` sends again as a device before 0.18.0 does, with no
+   * `conn`, and passes it on in order; `settled` waits for what is under way.
+   */
+  function sentWithoutConn(relay: MockRelay, key: RoomKey, from: string) {
+    let chain = Promise.resolve();
+    relay.drop = (sender, frame) => {
+      if (sender !== from) return undefined;
+      chain = chain.then(async () => {
+        const envelope = await openMessage(key, { ...frame, t: "message", from });
+        if (!envelope) return;
+        const { conn: _conn, ...before } = envelope;
+        const { to, seq } = frame;
+        relay.pass(from, await sealMessage({ room: key, from, to, seq, envelope: before }));
+      });
+      return "silent";
+    };
+    return {
+      settled: async () => {
+        for (let i = 0; i < 4; i++) {
+          await chain;
+          await flushRelay();
+        }
+      },
+    };
+  }
+
+  test("its frames are not taken after the newer connection's, and the two devices go on talking", async () => {
+    const { relay, a, b } = await pair();
+    // The relay holds what a sends b alone in its next connection, then lets the one after through.
+    const held = hold(relay, "a", "b");
+    a.reopen();
+    await flushRelay();
+    relay.drop = null;
+    a.reopen();
+    await flushRelay();
+    await b.room.request("a", "sessions.list", {});
+    const rejoins = b.room.state().peers[0]?.rejoins;
+    expect(held.length).toBeGreaterThan(0);
+
+    for (const frame of held) relay.deliver("b", frame);
+    await flushRelay();
+    // Without `conn`, b took the held hello and dropped all a sent after it as past.
+    expect(b.room.state().peers[0]?.rejoins).toBe(rejoins);
+    await b.room.request("a", "sessions.list", {});
+    expect((await a.room.request("b", "sessions.list", {})).workspaces).toHaveLength(1);
+    expect(a.served).toHaveLength(2);
+  });
+
+  test("an envelope with `conn` opens on a device before 0.18.0, which leaves it out", () => {
+    const envelope = {
+      epoch: "e".repeat(22),
+      conn: { boot: "b".repeat(22), n: 3 },
+      peer: "p".repeat(22),
+      message: { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} },
+    };
+    expect(SealedEnvelopeSchema.parse(envelope).conn).toEqual({ boot: "b".repeat(22), n: 3 });
+    // The envelope as a device before 0.18.0 has it.
+    const before = SealedEnvelopeSchema.omit({ conn: true }).safeParse(envelope);
+    expect(before.success && "conn" in before.data).toBe(false);
+    expect(before.success).toBe(true);
+  });
+
+  test("a sender before 0.18.0, with no `conn`, is taken by its epochs alone, connection after connection", async () => {
+    const { relay, key, a, b } = await pair();
+    const old = sentWithoutConn(relay, key, "a");
+    for (let i = 0; i < 2; i++) {
+      a.reopen();
+      await old.settled();
+      await b.room.request("a", "sessions.list", {});
+    }
+    const [sent] = relay.between("a", "b").slice(-1);
+    const opened = sent ? await openMessage(key, sent) : null;
+    expect(opened && "conn" in opened).toBe(false);
+    expect(a.served).toHaveLength(2);
+  });
+
+  test("a sender gone back to before 0.18.0 is taken without `conn` after a connection with it", async () => {
+    const { relay, key, a, b } = await pair();
+    await b.room.request("a", "sessions.list", {});
+    const old = sentWithoutConn(relay, key, "a");
+    a.reopen();
+    await old.settled();
+    await b.room.request("a", "sessions.list", {});
+    expect(a.served).toHaveLength(2);
+  });
+
+  test("a sender started again counts its connections anew, and is taken all the same", async () => {
+    const { relay, key, a, b } = await pair();
+    a.reopen();
+    a.reopen();
+    await flushRelay();
+    await b.room.request("a", "sessions.list", {});
+    // The app quits and starts again: a new run, whose first connections count lower.
+    a.room.stop();
+    await flushRelay();
+    const again = device(relay, "a", key);
+    again.room.start();
+    await flushRelay();
+    await b.room.request("a", "sessions.list", {});
+    expect(again.served).toHaveLength(1);
+    again.room.stop();
+    b.room.stop();
   });
 });
 
