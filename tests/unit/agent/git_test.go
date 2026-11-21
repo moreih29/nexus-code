@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
@@ -63,5 +64,34 @@ func TestStageContentPreservesPOSIXBackslash(t *testing.T) {
 	}
 	if index := gitRun(t, root, "show", ":"+nested); index != "nested name\n" {
 		t.Fatalf("unrelated path's index = %q", index)
+	}
+}
+
+func TestSelectedGitDiffTreatsBracketsLiterally(t *testing.T) {
+	root := gitRepo(t)
+	const selected, other = "report[1].txt", "report1.txt"
+	writeText(t, root, selected, "before\n")
+	writeText(t, root, other, "before\n")
+	gitRun(t, root, "--literal-pathspecs", "add", "--", selected, other)
+	gitRun(t, root, "commit", "-qm", "reports")
+	writeText(t, root, selected, "selected edit\n")
+	writeText(t, root, other, "other edit\n")
+
+	var diff strings.Builder
+	service := agentgit.New(root)
+	service.SetEventSink(func(_ string, payload any) error {
+		diff.WriteString(payload.(agentgit.DiffChunkPayload).Text)
+		return nil
+	})
+	call(t, service.Diff, agentgit.DiffParams{Paths: []string{selected}, StreamID: "selected-diff"})
+	if !strings.Contains(diff.String(), "+selected edit") || strings.Contains(diff.String(), "+other edit") {
+		t.Fatalf("selected diff = %q", diff.String())
+	}
+
+	raw := call(t, service.Run, agentgit.RunParams{
+		Args: []string{"--literal-pathspecs", "diff", "--", selected},
+	}).(agentgit.RunResult)
+	if raw.Code != 0 || !strings.Contains(raw.Stdout, "+selected edit") || strings.Contains(raw.Stdout, "+other edit") {
+		t.Fatalf("caller-provided literal pathspec option: %#v", raw)
 	}
 }

@@ -82,7 +82,7 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	args := buildLogArgs(params)
-	cmd, err := s.command(streamCtx, args, params.Cwd, nil, false)
+	cmd, err := s.command(streamCtx, args, params.Cwd, selectedPathEnv(params.Paths), false)
 	if err != nil {
 		return nil, err
 	}
