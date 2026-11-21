@@ -35,6 +35,12 @@ function listening(port: number, process = "node", tabId = SHELL_TAB): Listening
   return { port, pid: port * 10, process, tabId };
 }
 
+test("rejects unregistered flags even when their names exist on objects", async () => {
+  const result = await nexus(["workspace", "current", "--constructor=ignored"]);
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain("unknown flag --constructor");
+});
+
 describe("terminals and sessions", () => {
   test("JSON is ASCII alone, for a reader that takes it in another code page", async () => {
     for (const flag of ["--json", "--jsonl"]) {
