@@ -123,11 +123,17 @@ interface PendingSpawn {
   workspaceId: string;
   languageId: string;
   correlationId: string;
+  signal: AbortSignal;
 }
 
 interface ServerContext {
   workspaceId: string;
   languageId: string;
+}
+
+interface ServerStartup extends ServerContext {
+  readonly controller: AbortController;
+  readonly promise: Promise<AgentLspServer | null>;
 }
 
 interface AgentSpawnResult {
@@ -313,7 +319,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly serversById = new Map<string, AgentLspServer>();
   private readonly channelKeys = new WeakMap<AgentChannel, number>();
   private nextChannelKey = 0;
-  private readonly serverPromises = new Map<string, Promise<AgentLspServer | null>>();
+  private readonly serverStartups = new Map<string, ServerStartup>();
+  // Only requests that reached the transport can still create a child.
+  private readonly serverSpawnRequests = new Set<Promise<AgentLspServer | null>>();
   // uriIndex: workspace → uri → presetLanguageId.
   //
   // Two workspaces can both open the same physical `file://` URI (e.g. a
@@ -564,10 +572,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (this.disposed) return;
     this.disposed = true;
     this.diagnosticsDebouncer.clearAll();
+    for (const startup of this.serverStartups.values()) startup.controller.abort();
+    this.serverStartups.clear();
     const shutdowns = Array.from(this.serversById.values(), (server) => server.dispose());
     this.serversById.clear();
     this.workspaceServers.clear();
-    this.serverPromises.clear();
     this.uriIndex.clear();
     this.workspaceLastActivity.clear();
     this.serverTimeoutCount.clear();
@@ -580,7 +589,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
     this.channelDisposers.clear();
     this.listeners.clear();
-    await Promise.all(shutdowns);
+    await Promise.allSettled([...shutdowns, ...this.serverSpawnRequests]);
   }
 
   /**
@@ -609,6 +618,20 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     options: { reopen?: boolean } = {},
   ): void {
     if (this.disposed) return;
+    if (reason === "off") {
+      for (const [key, { workspaceId, languageId, controller }] of this.serverStartups) {
+        if (!matches(workspaceId, languageId)) continue;
+        controller.abort();
+        this.serverStartups.delete(key);
+        if (this.workspaceServers.get(workspaceId)?.has(languageId)) continue;
+        this.status.stopped(workspaceId, languageId, reason, STOP_REASON_TEXT[reason]);
+        this.emit("workspaceLspReset", {
+          workspaceId,
+          languageId,
+          reason: STOP_REASON_TEXT[reason],
+        });
+      }
+    }
     for (const [workspaceId, servers] of Array.from(this.workspaceServers)) {
       for (const languageId of Array.from(servers.keys())) {
         if (matches(workspaceId, languageId)) {
@@ -1000,8 +1023,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (existing) return existing;
 
     const key = `${workspaceId}\0${presetLanguageId}`;
-    const pending = this.serverPromises.get(key);
-    if (pending) return pending;
+    const pending = this.serverStartups.get(key);
+    if (pending) return pending.promise;
 
     // Before allocating a brand-new server for this workspace, make
     // room: if N other workspaces are already live, evict the LRU one.
@@ -1010,15 +1033,26 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // interaction. See LSP_MAX_ACTIVE_WORKSPACES for the rationale.
     this.evictLruWorkspaceIfNeeded(workspaceId);
 
-    const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset)
+    const controller = new AbortController();
+    const promise = Promise.resolve()
+      .then(() =>
+        this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset, controller.signal),
+      )
       .catch((error: unknown) => {
+        if (controller.signal.aborted) return null;
         this.handleSpawnFailure(workspaceId, presetLanguageId, error);
         throw error;
       })
       .finally(() => {
-        this.serverPromises.delete(key);
+        if (this.serverStartups.get(key)?.controller === controller)
+          this.serverStartups.delete(key);
       });
-    this.serverPromises.set(key, promise);
+    this.serverStartups.set(key, {
+      workspaceId,
+      languageId: presetLanguageId,
+      controller,
+      promise,
+    });
     return promise;
   }
 
@@ -1167,10 +1201,19 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     presetLanguageId: string,
     workspaceRoot: string,
     preset: LspServerSpec,
-  ): Promise<AgentLspServer> {
+    signal: AbortSignal,
+  ): Promise<AgentLspServer | null> {
+    if (signal.aborted) return null;
     this.status.starting(workspaceId, presetLanguageId);
     const channel = await this.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
+    if (signal.aborted) return null;
+
+    const command = preset.system
+      ? await this.findSystemServer(channel, presetLanguageId, workspaceRoot, preset)
+      : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
+    if (signal.aborted) return null;
+
     this.subscribeChannel(channel);
     const initializationOptions = this.initializationOptionsFor(presetLanguageId, preset);
     this.storeInitializationOptions(workspaceId, presetLanguageId, initializationOptions);
@@ -1181,15 +1224,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       workspaceId,
       languageId: presetLanguageId,
       correlationId,
+      signal,
     };
     this.pendingSpawnByCorrelation.set(correlationId, pendingSpawn);
 
-    let serverId: string | null = null;
-    try {
-      const command = preset.system
-        ? await this.findSystemServer(channel, presetLanguageId, workspaceRoot, preset)
-        : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
-      const result = await channel.call<AgentSpawnResult>("lsp.spawn", {
+    let serverId: string | undefined;
+    const request = channel
+      .call<AgentSpawnResult>("lsp.spawn", {
         workspaceId,
         languageId: presetLanguageId,
         binaryPath: command.binaryPath,
@@ -1200,29 +1241,36 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         correlationId,
         capabilities: LSP_CLIENT_CAPABILITIES,
         ...(initializationOptions !== undefined ? { initializationOptions } : {}),
+      })
+      .then(async (result) => {
+        const spawned = parseSpawnResult(result);
+        serverId = spawned.serverId;
+        const server = new AgentLspServer({
+          channel,
+          serverId,
+          workspaceId,
+          languageId: presetLanguageId,
+          capabilities: parseServerCapabilities(result.capabilities),
+        });
+        if (signal.aborted) {
+          await server.dispose();
+          return null;
+        }
+        this.rememberServer(server);
+        this.status.running(
+          workspaceId,
+          presetLanguageId,
+          spawned.serverInfo ?? (preset.system ? undefined : bundledServerInfo(preset)),
+        );
+        return server;
       });
-      const spawned = parseSpawnResult(result);
-      serverId = spawned.serverId;
-      const capabilities = parseServerCapabilities(result.capabilities);
-      const server = new AgentLspServer({
-        channel,
-        serverId,
-        workspaceId,
-        languageId: presetLanguageId,
-        capabilities,
-      });
-      this.rememberServer(server);
-      this.status.running(
-        workspaceId,
-        presetLanguageId,
-        spawned.serverInfo ?? (preset.system ? undefined : bundledServerInfo(preset)),
-      );
-      return server;
+    this.serverSpawnRequests.add(request);
+    try {
+      return await request;
     } finally {
+      this.serverSpawnRequests.delete(request);
       this.pendingSpawnByCorrelation.delete(correlationId);
-      if (serverId) {
-        this.pendingSpawnByServerId.delete(this.serverIdKey(channel, serverId));
-      }
+      if (serverId) this.pendingSpawnByServerId.delete(this.serverIdKey(channel, serverId));
     }
   }
 
@@ -1405,7 +1453,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (!parsed?.correlationId) return;
 
     const pending = this.pendingSpawnByCorrelation.get(parsed.correlationId);
-    if (!pending) return;
+    if (!pending || pending.channel !== channel || pending.signal.aborted) return;
     this.pendingSpawnByServerId.set(this.serverIdKey(channel, parsed.serverId), pending);
   }
 
@@ -1472,7 +1520,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // A server that died starting: lsp.spawn failed with only its exit
       // status, and what it printed says why.
       const pending = this.pendingSpawnByServerId.get(key);
-      if (pending && parsed.stderrTail.trim()) {
+      if (pending && !pending.signal.aborted && parsed.stderrTail.trim()) {
         this.status.log(pending.workspaceId, pending.languageId, "stderr", parsed.stderrTail);
       }
     }
@@ -1737,7 +1785,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       return { workspaceId: server.workspaceId, languageId: server.languageId };
     }
     const pending = this.pendingSpawnByServerId.get(key);
-    return pending ? { workspaceId: pending.workspaceId, languageId: pending.languageId } : null;
+    return pending && !pending.signal.aborted
+      ? { workspaceId: pending.workspaceId, languageId: pending.languageId }
+      : null;
   }
 
   /**
