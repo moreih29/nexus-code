@@ -13,6 +13,7 @@ import type { VoiceEvent, VoiceFailure } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
+import { voiceAvailability, voiceAvailabilityNow } from "./availability";
 import { type Capture, CaptureError, openMicrophone, startCapture } from "./capture";
 
 /** How long after stopping the rest of the text may take before the dictation ends anyway. */
@@ -207,6 +208,11 @@ async function startDictation(owner: string, language: string): Promise<void> {
     }
     if (reason && !mine.abandoned) tellFailure(reason);
   };
+
+  let availability = voiceAvailability();
+  if (availability === "unknown") availability = await voiceAvailabilityNow();
+  if (mine.abandoned) return giveUp();
+  if (availability === "signed-out" || availability === "unavailable") return giveUp(availability);
 
   const access = await ipcCallResult("remote", "voiceMicrophone", undefined);
   if (!access.ok || access.value === "denied") return giveUp("denied");

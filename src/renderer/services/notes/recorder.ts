@@ -27,6 +27,7 @@ import type { VoiceSample } from "../../../shared/notes/voices";
 import type { VoiceEvent } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { voiceAvailability, voiceAvailabilityNow } from "../voice/availability";
 import { type Capture, CaptureError, openMicrophone, startCapture } from "../voice/capture";
 import { tellFailure } from "../voice/dictation";
 import { notesApi } from "./api";
@@ -387,6 +388,14 @@ export async function resumeRecording(): Promise<void> {
 
 /** Opens the microphone (if it is not open) and a voice session, and records a take; false if it could not. */
 async function startTake(a: Active): Promise<boolean> {
+  let availability = voiceAvailability();
+  if (availability === "unknown") availability = await voiceAvailabilityNow();
+  if (active !== a) return false;
+  if (availability === "signed-out" || availability === "unavailable") {
+    tellFailure(availability);
+    return false;
+  }
+
   if (!a.stream) {
     const access = await ipcCallResult("remote", "voiceMicrophone", undefined);
     if (!access.ok || access.value === "denied") {

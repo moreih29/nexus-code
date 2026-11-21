@@ -18,6 +18,7 @@ const useAvailabilityStore = create<{ status: VoiceAvailability }>(() => ({ stat
 
 let watching = false;
 let asked = 0;
+let pending: Promise<void> | undefined;
 
 async function check(account: RemoteAccountState | null): Promise<void> {
   const mine = ++asked;
@@ -26,24 +27,42 @@ async function check(account: RemoteAccountState | null): Promise<void> {
   };
   const state =
     account ??
-    (await ipcCallResult("remote", "account", undefined).then((r) => (r.ok ? r.value : null)));
+    (await ipcCallResult("remote", "account", undefined).then(
+      (r) => (r.ok ? r.value : null),
+      () => null,
+    ));
+  if (mine !== asked) return;
   if (!state || state.status !== "signed-in") return set("signed-out");
-  const info = await ipcCallResult("remote", "serverInfo", undefined);
-  set(info.ok && !info.value.voice ? "unavailable" : "ready");
+  if (voiceAvailability() === "signed-out") set("unknown");
+  const info = await ipcCallResult("remote", "serverInfo", undefined).catch(() => null);
+  set(info?.ok && !info.value.voice ? "unavailable" : "ready");
+}
+
+function refresh(account: RemoteAccountState | null): void {
+  const checking = check(account).finally(() => {
+    if (pending === checking) pending = undefined;
+  });
+  pending = checking;
 }
 
 function watch(): void {
   if (watching) return;
   watching = true;
-  ipcListen("remote", "accountChanged", (state) => void check(state));
-  void check(null);
+  ipcListen("remote", "accountChanged", refresh);
+  refresh(null);
+}
+
+/** The last availability reported to the renderer. */
+export function voiceAvailability(): VoiceAvailability {
+  return useAvailabilityStore.getState().status;
 }
 
 /** Whether voice input can be used here, asked now. */
 export async function voiceAvailabilityNow(): Promise<VoiceAvailability> {
   watch();
-  await check(null);
-  return useAvailabilityStore.getState().status;
+  if (!pending) refresh(null);
+  while (pending) await pending;
+  return voiceAvailability();
 }
 
 export function useVoiceAvailability(): VoiceAvailability {

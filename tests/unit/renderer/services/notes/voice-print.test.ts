@@ -18,6 +18,7 @@ import {
   VOICE_PRINT_RATE,
   VoiceTracker,
 } from "../../../../../src/renderer/services/notes/voice-print";
+import { voiceAvailabilityNow } from "../../../../../src/renderer/services/voice/availability";
 import * as capture from "../../../../../src/renderer/services/voice/capture";
 import { peopleIn, type TranscriptRecording } from "../../../../../src/shared/notes/transcript";
 
@@ -212,6 +213,8 @@ test.each([
     globals.window = {
       ipc: {
         async call(_channel: string, method: string) {
+          if (method === "account") return { status: "signed-in" };
+          if (method === "serverInfo") return { voice: true };
           if (method === "voiceMicrophone") return "granted";
           if (method === "voiceStart")
             return { status: "started", id: "test", sampleRate: VOICE_PRINT_RATE };
@@ -220,6 +223,7 @@ test.each([
       },
     };
     useTranscriptsStore.setState({ byNote: { [key]: { version: 1, recordings: [completed] } } });
+    await voiceAvailabilityNow();
     await startRecording(workspaceId, noteId, "en", 3);
     const { phase, recordingId } = useRecorderStore.getState();
     expect(phase).toBe("recording");

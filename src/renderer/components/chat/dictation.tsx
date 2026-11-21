@@ -26,7 +26,6 @@ import {
   useDictationStore,
 } from "../../services/voice/dictation";
 import { type DictationPlace, dictatedText, placeOf } from "../../services/voice/text";
-import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
@@ -342,7 +341,7 @@ export function VoicePill({
 /**
  * The mic: click to dictate, the pill it becomes to finish; the shortcut
  * does the same in the composer focused last. Signed out, it says so and
- * opens the Remote settings; on a server without voice input it is off.
+ * offers sign-in; on a server without voice input it is off.
  */
 export function MicButton({
   dictation,
@@ -367,7 +366,7 @@ export function MicButton({
       <IconButton
         label={t("voice.needsSignIn")}
         size="md"
-        onClick={() => useSettingsUIStore.getState().openSettingsAt("remote")}
+        onClick={dictation.toggle}
         data-testid="mic-button"
       >
         <Mic aria-hidden className="size-4 opacity-60" />
