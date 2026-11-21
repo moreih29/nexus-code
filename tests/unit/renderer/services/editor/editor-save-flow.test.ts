@@ -9,7 +9,8 @@ import type { WriteFileResult } from "../../../../../src/shared/fs/types";
 const workspaceId = "591e167a-99b5-4c5f-a759-f5dd9d274a17";
 const input = { workspaceId, filePath: "/repo/a.txt" };
 const written = { kind: "ok", mtime: "next", size: 10 } satisfies WriteFileResult;
-const writeStarted = mock((_args: { content: string; relPath: string }) => {});
+type WriteArgs = { content: string; relPath: string; bytes?: string };
+const writeStarted = mock((_args: WriteArgs) => {});
 let write: () => Promise<WriteFileResult>;
 let disk: string;
 let previousWindow: Window & typeof globalThis;
@@ -69,6 +70,7 @@ const { closeDiffWithConfirm, closeEditorWithConfirm } = await import(
   "../../../../../src/renderer/services/editor/save/close-handler"
 );
 
+const { saveModel } = await import("../../../../../src/renderer/services/editor/save/service");
 const { saveUntitledModel } = await import(
   "../../../../../src/renderer/services/editor/save/save-untitled-handler"
 );
@@ -91,7 +93,7 @@ beforeEach(() => {
     window: {
       ...previousWindow,
       ipc: {
-        async call(channel: string, method: string, args: { content: string; relPath: string }) {
+        async call(channel: string, method: string, args: WriteArgs) {
           if (channel === "dialog" && method === "showSaveDialog") {
             return { canceled: false, filePath: input.filePath };
           }
@@ -266,4 +268,25 @@ test("a restored background diff retains unsaved edits before its view mounts", 
   expect(await openModel()).toBe(model);
   expect(model.getValue()).toBe("unsaved in first diff");
   expect(isDirty(cacheUriFor(workspaceId, input.filePath))).toBe(true);
+});
+
+test("a regular save behind Save with Encoding writes in the new encoding", async () => {
+  const model = await openModel();
+  model.setValue("café");
+  const started = Promise.withResolvers<void>();
+  const reply = Promise.withResolvers<WriteFileResult>();
+  write = () => {
+    if (writeStarted.mock.calls.length !== 1) return Promise.resolve(written);
+    started.resolve();
+    return reply.promise;
+  };
+  const encodingSave = saveModel(input, { encoding: "windows-1252" });
+  await started.promise;
+  model.setValue("café!");
+  const regularSave = saveModel(input);
+  reply.resolve(written);
+
+  expect((await encodingSave).kind).toBe("saved");
+  expect((await regularSave).kind).toBe("saved");
+  expect(writeStarted.mock.calls.map(([args]) => args.bytes)).toEqual(["Y2Fm6Q==", "Y2Fm6SE="]);
 });
