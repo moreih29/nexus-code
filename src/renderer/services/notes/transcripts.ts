@@ -45,6 +45,7 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
       .readTranscript(workspaceId, noteId)
       .catch(() => EMPTY_TRANSCRIPT)
       .then((file) => {
+        if (loading.get(key) !== pending) return EMPTY_TRANSCRIPT;
         // A change made while it loaded (a recording just started) wins.
         const now = useTranscriptsStore.getState().byNote[key];
         if (now) return now;
@@ -55,7 +56,9 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
         useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: numbered } }));
         return numbered;
       })
-      .finally(() => loading.delete(key));
+      .finally(() => {
+        if (loading.get(key) === pending) loading.delete(key);
+      });
     loading.set(key, pending);
   }
   return pending;
@@ -170,10 +173,21 @@ export async function removeRecording(
 /** Forgets a note's transcript (the note was removed). */
 export function dropTranscript(workspaceId: string, noteId: string): void {
   const key = transcriptKey(workspaceId, noteId);
+  loading.delete(key);
   clearTimeout(timers.get(key));
   timers.delete(key);
   useTranscriptsStore.setState((s) => {
     const { [key]: _gone, ...rest } = s.byNote;
     return { byNote: rest };
   });
+}
+
+export function dropRemovedTranscripts(workspaceIds: ReadonlySet<string>, noteId?: string): void {
+  const keys = new Set([...Object.keys(useTranscriptsStore.getState().byNote), ...loading.keys()]);
+  for (const key of keys) {
+    const slash = key.indexOf("/");
+    const workspaceId = key.slice(0, slash);
+    const id = key.slice(slash + 1);
+    if (noteId ? id === noteId : workspaceIds.has(workspaceId)) dropTranscript(workspaceId, id);
+  }
 }

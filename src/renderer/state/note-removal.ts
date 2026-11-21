@@ -1,6 +1,8 @@
 // Renderer-wide handling of notes removed while tabs show them.
 
 import { notesApi } from "../services/notes/api";
+import { dropRecording, useRecorderStore } from "../services/notes/recorder";
+import { dropRemovedTranscripts } from "../services/notes/transcripts";
 import { closeNoteTabs } from "./operations";
 import { useTabsStore } from "./stores/tabs";
 
@@ -17,6 +19,17 @@ export function startNoteRemovalListener(): () => void {
     if (event.change !== "removed") return;
     const byWorkspace = useTabsStore.getState().byWorkspace;
     const affectedWorkspaces = new Set(event.workspaceIds);
+    const recording = useRecorderStore.getState();
+    if (
+      recording.workspaceId &&
+      recording.noteId &&
+      (event.noteId
+        ? event.noteId === recording.noteId
+        : affectedWorkspaces.has(recording.workspaceId))
+    ) {
+      dropRecording(recording.workspaceId, recording.noteId);
+    }
+    dropRemovedTranscripts(affectedWorkspaces, event.noteId);
     for (const [workspaceId, tabs] of Object.entries(byWorkspace)) {
       if (!event.noteId && !affectedWorkspaces.has(workspaceId)) continue;
       for (const tab of Object.values(tabs ?? {})) {
