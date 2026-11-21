@@ -3,9 +3,8 @@
 // saveUntitledModel orchestrates the full "Untitled → saved file" flow:
 //   1. Show the native save-file dialog.
 //   2. User cancels → silent return (untitled tab preserved).
-//   3. User picks a path → write buffer content with fs.writeFile. The
-//      dialog already confirmed replacing an existing file, so one is
-//      overwritten (and its open tab, if any, reloaded).
+//   3. User picks a path → write a new file or confirm a collision in the
+//      target workspace before replacing it.
 //   4. On write success → acquireModel with the new path, replace the tab,
 //      then releaseModel on the old untitled entry (and, once the tab's
 //      editor holds the new model, on the new one).
@@ -17,6 +16,7 @@
 
 import i18next from "i18next";
 import { toSlashPath } from "../../../../shared/fs/drive-path";
+import { showConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useTabsStore } from "../../../state/stores/tabs";
@@ -124,21 +124,31 @@ export async function saveUntitledModel(
     filePath: chosenPath,
     origin: "workspace",
   };
-  // A file the dialog let the user replace may already be open in a tab.
+  // The target may already be open in a tab.
   const replacingOpenFile = getModelSnapshot(newInput) !== null;
 
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
   let writeFileResult;
   try {
-    writeFileResult = await writeConfirmedSaveTarget(async (expected) =>
-      unwrapIpcResult(
-        await ipcCallResult("fs", "writeFile", {
-          workspaceId,
-          relPath: writeRelPath,
-          content,
-          expected,
-        }),
-      ),
+    writeFileResult = await writeConfirmedSaveTarget(
+      async (expected) =>
+        unwrapIpcResult(
+          await ipcCallResult("fs", "writeFile", {
+            workspaceId,
+            relPath: writeRelPath,
+            content,
+            expected,
+          }),
+        ),
+      async () => {
+        const confirmed = await showConfirmDialog({
+          title: i18next.t("saveConfirm.replaceTitle"),
+          description: i18next.t("saveConfirm.replaceDescription", { path: chosenPath }),
+          confirmLabel: i18next.t("conflictDialog.overwrite"),
+          variant: "destructive",
+        });
+        return confirmed && getResolvedModel(untitledInput)?.model === sourceModel;
+      },
     );
   } catch (error) {
     showToast({
@@ -147,6 +157,8 @@ export async function saveUntitledModel(
     });
     return "failed";
   }
+
+  if (!writeFileResult) return "cancelled";
 
   if (writeFileResult.kind === "conflict") {
     showToast({

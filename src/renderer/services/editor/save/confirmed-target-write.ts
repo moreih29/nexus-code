@@ -1,17 +1,12 @@
-// Write to a path picked in the native save dialog.
-//
-// The dialog itself asks before the user picks an existing file, so by the
-// time a path comes back the user has already agreed to replace it. The
-// stale-write guard still applies: the first write expects no file, and when
-// one exists the write is retried against the state the conflict reported.
-// A second conflict means the file changed again in between.
-
 import type { ExpectedFileStateContract, WriteFileResult } from "../../../../shared/fs/types";
 
+/** Confirm a collision in the target workspace before retrying against that exact file state. */
 export async function writeConfirmedSaveTarget(
   write: (expected: ExpectedFileStateContract) => Promise<WriteFileResult>,
-): Promise<WriteFileResult> {
+  confirmReplacement: () => Promise<boolean>,
+): Promise<WriteFileResult | null> {
   const first = await write({ exists: false });
-  if (first.kind !== "conflict") return first;
+  if (first.kind !== "conflict" || !first.actual.exists) return first;
+  if (!(await confirmReplacement())) return null;
   return write(first.actual);
 }

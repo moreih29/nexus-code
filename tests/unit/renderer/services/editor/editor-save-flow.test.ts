@@ -54,6 +54,11 @@ mock.module("../../../../../src/renderer/components/editor/save-confirm-dialog",
   showSaveConfirm: async () => "save",
 }));
 
+const confirmReplacement = mock(async () => false);
+mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
+  showConfirmDialog: confirmReplacement,
+}));
+
 const { acquireModel, releaseModel, cacheUriFor, getResolvedModel } = await import(
   "../../../../../src/renderer/services/editor/model/cache"
 );
@@ -121,6 +126,7 @@ beforeEach(() => {
     tabs: [],
   });
   writeStarted.mockClear();
+  confirmReplacement.mockClear();
   write = async () => written;
   disk = "original";
 });
@@ -193,4 +199,33 @@ test("first save carries edits made during the write into the saved file's buffe
   expect(saved?.model.getValue()).toBe("second edit");
   expect(saved && isDirty(saved.cacheUri)).toBe(true);
   releaseModel(input);
+});
+
+test("first save asks before replacing a file only the SSH workspace can see", async () => {
+  const workspace = useWorkspacesStore
+    .getState()
+    .workspaces.find((item) => item.id === workspaceId)!;
+  useWorkspacesStore.getState().upsert({
+    ...workspace,
+    location: { kind: "ssh", host: "example.invalid", remotePath: "/repo" },
+  });
+  const tab = useTabsStore.getState().createTab(workspaceId, {
+    type: "untitled",
+    props: { untitledIndex: 1 },
+  });
+  const model = await openModel(untitled);
+  model.setValue("new text");
+  write = async () => ({
+    kind: "conflict",
+    actual: { exists: true, mtime: "remote", size: 16 },
+  });
+
+  expect(await saveUntitledModel(workspaceId, tab.id)).toBe("cancelled");
+  expect(confirmReplacement).toHaveBeenCalledTimes(1);
+  expect(writeStarted).toHaveBeenCalledTimes(1);
+  expect(writeStarted).toHaveBeenCalledWith(
+    expect.objectContaining({ expected: { exists: false } }),
+  );
+  expect(findTab(tab.id)?.type).toBe("untitled");
+  expect(model.getValue()).toBe("new text");
 });
