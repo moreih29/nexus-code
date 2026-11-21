@@ -102,6 +102,10 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	result, readErr := parseBlobCatFileOutput(ctx, params, stdout, emit)
 	if readErr != nil || result.Truncated {
 		cancel()
+	} else {
+		// Git writes a newline after the blob body. Drain stdout before finish
+		// closes it so Wait does not report a failed copy of that newline.
+		_, readErr = io.Copy(io.Discard, stdout)
 	}
 	waitErr := finish()
 	if readErr != nil {

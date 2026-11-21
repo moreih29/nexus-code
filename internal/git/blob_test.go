@@ -10,6 +10,35 @@ import (
 	"testing"
 )
 
+func TestBlobDrainsTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	// Keep the terminator out of the parser's buffer until it emits the blob.
+	writeFakeGit(t, dir, `#!/bin/sh
+set -e
+cat >/dev/null
+printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa blob 1\nx'
+while [ ! -f chunk-emitted ]; do sleep 0.01; done
+printf '\n'
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+	service := New(dir)
+	service.SetEventSink(func(_ string, payload any) error {
+		if chunk := payload.(BlobChunkPayload).Chunk; chunk != "eA==" {
+			t.Errorf("blob chunk = %q, want base64-encoded x", chunk)
+		}
+		return os.WriteFile(filepath.Join(dir, "chunk-emitted"), nil, 0o600)
+	})
+	result, err := service.Blob(ctx, json.RawMessage(`{"ref":"INDEX","relPath":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (BlobResult{Size: 1, Encoding: "utf8"}); result != want {
+		t.Fatalf("blob = %+v, want %+v", result, want)
+	}
+}
+
 type blobFixture struct {
 	Method string             `json:"method"`
 	Case   string             `json:"case"`
