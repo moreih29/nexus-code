@@ -441,7 +441,7 @@ describe("another computer's chat, read from there", () => {
   test("an immutable ref shares its first fetch and then requires its own version proof", async () => {
     answer = (_method, args) =>
       args.ifVersion === "v1"
-        ? { mediaType: "image/jpeg", data: "", version: "v1", notModified: true }
+        ? { mediaType: "image/png", data: "", version: "v1", notModified: true }
         : { mediaType: "image/jpeg", data: "BBB", version: "v1" };
     const load = peerImageLoader(target, peerChatAccess("d1"));
     const image = attachment();
