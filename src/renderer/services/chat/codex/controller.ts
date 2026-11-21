@@ -1038,37 +1038,37 @@ export class CodexController {
    * without one, and the tab takes its default name until the first message.
    */
   async newThread(): Promise<void> {
-    if (this.rewinding || this.resumingSelection)
-      throw new Error("Codex is changing the conversation");
-    if (this.model.running) throw new Error("a turn is running");
-    const { workspaceId, tabId } = this.target;
-    if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
-    }
-    this.flushNow();
-    // The tab's model, effort and preset go on with the new thread, as the
-    // CLI's /new keeps its session's; a pick not sent yet still wins.
-    const picks = { ...picksOf(this.model), ...this.next };
-    this.next = picks;
-    this.target = { ...this.target, threadId: undefined, fork: undefined, moves: undefined };
-    this.hooks.onMoves?.([]);
-    this.hooks.onTitle?.("");
-    this.titled = false;
-    // The chips show the picks at once, not the defaults until the thread
-    // starts; a command's card told of the thread the tab had.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      queue: [],
-      card: undefined,
-      model: {
-        ...nextThreadModel(this.model),
-        model: picks.model,
-        effort: picks.effort,
-        permissionMode: picks.mode,
+    await this.changeThread(
+      async () => {
+        // Keep the tab's picks, as the CLI's /new does.
+        const picks = { ...picksOf(this.model), ...this.next };
+        this.next = picks;
+        this.target = { ...this.target, threadId: undefined, fork: undefined, moves: undefined };
+        this.titled = false;
+        this.update((prev) => ({
+          ...prev,
+          history: null,
+          queue: [],
+          card: undefined,
+          model: {
+            ...nextThreadModel(this.model),
+            model: picks.model,
+            effort: picks.effort,
+            permissionMode: picks.mode,
+          },
+        }));
+        if (!(await this.start({ resetLog: true }))) {
+          throw new Error(this.state.error ?? "Codex is not running");
+        }
+        const threadId = this.currentThread();
+        if (threadId) this.hooks.onThread?.(threadId);
+        this.hooks.onMoves?.([]);
+        this.hooks.onTitle?.(this.model.threadName ?? "");
       },
-    }));
-    await this.start({ resetLog: true });
+      () => {
+        if (this.model.running) throw new Error("a turn is running");
+      },
+    );
   }
 
   /**
