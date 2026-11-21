@@ -218,7 +218,8 @@ export const useFilesStore = create<FilesState>((set, get) => {
           next.nodes.set(absPath, {
             ...parentNode,
             children: childAbsPaths,
-            childrenLoaded: true,
+            // A late read may have started before this directory lost its watch.
+            childrenLoaded: next.expanded.has(absPath),
           });
         }
 

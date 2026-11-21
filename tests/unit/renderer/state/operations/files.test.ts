@@ -264,6 +264,33 @@ describe("collapse → re-expand re-reads the folder", () => {
   });
 });
 
+it("does not trust a listing that arrives after the folder is collapsed", async () => {
+  const responses = { "": [dirEntry("lib", "dir")], lib: [dirEntry("new.ts")] };
+  setupReaddir(responses);
+  await ensureRoot(WS_ID, ROOT);
+  const lib = `${ROOT}/lib`;
+  const first = Promise.withResolvers<{ ok: true; value: DirEntry[] }>();
+  const original = mockIpcCallResult.getMockImplementation();
+  mockIpcCallResult.mockImplementation((_channel, method, args) => {
+    if (method === "readdir") {
+      mockIpcCallResult.mockImplementation(original);
+      return first.promise;
+    }
+    return original(_channel, method, args);
+  });
+
+  const expanding = toggleExpand(WS_ID, lib);
+  await toggleExpand(WS_ID, lib);
+  first.resolve({ ok: true, value: [dirEntry("old.ts")] });
+  await expanding;
+
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.childrenLoaded).toBe(false);
+  await toggleExpand(WS_ID, lib);
+  expect(useFilesStore.getState().trees.get(WS_ID)?.nodes.get(lib)?.children).toEqual([
+    `${lib}/new.ts`,
+  ]);
+});
+
 describe("watch/unwatch for one folder reach the agent in call order", () => {
   it("holds a re-expand's watch until the collapse's unwatch has answered", async () => {
     setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
