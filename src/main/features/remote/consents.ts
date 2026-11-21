@@ -6,8 +6,10 @@
  *
  * A device answers only what it could do itself: a prompt needs the chats'
  * controls there (chat.control), and a change to a terminal the terminals'
- * too (terminal.control). The device whose agent asks never answers it: an
- * agent does not allow itself.
+ * too (terminal.control). The device whose agent asks may answer it too,
+ * as any other: the user does, at its screen. No agent allows itself: the
+ * room refuses consent.answer sent with `from`, and the nexus command never
+ * sends it.
  */
 import {
   type ConsentAnswer,
@@ -32,16 +34,9 @@ export interface ConsentControls {
  */
 export const MAX_REMOTE_BODY_CHARS = 8000;
 
-/** Whether `deviceId` may answer `pending`, and why not when not. */
-function refusalFor(
-  pending: PendingConsent,
-  deviceId: string,
-  controls: ConsentControls,
-): string | null {
+/** Whether another device may answer `pending`, and why not when not. */
+function refusalFor(pending: PendingConsent, controls: ConsentControls): string | null {
   const { request } = pending;
-  if (request.fromDeviceId === deviceId) {
-    return "the prompt is about this device's own agent; the user answers it at the other computer";
-  }
   // What another device cannot show whole is not allowed from it.
   if ((request.change.body?.length ?? 0) > MAX_REMOTE_BODY_CHARS) {
     return "it is too long to show whole there: the user answers it at this computer";
@@ -53,10 +48,9 @@ function refusalFor(
   return null;
 }
 
-/** The prompts waiting on the user, as the device `deviceId` is told them, oldest first. */
+/** The prompts waiting on the user, as another device is told them, oldest first. */
 export async function remoteConsents(
   services: CliServices,
-  deviceId: string,
   controls: ConsentControls,
   now = Date.now(),
   listTabs = (workspaceId: string): Promise<readonly { id: string; title: string }[]> =>
@@ -113,7 +107,7 @@ export async function remoteConsents(
           ...(profileAdd ? { profileAdd } : {}),
         },
         eachTime: request.change.eachTime === true,
-        answerable: refusalFor(p, deviceId, controls) === null,
+        answerable: refusalFor(p, controls) === null,
       };
     }),
   );
@@ -126,8 +120,8 @@ function clipBody(body: string): string {
 }
 
 /**
- * Answers the prompt `id` from the device `deviceId` (named `deviceName`):
- * NotFound once it no longer waits, Forbidden when that device may not
+ * Answers the prompt `id` from `device`, the answer told as by its name:
+ * NotFound once it no longer waits, Forbidden when another device may not
  * answer it.
  */
 export async function answerConsent(
@@ -140,7 +134,7 @@ export async function answerConsent(
   if (!pending) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such prompt: answered, or run out, since");
   }
-  const refusal = refusalFor(pending, device.id, controls);
+  const refusal = refusalFor(pending, controls);
   if (refusal) throw new RpcFailure(RpcErrorCode.Forbidden, refusal);
   if (answer === "session" && pending.request.change.eachTime) {
     throw new RpcFailure(RpcErrorCode.Forbidden, "this request can only be allowed once");

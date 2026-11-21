@@ -161,7 +161,7 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
     expect(asked[0]).toMatchObject({
       fromDevice: "MacBook",
-      // That computer may not answer its own agent's prompt from there.
+      // Told to the computers that list the prompt, that one included.
       fromDeviceId: "dev-1",
       fromName: "Fix build",
       fromWorkspaceId: "bw",

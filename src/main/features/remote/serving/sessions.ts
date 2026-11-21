@@ -187,7 +187,7 @@ export async function serveSessionsList(
   controls: ConsentControls,
 ): Promise<RpcResult<"sessions.list">> {
   const snapshot = await snapshotSessions(services, git, notes, "sessions.list", from);
-  return snapshot.forDevice(from, controls);
+  return snapshot.forDevice(controls);
 }
 
 /** A snapshot whose renderer reads can also supply consent titles for each watcher. */
@@ -254,14 +254,10 @@ export async function snapshotSessions(
   return {
     list,
     incompleteWorkspaces,
-    async forDevice(
-      deviceId: string,
-      controls: ConsentControls,
-    ): Promise<RpcResult<"sessions.list">> {
+    async forDevice(controls: ConsentControls): Promise<RpcResult<"sessions.list">> {
       // Titles are optional. Reuse the bounded tab reads, even if some are missing.
       const consents = await remoteConsents(
         services,
-        deviceId,
         controls,
         Date.now(),
         async (id) => tabsByWorkspace.get(id) ?? [],

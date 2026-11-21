@@ -1435,7 +1435,7 @@ export interface CliUiOps {
       change: CliChange;
       timeoutMs: number;
       fromDevice?: string;
-      /** That computer's id, which may not answer its own agent's request. */
+      /** That computer's id, told to the other computers that list the request. */
       fromDeviceId?: string;
       fromName?: string;
       id?: string;

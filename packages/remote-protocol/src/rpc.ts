@@ -366,8 +366,9 @@ export const RemoteConsentSchema = z.object({
   eachTime: z.boolean(),
   /**
    * Whether the device the list goes to may answer it: one that serves it
-   * chat.control, and terminal.control too for a change to a terminal; never
-   * the device whose agent asks.
+   * chat.control, and terminal.control too for a change to a terminal. The
+   * device whose agent asks may too, as its user (an older serving device
+   * says false to it): consent.answer is not taken from agents.
    */
   answerable: z.boolean(),
 });
