@@ -3,11 +3,11 @@
  * installs it over the running app on restart.
  *
  * On macOS, Squirrel.Mac (behind electron-updater) takes an update only when
- * its code signature meets the running app's designated requirement. Release
- * builds are all signed with one certificate (scripts/sign-mac.cjs), so each
- * meets the requirement of the one before it; a build signed any other way (a
- * local, ad-hoc one) fails the check, and the user is pointed at the release
- * page instead. The app downloads the update itself, so the new bundle carries
+ * its code signature meets the running app's designated requirement (DR).
+ * The bridge release uses the original certificate with a DR that also accepts
+ * Developer ID Application signatures from our Apple team. An older install
+ * must go through the bridge to update in place. If verification fails, the
+ * user is pointed at the release page. The app downloads the update itself, so the new bundle carries
  * no quarantine attribute and opens without a Gatekeeper prompt. On Linux the
  * new AppImage replaces the running one, and a deb is installed with the
  * user's admin password (electron-update-backend.ts).

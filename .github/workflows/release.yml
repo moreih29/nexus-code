@@ -19,11 +19,9 @@
 #   the dist/ artifacts, and a separate step attaches them explicitly with
 #   `gh release upload --clobber`.
 #
-# Code signing: a self-signed certificate (no Apple Developer ID, no notarization).
-# Every release is signed with the same one so that an installed app takes the
-# next version in place — Squirrel.Mac accepts an update only when it meets the
-# running app's designated requirement, which names this certificate. A release
-# signed with another certificate cannot update the ones before it.
+# Squirrel.Mac accepts an update that meets the running app's designated
+# requirement. Set vars.NEXUS_MAC_TEAM_ID to expand the self-signed bridge
+# release's requirement to also accept Developer ID from that Apple team.
 #   secrets.MAC_SIGNING_CERT_P12       base64 of the certificate's .p12
 #   secrets.MAC_SIGNING_CERT_PASSWORD  its password
 #   env.NEXUS_MAC_SIGN_IDENTITY        its SHA-1, pinned so a swapped secret fails
@@ -111,6 +109,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # SHA-1 of the release signing certificate ("NexusCode Release Signing").
       NEXUS_MAC_SIGN_IDENTITY: A1FC28A2A25510877EBF48CBB0F65E96504CABD0
+      NEXUS_MAC_TEAM_ID: ${{ vars.NEXUS_MAC_TEAM_ID }}
 
     steps:
       - name: Checkout
@@ -179,18 +178,7 @@ jobs:
           --publish never
 
       - name: Verify the signature
-        # The designated requirement must name the release certificate, or the
-        # installed apps cannot update to this release. codesign names a
-        # self-signed certificate as the leaf or as the root (it is both),
-        # depending on the macOS version.
-        run: |
-          app="dist/mac-arm64/NexusCode.app"
-          codesign --verify --deep --strict "$app"
-          requirement="$(codesign -d -r- "$app" 2>&1)"
-          echo "$requirement"
-          identity="$(echo "$NEXUS_MAC_SIGN_IDENTITY" | tr '[:upper:]' '[:lower:]')"
-          echo "$requirement" | grep -Eq "certificate (leaf|root) = H\"$identity\"" \
-            || { echo "::error::$app is not signed with the release certificate"; exit 1; }
+        run: node scripts/sign-mac.cjs --verify dist/mac-arm64/NexusCode.app
 
       - name: Upload assets to release
         # `tag_name` is the release identifier. `--clobber` overwrites an asset of the same name
