@@ -2125,6 +2125,29 @@ export const RPC_METHODS = {
     params: z.object({ ...TabRef, from: AgentSenderSchema }),
     result: Ok,
   },
+  "settings.instructions": {
+    capability: "settings.instructions",
+    params: z.object({
+      workspaceId: z.string(),
+      agent: z.enum(["claude", "codex"]),
+      from: AgentSenderSchema,
+    }),
+    result: z.object({
+      layers: z.array(
+        z.object({
+          scope: z.discriminatedUnion("kind", [
+            z.object({ kind: z.literal("all") }),
+            z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
+            z.object({ kind: z.literal("profile"), id: z.string() }),
+            z.object({ kind: z.literal("workspace"), id: z.string() }),
+          ]),
+          title: z.string(),
+          text: z.string(),
+        }),
+      ),
+      instructions: z.string(),
+    }),
+  },
   "settings.instructions.set": {
     capability: "chat.control",
     params: z.object({

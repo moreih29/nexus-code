@@ -346,6 +346,7 @@ describe("nexus agent-context", () => {
     );
     expect(note()?.status).toContain("--device NAME");
     expect(note()?.status).toContain("chat instructions TAB --show, --set-file FILE, or --clear");
+    expect(note()?.status).toContain("settings instructions show/set");
     app.peers.inRoom = false;
     expect(note()?.status).toContain("outside a Nexus remote room");
     current.agentContext = false;

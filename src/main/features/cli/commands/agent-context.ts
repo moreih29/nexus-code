@@ -93,7 +93,8 @@ export function chatAgentContext(
 const remoteInstructions = [
   "Find other devices with nexus device list and session list --device all. Use --device NAME on",
   "chat, terminal, note, worktree, layout and view commands. The receiver sets the policy.",
-  "Use --device NAME with chat instructions TAB --show, --set-file FILE, or --clear.",
+  "Use --device NAME with chat instructions TAB --show, --set-file FILE, or --clear,",
+  "and with settings instructions show/set.",
   "Use file list/pull/push --device NAME --workspace WS and events --device all --json for device cursors.",
 ];
 

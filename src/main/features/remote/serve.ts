@@ -168,6 +168,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "chat.tool",
   "chat.fileSuggestions",
   "chat.instructions",
+  "settings.instructions",
   "chat.entryItem",
   "chat.rewindPreview",
   "chat.image",
@@ -191,6 +192,7 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.tool": 12_000,
   "chat.fileSuggestions": 12_000,
   "chat.instructions": 12_000,
+  "settings.instructions": 12_000,
   "chat.entryItem": 12_000,
   "chat.rewindPreview": 12_000,
   "chat.image": 12_000,
@@ -245,7 +247,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     }
     // File controls ask in their handlers, after validating their scope.
     const agentOnly =
-      method === "settings.instructions.set" || method === "notes.voiceNames.delete";
+      method === "settings.instructions" ||
+      method === "settings.instructions.set" ||
+      method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
     if (
@@ -293,6 +297,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "settings.instructions": {
+        const { workspaceId, agent } = params as RpcParams<"settings.instructions">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        return s.ui("settings.instructions", { workspaceId, agent }).catch(unavailable);
+      }
       case "settings.instructions.set": {
         const { workspaceId, layer, text } = params as RpcParams<"settings.instructions.set">;
         if (!workspaceOf(s, workspaceId))

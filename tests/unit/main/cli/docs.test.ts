@@ -34,6 +34,7 @@ test.each([
   "note transcript NOTE --recording RECORDING --json",
   "note record NOTE --participants 3",
   "settings instructions show --workspace WS --agent codex --json",
+  'settings instructions show --device "Mac mini" --workspace WS --agent codex --json',
   'chat instructions 1a2b --show --device "Mac mini"',
   'chat instructions 1a2b --set-file rules.md --device "Mac mini"',
   'chat instructions 1a2b --clear --device "Mac mini"',

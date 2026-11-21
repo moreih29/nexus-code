@@ -4,10 +4,12 @@
  * terms, signed out) told as such rather than as empty.
  */
 import { expect, test } from "bun:test";
+import { SCHEMA_VERSION } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { CliSettingInfo, CliUiOps } from "../../../../src/shared/cli/ui";
-import { API, contextFor, type FakeApp, fakeApp } from "./fake-services";
+import { API, APP, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
 const SETTINGS: CliSettingInfo[] = [
   {
@@ -87,4 +89,88 @@ test("settings instructions previews the workspace and agent layers without chan
   });
   expect(app.uiCalls.at(-1)?.args).toEqual({ workspaceId: API, agent: "codex" });
   expect(app.asked).toEqual([]);
+});
+
+const MINI: CliDevice = {
+  id: "9b1e44d2-0000-4000-8000-000000000002",
+  name: "Mac mini",
+  platform: "darwin",
+  online: true,
+  self: false,
+  serves: ["sessions", "chat.read", "agents", "agents.cli", "settings.instructions"],
+  schema: SCHEMA_VERSION,
+};
+const PEER_COMMAND = ["settings", "instructions", "show", "--device", MINI.name];
+const SITE = "33333333-3333-4333-8333-333333333333";
+const TOOLS = "44444444-4444-4444-8444-444444444444";
+
+test("settings instructions shows peer layers in the local format and selects Codex", async () => {
+  const app = fakeApp();
+  const from = { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB };
+  const preview = {
+    layers: [
+      { scope: { kind: "all" }, title: "All agents", text: "Use tests." },
+      { scope: { kind: "agent", agent: "codex" }, title: "Codex", text: "" },
+      { scope: { kind: "profile", id: "work" }, title: "Profile: Work", text: "Use bun." },
+      { scope: { kind: "workspace", id: TOOLS }, title: "Workspace: Tools", text: "Use fixtures." },
+    ],
+    instructions:
+      "## All agents\nUse tests.\n\n## Profile: Work\nUse bun.\n\n## Workspace: Tools\nUse fixtures.",
+  };
+  app.peers.devices = [MINI];
+  app.peers.answer = async (_device, method, params) => {
+    if (method === "sessions.list") {
+      expect(params).toEqual({ from });
+      return {
+        workspaces: [
+          { id: SITE, name: "Site", path: "/site" },
+          { id: TOOLS, name: "Tools", path: "/tools" },
+        ],
+        sessions: [],
+      };
+    }
+    expect(method).toBe("settings.instructions");
+    if ((params as { workspaceId: string }).workspaceId === SITE) {
+      expect(params).toEqual({ workspaceId: SITE, agent: "claude", from });
+      return { layers: [], instructions: "" };
+    }
+    expect(params).toEqual({ workspaceId: TOOLS, agent: "codex", from });
+    return preview;
+  };
+  const command = [...PEER_COMMAND, "--workspace", "Tools", "--agent", "codex"];
+  expect(await nexus(app, command)).toEqual({
+    exitCode: 0,
+    stderr: "",
+    stdout: `Sources, in order:\n- All agents\n- Codex (empty)\n- Profile: Work\n- Workspace: Tools\n\n${preview.instructions}\n`,
+  });
+  const json = await nexus(app, [...command, "--json"]);
+  expect(JSON.parse(json.stdout)).toEqual({
+    workspaceId: TOOLS,
+    agent: "codex",
+    ...preview,
+    device: { id: MINI.id, name: MINI.name },
+  });
+  expect((await nexus(app, PEER_COMMAND)).stdout).toBe("Sources, in order:\n\n(no instructions)\n");
+  expect(app.uiCalls.some(({ op }) => op === "settings.instructions")).toBe(false);
+  expect(app.asked).toEqual([]);
+});
+
+test("settings instructions shows update guidance for a 0.36.x peer before contacting it", async () => {
+  const app = fakeApp();
+  app.peers.devices = [
+    { ...MINI, schema: "0.15.0", serves: MINI.serves.filter((c) => c !== "settings.instructions") },
+  ];
+  const result = await nexus(app, PEER_COMMAND);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain('Update NexusCode on "Mac mini"');
+  expect(app.peers.requests).toEqual([]);
+});
+
+test("settings instructions refuses a peer that does not take agent requests", async () => {
+  const app = fakeApp();
+  app.peers.devices = [{ ...MINI, serves: MINI.serves.filter((c) => c !== "agents") }];
+  const result = await nexus(app, PEER_COMMAND);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('"Mac mini" does not take requests from agents');
+  expect(app.peers.requests).toEqual([]);
 });

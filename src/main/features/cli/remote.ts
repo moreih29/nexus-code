@@ -6,6 +6,7 @@
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
+  type Capability,
   MAX_FILE_WRITE_BYTES,
   MAX_WAIT_MS,
   type RemoteSession,
@@ -203,6 +204,7 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "chat.tool",
   "chat.fileSuggestions",
   "chat.instructions",
+  "settings.instructions",
   "chat.entryItem",
   "chat.rewindPreview",
   "chat.image",
@@ -300,10 +302,14 @@ export async function askDevice<M extends RpcMethod>(
   }
 }
 
-/** An operation that needs the peer's expanded agent CLI contract. */
-export function requirePeerCli(ctx: CliContext, device: CliDevice): void {
+/** An operation that needs an advertised version of the peer's agent CLI contract. */
+export function requirePeerCli(
+  ctx: CliContext,
+  device: CliDevice,
+  capability: Capability = "agents.cli",
+): void {
   if (!device.online) throw offline(device, ctx.services.clock.now());
-  if (!device.serves.includes("agents.cli")) {
+  if (!device.serves.includes(capability)) {
     throw new CliError(`Update NexusCode on "${device.name}" to use this command there`, 3, {
       error: "older",
       device: deviceRef(device),

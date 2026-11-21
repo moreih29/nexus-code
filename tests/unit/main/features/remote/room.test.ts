@@ -1292,6 +1292,47 @@ test("CLI-only writes with a missing or denied sender never reach a mutation", a
   }
 });
 
+test("serves persistent instruction previews as agent reads under the receiving policy", async () => {
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const app = fakeApp();
+  const workspaceId = app.workspaces[0]!.id;
+  const preview = {
+    layers: [{ scope: { kind: "profile", id: "work" }, title: "Profile: Work", text: "Use bun." }],
+    instructions: "## Profile: Work\nUse bun.",
+  };
+  app.uiAnswers.set("settings.instructions", preview);
+  let allowAgents = true;
+  let denyPolicy = false;
+  const host = device(relay, "host", key, {
+    serves: () => servesWith(false, false, allowAgents),
+    serve: serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => (denyPolicy ? "deny" : "ask") }),
+    }),
+  }).room;
+  const peer = device(relay, "peer", key).room;
+  host.start();
+  peer.start();
+  try {
+    await flushRelay();
+    expect(peer.state().peers[0]?.serves).toContain("settings.instructions");
+    const target = { workspaceId, agent: "codex" as const };
+    const params = { ...target, from: { kind: "tab" as const, workspaceId: "other", tabId: "t" } };
+    const read = () => peer.request("host", "settings.instructions", params);
+    await expect(read()).resolves.toEqual(preview);
+    denyPolicy = true;
+    await expect(read()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    denyPolicy = false;
+    allowAgents = false;
+    await expect(read()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(app.uiCalls).toEqual([{ op: "settings.instructions", args: target }]);
+    expect(app.asked).toEqual([]);
+  } finally {
+    host.stop();
+    peer.stop();
+  }
+});
+
 test("serves file transfers by scope and cleans pending uploads when the sending peer disconnects", async () => {
   const tmp = await realpath(await mkdtemp(path.join(tmpdir(), "nexus-transfer-room-")));
   const root = path.join(tmp, "workspace");

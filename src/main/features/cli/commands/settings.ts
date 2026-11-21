@@ -18,12 +18,15 @@ import { type CliContext, CliError, mayChange, resolveWorkspace } from "../conte
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import {
+  agentSenderOf,
+  askDevice,
   changePeerCli,
   DEVICE_FLAG,
   deviceFlag,
   deviceRef,
   peerSessions,
   peerWorkspace,
+  pickPeerWorkspace,
   requirePeerCli,
   resolveDevice,
 } from "../remote";
@@ -140,22 +143,46 @@ const settingsOpen: CliCommand = {
 const settingsInstructions: CliCommand = {
   path: ["settings", "instructions", "show"],
   summary: "Show the instruction layers for a new chat and their combined text",
-  details: "The profile comes from the workspace's rules. The agent defaults to Claude.",
+  details:
+    "The profile comes from the workspace's rules. The agent defaults to Claude. With --device, " +
+    "--workspace defaults to that computer's first listed workspace.",
   flags: {
     workspace: WORKSPACE_FLAG,
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const agent = chatAgentFlag(flags.agent, "claude");
-    const result = await ctx.services.ui("settings.instructions", {
-      workspaceId: workspace.id,
-      agent,
-    });
+    const selector = flags.workspace as string | undefined;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    let workspaceId: string;
+    if (device) {
+      requirePeerCli(ctx, device, "settings.instructions");
+      const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const workspace =
+        selector === undefined ? workspaces[0] : pickPeerWorkspace(device, workspaces, selector);
+      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+      workspaceId = workspace.id;
+    } else {
+      workspaceId = resolveWorkspace(ctx, selector).id;
+    }
+    const target = { workspaceId, agent: chatAgentFlag(flags.agent, "claude") };
+    const result = device
+      ? await askDevice(
+          ctx,
+          device,
+          "settings.instructions",
+          { ...target, from: await agentSenderOf(ctx) },
+          ctx.signal,
+        )
+      : await ctx.services.ui("settings.instructions", target);
     const sources = result.layers.map((layer) => `- ${layer.title}${layer.text ? "" : " (empty)"}`);
     const text = ["Sources, in order:", ...sources, "", result.instructions || "(no instructions)"];
-    return output(text.join("\n"), { workspaceId: workspace.id, agent, ...result });
+    return output(text.join("\n"), {
+      ...target,
+      ...result,
+      ...(device ? { device: deviceRef(device) } : {}),
+    });
   },
 };
 

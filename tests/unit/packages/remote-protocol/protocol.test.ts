@@ -625,13 +625,16 @@ test("expanded CLI peers share the v2 envelope and strip private transcript data
   const hello = {
     type: "hello",
     protocol: 2,
-    schema: "0.15.0",
+    schema: SCHEMA_VERSION,
     device: { id: "dev-a", name: "Mac", platform: "darwin" },
-    serves: ["sessions", "agents.cli"],
+    serves: ["sessions", "agents.cli", "settings.instructions"],
     app: { name: "nexus-code", version: "0.36.0" },
     reply: true,
   };
   expect(SealedMessageSchema.parse(hello)).toMatchObject(hello);
+  expect(
+    SealedMessageSchema.parse({ ...hello, schema: "0.15.0", serves: ["sessions", "agents.cli"] }),
+  ).toMatchObject({ protocol: 2, schema: "0.15.0", serves: ["sessions", "agents.cli"] });
   expect(
     SealedMessageSchema.parse({ ...hello, schema: "0.14.0", serves: ["sessions"] }),
   ).toMatchObject({
@@ -702,6 +705,7 @@ test("peer instruction writes exclude profile editing; remembered voice results 
 
 test.each([
   ["browser.devtools", { tabId: "t" }],
+  ["settings.instructions", { agent: "codex" }],
   ["settings.instructions.set", { layer: "workspace", text: "prompt" }],
   ["notes.speakers", { note: "n", change: { op: "regroup", participants: "auto" } }],
   [

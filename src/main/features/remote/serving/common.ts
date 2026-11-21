@@ -17,6 +17,7 @@ export const SERVES: readonly Capability[] = [
   "workspace.create",
   "agents",
   "agents.cli",
+  "settings.instructions",
 ];
 
 /**
