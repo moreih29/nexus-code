@@ -380,9 +380,10 @@ export async function reconcileWatchedModel(input: EditorInput): Promise<void> {
 export async function reloadModelFromDisk(
   input: EditorInput,
   encoding?: TextEncoding,
+  onReadFailure?: (error: unknown) => void,
 ): Promise<boolean> {
   const entry = entries.get(cacheUriForInput(input));
-  return entry ? reloadEntryFromDisk(entry, encoding) : false;
+  return entry ? reloadEntryFromDisk(entry, encoding, onReadFailure) : false;
 }
 
 /**

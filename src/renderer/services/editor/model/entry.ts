@@ -410,6 +410,7 @@ export async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
 export async function reloadEntryFromDisk(
   entry: ModelEntry,
   encoding?: TextEncoding,
+  onReadFailure?: (error: unknown) => void,
 ): Promise<boolean> {
   if (entry.disposed) return false;
   const deps = depsFor(entry);
@@ -443,9 +444,12 @@ export async function reloadEntryFromDisk(
     return true;
   } catch (error) {
     if (!isCurrent()) return false;
-    entry.phase = "error";
-    entry.errorCode = errorCodeFromUnknown(error);
-    notifySubscribers(entry);
+    if (!deps.getDirtyEntry(entry.cacheUri)?.isDirty) {
+      entry.phase = "error";
+      entry.errorCode = errorCodeFromUnknown(error);
+      notifySubscribers(entry);
+    }
+    onReadFailure?.(error);
     return false;
   }
 }

@@ -12,7 +12,7 @@ const written = { kind: "ok", mtime: "next", size: 10 } satisfies WriteFileResul
 type WriteArgs = { content: string; relPath: string; bytes?: string };
 const writeStarted = mock((_args: WriteArgs) => {});
 let write: () => Promise<WriteFileResult>;
-let disk: string;
+let disk: string | null;
 let previousWindow: Window & typeof globalThis;
 const untitled = { workspaceId, filePath: "Untitled-1", origin: "untitled" } as const;
 
@@ -57,6 +57,10 @@ mock.module("../../../../../src/renderer/components/editor/save-confirm-dialog",
   showSaveConfirm: async () => "save",
 }));
 
+let conflictChoice: "reload" | "overwrite";
+mock.module("../../../../../src/renderer/components/editor/conflict-dialog", () => ({
+  showConflictResolution: async () => conflictChoice,
+}));
 const confirmReplacement = mock(async () => false);
 mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
   showConfirmDialog: confirmReplacement,
@@ -70,7 +74,9 @@ const { closeDiffWithConfirm, closeEditorWithConfirm } = await import(
   "../../../../../src/renderer/services/editor/save/close-handler"
 );
 
-const { saveModel } = await import("../../../../../src/renderer/services/editor/save/service");
+const { saveModel, saveModelInteractive } = await import(
+  "../../../../../src/renderer/services/editor/save/service"
+);
 const { saveUntitledModel } = await import(
   "../../../../../src/renderer/services/editor/save/save-untitled-handler"
 );
@@ -98,6 +104,7 @@ beforeEach(() => {
             return { canceled: false, filePath: input.filePath };
           }
           if (channel === "fs" && method === "readFile") {
+            if (disk === null) return { kind: "missing" };
             return {
               kind: "ok",
               content: disk,
@@ -133,6 +140,7 @@ beforeEach(() => {
   confirmReplacement.mockClear();
   write = async () => written;
   disk = "original";
+  conflictChoice = "reload";
 });
 
 afterEach(() => {
@@ -271,7 +279,8 @@ test("a restored background diff retains unsaved edits before its view mounts", 
 });
 
 test("a regular save behind Save with Encoding writes in the new encoding", async () => {
-  const model = await openModel();
+  const file = { ...input, filePath: "/repo/encoding.txt" };
+  const model = await openModel(file);
   model.setValue("café");
   const started = Promise.withResolvers<void>();
   const reply = Promise.withResolvers<WriteFileResult>();
@@ -280,13 +289,38 @@ test("a regular save behind Save with Encoding writes in the new encoding", asyn
     started.resolve();
     return reply.promise;
   };
-  const encodingSave = saveModel(input, { encoding: "windows-1252" });
+  const encodingSave = saveModel(file, { encoding: "windows-1252" });
   await started.promise;
   model.setValue("café!");
-  const regularSave = saveModel(input);
+  const regularSave = saveModel(file);
   reply.resolve(written);
 
   expect((await encodingSave).kind).toBe("saved");
   expect((await regularSave).kind).toBe("saved");
   expect(writeStarted.mock.calls.map(([args]) => args.bytes)).toEqual(["Y2Fm6Q==", "Y2Fm6SE="]);
+});
+
+test("a failed conflict reload leaves the dirty buffer editable and saveable", async () => {
+  const model = await openModel();
+  model.setValue("unsaved text");
+  disk = null;
+  write = async () => ({ kind: "conflict", actual: { exists: false } });
+
+  expect((await saveModelInteractive(input)).kind).toBe("error");
+  expect(getResolvedModel(input)?.model).toBe(model);
+  expect(model.getValue()).toBe("unsaved text");
+  expect(isDirty(cacheUriFor(workspaceId, input.filePath))).toBe(true);
+
+  conflictChoice = "overwrite";
+  write = async () =>
+    writeStarted.mock.calls.length === 2
+      ? { kind: "conflict", actual: { exists: false } }
+      : written;
+  expect((await saveModelInteractive(input)).kind).toBe("saved");
+  expect(writeStarted).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      content: "unsaved text",
+      expected: { exists: false },
+    }),
+  );
 });

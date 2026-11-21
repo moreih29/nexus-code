@@ -141,8 +141,11 @@ export async function saveModelInteractive(
   }
 
   if (choice === "reload") {
-    const applied = await reloadModelFromDisk(input);
-    return { kind: applied ? "not-dirty" : "superseded" };
+    let failure: SaveResult | undefined;
+    const applied = await reloadModelFromDisk(input, undefined, (error) => {
+      failure = { kind: "error", message: fsErrorReason(error) };
+    });
+    return failure ?? { kind: applied ? "not-dirty" : "superseded" };
   }
 
   // choice === "overwrite": sync dirty-tracker metadata to the actual disk
