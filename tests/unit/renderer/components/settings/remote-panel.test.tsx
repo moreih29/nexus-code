@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import * as theme from "../../../../../src/renderer/state/stores/theme";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import { SERVER } from "../../../../../src/shared/remote/server";
 
@@ -8,7 +9,7 @@ const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
 );
 
 const server = "http://localhost:8787";
-const render = (state: RemoteAccountState, signIns?: ("google" | "github" | "dev")[]) =>
+const render = (state: RemoteAccountState, signIns?: readonly string[]) =>
   renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
 
 describe("the remote panel's account", () => {
@@ -23,9 +24,45 @@ describe("the remote panel's account", () => {
     const html = render({ status: "signed-out", server }, ["dev"]);
     expect(html).toContain("Sign in (dev server)");
     expect(html).not.toContain("Sign in with Google");
-    const both = render({ status: "signed-out", server }, ["google", "github"]);
-    expect(both).toContain("Sign in with Google");
-    expect(both).toContain("Sign in with GitHub");
+    const olderServer = render({ status: "signed-out", server }, ["google", "github"]);
+    expect(olderServer).toContain("Sign in with Google");
+    expect(olderServer).toContain("Sign in with GitHub");
+    expect(olderServer).not.toContain("Sign in with Apple");
+  });
+
+  test("puts Apple first when advertised and skips unknown providers", () => {
+    const html = render({ status: "signed-out", server }, [
+      "github",
+      "future-provider",
+      "google",
+      "dev",
+      "apple",
+    ]);
+    const providers = Array.from(
+      html.matchAll(/data-provider="([^"]+)"/g),
+      ([, provider]) => provider,
+    );
+    expect(providers).toEqual(["apple", "google", "github", "dev"]);
+    expect(html).toContain("Sign in with Apple");
+  });
+
+  test.each([
+    ["github-light", "bg-black", "text-white"],
+    ["github-dark", "bg-white", "text-black"],
+  ] as const)("uses the Apple button colors in %s", (resolved, background, text) => {
+    const state = theme.useThemeStore.getInitialState();
+    const readTheme = spyOn(theme, "useThemeStore").mockImplementation((select) =>
+      select({ ...state, resolved }),
+    );
+    try {
+      const html = render({ status: "signed-out", server }, ["apple"]);
+      expect(html).toContain(` ${background} `);
+      expect(html).toContain(` ${text} `);
+      expect(html).toContain(" h-10 ");
+      expect(html).toContain('viewBox="17 14.5 22 22"');
+    } finally {
+      readTheme.mockRestore();
+    }
   });
 
   test("marks the dev sign-in as local only", () => {
@@ -58,15 +95,16 @@ describe("the remote panel's account", () => {
     expect(html).not.toContain("Sign in with Google");
   });
 
-  test("once signed in, says as whom, and offers the sign-out", () => {
+  test("once signed in, shows a relay address and offers the sign-out", () => {
+    const email = "relay-user@privaterelay.appleid.com";
     const html = render({
       status: "signed-in",
       server,
-      user: { id: "u1", email: "me@example.com", name: "Me" },
+      user: { id: "u1", email, name: "Me" },
       device: { id: "d1", name: "Mac", platform: "darwin" },
     });
     expect(html).toContain("Me");
-    expect(html).toContain("me@example.com");
+    expect(html).toContain(email);
     expect(html).toContain("Sign out");
     // Signed in, the page does not explain signing in.
     expect(html).not.toContain("Sign in to see");

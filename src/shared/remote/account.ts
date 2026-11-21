@@ -4,8 +4,8 @@
  */
 import { z } from "zod";
 
-/** The sign-ins the app knows how to offer; the server says which it has (GET /info). */
-export const SIGN_IN_PROVIDERS = ["google", "github", "dev"] as const;
+/** The sign-ins the app knows, in display order; GET /info says which to offer. */
+export const SIGN_IN_PROVIDERS = ["apple", "google", "github", "dev"] as const;
 export const SignInProviderSchema = z.enum(SIGN_IN_PROVIDERS);
 export type SignInProvider = z.infer<typeof SignInProviderSchema>;
 
@@ -46,7 +46,7 @@ export function deviceLabel(device: { name: string; alias?: string | null }): st
  * Why a sign-in did not finish:
  * - cancelled, timed-out: the app stopped waiting for the browser;
  * - access_denied, unverified_email, not_invited, server_error: what the
- *   server sent the browser back with (the user said no at Google; Google has
+ *   server sent the browser back with (the user declined; the provider has
  *   not verified the email; the server takes only invited accounts, and this
  *   is not one; the server failed). not_invited also signs out an account
  *   taken off the list, whose requests the server refuses with a 403;
@@ -75,8 +75,8 @@ export type SignInFailure = z.infer<typeof SignInFailureSchema>;
 
 /**
  * Where the account stands: signed out (with why the last sign-in failed,
- * if it did), signing in (the browser is open on the server's Google
- * sign-in), or signed in.
+ * if it did), signing in (the browser is open on the server's sign-in),
+ * or signed in.
  */
 export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
   z.object({

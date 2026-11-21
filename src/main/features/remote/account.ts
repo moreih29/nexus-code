@@ -1,7 +1,7 @@
 /**
- * The app's NexusCode account: signing in with Google or GitHub through
- * the system browser (OAuth with PKCE and a loopback redirect, as RFC 8252
- * has it for a desktop app), the server's session token it gets for this
+ * The app's NexusCode account: signing in through the system browser
+ * (OAuth with PKCE and a loopback redirect, as RFC 8252 has it for a
+ * desktop app), the server's session token it gets for this
  * device, and the account's devices. The token is what the relay and the
  * API take. Requests go by its route: through the proxy when there is one,
  * the server straight when it cannot be reached.

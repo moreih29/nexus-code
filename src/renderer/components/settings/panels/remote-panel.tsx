@@ -1,8 +1,7 @@
 // src/renderer/components/settings/panels/remote-panel.tsx
 //
-// The NexusCode account the remote runs on: signing in with one of the
-// server's sign-ins, Google or GitHub (sign-in-buttons; in the system
-// browser, main waits for it to come back), who the app is signed in as,
+// The NexusCode account the remote runs on: signing in through the
+// system browser with a provider the server offers, who the app is signed in as,
 // the account password (remote-key-group), what other devices may do here,
 // and the account's devices, each of which can be renamed or removed.
 
@@ -10,7 +9,6 @@ import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { ServerInfo } from "../../../../../packages/remote-protocol/src/info";
 import type { AccountKeyState } from "../../../../shared/remote/account";
 import {
   deviceLabel,
@@ -63,16 +61,13 @@ const PLATFORMS: Record<string, string> = {
   web: "Web",
 };
 
-/**
- * The sign-ins the server offers, asked while signed out: Google's alone
- * until it answers, and whether it could not be reached, to ask again.
- */
+/** The sign-ins the server advertises while signed out, and whether to ask again. */
 function useSignIns(ask: boolean): {
-  providers: SignInProvider[];
+  providers: readonly string[];
   unreachable: boolean;
   retry: () => void;
 } {
-  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [providers, setProviders] = useState<readonly string[]>([]);
   const [unreachable, setUnreachable] = useState(false);
   const [round, setRound] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `round` asks again
@@ -82,15 +77,14 @@ function useSignIns(ask: boolean): {
     void ipcCallResult("remote", "serverInfo", undefined).then((result) => {
       if (!live) return;
       setUnreachable(!result.ok);
-      if (result.ok) setInfo(result.value);
+      if (result.ok) setProviders(result.value.signIn);
     });
     return () => {
       live = false;
     };
   }, [ask, round]);
-  const offered = SIGN_IN_PROVIDERS.filter((p) => info?.signIn.includes(p));
   return {
-    providers: offered.length > 0 ? offered : ["google"],
+    providers,
     unreachable,
     retry: () => setRound((r) => r + 1),
   };
@@ -125,13 +119,13 @@ export function RemotePanel() {
 
 export function AccountGroup({
   state,
-  signIns = ["google"],
+  signIns = [],
   unreachable = false,
   onRetry,
 }: {
   state: RemoteAccountState;
-  /** The sign-ins the server offers. */
-  signIns?: readonly SignInProvider[];
+  /** The sign-ins advertised by the server, including providers this app may not know. */
+  signIns?: readonly string[];
   /** The server did not answer when asked what it offers. */
   unreachable?: boolean;
   onRetry?: () => void;
@@ -141,6 +135,8 @@ export function AccountGroup({
   const signIn = (provider: SignInProvider) => void ipcCallResult("remote", "signIn", { provider });
   const cancel = () => void ipcCallResult("remote", "cancelSignIn", undefined);
   const signOut = () => void ipcCallResult("remote", "signOut", undefined);
+  const offered = SIGN_IN_PROVIDERS.filter((provider) => signIns.includes(provider));
+  const providers: readonly SignInProvider[] = offered.length > 0 ? offered : ["google"];
   const failure =
     state.status === "signed-out" && state.failure && state.failure !== "cancelled"
       ? state.failure
@@ -166,7 +162,6 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
-        // Below the name, not beside it: the buttons wrap when there are several.
         <SettingsSection
           label={t("remote.account.signedOut")}
           action={
@@ -185,8 +180,13 @@ export function AccountGroup({
             )
           }
         >
-          <div className="flex flex-wrap items-center gap-2">
-            {signIns.map((provider) => (
+          <div
+            className={cn(
+              "gap-2",
+              providers.includes("apple") ? "grid w-fit max-w-full" : "flex flex-wrap items-center",
+            )}
+          >
+            {providers.map((provider) => (
               <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
             ))}
           </div>

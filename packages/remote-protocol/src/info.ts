@@ -6,9 +6,8 @@ import { z } from "zod";
 
 export const ServerInfoSchema = z.object({
   /**
-   * The sign-ins the server has, each its own /auth/<name>/start: "google",
-   * "github", and "dev" only on a server at localhost. A device offers one
-   * button for each it knows.
+   * The sign-ins the server has, each its own /auth/<name>/start. A device
+   * offers one button for each it knows. "dev" is only for local servers.
    */
   signIn: z.array(z.string()),
   relay: z.object({ version: z.number().int() }).nullable(),
