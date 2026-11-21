@@ -30,6 +30,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { mayExecute } from "../sandbox";
 import { openerOf, senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
@@ -495,7 +496,7 @@ const terminalReopen: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     if (!tab.dead) throw new CliError("that terminal has not exited");
-    await mayChange(ctx, workspace, { kind: "terminalNew", detail: tab.title });
+    await mayExecute(ctx, workspace, { kind: "terminalNew", detail: tab.title });
     const ref = { workspaceId: workspace.id, tabId: tab.id };
     await ctx.services.ui("terminal.reopen", ref, 40_000);
     return output(`Reopened ${tab.title} (${shortId(tab.id)}).`, ref);
@@ -631,7 +632,10 @@ const terminalNew: CliCommand = {
           : workspace.rootPath;
     const title = flags.title as string | undefined;
     const command = flags.command as string | undefined;
-    await mayChange(ctx, workspace, { kind: "terminalNew", ...(command ? { body: command } : {}) });
+    await mayExecute(ctx, workspace, {
+      kind: "terminalNew",
+      ...(command ? { body: command } : {}),
+    });
     // An agent's terminal stays its: what runs nexus in it, --command or not, is that agent.
     const openedBy = openerOf(await senderOf(ctx));
     const { tabId } = await ctx.services.ui("terminal.open", {
@@ -725,7 +729,7 @@ const terminalSend: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, {
+    await mayExecute(ctx, workspace, {
       kind: "terminalInput",
       detail: tab.title,
       body: enter ? `${text}\n` : text,
@@ -769,7 +773,7 @@ const terminalKey: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, {
+    await mayExecute(ctx, workspace, {
       kind: "terminalInput",
       detail: tab.title,
       body: keys.join(" "),

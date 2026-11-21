@@ -29,6 +29,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { mayExecute } from "../sandbox";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
 import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
@@ -349,11 +350,16 @@ const chatEdit: CliCommand = {
       });
     }
     const target = await otherChat(ctx, flags, selector);
-    await mayChange(ctx, target.workspace, {
-      kind: "chatInput",
-      detail: target.tab.title,
-      body: text,
-    });
+    await mayExecute(
+      ctx,
+      target.workspace,
+      {
+        kind: "chatInput",
+        detail: target.tab.title,
+        body: text,
+      },
+      { target: target.tab },
+    );
     await ctx.services.ui("chat.editHeld", { ...target.ref, id, text });
     return output(`Changed the held message ${id} of ${named(target)}.`, {
       ...target.ref,
@@ -500,7 +506,7 @@ const chatFork: CliCommand = {
       });
     }
     const target = await chatTarget(ctx, flags, selector);
-    await mayChange(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
+    await mayExecute(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
     const itemKey =
       message === undefined
         ? undefined
@@ -615,7 +621,8 @@ async function setRemoteControl(
       : enabled
         ? "chatRemoteControlOn"
         : "chatRemoteControlOff";
-  await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  if (enabled === false) await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  else await mayExecute(ctx, target.workspace, { kind, detail: target.tab.title });
   return remoteControlOutput(
     named(target),
     target.ref,
@@ -716,11 +723,17 @@ const chatCommandRun: CliCommand = {
     }
     const text = `/${name}${args ? ` ${args}` : ""}`;
     // Asked first: listing its commands starts a tab's program that is not running.
-    await mayChange(ctx, target.workspace, {
-      kind: "chatInput",
-      detail: target.tab.title,
-      body: text,
-    });
+    await mayExecute(
+      ctx,
+      target.workspace,
+      {
+        kind: "chatInput",
+        detail: target.tab.title,
+        body: text,
+      },
+      // These commands can start a thread using profile defaults.
+      lower === "fork" || lower === "new" || lower === "clear" ? {} : { target: target.tab },
+    );
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
     const command =
       commands.find((c) => c.name.toLowerCase() === lower) ??
@@ -897,7 +910,7 @@ const chatResume: CliCommand = {
     const into =
       typeof flags.tab === "string" ? await resolveChat(ctx, workspace, flags.tab) : undefined;
     if (into?.id === ctx.caller.tabId) throw new CliError("that is this tab");
-    await mayChange(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    await mayExecute(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
     const { tabId } = await ctx.services.ui(
       "chat.resume",
       {

@@ -52,7 +52,7 @@ import {
   type QueuedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
-import { backgroundIdOf } from "./command-data";
+import { backgroundIdOf, sandboxOn } from "./command-data";
 import {
   configUsageOf,
   LISTED_KEYS_STORAGE,
@@ -2134,6 +2134,13 @@ export class ChatController {
   private async settled(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     await this.initializing;
+  }
+
+  /** Reads the current sandbox without starting Claude. */
+  async cliSandbox() {
+    if (this.state.phase !== "ready" || this.state.model.process !== "running") return null;
+    const settings = await this.request("get_settings", {});
+    return { agent: "claude" as const, enabled: sandboxOn(settings) };
   }
 
   /** Asks the program now, starting it for the question. */

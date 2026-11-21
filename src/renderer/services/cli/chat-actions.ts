@@ -44,11 +44,11 @@ import {
   agentTabController,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
-import type { ForkPoint } from "../chat/claude/controller";
+import { existingChatController, type ForkPoint } from "../chat/claude/controller";
 import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
-import { CodexReplyError } from "../chat/codex/controller";
+import { CodexReplyError, existingCodexController } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
 import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
 import type { ModelPickerContext } from "../chat/model-picker";
@@ -858,6 +858,17 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       throw new UiRequestError("it has no turn to stop");
     await target.controller.interrupt();
     return {};
+  },
+
+  "chat.sandbox": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type === "codex") {
+      return (await existingCodexController(workspaceId, tabId)?.cliSandbox()) ?? null;
+    }
+    if (tab?.type === "claude") {
+      return (await existingChatController(workspaceId, tabId)?.cliSandbox()) ?? null;
+    }
+    return null;
   },
 
   "chat.mode": async ({ workspaceId, tabId }) => {

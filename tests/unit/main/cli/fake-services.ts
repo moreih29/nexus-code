@@ -250,6 +250,7 @@ export interface FakeApp {
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
   /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
   chatChoices: Map<string, CliChatChoices>;
+  sandboxes: Map<string, NonNullable<CliUiOps["chat.sandbox"]["result"]>>;
   /** What chat.open answers it could not set; it sets everything when absent. */
   chatOpenError: { message?: string };
   /**
@@ -501,6 +502,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const events: FakeApp["events"] = [];
   const chatAnswered: FakeApp["chatAnswered"] = [];
   const chatChoices: FakeApp["chatChoices"] = new Map();
+  const sandboxes: FakeApp["sandboxes"] = new Map();
   const chatOpenError: FakeApp["chatOpenError"] = {};
   const closeRefused: FakeApp["closeRefused"] = new Map();
   const consent = new CrossWorkspaceConsent({
@@ -669,6 +671,15 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { profile } = args as CliUiOps["chat.profile"]["args"];
       if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
       return { from: "default", to: profile } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.sandbox") {
+      const { tabId } = args as CliUiOps["chat.sandbox"]["args"];
+      const choices = chatChoices.get(tabId);
+      const fallback =
+        choices?.agent === "codex"
+          ? { agent: "codex", current: choices.mode, next: choices.mode }
+          : null;
+      return (sandboxes.get(tabId) ?? fallback) as CliUiOps[K]["result"];
     }
     if (op === "chat.mode") {
       const { workspaceId, tabId } = args as CliUiOps["chat.mode"]["args"];
@@ -974,6 +985,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     events,
     chatAnswered,
     chatChoices,
+    sandboxes,
     chatOpenError,
     uiAnswers,
     noteAssets,

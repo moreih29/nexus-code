@@ -4,6 +4,7 @@ import i18next from "i18next";
 import {
   askCliConsent,
   consentNamesTarget,
+  consentTitleOf,
   describeConsent,
   settleCliConsent,
 } from "../../../../../src/renderer/components/cli/consent-dialog";
@@ -114,5 +115,31 @@ test("profile additions use settings connection labels in the dialog language", 
   );
   expect(consentDetailsOf(i18next.getFixedT("ko", "settings"), change).body).toBe(
     "에이전트 Codex\n폴더 /tmp/gateway\n연결 사용자 지정 API 주소 · https://gateway.example",
+  );
+});
+
+test("sandbox approval shows localized copy and can only be allowed once", async () => {
+  const request = {
+    ...prompt("sandbox"),
+    change: { kind: "sandboxExecution", eachTime: true, body: "make test" },
+  } as const;
+  const asked = askCliConsent(request);
+  expect(settleCliConsent("sandbox", "session", "iPhone")).toBe(false);
+  expect(settleCliConsent("sandbox", "once", "iPhone")).toBe(true);
+  expect(await asked).toBe("once");
+  const title = consentTitleOf(request.change.kind, false);
+  const en = i18next.getFixedT("en", "settings");
+  expect(en(title)).toBe("Let an agent run a command outside its sandbox?");
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(ko(title)).toBe("에이전트가 샌드박스 밖에서 명령을 실행하도록 허용할까요?");
+  expect(describeConsent(ko, request, "", false, true)).toBe(
+    'app 워크스페이스의 "zsh" 탭이 api 워크스페이스에서 실행하려는 명령을 확인하세요.',
+  );
+  const sameWorkspace = { ...request, toWorkspace: "app", sameWorkspace: true };
+  expect(describeConsent(ko, sameWorkspace, "", false, true)).toBe(
+    'app 워크스페이스의 "zsh" 탭이 실행하려는 명령을 확인하세요.',
+  );
+  expect(describeConsent(en, sameWorkspace, "", false, true)).toBe(
+    'Review the command requested by "zsh" in app.',
   );
 });

@@ -307,7 +307,8 @@ export type CliChangeKind =
   | "workspacePin"
   | "workspaceMove"
   | "permissionAllow"
-  | "permissionDeny";
+  | "permissionDeny"
+  | "sandboxExecution";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
@@ -799,6 +800,7 @@ export interface CliUiOps {
       start?: CliTaskStart;
       show: boolean;
       allowTerminal?: boolean;
+      openedBy?: TerminalOpener;
       /** The terminal whose agent asks for the task. */
       createdBy?: { workspaceId: string; tabId: string };
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
@@ -880,6 +882,14 @@ export interface CliUiOps {
   "chat.checkSignIn": {
     args: { workspaceId: string; tabId: string };
     result: { signedOut: boolean };
+  };
+  /** Live sandbox policy and the next turn's pick, without starting a program. */
+  "chat.sandbox": {
+    args: { workspaceId: string; tabId: string };
+    result:
+      | { agent: "codex"; current?: string; next?: string; running?: boolean }
+      | { agent: "claude"; enabled: boolean }
+      | null;
   };
   /** The caller's confirmed live permission mode, without starting its program. */
   "chat.mode": {

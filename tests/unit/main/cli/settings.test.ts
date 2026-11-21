@@ -337,6 +337,7 @@ test("peer profile writes require the instruction capability before discovery", 
 
 test("setting a task workspace's instructions asks to edit the parent and names it in the output", async () => {
   const app = fakeApp();
+  app.tabs[FIX] = (app.tabs[APP] ?? []).filter((tab) => tab.id === SHELL_TAB);
   app.answers.push("once");
   const result = await runCli(
     CLI_COMMANDS,

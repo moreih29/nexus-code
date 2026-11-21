@@ -491,11 +491,12 @@ export const actionHandlers: {
     createdBy,
     from,
     allowTerminal,
+    openedBy,
   }) => {
     const how = start ?? taskStartOf(resolvedTaskAgent());
     if (allowTerminal === false && "command" in how && how.command)
       throw new UiRequestError("a worktree command requires terminal control");
-    const started = await startTask(parentId, name, prompt, how, createdBy, from);
+    const started = await startTask(parentId, name, prompt, how, createdBy, from, openedBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
     if (started.tabId === null) {
       // A plain shell: none until the task is shown, when its panel opens one.
@@ -561,6 +562,7 @@ export const actionHandlers: {
         : {}),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
+      sameWorkspace: !fromDevice && fromWorkspaceId === toWorkspaceId,
       change,
       timeoutMs,
     });
