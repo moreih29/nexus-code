@@ -114,6 +114,7 @@ describe("what another computer's consent prompt says", () => {
     const html = card(consent({ eachTime: true }));
     expect(html).not.toContain("Allow until restart");
     expect(html).toContain("Allow once");
+    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow once/);
   });
 
   test("one this computer may not answer says where to, with no answers", () => {

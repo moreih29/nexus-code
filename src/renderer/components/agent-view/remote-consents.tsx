@@ -20,7 +20,12 @@ import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
-import { consentNamesTarget, consentTitleOf, describeConsent } from "../cli/consent-dialog";
+import {
+  CONSENT_CONFIRM_BUTTON_CLASS,
+  consentNamesTarget,
+  consentTitleOf,
+  describeConsent,
+} from "../cli/consent-dialog";
 import { Button } from "../ui/button";
 
 /** How long a prompt found answered or over still shows, saying so. */
@@ -122,6 +127,7 @@ export function RemoteConsentCard({
     <Button
       variant={variant}
       size="sm"
+      className={choice === "once" ? CONSENT_CONFIRM_BUTTON_CLASS : undefined}
       loading={busy === choice}
       disabled={busy !== null}
       onClick={() => void answer(choice)}

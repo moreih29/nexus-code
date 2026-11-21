@@ -1,11 +1,13 @@
 /** A consent prompt answered on another device of the user's comes down here, saying so. */
 import { describe, expect, test } from "bun:test";
+import i18next from "i18next";
 import {
   askCliConsent,
   describeConsent,
   settleCliConsent,
 } from "../../../../../src/renderer/components/cli/consent-dialog";
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
+import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
 
 const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
@@ -79,4 +81,23 @@ describe("who a consent prompt says asks", () => {
       'agentCli.consent.remote_description {"device":"Mac","tab":"zsh","to":"api","action":"send"}',
     );
   });
+});
+
+test("profile additions use settings connection labels in the dialog language", () => {
+  const change = {
+    kind: "profileAdd",
+    detail: "Gateway",
+    profileAdd: {
+      agent: "codex",
+      folder: "/tmp/gateway",
+      connection: "custom",
+      endpoint: "https://gateway.example",
+    },
+  } as const;
+  expect(consentDetailsOf(i18next.getFixedT("en", "settings"), change).body).toBe(
+    "Agent Codex\nFolder /tmp/gateway\nConnection Custom API address · https://gateway.example",
+  );
+  expect(consentDetailsOf(i18next.getFixedT("ko", "settings"), change).body).toBe(
+    "에이전트 Codex\n폴더 /tmp/gateway\n연결 사용자 지정 API 주소 · https://gateway.example",
+  );
 });

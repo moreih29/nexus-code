@@ -303,7 +303,7 @@ export type CliChangeKind =
   | "permissionAllow"
   | "permissionDeny";
 
-export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit"> {
+export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;

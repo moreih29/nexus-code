@@ -86,10 +86,10 @@ export async function remoteConsents(
       const name =
         request.fromName ??
         (remote ? undefined : await titleOf(request.fromWorkspaceId, request.fromTabId));
-      const { kind, instructionEdit } = request.change;
+      const { kind, instructionEdit, profileAdd } = request.change;
       // Keep display text for peers that only know detail and body.
       const { detail, body } =
-        t && instructionEdit ? consentDetailsOf(t, request.change) : request.change;
+        t && (instructionEdit || profileAdd) ? consentDetailsOf(t, request.change) : request.change;
       return {
         id: p.id,
         at: p.at,
@@ -110,6 +110,7 @@ export async function remoteConsents(
           ...(detail !== undefined ? { detail } : {}),
           ...(body !== undefined ? { body: clipBody(body) } : {}),
           ...(instructionEdit ? { instructionEdit } : {}),
+          ...(profileAdd ? { profileAdd } : {}),
         },
         eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, deviceId, controls) === null,

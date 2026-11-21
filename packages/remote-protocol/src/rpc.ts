@@ -352,6 +352,14 @@ export const RemoteConsentSchema = z.object({
         clear: z.boolean(),
       })
       .optional(),
+    profileAdd: z
+      .object({
+        agent: z.enum(["claude", "codex"]),
+        folder: z.string(),
+        connection: z.enum(["account", "api-key", "custom"]),
+        endpoint: z.string().optional(),
+      })
+      .optional(),
   }),
   /** It is asked about each time: "session" is not an answer to it. */
   eachTime: z.boolean(),

@@ -253,7 +253,7 @@ export const chatProfilesAdd: CliCommand = {
         ? profile.connection.baseUrl
         : connection.method === "api-key"
           ? API_KEY_CONNECTION_URL[agent]
-          : "Account login";
+          : undefined;
     await ctx.services.askUser({
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,
@@ -261,7 +261,12 @@ export const chatProfilesAdd: CliCommand = {
       change: {
         kind: "profileAdd",
         detail: name,
-        body: `Agent: ${agent}\nFolder: ${dir}\nConnection: ${endpoint}`,
+        profileAdd: {
+          agent,
+          folder: dir,
+          connection: connection.method,
+          ...(endpoint ? { endpoint } : {}),
+        },
         eachTime: true,
       },
     });

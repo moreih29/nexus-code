@@ -95,6 +95,7 @@ test("adds an account profile and directs the user to sign in from Settings", as
   expect(app.asked[0]?.change).toMatchObject({
     kind: "profileAdd",
     detail: "Personal",
+    profileAdd: { agent: "claude", folder: join(dir, "personal"), connection: "account" },
     eachTime: true,
   });
   expect(app.uiCalls).toEqual([]);
@@ -136,7 +137,12 @@ test("saves a custom gateway and its instructions with the stdin key kept separa
     kind: "profileAdd",
     detail: "Gateway",
     eachTime: true,
-    body: `Agent: claude\nFolder: ${join(dir, "gateway")}\nConnection: https://gateway.example/llm`,
+    profileAdd: {
+      agent: "claude",
+      folder: join(dir, "gateway"),
+      connection: "custom",
+      endpoint: "https://gateway.example/llm",
+    },
   });
   expect(JSON.stringify({ result, asked: app.asked })).not.toContain(secret);
   expect(await readFile(statePath, "utf8")).not.toContain(secret);
@@ -162,7 +168,10 @@ test("accepts a key file for the provider's default API", async () => {
   const saved = state.getState().agentProfiles?.profiles[0];
   expect(saved?.connection).toEqual({ method: "api-key" });
   expect(await keys.get(saved?.id as string, "codex")).toBe("fixture-file-key");
-  expect(app.asked[0]?.change.body).toContain("https://api.openai.com/v1");
+  expect(app.asked[0]?.change.profileAdd).toMatchObject({
+    connection: "api-key",
+    endpoint: "https://api.openai.com/v1",
+  });
 });
 
 test("rejects names case-insensitively and folders with equivalent paths", async () => {
@@ -205,7 +214,7 @@ test("suggests the next available name-based folder and does nothing when approv
   const result = await run(["--agent", "claude", "--name", "Other Test"]);
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("the user did not allow it");
-  expect(app.asked[0]?.change.body).toContain("~/.claude-other-test-2");
+  expect(app.asked[0]?.change.profileAdd?.folder).toBe("~/.claude-other-test-2");
   expect(state.getState().agentProfiles?.profiles.map(({ id }) => id)).toEqual(["claude-existing"]);
   expect(storage.value).toBeNull();
 });

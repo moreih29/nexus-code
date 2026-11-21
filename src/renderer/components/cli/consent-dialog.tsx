@@ -40,6 +40,7 @@ interface Pending {
 
 let queue: Pending[] = [];
 const bus = createListenerBus();
+export const CONSENT_CONFIRM_BUTTON_CLASS = "hover:bg-primary/90 active:bg-primary/80";
 
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
@@ -210,7 +211,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
             {t("agentCli.consent.session")}
           </Button>
         )}
-        <Button variant="default" size="sm" onClick={() => active && settle(active, "once")}>
+        <Button
+          variant="default"
+          size="sm"
+          className={CONSENT_CONFIRM_BUTTON_CLASS}
+          onClick={() => active && settle(active, "once")}
+        >
           {t("agentCli.consent.once")}
         </Button>
       </div>
