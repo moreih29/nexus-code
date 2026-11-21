@@ -143,7 +143,7 @@ export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOve
     else want = ov.primary; // string = replace, null = unbind
 
     const prev = appliedByCommand.get(id);
-    if ((prev?.key ?? def) === want) continue;
+    if ((prev ? prev.key : def) === want) continue;
 
     prev?.bindUser?.dispose();
     if (want === def) {
