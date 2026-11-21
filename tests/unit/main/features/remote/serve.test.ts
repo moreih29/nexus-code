@@ -1915,6 +1915,39 @@ describe("serving a chat's controls", () => {
     expect(asked.at(-1)?.[1]).not.toHaveProperty("user");
   });
 
+  test("a terminal an agent opens is its; one the user opens from a phone is theirs", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return { tabId: "t9" };
+      },
+    } as unknown as CliServices;
+    const from = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "bw", tabId: "bt" };
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      deviceName: (id) => (id === "d" ? "MacBook" : undefined),
+    });
+    const params = { workspaceId: "w1", command: "make test" };
+    await serve({
+      from: "d",
+      method: "terminal.open",
+      params: { ...params, from: { ...from, waits: true } },
+    });
+    expect(asked.at(-1)?.[1]).toEqual({
+      workspaceId: "w1",
+      cwd: "/src/app",
+      command: "make test",
+      placement: { background: true },
+      openedBy: { ...from, device: { id: "d", name: "MacBook" } },
+    });
+    await serve({ from: "phone", method: "terminal.open", params });
+    expect(asked.at(-1)?.[1]).not.toHaveProperty("openedBy");
+  });
+
   test.each([
     ["allow", "deny", "/remote-control", false, true, false],
     ["ask", "once", "/RC", false, true, true],

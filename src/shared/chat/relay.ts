@@ -35,6 +35,11 @@ export const RelaySenderSchema = z.object({
 });
 export type RelaySender = z.infer<typeof RelaySenderSchema>;
 
+export const TerminalOpenerSchema = RelaySenderSchema.extend({
+  kind: RelaySenderSchema.shape.kind.exclude(["app"]),
+}).omit({ waits: true });
+export type TerminalOpener = z.infer<typeof TerminalOpenerSchema>;
+
 /** The most messages a tab keeps the sender of: the latest. */
 export const RELAYED_KEPT = 50;
 

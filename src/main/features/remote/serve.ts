@@ -17,6 +17,7 @@ import {
 import type { RelaySender } from "../../../shared/chat/relay";
 import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import type { CliServices } from "../cli/context";
+import { openerOf } from "../cli/sender";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import { answerConsent } from "./consents";
@@ -676,7 +677,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "terminal.shells":
         return terminalShells(s, request.params as RpcParams<"terminal.shells">);
       case "terminal.open":
-        return openTerminal(s, request.params as RpcParams<"terminal.open">, watches.files?.fs);
+        return openTerminal(
+          s,
+          request.params as RpcParams<"terminal.open">,
+          watches.files?.fs,
+          openerOf(relay),
+        );
       case "terminal.rename":
         return renameTerminal(s, request.params as RpcParams<"terminal.rename">);
       case "terminal.close":

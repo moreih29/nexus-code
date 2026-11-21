@@ -2,18 +2,17 @@
  * Who runs a nexus command that sends a Claude or Codex tab a message, as
  * the tab shows the message and its agent is told: an agent, or the user.
  */
-import type { RelaySender } from "../../../shared/chat/relay";
+import type { RelaySender, TerminalOpener } from "../../../shared/chat/relay";
 import { agentFromProgram } from "../../../shared/sessions/agent-state";
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
 
 /**
- * The agent a command is run by: a Claude or Codex tab's agent, or an agent
- * in a terminal (Claude Code, Codex). Undefined for the user, at a shell of
- * theirs: what they send is theirs. Only a terminal the request is known to
- * come from, running no agent, is the user's: a request that could be any
- * process's (it came without its tab's token), or that names no terminal or
- * chat tab there is, is an agent's.
+ * A verified chat tab's command comes from its agent. In a verified terminal,
+ * the running agent takes precedence, followed by the agent that opened the
+ * terminal (here or from another computer). A user-opened terminal with no
+ * running agent returns undefined for the user. Unverified requests and
+ * requests with an unknown tab are attributed to an unnamed agent.
  */
 export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined> {
   const { workspaceId, tabId, verified } = ctx.caller;
@@ -31,8 +30,16 @@ export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined
   }
   if (tab.type !== "terminal") return unknown;
   const agent = await terminalAgentOf(ctx, workspaceId, tabId, tab.title);
-  if (agent === undefined) return undefined;
-  return { kind: "terminal", agent, name, workspaceId, tabId };
+  if (agent !== undefined) return { kind: "terminal", agent, name, workspaceId, tabId };
+  // Opened by an agent: its, for as long as the tab is open, though the user types in it.
+  return tab.openedBy;
+}
+
+/** The agent opening a terminal, as the tab keeps it: none when the user does. */
+export function openerOf(sender: RelaySender | undefined): TerminalOpener | undefined {
+  if (!sender || sender.kind === "app") return undefined;
+  const { kind, waits: _waits, ...opener } = sender;
+  return { kind, ...opener };
 }
 
 /**

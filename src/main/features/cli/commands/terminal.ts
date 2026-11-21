@@ -30,6 +30,7 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
+import { openerOf, senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
   DEFAULT_WAIT_MS,
@@ -631,6 +632,8 @@ const terminalNew: CliCommand = {
     const title = flags.title as string | undefined;
     const command = flags.command as string | undefined;
     await mayChange(ctx, workspace, { kind: "terminalNew", ...(command ? { body: command } : {}) });
+    // An agent's terminal stays its: what runs nexus in it, --command or not, is that agent.
+    const openedBy = openerOf(await senderOf(ctx));
     const { tabId } = await ctx.services.ui("terminal.open", {
       workspaceId: workspace.id,
       cwd,
@@ -638,6 +641,7 @@ const terminalNew: CliCommand = {
       ...(command ? { command } : {}),
       ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
+      ...(openedBy ? { openedBy } : {}),
     });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
       tabId,

@@ -221,18 +221,29 @@ describe("withRelayed", () => {
     expect(relaySenderText({ kind: "app" })).toBe("NexusCode (the app)");
   });
 
-  it("shows a message the app sent, kept apart from the command's, as the app's", () => {
-    const sent = user(
-      "u-2",
-      "[nexus] NexusCode, the app, sent this on its own, not the user.\n\nGo on.",
-    );
-    const props = { relayed: [record("uuid-1")], fromApp: [{ id: "u-2-id", at: 2 }] };
+  it("shows app, terminal opener, and user messages in the same resumed turn", () => {
+    const app = { kind: "app" } as const;
+    const openedBy = { ...TAB, kind: "terminal", agent: "codex" } as const;
+    const turnId = "turn-1";
+    const props = {
+      relayed: [record("agent-id", { from: openedBy, at: 2, turnId })],
+      fromApp: [{ id: "app-id", at: 1, turnId }],
+    };
     const records = relayedOf(props);
-    expect(records?.map((r) => r.from.kind)).toEqual(["tab", "app"]);
     // The same records for the same lists, so the list does not render again.
     expect(relayedOf(props)).toBe(records);
     expect(relayedOf({ relayed: props.relayed })).toBe(props.relayed);
-    const [shown] = withRelayed([{ ...sent, uuid: "u-2-id" }], records);
-    expect(shown).toMatchObject({ kind: "received", from: { kind: "app" }, text: "Go on." });
+    const typed = user("u1.0.1", "Go on.", { turnId });
+    const [appItem, userItem, agentItem] = withRelayed(
+      [
+        user("u1.0.0", relayedText(app, "Go on."), { turnId }),
+        typed,
+        user("u1.0.2", relayedText(openedBy, "Run the tests."), { turnId }),
+      ],
+      records,
+    );
+    expect(appItem).toMatchObject({ kind: "received", from: app, text: "Go on." });
+    expect(userItem).toBe(typed);
+    expect(agentItem).toMatchObject({ kind: "received", from: openedBy, text: "Run the tests." });
   });
 });

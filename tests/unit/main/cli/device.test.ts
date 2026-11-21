@@ -314,6 +314,28 @@ describe("--device", () => {
       tabId: CLAUDE_TAB,
     });
   });
+
+  test("a terminal an agent on another computer opened goes on as one in that terminal", async () => {
+    const app = withDevices();
+    const shell = app.tabs[APP]?.find((t) => t.id === SHELL_TAB);
+    if (!shell) throw new Error("no shell tab");
+    // Its tab and workspace are the other computer's: no tab here to name.
+    Object.assign(shell, {
+      openedBy: {
+        kind: "tab",
+        agent: "codex",
+        name: "Plan",
+        workspaceId: "w-mini",
+        tabId: "t-mini",
+        device: { id: MINI, name: "Mac mini" },
+      },
+    });
+    expect(await agentSenderOf(ctx(app))).toEqual({
+      kind: "terminal",
+      workspaceId: APP,
+      tabId: SHELL_TAB,
+    });
+  });
 });
 
 describe("nexus session list", () => {

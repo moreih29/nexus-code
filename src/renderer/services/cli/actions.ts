@@ -247,7 +247,16 @@ export const actionHandlers: {
     return {};
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, shell, profile, placement }) => {
+  "terminal.open": async ({
+    workspaceId,
+    cwd,
+    title,
+    command,
+    shell,
+    profile,
+    openedBy,
+    placement,
+  }) => {
     const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
     if (profile !== undefined && !hasAnyProfile(profile)) {
       throw new UiRequestError(`no profile "${profile}"`);
@@ -256,6 +265,7 @@ export const actionHandlers: {
       cwd,
       ...(choice ? { shell: choice } : {}),
       ...(profile !== undefined ? { profile } : {}),
+      ...(openedBy ? { openedBy } : {}),
     };
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);

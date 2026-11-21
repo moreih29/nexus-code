@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { InstructionTextSchema } from "../chat/instructions";
-import { AppMessagesSchema, RelayedMessagesSchema } from "../chat/relay";
+import { AppMessagesSchema, RelayedMessagesSchema, TerminalOpenerSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { NoteIdSchema } from "./notes";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
@@ -17,6 +17,12 @@ export const TerminalTabPropsSchema = z.object({
   shell: ShellChoiceSchema.optional(),
   /** The agent profile it was opened for (by id), whose environment its shell gets. */
   profile: z.string().max(64).optional(),
+  /**
+   * The agent that opened it (nexus terminal new, here or from another
+   * computer): a nexus command run in it is that agent's, not the user's,
+   * for as long as the tab is open. Absent: the user opened it.
+   */
+  openedBy: TerminalOpenerSchema.optional(),
 });
 export type TerminalTabProps = z.infer<typeof TerminalTabPropsSchema>;
 

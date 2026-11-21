@@ -113,12 +113,14 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
  * there is an agent's, gated by that computer's setting for agents. So is
  * what the user runs at a shell of theirs: the command is what agents run,
  * and one in a terminal that is no Claude Code or Codex is not told from
- * the user, so it goes as an agent in that terminal.
+ * the user, so it goes as an agent in that terminal. So does one in a
+ * terminal an agent on another computer opened: that agent's tab is no tab
+ * here to name.
  */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
   // The app sends on its own, never through the command.
-  if (!sender || sender.kind === "app") {
+  if (!sender || sender.kind === "app" || sender.device) {
     const { workspaceId, tabId } = ctx.caller;
     return { kind: "terminal", workspaceId, tabId };
   }
