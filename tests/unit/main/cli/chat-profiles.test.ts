@@ -72,6 +72,15 @@ const gateway = [
   "-",
 ];
 
+test("help documents per-model reasoning and its defaults", async () => {
+  const { run } = fixture();
+  const result = await run(["--help"]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("--reasoning MODEL=LEVEL");
+  expect(result.stdout).toContain("Claude also auto");
+  expect(result.stdout).toContain("Models without the flag stay automatic on Claude");
+});
+
 test("adds an account profile and directs the user to sign in from Settings", async () => {
   const { app, state, statePath, storage, run } = fixture();
   app.answers.push("once");
@@ -146,6 +155,75 @@ test("saves a custom gateway and its instructions with the stdin key kept separa
   });
   expect(JSON.stringify({ result, asked: app.asked })).not.toContain(secret);
   expect(await readFile(statePath, "utf8")).not.toContain(secret);
+});
+
+test("saves every Claude reasoning level while omitted and auto models stay automatic", async () => {
+  const { app, state, run } = fixture();
+  app.answers.push("once");
+  const result = await run([
+    ...account,
+    "--preset",
+    "kimi",
+    "--model",
+    "plain",
+    "--model",
+    "model=other",
+    "--model",
+    "off",
+    "--model",
+    "high",
+    "--model",
+    "extra",
+    "--model",
+    "maximum",
+    "--reasoning",
+    "model=other=auto",
+    "--reasoning",
+    "off=none",
+    "--reasoning",
+    "high=high",
+    "--reasoning",
+    "extra=xhigh",
+    "--reasoning",
+    "maximum=max",
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toMatchObject({
+    models: [
+      { id: "plain" },
+      { id: "model=other" },
+      { id: "off", reasoning: "none" },
+      { id: "high", reasoning: "high" },
+      { id: "extra", reasoning: "xhigh" },
+      { id: "maximum", reasoning: "max" },
+    ],
+  });
+  expect(JSON.stringify(app.asked)).not.toContain("reasoning");
+});
+
+test("keeps Codex models without a reasoning flag at none", async () => {
+  const { app, state, run } = fixture();
+  app.answers.push("once");
+  const result = await run([
+    "--agent",
+    "codex",
+    "--name",
+    "Gateway",
+    "--dir",
+    "gateway",
+    "--base-url",
+    "https://gateway.example/v1",
+    "--model",
+    "plain",
+    "--model",
+    "maximum",
+    "--reasoning",
+    "maximum=max",
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toMatchObject({
+    models: [{ id: "plain" }, { id: "maximum", reasoning: "max" }],
+  });
 });
 
 test("accepts a key file for the provider's default API", async () => {
@@ -228,6 +306,56 @@ test.each([
   const result = await run([...account, "--preset", "kimi", ...flags]);
   expect(result.exitCode).toBe(2);
   expect(result.stderr).toContain(message);
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
+
+test.each([
+  [["--reasoning", "other=high"], "--reasoning MODEL must match a --model ID"],
+  [["--reasoning", "glm=low"], "--reasoning LEVEL for claude must be none, high, xhigh, max, auto"],
+  [["--reasoning", "glm"], "--reasoning takes MODEL=LEVEL"],
+  [["--reasoning", "glm=high", "--reasoning", "glm=max"], "--reasoning model IDs must be unique"],
+  [
+    ["--model", "model;other", "--reasoning", "model;other=high"],
+    "Claude reasoning needs a model ID",
+  ],
+  [
+    ["--model", "model,other", "--reasoning", "model,other=high"],
+    "Claude reasoning needs a model ID",
+  ],
+  [
+    ["--model", "model=other", "--reasoning", "model=other=high"],
+    "Claude reasoning needs a model ID",
+  ],
+  [["--model", "model*", "--reasoning", "model*=high"], "Claude reasoning needs a model ID"],
+])("rejects invalid reasoning flags %j before approval", async (flags, message) => {
+  const { app, state, run } = fixture();
+  const result = await run([...account, "--preset", "kimi", "--model", "glm", ...flags]);
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain(message);
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
+
+test("rejects Codex auto and reasoning flags on account profiles", async () => {
+  const { app, state, run } = fixture();
+  const codex = await run([
+    "--agent",
+    "codex",
+    "--name",
+    "Gateway",
+    "--base-url",
+    "https://gateway.example/v1",
+    "--model",
+    "glm",
+    "--reasoning",
+    "glm=auto",
+  ]);
+  expect(codex.exitCode).toBe(2);
+  expect(codex.stderr).toContain("--reasoning LEVEL for codex must be none, high, xhigh, max");
+  const accountResult = await run([...account, "--reasoning", "glm=high"]);
+  expect(accountResult.exitCode).toBe(2);
+  expect(accountResult.stderr).toContain("require a custom connection");
   expect(app.asked).toEqual([]);
   expect(state.getState().agentProfiles).toBeUndefined();
 });

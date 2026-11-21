@@ -7,7 +7,10 @@ import {
   CONNECTION_AUTH,
   CONNECTION_METHODS,
   CONNECTION_PRESETS,
+  CONNECTION_REASONING,
   ConnectionKeyChangeSchema,
+  type ConnectionModel,
+  claudeReasoningModelIdSupported,
   connectionPreset,
   connectionPresetsFor,
   type ProfileConnection,
@@ -52,6 +55,37 @@ export function profileTable(
   );
 }
 
+function connectionModels(agent: ChatAgent, flags: FlagValues): ConnectionModel[] {
+  const ids = Array.isArray(flags.model) ? flags.model : [];
+  const values = Array.isArray(flags.reasoning) ? flags.reasoning : [];
+  const levels: readonly string[] =
+    agent === "claude" ? [...CONNECTION_REASONING, "auto"] : CONNECTION_REASONING;
+  const selected = new Map<string, ConnectionModel["reasoning"]>();
+  for (const value of values) {
+    const at = value.lastIndexOf("=");
+    if (at < 1) throw new CliUsageError("--reasoning takes MODEL=LEVEL");
+    const id = value.slice(0, at).trim();
+    const level = value.slice(at + 1);
+    if (!ids.some((model) => model.trim() === id)) {
+      throw new CliUsageError("--reasoning MODEL must match a --model ID");
+    }
+    if (!levels.includes(level)) {
+      throw new CliUsageError(`--reasoning LEVEL for ${agent} must be ${levels.join(", ")}`);
+    }
+    if (agent === "claude" && level !== "auto" && !claudeReasoningModelIdSupported(id)) {
+      throw new CliUsageError(
+        "Claude reasoning needs a model ID without ; , = or a trailing * (auto is allowed)",
+      );
+    }
+    if (selected.has(id)) throw new CliUsageError("--reasoning model IDs must be unique");
+    selected.set(id, level === "auto" ? undefined : (level as ConnectionModel["reasoning"]));
+  }
+  return ids.map((id) => {
+    const reasoning = selected.get(id.trim());
+    return reasoning ? { id, reasoning } : { id };
+  });
+}
+
 function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnection {
   const presetFlag = flags.preset;
   const address = flags["base-url"];
@@ -67,6 +101,7 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
         address,
         flags.auth,
         flags.model,
+        flags.reasoning,
         flags["default-model"],
         flags["light-model"],
       ].some((value) => value !== undefined)
@@ -88,7 +123,7 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
   if (agent === "codex" && (flags.auth === "x-api-key" || flags["light-model"] !== undefined)) {
     throw new CliUsageError("--auth x-api-key and --light-model are for Claude profiles");
   }
-  const models = Array.isArray(flags.model) ? flags.model.map((id) => ({ id })) : [];
+  const models = connectionModels(agent, flags);
   const parsed = ProfileConnectionSchema.safeParse({
     method,
     preset,
@@ -144,7 +179,9 @@ export const chatProfilesAdd: CliCommand = {
   details:
     "Give --agent and --name. Account profiles are signed in from Settings. A preset or\n" +
     "address selects a custom connection, which needs at least one --model. The first\n" +
-    "model is the default unless you choose another. A base URL can override a preset's address.",
+    "model is the default unless you choose another. A base URL can override a preset's address.\n" +
+    "Repeat --reasoning MODEL=LEVEL for none, high, xhigh, or max; Claude also accepts auto.\n" +
+    "Models without the flag stay automatic on Claude and have no reasoning on Codex.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude or codex (required)" },
     name: { type: "string", value: "NAME", description: "Profile name (required)" },
@@ -174,6 +211,12 @@ export const chatProfilesAdd: CliCommand = {
       type: "string",
       value: "ID",
       description: "Custom model ID (repeatable)",
+      repeat: true,
+    },
+    reasoning: {
+      type: "string",
+      value: "MODEL=LEVEL",
+      description: "Model reasoning: none, high, xhigh, max; Claude also auto (repeatable)",
       repeat: true,
     },
     "default-model": { type: "string", value: "ID", description: "Default model from the list" },
