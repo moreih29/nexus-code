@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,5 +119,32 @@ func TestAddToGitignoreEscapesAndAnchorsSelectedName(t *testing.T) {
 	ignored := gitRun(t, root, "check-ignore", "--", selected, "report1.txt", "nested/"+selected)
 	if ignored != selected+"\n" {
 		t.Fatalf("ignored paths = %q", ignored)
+	}
+}
+
+func TestBlobAcceptsPOSIXNewlineInFileName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not allow a newline in a file name")
+	}
+	root := gitRepo(t)
+	const path = "first\nsecond.txt"
+	writeText(t, root, path, "expected contents\n")
+	gitRun(t, root, "add", "--", path)
+	var data strings.Builder
+	service := agentgit.New(root)
+	service.SetEventSink(func(_ string, payload any) error {
+		bytes, err := base64.StdEncoding.DecodeString(payload.(agentgit.BlobChunkPayload).Chunk)
+		if err == nil {
+			data.Write(bytes)
+		}
+		return err
+	})
+	result := call(t, service.Blob, agentgit.BlobParams{Ref: "INDEX", RelPath: path}).(agentgit.BlobResult)
+	if result.ErrorKind != "" || data.String() != "expected contents\n" {
+		t.Fatalf("blob = %+v, data %q", result, data.String())
+	}
+	missing := call(t, service.Blob, agentgit.BlobParams{Ref: "INDEX", RelPath: "first\nmissing.txt"}).(agentgit.BlobResult)
+	if missing.ErrorKind != agentgit.KindMissing {
+		t.Fatalf("missing blob = %+v", missing)
 	}
 }
