@@ -1126,6 +1126,13 @@
       "deny": "허용 안 함",
       "description": "위에서 켠 조작만. 읽기는 항상 허용"
     },
+    "phonePush": {
+      "label": "휴대폰 알림",
+      "description": "승인·응답 요청을 휴대폰으로 알림 · 내용은 보내지 않음",
+      "away": "자리를 비웠을 때",
+      "always": "항상",
+      "off": "끄기"
+    },
     "key": {
       "title": "계정 암호",
       "checking": "확인하는 중…",

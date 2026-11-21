@@ -1126,6 +1126,13 @@
       "deny": "Don't allow",
       "description": "Only what's on above, plus reading"
     },
+    "phonePush": {
+      "label": "Phone notifications",
+      "description": "Notify your phone of approval and reply requests · No content is sent",
+      "away": "When away",
+      "always": "Always",
+      "off": "Off"
+    },
     "key": {
       "title": "Account password",
       "checking": "Checking…",

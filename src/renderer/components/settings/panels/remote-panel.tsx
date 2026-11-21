@@ -9,6 +9,7 @@ import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { PUSH_VERSION } from "../../../../../packages/remote-protocol/src/push";
 import type { AccountKeyState } from "../../../../shared/remote/account";
 import {
   deviceLabel,
@@ -20,7 +21,7 @@ import {
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
-import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
+import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult } from "../../../ipc/client";
 import { useRemoteAccount } from "../../../services/remote/account";
 import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
@@ -300,6 +301,55 @@ export function RemoteAgentsPolicyRow() {
   );
 }
 
+function PhonePushPolicyRow() {
+  const { t } = useTranslation("settings");
+  const [policy, setPolicy] = useState<PhonePushPolicy | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void Promise.all([
+      ipcCallResult("remote", "serverInfo", undefined),
+      ipcCallResult("remote", "phonePushPolicy", undefined),
+    ])
+      .then(([server, setting]) => {
+        if (live && server.ok && server.value.push?.version === PUSH_VERSION && setting.ok) {
+          setPolicy(setting.value);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (policy === null) return null;
+  const label = t("remote.phonePush.label");
+  return (
+    <SettingsRow
+      label={label}
+      description={<span className="break-keep">{t("remote.phonePush.description")}</span>}
+    >
+      <SegmentedControl
+        label={label}
+        options={(["away", "always", "off"] as const).map((value) => ({
+          value,
+          label: t(`remote.phonePush.${value}`),
+        }))}
+        value={policy}
+        disabled={saving}
+        onChange={(next) => {
+          setSaving(true);
+          void ipcCallResult("remote", "setPhonePushPolicy", { policy: next })
+            .then((result) => {
+              if (result.ok) setPolicy(result.value);
+            })
+            .catch(() => {})
+            .finally(() => setSaving(false));
+        }}
+      />
+    </SettingsRow>
+  );
+}
+
 /** What the account's other devices may do here: chats, terminals, and their agents. */
 export function RemoteControlGroup() {
   const { t } = useTranslation("settings");
@@ -308,6 +358,7 @@ export function RemoteControlGroup() {
       <RemoteControlSwitch />
       <RemoteTerminalSwitch />
       <RemoteAgentsPolicyRow />
+      <PhonePushPolicyRow />
     </SettingsGroup>
   );
 }
