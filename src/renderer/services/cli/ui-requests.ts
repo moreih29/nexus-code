@@ -47,6 +47,7 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
         cwd: tab.props.cwd,
         ...(tab.props.dead ? { dead: true } : {}),
         ...(getTerminalController(tab.id) ? {} : { unstarted: true }),
+        ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
       };
     case "editor":
       return { ...base, filePath: tab.props.filePath };

@@ -43,6 +43,7 @@ const { registerTerminalController, whenTerminalController } = await import(
 const { useMountedWorkspacesStore } = await import(
   "../../../../../src/renderer/state/stores/mounted-workspaces"
 );
+const { SerializedTabSchema } = await import("../../../../../src/shared/types/layout");
 
 /** What the renderer answered a request, once it has. */
 async function answerTo(requestId: string, op: string, args: unknown): Promise<unknown> {
@@ -111,6 +112,36 @@ test("a terminal not started yet, its workspace not opened, says so in the tabs'
     ]);
   } finally {
     unregister();
+    useTabsStore.setState({ byWorkspace: {} });
+    useLayoutStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("a terminal an agent opens keeps who opened it, listed and across a restart", async () => {
+  const ws = "ws-opened";
+  const openedBy = { kind: "tab", agent: "codex", name: "Plan", workspaceId: ws, tabId: "t-plan" };
+  startCliUiListener(Promise.resolve());
+  try {
+    const open = (requestId: string, by?: object) =>
+      answerTo(requestId, "terminal.open", {
+        workspaceId: ws,
+        cwd: "/",
+        placement: { background: true },
+        ...(by ? { openedBy: by } : {}),
+      }) as Promise<{ ok: boolean; value: { tabId: string } }>;
+    const agents = await open("r-opened-agent", openedBy);
+    const users = await open("r-opened-user");
+    expect([agents.ok, users.ok]).toEqual([true, true]);
+    const listed = Object.fromEntries(listTabs(ws).map((tab) => [tab.id, tab.openedBy]));
+    expect(listed).toEqual({ [agents.value.tabId]: openedBy, [users.value.tabId]: undefined });
+    const saved = useTabsStore.getState().byWorkspace[ws]?.[agents.value.tabId];
+    const restored = SerializedTabSchema.parse(JSON.parse(JSON.stringify(saved)));
+    expect(restored).toMatchObject({ type: "terminal", props: { openedBy } });
+    expect(
+      SerializedTabSchema.safeParse({ ...restored, props: { cwd: "/", openedBy: { kind: "app" } } })
+        .success,
+    ).toBe(false);
+  } finally {
     useTabsStore.setState({ byWorkspace: {} });
     useLayoutStore.setState({ byWorkspace: {} });
   }

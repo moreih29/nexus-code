@@ -18,7 +18,7 @@ import type {
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { InstructionScope } from "../chat/instructions";
-import type { RelaySender } from "../chat/relay";
+import type { RelaySender, TerminalOpener } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
@@ -88,6 +88,8 @@ export interface CliTabInfo {
    * app started, so it has nothing to read or watch.
    */
   readonly unstarted?: boolean;
+  /** A terminal an agent opened: what runs nexus in it is that agent. */
+  readonly openedBy?: TerminalOpener;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
   /** Pinned to the front of its group. */
@@ -587,6 +589,8 @@ export interface CliUiOps {
       shell?: string;
       /** An agent profile, by id: the shell runs with what a chat of it runs with. */
       profile?: string;
+      /** The agent opening it, kept with the tab: absent when the user does. */
+      openedBy?: TerminalOpener;
       placement: CliPlacement;
     };
     result: { tabId: string };

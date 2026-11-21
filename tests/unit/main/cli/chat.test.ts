@@ -720,6 +720,60 @@ describe("who sends a message", () => {
     expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
   });
 
+  test("a terminal an agent opened is that agent's, whatever runs in it; the user's own is theirs", async () => {
+    const app = withChat();
+    const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
+    const opener = {
+      kind: "terminal",
+      agent: "claude",
+      name: "✳ Claude Code",
+      workspaceId: APP,
+      tabId: CLAUDE_TAB,
+    };
+    const opened = await nexus(app, ["terminal", "new", "--command", "make test"], claude);
+    expect(opened.exitCode).toBe(0);
+    expect(uiArgs(app, "terminal.open")).toMatchObject({ command: "make test", openedBy: opener });
+    // The user opening one: theirs, as the tab keeps no opener.
+    const user = withChat();
+    await nexus(user, ["terminal", "new"]);
+    expect(uiArgs(user, "terminal.open")).not.toHaveProperty("openedBy");
+
+    // The terminal it opened runs a shell, or the command, which runs nexus.
+    app.tabs[APP]?.push({
+      id: NEW_TAB,
+      type: "terminal",
+      title: "zsh",
+      groupId: "g1",
+      shown: false,
+      openedBy: opener,
+    } as CliTabInfo);
+    app.foreground.set(NEW_TAB, "zsh");
+    const inIt = { workspaceId: APP, tabId: NEW_TAB };
+    expect(await senderOf(contextFor(app, [], inIt))).toEqual(opener);
+    await nexus(app, ["chat", "send", "eeee", "done"], inIt);
+    expect(app.uiCalls.findLast((c) => c.op === "chat.send")?.args).toMatchObject({
+      from: { ...opener, waits: false },
+    });
+    // A terminal opened from it is the same agent's.
+    app.uiCalls.length = 0;
+    await nexus(app, ["terminal", "new"], inIt);
+    expect(uiArgs(app, "terminal.open")).toMatchObject({ openedBy: opener });
+    // An agent started in it is that agent, as in any terminal.
+    app.foreground.set(NEW_TAB, "codex");
+    expect(await senderOf(contextFor(app, [], inIt))).toMatchObject({
+      kind: "terminal",
+      agent: "codex",
+      tabId: NEW_TAB,
+    });
+    // A request without its token could be any process's, as anywhere.
+    app.foreground.set(NEW_TAB, "zsh");
+    expect(await senderOf(contextFor(app, [], { ...inIt, verified: false }))).toEqual({
+      kind: "terminal",
+      workspaceId: APP,
+      tabId: NEW_TAB,
+    });
+  });
+
   test("chat send tells the tab whether its sender waits to read the answer", async () => {
     const app = withChat();
     const claude = { workspaceId: APP, tabId: CLAUDE_TAB };

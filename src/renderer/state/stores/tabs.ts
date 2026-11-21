@@ -7,6 +7,7 @@ import {
   type AppMessage,
   RELAYED_KEPT,
   type RelayedMessage,
+  type TerminalOpener,
   withRelayedMessage,
 } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
@@ -48,6 +49,8 @@ export interface TerminalTabProps {
    * chat of it runs with, as a sign-in for the profile needs.
    */
   profile?: string;
+  /** The agent that opened it: a nexus command run in it is that agent's (see SerializedTab). */
+  openedBy?: TerminalOpener;
   dead?: boolean;
 }
 
