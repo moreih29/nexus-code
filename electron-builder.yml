@@ -53,9 +53,18 @@ mac:
   sign: scripts/sign-mac.cjs
   hardenedRuntime: false
   notarize: false
-  # macOS shows this when it asks for permission to use the microphone.
+  # macOS shows these when the app or its terminal and agent programs request access.
   extendInfo:
     NSMicrophoneUsageDescription: "NexusCode uses the microphone for voice input: what you say is turned into text in the chat box."
+    NSCameraUsageDescription: "A program started from the NexusCode terminal or by an agent wants to use your camera."
+    NSAppleEventsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to control another app."
+    NSLocationUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your location."
+    NSContactsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your contacts."
+    NSCalendarsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your calendars."
+    # EventKit on macOS 14 and later has separate full-access and write-only prompts.
+    NSCalendarsFullAccessUsageDescription: "A program started from the NexusCode terminal or by an agent wants to read and update your calendars."
+    NSCalendarsWriteOnlyAccessUsageDescription: "A program started from the NexusCode terminal or by an agent wants to add events to your calendar."
+    NSPhotoLibraryUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your photo library."
   # The voice print model quantized to 8 bits, which Apple silicon runs
   # fastest (src/main/features/voice-print).
   extraResources:

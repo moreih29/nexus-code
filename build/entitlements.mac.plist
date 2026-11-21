@@ -8,5 +8,23 @@
     <!-- Voice input and note recording use the microphone. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Terminal and agent child processes may capture video from a camera. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <!-- Terminal and agent child processes may automate apps using Apple Events. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <!-- Terminal and agent child processes may request access to Location Services. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    <!-- Terminal and agent child processes may access Contacts. -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <!-- Terminal and agent child processes may access calendars through EventKit. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <!-- Terminal and agent child processes may access the Photos library. -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
   </dict>
 </plist>
