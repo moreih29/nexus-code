@@ -4,7 +4,11 @@
  * what changes.
  */
 import { describe, expect, it } from "bun:test";
-import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
+import {
+  type ChatModel,
+  emptyModel,
+  type ModelInfo,
+} from "../../../../../src/renderer/services/chat/model";
 import {
   chatChoicesOf,
   planChatSettings,
@@ -38,6 +42,70 @@ function claude(patch: Partial<ChatModel> = {}): ChatModel {
   };
 }
 
+function withModels(models: ModelInfo[], model?: string): ChatModel {
+  return { ...emptyModel(), model, init: { models, commands: [], remoteControl: false } };
+}
+
+const profileDefault = { profileDefault: "glm-5-plus" };
+const customModels: ModelInfo[] = [
+  {
+    value: "default",
+    displayName: "Default (recommended)",
+    resolvedModel: "glm-5-plus[1m]",
+  },
+  { value: "glm-5-plus", displayName: "GLM 5 Plus", supportedEffortLevels: ["high"] },
+  { value: "glm-5-air", displayName: "GLM 5 Air" },
+];
+
+describe("chatChoicesOf", () => {
+  it("publishes the custom default by its visible model ID and label", () => {
+    const model = withModels(customModels, "glm-5-plus[1m]");
+    expect(chatChoicesOf("claude", model, profileDefault)).toMatchObject({
+      model: "glm-5-plus",
+      models: [
+        { value: "glm-5-plus", name: "Default · GLM 5 Plus" },
+        { value: "glm-5-air", name: "GLM 5 Air" },
+      ],
+      efforts: ["high"],
+    });
+  });
+
+  it("retains the only default row if the profile's concrete model is missing", () => {
+    const model = withModels([customModels[0]]);
+    expect(chatChoicesOf("claude", model, profileDefault)).toMatchObject({
+      model: "default",
+      models: [{ value: "default", name: "Default · glm-5-plus" }],
+    });
+  });
+
+  it("borrows models for an empty Claude list, then falls back to naming its current ID", () => {
+    const model = withModels([], "claude-opus-5-5");
+    const fallbackModels = [
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Profile Opus" },
+    ];
+    expect(chatChoicesOf("claude", model, { fallbackModels })).toMatchObject({
+      model: "opus",
+      models: [{ value: "opus", name: "Profile Opus" }],
+    });
+    expect(chatChoicesOf("claude", model)).toMatchObject({
+      model: "claude-opus-5-5",
+      models: [{ value: "claude-opus-5-5", name: "Opus 5.5" }],
+      efforts: [],
+    });
+  });
+
+  it("uses Codex's own model names, including the server's default model", () => {
+    const model = withModels(
+      [{ value: "gpt-5.5", displayName: "GPT-5.5", isDefault: true }],
+      "gpt-5.5",
+    );
+    expect(chatChoicesOf("codex", model)).toMatchObject({
+      model: "gpt-5.5",
+      models: [{ value: "gpt-5.5", name: "GPT-5.5" }],
+    });
+  });
+});
+
 describe("planChatSettings", () => {
   it("takes a model by its value, its name or the model it runs, in any case", () => {
     expect(planChatSettings("claude", claude(), { model: "Sonnet" }, true)).toEqual({
@@ -46,6 +114,35 @@ describe("planChatSettings", () => {
     expect(planChatSettings("claude", claude(), { model: "claude-haiku-5-5" }, true)).toEqual({
       model: "haiku",
     });
+  });
+
+  it("takes the displayed profile default name and the hidden default's old names", () => {
+    const model = withModels(customModels, "glm-5-air");
+    for (const name of ["default · glm 5 plus", "GLM 5 Plus", "glm-5-plus"]) {
+      expect(
+        planChatSettings("claude", model, { model: name }, true, false, profileDefault),
+      ).toEqual({ model: "glm-5-plus" });
+    }
+    for (const name of ["default", "Default (recommended)", "glm-5-plus[1m]"]) {
+      expect(
+        planChatSettings("claude", model, { model: name }, true, false, profileDefault),
+      ).toEqual({ model: "default" });
+    }
+    expect(
+      planChatSettings(
+        "claude",
+        withModels(customModels),
+        { model: "Default (recommended)" },
+        true,
+        false,
+        profileDefault,
+      ),
+    ).toEqual({});
+  });
+
+  it("accepts a fallback label for the current Claude model as a no-op", () => {
+    const model = withModels([], "claude-opus-5-5");
+    expect(planChatSettings("claude", model, { model: "opus 5.5" }, true)).toEqual({});
   });
 
   it("asks nothing of what the tab runs with already", () => {

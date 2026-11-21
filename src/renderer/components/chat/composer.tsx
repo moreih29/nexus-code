@@ -30,7 +30,6 @@ import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
-import { claudeModelLabel } from "../../services/chat/claude/settings-defaults";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import {
   applyCompletion,
@@ -44,12 +43,12 @@ import {
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
   type CommandInfo,
-  currentModelInfo,
   type ImageBlock,
   isWaiting,
   type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
+import { modelPickerOf } from "../../services/chat/model-picker";
 import { withRelayed } from "../../services/chat/relayed";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import type { QueuedMessage } from "../../services/chat/transport/queue";
@@ -245,7 +244,11 @@ export const Composer = memo(function Composer({
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
-  const models = model.init?.models ?? fallbackModels ?? [];
+  const picker = modelPickerOf(program, model, {
+    profileDefault: controller.claudeProfileDefaultModel,
+    fallbackModels,
+    defaultLabel: t("settings:profiles.connection.default"),
+  });
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
@@ -284,7 +287,7 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructionsTab}`,
+    `${model.permissionMode}|${picker.label}|${model.effort}|${picker.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructionsTab}`,
     FIT.WRAP,
   );
 
@@ -872,7 +875,7 @@ export const Composer = memo(function Composer({
               <ModelChip
                 controller={controller}
                 state={state}
-                models={models}
+                picker={picker}
                 short={fit >= FIT.SHORT_MODEL}
                 onMenu={onMenu("model")}
               />
@@ -881,7 +884,7 @@ export const Composer = memo(function Composer({
               <EffortChip
                 controller={controller}
                 state={state}
-                models={models}
+                levels={picker.current?.supportedEffortLevels ?? []}
                 onMenu={onMenu("effort")}
               />
             )}
@@ -1349,39 +1352,21 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
-export function modelPickerOptions(models: readonly ModelInfo[], custom: boolean) {
-  return models
-    .filter(({ value }) => !custom || value !== "default")
-    .map((model) => ({
-      model,
-      label: model.displayName ?? model.value,
-      detail:
-        custom && model.description === `Custom model (${model.value})`
-          ? undefined
-          : model.description,
-    }));
-}
-
 function ModelChip({
   controller,
   state,
-  models,
+  picker,
   short,
   onMenu,
 }: ChipProps & {
-  models: readonly ModelInfo[];
+  picker: ReturnType<typeof modelPickerOf>;
   short: boolean;
   onMenu: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const profileDefault = controller.claudeProfileDefaultModel;
-  const options = modelPickerOptions(models, profileDefault !== undefined);
-  let current = currentModelInfo(models, state.model.model, state.model.chosenModel);
-  if (profileDefault && (!current || current.value === "default"))
-    current = models.find(({ value }) => value === profileDefault);
-  const id = state.model.model ?? profileDefault;
-  const label = current?.displayName ?? (id ? claudeModelLabel(id) : t("chat.model.default"));
-  const ready = state.model.process === "running" && options.length > 0;
+  const { current, options } = picker;
+  const label = picker.label ?? t("chat.model.default");
+  const ready = state.model.process === "running" && picker.models.length > 0;
   const [open, setOpen] = useRevealedMenu(
     controller,
     state,
@@ -1425,13 +1410,10 @@ function ModelChip({
 function EffortChip({
   controller,
   state,
-  models,
+  levels,
   onMenu,
-}: ChipProps & { models: readonly ModelInfo[]; onMenu: (open: boolean) => void }) {
+}: ChipProps & { levels: readonly string[]; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
-  const levels =
-    currentModelInfo(models, state.model.model, state.model.chosenModel)?.supportedEffortLevels ??
-    [];
   const supported = controller.supports("apply_flag_settings");
   const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
   const [open, setOpen] = useRevealedMenu(

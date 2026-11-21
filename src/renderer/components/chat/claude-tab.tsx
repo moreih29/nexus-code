@@ -158,7 +158,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
   const steady = useStateBesideStream(state);
-  const modelCatalogKey = isVisible && !steady.model.init ? controller.modelCatalogKey : undefined;
+  const modelCatalogKey =
+    isVisible && !steady.model.init?.models.length ? controller.modelCatalogKey : undefined;
   const fallbackModels = useClaudeModelCatalog((catalog) =>
     modelCatalogKey ? borrowedClaudeModels(catalog, modelCatalogKey, controller.key) : undefined,
   );
