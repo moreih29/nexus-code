@@ -1077,8 +1077,7 @@
       "cancel": "Cancel",
       "now": "Go on now",
       "prompt": "The usage limit has reset. Please continue from where you left off.",
-      "status": "Waiting for limit · {{time}}",
-      "status_unknown": "Waiting for limit"
+      "status": "Waiting for limit · {{time}}"
     },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",

@@ -9,6 +9,7 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronRight,
+  Clock,
   FileDiff,
   GitBranch,
   ListChecks,
@@ -48,6 +49,7 @@ import { markRead } from "../../services/agent-sessions/use-inbox";
 import { useFirstPermission, useRowFacts } from "../../services/agent-sessions/use-row-facts";
 import { existingChatController } from "../../services/chat/claude/controller";
 import { existingCodexController } from "../../services/chat/codex/controller";
+import { resumeTimeText } from "../../services/chat/limit-resume";
 import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
@@ -340,7 +342,7 @@ export function ToolIcon({ name }: { name: string }) {
 
 /** The line under the title: what the conversation waits on, does, or answered. */
 export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const wait = facts.wait;
   const warn = "size-3.5 shrink-0 text-(--state-warning-fg)";
   if (wait?.kind === "permission" || (!wait && session.state === "permissionPending")) {
@@ -380,6 +382,19 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
         <ListTodo aria-hidden className={warn} />
         <span className="min-w-0 truncate text-foreground">
           {wait.text || t("chat.plan.title")}
+        </span>
+      </span>
+    );
+  }
+  // Stopped at the plan's usage limit, it goes on by itself once the limit resets.
+  if (session.limitWait && session.phase !== "running") {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+        <Clock aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate" data-testid="agent-row-limit-wait">
+          {t("chat.limit_resume.status", {
+            time: resumeTimeText(session.limitWait.at, Date.now(), i18n.language),
+          })}
         </span>
       </span>
     );

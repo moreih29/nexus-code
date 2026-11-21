@@ -109,6 +109,35 @@ describe("buildFamily", () => {
     expect(sessions.find((session) => session.tabId === "t")?.state).toBe("running");
   });
 
+  it("tells when a tab the usage limit stopped goes on, only while it waits", () => {
+    const waiting = (id: string, state: "waiting" | "cancelled", tab = claudeTab) => {
+      const base = tab(id, id);
+      return {
+        ...base,
+        props: {
+          ...base.props,
+          limitResume: { stopAt: 1, resetsAt: 2, at: 60_002, state, tries: 0 },
+        },
+      } as Tab;
+    };
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            a: waiting("a", "waiting"),
+            b: waiting("b", "waiting", codexTab),
+            c: waiting("c", "cancelled"),
+          },
+        },
+      }),
+    );
+    const sessions = family?.worktrees[0].sessions ?? [];
+    const wait = (id: string) => sessions.find((session) => session.tabId === id)?.limitWait;
+    expect(wait("a")).toEqual({ at: 60_002 });
+    expect(wait("b")).toEqual({ at: 60_002 });
+    expect(wait("c")).toBeUndefined();
+  });
+
   it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
     const family = buildFamily(
       input({
