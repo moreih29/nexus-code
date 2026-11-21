@@ -257,6 +257,7 @@ interface TabsState {
    * types or unknown ids.
    */
   retargetEditorTab: (workspaceId: string, tabId: string, filePath: string) => void;
+  retargetWorkingDiffTab: (workspaceId: string, tabId: string, relPath: string) => void;
   /**
    * Swap a diff preview tab's props (path / refs) in place, keeping its id and
    * `isPreview: true`. Used by `openDiffTab` for VSCode-style "click another
@@ -633,6 +634,27 @@ export const useTabsStore = create<TabsState>((set, get) => {
           return {
             ...tab,
             props: { ...tab.props, filePath },
+            defaultTitle: nextDefault,
+            title: computeDisplayTitle({
+              defaultTitle: nextDefault,
+              customTitle: tab.customTitle,
+              processTitle: tab.processTitle,
+            }),
+          };
+        }),
+      );
+    },
+
+    retargetWorkingDiffTab(workspaceId, tabId, relPath) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "editor.diff" || tab.props.rightRef !== "WORKING") return tab;
+          if (tab.props.relPath === relPath) return tab;
+          const props = { ...tab.props, relPath };
+          const nextDefault = defaultTitle({ type: "editor.diff", props });
+          return {
+            ...tab,
+            props,
             defaultTitle: nextDefault,
             title: computeDisplayTitle({
               defaultTitle: nextDefault,

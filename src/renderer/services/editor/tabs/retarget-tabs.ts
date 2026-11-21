@@ -1,7 +1,10 @@
 import { useTabsStore } from "../../../state/stores/tabs";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { relPath } from "../../../utils/path";
 import { acquireModel, cacheUriFor, getResolvedModel, releaseModel } from "../model/cache";
 import { isDirty } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
+import { diffWorkingFilePath } from "./diff-working-file";
 
 /** Whether `filePath` is `path` itself or lies in the folder at `path`. */
 export function isPathOrUnder(filePath: string, path: string): boolean {
@@ -34,7 +37,7 @@ const defaultDeps: RetargetEditorTabsDeps = {
 };
 
 /**
- * Points the workspace's editor tabs at their files' new paths after
+ * Points the workspace's editor and working-tree diff tabs at their files' new paths after
  * `fromPath` was renamed or moved to `toPath`. Without this a clean tab
  * shows "not found" and a dirty one saves back to the old path, recreating
  * the file there.
@@ -50,19 +53,33 @@ export function retargetEditorTabs(
   deps: RetargetEditorTabsDeps = defaultDeps,
 ): Promise<void> {
   const tabs = Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
-  const moves: Array<{ tabId: string; filePath: string }> = [];
+  const root = useWorkspacesStore
+    .getState()
+    .workspaces.find((ws) => ws.id === workspaceId)?.rootPath;
+  const moves: Array<{ tabId: string; filePath: string; diffRelPath?: string }> = [];
   const unsavedByPath = new Map<string, { input: EditorInput; text: string }>();
 
   for (const tab of tabs) {
-    if (tab.type !== "editor" || tab.props.origin === "external") continue;
-    const filePath = movedFilePath(tab.props.filePath, fromPath, toPath);
+    const oldPath =
+      tab.type === "editor" && tab.props.origin !== "external"
+        ? tab.props.filePath
+        : tab.type === "editor.diff"
+          ? diffWorkingFilePath(tab.props, root ?? null)
+          : null;
+    if (oldPath === null) continue;
+
+    const filePath = movedFilePath(oldPath, fromPath, toPath);
     if (filePath === null) continue;
-    moves.push({ tabId: tab.id, filePath });
+    if (tab.type === "editor.diff" && root !== undefined) {
+      moves.push({ tabId: tab.id, filePath, diffRelPath: relPath(filePath, root) });
+    } else {
+      moves.push({ tabId: tab.id, filePath });
+    }
 
     // Read the unsaved text now: a retargeted tab's view releases the old
     // model, which disposes it once no other tab holds it.
     if (unsavedByPath.has(filePath)) continue;
-    const text = deps.readUnsavedText({ workspaceId, filePath: tab.props.filePath });
+    const text = deps.readUnsavedText({ workspaceId, filePath: oldPath });
     if (text === null) continue;
     unsavedByPath.set(filePath, { input: { workspaceId, filePath }, text });
   }
@@ -72,8 +89,10 @@ export function retargetEditorTabs(
   const carries = [...unsavedByPath.values()].map(({ input, text }) =>
     carryUnsavedText(input, text, deps.acquireModel(input), deps),
   );
-  for (const { tabId, filePath } of moves) {
-    useTabsStore.getState().retargetEditorTab(workspaceId, tabId, filePath);
+  const store = useTabsStore.getState();
+  for (const { tabId, filePath, diffRelPath } of moves) {
+    if (diffRelPath === undefined) store.retargetEditorTab(workspaceId, tabId, filePath);
+    else store.retargetWorkingDiffTab(workspaceId, tabId, diffRelPath);
   }
   return Promise.all(carries).then(() => undefined);
 }
