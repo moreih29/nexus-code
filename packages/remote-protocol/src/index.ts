@@ -9,6 +9,7 @@
  * - ./device-keys: each device's key, envelopes and rotation, pairing, and
  *   the password's proof (account keys v2);
  * - ./voice: the voice socket, speech to text while the user speaks;
+ * - ./push: phone registrations, notification requests and app data;
  * - ./info: what the server offers (GET /info);
  * - ./commands: the slash commands a Codex client runs itself.
  */
@@ -16,6 +17,7 @@ export * from "./account.js";
 export * from "./commands.js";
 export * from "./device-keys.js";
 export * from "./info.js";
+export * from "./push.js";
 export * from "./relay.js";
 export * from "./rpc.js";
 export * from "./sealed.js";

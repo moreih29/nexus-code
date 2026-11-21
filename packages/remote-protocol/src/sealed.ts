@@ -49,7 +49,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.17.0";
+export const SCHEMA_VERSION = "0.18.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -110,6 +110,8 @@ export const CAPABILITIES = [
   "settings.instructions",
   /** Read profile subscription limits, since 0.17.0. */
   "profiles.usage",
+  /** Sends push notifications to the account's phones for what waits on the user here. Since 0.18.0. */
+  "push",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

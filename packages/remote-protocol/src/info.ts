@@ -19,5 +19,14 @@ export const ServerInfoSchema = z.object({
    * before; a device then keeps to v1. Pairing needs nothing of the server.
    */
   accountKeys: z.object({ version: z.number().int() }).nullable().optional(),
+  /** The push API and its APNs environments. Null without push keys, absent from older servers. */
+  push: z
+    .object({
+      version: z.number().int(),
+      /** Known environments are `production` and `sandbox`. New ones may be added. */
+      environments: z.array(z.string()),
+    })
+    .nullable()
+    .optional(),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
