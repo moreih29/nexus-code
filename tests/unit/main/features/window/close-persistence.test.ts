@@ -102,3 +102,26 @@ test("a failed layout write still resumes one window close through its native gu
   expect(replay.preventDefault).not.toHaveBeenCalled();
   expect(warn).toHaveBeenCalledTimes(1);
 });
+
+test("update preparation requests a bounded flush from each window before native closure", async () => {
+  const timer = fakeTimer();
+  const persistence = new ClosePersistence(() => {}, timer);
+  const first = fakeWindow(1);
+  const second = fakeWindow(2);
+  const prepared = mock(() => {});
+  const preparing = persistence.prepareUpdaterClose([first, second]).then(prepared);
+
+  expect(first.attempts).toHaveLength(1);
+  expect(second.attempts).toHaveLength(1);
+  persistence.acknowledge(1, first.attempts[0], true);
+  expect(prepared).not.toHaveBeenCalled();
+  timer.expire();
+  await preparing;
+
+  expect(first.close).not.toHaveBeenCalled();
+  expect(second.close).not.toHaveBeenCalled();
+  persistence.allowUpdaterClose();
+  const event = { preventDefault: mock(() => {}) };
+  persistence.interceptClose(event, first);
+  expect(event.preventDefault).not.toHaveBeenCalled();
+});

@@ -77,6 +77,11 @@ export class ClosePersistence {
     });
   }
 
+  /** Flush before handing window closure to the native updater. */
+  async prepareUpdaterClose(windows: CloseWindow[]): Promise<void> {
+    await Promise.all(windows.map((win) => this.flushWindow(win)));
+  }
+
   /** The native updater owns its window close sequence. */
   allowUpdaterClose(): void {
     this.quitPhase = "closing";
