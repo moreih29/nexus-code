@@ -3,6 +3,7 @@ import type { TerminalControllerDeps } from "../../../../../src/renderer/service
 import type {
   PtyClientOptions,
   TerminalDimensions,
+  TerminalInputCheckpoint,
 } from "../../../../../src/renderer/services/terminal/types";
 
 type IpcCallRecord = { channel: string; method: string; args: unknown };
@@ -128,6 +129,12 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
+const { resumeInTerminal, watchAgentInput } = await import(
+  "../../../../../src/renderer/services/agent-view/resume-terminal"
+);
+const { registerTerminalController } = await import(
+  "../../../../../src/renderer/services/terminal/terminal-registry"
+);
 const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
   await import("../../../../../src/renderer/services/terminal");
 const {
@@ -1069,6 +1076,93 @@ describe("services/terminal controller ready for input", () => {
     await flushTerminalInit();
     expect(await controller.whenReady(0)).toBe(true);
     controller.dispose();
+  });
+});
+
+describe("services/terminal controller input tracking", () => {
+  beforeEach(resetIpc);
+
+  it("tracks browser input and leaves its checkpoint alone for PTY output and xterm replies", async () => {
+    const harness = makeTerminalControllerDeps();
+    const container = Object.assign(new EventTarget(), { clientWidth: 800, clientHeight: 480 });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-input-checkpoint",
+        cwd: "/workspace",
+        container: container as unknown as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const initial = controller.getInputCheckpoint();
+    const listener = mock(() => {});
+    const unsubscribe = controller.onInput(listener);
+
+    try {
+      harness.getPtyOptions()?.onData("shell prompt", false);
+      harness.getPtyOptions()?.onData("\x1b[6n", false);
+      harness.termData("\x1b[3;1R");
+      expect(controller.getInputCheckpoint()).toBe(initial);
+      expect(listener).not.toHaveBeenCalled();
+
+      container.dispatchEvent(Object.assign(new Event("keydown"), { key: "e" }));
+      const typed = controller.getInputCheckpoint();
+      expect(typed).not.toBe(initial);
+      expect(typed.hasInput).toBe(true);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      container.dispatchEvent(new Event("paste"));
+      expect(controller.getInputCheckpoint()).not.toBe(typed);
+      expect(listener).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+      controller.dispose();
+    }
+    const disposed = controller.getInputCheckpoint();
+    container.dispatchEvent(Object.assign(new Event("keydown"), { key: "x" }));
+    expect(controller.getInputCheckpoint()).toBe(disposed);
+  });
+
+  it("keeps a shell draft typed before the view notices the agent exit", async () => {
+    const harness = makeTerminalControllerDeps();
+    const terminal = { workspaceId: WS, tabId: "tab-exit-input-gap" };
+    const container = Object.assign(new EventTarget(), { clientWidth: 800, clientHeight: 480 });
+    const controller = createTerminalController(
+      { ...terminal, cwd: "/workspace", container: container as unknown as HTMLElement },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const unregister = registerTerminalController(terminal.tabId, controller);
+    let checkpoint: TerminalInputCheckpoint | undefined;
+    const stop = watchAgentInput(terminal, controller, "codex", (input) => {
+      checkpoint = input;
+    });
+    const type = (key: string) => {
+      container.dispatchEvent(Object.assign(new Event("keydown"), { key }));
+      harness.termData(key);
+    };
+
+    try {
+      mockForegroundProcessName = "codex";
+      type("a");
+      await flushTerminalInit();
+      const whileRunning = controller.getInputCheckpoint();
+      expect(checkpoint).toBe(whileRunning);
+
+      mockForegroundProcessName = "zsh";
+      type("e");
+      await flushTerminalInit();
+      expect(checkpoint).toBe(whileRunning);
+
+      await resumeInTerminal(terminal, "codex resume", checkpoint);
+      expect(harness.ptyWrites).toEqual(["a", "e"]);
+    } finally {
+      stop();
+      unregister();
+      controller.dispose();
+      mockForegroundProcessName = "lazygit";
+    }
   });
 });
 

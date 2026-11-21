@@ -34,6 +34,7 @@ import type {
   TerminalController,
   TerminalControllerOptions,
   TerminalDimensions,
+  TerminalInputCheckpoint,
 } from "./types";
 
 const log = createLogger("terminal");
@@ -413,6 +414,9 @@ class XtermTerminalController implements TerminalController {
   /** Who waits for the program's next output; see nextOutput. */
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
   private readonly outputListeners = new Set<(ended: boolean) => void>();
+  private inputCheckpoint: TerminalInputCheckpoint = { hasInput: false };
+  private readonly inputListeners = new Set<() => void>();
+  private removeInputListeners: (() => void) | undefined;
   /**
    * Its shell has started: printed its prompt and gone quiet, or printed
    * nothing for a while, or was already running; see whenReady.
@@ -514,10 +518,25 @@ class XtermTerminalController implements TerminalController {
     return () => this.outputListeners.delete(listener);
   }
 
+  getInputCheckpoint(): TerminalInputCheckpoint {
+    return this.inputCheckpoint;
+  }
+
+  onInput(listener: () => void): () => void {
+    this.inputListeners.add(listener);
+    return () => this.inputListeners.delete(listener);
+  }
+
+  private noteInput(): void {
+    this.inputCheckpoint = { hasInput: true };
+    for (const listener of this.inputListeners) listener();
+  }
+
   input(text: string, mode: "paste" | "keys"): boolean {
     const term = this.term;
     const ptyClient = this.ptyClient;
     if (this.disposed || !term || !ptyClient) return false;
+    if (text !== "") this.noteInput();
     if (mode === "paste") term.paste(text);
     else ptyClient.write(text);
     return true;
@@ -576,6 +595,8 @@ class XtermTerminalController implements TerminalController {
     for (const waiter of [...this.outputWaiters]) waiter(false);
     for (const listener of [...this.outputListeners]) listener(true);
     this.outputListeners.clear();
+    this.removeInputListeners?.();
+    this.inputListeners.clear();
 
     if (this.pendingRaf != null) {
       this.deps.cancelAnimationFrame(this.pendingRaf);
@@ -643,6 +664,7 @@ class XtermTerminalController implements TerminalController {
     // null means the session is already live — treat as a no-op so the caller
     // does not surface a spurious "Reopen failed." message to the user.
     if (result === null) return;
+    this.noteInput();
     this.noteSpawned(result);
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
@@ -779,7 +801,8 @@ class XtermTerminalController implements TerminalController {
     // External file drop → inject escaped path(s) as a paste. Lets CLIs that
     // accept file paths (Claude Code, image tools, etc.) receive dropped files
     // even though the rest of the app gates DnD to its own internal MIME types.
-    this.installFileDrop(term);
+    this.installInputTracking();
+    this.installFileDrop();
     this.installHeldPaste(term);
 
     // OSC 0/1/2 (window title) — xterm.js's internal parser receives the sequence and
@@ -1196,6 +1219,26 @@ class XtermTerminalController implements TerminalController {
     if (this.disposed) this.dispose();
   }
 
+  private installInputTracking(): void {
+    const container = this.options.container;
+    if (typeof container.addEventListener !== "function") return;
+    // Track browser input before xterm forwards it. xterm's onData also
+    // emits protocol replies to PTY output, which cannot change a shell draft.
+    const onInput = (): void => this.noteInput();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (["Alt", "AltGraph", "Control", "Meta", "Shift"].includes(event.key)) return;
+      onInput();
+    };
+    container.addEventListener("keydown", onKeyDown, true);
+    container.addEventListener("input", onInput, true);
+    container.addEventListener("paste", onInput, true);
+    this.removeInputListeners = () => {
+      container.removeEventListener("keydown", onKeyDown, true);
+      container.removeEventListener("input", onInput, true);
+      container.removeEventListener("paste", onInput, true);
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // External file drag-and-drop → PTY
   //
@@ -1216,7 +1259,7 @@ class XtermTerminalController implements TerminalController {
   // target (which would parse the Files MIME as our custom payload and fail)
   // and to the document-level guard.
   // ---------------------------------------------------------------------------
-  private installFileDrop(term: TerminalLike): void {
+  private installFileDrop(): void {
     const el = this.options.container;
     // Defensive: the container is always a real HTMLElement in production, but
     // unit tests pass a bare stub. Skip wiring when DOM event APIs are absent.
@@ -1249,7 +1292,7 @@ class XtermTerminalController implements TerminalController {
 
       // No trailing space — paste just the escaped path(s) so Claude Code's
       // image-path detection sees a clean paste unit (matches cmux).
-      term.paste(paths.join(" "));
+      this.input(paths.join(" "), "paste");
     };
 
     el.addEventListener("dragover", onDragOver);

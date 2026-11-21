@@ -1910,7 +1910,8 @@
       "message": "{{agent}} session ended",
       "agent": "Agent",
       "resume": "Resume",
-      "resume_title": "Types {{line}} in the terminal"
+      "resume_title": "Types {{line}} in the terminal",
+      "resume_manual_title": "Run this command in the terminal to resume."
     },
     "remote": {
       "title": "Other computers",

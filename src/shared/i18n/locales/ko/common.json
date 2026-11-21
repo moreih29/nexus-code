@@ -1910,7 +1910,8 @@
       "message": "{{agent}} 세션 종료",
       "agent": "에이전트",
       "resume": "이어하기",
-      "resume_title": "터미널에 {{line}} 입력"
+      "resume_title": "터미널에 {{line}} 입력",
+      "resume_manual_title": "세션을 이어가려면 터미널에서 이 명령을 실행하세요."
     },
     "remote": {
       "title": "다른 컴퓨터",
