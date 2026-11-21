@@ -161,7 +161,11 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 		if compactions != 0 {
 			value += fmt.Sprint(refreshSuffix, compactions)
 		}
-		fragments[key], _ = json.Marshal(map[string]string{"kind": "application", "value": value})
+		if key == codexInstructions && len(value) > codexContextValueLimit {
+			addCodexInstructionParts(fragments, value)
+		} else {
+			addCodexFragment(fragments, key, value)
+		}
 		added = true
 	}
 	commit := func() {
@@ -183,6 +187,10 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 	out["params"] = params
 	result, _ := json.Marshal(out)
 	return result, commit
+}
+
+func addCodexFragment(fragments map[string]json.RawMessage, key, value string) {
+	fragments[key], _ = json.Marshal(map[string]string{"kind": "application", "value": value})
 }
 
 // Use the environment of the running app server, after profile resolution on
@@ -289,6 +297,7 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 	}
 
 	latest := make(map[string]string)
+	var instructions codexInstructionRollout
 	var parent string
 	var parentEnd int64
 	for lines.Scan() {
@@ -306,16 +315,18 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 						parent, parentEnd = record.Payload.Parent, record.Payload.HistoryBase.EndByteOffset
 					}
 				case "response_item":
-					record.Payload.codexGuidanceItem.readFragments(latest)
+					record.Payload.codexGuidanceItem.readFragments(latest, &instructions)
 				case "compacted":
 					clear(latest)
+					instructions = codexInstructionRollout{}
 					parent, parentEnd = "", 0
 					for _, item := range record.Payload.Replacement {
-						item.readFragments(latest)
+						item.readFragments(latest, &instructions)
 					}
 				case "event_msg":
 					if record.Payload.Type == "thread_rolled_back" {
 						clear(latest)
+						instructions = codexInstructionRollout{}
 						parent, parentEnd = "", 0
 					}
 				}
@@ -325,19 +336,28 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 	return latest, parent, parentEnd
 }
 
-func (item codexGuidanceItem) readFragments(latest map[string]string) {
+func (item codexGuidanceItem) readFragments(latest map[string]string, instructions *codexInstructionRollout) {
 	if item.Type != "message" || item.Role != "developer" {
 		return
 	}
 	for _, content := range item.Content {
-		for _, key := range []string{codexFileLinks, codexCLI, codexCommands, codexInstructions} {
-			if value, ok := strings.CutPrefix(content.Text, "<"+key+">"); ok {
-				if value, ok := strings.CutSuffix(value, "</"+key+">"); ok {
-					if key == codexInstructions {
-						value = strings.TrimPrefix(value, instructionsReplaced)
-					}
-					latest[key], _, _ = strings.Cut(value, refreshSuffix)
-				}
+		key, value, ok := strings.Cut(strings.TrimPrefix(content.Text, "<"), ">")
+		if !ok || !strings.HasPrefix(content.Text, "<") {
+			continue
+		}
+		value, ok = strings.CutSuffix(value, "</"+key+">")
+		if !ok {
+			continue
+		}
+		switch key {
+		case codexInstructions:
+			*instructions = codexInstructionRollout{}
+			latest[key] = codexInstructionsInHistory(value)
+		case codexFileLinks, codexCLI, codexCommands:
+			latest[key], _, _ = strings.Cut(value, refreshSuffix)
+		default:
+			if part, ok := strings.CutPrefix(key, codexInstructionPartPrefix); ok {
+				instructions.readPart(latest, part, value)
 			}
 		}
 	}

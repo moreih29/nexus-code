@@ -870,7 +870,7 @@ function ResultRow({
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  const label = result.kind === "file" ? shortPath(result.target, cwd) : result.target;
+  const label = path ? shortPath(path, cwd) : result.target;
   // An image shows itself while the pointer is on its row.
   const [hover, setHover] = useState<DOMRect | null>(null);
   const image = path !== null && fileKind(path) === "image";
@@ -884,7 +884,7 @@ function ResultRow({
             image ? (event) => setHover(event.currentTarget.getBoundingClientRect()) : undefined
           }
           onMouseLeave={image ? () => setHover(null) : undefined}
-          title={result.target}
+          title={path ?? result.target}
           className="flex min-h-6 min-w-0 items-center gap-2 rounded-(--radius-control) px-1 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
         >
           {result.kind === "url" ? (

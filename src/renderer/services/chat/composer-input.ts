@@ -23,10 +23,8 @@ const FILE_RE = /(^|[^A-Za-z0-9._%+-])@("[^"\n]*|[^\s@"]*)$/;
 /**
  * The token the caret is in that the composer completes, if any.
  *
- * With the caret in front of more text (an `@` typed into a sentence), a
- * file token opens only if it starts at `typedAt`: the one the user is
- * typing right now. Moving the caret into a mention already there opens
- * nothing.
+ * A file token opens while the user edits it. A bare `@` can also open at
+ * the end of a word, where it has no query yet.
  */
 export function completionAt(
   text: string,
@@ -39,28 +37,28 @@ export function completionAt(
   if (command) {
     return inWord ? null : { kind: "command", start: 0, end: caret, query: command[1] };
   }
-  const file = FILE_RE.exec(before);
-  if (file) {
-    const start = caret - file[2].length - 1;
-    if (inWord && start !== typedAt) return null;
-    const query = file[2].startsWith('"') ? file[2].slice(1) : file[2];
-    return { kind: "file", start, end: caret, query };
-  }
-  return null;
+  const file = fileTokenAt(before);
+  if (!file || (file.start !== typedAt && (inWord || file.query !== ""))) return null;
+  return { kind: "file", ...file, end: caret };
 }
 
-/** An `@` token the user typed, and where the caret was when they did. */
+function fileTokenAt(before: string): Pick<Completion, "start" | "query"> | null {
+  const match = FILE_RE.exec(before);
+  if (!match) return null;
+  const token = match[2];
+  return { start: before.length - token.length - 1, query: token.replace(/^"/, "") };
+}
+
+/** An `@` token the user is editing and where the edit left the caret. */
 export interface TypedToken {
   start: number;
   caret: number;
 }
 
 /**
- * Follows the `@` the user is typing across edits: set when one `@` is
- * typed, kept while the edit stays between that `@` and the caret (typing,
- * erasing, an IME changing the letter it is composing, a paste), dropped
- * by anything else. The textarea reports the edit as old and new text with
- * the new caret.
+ * Follows the mention the user is editing. Start when the user types `@` or
+ * edits a query after one already there. Keep it while the edit stays between
+ * that `@` and the caret, including changes made by an IME or a paste.
  */
 export function followTyped(
   prev: string,
@@ -71,7 +69,12 @@ export function followTyped(
   if (next.length === prev.length + 1 && next.slice(0, caret - 1) + next.slice(caret) === prev) {
     if (next[caret - 1] === "@") return { start: caret - 1, caret };
   }
-  if (!typed || caret < typed.start + 1) return null;
+  if (!typed) {
+    const file = fileTokenAt(next.slice(0, caret));
+    if (!file || next === prev || !prev.startsWith(next.slice(0, file.start + 1))) return null;
+    return { start: file.start, caret };
+  }
+  if (caret < typed.start + 1) return null;
   const head = typed.start + 1;
   if (prev.slice(0, head) !== next.slice(0, head)) return null;
   if (prev.slice(typed.caret) !== next.slice(caret)) return null;

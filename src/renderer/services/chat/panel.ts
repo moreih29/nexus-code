@@ -439,26 +439,33 @@ export interface ResultEntry {
 }
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
-const LINK_RE = /\]\(([^)\s]+)\)/g;
+const LINK_RE = /\]\((<[^>\n]+>|[^)\s]+)\)/g;
 /** An image a reply shows in its text, by markdown's ![alt](path). */
-const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+const IMAGE_RE = /!\[[^\]]*\]\((<[^>\n]+>|[^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
+
+function linkTarget(match: RegExpMatchArray): string {
+  const target = match[1];
+  return target.startsWith("<") && target.endsWith(">") ? target.slice(1, -1) : target;
+}
 
 /**
  * A path a reply names: absolute, or relative with a folder or an extension.
  * A lone `/word` is a command (`/config`, `/model`), not a file.
  */
 function looksLikePath(text: string): boolean {
-  if (/\s/.test(text) || text.length > 300) return false;
-  if (text.startsWith("/") || text.startsWith("~/")) {
-    if (/^\/[^/]+$/.test(text) && !EXTENSION_RE.test(text)) return false;
-    return text.length > 1;
+  if (/[\r\n\t]/.test(text) || text.length > 300) return false;
+  const path = text.replace(/[#?].*$/, "").replace(/:\d+(?::\d+)?$/, "");
+  if (path.startsWith("/") || path.startsWith("~/")) {
+    if (/^\/[^/]+$/.test(path) && !EXTENSION_RE.test(path)) return false;
+    return path.length > 1;
   }
-  if (/^[A-Za-z]:[\\/]/.test(text)) return text.length > 3;
+  if (/^[A-Za-z]:[\\/]/.test(path)) return path.length > 3;
+  if (path.startsWith("file:///")) return path.length > "file:///".length;
   // Either slash parts a relative path, as a Windows agent writes it (src\a.ts).
-  return /^[\w.-]+([\\/][\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
+  return /^[\w. %-]+([\\/][\w. %-]+)*\.[A-Za-z0-9]{1,8}$/.test(path);
 }
 
 /** The tools that take one file by its path, to read or to change it. */
@@ -547,7 +554,7 @@ export function resultsOf(
     for (const block of item.blocks) {
       if (block.type !== "text") continue;
       for (const match of block.text.matchAll(LINK_RE)) {
-        const target = match[1];
+        const target = linkTarget(match);
         if (/^https?:\/\//.test(target)) add("url", target);
         else if (looksLikePath(target)) add("file", target);
       }
@@ -575,12 +582,13 @@ export function distinctResults(
   const byPath = new Map<string, number>();
   for (const result of results) {
     const path = result.kind === "file" ? pathOf(result.target) : null;
-    const at = path ? byPath.get(path) : undefined;
+    const key = path ? pathKey(path) : undefined;
+    const at = key ? byPath.get(key) : undefined;
     if (at !== undefined) {
       if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
       continue;
     }
-    if (path) byPath.set(path, out.length);
+    if (key) byPath.set(key, out.length);
     out.push(result);
   }
   return out;
@@ -679,7 +687,7 @@ export function imagesOf(
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
   for (const match of text.matchAll(LINK_RE)) {
-    const target = match[1];
+    const target = linkTarget(match);
     if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
       named.push({ at: match.index, path: target });
     }
@@ -701,7 +709,7 @@ function placedImages(
   cwd: string,
 ): string[] {
   let named: string[] = [];
-  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map((match) => match[1]);
+  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map(linkTarget);
   else if (block.type === "tool" && tools[block.toolUseId]?.status === "done") {
     named = sentFilesOf(tools[block.toolUseId]);
   }
@@ -816,7 +824,7 @@ export function answerExtras(
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
         if (block.type === "text") {
-          for (const match of block.text.matchAll(IMAGE_RE)) showHere(match[1]);
+          for (const match of block.text.matchAll(IMAGE_RE)) showHere(linkTarget(match));
         }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
         if (!tool) continue;

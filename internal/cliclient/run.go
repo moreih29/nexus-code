@@ -136,6 +136,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	if res.ExitCode == 0 && len(args) > 0 && args[0] == "agent-context" && req.Stdin != nil {
+		var err error
+		res.Stdout, err = claudeHookContext(*req.Stdin, res.Stdout)
+		if err != nil {
+			// Keep the original hook output available to Claude on a write failure.
+			fmt.Fprintln(stderr, "nexus: could not save Claude's full instructions")
+		}
+	}
 	_, _ = io.WriteString(stdout, res.Stdout)
 	_, _ = io.WriteString(stderr, res.Stderr)
 	return res.ExitCode
