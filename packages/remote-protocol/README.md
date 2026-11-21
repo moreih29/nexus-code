@@ -20,6 +20,8 @@ Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account
 
 Schema 0.16.0 adds the `settings.instructions` capability and RPC. An agent can read the ordered instruction layers and combined text for a new chat in a workspace on another device when that device accepts agent requests. The read accepts an optional `profileId`. The capability also advertises support for `layer: "profile"` with a `profileId` in `settings.instructions.set`. Profile writes require fresh approval on the receiving device.
 
+In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
+
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`. They need `zod` 3.25 or later.
 
 ## Use and publish

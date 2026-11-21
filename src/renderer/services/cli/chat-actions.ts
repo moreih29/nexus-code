@@ -15,6 +15,10 @@ import {
   profileOf,
   profilesOf,
 } from "../../../shared/agent-profiles/profiles";
+import {
+  mergeAgentInstructions,
+  persistentInstructionLayers,
+} from "../../../shared/chat/instructions";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -22,8 +26,8 @@ import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import {
-  currentSessionInstructions,
   saveSessionInstructions,
+  useAgentInstructionsStore,
 } from "../../state/stores/agent-instructions";
 import {
   defaultFolderLabel,
@@ -35,7 +39,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   type AgentTabController,
-  agentInstructionsOf,
+  agentInstructionTarget,
   agentTabController,
   startAgentTab,
 } from "../chat/agent-tab";
@@ -467,18 +471,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.instructions": async ({ workspaceId, tabId, text }) => {
+    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
     if (tab?.type !== "claude" && tab?.type !== "codex") {
       throw new UiRequestError("that tab is not a Claude or Codex tab");
     }
-    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
+    const session = tab.props.instructions ?? "";
+    const target = agentInstructionTarget(workspaceId, tab.type, tab.props.profileId, session);
+    const { config } = useAgentInstructionsStore.getState();
     return {
-      instructions: agentInstructionsOf(
-        workspaceId,
-        tab.type,
-        tab.props.profileId,
-        currentSessionInstructions(workspaceId, tabId),
-      ),
+      instructions: mergeAgentInstructions(config, target),
+      session,
+      layers: persistentInstructionLayers(config, target),
     };
   },
 

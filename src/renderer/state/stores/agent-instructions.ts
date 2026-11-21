@@ -68,11 +68,12 @@ export async function saveSessionInstructions(
   const before = tab();
   if (before?.type !== "claude" && before?.type !== "codex")
     throw new Error("The chat tab was closed.");
-  useTabsStore.getState().setChatInstructions(workspaceId, tabId, instructions);
+  const text = instructions.trim() ? instructions : "";
+  useTabsStore.getState().setChatInstructions(workspaceId, tabId, text);
   if (await flushStatePersistence()) return;
 
   const current = tab();
-  if (current?.type === before.type && current.props.instructions === instructions) {
+  if (current?.type === before.type && current.props.instructions === text) {
     useTabsStore.getState().setChatInstructions(workspaceId, tabId, before.props.instructions);
   }
   throw new Error("Could not save the session instructions.");

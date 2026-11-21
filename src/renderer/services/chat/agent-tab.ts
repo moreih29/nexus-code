@@ -36,7 +36,10 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
   return {
     instructions: (sessionId) => currentSessionInstructions(workspaceId, tabId, sessionId),
     mergedInstructions: (profileId, session) =>
-      agentInstructionsOf(workspaceId, "claude", profileId, session),
+      mergeAgentInstructions(
+        useAgentInstructionsStore.getState().config,
+        agentInstructionTarget(workspaceId, "claude", profileId, session),
+      ),
     onSession: (sessionId) => {
       rememberSessionInstructions(workspaceId, tabId, sessionId);
       tabs().setClaudeSession(workspaceId, tabId, sessionId);
@@ -100,24 +103,19 @@ export function instructionProfileOf(
   return id && id !== profile.id ? { ...profile, id, name: id } : profile;
 }
 
-export function agentInstructionsOf(
+export function agentInstructionTarget(
   workspaceId: string,
   agent: ChatAgent,
   profileId?: string,
   session?: string,
-): string {
+) {
   const { workspaces } = useWorkspacesStore.getState();
   const workspace = workspaceInstructionTarget(
     workspaces.find(({ id }) => id === workspaceId),
     workspaces,
   );
   const profile = instructionProfileOf(useAgentProfilesStore.getState().config, agent, profileId);
-  return mergeAgentInstructions(useAgentInstructionsStore.getState().config, {
-    agent,
-    profile,
-    workspace,
-    session,
-  });
+  return { agent, profile, workspace, session };
 }
 
 /** A Claude or Codex tab's controller, and which agent it runs. */

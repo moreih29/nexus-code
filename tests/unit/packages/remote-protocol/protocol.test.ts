@@ -703,6 +703,39 @@ test("peer profile instruction reads and writes carry a valid profile id", () =>
   expect(RPC_METHODS["settings.instructions"].params.parse(read)).toEqual(read);
 });
 
+test("chat instruction reads accept older replies and the same persistent layers as settings", () => {
+  const chat = RPC_METHODS["chat.instructions"].result;
+  const settings = RPC_METHODS["settings.instructions"].result;
+  const legacy = { instructions: "Combined text" };
+  expect(chat.parse(legacy)).toEqual(legacy);
+
+  const layers = [
+    { scope: { kind: "all" }, title: "All agents", text: "" },
+    { scope: { kind: "agent", agent: "claude" }, title: "Claude", text: "Agent rules" },
+    { scope: { kind: "profile", id: "work" }, title: "Profile: Work", text: "" },
+    { scope: { kind: "workspace", id: "w" }, title: "Workspace: Parent", text: "Parent rules" },
+  ];
+  expect(settings.parse({ ...legacy, layers })).toEqual({ ...legacy, layers });
+  expect(chat.parse({ ...legacy, session: "", layers })).toEqual({
+    ...legacy,
+    session: "",
+    layers,
+  });
+  expect(
+    chat.safeParse({ ...legacy, session: "", layers: [{ ...layers[0], scope: null }] }).success,
+  ).toBe(false);
+});
+
+test("people and agents can write chat instructions up to 5,000 characters", () => {
+  const { params } = RPC_METHODS["chat.instructions.set"];
+  const write = { workspaceId: "w", tabId: "t", text: "r".repeat(5000) };
+  const from = { kind: "tab", workspaceId: "source", tabId: "t" };
+  expect(params.parse(write)).toEqual(write);
+  expect(params.parse({ ...write, from })).toEqual({ ...write, from });
+  expect(params.safeParse({ ...write, text: `${write.text}r` }).success).toBe(false);
+  expect(params.safeParse({ ...write, from: null }).success).toBe(false);
+});
+
 test("remembered voice results expose names only", () => {
   const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
     noteId: "note",
@@ -727,7 +760,6 @@ test.each([
   ["agentView.change", { change: { op: "show", view: "agents" } }],
   ["worktree.new", { name: "work", prompt: "", show: false }],
   ["worktree.remove", { force: false, deleteBranch: false }],
-  ["chat.instructions.set", { tabId: "t", text: "prompt" }],
 ] as const)("%s requires an agent sender", (method, args) => {
   const { params } = RPC_METHODS[method];
   const request = { workspaceId: "w", ...args };

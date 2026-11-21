@@ -67,7 +67,7 @@ export function SessionInstructionsChip({
     setSaving(true);
     setFailed(false);
     try {
-      await saveSessionInstructions(workspaceId, tabId, draft.trim() ? draft : "");
+      await saveSessionInstructions(workspaceId, tabId, draft);
       setOpen(false);
     } catch {
       setFailed(true);

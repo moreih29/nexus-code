@@ -421,6 +421,16 @@ const InstructionWrite = z.object({
   text: z.string().max(5000),
   from: AgentSenderSchema,
 });
+const InstructionLayerSchema = z.object({
+  scope: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("all") }),
+    z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
+    z.object({ kind: z.literal("profile"), id: z.string() }),
+    z.object({ kind: z.literal("workspace"), id: z.string() }),
+  ]),
+  title: z.string(),
+  text: z.string(),
+});
 
 /** The keys terminal.input presses by name, as `nexus terminal key` names them. */
 export const TERMINAL_KEYS = [
@@ -2140,18 +2150,7 @@ export const RPC_METHODS = {
       from: AgentSenderSchema,
     }),
     result: z.object({
-      layers: z.array(
-        z.object({
-          scope: z.discriminatedUnion("kind", [
-            z.object({ kind: z.literal("all") }),
-            z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
-            z.object({ kind: z.literal("profile"), id: z.string() }),
-            z.object({ kind: z.literal("workspace"), id: z.string() }),
-          ]),
-          title: z.string(),
-          text: z.string(),
-        }),
-      ),
+      layers: z.array(InstructionLayerSchema),
       instructions: z.string(),
     }),
   },
@@ -2293,15 +2292,22 @@ export const RPC_METHODS = {
     params: z.object({ ...TabRef, i: z.number().int().nonnegative(), ...ReadBy }),
     result: z.object({ itemKey: z.string(), kind: z.string(), text: z.string().optional() }),
   },
+  /** Replace the session layer. With from, the receiving device's agent policy applies. */
   "chat.instructions.set": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema }),
+    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema.optional() }),
     result: z.object({ instructions: z.string() }),
   },
   "chat.instructions": {
     capability: "chat.read",
     params: z.object({ ...TabRef, ...ReadBy }),
-    result: z.object({ instructions: z.string() }),
+    result: z.object({
+      instructions: z.string(),
+      /** The editable session text. Since 0.16.0. Older hosts only return the combined text. */
+      session: z.string().optional(),
+      /** The tab's persistent layers in composer order, including empty layers. Since 0.16.0. */
+      layers: z.array(InstructionLayerSchema).optional(),
+    }),
   },
   /**
    * Puts a photo at the end of a note, as one picked on the serving device

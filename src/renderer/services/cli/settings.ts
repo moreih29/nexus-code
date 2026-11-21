@@ -31,8 +31,8 @@ import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
 import {
-  instructionLayers,
   mergeAgentInstructions,
+  persistentInstructionLayers,
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
@@ -598,9 +598,7 @@ export const settingsHandlers: {
     const config = useAgentInstructionsStore.getState().config;
     const target = { agent, workspace: workspaceInstructionTarget(workspace, workspaces), profile };
     return {
-      layers: instructionLayers(config, target).flatMap(({ scope, title, text }) =>
-        scope ? [{ scope, title, text }] : [],
-      ),
+      layers: persistentInstructionLayers(config, target),
       instructions: mergeAgentInstructions(config, target),
     };
   },

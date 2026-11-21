@@ -1389,6 +1389,84 @@ test("profile instruction writes pin the profile id and need a fresh approval", 
   }
 });
 
+test("phones can edit chat instructions with chat control and agents still need consent", async () => {
+  const relay = new MockRelay();
+  const key = await roomKey();
+  const app = fakeApp();
+  const workspaceId = app.workspaces[0]!.id;
+  const tab = { workspaceId, tabId: "chat" };
+  app.tabs[workspaceId]?.push({
+    id: tab.tabId,
+    type: "claude",
+    title: "Review",
+    groupId: "g1",
+    shown: true,
+  });
+  const layers = [{ scope: { kind: "all" }, title: "All agents", text: "" }];
+  let session = "";
+  app.uiAnswers.set("chat.instructions", ({ text }: { text?: string }) => {
+    if (text !== undefined) session = text;
+    return { instructions: session, session, layers };
+  });
+  let chat = false;
+  let agents = false;
+  const host = device(relay, "host", key, {
+    serves: () => servesWith(chat, false, agents),
+    serve: serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => "ask" }),
+    }),
+  }).room;
+  const phone = device(relay, "phone", key, {
+    self: { id: "phone", name: "Phone", platform: "ios" },
+  }).room;
+  const peer = device(relay, "peer", key).room;
+  host.start();
+  phone.start();
+  peer.start();
+  try {
+    await flushRelay();
+    const read = () => phone.request("host", "chat.instructions", tab);
+    const write = (text: string) =>
+      phone.request("host", "chat.instructions.set", { ...tab, text });
+    await expect(read()).resolves.toEqual({ instructions: "", session: "", layers });
+    await expect(write("Phone rules")).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    chat = true;
+    await expect(write("a".repeat(5001))).rejects.toMatchObject({
+      code: RpcErrorCode.InvalidParams,
+    });
+    await expect(write("Phone rules")).resolves.toEqual({ instructions: "Phone rules" });
+    await expect(read()).resolves.toEqual({
+      instructions: "Phone rules",
+      session: "Phone rules",
+      layers,
+    });
+    expect(app.uiCalls.some(({ op }) => op === "consent.ask")).toBe(false);
+
+    agents = true;
+    const from = { kind: "tab" as const, workspaceId: "other", tabId: "t" };
+    const writeAsAgent = () =>
+      peer.request("host", "chat.instructions.set", { ...tab, text: "Agent rules", from });
+    app.uiAnswers.set("consent.ask", { answer: "deny" });
+    await expect(writeAsAgent()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(session).toBe("Phone rules");
+    app.uiAnswers.set("consent.ask", { answer: "once" });
+    await expect(writeAsAgent()).resolves.toEqual({ instructions: "Agent rules" });
+    await expect(write("")).resolves.toEqual({ instructions: "" });
+    expect(app.uiCalls.filter(({ op }) => op === "consent.ask").map(({ args }) => args)).toEqual(
+      Array.from({ length: 2 }, () =>
+        expect.objectContaining({
+          toWorkspaceId: workspaceId,
+          change: { kind: "chatSettings", detail: "Review", body: "Agent rules" },
+        }),
+      ),
+    );
+  } finally {
+    host.stop();
+    phone.stop();
+    peer.stop();
+  }
+});
+
 test("serves file transfers by scope and cleans pending uploads when the sending peer disconnects", async () => {
   const tmp = await realpath(await mkdtemp(path.join(tmpdir(), "nexus-transfer-room-")));
   const root = path.join(tmp, "workspace");

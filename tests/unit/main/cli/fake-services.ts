@@ -657,7 +657,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "chat.instructions") {
       const { tabId, text } = args as CliUiOps["chat.instructions"]["args"];
       if (text !== undefined) chatInstructions.set(tabId, text);
-      return { instructions: chatInstructions.get(tabId) ?? "" } as CliUiOps[K]["result"];
+      const session = chatInstructions.get(tabId) ?? "";
+      return { instructions: session, session, layers: [] } as CliUiOps[K]["result"];
     }
     if (op === "chat.open") {
       const error = chatOpenError.message;

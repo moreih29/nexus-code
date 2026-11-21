@@ -11,6 +11,7 @@ import type {
   ChatCommand,
   ChatConfig,
   ChatPage,
+  RpcResult,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
@@ -807,7 +808,7 @@ export interface CliUiOps {
   };
   "chat.instructions": {
     args: { workspaceId: string; tabId: string; text?: string };
-    result: { instructions: string };
+    result: Required<RpcResult<"chat.instructions">>;
   };
   /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {
@@ -1345,10 +1346,7 @@ export interface CliUiOps {
   /** The persistent instruction layers that apply when starting a new chat. */
   "settings.instructions": {
     args: { workspaceId: string; agent: ChatAgent; profileId?: string };
-    result: {
-      layers: { scope: InstructionScope; title: string; text: string }[];
-      instructions: string;
-    };
+    result: RpcResult<"settings.instructions">;
   };
   "settings.keys": {
     args: Record<string, never>;

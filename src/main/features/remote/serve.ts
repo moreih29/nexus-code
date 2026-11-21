@@ -462,7 +462,11 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         if (!InstructionTextSchema.safeParse(text).success)
           throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid session instruction text");
         await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
-        return s.ui("chat.instructions", { workspaceId, tabId, text }).catch(unavailable);
+        checkCurrent();
+        const { instructions } = await s
+          .ui("chat.instructions", { workspaceId, tabId, text })
+          .catch(unavailable);
+        return { instructions };
       }
       case "chat.instructions": {
         const { workspaceId, tabId } = request.params as RpcParams<"chat.instructions">;
