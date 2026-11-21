@@ -142,9 +142,15 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
 }
 
 /** Store a home-relative path when possible so it can also be used on other workspace hosts. */
-function profileDir(ctx: CliContext, input: string, home: string): string {
+function profileDir(ctx: CliContext, input: string, home: string, windows: boolean): string {
   const dir = portableProfileDir(input);
   if (!dir || /\p{Cc}/u.test(dir)) throw new CliUsageError("Give a valid folder with --dir");
+  if (windows && /["<>|?*:]/.test(dir.replace(/^[a-z]:/i, ""))) {
+    throw new CliUsageError(
+      'Windows --dir cannot contain " < > | ? * or a colon outside the drive prefix. ' +
+        "In PowerShell, omit a trailing backslash inside a quoted path.",
+    );
+  }
   const absolute =
     dir === "~" || dir.startsWith("~/")
       ? path.resolve(expandHome(dir, home))
@@ -173,7 +179,7 @@ async function readKey(ctx: CliContext, file: string): Promise<string> {
   return key.data;
 }
 
-export const chatProfilesAdd: CliCommand = {
+export const chatProfilesAdd = {
   path: ["chat", "profiles", "add"],
   summary: "Add an agent profile on this computer with the user's approval",
   details:
@@ -236,7 +242,7 @@ export const chatProfilesAdd: CliCommand = {
       description: "Read the profile instructions from a UTF-8 file",
     },
   },
-  async run(ctx, { flags, positionals }) {
+  async run(ctx, { flags, positionals }, { windows = process.platform === "win32" } = {}) {
     if (positionals.length) throw new CliUsageError("Use flags to specify the profile");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
     const agent = flags.agent;
@@ -253,12 +259,12 @@ export const chatProfilesAdd: CliCommand = {
     const home = os.homedir();
     const dir =
       typeof flags.dir === "string"
-        ? profileDir(ctx, flags.dir, home)
+        ? profileDir(ctx, flags.dir, home, windows)
         : suggestedProfileDir(
             agent,
             name,
             [localDefaultDir(agent), ...others.map((profile) => profile.dir)],
-            { home, windows: process.platform === "win32" },
+            { home, windows },
           );
     if (flags.color !== undefined && !PROFILE_COLORS.some((color) => color === flags.color)) {
       throw new CliUsageError(`--color must be one of ${PROFILE_COLORS.join(", ")}`);
@@ -327,7 +333,7 @@ export const chatProfilesAdd: CliCommand = {
     const shown = profileTable([row]);
     return output(signIn ? `${shown}\n${signIn}` : shown, signIn ? { ...row, signIn } : row);
   },
-};
+} satisfies CliCommand;
 
 function validateNew<T>(check: () => T): T {
   try {

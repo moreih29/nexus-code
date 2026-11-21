@@ -4,8 +4,10 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConnectionKeys } from "../../../../src/main/features/agent-profiles/connection-keys";
 import { createProfileConnections } from "../../../../src/main/features/agent-profiles/connection-save";
+import { expandHome } from "../../../../src/main/features/agent-profiles/local";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
-import { runCli } from "../../../../src/main/features/cli/registry";
+import { chatProfilesAdd } from "../../../../src/main/features/cli/commands/chat-profiles";
+import { type CliCommand, runCli } from "../../../../src/main/features/cli/registry";
 import { keptInMemory } from "../../../../src/main/features/remote/sealed-file";
 import { StateService } from "../../../../src/main/infra/storage/state-service";
 import { connectionKeyTarget } from "../../../../src/shared/agent-profiles/connection";
@@ -21,7 +23,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture({ windows }: { windows?: boolean } = {}) {
   const app = fakeApp();
   const statePath = join(dir, "app-state.json");
   const state = new StateService(statePath);
@@ -33,9 +35,13 @@ function fixture() {
     profileConnections: createProfileConnections(state, keys, (id) => changes.push(id)),
     readFile: async (_workspace, file) => (await readFile(file)).toString("base64"),
   };
+  const commands: readonly CliCommand[] =
+    windows === undefined
+      ? CLI_COMMANDS
+      : [{ ...chatProfilesAdd, run: (ctx, args) => chatProfilesAdd.run(ctx, args, { windows }) }];
   const run = (args: string[], stdin?: string) =>
     runCli(
-      CLI_COMMANDS,
+      commands,
       contextFor(
         app,
         ["chat", "profiles", "add", ...args],
@@ -46,7 +52,8 @@ function fixture() {
   return { app, state, statePath, storage, keys, changes, run };
 }
 
-const account = ["--agent", "claude", "--name", "Personal", "--dir", "personal"];
+const accountProfile = ["--agent", "claude", "--name", "Personal"];
+const account = [...accountProfile, "--dir", "personal"];
 const gateway = [
   "--agent",
   "claude",
@@ -89,22 +96,22 @@ test("adds an account profile and directs the user to sign in from Settings", as
   expect(saved).toMatchObject({
     agent: "claude",
     name: "Personal",
-    dir: join(dir, "personal"),
     color: "rose",
     connection: { method: "account" },
     shared: SHARED_BY_DEFAULT.claude,
   });
+  expect(expandHome(saved?.dir ?? "")).toBe(join(dir, "personal"));
   expect(new StateService(statePath).getState().agentProfiles?.profiles).toEqual([saved]);
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("WORKSPACE DEFAULT");
   expect(result.stdout).toContain(saved?.id as string);
-  expect(result.stdout).toContain(join(dir, "personal"));
+  expect(result.stdout).toContain(saved?.dir as string);
   expect(result.stdout).toContain("Sign in from Settings › Agents.");
   expect(app.asked).toHaveLength(1);
   expect(app.asked[0]?.change).toMatchObject({
     kind: "profileAdd",
     detail: "Personal",
-    profileAdd: { agent: "claude", folder: join(dir, "personal"), connection: "account" },
+    profileAdd: { agent: "claude", folder: saved?.dir, connection: "account" },
     eachTime: true,
   });
   expect(app.uiCalls).toEqual([]);
@@ -122,14 +129,15 @@ test("saves a custom gateway and its instructions with the stdin key kept separa
   );
   expect(result.exitCode).toBe(0);
   const row = JSON.parse(result.stdout);
+  const saved = state.getState().agentProfiles?.profiles[0];
   expect(row).toEqual({
     id: expect.stringMatching(/^claude-/),
     name: "Gateway",
     agent: "claude",
     workspaceDefault: false,
-    path: join(dir, "gateway"),
+    path: saved?.dir,
   });
-  const saved = state.getState().agentProfiles?.profiles[0];
+  expect(expandHome(saved?.dir ?? "")).toBe(join(dir, "gateway"));
   expect(saved?.connection).toEqual({
     method: "custom",
     preset: "litellm",
@@ -148,7 +156,7 @@ test("saves a custom gateway and its instructions with the stdin key kept separa
     eachTime: true,
     profileAdd: {
       agent: "claude",
-      folder: join(dir, "gateway"),
+      folder: saved?.dir,
       connection: "custom",
       endpoint: "https://gateway.example/llm",
     },
@@ -269,6 +277,46 @@ test("rejects names case-insensitively and folders with equivalent paths", async
   expect(folder.stderr).toContain("already uses this folder");
   expect(app.asked).toHaveLength(1);
   expect(state.getState().agentProfiles?.profiles).toHaveLength(1);
+});
+
+test.each([
+  'C:\\some folder"',
+  "C:\\some<folder",
+  "C:\\some>folder",
+  "C:\\some|folder",
+  "C:\\some?folder",
+  "C:\\some*folder",
+  "C:\\some:folder",
+  "some:folder",
+])("rejects Windows folder %j before approval", async (folder) => {
+  const { app, state, run } = fixture({ windows: true });
+  const result = await run([...accountProfile, "--dir", folder]);
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain("Windows --dir cannot contain");
+  expect(result.stderr).toContain("In PowerShell, omit a trailing backslash inside a quoted path.");
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
+
+test.each([
+  "C:\\profiles\\work",
+  "C:\\profiles\\프로필 폴더",
+  "~/nexus-cli-test-profile",
+])("requests approval for valid Windows folder %j", async (folder) => {
+  const { app, run } = fixture({ windows: true });
+  app.answers.push("deny");
+  const result = await run([...accountProfile, "--dir", folder]);
+  expect(result.stderr).toContain("the user did not allow it");
+  expect(app.asked).toHaveLength(1);
+  if (folder.startsWith("~/")) expect(app.asked[0]?.change.profileAdd?.folder).toBe(folder);
+});
+
+test("requests approval for a folder with a quote on non-Windows", async () => {
+  const { app, run } = fixture({ windows: false });
+  app.answers.push("deny");
+  const result = await run([...accountProfile, "--dir", 'some folder"']);
+  expect(result.stderr).toContain("the user did not allow it");
+  expect(app.asked[0]?.change.profileAdd?.folder).toContain('some folder"');
 });
 
 test("suggests the next available name-based folder and does nothing when approval is denied", async () => {
