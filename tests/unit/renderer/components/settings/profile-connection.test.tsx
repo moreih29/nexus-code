@@ -56,5 +56,6 @@ describe("custom profile reasoning controls", () => {
     expect(html).toContain('<option value="none">None</option>');
     expect(html).toContain('<option value="high">low–high</option>');
     expect(html).toContain('<option value="xhigh">low–xhigh</option>');
+    expect(html).toContain('<option value="max">low–max</option>');
   });
 });

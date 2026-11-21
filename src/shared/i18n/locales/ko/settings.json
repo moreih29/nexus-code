@@ -923,7 +923,8 @@
       "effort": {
         "none": "없음",
         "high": "low~high",
-        "xhigh": "low~xhigh"
+        "xhigh": "low~xhigh",
+        "max": "low~max"
       },
       "addModel": "모델 추가",
       "removeModel": "모델 삭제",

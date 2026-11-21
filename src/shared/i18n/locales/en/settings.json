@@ -923,7 +923,8 @@
       "effort": {
         "none": "None",
         "high": "low–high",
-        "xhigh": "low–xhigh"
+        "xhigh": "low–xhigh",
+        "max": "low–max"
       },
       "addModel": "Add model",
       "removeModel": "Remove model",

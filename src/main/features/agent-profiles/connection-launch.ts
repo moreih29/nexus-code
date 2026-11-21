@@ -3,6 +3,7 @@ import {
   API_KEY_CONNECTION_URL,
   type ConnectionModel,
   type CustomConnection,
+  connectionReasoningLevels,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
@@ -37,6 +38,8 @@ const NO_CLAUDE_EFFORT = "-effort,-xhigh_effort,-max_effort";
 
 function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): string {
   switch (reasoning) {
+    case "max":
+      return "effort,xhigh_effort,max_effort";
     case "high":
       return "effort,-xhigh_effort,-max_effort";
     case "xhigh":
@@ -214,12 +217,7 @@ export function codexConnectionCatalog(connection: CustomConnection) {
   return {
     models: ordered.map((model, priority) => {
       const context = model.contextWindow ?? 131_072;
-      const efforts =
-        model.reasoning === "xhigh"
-          ? ["low", "medium", "high", "xhigh"]
-          : model.reasoning === "high"
-            ? ["low", "medium", "high"]
-            : [];
+      const efforts = connectionReasoningLevels(model.reasoning);
       return {
         slug: model.id,
         display_name: model.label || model.id,

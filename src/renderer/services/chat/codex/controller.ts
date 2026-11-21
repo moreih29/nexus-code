@@ -8,7 +8,10 @@
 // picks (model, effort, approvals) go with the next turn, as the server
 // takes them: they hold for the thread from that turn on.
 
-import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
+import {
+  connectionReasoningLevels,
+  type ProfileConnection,
+} from "../../../../shared/agent-profiles/connection";
 import {
   defaultProfileId,
   isDefaultProfileId,
@@ -1539,8 +1542,7 @@ export class CodexController {
       };
     }
     const chosenEffort = effort ?? this.model.effort;
-    const allowed =
-      choice.reasoning === "xhigh" ? ["low", "medium", "high", "xhigh"] : ["low", "medium", "high"];
+    const allowed = connectionReasoningLevels(choice.reasoning);
     return {
       model: choice.id,
       effort: chosenEffort && allowed.includes(chosenEffort) ? chosenEffort : "low",
