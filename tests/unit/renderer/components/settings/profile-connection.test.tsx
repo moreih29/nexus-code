@@ -22,10 +22,10 @@ const profile: AgentProfile = {
   },
 };
 
-function draftOf(agent: ChatAgent): ProfileConnectionDraft {
+function draftOf(agent: ChatAgent, source: AgentProfile = profile): ProfileConnectionDraft {
   let draft: ProfileConnectionDraft | undefined;
   function Capture() {
-    draft = useProfileConnection(agent, profile);
+    draft = useProfileConnection(agent, source);
     return null;
   }
   renderToStaticMarkup(<Capture />);
@@ -58,5 +58,33 @@ describe("custom profile reasoning controls", () => {
     expect(html).toContain('<option value="high">low–high</option>');
     expect(html).toContain('<option value="xhigh">low–xhigh</option>');
     expect(html).toContain('<option value="max">low–max</option>');
+  });
+
+  test("rejects an unrepresentable Claude reasoning ID in the dialog, not at launch", () => {
+    const reserved: AgentProfile = {
+      ...profile,
+      connection: {
+        method: "custom",
+        baseUrl: "https://gateway.example.com",
+        defaultModel: "model;other",
+        models: [{ id: "model;other", reasoning: "none" }],
+      },
+    };
+    const draft = draftOf("claude", reserved);
+    expect(draft.reasoningModelIdError).toBe(true);
+    expect(draft.valid).toBe(false);
+    const html = renderToStaticMarkup(<ProfileConnectionSection agent="claude" draft={draft} />);
+    expect(html).toContain("Reasoning needs a model ID");
+
+    const automatic = draftOf("claude", {
+      ...reserved,
+      connection: { ...reserved.connection, models: [{ id: "model;other" }] },
+    });
+    expect(automatic.reasoningModelIdError).toBe(false);
+    expect(automatic.valid).toBe(true);
+
+    const codex = draftOf("codex", { ...reserved, agent: "codex" });
+    expect(codex.reasoningModelIdError).toBe(false);
+    expect(codex.valid).toBe(true);
   });
 });

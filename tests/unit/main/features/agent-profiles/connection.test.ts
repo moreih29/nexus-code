@@ -208,7 +208,7 @@ describe("profile connections", () => {
     ).toBe("main/model=-effort,-xhigh_effort,-max_effort");
   });
 
-  test("bounds Claude effort per model without confusing capability-rule delimiters", () => {
+  test("bounds Claude effort per model and leaves unrepresentable IDs automatic", () => {
     const custom: CustomConnection = {
       ...connection,
       defaultModel: "UPPER[1m]",
@@ -223,12 +223,18 @@ describe("profile connections", () => {
     ).toBe("upper=effort,xhigh_effort,max_effort");
     for (const id of ["model;other", "model,other", "model=other", "model*"]) {
       for (const reasoning of ["none", "high"] as const) {
-        expect(() =>
-          claudeConnectionEnv(
-            { ...custom, defaultModel: id, models: [{ id, reasoning }] },
-            undefined,
-          ),
-        ).toThrow("cannot configure reasoning");
+        const env = claudeConnectionEnv(
+          {
+            ...custom,
+            defaultModel: id,
+            models: [
+              { id, reasoning },
+              { id: "UPPER[1m]", reasoning: "xhigh" },
+            ],
+          },
+          undefined,
+        );
+        expect(env.CLAUDE_CODE_MODEL_CAPABILITIES).toBe("upper=effort,xhigh_effort,-max_effort");
       }
       expect(
         claudeConnectionEnv({ ...custom, defaultModel: id, models: [{ id }] }, undefined),

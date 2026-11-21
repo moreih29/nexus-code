@@ -426,6 +426,9 @@ function ProfileConnectionModels({
           </button>
         </div>
       ))}
+      {draft.reasoningModelIdError && (
+        <p className={errorClass}>{t("profiles.connection.errors.reasoningModelId")}</p>
+      )}
       <Button
         variant="ghost"
         size="sm"

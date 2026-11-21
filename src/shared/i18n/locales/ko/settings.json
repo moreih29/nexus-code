@@ -963,6 +963,7 @@
         "model": "{{model}} 모델을 찾지 못했습니다",
         "network": "서버에 연결하지 못했습니다. 주소와 네트워크를 확인하세요",
         "address": "올바른 HTTP 또는 HTTPS API 주소를 적으세요",
+        "reasoningModelId": "추론 설정은 모델 ID에 `;`, `,`, `=` 또는 끝의 `*`가 있으면 안 됩니다",
         "unsupported": "이 주소는 Responses API를 받지 않습니다",
         "response": "서버가 예상과 다른 응답을 보냈습니다",
         "missingKey": "설정에서 이 프로필의 API 키를 입력하세요",

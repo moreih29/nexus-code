@@ -964,6 +964,7 @@
         "model": "Could not find model {{model}}.",
         "network": "Could not reach the server. Check the address and network.",
         "address": "Enter a valid HTTP or HTTPS API address.",
+        "reasoningModelId": "Reasoning needs a model ID without `;`, `,`, `=`, or a trailing `*`.",
         "unsupported": "This address does not accept the Responses API.",
         "response": "The server returned an unexpected response.",
         "missingKey": "Set the profile API key in Settings.",

@@ -9,6 +9,7 @@ import {
   type ConnectionProbe,
   type ConnectionTestResult,
   type CustomConnection,
+  claudeReasoningModelIdSupported,
   connectionKeyTarget,
   connectionPreset,
   type DiscoveredModel,
@@ -205,8 +206,15 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
         }
       : { method },
   );
+  const reasoningModelIdError =
+    agent === "claude" &&
+    method === "custom" &&
+    rows.some(
+      ({ id, reasoning }) => reasoning !== undefined && !claudeReasoningModelIdSupported(id.trim()),
+    );
   const valid =
     next.success &&
+    !reasoningModelIdError &&
     (method === "account" || keyValid) &&
     (method !== "api-key" || key === null || !!key || !!keyPlaceholder) &&
     (method !== "custom" ||
@@ -331,6 +339,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     toggleDiscovered,
     connection: next.data,
     valid,
+    reasoningModelIdError,
     test,
     testing,
     canTest: Boolean(probe && defaultModel),

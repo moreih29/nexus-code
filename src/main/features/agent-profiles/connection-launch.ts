@@ -3,6 +3,7 @@ import {
   API_KEY_CONNECTION_URL,
   type ConnectionModel,
   type CustomConnection,
+  claudeReasoningModelIdSupported,
   connectionReasoningLevels,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
@@ -50,21 +51,15 @@ function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): s
 }
 
 /**
- * Claude Code's custom-endpoint capability rules. A blank reasoning leaves the
- * model's launch environment untouched for compatibility with existing profiles.
- * The rule grammar has no escaping for these model-ID delimiters.
+ * Claude Code's custom-endpoint capability rules. A blank reasoning, or a model
+ * ID its grammar cannot name, stays on Claude Code's own defaults. The settings
+ * dialog rejects that combination before it becomes a new saved profile.
  */
 function claudeModelCapabilities(models: readonly ConnectionModel[]): string | undefined {
   const rules: string[] = [];
   for (const model of models) {
-    if (!model.reasoning) continue;
+    if (!model.reasoning || !claudeReasoningModelIdSupported(model.id)) continue;
     const id = model.id.replace(/\[1m\]$/i, "").toLowerCase();
-    if (/[;,=]/.test(id) || id.endsWith("*")) {
-      throw new Error(
-        `Claude model ID ${JSON.stringify(model.id)} cannot configure reasoning: ` +
-          '";", ",", "=", and a trailing "*" are reserved by Claude Code',
-      );
-    }
     rules.push(`${id}=${claudeReasoningCapabilities(model.reasoning)}`);
   }
   return rules.length ? rules.join(";") : undefined;
