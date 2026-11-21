@@ -170,9 +170,16 @@ function profileShown(workspaceId: string, tabId: string, agent: ChatAgent): str
   return cliProfileName(profileOf(config, agent, props?.profileId));
 }
 
-function infoOf(workspaceId: string, tabId: string, { agent }: AgentTabController) {
+function infoOf(
+  workspaceId: string,
+  tabId: string,
+  { agent }: AgentTabController,
+  includeWaitingId?: boolean,
+) {
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  return withProfile(workspaceId, tabId, chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId)));
+  const info = chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId));
+  const waitingId = includeWaitingId && info.waiting && chat?.model.permissions[0]?.requestId;
+  return { ...withProfile(workspaceId, tabId, info), ...(waitingId ? { waitingId } : {}) };
 }
 
 /**
@@ -571,7 +578,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     };
   },
 
-  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
+  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after, includeWaitingId }) => {
     const tracked =
       submissionId ?? (after === undefined ? undefined : submissionAt(workspaceId, tabId, after));
     if (tracked) {
@@ -588,7 +595,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
       return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
     }
-    return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId));
+    return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId), includeWaitingId);
   },
 
   "chat.read": async ({ workspaceId, tabId, messages, since, subagents }) => {

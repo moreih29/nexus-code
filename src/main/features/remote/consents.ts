@@ -35,7 +35,7 @@ export interface ConsentControls {
 export const MAX_REMOTE_BODY_CHARS = 8000;
 
 /** Whether another device may answer `pending`, and why not when not. */
-function refusalFor(pending: PendingConsent, controls: ConsentControls): string | null {
+export function refusalFor(pending: PendingConsent, controls: ConsentControls): string | null {
   const { request } = pending;
   // What another device cannot show whole is not allowed from it.
   if ((request.change.body?.length ?? 0) > MAX_REMOTE_BODY_CHARS) {

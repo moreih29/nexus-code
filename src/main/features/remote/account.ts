@@ -9,7 +9,11 @@
 
 import os from "node:os";
 import { z } from "zod";
-import { type ServerInfo, ServerInfoSchema } from "../../../../packages/remote-protocol/src";
+import {
+  type PushSend,
+  type ServerInfo,
+  ServerInfoSchema,
+} from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import {
   type RemoteAccountState,
@@ -284,6 +288,11 @@ export class RemoteAccount {
     if (id === this.saved?.device.id) this.forget();
   }
 
+  sendPush(body: PushSend, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
+    // The sender owns the retry and rechecks the pending request before using it.
+    return this.call("POST", "/push/send?v=1", { body, signal, timeoutMs, retryOrigin: false });
+  }
+
   /**
    * Asks the server as this device: the JSON it answered, or a ServerError;
    * a 401 signs the app out and throws SignedOutError. `headers` adds to the
@@ -330,6 +339,7 @@ export class RemoteAccount {
       signedIn?: boolean;
       timeoutMs?: number;
       signal?: AbortSignal;
+      retryOrigin?: boolean;
     } = {},
   ): Promise<unknown> {
     const { signal } = options;
@@ -369,7 +379,9 @@ export class RemoteAccount {
       // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
       // is slow. The proxy not reached, the server is asked straight, now and for a while; a
       // request that timed out may have gone through, and is not sent again.
-      if (!this.route.unreachable(base) || isTimeout(error)) throw new UnreachableError(error);
+      if (!this.route.unreachable(base) || options.retryOrigin === false || isTimeout(error)) {
+        throw new UnreachableError(error);
+      }
       try {
         res = await send(this.route.base());
       } catch (again) {
@@ -389,8 +401,14 @@ export class RemoteAccount {
       if (error instanceof ResponseTooLargeError) {
         throw new ServerError(res.status, error.code, `${method} ${path}`, retryAfter);
       }
+      signal?.throwIfAborted();
       if (res.status === 429)
         throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
+      // A known HTTP error consumes the push attempt even if its body was lost.
+      if (options.retryOrigin === false) {
+        if (!res.ok) throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
+        if (error instanceof TypeError || isTimeout(error)) throw new UnreachableError(error);
+      }
       throw error;
     });
     signal?.throwIfAborted();

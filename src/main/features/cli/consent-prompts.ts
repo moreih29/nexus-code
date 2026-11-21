@@ -21,6 +21,7 @@ export interface ConsentPromptsDeps {
   ): Promise<{ answer: CliConsentAnswer }>;
   /** Answers a prompt shown (consent.settle); false when it no longer waits. */
   settle(id: string, answer: "once" | "session" | "deny", by?: string): Promise<boolean>;
+  onChange?(): void;
   now?: () => number;
 }
 
@@ -45,8 +46,9 @@ export class ConsentPrompts implements CliConsents {
     const at = this.deps.now?.() ?? Date.now();
     const request = { ...args, id };
     this.pending.set(id, { id, at, expiresAt: at + args.timeoutMs, request });
+    this.deps.onChange?.();
     const cancel = () => {
-      this.pending.delete(id);
+      this.remove(id);
       void this.deps.settle(id, "deny").catch(() => false);
     };
     signal?.addEventListener("abort", cancel, { once: true });
@@ -60,7 +62,7 @@ export class ConsentPrompts implements CliConsents {
       return answer;
     } finally {
       signal?.removeEventListener("abort", cancel);
-      this.pending.delete(id);
+      this.remove(id);
     }
   }
 
@@ -70,6 +72,12 @@ export class ConsentPrompts implements CliConsents {
 
   async answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean> {
     if (!this.pending.has(id)) return false;
-    return this.deps.settle(id, answer, by).catch(() => false);
+    const settled = await this.deps.settle(id, answer, by).catch(() => false);
+    if (settled) this.remove(id);
+    return settled;
+  }
+
+  private remove(id: string): void {
+    if (this.pending.delete(id)) this.deps.onChange?.();
   }
 }

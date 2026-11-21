@@ -31,6 +31,9 @@ export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
 export const RemoteAgentsPolicySchema = z.enum(["ask", "allow", "deny"]);
 export type RemoteAgentsPolicy = z.infer<typeof RemoteAgentsPolicySchema>;
 
+export const PhonePushPolicySchema = z.enum(["away", "always", "off"]);
+export type PhonePushPolicy = z.infer<typeof PhonePushPolicySchema>;
+
 export const WindowBoundsSchema = z.object({
   x: NumberSchema,
   y: NumberSchema,
@@ -279,6 +282,7 @@ export const AppStateSchema = z.object({
   // restart, for a pair of workspaces), allowed, or not taken at all.
   // Apart from the switches above, which are for the user's own hands.
   remoteAgents: RemoteAgentsPolicySchema.default("ask"),
+  phonePush: PhonePushPolicySchema.default("away"),
 
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.

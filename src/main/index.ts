@@ -225,6 +225,7 @@ let profileConnectionKeys: ConnectionKeys | undefined;
 
 let remote: {
   themeChanged(): void;
+  consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
   peerFiles: PeerFileReader;
@@ -762,6 +763,10 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteAgents ?? "ask",
       set: (policy) => stateService.setState({ remoteAgents: policy }),
     },
+    phonePush: {
+      get: () => stateService.getState().phonePush,
+      set: (policy) => stateService.setState({ phonePush: policy }),
+    },
     gitStatus: async (workspaceId) => {
       const repository = await gitRegistry?.getOrDetect(workspaceId);
       return repository ? repository.status() : null;
@@ -805,6 +810,7 @@ app.whenReady().then(async () => {
     claudeActivity: claudeSetup.activity,
     claudeAsks: claudeSetup.asks,
     remote: () => remote?.cli ?? null,
+    onConsentsChanged: () => remote?.consentsChanged(),
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
