@@ -12,8 +12,10 @@ export const RelaySenderSchema = z.object({
   /**
    * A Claude or Codex tab's agent, or an agent in a terminal. "manager" is
    * the agent manager of older versions, kept so what one sent still reads.
+   * "app": the app itself, as when it has a tab go on once its plan's usage
+   * limit resets.
    */
-  kind: z.enum(["tab", "terminal", "manager"]),
+  kind: z.enum(["tab", "terminal", "manager", "app"]),
   agent: z.enum(["claude", "codex"]).optional(),
   /** The tab's title when it sent the message. */
   name: z.string().max(200).optional(),
@@ -51,6 +53,17 @@ export type RelayedMessage = z.infer<typeof RelayedMessageSchema>;
 
 export const RelayedMessagesSchema = z.array(RelayedMessageSchema).max(RELAYED_KEPT).optional();
 
+/**
+ * A message the app sent a tab on its own (to go on once the plan's usage
+ * limit reset), by its ids as a relayed message's. A tab keeps these apart
+ * from `relayed`: versions before the "app" sender would not load a layout
+ * whose relayed messages name it.
+ */
+export const AppMessageSchema = RelayedMessageSchema.omit({ from: true });
+export type AppMessage = z.infer<typeof AppMessageSchema>;
+
+export const AppMessagesSchema = z.array(AppMessageSchema).max(RELAYED_KEPT).optional();
+
 /** What leads the line the agent reads before such a message. */
 export const RELAY_MARK = "[nexus] ";
 
@@ -68,6 +81,9 @@ const short = (id: string) => id.slice(0, 8);
  * on another computer, and for one that may not be waiting.
  */
 export function relayHeader(from: RelaySender): string {
+  // No one waits for the answer: the app sent it on the user's behalf.
+  if (from.kind === "app")
+    return `${RELAY_MARK}NexusCode, the app, sent this on its own, not the user.`;
   const name = JSON.stringify(from.name ?? "");
   const who =
     from.kind === "manager"
@@ -89,9 +105,9 @@ export function relayHeader(from: RelaySender): string {
   return `${said} Your answer here is what it reads${when}; to write to it later: ${reply}`;
 }
 
-/** The command that writes to the sender: none to the manager, nor to one of no tab. */
+/** The command that writes to the sender: none to the manager or the app, nor to one of no tab. */
 function replyOf({ kind, device, workspaceId, tabId }: RelaySender): string | null {
-  if (kind === "manager" || !workspaceId || !tabId) return null;
+  if (kind === "manager" || kind === "app" || !workspaceId || !tabId) return null;
   const command = kind === "terminal" ? "nexus terminal send" : "nexus chat send";
   const on = device ? ` --device ${short(device.id)}` : "";
   return `${command} ${short(tabId)} --workspace ${short(workspaceId)}${on} -`;

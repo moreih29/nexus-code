@@ -242,6 +242,11 @@ export const AppStateSchema = z.object({
   // limit is near. Off hides the warning only: a limit reached still shows.
   rateLimitWarnings: z.boolean().default(true),
 
+  // Whether a Claude or Codex tab of a subscription's profile goes on by
+  // itself once the plan's usage limit that stopped it resets: the app sends
+  // the agent a message to go on (services/chat/limit-resume).
+  chatLimitResume: z.boolean().default(true),
+
   // The language voice input listens for: the app's ("app", ko or en), or
   // "multi", which lets the server tell the language as the user speaks.
   voiceLanguage: z.enum(["app", "multi"]).default("app"),

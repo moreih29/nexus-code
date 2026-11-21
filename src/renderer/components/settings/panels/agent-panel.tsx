@@ -18,6 +18,7 @@ import {
 import { type CrossWorkspacePolicy, useAgentCliStore } from "../../../state/stores/agent-cli";
 import { useAgentListViewStore } from "../../../state/stores/agent-list-view";
 import { useChatFontStore, useChatFontStyle } from "../../../state/stores/chat-font";
+import { useNotificationsStore } from "../../../state/stores/notifications";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
 import { taskAgentOptions } from "../../workspace/task-agent-options";
@@ -35,6 +36,7 @@ export function AgentPanel() {
   const crossWorkspace = useAgentCliStore((s) => s.crossWorkspace);
   const agentContext = useAgentCliStore((s) => s.agentContext);
   const setLocal = useAgentCliStore((s) => s.set);
+  const limitResume = useNotificationsStore((s) => s.limitResume);
 
   const policyLabel = t("agentCli.crossWorkspace.label");
   const policies: { value: CrossWorkspacePolicy; label: string }[] = [
@@ -81,6 +83,19 @@ export function AgentPanel() {
       </SettingsGroup>
 
       <ChatFontGroup />
+
+      <SettingsGroup title={t("chat.limits")}>
+        {/* A subscription's tab the plan's usage limit stopped goes on once it resets. */}
+        <SettingsSwitch
+          label={t("chat.limitResume.label")}
+          description={t("chat.limitResume.description")}
+          checked={limitResume}
+          onChange={(next) => {
+            useNotificationsStore.getState().setLimitResume(next);
+            void ipcCallResult("appState", "set", { chatLimitResume: next });
+          }}
+        />
+      </SettingsGroup>
 
       <SettingsGroup title={t("agentCli.heading")}>
         <SettingsSwitch

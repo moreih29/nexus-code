@@ -288,6 +288,12 @@ export const RemoteSessionSchema = z.object({
    * more than MAX_SESSION_AGENTS are cut (readableList).
    */
   agents: readableList(RemoteSessionAgentSchema, MAX_SESSION_AGENTS).optional(),
+  /**
+   * A chat the plan's usage limit stopped, which its app goes on in by
+   * itself at `at` (Unix milliseconds), once the limit resets. Since
+   * 0.19.0; one this version cannot read is left out, not the session.
+   */
+  limitWait: z.object({ at: z.number() }).optional().catch(undefined),
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 

@@ -11,6 +11,7 @@ import {
   type TabActivity,
   type TabActivityEntry,
 } from "../../../shared/sessions/agent-state";
+import type { LimitResume } from "../../../shared/types/layout";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatTabState } from "../chat/store";
@@ -51,6 +52,18 @@ export interface AgentSession {
   readonly message: string | undefined;
   /** The last prompt the user gave Claude. */
   readonly prompt: string | undefined;
+  /**
+   * A Claude or Codex tab the plan's usage limit stopped, which the app goes
+   * on in at `at` (Unix ms) once the limit resets (services/chat/limit-resume).
+   */
+  readonly limitWait?: { readonly at: number };
+}
+
+/** The wait a tab's record of going on after the usage limit tells, while it waits. */
+function limitWaitOf(record: LimitResume | undefined): Pick<AgentSession, "limitWait"> {
+  return record?.state === "waiting" && record.at !== undefined
+    ? { limitWait: { at: record.at } }
+    : {};
 }
 
 export interface WorktreeEntry {
@@ -229,6 +242,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: streamed ? streamed.since : status?.since,
         message: streamed ? streamed.message : status?.message,
         prompt: streamed?.prompt ?? status?.prompt,
+        ...limitWaitOf(tab.props.limitResume),
       });
       continue;
     }
@@ -247,6 +261,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: codex.since,
         message: codex.message,
         prompt: codex.prompt,
+        ...limitWaitOf(tab.props.limitResume),
       });
       continue;
     }

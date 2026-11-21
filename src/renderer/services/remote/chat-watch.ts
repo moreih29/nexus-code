@@ -28,6 +28,7 @@ import { codexHistoryAvailable, codexHistoryBusy, codexServerVersion } from "../
 import type { CodexModel } from "../chat/codex/model";
 import type { ToolCall } from "../chat/model";
 import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
+import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
 import {
   type ChatSource,
@@ -343,13 +344,15 @@ export function tabSource(
   }));
   const codex = chat.model as CodexModel;
   const codexIdle = Boolean(codex.threadId && !codexHistoryBusy(chat));
+  const relayed = relayedOf(tab.props);
   return {
     agent,
     title: tab.title,
     chat,
-    ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+    ...(relayed ? { relayed } : {}),
     ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
     ...(moves && moves.length > 0 ? { moves } : {}),
+    ...(tab.props.limitResume ? { limitResume: tab.props.limitResume } : {}),
     ...(tab.type === "claude"
       ? {
           can: {

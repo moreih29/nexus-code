@@ -45,6 +45,7 @@ import type { RoomPeer } from "../../../shared/remote/room";
 import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
+import { resumeTimeText } from "../../services/chat/limit-resume";
 import { useRemoteAccount } from "../../services/remote/account";
 import {
   offlinePeers,
@@ -751,7 +752,7 @@ export function RemoteSessionRow({
   where?: PanelPlace | null;
   onOpen?: () => void;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const group = GROUP_OF[session.state];
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
@@ -781,14 +782,19 @@ export function RemoteSessionRow({
         <Icon aria-hidden className="size-3 shrink-0" />
         <span className="min-w-0 truncate text-app-ui-sm text-foreground">{session.title}</span>
       </span>
-      {(session.waiting || session.last) && (
+      {(session.waiting || session.limitWait || session.last) && (
         <span
           className={cn(
             "truncate pl-4.5 text-app-micro",
             session.waiting ? "text-(--state-warning-fg)" : "text-muted-foreground",
           )}
         >
-          {session.waiting?.text ?? session.last}
+          {session.waiting?.text ??
+            (session.limitWait
+              ? t("chat.limit_resume.status", {
+                  time: resumeTimeText(session.limitWait.at, Date.now(), i18n.language),
+                })
+              : session.last)}
         </span>
       )}
     </button>

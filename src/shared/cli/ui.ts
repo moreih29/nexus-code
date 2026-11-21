@@ -383,6 +383,29 @@ export interface CliChatInfo {
   readonly goal?: CliChatGoal;
   /** The folder it runs in, when it is not its workspace's. */
   readonly cwd?: string;
+  /**
+   * On an error from the API, what it needs: usage_limit (the plan's usage
+   * limit; it goes on once the limit resets), transient (an overloaded or
+   * failing server, a rate limit, a dropped connection that outlasted the
+   * program's retries; a message to go on may help), auth (a new sign-in
+   * or key), request (the API refused the request itself), other.
+   */
+  readonly failure?: "usage_limit" | "transient" | "auth" | "request" | "other";
+  /** Stopped at the plan's usage limit: whether and when the app goes on in it. */
+  readonly limitResume?: CliLimitResume;
+}
+
+/**
+ * Going on in a tab the plan's usage limit stopped: waiting (the app sends
+ * it a message to go on at `at`), unknown (no reset time, nothing
+ * scheduled), cancelled (by the user), gave_up (the limit held after the
+ * most tries). Times in Unix ms.
+ */
+export interface CliLimitResume {
+  readonly state: "waiting" | "unknown" | "cancelled" | "gave_up";
+  readonly at?: number;
+  readonly resetsAt?: number;
+  readonly tries?: number;
 }
 
 /** What a tab asks the user for. */

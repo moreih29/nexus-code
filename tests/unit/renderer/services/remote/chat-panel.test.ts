@@ -346,4 +346,23 @@ describe("a chat's side panel", () => {
       changedFiles: [{ path: "/p/a.ts" }],
     });
   });
+
+  test("when its app goes on after the usage limit, while it waits; none once the message went", () => {
+    const record = {
+      stopAt: 1,
+      resetsAt: 2,
+      at: 60_002,
+      state: "waiting" as const,
+      tries: 1,
+      session: "s",
+    };
+    expect(chatPanelOf({ ...source({}), limitResume: record }).limitResume).toEqual({
+      state: "waiting",
+      at: 60_002,
+      resetsAt: 2,
+      tries: 1,
+    });
+    const sent = { ...record, state: "sent" as const, sentAt: 60_002 };
+    expect(chatPanelOf({ ...source({}), limitResume: sent }).limitResume).toBeUndefined();
+  });
 });

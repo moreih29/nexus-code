@@ -396,6 +396,23 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     reset: () => useChatFontStore.getState().setFamily(undefined),
   },
   {
+    key: "chat.limitResume",
+    summary: "Whether a subscription's chat tab goes on by itself once its usage limit resets",
+    type: "boolean",
+    get: () => {
+      const value = useNotificationsStore.getState().limitResume;
+      return { value, changed: !value };
+    },
+    set: (value) => {
+      useNotificationsStore.getState().setLimitResume(value as boolean);
+      save({ chatLimitResume: value as boolean });
+    },
+    reset: () => {
+      useNotificationsStore.getState().setLimitResume(true);
+      save({ chatLimitResume: true });
+    },
+  },
+  {
     key: "sessions.defaultView",
     summary: "The view an agent list opens in",
     type: "choice",

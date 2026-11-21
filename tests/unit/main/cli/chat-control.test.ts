@@ -530,6 +530,33 @@ describe("chat panel", () => {
     );
   });
 
+  test("says when the app goes on after the usage limit, or why it does not", () => {
+    const base: ChatPanel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    const now = Date.now();
+    const at = now + 38 * 60_000;
+    const waiting = panelText("T", { ...base, limitResume: { state: "waiting", at } }, now);
+    expect(waiting).toMatch(
+      /^Usage limit: reached; the app sends a message to go on at \d\d:\d\d \(in 38m\)$/m,
+    );
+    expect(panelText("T", { ...base, limitResume: { state: "unknown" } }, now)).toContain(
+      "Usage limit: reached; when it resets is not known, so nothing goes on by itself",
+    );
+    expect(panelText("T", { ...base, limitResume: { state: "gave_up", tries: 3 } }, now)).toContain(
+      "Usage limit: still reached after 3 tries; the app no longer goes on by itself",
+    );
+    // A state a later version tells: nothing said of it.
+    expect(panelText("T", { ...base, limitResume: { state: "snoozed" } }, now)).toBe(
+      "T: its panel is empty.",
+    );
+  });
+
   test("leaves out the account the tab's program is signed in with", async () => {
     const app = withChat();
     app.uiAnswers.set("chat.panel", {

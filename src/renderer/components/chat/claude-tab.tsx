@@ -66,7 +66,7 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { withRelayed } from "../../services/chat/relayed";
+import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { jobToolStatuses } from "../../services/chat/running";
 import {
@@ -99,6 +99,7 @@ import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
+import { LimitResumeBanner, showsLimitResume } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -112,6 +113,7 @@ import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { SummaryLine, summaryCountsOf } from "./summary-line";
 import { toolSummary } from "./tool-row";
+import { TurnFailureBanner } from "./turn-failure-banner";
 import { ClaudeUsageLine } from "./usage-line";
 
 interface ClaudeTabViewProps {
@@ -592,7 +594,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       tabId,
       cwd: props.cwd,
       rootPath,
-      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
+      items: withRelayed(
+        history ? [...history.items, ...model.items] : model.items,
+        relayedOf(props),
+      ),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -736,7 +741,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
-              relayed={props.relayed}
+              relayed={relayedOf(props)}
               historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
@@ -817,14 +822,19 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               </div>
             </div>
           )}
-          <RateLimitBanner limit={state.model.rateLimit} />
+          {showsLimitResume(props.limitResume) ? (
+            <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
+          ) : (
+            <RateLimitBanner limit={state.model.rateLimit} />
+          )}
+          <TurnFailureBanner model={state.model} onRetry={(text) => controller.send(text)} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
             fallbackModels={fallbackModels}
-            relayed={props.relayed}
+            relayed={relayedOf(props)}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={

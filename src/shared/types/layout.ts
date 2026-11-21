@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { InstructionTextSchema } from "../chat/instructions";
-import { RelayedMessagesSchema } from "../chat/relay";
+import { AppMessagesSchema, RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { NoteIdSchema } from "./notes";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
@@ -87,6 +87,35 @@ const PeerSubmissionsSchema = z
   )
   .optional();
 
+/**
+ * Going on once the plan's usage limit resets, for the turn it stopped
+ * (services/chat/limit-resume). One the app cannot read is left out, not
+ * the layout.
+ */
+export const LimitResumeSchema = z
+  .object({
+    /** When the turn stopped (its result's time, Unix ms): the stop it is for. */
+    stopAt: z.number(),
+    /** When the limit resets, as the program or the plan's usage told; absent: not known. */
+    resetsAt: z.number().optional(),
+    /** When the app sends the message to go on. */
+    at: z.number().optional(),
+    /**
+     * waiting: to send at `at`; unknown: no reset time, nothing to send;
+     * cancelled: the user called it off; sent: the message went, at `sentAt`;
+     * gave_up: the limit held after the most tries.
+     */
+    state: z.enum(["waiting", "unknown", "cancelled", "sent", "gave_up"]),
+    /** Times it was put off or sent for the same limit. */
+    tries: z.number().int().min(0),
+    sentAt: z.number().optional(),
+    /** The session or thread it is for: another one leaves it. */
+    session: z.string().max(128).optional(),
+  })
+  .optional()
+  .catch(undefined);
+export type LimitResume = NonNullable<z.infer<typeof LimitResumeSchema>>;
+
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   instructions: InstructionTextSchema.optional(),
@@ -107,9 +136,12 @@ export const ClaudeTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The messages the app sent it on its own. */
+  fromApp: AppMessagesSchema,
   peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen: ChatChosenSchema,
+  limitResume: LimitResumeSchema,
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -138,9 +170,12 @@ export const CodexTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The messages the app sent it on its own. */
+  fromApp: AppMessagesSchema,
   peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen: ChatChosenSchema,
+  limitResume: LimitResumeSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 export type CodexFork = NonNullable<CodexTabProps["fork"]>;

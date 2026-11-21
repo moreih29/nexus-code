@@ -117,7 +117,8 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
  */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
-  if (!sender) {
+  // The app sends on its own, never through the command.
+  if (!sender || sender.kind === "app") {
     const { workspaceId, tabId } = ctx.caller;
     return { kind: "terminal", workspaceId, tabId };
   }

@@ -3,11 +3,17 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
-import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/relay";
+import {
+  type AppMessage,
+  RELAYED_KEPT,
+  type RelayedMessage,
+  withRelayedMessage,
+} from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
   type CodexFork,
+  type LimitResume,
   MAX_CHAT_PEER_SUBMISSIONS,
   type NoteTabProps,
   PROFILE_MOVES_KEPT,
@@ -72,9 +78,13 @@ export interface ClaudeTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The messages the app sent it on its own. */
+  fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 export interface CodexTabProps {
@@ -93,9 +103,13 @@ export interface CodexTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The messages the app sent it on its own. */
+  fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 interface TabBase {
@@ -335,6 +349,8 @@ interface TabsState {
     submission: PeerSubmission,
   ) => void;
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
+  /** Sets, or with undefined drops, a chat tab's going on after the usage limit. */
+  setLimitResume: (workspaceId: string, tabId: string, record: LimitResume | undefined) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -763,6 +779,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
               : {}),
             ...(profileId ? { profileId } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.props.fromApp ? { fromApp: tab.props.fromApp } : {}),
             ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
             ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
           };
@@ -854,8 +871,26 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (record.from.kind === "app") {
+            // Kept apart, for versions that know no "app" sender (AppMessageSchema).
+            const { from: _app, ...message } = record;
+            const kept = (tab.props.fromApp ?? []).filter((m) => m.id !== message.id);
+            const fromApp = [...kept, message].slice(-RELAYED_KEPT);
+            return { ...tab, props: { ...tab.props, fromApp } } as Tab;
+          }
           const relayed = withRelayedMessage(tab.props.relayed, record);
           return { ...tab, props: { ...tab.props, relayed } } as Tab;
+        }),
+      );
+    },
+
+    setLimitResume(workspaceId, tabId, record) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.limitResume === record) return tab;
+          const { limitResume: _was, ...props } = tab.props;
+          return { ...tab, props: record ? { ...props, limitResume: record } : props } as Tab;
         }),
       );
     },

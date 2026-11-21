@@ -25,6 +25,8 @@ Schema 0.16.0 adds the `settings.instructions` capability and RPC. An agent can 
 
 Schema 0.17.0 adds the `profiles.usage` capability and RPC. An agent can read the receiving device's profile names, usage windows, and observation times when that device accepts agent requests. The request can select a workspace host and refresh the snapshot through the provider's CLI.
 
+Schema 0.19.0 adds optional fields only, and no capability. A chat's panel can carry `limitResume`: when the plan's usage limit stopped a subscription's chat, whether and when the serving app goes on in it by itself. A session can carry `limitWait`, the time it goes on. A turn's `retry` can carry `at`, `status` (the HTTP status) and `reason` (rate_limit, overloaded, server, connection, auth or other). Each is left out, not the panel or session, when a device cannot read it.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`. They need `zod` 3.25 or later.

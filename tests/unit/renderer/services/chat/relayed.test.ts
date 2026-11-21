@@ -6,7 +6,11 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatItem, UserItem } from "../../../../../src/renderer/services/chat/model";
 import { followsMessage } from "../../../../../src/renderer/services/chat/profile-moves";
-import { relaySenderText, withRelayed } from "../../../../../src/renderer/services/chat/relayed";
+import {
+  relayedOf,
+  relaySenderText,
+  withRelayed,
+} from "../../../../../src/renderer/services/chat/relayed";
 import {
   RELAYED_KEPT,
   type RelayedMessage,
@@ -51,6 +55,12 @@ describe("the line the agent reads", () => {
     );
     expect(relayHeader({ kind: "manager" })).toStartWith(
       "[nexus] The manager (an agent the user runs) sent this, not the user.",
+    );
+  });
+
+  it("from the app, says so, and gives no command to answer it", () => {
+    expect(relayHeader({ kind: "app" })).toBe(
+      "[nexus] NexusCode, the app, sent this on its own, not the user.",
     );
   });
 
@@ -208,5 +218,21 @@ describe("withRelayed", () => {
     );
     expect(relaySenderText({ kind: "manager" })).toBe("the manager");
     expect(relaySenderText({ kind: "peer", name: "other" })).toBeUndefined();
+    expect(relaySenderText({ kind: "app" })).toBe("NexusCode (the app)");
+  });
+
+  it("shows a message the app sent, kept apart from the command's, as the app's", () => {
+    const sent = user(
+      "u-2",
+      "[nexus] NexusCode, the app, sent this on its own, not the user.\n\nGo on.",
+    );
+    const props = { relayed: [record("uuid-1")], fromApp: [{ id: "u-2-id", at: 2 }] };
+    const records = relayedOf(props);
+    expect(records?.map((r) => r.from.kind)).toEqual(["tab", "app"]);
+    // The same records for the same lists, so the list does not render again.
+    expect(relayedOf(props)).toBe(records);
+    expect(relayedOf({ relayed: props.relayed })).toBe(props.relayed);
+    const [shown] = withRelayed([{ ...sent, uuid: "u-2-id" }], records);
+    expect(shown).toMatchObject({ kind: "received", from: { kind: "app" }, text: "Go on." });
   });
 });

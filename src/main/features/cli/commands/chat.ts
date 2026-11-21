@@ -158,6 +158,8 @@ function infoJson(
     ...(info.since !== undefined ? { since: info.since } : {}),
     ...(info.profile ? { profile: info.profile } : {}),
     ...(info.goal ? { goal: info.goal } : {}),
+    ...(info.failure ? { failure: info.failure } : {}),
+    ...(info.limitResume ? { limitResume: info.limitResume } : {}),
   };
 }
 
@@ -197,13 +199,17 @@ const TIMEOUT_FLAG = {
  * working: idle after its turn, asking the user, stopped on an error, or
  * closed. Says which, as `tab`. Never throws for a timeout.
  */
+/** A chat wait's result: the tab it ended on, and why its turn failed, when it did. */
+export type ChatWaitResult = WaitResult &
+  Pick<CliChatInfo, "failure" | "limitResume"> & { tab?: CliTabInfo };
+
 export async function waitOnChats(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   tabs: readonly CliTabInfo[],
   timeoutMs: number,
   submissionId?: string,
-): Promise<WaitResult & { tab?: CliTabInfo }> {
+): Promise<ChatWaitResult> {
   const { clock } = ctx.services;
   const startedAt = clock.now();
   const ends = tabs.map((tab) =>
@@ -221,12 +227,15 @@ export async function waitOnChats(
           tabId: tab.id,
           ...(submissionId ? { submissionId } : {}),
         });
+        // A turn the usage limit stopped has ended too: the text says when it goes on.
         if (info.state !== "working") {
           return {
             done: true,
             state: info.state,
             text: chatStateText(tab, info),
             ...(info.message ? { message: info.message } : {}),
+            ...(info.failure ? { failure: info.failure } : {}),
+            ...(info.limitResume ? { limitResume: info.limitResume } : {}),
             tab,
           };
         }
@@ -254,15 +263,25 @@ export function waitOnChat(
   tab: CliTabInfo,
   timeoutMs: number,
   submissionId?: string,
-): Promise<WaitResult> {
+): Promise<ChatWaitResult> {
   return waitOnChats(ctx, workspace, [tab], timeoutMs, submissionId);
 }
 
 /** A wait's result as the command prints it; exit 124 when the wait ran out. */
-function waitOutput(text: string, json: Record<string, unknown>, result: WaitResult): CliOutput {
+function waitOutput(
+  text: string,
+  json: Record<string, unknown>,
+  result: ChatWaitResult,
+): CliOutput {
   return output(
     text,
-    { ...json, state: result.state, ...(result.message ? { message: result.message } : {}) },
+    {
+      ...json,
+      state: result.state,
+      ...(result.message ? { message: result.message } : {}),
+      ...(result.failure ? { failure: result.failure } : {}),
+      ...(result.limitResume ? { limitResume: result.limitResume } : {}),
+    },
     result.done ? {} : { exitCode: 124 },
   );
 }

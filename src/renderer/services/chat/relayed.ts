@@ -3,7 +3,12 @@
 // of them (the message's id, or a Codex message's turn), not by what the
 // text says, so text the user writes that looks the same stays theirs.
 
-import { RELAY_MARK, type RelayedMessage, withoutRelayHeader } from "../../../shared/chat/relay";
+import {
+  type AppMessage,
+  RELAY_MARK,
+  type RelayedMessage,
+  withoutRelayHeader,
+} from "../../../shared/chat/relay";
 import type { ChatItem, MessageSource, UserItem } from "./model";
 
 /** The record of a message, by its ids; a Codex one a resumed thread renumbered, by its turn. */
@@ -90,18 +95,52 @@ function asReceived(item: UserItem, record: RelayedMessage): ChatItem {
   };
 }
 
+/** Each message the app sent, as a record of who sent it: the same for the same message. */
+const appRecords = new WeakMap<AppMessage, RelayedMessage>();
+/** The records a tab's two lists make, by the app's list: the same for the same lists. */
+const joined = new WeakMap<
+  readonly AppMessage[],
+  { relayed?: readonly RelayedMessage[]; all: RelayedMessage[] }
+>();
+
+/**
+ * Who sent a tab's messages that the user did not: the records of those
+ * sent through the nexus command, and of those the app sent on its own.
+ */
+export function relayedOf(props: {
+  relayed?: readonly RelayedMessage[];
+  fromApp?: readonly AppMessage[];
+}): readonly RelayedMessage[] | undefined {
+  const { relayed, fromApp } = props;
+  if (!fromApp || fromApp.length === 0) return relayed;
+  const was = joined.get(fromApp);
+  if (was && was.relayed === relayed) return was.all;
+  const app = fromApp.map((message) => {
+    let record = appRecords.get(message);
+    if (!record) {
+      record = { ...message, from: { kind: "app" } };
+      appRecords.set(message, record);
+    }
+    return record;
+  });
+  const all = [...(relayed ?? []), ...app];
+  joined.set(fromApp, { ...(relayed ? { relayed } : {}), all });
+  return all;
+}
+
 /** The senders of messages sent through the nexus command, as MessageSource kinds. */
-export const RELAY_KINDS: ReadonlySet<string> = new Set(["tab", "terminal", "manager"]);
+export const RELAY_KINDS: ReadonlySet<string> = new Set(["tab", "terminal", "manager", "app"]);
 
 /**
  * Who sent a message through the nexus command, in words, for text that
  * tells the conversation (chat read, /export): `tab "NAME"`, `Codex in
- * terminal "NAME"`, `the manager`. Undefined for other senders.
+ * terminal "NAME"`, `the manager`, the app. Undefined for other senders.
  */
 export function relaySenderText(from: MessageSource): string | undefined {
   if (!RELAY_KINDS.has(from.kind)) return undefined;
   const on = from.device ? ` on ${JSON.stringify(from.device.name)}` : "";
   if (from.kind === "manager") return `the manager${on}`;
+  if (from.kind === "app") return "NexusCode (the app)";
   const name = from.name ? ` ${JSON.stringify(from.name)}` : "";
   if (from.kind === "tab") return `tab${name}${on}`;
   return `${from.agent === "codex" ? "Codex" : "Claude Code"} in terminal${name}${on}`;

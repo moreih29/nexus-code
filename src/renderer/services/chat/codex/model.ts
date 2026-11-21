@@ -12,6 +12,7 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
+import { codexErrorStatus, codexRetryCount, codexTurnFailure, retryReasonOf } from "../api-errors";
 import { fileMention } from "../composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "../goal";
 import {
@@ -990,6 +991,8 @@ function applyNotification(
             : applyItem(draft, turnId, item, phase, tag, num(item.startedAtMs) ?? at);
         if (m.running && turnId === m.turnId) {
           noteTurnActivity(m, at);
+          // The model answered: a retry before it is over.
+          if (item.type !== "userMessage") clearRetry(m);
           if (completed && toolRan && m.permissions.length === 0) {
             m.toolCompletedSeq = seq;
           }
@@ -1003,7 +1006,10 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "text", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
-      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
+      if (!params.turnId || params.turnId === m.turnId) {
+        noteTurnActivity(m, at);
+        clearRetry(m);
+      }
       if (m.turn) {
         m.turn = { ...m.turn, outputTokens: m.turn.outputTokens + Math.ceil(delta.length / 4) };
       }
@@ -1015,7 +1021,10 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "thinking", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
-      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
+      if (!params.turnId || params.turnId === m.turnId) {
+        noteTurnActivity(m, at);
+        clearRetry(m);
+      }
       if (m.turn) {
         const thinkingTokens = m.turn.thinkingTokens + Math.ceil(delta.length / 4);
         m.turn = { ...m.turn, thinkingTokens };
@@ -1159,8 +1168,20 @@ function applyNotification(
       const error = rec(params.error);
       if (params.willRetry === true) {
         if (m.turn) {
-          const attempt = (m.turn.retry?.attempt ?? 0) + 1;
-          m.turn = { ...m.turn, retry: { attempt } };
+          // "Reconnecting... 2/5": Codex's own count, which starts again for
+          // each phase of its retries; without it, the app's.
+          const told = codexRetryCount(str(error?.message));
+          const status = codexErrorStatus(error?.codexErrorInfo);
+          m.turn = {
+            ...m.turn,
+            retry: {
+              attempt: told?.attempt ?? (m.turn.retry?.attempt ?? 0) + 1,
+              ...(told ? { maxRetries: told.max } : {}),
+              ...(at === undefined ? {} : { at }),
+              ...(status === undefined ? {} : { status }),
+              reason: retryReasonOf(status),
+            },
+          };
         }
         return;
       }
@@ -1218,11 +1239,13 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     m.permissions = m.permissions.filter((p) => !keys.has(p.requestId));
   }
   if (sawTurnStart) markHistoryBoundary(draft, turnId, status === "completed");
+  const apiFailure = status === "failed" ? codexTurnFailure(turn.error) : undefined;
   m.lastResult = {
     subtype: status,
     isError: status === "failed",
     durationMs: num(turn.durationMs),
     at,
+    ...(apiFailure ? { failure: apiFailure } : {}),
   };
   const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
   finishSubmittedTurn(draft, turnId, failure);
@@ -1352,6 +1375,11 @@ function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: stri
 }
 
 /** An error, once: the turn's failure repeats the error it was told. */
+/** A retry is over once the model answers. */
+function clearRetry(m: CodexModel): void {
+  if (m.turn?.retry) m.turn = { ...m.turn, retry: undefined };
+}
+
 function pushError(draft: CodexDraft, detail: string, key: string, at: number | undefined) {
   const last = draft.next.items.at(-1);
   if (last?.kind === "notice" && last.code === "error" && last.detail === detail) return;

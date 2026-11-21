@@ -19,9 +19,10 @@ import {
   mergeAgentInstructions,
   persistentInstructionLayers,
 } from "../../../shared/chat/instructions";
-import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
+import type { CliChatInfo, CliChatSettings, CliLimitResume, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
@@ -55,6 +56,7 @@ import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
+import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
 import {
   sendFirstMessage,
@@ -185,16 +187,33 @@ function askMcp(workspaceId: string, tabId: string, target: AgentTabController):
   }
 }
 
-/** The info with what the tab keeps of its own: its profile, and its folder when not the workspace's. */
+/**
+ * The info with what the tab keeps of its own: its profile, its folder when
+ * not the workspace's, and going on after the usage limit, while no turn runs.
+ */
 function withProfile(workspaceId: string, tabId: string, info: CliChatInfo): CliChatInfo {
   const profile = profileShown(workspaceId, tabId, info.agent);
-  const cwd = chatPropsOf(workspaceId, tabId)?.cwd;
+  const props = chatPropsOf(workspaceId, tabId);
+  const cwd = props?.cwd;
   const root = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath;
   const own = cwd && root && !sameFolder(cwd, root);
+  const limitResume = info.state === "working" ? undefined : cliLimitResume(props?.limitResume);
   return {
     ...info,
     ...(profile ? { profile } : {}),
     ...(own ? { cwd } : {}),
+    ...(limitResume ? { limitResume } : {}),
+  };
+}
+
+/** A tab's going on after the usage limit as the CLI tells it; none once its message went. */
+function cliLimitResume(record: LimitResume | undefined): CliLimitResume | undefined {
+  if (!record || record.state === "sent") return undefined;
+  return {
+    state: record.state,
+    ...(record.at !== undefined ? { at: record.at } : {}),
+    ...(record.resetsAt !== undefined ? { resetsAt: record.resetsAt } : {}),
+    ...(record.tries > 0 ? { tries: record.tries } : {}),
   };
 }
 
@@ -207,8 +226,9 @@ function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTab
     after: move.after,
     profile: cliProfileName(profileOf(config, agent, move.profileId)),
   }));
+  const relayed = relayedOf(props);
   return {
-    ...(props.relayed ? { relayed: props.relayed } : {}),
+    ...(relayed ? { relayed } : {}),
     ...(moves ? { moves } : {}),
   };
 }

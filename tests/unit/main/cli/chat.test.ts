@@ -146,6 +146,44 @@ describe("chat wait", () => {
     expect(out.stdout).toContain("every tab was still working");
   });
 
+  test("a turn the usage limit stopped has ended: it says when the app goes on", async () => {
+    const at = Date.now() + 38 * 60_000;
+    const app = withChat({ state: "working" });
+    app.time.onTick = () => {
+      app.chats.set(CHAT_TAB, {
+        info: {
+          agent: "claude",
+          state: "error",
+          message: "You've hit your 5-hour limit",
+          failure: "usage_limit",
+          limitResume: { state: "waiting", at, resetsAt: at - 60_000 },
+        },
+        entries: [],
+      });
+    };
+    const text = await nexus(app, ["chat", "wait", "eeee"]);
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toContain("stopped on an error: You've hit your 5-hour limit");
+    expect(text.stdout).toContain("The app sends it a message to go on at");
+    expect(text.stdout).toMatch(/\d\d:\d\d \(in 3[78]m\)/);
+    const json = JSON.parse((await nexus(app, ["chat", "wait", "eeee", "--json"])).stdout);
+    expect(json).toMatchObject({
+      state: "error",
+      failure: "usage_limit",
+      limitResume: { state: "waiting", at },
+    });
+  });
+
+  test("a turn a failing API stopped says what may help", async () => {
+    const app = withChat({ state: "error", message: "API Error: 529", failure: "transient" });
+    const out = await nexus(app, ["chat", "wait", "eeee"]);
+    expect(out.stdout).toContain("outlasted its program's own retries");
+    const auth = withChat({ state: "error", message: "401", failure: "auth" });
+    expect((await nexus(auth, ["chat", "read", "eeee"])).stdout).toContain(
+      "Its sign-in or API key was refused",
+    );
+  });
+
   test("waits no more once its client has gone, as one stopped with Ctrl-C", async () => {
     const app = withChat({ state: "working" });
     const stop = new AbortController();

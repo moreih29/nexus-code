@@ -119,7 +119,22 @@ export function transcriptLines(
         seq,
         dir: "out",
         replay: true,
-        message: { type: "assistant", message, uuid: entry.uuid, timestamp: entry.timestamp },
+        message: {
+          type: "assistant",
+          message,
+          uuid: entry.uuid,
+          timestamp: entry.timestamp,
+          // An API error Claude Code wrote in the turn's place, as the stream names it.
+          ...(entry.isApiErrorMessage === true
+            ? {
+                is_api_error_message: true,
+                error: entry.error,
+                api_error: entry.apiError,
+                api_error_status: entry.apiErrorStatus,
+                api_error_params: entry.apiErrorParams,
+              }
+            : {}),
+        },
       });
     } else if (entry.type === "user") {
       const content = message.content;

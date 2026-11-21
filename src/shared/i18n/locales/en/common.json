@@ -862,6 +862,7 @@
       "from_terminal": "sent from {{agent}} in a terminal",
       "unknown": "Sent by an agent whose tab could not be told",
       "manager": "Sent by the manager",
+      "app": "Sent by NexusCode",
       "closed": "closed",
       "show_tab": "Go to the tab that sent it",
       "more": "Show all",
@@ -1039,6 +1040,16 @@
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "retry_reason": {
+        "rate_limit": "Rate limited",
+        "overloaded": "Server overloaded",
+        "server": "Server error",
+        "connection": "Connection lost",
+        "auth": "Authentication failed",
+        "other": "API error"
+      },
+      "retry_code": "{{reason}} ({{code}})",
+      "retry_in": "in {{seconds}}s",
       "tokens": "↓ {{count}} tokens",
       "agents_one": "{{count}} subagent running",
       "agents_other": "{{count}} subagents running"
@@ -1049,6 +1060,25 @@
       "rejected": "Usage limit reached",
       "rejected_until": "Usage limit reached · resets at {{time}}",
       "dismiss": "Close until the limit resets"
+    },
+    "failure": {
+      "transient": "The work stopped on a temporary API error · {{reason}}",
+      "auth": "The work stopped on a sign-in failure ({{code}}) · Check the sign-in or API key, then send again",
+      "auth_no_code": "The work stopped on a sign-in failure · Check the sign-in or API key, then send again",
+      "request": "The API refused the request ({{code}}) · The same request fails again · Fix the request or shorten the conversation with /compact, then send",
+      "retry": "Try again",
+      "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
+      "dismiss": "Close"
+    },
+    "limit_resume": {
+      "waiting": "Usage limit · Resumes at {{time}}",
+      "unknown": "Usage limit · Reset time unknown · Send a message once the limit resets to resume",
+      "cancelled": "Usage limit · Resets at {{time}} · Auto-resume cancelled",
+      "gave_up": "Usage limit · Checked {{tries}} times without a reset · Auto-resume stopped",
+      "cancel": "Cancel",
+      "now": "Resume now",
+      "prompt": "The usage limit has reset. Please continue from where you left off.",
+      "status": "Waiting for limit · {{time}}"
     },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",

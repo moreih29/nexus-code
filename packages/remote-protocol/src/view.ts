@@ -288,6 +288,15 @@ export const ChatStatusSchema = z.object({
           attempt: z.number(),
           maxRetries: z.number().optional(),
           delayMs: z.number().optional(),
+          /** When the program said so, in Unix milliseconds: the wait ends `delayMs` after. Since 0.19.0. */
+          at: z.number().optional(),
+          /** The HTTP status of the error it tries again after; none when no answer came. Since 0.19.0. */
+          status: z.number().optional(),
+          /**
+           * Why: rate_limit, overloaded, server, connection, auth or other;
+           * another this version does not know reads as other. Since 0.19.0.
+           */
+          reason: z.string().max(32).optional(),
         })
         .optional(),
     })
@@ -423,6 +432,24 @@ export const ChatPanelSchema = z.object({
       kind: z.string().optional(),
     })
     .optional(),
+  /**
+   * A chat the plan's usage limit stopped, of a subscription's profile:
+   * whether and when its app goes on in it by itself. state: waiting (it
+   * sends the agent a message to go on at `at`), unknown (no reset time;
+   * nothing scheduled), cancelled (by the user), gave_up (the limit held
+   * after the most tries); another this version does not know reads as
+   * none. Times in Unix milliseconds. Since 0.19.0; one this version cannot
+   * read is left out, not the panel.
+   */
+  limitResume: z
+    .object({
+      state: z.string().max(32),
+      at: z.number().optional(),
+      resetsAt: z.number().optional(),
+      tries: z.number().int().nonnegative().optional(),
+    })
+    .optional()
+    .catch(undefined),
   /** The MCP servers the chat's program has, and how each stands (connected, failed…). Since 0.11.0. */
   mcp: z
     .array(

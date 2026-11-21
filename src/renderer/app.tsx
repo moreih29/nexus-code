@@ -37,6 +37,7 @@ import { useThemeEffect } from "./hooks/use-theme-effect";
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
+import { startLimitResume } from "./services/chat/limit-resume-scheduler";
 import { LOOK_AREA_ATTR } from "./services/chat/look-area";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
@@ -96,7 +97,10 @@ export function App() {
   // The workspace list arrives before the restored selection. Wait for both
   // before showing a welcome screen.
   useEffect(() => {
-    void bootstrapWorkbench().finally(() => setRestoringWorkbench(false));
+    void bootstrapWorkbench()
+      // Tabs a usage limit stopped go on once it resets, restored ones too.
+      .then(() => startLimitResume())
+      .finally(() => setRestoringWorkbench(false));
     void bootstrapClaudeStatus();
   }, []);
 

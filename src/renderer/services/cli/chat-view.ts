@@ -144,7 +144,10 @@ export function chatInfoOf(
     return { agent, state: "working", ...told, ...at };
   }
   const error = turnError(model);
-  if (error) return { agent, state: "error", message: error, ...at };
+  if (error) {
+    const failure = model.lastResult?.failure?.kind;
+    return { agent, state: "error", message: error, ...(failure ? { failure } : {}), ...at };
+  }
   return { agent, state: "idle", ...told, ...at };
 }
 

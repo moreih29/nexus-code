@@ -129,6 +129,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
     "Use nexus chat usage --json to check subscription limits by profile before assigning work.",
     "It shows when each limit was observed. Use --refresh to ask the program without opening a tab.",
+    "A subscription tab stopped at its usage limit goes on by itself once the limit resets: chat wait",
+    "ends there and says when (limitResume in --json); a message sent to it before goes on instead.",
     "chat profiles lists choices. On this computer, chat profiles add creates a profile with the user's",
     "approval. Give API keys through --key-file FILE or --key-file - for stdin. Custom models accept",
     "repeatable --reasoning MODEL=LEVEL (none, high, xhigh, max; Claude also auto).",
