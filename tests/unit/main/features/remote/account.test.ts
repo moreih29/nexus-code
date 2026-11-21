@@ -240,7 +240,10 @@ describe("the account", () => {
     expect(account.state().status).toBe("signed-out");
   });
 
-  test("signs in through the browser with PKCE and keeps the device's token", async () => {
+  test.each([
+    ["google", undefined],
+    ["apple", "apple"],
+  ] as const)("signs in with %s through the browser with PKCE and keeps the device's token", async (provider, choice) => {
     const store = memoryStore();
     const server = fakeServer();
     const { opened, openExternal } = browser((start) => ({
@@ -257,14 +260,18 @@ describe("the account", () => {
       device: { name: "Mac", platform: "darwin" },
     });
     accounts.push(account);
-    const state = await account.signIn();
+    const state = await account.signIn(choice);
     expect(state).toEqual({ status: "signed-in", server: SERVER, user, device });
     expect(states).toEqual(["signing-in", "signed-in"]);
     const start = opened[0] as URL;
-    expect(start.pathname).toBe("/auth/google/start");
+    expect(start.origin).toBe(SERVER);
+    expect(start.pathname).toBe(`/auth/${provider}/start`);
+    expect(start.searchParams.get("redirect_uri")).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+    expect(start.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(start.searchParams.get("code_challenge_method")).toBe("S256");
     const trade = server.requests.find((r) => r.path === "/auth/token");
     const body = trade?.body as { code_verifier: string; redirect_uri: string; code: string };
+    expect(trade?.method).toBe("POST");
     expect(challengeOf(body.code_verifier)).toBe(start.searchParams.get("code_challenge") ?? "");
     expect(body.redirect_uri).toBe(start.searchParams.get("redirect_uri") ?? "");
     expect(body.code).toBe("c1");
