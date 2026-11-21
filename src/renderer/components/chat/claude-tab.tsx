@@ -230,7 +230,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
-  const [rewinding, setRewinding] = useState<UserItem | null>(null);
+  const [rewinding, setRewinding] = useState<{
+    item: UserItem;
+    sessionId: string | undefined;
+    clears: number | undefined;
+  } | null>(null);
+  if (
+    rewinding &&
+    (rewinding.sessionId !== controller.currentSession() || rewinding.clears !== state.model.clears)
+  ) {
+    setRewinding(null);
+  }
   // Kept while what it says holds, so the conversation's messages do not
   // all render each time the tab does.
   const running = state.model.running;
@@ -248,7 +258,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         (item.kind !== "user" || (item.state === "taken" && item.uuid !== unverifiedStart)),
       canRewindItem: (item) =>
         item.state === "taken" && !!item.uuid && item.uuid !== unverifiedStart,
-      onRewind: (item) => setRewinding(item),
+      onRewind: (item) =>
+        setRewinding({
+          item,
+          sessionId: controller.currentSession(),
+          clears: controller.state.model.clears,
+        }),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
       onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
@@ -876,7 +891,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       </div>
       <RewindDialog
         controller={controller}
-        item={rewinding}
+        item={rewinding?.item ?? null}
         cwd={props.cwd}
         onClose={() => setRewinding(null)}
       />

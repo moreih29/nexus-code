@@ -1133,8 +1133,21 @@ export class ChatController {
     }
   }
 
+  private rewindHistory(uuid: string): ChatModel {
+    this.flushNow();
+    const all = joinHistory(this.state.history, this.state.model);
+    if (
+      !all.items.some(
+        (item) => item.kind === "user" && item.state === "taken" && item.uuid === uuid,
+      )
+    )
+      throw new Error(i18next.t("chat.rewind.message_unavailable"));
+    return all;
+  }
+
   /** What rewinding the files to before a message would change. */
   async previewRewind(uuid: string): Promise<RewindPreview> {
+    this.rewindHistory(uuid);
     this.forkPoint(uuid, { before: true });
     if (!(await this.ensureRunning())) throw new Error("the program is not running");
     return rewindOf(await this.request("rewind_files", { user_message_id: uuid, dry_run: true }));
@@ -1152,6 +1165,7 @@ export class ChatController {
   ): Promise<void> {
     const uuid = item.uuid;
     if (!uuid) throw new Error("the message has no uuid yet");
+    const all = this.rewindHistory(uuid);
     if (this.state.model.running) throw new Error("a turn is running");
     const fork = this.forkPoint(uuid, { before: true }) ?? undefined;
     const incomplete = this.earlierHistoryUnknown;
@@ -1160,7 +1174,6 @@ export class ChatController {
       const result = rewindOf(await this.request("rewind_files", { user_message_id: uuid }));
       if (!result.canRewind) throw new Error(result.error ?? "the files were not rewound");
     }
-    const all = joinHistory(this.state.history, this.state.model);
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });

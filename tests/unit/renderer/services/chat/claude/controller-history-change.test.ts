@@ -66,3 +66,30 @@ test("Claude keeps source prompts recoverable if another conversation is selecte
   expect(calls.map(({ method }) => method)).toEqual(["replay", "replay"]);
   expect(controller.removeQueued(queued as string)?.text).toBe("Send only to the source");
 });
+
+function prompt(harness: Awaited<ReturnType<typeof openSource>>, uuid: string, text: string) {
+  const { controller, line } = harness;
+  line("out", { type: "user", isReplay: true, uuid, message: { role: "user", content: text } });
+  line("out", { type: "result", subtype: "success" });
+  controller.flushNow();
+  const item = controller.state.model.items.find(
+    (item) => item.kind === "user" && item.uuid === uuid,
+  );
+  if (item?.kind !== "user") throw new Error("missing prompt");
+  return item;
+}
+
+test("Claude rejects a stale rewind after the live conversation was cleared", async () => {
+  const harness = await openSource();
+  const { controller, line } = harness;
+  const old = prompt(harness, "old", "Source prompt");
+  line("out", { type: "conversation_reset" });
+  line("out", { type: "system", subtype: "init", session_id: "destination" });
+  const current = prompt(harness, "new", "Destination prompt");
+
+  await expect(controller.rewind(old, { files: false })).rejects.toThrow();
+  expect(controller.currentSession()).toBe("destination");
+  expect(controller.state.model.items).toContain(current);
+  expect(controller.state.draft).toBeUndefined();
+  expect(calls.some(({ method }) => method === "stop" || method === "start")).toBe(false);
+});

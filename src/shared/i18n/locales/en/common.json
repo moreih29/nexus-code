@@ -1148,6 +1148,7 @@
       "no_files": "No file changes to undo.",
       "conversation": "Rewind the conversation",
       "conversation_and_files": "Rewind the conversation and code",
+      "message_unavailable": "This message is no longer in the current conversation.",
       "failed": "Couldn't rewind: {{error}}"
     },
     "fork": {
