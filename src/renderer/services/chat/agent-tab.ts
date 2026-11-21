@@ -10,7 +10,10 @@ import {
   isDefaultProfileId,
   profileOf,
 } from "../../../shared/agent-profiles/profiles";
-import { mergeAgentInstructions } from "../../../shared/chat/instructions";
+import {
+  mergeAgentInstructions,
+  workspaceInstructionTarget,
+} from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
@@ -103,7 +106,11 @@ export function agentInstructionsOf(
   profileId?: string,
   session?: string,
 ): string {
-  const workspace = useWorkspacesStore.getState().workspaces.find(({ id }) => id === workspaceId);
+  const { workspaces } = useWorkspacesStore.getState();
+  const workspace = workspaceInstructionTarget(
+    workspaces.find(({ id }) => id === workspaceId),
+    workspaces,
+  );
   const profile = instructionProfileOf(useAgentProfilesStore.getState().config, agent, profileId);
   return mergeAgentInstructions(useAgentInstructionsStore.getState().config, {
     agent,

@@ -5,6 +5,7 @@ import {
   InstructionTextSchema,
   instructionLayers,
   mergeAgentInstructions,
+  workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import { instructionProfileOf } from "../../services/chat/agent-tab";
 import {
@@ -36,7 +37,10 @@ export function SessionInstructionsChip({
   const config = useAgentInstructionsStore((state) => state.config);
   const profiles = useAgentProfilesStore((state) => state.config);
   const workspace = useWorkspacesStore((state) =>
-    state.workspaces.find(({ id }) => id === workspaceId),
+    workspaceInstructionTarget(
+      state.workspaces.find(({ id }) => id === workspaceId),
+      state.workspaces,
+    ),
   );
   const tab = useTabsStore((state) => state.byWorkspace[workspaceId]?.[tabId]);
   const [open, setOpenState] = useState(false);

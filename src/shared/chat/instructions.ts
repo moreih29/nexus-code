@@ -48,6 +48,14 @@ export interface InstructionTarget {
   session?: string;
 }
 
+/** Resolve the workspace layer from local metadata or a remote workspace listing. */
+export function workspaceInstructionTarget<
+  T extends { id: string; task?: { parentId: string }; parentId?: string },
+>(workspace: T | undefined, workspaces: readonly T[]): T | undefined {
+  const parentId = workspace?.task?.parentId ?? workspace?.parentId;
+  return parentId === undefined ? workspace : workspaces.find(({ id }) => id === parentId);
+}
+
 export function instructionText(config: AgentInstructions, scope: InstructionScope): string {
   switch (scope.kind) {
     case "all":

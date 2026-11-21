@@ -5,7 +5,10 @@
  * left to the user.
  */
 
-import type { InstructionScope } from "../../../../shared/chat/instructions";
+import {
+  type InstructionScope,
+  workspaceInstructionTarget,
+} from "../../../../shared/chat/instructions";
 import {
   describeShape,
   formatSettingValue,
@@ -26,7 +29,6 @@ import {
   deviceFlag,
   deviceRef,
   peerSessions,
-  peerWorkspace,
   pickPeerWorkspace,
   requirePeerCli,
   resolveDevice,
@@ -282,11 +284,15 @@ const settingsInstructionsSet: CliCommand = {
         ? ({ layer, profile: await instructionProfile(ctx, device, profileSelector) } as const)
         : ({ layer } as const);
     if (device) {
-      const workspace =
+      const { workspaces } = await peerSessions(ctx, device, ctx.signal);
+      const requested =
         layer === "workspace"
-          ? await peerWorkspace(ctx, device, flags.workspace)
-          : (await peerSessions(ctx, device, ctx.signal)).workspaces[0];
-      if (!workspace) throw new CliError(`no workspace on "${device.name}"`);
+          ? pickPeerWorkspace(device, workspaces, flags.workspace as string | undefined)
+          : workspaces[0];
+      if (!requested) throw new CliError(`no workspace on "${device.name}"`);
+      const workspace =
+        layer === "workspace" ? workspaceInstructionTarget(requested, workspaces) : requested;
+      if (!workspace) throw new CliError(`no parent workspace for "${requested.name}"`);
       const target =
         edit.layer === "profile" ? { layer: edit.layer, profileId: edit.profile.id } : edit;
       await changePeerCli(ctx, device, "settings.instructions.set", {
@@ -294,13 +300,22 @@ const settingsInstructionsSet: CliCommand = {
         ...target,
         text,
       });
-      return output(`Updated the ${layer} instruction layer on "${device.name}".`, {
+      const destination = layer === "workspace" ? ` for "${workspace.name}"` : "";
+      return output(`Updated the ${layer} instruction layer${destination} on "${device.name}".`, {
         ...target,
         device: deviceRef(device),
+        ...(layer === "workspace"
+          ? { workspaceId: workspace.id, workspaceName: workspace.name }
+          : {}),
         text,
       });
     }
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const requested = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace =
+      layer === "workspace"
+        ? workspaceInstructionTarget(requested, ctx.services.listWorkspaces())
+        : requested;
+    if (!workspace) throw new CliError(`no parent workspace for "${requested.name}"`);
     const scope: InstructionScope =
       edit.layer === "profile"
         ? { kind: "profile", id: edit.profile.id }
@@ -332,10 +347,12 @@ const settingsInstructionsSet: CliCommand = {
         change: { ...change, eachTime: true },
       });
     await ctx.services.ui("settings.instructions.set", { scope, text });
-    return output(
-      text ? `Updated the ${layer} instruction layer.` : `Cleared the ${layer} instruction layer.`,
-      { scope, text },
-    );
+    const target = layer === "workspace" ? ` for "${workspace.name}"` : "";
+    return output(`${text ? "Updated" : "Cleared"} the ${layer} instruction layer${target}.`, {
+      scope,
+      ...(layer === "workspace" ? { workspaceName: workspace.name } : {}),
+      text,
+    });
   },
 };
 

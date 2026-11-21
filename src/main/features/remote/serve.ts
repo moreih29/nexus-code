@@ -10,7 +10,10 @@ import {
   type RpcMethod,
   type RpcParams,
 } from "../../../../packages/remote-protocol/src";
-import { InstructionTextSchema } from "../../../shared/chat/instructions";
+import {
+  InstructionTextSchema,
+  workspaceInstructionTarget,
+} from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliServices } from "../cli/context";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
@@ -219,7 +222,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
   async function dispatch(services: CliServices, request: RemoteServeRequest) {
-    const { from, method, params } = request;
+    const { from, method } = request;
+    let { params } = request;
     let s = services;
     if (sessions && method === "sessions.watch") return sessions.watch(from);
     if (sessions && method === "sessions.unwatch") {
@@ -252,12 +256,21 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
-    if (
-      method === "settings.instructions.set" &&
-      !InstructionTextSchema.safeParse((params as RpcParams<"settings.instructions.set">).text)
-        .success
-    )
-      throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
+    if (method === "settings.instructions.set") {
+      const edit = params as RpcParams<"settings.instructions.set">;
+      if (!InstructionTextSchema.safeParse(edit.text).success)
+        throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
+      if (edit.layer === "workspace") {
+        watches.agents?.checkRead();
+        const workspaces = s.listWorkspaces();
+        const workspace = workspaces.find(({ id }) => id === edit.workspaceId);
+        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const target = workspaceInstructionTarget(workspace, workspaces);
+        if (!target) throw new RpcFailure(RpcErrorCode.NotFound, "no parent workspace");
+        // Ask for consent on the workspace whose instructions will be changed.
+        params = { ...edit, workspaceId: target.id };
+      }
+    }
     const checkInHandler = isFileTransferMethod(method);
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
@@ -301,6 +314,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         const { workspaceId, agent, profileId } = params as RpcParams<"settings.instructions">;
         if (!workspaceOf(s, workspaceId))
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        // The renderer uses the selected workspace for profile rules and resolves its layer separately.
         return s
           .ui("settings.instructions", { workspaceId, agent, ...(profileId ? { profileId } : {}) })
           .catch(unavailable);

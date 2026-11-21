@@ -9,7 +9,7 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { CliSettingInfo, CliUiOps } from "../../../../src/shared/cli/ui";
-import { API, APP, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
+import { API, APP, contextFor, type FakeApp, FIX, fakeApp, SHELL_TAB } from "./fake-services";
 
 const SETTINGS: CliSettingInfo[] = [
   {
@@ -311,4 +311,27 @@ test("peer profile writes require the instruction capability before discovery", 
   expect(result.exitCode).toBe(3);
   expect(result.stderr).toContain('Update NexusCode on "Mac mini"');
   expect(app.peers.requests).toEqual([]);
+});
+
+test("setting a task workspace's instructions asks to edit the parent and names it in the output", async () => {
+  const app = fakeApp();
+  app.answers.push("once");
+  const result = await runCli(
+    CLI_COMMANDS,
+    contextFor(
+      app,
+      ["settings", "instructions", "set", "workspace", "--workspace", FIX, "--clear"],
+      { workspaceId: FIX, tabId: SHELL_TAB },
+    ),
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe('Cleared the workspace instruction layer for "app".\n');
+  expect(app.asked).toMatchObject([
+    { toWorkspaceId: APP, change: { kind: "instructionsEdit", detail: "app" } },
+  ]);
+  expect(app.uiCalls.at(-1)).toEqual({
+    op: "settings.instructions.set",
+    args: { scope: { kind: "workspace", id: APP }, text: "" },
+  });
 });

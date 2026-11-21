@@ -30,7 +30,11 @@ import { useWindowOpacityStore } from "@/state/stores/window-opacity";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
-import { instructionLayers, mergeAgentInstructions } from "../../../shared/chat/instructions";
+import {
+  instructionLayers,
+  mergeAgentInstructions,
+  workspaceInstructionTarget,
+} from "../../../shared/chat/instructions";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
@@ -592,7 +596,7 @@ export const settingsHandlers: {
           );
     if (!profile) throw new UiRequestError(`no ${agent} profile with id "${profileId}"`);
     const config = useAgentInstructionsStore.getState().config;
-    const target = { agent, workspace, profile };
+    const target = { agent, workspace: workspaceInstructionTarget(workspace, workspaces), profile };
     return {
       layers: instructionLayers(config, target).flatMap(({ scope, title, text }) =>
         scope ? [{ scope, title, text }] : [],

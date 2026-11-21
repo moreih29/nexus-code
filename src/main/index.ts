@@ -816,7 +816,12 @@ app.whenReady().then(async () => {
               { ...workspace, parent },
               { home: os.homedir(), windows: isWindows() },
             ).profile;
-      return instructionsFor(state.agentInstructions ?? EMPTY_INSTRUCTIONS, profile, workspace);
+      return instructionsFor(
+        state.agentInstructions ?? EMPTY_INSTRUCTIONS,
+        profile,
+        workspaceId,
+        workspaces,
+      );
     },
     settings: () => {
       const state = stateService.getState();
@@ -898,7 +903,8 @@ app.whenReady().then(async () => {
       instructionsFor(
         stateService.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,
         profile,
-        workspaceManager.list().find(({ id }) => id === workspaceId),
+        workspaceId,
+        workspaceManager.list(),
         session,
       ),
     claudeInstructionDigests: {
