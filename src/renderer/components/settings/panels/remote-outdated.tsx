@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSettingsUIStore } from "../../../state/stores/settings-ui";
 import { useUpdatesStore } from "../../../state/stores/updates";
+import { type BannerDismiss, BannerDismissButton } from "../../ui/banner";
 import { Button } from "../../ui/button";
 import { SettingsGroup } from "../section";
 import { UpdateSection } from "./about-panel";
@@ -46,7 +47,7 @@ export function OutdatedGroup() {
 }
 
 /** The Other computers list's line: out of the room until updated, and the way there. */
-export function OutdatedLine() {
+export function OutdatedLine({ dismiss }: { dismiss: BannerDismiss }) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center gap-1.5 px-2 py-1" data-testid="remote-outdated">
@@ -62,6 +63,7 @@ export function OutdatedLine() {
       >
         {t("updates.install")}
       </Button>
+      <BannerDismissButton dismiss={dismiss} />
     </div>
   );
 }

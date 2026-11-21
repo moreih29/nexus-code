@@ -14,6 +14,7 @@ import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import { appErrorFailed } from "../../../shared/error/app-error";
 import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import type { IpcResult } from "../../../shared/ipc/result";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
@@ -88,6 +89,7 @@ import { AgentStrip, ShownState } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
+import { ChatPhaseBanner, ChatSignedOutBanner } from "../chat/chat-state-banner";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint, composerKeys } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
@@ -108,12 +110,12 @@ import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
+import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
 import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
-import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import { closePeerSession } from "./remote-session-actions";
@@ -299,26 +301,32 @@ export function Unreachable({
   reach,
   device,
   goalBar,
+  notice,
 }: {
   reach: PeerReach;
   device: string;
   goalBar?: React.ReactNode;
+  notice?: ReturnType<typeof useBannerDismissal>;
 }) {
   const { t } = useTranslation();
+  if (notice?.dismissed && !goalBar) return null;
   return (
     <div className="shrink-0 px-4 pt-1 pb-3">
       {goalBar && <div className="mx-auto mb-2 max-w-[860px]">{goalBar}</div>}
-      <p
-        role="status"
-        className="mx-auto flex max-w-[860px] items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground"
-      >
-        <CloudOff aria-hidden className="size-3.5 shrink-0" />
-        <span>
-          {reach === "disconnected"
-            ? t("agentView.remote.disconnectedLast")
-            : t("agentView.remote.offlineLast", { device })}
-        </span>
-      </p>
+      {!notice?.dismissed && (
+        <div
+          role="status"
+          className="mx-auto flex max-w-[860px] items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground"
+        >
+          <CloudOff aria-hidden className="size-3.5 shrink-0" />
+          <span className="flex-1">
+            {reach === "disconnected"
+              ? t("agentView.remote.disconnectedLast")
+              : t("agentView.remote.offlineLast", { device })}
+          </span>
+          {notice && <BannerDismissButton dismiss={notice.dismiss} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -331,20 +339,26 @@ function ViewOnly({
   model,
   device,
   goalBar,
+  notice,
 }: {
   model: ChatModel;
   device: string;
   goalBar?: React.ReactNode;
+  notice: ReturnType<typeof useBannerDismissal>;
 }) {
   const { t } = useTranslation();
+  if (notice.dismissed && !goalBar && !model.running) return null;
   return (
     <div className="shrink-0 px-4 py-2" data-testid="remote-view-only">
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {goalBar}
         {(model.permissions.length > 0 || model.running) && <StatusLine model={model} />}
-        <p className="rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground">
-          {t("agentView.remote.viewOnlyNote", { device })}
-        </p>
+        {!notice.dismissed && (
+          <div className="flex items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground">
+            <span className="flex-1">{t("agentView.remote.viewOnlyNote", { device })}</span>
+            <BannerDismissButton dismiss={notice.dismiss} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -637,6 +651,17 @@ function RemoteChatView({
   };
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
+  const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
+  const unreachableNotice = useBannerDismissal(
+    [...bannerScope, "unreachable"],
+    reach !== "online" ? [reach] : undefined,
+    true,
+  );
+  const viewOnlyNotice = useBannerDismissal(
+    [...bannerScope, "view-only"],
+    controls ? undefined : [true],
+    true,
+  );
   const types = usePeerTypes(deviceId);
   // Its terminal signs in the chat's profile from 0.13.1; one before signs in its default folder.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
@@ -871,14 +896,16 @@ function RemoteChatView({
             data-chat-drop
             onKeyDown={onKeyDown}
           >
-            <RemotePhaseBanner
+            <ChatPhaseBanner
+              scope={bannerScope}
               status={page.status}
               // A computer that tells its phase starts it again (chat.restart).
               {...(reachable && page.status.phase
                 ? { onRestart: () => told(ipcCallResult("remote", "peerChatRestart", ref)) }
                 : {})}
             />
-            <RemoteSignedOutBanner
+            <ChatSignedOutBanner
+              scope={bannerScope}
               status={page.status}
               {...(reachable && types && inProfile ? { onSignIn: signInThere } : {})}
               {...(reachable
@@ -966,9 +993,19 @@ function RemoteChatView({
                   />
                 )}
                 {reach !== "online" ? (
-                  <Unreachable reach={reach} device={target.deviceName} goalBar={goalBar} />
+                  <Unreachable
+                    reach={reach}
+                    device={target.deviceName}
+                    goalBar={goalBar}
+                    notice={unreachableNotice}
+                  />
                 ) : !controls ? (
-                  <ViewOnly model={model} device={target.deviceName} goalBar={goalBar} />
+                  <ViewOnly
+                    model={model}
+                    device={target.deviceName}
+                    goalBar={goalBar}
+                    notice={viewOnlyNotice}
+                  />
                 ) : (
                   <RemoteControls
                     target={target}
@@ -1225,6 +1262,7 @@ function RemoteControls({
   // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(visible, 60_000);
   const line = useMemo(() => usageLineOf(page.panel, now), [page.panel, now]);
+  const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
   const limit = useMemo(
     () => (target.kind === "codex" ? undefined : rateLimitOf(page.panel, now)),
     [target.kind, page.panel, now],
@@ -1271,10 +1309,9 @@ function RemoteControls({
         </div>
       )}
       {/* The serving app goes on in it by itself, as it tells (from 0.19.0). */}
-      {showsLimitResume(page.panel?.limitResume) ? (
-        <LimitResumeView record={page.panel?.limitResume} />
-      ) : (
-        <RateLimitBanner limit={limit} />
+      <LimitResumeView scope={bannerScope} record={page.panel?.limitResume} />
+      {!showsLimitResume(page.panel?.limitResume) && (
+        <RateLimitBanner scope={bannerScope} limit={limit} />
       )}
       <Composer
         controller={composer.controller}
@@ -1396,6 +1433,17 @@ function RemoteTerminal({
       surfaceError(appErrorFailed(String(error), { code }), { surface: "toast" });
     });
   }, [deviceId, workspaceId, tabId]);
+  const terminalScope = ["remote-terminal", deviceId, workspaceId, tabId];
+  const unreachableNotice = useBannerDismissal(
+    [...terminalScope, "unreachable"],
+    reach !== "online" ? [reach] : undefined,
+    true,
+  );
+  const viewOnlyNotice = useBannerDismissal(
+    [...terminalScope, "view-only"],
+    types ? undefined : [true],
+    true,
+  );
   if (read.status !== "ready") {
     return <Waiting read={read} reach={reach} device={target.deviceName} />;
   }
@@ -1426,15 +1474,19 @@ function RemoteTerminal({
         />
       )}
       {reach !== "online" ? (
-        <Unreachable reach={reach} device={target.deviceName} />
+        <Unreachable reach={reach} device={target.deviceName} notice={unreachableNotice} />
       ) : (
-        !types && (
-          <p
-            className="shrink-0 border-border border-t px-3 py-1.5 text-app-micro text-muted-foreground"
+        !types &&
+        !viewOnlyNotice.dismissed && (
+          <div
+            className="flex shrink-0 items-center gap-2 border-border border-t px-3 py-1.5 text-app-micro text-muted-foreground"
             data-testid="remote-terminal-view-only"
           >
-            {t("agentView.remote.terminalViewOnly", { device: target.deviceName })}
-          </p>
+            <span className="flex-1">
+              {t("agentView.remote.terminalViewOnly", { device: target.deviceName })}
+            </span>
+            <BannerDismissButton dismiss={viewOnlyNotice.dismiss} />
+          </div>
         )
       )}
     </>

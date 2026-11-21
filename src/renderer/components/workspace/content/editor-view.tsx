@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { useBannerDismissal } from "../../../hooks/use-banner-dismissal";
 import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
@@ -276,6 +277,16 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   const isConflicted = useIsFileConflicted(filePath, workspaceId);
   const hasMarkers = useModelHasMarkers(!readOnly && isConflicted ? (model ?? null) : null);
   const markResolved = useGitStore((s) => s.markResolved);
+  const readOnlyNotice = useBannerDismissal(
+    ["editor-read-only", workspaceId, tabId, filePath],
+    readOnly ? [true] : undefined,
+    phase === "ready",
+  );
+  const conflictNotice = useBannerDismissal(
+    ["editor-conflict-resolved", workspaceId, tabId, filePath],
+    !readOnly && isConflicted && !hasMarkers ? [true] : undefined,
+    phase === "ready",
+  );
 
   // ----- Raw/Preview view-mode wiring (plan 60) ----------------------------
   // previewSupport stays stable for a given filePath because EditorView keys
@@ -367,17 +378,18 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
 
   return (
     <div ref={viewRef} className="flex flex-col h-full">
-      {readOnly && (
+      {readOnly && !readOnlyNotice.dismissed && (
         <ReadOnlyBanner
-          filePath={filePath}
+          dismiss={readOnlyNotice.dismiss}
           onRevealInFinder={() => {
             // Fire-and-forget: reveal in OS is a one-shot shell action with no UI feedback.
             void ipcCallResult("system", "revealInOS", { absPath: filePath });
           }}
         />
       )}
-      {!readOnly && (
+      {!readOnly && !conflictNotice.dismissed && (
         <ConflictResolvedBanner
+          dismiss={conflictNotice.dismiss}
           isConflicted={isConflicted}
           hasMarkers={hasMarkers}
           onMarkResolved={handleMarkResolved}

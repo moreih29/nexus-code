@@ -12,9 +12,10 @@
 import i18next from "i18next";
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
 import type { GitOperationState } from "../../../../../shared/git/types";
+import type { useBannerDismissal } from "../../../../hooks/use-banner-dismissal";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { cn } from "../../../../utils/cn";
-import { bannerColorClass } from "../../../ui/banner";
+import { BannerDismissButton, bannerColorClass } from "../../../ui/banner";
 import { Button } from "../../../ui/button";
 
 export type ActiveGitOperationState = Exclude<GitOperationState, { kind: "none" }>;
@@ -35,6 +36,7 @@ type OperationBannerBaseView = Omit<OperationBannerView, "message" | "details">;
 
 interface OperationBannerProps {
   state: ActiveGitOperationState;
+  notice?: ReturnType<typeof useBannerDismissal>;
   error?: GitStoreError | null;
   inFlightKind?: OperationBannerInFlightKind | null;
   onContinue: () => void;
@@ -136,6 +138,7 @@ export function buildOperationBannerView(
 /** Renders the operation banner and its single continue/abort action pair. */
 export function OperationBanner({
   state,
+  notice,
   error,
   inFlightKind,
   onContinue,
@@ -160,22 +163,26 @@ export function OperationBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 rounded-(--radius-raised) border px-2 py-2 text-app-ui-sm",
-        bannerColorClass(view.variant),
+        "mx-2 my-1 px-2 py-2 text-app-ui-sm",
+        !notice?.dismissed &&
+          cn("rounded-(--radius-raised) border", bannerColorClass(view.variant)),
       )}
-      role={view.role}
-      aria-live={view.role === "alert" ? "assertive" : "polite"}
+      role={notice?.dismissed ? undefined : view.role}
+      aria-live={notice?.dismissed ? undefined : view.role === "alert" ? "assertive" : "polite"}
     >
-      <div className="flex items-start gap-2">
-        <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-foreground">{view.message}</p>
-          {view.details ? (
-            <p className="mt-0.5 break-words text-muted-foreground">{view.details}</p>
-          ) : null}
+      {!notice?.dismissed && (
+        <div className="flex items-start gap-2">
+          <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-foreground">{view.message}</p>
+            {view.details ? (
+              <p className="mt-0.5 break-words text-muted-foreground">{view.details}</p>
+            ) : null}
+          </div>
+          {notice && <BannerDismissButton dismiss={notice.dismiss} />}
         </div>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2 pl-5">
+      )}
+      <div className={cn("flex flex-wrap gap-2 pl-5", !notice?.dismissed && "mt-2")}>
         <Button
           type="button"
           size="sm"

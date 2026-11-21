@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
@@ -24,7 +25,6 @@ import {
   useClaudeModelCatalog,
 } from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
-import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
 import {
   imageLook,
@@ -70,7 +70,6 @@ import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { jobToolStatuses } from "../../services/chat/running";
 import {
-  type ChatTabState,
   type ComposerDraft,
   chatKey,
   type RevealPart,
@@ -90,11 +89,12 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
-import { Banner, type BannerAction } from "../ui/banner";
+import { Banner, BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
+import { ChatPhaseBanner } from "./chat-state-banner";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
@@ -156,6 +156,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // Followed while shown: a tab in the background draws nothing per chunk
   // of a streaming reply, and shows the latest when it comes to the front.
   const state = useChatTab(workspaceId, tabId, isVisible);
+  const bannerScope = ["chat", workspaceId, tabId, state.model.sessionId];
   // For the side panel and the composer, which show nothing of a streaming
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
@@ -682,7 +683,21 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       data-chat-drop
       onKeyDown={onKeyDown}
     >
-      <PhaseBanner controller={controller} state={state} />
+      <ChatPhaseBanner
+        scope={bannerScope}
+        status={{
+          agent: "claude",
+          process: state.model.process,
+          phase: state.phase,
+          error: state.error,
+          version: state.version,
+          exit: state.model.exit,
+          phaseRevision: state.phaseRevision,
+        }}
+        onRestart={() => void controller.restart()}
+        onRetry={() => void controller.open()}
+        className="shrink-0 pt-1"
+      />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
@@ -765,8 +780,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                       {props.cwd}
                     </div>
                     {resumeError && (
-                      <div className="text-app-ui-sm text-[var(--state-error-fg)]">
-                        {t("chat.sessions.resume_failed", { message: resumeError })}
+                      <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
+                        <span className="flex-1">
+                          {t("chat.sessions.resume_failed", { message: resumeError })}
+                        </span>
+                        <BannerDismissButton
+                          dismiss={{
+                            label: t("action.dismiss"),
+                            onDismiss: () => setResumeError(null),
+                          }}
+                        />
                       </div>
                     )}
                     <SessionList
@@ -825,9 +848,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           {showsLimitResume(props.limitResume) ? (
             <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
           ) : (
-            <RateLimitBanner limit={state.model.rateLimit} />
+            <RateLimitBanner scope={bannerScope} limit={state.model.rateLimit} />
           )}
-          <TurnFailureBanner model={state.model} onRetry={(text) => controller.send(text)} />
+          <TurnFailureBanner
+            scope={bannerScope}
+            model={state.model}
+            onRetry={(text) => controller.send(text)}
+          />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             instructionsTab={instructionsTab}
@@ -973,70 +1000,6 @@ function forkFrom(
   }
 }
 
-function PhaseBanner({ controller, state }: { controller: ChatController; state: ChatTabState }) {
-  const { t } = useTranslation();
-  const retry: BannerAction = {
-    label: t("chat.phase.retry"),
-    onAction: () => void controller.open(),
-  };
-  const banners: React.ReactNode[] = [];
-  switch (state.phase) {
-    case "starting":
-      banners.push(<Banner key="phase" variant="info" message={t("chat.phase.starting")} />);
-      break;
-    case "held":
-      banners.push(<Banner key="phase" variant="warning" message={t("chat.phase.held")} />);
-      break;
-    case "ended":
-      banners.push(
-        <Banner
-          key="phase"
-          variant="info"
-          message={t("chat.phase.ended")}
-          details={state.model.exit?.stderrTail || undefined}
-          actions={[{ label: t("chat.phase.restart"), onAction: () => void controller.restart() }]}
-        />,
-      );
-      break;
-    case "not-found":
-      banners.push(
-        <Banner
-          key="phase"
-          variant="error"
-          message={t("chat.phase.not_found")}
-          details={state.error}
-          actions={[retry]}
-        />,
-      );
-      break;
-    case "failed":
-      banners.push(
-        state.error === "old-version" ? (
-          <Banner
-            key="phase"
-            variant="error"
-            message={t("chat.phase.old_version", {
-              version: state.version ?? "?",
-              min: MIN_CLAUDE_VERSION,
-            })}
-            actions={[retry]}
-          />
-        ) : (
-          <Banner
-            key="phase"
-            variant="error"
-            message={t("chat.phase.failed")}
-            details={state.error}
-            actions={[retry]}
-          />
-        ),
-      );
-      break;
-  }
-  if (banners.length === 0) return null;
-  return <div className="shrink-0 pt-1">{banners}</div>;
-}
-
 /** Warns that the session is open in a terminal tab too, where going on forks it. */
 function TwinBanner({
   workspaceId,
@@ -1049,12 +1012,18 @@ function TwinBanner({
 }) {
   const { t } = useTranslation();
   const twin = useTerminalTwin(workspaceId, tabId, sessionId);
-  if (!twin) return null;
+  const { dismiss, dismissed } = useBannerDismissal(
+    ["chat-terminal-twin", workspaceId, tabId, sessionId],
+    twin ? [twin] : undefined,
+    true,
+  );
+  if (!twin || dismissed) return null;
   return (
     <div className="shrink-0" data-testid="chat-terminal-twin">
       <Banner
         variant="warning"
         message={t("chat.twin.message")}
+        dismiss={dismiss}
         actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
       />
     </div>

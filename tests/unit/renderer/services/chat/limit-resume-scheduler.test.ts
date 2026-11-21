@@ -6,6 +6,9 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
+import { createElement, isValidElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { LimitResume } from "../../../../../src/shared/types/layout";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
@@ -27,6 +30,13 @@ const { ingestClaudeUsage, planUsageKeyFor, resetPlanUsage } = await import(
 );
 const { STAGGER_MS } = await import("../../../../../src/renderer/services/chat/limit-resume");
 const scheduler = await import("../../../../../src/renderer/services/chat/limit-resume-scheduler");
+const { LimitResumeBanner, LimitResumeView } = await import(
+  "../../../../../src/renderer/components/chat/limit-resume-banner"
+);
+const { BannerDismissButton } = await import("../../../../../src/renderer/components/ui/banner");
+
+import type { BannerProps } from "../../../../../src/renderer/components/ui/banner";
+
 const { cancelLimitResume, limitResumeIo, resetLimitResume, resumeLimitNow, tickLimitResume } =
   scheduler;
 
@@ -47,6 +57,7 @@ beforeEach(() => {
   asks = 0;
   stillBlockedUntil = undefined;
   useNotificationsStore.getState().hydrate({});
+  useNotificationsStore.setState({ dismissedBanners: new Map() });
   limitResumeIo.send = async (_ws, tabId, text) => {
     sent.push({ tabId, text });
   };
@@ -132,7 +143,63 @@ function recordOf(tabId: string) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Renders the view to capture the handler wired to its actual X button. */
+function clickResumeDismiss(scope: string[], record: LimitResume) {
+  let click: (() => void) | undefined;
+  function Probe() {
+    const view = LimitResumeView({ scope, record });
+    if (isValidElement<{ children: ReactElement<BannerProps> }>(view)) {
+      const dismiss = view.props.children.props.dismiss;
+      if (dismiss) click = BannerDismissButton({ dismiss }).props.onClick;
+    }
+    return view;
+  }
+  expect(renderToStaticMarkup(createElement(Probe))).toContain('aria-label="Dismiss"');
+  expect(click).toBeDefined();
+  click?.();
+}
+
 describe("a tab the usage limit stopped", () => {
+  test("dismissing the resume banner keeps its schedule and a new stop shows again", async () => {
+    const tabId = dueTab(13 * 3_600_000);
+    const record = recordOf(tabId);
+    if (!record) throw new Error("missing resume schedule");
+    const render = (next: LimitResume, tab = tabId) =>
+      renderToStaticMarkup(
+        createElement(LimitResumeBanner, { workspaceId: WS, tabId: tab, record: next }),
+      );
+
+    expect(render(record)).toContain('aria-label="Dismiss"');
+    clickResumeDismiss(["chat", WS, tabId, "s-1"], record);
+    const resumeMessage = "Continue the dismissed reservation";
+    useNotificationsStore.getState().hydrate({
+      chatLimitResumeDeadlineHours: 24,
+      chatLimitResumeMessage: resumeMessage,
+    });
+    expect(render({ ...record })).toBe("");
+    expect(render({ ...record, stopAt: record.stopAt + 1 })).toContain('aria-label="Dismiss"');
+    expect(render({ ...record, session: "s-2" })).toContain('aria-label="Dismiss"');
+    expect(render(record, "another-tab")).toContain('aria-label="Dismiss"');
+    expect(recordOf(tabId)).toEqual(record);
+
+    tickLimitResume();
+    await settle();
+    expect(sent).toEqual([{ tabId, text: resumeMessage }]);
+    expect(recordOf(tabId)).toMatchObject({ state: "sent" });
+  });
+
+  test("a remote unknown limit with a new stop time shows even with identical copy", () => {
+    const scope = ["remote-chat", "device", WS, "tab", "session"];
+    const record: LimitResume = { state: "unknown", stopAt: 1, tries: 0 };
+    const render = (stopAt: number) =>
+      renderToStaticMarkup(
+        createElement(LimitResumeView, { scope, record: { ...record, stopAt } }),
+      );
+    clickResumeDismiss(scope, record);
+    expect(render(1)).toBe("");
+    expect(render(2)).toContain('aria-label="Dismiss"');
+  });
+
   test("a reset already past: a minute from now", () => {
     const tabId = stoppedTab(3 * 3_600_000, Date.now() - 2 * RESUME_AFTER_MS);
     tickLimitResume();

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LimitResume } from "../../../shared/types/layout";
+import { type BannerScope, useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { cancelLimitResume, resumeLimitNow } from "../../services/chat/limit-resume-scheduler";
 import { Banner, type BannerAction } from "../ui/banner";
@@ -13,6 +14,7 @@ import { Banner, type BannerAction } from "../ui/banner";
 /** Going on after the usage limit as a banner tells it: a tab's own, or another device's. */
 export interface LimitResumeShown {
   state: string;
+  stopAt?: number;
   at?: number;
   resetsAt?: number;
   tries?: number;
@@ -57,19 +59,32 @@ export function LimitResumeBanner({
           goOn,
         ]
       : [goOn];
-  return <LimitResumeView record={record} actions={actions} />;
+  return (
+    <LimitResumeView
+      scope={["chat", workspaceId, tabId, record.session]}
+      record={record}
+      actions={actions}
+    />
+  );
 }
 
 /** The banner itself; with no actions, as another device's chat shows it. */
 export function LimitResumeView({
+  scope,
   record,
   actions,
 }: {
+  scope: BannerScope;
   record: LimitResumeShown | undefined;
   actions?: BannerAction[];
 }) {
   const { t, i18n } = useTranslation();
-  if (!showsLimitResume(record)) return null;
+  const { dismiss, dismissed } = useBannerDismissal(
+    [...scope, "limit-resume", record?.stopAt !== undefined],
+    record && [record.stopAt, record.state, record.at, record.resetsAt, record.tries],
+    record?.stopAt === undefined,
+  );
+  if (!showsLimitResume(record) || dismissed) return null;
   const time = (at: number | undefined) =>
     at === undefined ? "" : resumeTimeText(at, Date.now(), i18n.language);
   const message =
@@ -85,6 +100,7 @@ export function LimitResumeView({
       <Banner
         variant={record.state === "waiting" ? "info" : "warning"}
         message={message}
+        dismiss={dismiss}
         {...(actions ? { actions } : {})}
       />
     </div>

@@ -23,6 +23,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../../../utils/cn";
+import type { BannerDismiss } from "../../../ui/banner";
 import type { PushGuardActionKind } from "../utils/push-guard-banner";
 import type { BannerSlotItem, GitBannerModel } from "./banner-model";
 import { GitInlineBanner } from "./inline-banner";
@@ -33,18 +34,23 @@ import { GitInlineBanner } from "./inline-banner";
 
 export interface GitBannerStackProps {
   model: GitBannerModel;
+  dismissals: Partial<Record<BannerSlotItem["kind"], BannerDismiss>>;
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers — render one BannerSlotItem as a GitInlineBanner.
 // ---------------------------------------------------------------------------
 
-function renderBannerItem(item: BannerSlotItem): React.ReactNode {
+function renderBannerItem(
+  item: BannerSlotItem,
+  dismiss: BannerDismiss | undefined,
+): React.ReactNode {
   switch (item.kind) {
     case "push-guard":
       return (
         <GitInlineBanner
           key="push-guard"
+          dismiss={dismiss}
           variant={item.view.variant}
           message={item.view.message}
           details={item.view.details}
@@ -65,6 +71,7 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
       return (
         <GitInlineBanner
           key="error"
+          dismiss={dismiss}
           variant="error"
           message={item.message}
           details={item.details}
@@ -77,6 +84,7 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
       return (
         <GitInlineBannerAutofetchPaused
           key="autofetch-paused"
+          dismiss={dismiss}
           details={item.details}
           onResume={item.onResume}
         />
@@ -86,7 +94,14 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
       return <GitInlineBanner key="helper-prompt" variant="info" message={item.message} />;
 
     case "context":
-      return <GitInlineBanner key="context" variant={item.variant} message={item.message} />;
+      return (
+        <GitInlineBanner
+          key="context"
+          dismiss={dismiss}
+          variant={item.variant}
+          message={item.message}
+        />
+      );
   }
 }
 
@@ -94,14 +109,17 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
 function GitInlineBannerAutofetchPaused({
   details,
   onResume,
+  dismiss,
 }: {
   details?: string;
   onResume: () => void;
+  dismiss?: BannerDismiss | undefined;
 }) {
   const { t } = useTranslation("files");
   return (
     <GitInlineBanner
       variant="warning"
+      dismiss={dismiss}
       message={t("git.panel.banners.autofetchPaused")}
       details={details}
       actionLabel={t("git.panel.banners.resume")}
@@ -155,7 +173,7 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
 // GitBannerStack
 // ---------------------------------------------------------------------------
 
-export function GitBannerStack({ model }: GitBannerStackProps) {
+export function GitBannerStack({ model, dismissals }: GitBannerStackProps) {
   const [expanded, setExpanded] = useState(false);
 
   const { slotItem, collapsedItems, collapsedCount } = model;
@@ -168,10 +186,10 @@ export function GitBannerStack({ model }: GitBannerStackProps) {
   return (
     <div className="flex flex-col">
       {/* Primary slot — always the highest-priority banner. */}
-      {renderBannerItem(slotItem)}
+      {renderBannerItem(slotItem, dismissals[slotItem.kind])}
 
       {/* Collapsed items — only shown when expanded. */}
-      {expanded && collapsedItems.map((item) => renderBannerItem(item))}
+      {expanded && collapsedItems.map((item) => renderBannerItem(item, dismissals[item.kind]))}
 
       {/* Counter row — 24 px, shown only when there are collapsed items. */}
       {showCounter ? (

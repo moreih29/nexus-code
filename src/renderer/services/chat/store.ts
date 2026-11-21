@@ -25,6 +25,8 @@ export interface ComposerDraft {
 
 export interface ChatTabState {
   phase: ChatPhase;
+  /** Changes when a new phase is reached, even if a view missed the transition. */
+  phaseRevision?: number;
   error?: string;
   model: ChatModel;
   /** What the tab showed before its program's log: a transcript, an earlier agent's log. */
@@ -126,12 +128,27 @@ interface ChatStore {
 /** Tracks the user-message count at submission until the prompt is visible. */
 export const unseenSends = new Map<string, { before: number }>();
 
+let phaseRevision = 0;
+
 export const useChatStore = create<ChatStore>((set) => ({
   tabs: {},
   update: (key, update) =>
-    set((state) => ({
-      tabs: { ...state.tabs, [key]: update(state.tabs[key] ?? emptyTabState()) },
-    })),
+    set((state) => {
+      const prev = state.tabs[key] ?? emptyTabState();
+      const next = update(prev);
+      const phaseChanged = prev.phase !== next.phase || prev.error !== next.error;
+      if (phaseChanged) phaseRevision = Math.max(Date.now(), phaseRevision + 1);
+      const revision = phaseChanged ? phaseRevision : prev.phaseRevision;
+      return {
+        tabs: {
+          ...state.tabs,
+          [key]:
+            revision !== undefined && revision !== next.phaseRevision
+              ? { ...next, phaseRevision: revision }
+              : next,
+        },
+      };
+    }),
   remove: (key) => {
     unseenSends.delete(key);
     set((state) => {

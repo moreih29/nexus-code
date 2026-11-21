@@ -31,11 +31,29 @@ export interface BannerProps {
   message: string;
   details?: string;
   actions?: BannerAction[];
-  /** Inline only: an X at the end of the message that closes the banner. */
-  dismiss?: { label: string; onDismiss: () => void };
+  dismiss?: BannerDismiss;
   role?: "status" | "alert";
   "aria-live"?: "polite" | "assertive" | "off";
   className?: string;
+}
+
+export interface BannerDismiss {
+  label: string;
+  onDismiss: () => void;
+}
+
+export function BannerDismissButton({
+  dismiss,
+  className,
+}: {
+  dismiss: BannerDismiss;
+  className?: string;
+}) {
+  return (
+    <IconButton label={dismiss.label} size="xs" className={className} onClick={dismiss.onDismiss}>
+      <X className="size-3.5" aria-hidden="true" />
+    </IconButton>
+  );
 }
 
 /**
@@ -104,16 +122,7 @@ function InlineBanner({
             <DetailsDisclosure details={details} className="text-muted-foreground" />
           ) : null}
         </div>
-        {dismiss ? (
-          <IconButton
-            label={dismiss.label}
-            size="xs"
-            className="-my-0.5 shrink-0"
-            onClick={dismiss.onDismiss}
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </IconButton>
-        ) : null}
+        {dismiss && <BannerDismissButton dismiss={dismiss} className="-my-0.5" />}
       </div>
       {actions.length > 0 ? (
         <div className="flex items-center justify-end gap-1">
@@ -144,6 +153,7 @@ function BarBanner({
   variant = "info",
   message,
   actions = [],
+  dismiss,
   role,
   "aria-live": ariaLive,
   className,
@@ -158,9 +168,9 @@ function BarBanner({
         className,
       )}
     >
-      <span>{message}</span>
-      {actions.length > 0 ? (
-        <div className="flex items-center gap-2">
+      <span className={dismiss ? "min-w-0 truncate" : undefined}>{message}</span>
+      {actions.length > 0 || dismiss ? (
+        <div className="flex shrink-0 items-center gap-2">
           {actions.map((action) => (
             <button
               key={action.label}
@@ -171,6 +181,7 @@ function BarBanner({
               {action.label}
             </button>
           ))}
+          {dismiss && <BannerDismissButton dismiss={dismiss} />}
         </div>
       ) : null}
     </div>

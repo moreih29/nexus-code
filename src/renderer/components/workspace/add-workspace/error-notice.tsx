@@ -8,11 +8,13 @@
  * flow keeps its own (subtle neutral-bg) error chrome unchanged.
  *
  * Per-site differences in the historical markup (padding, icon size, text
- * scale, optional action row) are preserved via props rather than unified, so
- * extraction is pixel-for-pixel.
+ * scale, optional action row) are preserved via props.
  */
 import { AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { BannerDismissButton } from "../../ui/banner";
 
 const NOTICE_BOX =
   "rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)]";
@@ -35,7 +37,11 @@ export function ErrorNotice({
   iconSize = "sm",
   textClass = "text-app-ui-sm",
   children,
-}: ErrorNoticeProps): React.JSX.Element {
+}: ErrorNoticeProps): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const [closedMessage, setClosedMessage] = useState<string | null>(null);
+  if (closedMessage === message) return null;
+  if (closedMessage !== null) setClosedMessage(null);
   const content = (
     <>
       <AlertCircle
@@ -45,7 +51,13 @@ export function ErrorNotice({
         )}
         aria-hidden="true"
       />
-      <span className={cn("min-w-0 text-[var(--state-error-fg)]", textClass)}>{message}</span>
+      <span className={cn("min-w-0 flex-1 text-[var(--state-error-fg)]", textClass)}>
+        {message}
+      </span>
+      <BannerDismissButton
+        dismiss={{ label: t("action.dismiss"), onDismiss: () => setClosedMessage(message) }}
+        className="-my-0.5"
+      />
     </>
   );
 

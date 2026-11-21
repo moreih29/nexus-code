@@ -12,7 +12,9 @@ import type { TerminalController } from "@/services/terminal/types";
 import { useTabsStore } from "@/state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
-import { Banner } from "../../ui/banner";
+import type { TerminalTabProps } from "../../../../shared/types/layout";
+import { bannerEventId, useBannerDismissal } from "../../../hooks/use-banner-dismissal";
+import { Banner, type BannerDismiss } from "../../ui/banner";
 
 interface TerminalViewProps {
   workspaceId: string;
@@ -48,6 +50,8 @@ interface TerminalViewProps {
 
 type ReopenState = "idle" | "reopening" | "failed";
 
+const reopenFailures = new WeakMap<TerminalTabProps, number>();
+
 /**
  * Grace window for daemon reattach after disconnect (300 s, matches daemon constant).
  * Only used for countdown display — the exact sync with daemon is not required.
@@ -55,6 +59,7 @@ type ReopenState = "idle" | "reopening" | "failed";
 const REATTACH_GRACE_SECONDS = 300;
 
 export interface DeadTerminalBannerProps {
+  dismiss?: BannerDismiss | undefined;
   message: string;
   actionLabel: string;
   actionDisabled?: boolean;
@@ -92,6 +97,7 @@ export function terminalEndedMessage(reopenState: ReopenState): string {
  * label makes the in-progress state self-evident without an interactive control.
  */
 export function DeadTerminalBanner({
+  dismiss,
   message,
   actionLabel,
   actionDisabled = false,
@@ -102,6 +108,7 @@ export function DeadTerminalBanner({
       display="bar"
       variant="info"
       message={message}
+      dismiss={dismiss}
       actions={actionDisabled ? [] : [{ label: actionLabel, onAction: onReopen }]}
       role="status"
     />
@@ -167,7 +174,7 @@ export function TerminalView({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
-  const [reopenState, setReopenState] = useState<ReopenState>("idle");
+  const [reopen, setReopen] = useState({ pending: false });
 
   // ---------------------------------------------------------------------------
   // PTY hold/restore/expire state — driven by pty.held / pty.restored / pty.expired
@@ -245,12 +252,21 @@ export function TerminalView({
     return () => clearInterval(interval);
   }, [heldAt]);
 
-  const terminalEnded = useTabsStore((s) => {
+  const endedTerminal = useTabsStore((s) => {
     const tab = s.byWorkspace[workspaceId]?.[tabId];
-    return tab?.type === "terminal" ? Boolean(tab.props.dead) : false;
+    return tab?.type === "terminal" && tab.props.dead ? tab.props : undefined;
   });
+  const terminalEnded = endedTerminal !== undefined;
+  const failures = endedTerminal ? (reopenFailures.get(endedTerminal) ?? 0) : 0;
+  const reopenState: ReopenState = reopen.pending ? "reopening" : failures > 0 ? "failed" : "idle";
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
-  const showEndedBanner = shouldShowTerminalEndedBanner(terminalEnded, workspaceOnline);
+  const endedNotice = useBannerDismissal(
+    ["terminal-ended", workspaceId, tabId],
+    endedTerminal ? [bannerEventId(endedTerminal), failures] : undefined,
+  );
+  const showEndedBanner =
+    shouldShowTerminalEndedBanner(terminalEnded, workspaceOnline) &&
+    (reopenState === "reopening" || !endedNotice.dismissed);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -274,7 +290,7 @@ export function TerminalView({
         setShowInputHint(false);
         setShowRestoredFlash(false);
         useTabsStore.getState().setTerminalDead(workspaceId, tabId, true);
-        setReopenState("idle");
+        setReopen({ pending: false });
       },
     });
     controllerRef.current = controller;
@@ -308,18 +324,19 @@ export function TerminalView({
   }, [isHeld]);
 
   const handleReopen = useCallback(async (): Promise<void> => {
-    if (reopenState === "reopening") return;
-    setReopenState("reopening");
+    if (reopen.pending) return;
+    setReopen({ pending: true });
     try {
       const controller = controllerRef.current;
       if (!controller) throw new Error("terminal unavailable");
       await controller.reopen();
       useTabsStore.getState().setTerminalDead(workspaceId, tabId, false);
-      setReopenState("idle");
     } catch {
-      setReopenState("failed");
+      if (endedTerminal) reopenFailures.set(endedTerminal, failures + 1);
+    } finally {
+      setReopen({ pending: false });
     }
-  }, [reopenState, workspaceId, tabId]);
+  }, [endedTerminal, failures, reopen.pending, workspaceId, tabId]);
 
   // Keep a stable ref to the latest handler so the subscription below does not
   // need to re-subscribe every time reopenState changes. Without this, a state
@@ -362,6 +379,7 @@ export function TerminalView({
     activeBanner = (
       <DeadTerminalBanner
         message={terminalEndedMessage(reopenState)}
+        dismiss={reopenState === "reopening" ? undefined : endedNotice.dismiss}
         actionLabel={
           reopenState === "failed"
             ? t("action.retry")

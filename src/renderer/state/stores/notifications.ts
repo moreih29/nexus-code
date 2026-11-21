@@ -27,6 +27,8 @@ interface NotificationsState {
   limitResumeOptions: LimitResumeOptions;
   /** The usage-limit warnings closed, by services/chat/rate-limit's key. */
   dismissedRateLimits: ReadonlySet<string>;
+  /** The latest dismissed situation for each banner, kept in this renderer. */
+  dismissedBanners: ReadonlyMap<string, string>;
   /** Hydrate from persisted appState on bootstrap. */
   hydrate(
     state: Partial<LimitResumeOptions> & {
@@ -41,6 +43,8 @@ interface NotificationsState {
   setLimitResume(enabled: boolean): void;
   setLimitResumeOptions(patch: Partial<LimitResumeOptions>): void;
   dismissRateLimit(key: string): void;
+  dismissBanner(scope: string, situation: string): void;
+  resetBannerDismissal(scope: string, situation: string): void;
 }
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
@@ -49,6 +53,7 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   limitResume: true,
   limitResumeOptions: LIMIT_RESUME_DEFAULTS,
   dismissedRateLimits: new Set(),
+  dismissedBanners: new Map(),
 
   hydrate(state) {
     const {
@@ -91,5 +96,17 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     const dismissed = get().dismissedRateLimits;
     if (dismissed.has(key)) return;
     set({ dismissedRateLimits: new Set([...dismissed, key]) });
+  },
+
+  dismissBanner(scope, situation) {
+    set({ dismissedBanners: new Map(get().dismissedBanners).set(scope, situation) });
+  },
+
+  resetBannerDismissal(scope, situation) {
+    const dismissed = get().dismissedBanners;
+    if (dismissed.get(scope) !== situation) return;
+    const next = new Map(dismissed);
+    next.delete(scope);
+    set({ dismissedBanners: next });
   },
 }));

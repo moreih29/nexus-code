@@ -29,6 +29,8 @@ Schema 0.19.0 adds optional fields only, and no capability. A chat's panel can c
 
 Schema 0.20.0 requires Zod 4 (`^4.6.6`) as a peer and keeps the 0.19.0 wire format.
 
+Schema 0.20.1 adds optional `status.phaseRevision` and `panel.limitResume.stopAt` fields so remote banner dismissals can distinguish different failures or usage-limit stops with identical copy.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.
