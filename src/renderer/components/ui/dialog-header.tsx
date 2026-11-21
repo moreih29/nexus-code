@@ -17,6 +17,7 @@ import { DialogCloseButton } from "./dialog-close-button";
 export function DialogHeader({
   title,
   description,
+  descriptionClassName,
   leading,
   actions,
   close = false,
@@ -25,6 +26,7 @@ export function DialogHeader({
 }: {
   title: ReactNode;
   description?: ReactNode;
+  descriptionClassName?: string;
   /** Before the title: the back button of a dialog with views. */
   leading?: ReactNode;
   /** After the title, before the ×: buttons that act on the whole dialog. */
@@ -43,7 +45,9 @@ export function DialogHeader({
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <Title className="break-words text-app-body-emphasis text-foreground">{title}</Title>
         {description ? (
-          <Description className="text-app-ui-sm text-muted-foreground">{description}</Description>
+          <Description className={cn("text-app-ui-sm text-muted-foreground", descriptionClassName)}>
+            {description}
+          </Description>
         ) : null}
       </div>
       {actions || close ? (

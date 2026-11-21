@@ -71,6 +71,7 @@ describe("what another computer's consent prompt says", () => {
   test("a card: its question, all it would run, the seconds left, and the three answers", () => {
     const html = card(consent());
     expect(html).toContain("Allow an agent to change another workspace?");
+    expect(html).toMatch(/<p class="[^"]*break-keep \[overflow-wrap:anywhere\][^"]*">The terminal/);
     expect(html).toContain("rm -rf dist\nbun run build");
     // The body scrolls, as the prompt's box does.
     expect(html).toMatch(/<pre class="[^"]*overflow-auto/);
