@@ -41,6 +41,7 @@ interface Pending {
 let queue: Pending[] = [];
 const bus = createListenerBus();
 export const CONSENT_CONFIRM_BUTTON_CLASS = "hover:bg-primary/90 active:bg-primary/80";
+export const CONSENT_DESCRIPTION_CLASS = "break-keep [overflow-wrap:anywhere]";
 
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
@@ -177,6 +178,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
       <DialogHeader
         title={t(consentTitleOf(prompt?.change.kind ?? "", !!prompt?.fromDevice))}
         description={description}
+        descriptionClassName={CONSENT_DESCRIPTION_CLASS}
       />
       {copy?.body && (
         // What an answer lets run, whole: its first line can hide the rest.

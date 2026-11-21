@@ -20,8 +20,10 @@ import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
+import { cn } from "../../utils/cn";
 import {
   CONSENT_CONFIRM_BUTTON_CLASS,
+  CONSENT_DESCRIPTION_CLASS,
   consentNamesTarget,
   consentTitleOf,
   describeConsent,
@@ -144,7 +146,7 @@ export function RemoteConsentCard({
         <ShieldQuestion aria-hidden className="mt-0.5 size-3 shrink-0" />
         <span>{title}</span>
       </span>
-      <p className="text-app-ui-sm text-foreground">
+      <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
         {consentSentenceOf(t, consent, workspaceName)}
       </p>
       {body && (
