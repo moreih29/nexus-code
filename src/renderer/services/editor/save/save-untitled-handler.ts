@@ -97,7 +97,9 @@ export async function saveUntitledModel(
     });
     return "failed";
   }
-  const content = resolved.model.getValue();
+  const sourceModel = resolved.model;
+  const savedVersion = sourceModel.getVersionId();
+  const content = sourceModel.getValue();
 
   // Determine workspace-relative path for writeFile. The agent joins every
   // relPath under the workspace root, so a path outside it would be written
@@ -171,7 +173,7 @@ export async function saveUntitledModel(
 
   // An open tab of the replaced file still holds its old content; load what
   // was just written, as replacing the file in the dialog asked for.
-  if (replacingOpenFile) await reloadModelFromDisk(newInput);
+  const targetReady = !replacingOpenFile || (await reloadModelFromDisk(newInput));
 
   // Set savePoint on the new model's dirty tracker so it starts clean.
   const newResolved = getResolvedModel(newInput);
@@ -183,6 +185,37 @@ export async function saveUntitledModel(
       loadedMtime: mtime,
       loadedSize: size,
     });
+  }
+
+  if (
+    getResolvedModel(untitledInput)?.model !== sourceModel ||
+    useTabsStore.getState().byWorkspace[workspaceId]?.[tabId]?.type !== "untitled"
+  ) {
+    releaseModel(newInput);
+    return "cancelled";
+  }
+
+  // The write saved a snapshot. Carry edits made after that snapshot onto the
+  // saved model as an undoable edit, leaving its disk baseline untouched.
+  if (sourceModel.getVersionId() !== savedVersion) {
+    if (!targetReady || !newResolved) {
+      releaseModel(newInput);
+      showToast({
+        kind: "error",
+        message: i18next.t("errors:save.failed", {
+          reason: i18next.t("errors:save.buffer_unavailable"),
+        }),
+      });
+      return "failed";
+    }
+    const latest = sourceModel.getValue();
+    if (newResolved.model.getValue() !== latest) {
+      newResolved.model.pushEditOperations(
+        [],
+        [{ range: newResolved.model.getFullModelRange(), text: latest }],
+        () => null,
+      );
+    }
   }
 
   // Replace the untitled tab with the editor tab (tab id preserved).
