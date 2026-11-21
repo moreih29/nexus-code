@@ -70,7 +70,7 @@ const { acquireModel, releaseModel, cacheUriFor, getResolvedModel } = await impo
   "../../../../../src/renderer/services/editor/model/cache"
 );
 const { isDirty } = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
-const { closeDiffWithConfirm, closeEditorWithConfirm } = await import(
+const { closeDiffWithConfirm, closeEditorWithConfirm, closeUntitledWithConfirm } = await import(
   "../../../../../src/renderer/services/editor/save/close-handler"
 );
 
@@ -323,4 +323,36 @@ test("a failed conflict reload leaves the dirty buffer editable and saveable", a
       expected: { exists: false },
     }),
   );
+});
+
+test.each([
+  false,
+  true,
+])("closing an untitled tab after saving, with late edit %s", async (lateEdit) => {
+  const tab = useTabsStore.getState().createTab(workspaceId, {
+    type: "untitled",
+    props: { untitledIndex: 1 },
+  });
+  useLayoutStore.getState().ensureLayout(workspaceId);
+  const group = useLayoutStore.getState().byWorkspace[workspaceId]!.activeGroupId;
+  useLayoutStore.getState().attachTab(workspaceId, group, tab.id);
+  const model = await openModel(untitled);
+  model.setValue("first edit");
+  const started = Promise.withResolvers<void>();
+  const reply = Promise.withResolvers<WriteFileResult>();
+  write = () => {
+    started.resolve();
+    return reply.promise;
+  };
+  const closing = closeUntitledWithConfirm(workspaceId, tab.id);
+  await started.promise;
+  if (lateEdit) model.setValue("second edit");
+  disk = "first edit";
+  reply.resolve(written);
+
+  expect(await closing).toBe(lateEdit ? "cancelled" : "closed");
+  expect(findTab(tab.id)?.type).toBe(lateEdit ? "editor" : undefined);
+  const root = useLayoutStore.getState().byWorkspace[workspaceId]!.root;
+  expect(root.kind === "leaf" && root.tabIds.includes(tab.id)).toBe(lateEdit);
+  releaseModel(input);
 });

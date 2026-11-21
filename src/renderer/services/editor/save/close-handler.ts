@@ -127,12 +127,8 @@ function otherTabShowsFile(workspaceId: string, tabId: string, filePath: string)
 /**
  * Close an untitled tab, prompting first if its buffer is dirty.
  *
- * Mirrors closeEditorWithConfirm for the untitled tab type.
- * Key invariant: when saveUntitledModel returns "saved", the tab has already
- * been converted to an editor tab in-place and the untitled model has been
- * released — do NOT call closeTab or releaseModel again ("saved → no
- * double-close" rule). Only "dont-save" and clean-close paths discard
- * explicitly.
+ * A successful first save converts the tab in place. Close the converted
+ * editor only if the save also left its buffer clean.
  */
 export async function closeUntitledWithConfirm(
   workspaceId: string,
@@ -170,9 +166,15 @@ export async function closeUntitledWithConfirm(
   const saveOutcome = await saveUntitledModel(workspaceId, tabId);
 
   if (saveOutcome === "saved") {
-    // saveUntitledModel already converted the tab and released the untitled
-    // model — do not call discard() or closeTab(); the tab is now an editor
-    // tab pointing at the newly written file.
+    const converted = findTab(workspaceId, tabId);
+    if (!converted) return "closed";
+    if (
+      converted.type !== "editor" ||
+      isDirty(cacheUriFor(workspaceId, converted.props.filePath))
+    ) {
+      return "cancelled";
+    }
+    closeEditor(tabId);
     return "closed";
   }
 
