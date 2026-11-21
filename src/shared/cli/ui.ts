@@ -11,6 +11,7 @@ import type {
   ChatCommand,
   ChatConfig,
   ChatPage,
+  RemoteConsent,
   RpcResult,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
@@ -302,7 +303,7 @@ export type CliChangeKind =
   | "permissionAllow"
   | "permissionDeny";
 
-export interface CliChange {
+export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit"> {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;

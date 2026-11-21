@@ -336,6 +336,22 @@ export const RemoteConsentSchema = z.object({
     kind: z.string(),
     detail: z.string().optional(),
     body: z.string().optional(),
+    instructionEdit: z
+      .object({
+        layer: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("all") }),
+          z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
+          z.object({
+            kind: z.literal("profile"),
+            agent: z.enum(["claude", "codex"]),
+            name: z.string(),
+            id: z.string(),
+          }),
+          z.object({ kind: z.literal("workspace"), name: z.string() }),
+        ]),
+        clear: z.boolean(),
+      })
+      .optional(),
   }),
   /** It is asked about each time: "session" is not an answer to it. */
   eachTime: z.boolean(),

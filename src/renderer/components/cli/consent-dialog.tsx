@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
 import { showToast } from "@/components/ui/toast";
+import { CONSENT_AGENT_NAMES, consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -79,7 +80,10 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
   });
 }
 
-const AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
+/** The action already names the target for these approval prompts. */
+export function consentNamesTarget(kind: string): boolean {
+  return kind === "instructionsEdit" || kind === "profileAdd";
+}
 
 /**
  * Who asks and for what, as the prompt says it: an agent of another
@@ -92,25 +96,30 @@ export function describeConsent(
     "fromWorkspace" | "fromTab" | "fromAgent" | "fromDevice" | "toWorkspace"
   >,
   action: string,
-  profileAdd = false,
+  namesTarget = false,
 ): string {
   const to = prompt.toWorkspace;
   if (prompt.fromDevice) {
-    return t("agentCli.consent.remote_description", {
-      device: prompt.fromDevice,
-      tab: prompt.fromTab,
-      to,
-      action,
-    });
+    return t(
+      namesTarget
+        ? "agentCli.consent.remote_named_description"
+        : "agentCli.consent.remote_description",
+      {
+        device: prompt.fromDevice,
+        tab: prompt.fromTab,
+        to,
+        action,
+      },
+    );
   }
   const from = prompt.fromWorkspace;
   if (prompt.fromAgent) {
     return t(
-      profileAdd
-        ? "agentCli.consent.profile_add_agent_description"
+      namesTarget
+        ? "agentCli.consent.named_agent_description"
         : "agentCli.consent.agent_description",
       {
-        agent: AGENT_NAMES[prompt.fromAgent],
+        agent: CONSENT_AGENT_NAMES[prompt.fromAgent],
         tab: prompt.fromTab,
         from,
         to,
@@ -118,15 +127,12 @@ export function describeConsent(
       },
     );
   }
-  return t(
-    profileAdd ? "agentCli.consent.profile_add_description" : "agentCli.consent.description",
-    {
-      tab: prompt.fromTab,
-      from,
-      to,
-      action,
-    },
-  );
+  return t(namesTarget ? "agentCli.consent.named_description" : "agentCli.consent.description", {
+    tab: prompt.fromTab,
+    from,
+    to,
+    action,
+  });
 }
 
 /**
@@ -142,6 +148,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
     return "agentCli.consent.profile_title" as const;
   }
   if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
+  if (kind === "instructionsEdit") return "agentCli.consent.instructions_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;
   }
@@ -157,11 +164,13 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   useEffect(() => bus.subscribe(() => setActive(queue[0] ?? null)), []);
 
   const prompt = active?.prompt;
-  const action = prompt
-    ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
+  const change = prompt?.change;
+  const copy = change && consentDetailsOf(t, change);
+  const action = change
+    ? t(`agentCli.consent.action.${change.kind}`, { detail: copy?.detail ?? "" })
     : "";
   const description = prompt
-    ? describeConsent(t, prompt, action, prompt.change.kind === "profileAdd")
+    ? describeConsent(t, prompt, action, consentNamesTarget(prompt.change.kind))
     : "";
 
   return (
@@ -176,10 +185,10 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         title={t(consentTitleOf(prompt?.change.kind ?? "", !!prompt?.fromDevice))}
         description={description}
       />
-      {prompt?.change.body && (
+      {copy?.body && (
         // What an answer lets run, whole: its first line can hide the rest.
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
-          {prompt.change.body}
+          {copy.body}
         </pre>
       )}
       <p className="mt-2 text-app-ui-sm text-muted-foreground">

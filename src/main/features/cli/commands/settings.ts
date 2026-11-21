@@ -326,17 +326,23 @@ const settingsInstructionsSet: CliCommand = {
             : { kind: "agent", agent: edit.layer };
     const change: CliChange = {
       kind: "instructionsEdit",
-      detail:
-        edit.layer === "profile"
-          ? `${edit.profile.agent} profile "${edit.profile.name}" (${edit.profile.id})`
-          : layer === "workspace"
-            ? workspace.name
-            : layer === "all"
-              ? "Shared"
-              : layer === "claude"
-                ? "Claude"
-                : "Codex",
-      body: text || "Clear this layer",
+      instructionEdit: {
+        layer:
+          edit.layer === "profile"
+            ? {
+                kind: "profile",
+                agent: edit.profile.agent,
+                name: edit.profile.name,
+                id: edit.profile.id,
+              }
+            : edit.layer === "workspace"
+              ? { kind: "workspace", name: workspace.name }
+              : edit.layer === "all"
+                ? { kind: "all" }
+                : { kind: "agent", agent: edit.layer },
+        clear: !text,
+      },
+      body: text,
     };
     if (layer === "workspace") await mayChange(ctx, workspace, change);
     else

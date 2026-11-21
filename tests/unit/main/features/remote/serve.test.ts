@@ -132,7 +132,10 @@ test("a peer editing a task's workspace instructions asks for and changes the pa
       "consent.ask",
       expect.objectContaining({
         toWorkspaceId: "w1",
-        change: expect.objectContaining({ kind: "instructionsEdit", detail: "app" }),
+        change: expect.objectContaining({
+          kind: "instructionsEdit",
+          instructionEdit: { layer: { kind: "workspace", name: "app" }, clear: true },
+        }),
       }),
     ],
     ["settings.instructions.set", { scope: { kind: "workspace", id: "w1" }, text: "" }],

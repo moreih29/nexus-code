@@ -220,9 +220,12 @@ test("local profile writes take stdin and clear with fresh approval each time", 
   expect((await nexus(app, [...command, "--clear"])).exitCode).toBe(0);
   expect((await nexus(app, [...command, "--clear"])).exitCode).toBe(1);
   expect(app.asked.map(({ change }) => change)).toEqual(
-    ["Use bun.", "Clear this layer", "Clear this layer"].map((body) => ({
+    ["Use bun.", "", ""].map((body) => ({
       kind: "instructionsEdit",
-      detail: 'codex profile "Work" (work-codex)',
+      instructionEdit: {
+        layer: { kind: "profile", agent: "codex", name: "Work", id: "work-codex" },
+        clear: !body,
+      },
       eachTime: true,
       body,
     })),
@@ -328,7 +331,13 @@ test("setting a task workspace's instructions asks to edit the parent and names 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe('Cleared the workspace instruction layer for "app".\n');
   expect(app.asked).toMatchObject([
-    { toWorkspaceId: APP, change: { kind: "instructionsEdit", detail: "app" } },
+    {
+      toWorkspaceId: APP,
+      change: {
+        kind: "instructionsEdit",
+        instructionEdit: { layer: { kind: "workspace", name: "app" }, clear: true },
+      },
+    },
   ]);
   expect(app.uiCalls.at(-1)).toEqual({
     op: "settings.instructions.set",

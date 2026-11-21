@@ -209,6 +209,16 @@ describe("the methods", () => {
     const { result } = RPC_METHODS["sessions.list"];
     const listed = result.parse({ workspaces: [], sessions: [], consents: [consent] });
     expect(listed.consents?.[0]?.change.kind).toBe("terminalInput");
+    const instructionEdit = {
+      layer: { kind: "profile", agent: "claude", name: "default", id: "claude-default" },
+      clear: true,
+    };
+    const instruction = result.parse({
+      workspaces: [],
+      sessions: [],
+      consents: [{ ...consent, change: { kind: "instructionsEdit", instructionEdit } }],
+    });
+    expect(instruction.consents?.[0]?.change.instructionEdit).toEqual(instructionEdit);
     // A kind this version does not name is still a prompt.
     expect(
       result.safeParse({

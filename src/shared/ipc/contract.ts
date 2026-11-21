@@ -2610,7 +2610,9 @@ const coreIpcContract = {
       loginExit: listen(z.object({ id: z.string(), code: z.number().int().nullable() })),
     },
   },
+} as const satisfies Record<string, ChannelDefinition>;
 
+const remoteContracts = {
   // The NexusCode account the remote runs on (shared/remote): signing in
   // with Google in the browser, and the account's devices.
   remote: {
@@ -3144,9 +3146,11 @@ const coreIpcContract = {
   },
 } as const satisfies Record<string, ChannelDefinition>;
 
-export const ipcContract: typeof coreIpcContract & typeof notesContracts = {
-  ...coreIpcContract,
-  ...notesContracts,
-};
+export const ipcContract: typeof coreIpcContract & typeof remoteContracts & typeof notesContracts =
+  {
+    ...coreIpcContract,
+    ...remoteContracts,
+    ...notesContracts,
+  };
 
 export type IpcContract = typeof ipcContract;

@@ -1366,12 +1366,15 @@ test("profile instruction writes pin the profile id and need a fresh approval", 
     app.uiAnswers.set("consent.ask", { answer: "session" });
     await expect(set(profile.id, "")).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     expect(app.uiCalls.filter(({ op }) => op === "consent.ask").map(({ args }) => args)).toEqual(
-      ["Use bun.", "Clear this layer"].map((body) =>
+      ["Use bun.", ""].map((body) =>
         expect.objectContaining({
           change: {
             kind: "instructionsEdit",
             body,
-            detail: 'codex profile "Work" (work)',
+            instructionEdit: {
+              layer: { kind: "profile", agent: "codex", name: "Work", id: "work" },
+              clear: !body,
+            },
             eachTime: true,
           },
         }),

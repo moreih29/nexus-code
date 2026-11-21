@@ -432,22 +432,29 @@ async function changeOf(
     }
     case "settings.instructions.set": {
       const { layer, profileId, text } = params;
-      let detail: string | undefined;
+      let target: NonNullable<CliChange["instructionEdit"]>["layer"];
       if (layer === "profile") {
         const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
         const profile = profiles.find(({ id }) => id === profileId);
         if (!profile) throw new RpcFailure(RpcErrorCode.NotFound, "no such profile");
-        detail = `${profile.agent} profile "${profile.name}" (${profile.id})`;
+        target = { kind: "profile", agent: profile.agent, name: profile.name, id: profile.id };
       } else {
-        detail =
+        target =
           layer === "workspace"
-            ? services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name
-            : (AGENT_NAMES[String(layer)] ?? "Shared");
+            ? {
+                kind: "workspace",
+                name:
+                  services.listWorkspaces().find((workspace) => workspace.id === workspaceId)
+                    ?.name ?? workspaceId.slice(0, 8),
+              }
+            : layer === "claude" || layer === "codex"
+              ? { kind: "agent", agent: layer }
+              : { kind: "all" };
       }
       return {
         kind: "instructionsEdit",
-        detail,
-        body: String(text || "Clear this layer"),
+        instructionEdit: { layer: target, clear: !text },
+        body: String(text ?? ""),
         ...(eachTime ? { eachTime: true } : {}),
       };
     }
