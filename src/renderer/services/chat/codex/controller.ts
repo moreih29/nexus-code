@@ -1702,12 +1702,31 @@ export class CodexController {
           this.confirmTurnPicks(clientUserMessageId);
           told(result);
         },
-        (error: unknown) => {
+        async (error: unknown) => {
           if (
             this.turnPicks?.clientId === clientUserMessageId &&
             (error instanceof CodexReplyError || isChatWriteRejected(error))
           ) {
             this.turnPicks = undefined;
+          }
+          // The composer can accept follow-ups after the write. Keep a later
+          // definitive refusal available to take back, unless the write already failed.
+          if (!id && error instanceof CodexReplyError) {
+            await written.then(
+              () => {
+                const failed: QueuedMessage = {
+                  id: clientUserMessageId,
+                  text,
+                  images,
+                  ...(from ? { from } : {}),
+                  ...(device ? { device } : {}),
+                  status: "failed",
+                  error: error.message.slice(0, 1000),
+                };
+                this.update((prev) => ({ ...prev, queue: [...prev.queue, failed] }));
+              },
+              () => {},
+            );
           }
           throw error;
         },

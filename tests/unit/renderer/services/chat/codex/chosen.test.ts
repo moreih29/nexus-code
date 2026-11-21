@@ -1117,3 +1117,31 @@ test.each([
     sent.filter(({ method }) => method === "turn/interrupt").map(({ params }) => params),
   ).toEqual(ended ? [] : [{ threadId: "t1", turnId: "turn-1" }]);
 });
+
+test("a late Codex refusal makes a direct desktop prompt and its image recoverable", async () => {
+  const refusal = Promise.withResolvers<{ error: { code: number; message: string } }>();
+  const c = tab(undefined, undefined, ({ method }) =>
+    method === "turn/start" ? refusal.promise : undefined,
+  );
+  const images = [{ mediaType: "image/png", data: "AA==" }];
+  await c.send("Recover this prompt", images);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "user", text: "Recover this prompt", state: "sent" }),
+  );
+
+  refusal.resolve({ error: { code: -32602, message: "model not supported" } });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(c.model.items.some((item) => item.kind === "user")).toBe(false);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "notice", code: "error", detail: "model not supported" }),
+  );
+  expect(c.state.queue).toMatchObject([
+    { status: "failed", error: "model not supported", text: "Recover this prompt", images },
+  ]);
+  expect(c.removeQueued(c.state.queue[0].id)).toMatchObject({
+    text: "Recover this prompt",
+    images,
+  });
+  expect(sent.filter(({ method }) => method === "turn/start")).toHaveLength(1);
+});
