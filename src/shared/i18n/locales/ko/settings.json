@@ -638,8 +638,8 @@
     "previewTool": "src/greet.ts 읽기",
     "limits": "사용량 한도",
     "limitResume": {
-      "label": "한도가 풀리면 이어 하기",
-      "description": "구독 프로필 · 풀린 지 1분 뒤 앱이 이어 하기 메시지 전송"
+      "label": "한도가 풀리면 자동으로 이어하기",
+      "description": "구독 프로필 · 한도 해제 1분 뒤 이어하기 메시지 자동 전송"
     }
   },
   "profiles": {

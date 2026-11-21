@@ -1062,20 +1062,21 @@
       "dismiss": "Close until the limit resets"
     },
     "failure": {
-      "transient": "A temporary API error stopped the work · {{reason}}",
-      "auth": "Sign-in failed and the work stopped · {{reason}} · Check the sign-in or API key, then send again",
-      "request": "The API refused the request ({{code}}) · Trying again fails the same way. Fix the request or shorten the conversation with /compact, then send",
+      "transient": "The work stopped on a temporary API error · {{reason}}",
+      "auth": "The work stopped on a sign-in failure ({{code}}) · Check the sign-in or API key, then send again",
+      "auth_no_code": "The work stopped on a sign-in failure · Check the sign-in or API key, then send again",
+      "request": "The API refused the request ({{code}}) · The same request fails again · Fix the request or shorten the conversation with /compact, then send",
       "retry": "Try again",
       "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
       "dismiss": "Close"
     },
     "limit_resume": {
-      "waiting": "Usage limit · Goes on at {{time}}",
-      "unknown": "Usage limit · Reset time unknown · Send a message once it resets",
-      "cancelled": "Usage limit · Resets at {{time}} · Going on cancelled",
-      "gave_up": "Usage limit · Still reached after {{tries}} tries · Stopped going on",
+      "waiting": "Usage limit · Resumes at {{time}}",
+      "unknown": "Usage limit · Reset time unknown · Send a message once the limit resets to resume",
+      "cancelled": "Usage limit · Resets at {{time}} · Auto-resume cancelled",
+      "gave_up": "Usage limit · Checked {{tries}} times without a reset · Auto-resume stopped",
       "cancel": "Cancel",
-      "now": "Go on now",
+      "now": "Resume now",
       "prompt": "The usage limit has reset. Please continue from where you left off.",
       "status": "Waiting for limit · {{time}}"
     },

@@ -1,5 +1,5 @@
 // Over the composer of a tab the plan's usage limit stopped: when the app
-// goes on by itself (with [Cancel] and [Go on now]), or why it does not.
+// goes on by itself (with [Cancel] and [Resume now]), or why it does not.
 // In a Claude tab it takes the place of the limit-reached banner. Another
 // device's chat shows the same, without the buttons: they are its app's.
 
@@ -25,7 +25,7 @@ export function showsLimitResume<T extends LimitResumeShown>(record: T | undefin
   return record !== undefined && SHOWN.has(record.state);
 }
 
-/** A tab's own banner, with [Cancel] while it waits and [Go on now]. */
+/** A tab's own banner, with [Cancel] while it waits and [Resume now]. */
 export function LimitResumeBanner({
   workspaceId,
   tabId,

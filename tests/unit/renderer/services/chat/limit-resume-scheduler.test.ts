@@ -203,7 +203,7 @@ describe("a tab the usage limit stopped", () => {
     expect(recordOf(tabId)).toBeUndefined();
   });
 
-  test("cancelled, it is not sent; [Go on now] sends at once without asking", async () => {
+  test("cancelled, it is not sent; [Resume now] sends at once without asking", async () => {
     const tabId = dueTab();
     tickLimitResume();
     cancelLimitResume(WS, tabId);

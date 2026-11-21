@@ -66,7 +66,9 @@ export function TurnFailureBanner({
   }
   const message =
     failure.kind === "auth"
-      ? t("chat.failure.auth", { reason: reasonText(failure.status, t) })
+      ? failure.status === undefined
+        ? t("chat.failure.auth_no_code")
+        : t("chat.failure.auth", { code: failure.status })
       : t("chat.failure.request", { code: failure.status ?? 400 });
   return (
     <div className="shrink-0" data-testid="chat-turn-failure">

@@ -638,8 +638,8 @@
     "previewTool": "Read src/greet.ts",
     "limits": "Usage limits",
     "limitResume": {
-      "label": "Go on when the limit resets",
-      "description": "Subscription profiles · The app sends a message to go on a minute after the reset"
+      "label": "Resume automatically when the limit resets",
+      "description": "Subscription profiles · Sends a resume message 1 minute after the limit resets"
     }
   },
   "profiles": {
