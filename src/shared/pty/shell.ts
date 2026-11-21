@@ -58,3 +58,13 @@ export function splitShellArgs(text: string): string[] {
 export function joinShellArgs(args: readonly string[]): string {
   return args.map((arg) => (/\s/.test(arg) || arg === "" ? `"${arg}"` : arg)).join(" ");
 }
+
+/** A literal value for a POSIX shell. */
+export function posixShellString(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** A literal PowerShell value. Typographic single quotes also count as delimiters. */
+export function powerShellString(value: string): string {
+  return `'${value.replace(/['‘’‚‛]/g, "$&$&")}'`;
+}

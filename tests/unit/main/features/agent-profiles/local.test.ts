@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -145,13 +146,46 @@ describe("the sign-in command shown", () => {
     dir: "~/.claude-work",
   };
 
-  test("sets the folder's variable as the user's shell takes it", () => {
-    expect(loginCommand(profile, false)).toBe("CLAUDE_CONFIG_DIR=~/.claude-work claude auth login");
+  test("sets the absolute folder as a literal value in the displayed shell command", () => {
+    const folder = path.join(os.homedir(), ".claude-work");
+    expect(loginCommand(profile, false)).toBe(`CLAUDE_CONFIG_DIR='${folder}' claude auth login`);
     expect(loginCommand(profile, true)).toBe(
-      `$env:CLAUDE_CONFIG_DIR="${path.join(os.homedir(), ".claude-work")}"; claude auth login`,
+      `$env:CLAUDE_CONFIG_DIR='${folder}'; claude auth login`,
     );
     expect(loginCommand({ ...profile, dir: "" }, true)).toBe("claude auth login");
   });
+
+  test("doubles PowerShell quotes and keeps dollar signs literal in the displayed folder", () => {
+    const dir = path.resolve("Team's $profile");
+    expect(loginCommand({ ...profile, dir }, true)).toBe(
+      `$env:CLAUDE_CONFIG_DIR='${path.resolve("Team''s $profile")}'; claude auth login`,
+    );
+  });
+
+  test.if(posix)(
+    "passes a folder with spaces, quotes and non-ASCII text through a POSIX shell",
+    async () => {
+      const pathToStub = await fs.mkdtemp(path.join(os.tmpdir(), "nexus-profile-login-"));
+      try {
+        await fs.writeFile(
+          path.join(pathToStub, "codex"),
+          '#!/bin/sh\nprintf "%s" "$CODEX_HOME"\n',
+          {
+            mode: 0o755,
+          },
+        );
+        const dir = path.join(pathToStub, "팀's $profile");
+        const command = loginCommand({ ...profile, agent: "codex", dir }, false);
+        const output = execFileSync("/bin/sh", ["-c", command], {
+          encoding: "utf8",
+          env: { PATH: pathToStub },
+        });
+        expect(output).toBe(dir);
+      } finally {
+        await fs.rm(pathToStub, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("the environment a profile's program runs with", () => {
