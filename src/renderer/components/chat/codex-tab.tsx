@@ -56,7 +56,7 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { withRelayed } from "../../services/chat/relayed";
+import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import {
   type ChatTabState,
@@ -487,7 +487,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       cwd: props.cwd,
       rootPath,
       ...(props.profileId ? { profileId: props.profileId } : {}),
-      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
+      items: withRelayed(
+        history ? [...history.items, ...model.items] : model.items,
+        relayedOf(props),
+      ),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -698,7 +701,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
               reveal={callReveal ?? undefined}
               moves={props.moves}
-              relayed={props.relayed}
+              relayed={relayedOf(props)}
               historyTruncated={!shown && state.truncated}
               empty={
                 !shown && (state.phase === "ready" || state.phase === "ended") ? (
@@ -774,7 +777,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             instructionsTab={instructionsTab}
             controller={controller}
             state={state}
-            relayed={props.relayed}
+            relayed={relayedOf(props)}
             local={isLocal}
             commands={commands}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}

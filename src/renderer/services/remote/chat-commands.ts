@@ -20,7 +20,7 @@ import { collaborationModeOf } from "../chat/codex/collaboration";
 import { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS } from "../chat/codex/commands";
 import { runCodexCommand } from "../chat/codex/run-command";
 import type { ChatModel, ToolCall } from "../chat/model";
-import { withRelayed } from "../chat/relayed";
+import { relayedOf, withRelayed } from "../chat/relayed";
 import { type CommandCard, chatKey, useChatStore } from "../chat/store";
 import { UiRequestError } from "../cli/handler";
 
@@ -140,7 +140,7 @@ export async function runRemoteCommand(
   const { history, model } = chat;
   const items = withRelayed(
     history ? [...history.items, ...model.items] : model.items,
-    props.relayed,
+    relayedOf(props),
   );
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
   const before = new Set(Object.keys(useTabsStore.getState().byWorkspace[workspaceId] ?? {}));

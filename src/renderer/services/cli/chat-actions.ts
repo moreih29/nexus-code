@@ -55,6 +55,7 @@ import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
+import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
 import {
   sendFirstMessage,
@@ -207,8 +208,9 @@ function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTab
     after: move.after,
     profile: cliProfileName(profileOf(config, agent, move.profileId)),
   }));
+  const relayed = relayedOf(props);
   return {
-    ...(props.relayed ? { relayed: props.relayed } : {}),
+    ...(relayed ? { relayed } : {}),
     ...(moves ? { moves } : {}),
   };
 }

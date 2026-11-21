@@ -862,6 +862,7 @@
       "from_terminal": "sent from {{agent}} in a terminal",
       "unknown": "Sent by an agent whose tab could not be told",
       "manager": "Sent by the manager",
+      "app": "Sent by NexusCode",
       "closed": "closed",
       "show_tab": "Go to the tab that sent it",
       "more": "Show all",

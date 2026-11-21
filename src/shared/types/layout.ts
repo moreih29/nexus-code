@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { InstructionTextSchema } from "../chat/instructions";
-import { RelayedMessagesSchema } from "../chat/relay";
+import { AppMessagesSchema, RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { NoteIdSchema } from "./notes";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
@@ -107,6 +107,8 @@ export const ClaudeTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The messages the app sent it on its own. */
+  fromApp: AppMessagesSchema,
   peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen: ChatChosenSchema,
@@ -138,6 +140,8 @@ export const CodexTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The messages the app sent it on its own. */
+  fromApp: AppMessagesSchema,
   peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen: ChatChosenSchema,

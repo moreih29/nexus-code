@@ -66,7 +66,7 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { withRelayed } from "../../services/chat/relayed";
+import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { jobToolStatuses } from "../../services/chat/running";
 import {
@@ -593,7 +593,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       tabId,
       cwd: props.cwd,
       rootPath,
-      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
+      items: withRelayed(
+        history ? [...history.items, ...model.items] : model.items,
+        relayedOf(props),
+      ),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -737,7 +740,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
-              relayed={props.relayed}
+              relayed={relayedOf(props)}
               historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
@@ -826,7 +829,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             controller={controller}
             state={steady}
             fallbackModels={fallbackModels}
-            relayed={props.relayed}
+            relayed={relayedOf(props)}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={
