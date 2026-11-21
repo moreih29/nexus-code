@@ -98,7 +98,7 @@ export interface PollGithubReleasesOptions {
   /**
    * Optional ETag cache shared across polls. When omitted, every call behaves
    * like the first (no `If-None-Match` sent, no caching). Production code in
-   * `installUpdatesDomain` supplies one instance per process so 304 responses
+   * `installUpdatesDomain` supplies one instance per channel so 304 responses
    * cover the typical case where the latest release is unchanged.
    */
   cache?: ConditionalCache;
@@ -135,17 +135,15 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
   try {
     // If-None-Match is only valid for the SAME resource the ETag came from.
     // After a channel switch the source URL differs, so drop the stale ETag.
-    const haveValidCache =
-      cache?.etag != null && cache.sourceUrl === sourceUrl && cache.resolved !== null;
+    const etag = cache?.sourceUrl === sourceUrl ? cache.etag : null;
+    const cached = etag != null ? (cache?.resolved ?? null) : null;
 
     const headers: Record<string, string> = {
       // A descriptive UA keeps GitHub abuse-detection attributing requests to
       // this app rather than a generic client.
       "User-Agent": "nexus-code-update-checker",
     };
-    if (haveValidCache && cache?.etag != null) {
-      headers["If-None-Match"] = cache.etag;
-    }
+    if (etag != null && cached !== null) headers["If-None-Match"] = etag;
 
     const response = await fetchImpl(sourceUrl, { headers });
 
@@ -153,14 +151,14 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
       // Not Modified — reuse the cached resolution. We only send If-None-Match
       // when we have a cached resolution for this exact source, so a 304
       // without one is an invariant violation worth surfacing.
-      if (!haveValidCache || !cache || cache.resolved === null) {
+      if (cached === null) {
         return {
           kind: "error",
           reason: "unexpected",
           message: "Received HTTP 304 with no cached result",
         };
       }
-      resolved = cache.resolved;
+      resolved = cached;
     } else if (response.status === 404 && channel === "stable") {
       // No stable release published yet (only prereleases). Not an error —
       // there is simply nothing newer on the stable channel.

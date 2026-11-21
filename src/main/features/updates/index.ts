@@ -186,7 +186,9 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // Updates" click within a process session. Reused across polls so repeated
   // checks stay cheap until the latest release actually changes.
   // ------------------------------------------------------------------
-  const conditionalCache = createConditionalCache();
+  const conditionalCache = { stable: createConditionalCache(), beta: createConditionalCache() };
+  let channelGeneration = 0;
+  let manualCheck: symbol | undefined;
   const releaseNotesCache = createReleaseNotesCache();
 
   function broadcastStatus(payload: StatusPayload): void {
@@ -215,18 +217,18 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // Core poll logic
   // ------------------------------------------------------------------
 
-  async function doPoll(trigger: Trigger): Promise<void> {
+  async function doPoll(trigger: Trigger, generation: number): Promise<void> {
     const state = stateService.getState();
     const channel = state.updateChannel ?? "stable";
-    const ignoredVersion = state.ignoredUpdateVersion ?? null;
 
     const result: PollResult = await pollGithubReleases({
       channel,
       currentVersion,
       fetchImpl,
-      cache: conditionalCache,
+      cache: conditionalCache[channel],
     });
 
+    if (generation !== channelGeneration) return;
     if (result.kind === "error") {
       repeated.log(
         "warn",
@@ -238,6 +240,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     const payload = buildPayload(result, trigger, installer !== undefined);
     remember(payload);
 
+    const ignoredVersion = stateService.getState().ignoredUpdateVersion ?? null;
     const shouldBroadcast = shouldBroadcastResult(result, trigger, ignoredVersion);
     if (!shouldBroadcast) {
       repeated.log(
@@ -256,41 +259,32 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // ------------------------------------------------------------------
 
   function poll(trigger: Trigger): void {
-    let progressHandle: unknown | null = null;
+    const generation = channelGeneration;
 
     if (trigger === "manual") {
-      // After 3 seconds, if the poll has not yet resolved, broadcast "checking".
-      let settled = false;
-
-      progressHandle = timerScheduler.setTimeout(() => {
-        if (!settled) {
-          remember({ kind: "checking", trigger: "manual" });
-          broadcastStatus({ kind: "checking", trigger: "manual" });
-        }
+      const check = Symbol();
+      manualCheck = check;
+      const progressHandle = timerScheduler.setTimeout(() => {
+        if (generation !== channelGeneration || manualCheck !== check) return;
+        remember({ kind: "checking", trigger: "manual" });
+        broadcastStatus({ kind: "checking", trigger: "manual" });
       }, 3000);
 
-      void doPoll(trigger)
-        .then(() => {
-          settled = true;
-          if (progressHandle !== null) {
-            timerScheduler.clearTimeout(progressHandle);
-            progressHandle = null;
-          }
-        })
+      void doPoll(trigger, generation)
         .catch((err: unknown) => {
-          settled = true;
-          if (progressHandle !== null) {
-            timerScheduler.clearTimeout(progressHandle);
-            progressHandle = null;
-          }
+          if (generation !== channelGeneration) return;
           const message = err instanceof Error ? err.message : String(err);
           logger.error(`updates: unexpected error in poll: ${message}`);
-          remember({ kind: "error", trigger, reason: "unexpected" });
-          broadcastStatus({ kind: "error", trigger, reason: "unexpected" });
+          const error = { kind: "error", trigger, reason: "unexpected" } as const;
+          remember(error);
+          broadcastStatus(error);
+        })
+        .finally(() => {
+          timerScheduler.clearTimeout(progressHandle);
+          if (manualCheck === check) manualCheck = undefined;
         });
     } else {
-      // Auto: fire and forget — errors are silent (not broadcast).
-      void doPoll(trigger).catch((err: unknown) => {
+      void doPoll(trigger, generation).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`updates: unexpected error in auto poll: ${message}`);
       });
@@ -342,12 +336,14 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       const newChannel = stateService.getState().updateChannel ?? "stable";
       if (newChannel !== lastKnownChannel) {
         lastKnownChannel = newChannel;
+        channelGeneration++;
         logger.info(`updates: channel changed to ${newChannel}, resetting ignoredVersion`);
         // Reset ignoredUpdateVersion and re-fire auto poll.
         originalSetState({ ignoredUpdateVersion: null });
         // Reset dedupe state so the next result is always broadcast.
         lastBroadcastKey = null;
-        autoCheck.checkNow();
+        if (manualCheck) poll("manual");
+        else autoCheck.checkNow();
       }
     }
   };
