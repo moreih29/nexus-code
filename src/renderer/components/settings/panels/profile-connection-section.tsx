@@ -291,8 +291,8 @@ function ProfileConnectionModels({
   const grid = cn(
     "grid items-center gap-1.5",
     claude
-      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_3rem_1.5rem]"
-      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_5rem_3rem_1.5rem]",
+      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]"
+      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]",
   );
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-3">

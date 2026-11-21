@@ -53,11 +53,21 @@ describe("custom profile reasoning controls", () => {
     );
 
     expect(html.match(/aria-label="Reasoning"/g)).toHaveLength(2);
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]");
     expect(html).toContain('<option value="auto">Auto</option>');
     expect(html).toContain('<option value="none">None</option>');
     expect(html).toContain('<option value="high">low–high</option>');
     expect(html).toContain('<option value="xhigh">low–xhigh</option>');
     expect(html).toContain('<option value="max">low–max</option>');
+  });
+
+  test("gives Codex reasoning options the same readable column width", () => {
+    const html = renderToStaticMarkup(
+      <ProfileConnectionSection agent="codex" draft={draftOf("codex")} />,
+    );
+
+    expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]");
+    expect(html).toContain('<option value="xhigh">low–xhigh</option>');
   });
 
   test("rejects an unrepresentable Claude reasoning ID in the dialog, not at launch", () => {
@@ -74,7 +84,8 @@ describe("custom profile reasoning controls", () => {
     expect(draft.reasoningModelIdError).toBe(true);
     expect(draft.valid).toBe(false);
     const html = renderToStaticMarkup(<ProfileConnectionSection agent="claude" draft={draft} />);
-    expect(html).toContain("Reasoning needs a model ID");
+    expect(html).toContain("To choose reasoning");
+    expect(html).not.toContain("`");
 
     const automatic = draftOf("claude", {
       ...reserved,
