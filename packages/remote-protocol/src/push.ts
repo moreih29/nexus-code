@@ -6,7 +6,8 @@
  * `unsupported_environment`, `unsupported_version` (400), and `not_a_phone`
  * (403). DELETE /push/registration clears the registration and returns 204.
  * POST /push/send?v=1 returns a PushSendResult (200). Its errors are
- * `bad_request`, `unsupported_version` (400), and `not_a_computer` (403).
+ * `bad_request`, `unsupported_version` (400), `not_a_computer` (403), and
+ * `push_unavailable` (503, a server without a push key).
  * Registration and send may also return 429 when rate limited.
  */
 import { z } from "zod";
@@ -52,7 +53,11 @@ export const PushSendResultSchema = z.union([
   z.object({
     sent: z.number(),
     skipped: z.number(),
-    /** How many phones were skipped for each reason: rate_limited, no_registration, kind_off, no_session. */
+    /**
+     * How many phones were skipped for each reason, only those above 0. The
+     * keys known now are `unregistered`, `kind`, `signedOut`, `limited` and
+     * `failed`; a newer server may add others.
+     */
     reasons: z.record(z.string(), z.number()).optional(),
   }),
   z.object({ duplicate: z.literal(true) }),
