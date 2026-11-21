@@ -250,6 +250,64 @@ describe("chat wait --device", () => {
     expect(result.stdout).toContain("Review was still working when the wait ran out");
   });
 
+  test("checks an already finished tab immediately alongside a busy tab", async () => {
+    const finished = "6a2b3c4d-0000-4000-8000-0000000000cc";
+    const app = withPeer({
+      "sessions.list": () => ({
+        workspaces: [{ id: SITE, name: "site", path: "/site" }],
+        sessions: [
+          ...SESSIONS,
+          { workspaceId: SITE, tabId: finished, kind: "codex", title: "Finished", state: "idle" },
+        ],
+      }),
+      "chat.wait": async ({ tabId, timeoutMs }) => {
+        if (tabId === finished) return { done: true, state: "idle", message: "Already done." };
+        await app.services.clock.sleep(Number(timeoutMs));
+        return { done: false, state: "working" };
+      },
+    });
+    const result = await nexus(app, [
+      "chat",
+      "wait",
+      "Review",
+      "Finished",
+      "--device",
+      "Mac mini",
+      "--timeout",
+      "1s",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Already done.");
+    expect(asked(app, "chat.wait")).toMatchObject([
+      { tabId: REVIEW, timeoutMs: 1 },
+      { tabId: finished, timeoutMs: 1 },
+    ]);
+    expect(app.time.now).toBe(NOW + 1);
+  });
+
+  test("the command deadline cancels an outstanding wait request", async () => {
+    const app = withPeer();
+    const answer = app.peers.answer;
+    app.peers.answer = (device, method, params, signal) => {
+      if (method !== "chat.wait") return answer(device, method, params, signal);
+      if (!signal) throw new Error("chat.wait needs a cancellation signal");
+      return new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    };
+    const result = await nexus(app, [
+      "chat",
+      "wait",
+      "Review",
+      "--device",
+      "Mac mini",
+      "--timeout",
+      "20ms",
+    ]);
+    expect(result.exitCode).toBe(124);
+    expect(asked(app, "chat.wait")).toHaveLength(1);
+  });
+
   test("a closed tab is done", async () => {
     const app = withPeer({ "chat.wait": () => ({ done: true, state: "closed" }) });
     const result = await nexus(app, ["chat", "wait", "Review", "--device", "Mac mini"]);

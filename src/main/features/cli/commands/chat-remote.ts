@@ -121,58 +121,79 @@ export async function waitOnPeerChats(
   after?: number,
 ): Promise<WaitResult & { peer?: PeerTab }> {
   const { clock } = ctx.services;
-  const startedAt = clock.now();
-  const share = Math.max(1_000, Math.floor(MAX_REQUEST_WAIT_MS / peers.length));
-  for (;;) {
-    for (const peer of peers) {
-      const left = timeoutMs - (clock.now() - startedAt);
-      const asked = clock.now();
-      const slice = Math.max(1, Math.min(share, left));
-      let answer: Awaited<ReturnType<typeof askDevice<"chat.wait">>>;
-      try {
-        answer = await askDevice(ctx, peer.device, "chat.wait", {
-          ...target(peer),
-          timeoutMs: slice,
-          ...(after !== undefined ? { after } : {}),
-        });
-      } catch (error) {
-        if (!wentAway(error)) throw error;
-        return {
-          done: false,
-          state: "offline",
-          text: `${(error as Error).message}: stopped waiting on ${peer.session.title}. Wait again when it is back.`,
-          peer,
-        };
-      }
-      if (answer.done) {
-        const text =
-          answer.state === "closed"
-            ? `${peer.session.title} was closed.`
-            : chatStateText(peer.session, {
-                agent: agentOf(peer.session),
-                state: answer.state,
-                ...(answer.message ? { message: answer.message } : {}),
-              });
-        return {
-          done: true,
-          state: answer.state,
-          text,
-          ...(answer.message ? { message: answer.message } : {}),
-          peer,
-        };
-      }
-      // An answer sooner than asked: the other computer does not hold the wait.
-      if (clock.now() - asked < slice / 2) await clock.sleep(WAIT_POLL_MS);
-    }
-    if (clock.now() - startedAt >= timeoutMs || ctx.signal?.aborted) {
-      const which = peers.length === 1 ? (peers[0] as PeerTab).session.title : "every tab";
+  const deadline = clock.now() + timeoutMs;
+  const controller = new AbortController();
+  const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
+  const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  const poll = async (
+    peer: PeerTab,
+    slice: number,
+  ): Promise<(WaitResult & { peer: PeerTab }) | null> => {
+    let answer: Awaited<ReturnType<typeof askDevice<"chat.wait">>>;
+    try {
+      answer = await askDevice(
+        ctx,
+        peer.device,
+        "chat.wait",
+        { ...target(peer), timeoutMs: slice, ...(after === undefined ? {} : { after }) },
+        signal,
+      );
+    } catch (error) {
+      if (!wentAway(error)) throw error;
       return {
         done: false,
-        state: "timeout",
-        text: `${which} was still working when the wait ran out; see it with "nexus chat read".`,
+        state: "offline",
+        text: `${(error as Error).message}: stopped waiting on ${peer.session.title}. Wait again when it is back.`,
+        peer,
       };
     }
+    if (!answer.done) return null;
+    const text =
+      answer.state === "closed"
+        ? `${peer.session.title} was closed.`
+        : chatStateText(peer.session, {
+            agent: agentOf(peer.session),
+            state: answer.state,
+            ...(answer.message ? { message: answer.message } : {}),
+          });
+    return {
+      done: true,
+      state: answer.state,
+      text,
+      ...(answer.message ? { message: answer.message } : {}),
+      peer,
+    };
+  };
+  try {
+    // A zero timeout asks for one snapshot. Multiple tabs always use a short
+    // snapshot so a busy tab spends no part of another tab's wait.
+    let first = true;
+    while (!signal.aborted && (first || clock.now() < deadline)) {
+      first = false;
+      const asked = clock.now();
+      const slice =
+        peers.length === 1 ? Math.max(1, Math.min(MAX_REQUEST_WAIT_MS, deadline - asked)) : 1;
+      const results = await Promise.all(peers.map((peer) => poll(peer, slice)));
+      if (signal.aborted) break;
+      const result = results.find((outcome) => outcome !== null);
+      if (result) return result;
+      // A peer that replies early (including a snapshot) needs polling.
+      const now = clock.now();
+      const pause = Math.min(WAIT_POLL_MS, deadline - now);
+      if (pause > 0 && (slice === 1 || now - asked < slice / 2)) await clock.sleep(pause);
+    }
+  } catch (error) {
+    if (!signal.aborted) throw error;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
   }
+  const which = peers.length === 1 ? (peers[0] as PeerTab).session.title : "every tab";
+  return {
+    done: false,
+    state: "timeout",
+    text: `${which} was still working when the wait ran out; see it with "nexus chat read".`,
+  };
 }
 
 /** A wait's result as the command prints it: exit 3 when the computer went away, 124 when it ran out. */
