@@ -175,9 +175,8 @@ export function installPermissionHandler(
   // Full path with deps: classify → evaluate → route.
   const { getGlobalGrant, getRemembered, promptManager } = deps;
 
-  session.setPermissionCheckHandler((webContents, permission) => {
-    // webContents may be null for session-level check calls.
-    const origin = safeGetOrigin(webContents);
+  session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const origin = safeGetOrigin(webContents, requestingOrigin, details);
     if (origin === null) return false;
 
     const decision = evaluatePermission(workspaceId, origin, permission, {
@@ -187,8 +186,8 @@ export function installPermissionHandler(
     return decision === "allow";
   });
 
-  session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const origin = safeGetOrigin(webContents);
+  session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const origin = safeGetOrigin(webContents, undefined, details);
     if (origin === null) {
       logger.warn(`[permission] denied: unparseable origin for ${permission}`);
       callback(false);
@@ -400,28 +399,25 @@ export function installNavigationGuards(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Attempts to extract the security origin from a WebContents URL.
- *
- * Snapshots `webContents.getURL()` at the moment the request arrives.  If the
- * URL is empty or cannot be parsed as a valid URL, returns null — the caller
- * must treat this as an immediate deny.
- *
- * Opaque origins (the string "null", returned by `new URL("about:blank").origin`
- * or cross-origin sandboxed frames) are also denied.  Permissions must only be
- * granted to attributable https/http origins; an opaque origin has no stable
- * identity and cannot be meaningfully allow-listed.
- */
-function safeGetOrigin(webContents: WebContents | null): string | null {
+interface PermissionSource {
+  isMainFrame?: boolean;
+  requestingUrl?: string;
+  securityOrigin?: string;
+}
+
+/** Prefer Electron's requesting frame. Only a top-level request may fall back to the tab URL. */
+function safeGetOrigin(
+  webContents: WebContents | null,
+  requestingOrigin?: string,
+  details?: PermissionSource,
+): string | null {
   if (!webContents) return null;
   try {
-    const url = webContents.getURL();
+    const source = requestingOrigin || details?.securityOrigin || details?.requestingUrl;
+    const url = source || (details?.isMainFrame === false ? undefined : webContents.getURL());
     if (!url) return null;
     const origin = new URL(url).origin;
-    // "null" is the serialisation of an opaque origin (about:blank, data:, sandboxed
-    // iframes).  An empty string is also non-attributable.  Both must be denied.
-    if (origin === "null" || origin === "") return null;
-    return origin;
+    return origin === "null" ? null : origin;
   } catch {
     return null;
   }
