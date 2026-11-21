@@ -97,7 +97,8 @@ type session struct {
 	paused      bool
 	stopped     bool
 
-	readDone chan struct{}
+	readDone        chan struct{}
+	stopReadingOnce sync.Once
 	// exited is closed once the shell has ended and been waited for.
 	exited chan struct{}
 	// stopDone is closed once stop has ended the shell.
@@ -583,6 +584,7 @@ func (s *session) waitLoop() {
 	s.exitOnce.Do(func() {
 		select {
 		case <-s.readDone:
+			s.stopReading()
 		case <-timeAfter(exitDrainGrace):
 			s.stopReading()
 			<-s.readDone
@@ -728,7 +730,7 @@ func (s *session) stopReading() {
 	s.paused = false
 	s.flowCond.Broadcast()
 	s.service.mu.Unlock()
-	_ = s.master.Close()
+	s.stopReadingOnce.Do(func() { _ = s.master.Close() })
 }
 
 // decodeParams unmarshals a request body into a strongly typed PTY parameter struct.

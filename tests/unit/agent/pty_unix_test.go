@@ -8,6 +8,9 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,4 +73,49 @@ func TestTerminalOutputResumesWhenDialerLeaves(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Errorf("the command remained blocked after disconnecting with %d bytes received", received.Load())
+}
+
+func TestNaturalTerminalExitClosesMaster(t *testing.T) {
+	// With collection disabled, the test measures explicit descriptor cleanup.
+	previous := debug.SetGCPercent(-1)
+	defer debug.SetGCPercent(previous)
+	fdDir := "/dev/fd"
+	if runtime.GOOS == "linux" {
+		fdDir = "/proc/self/fd"
+	}
+	countFDs := func() int {
+		t.Helper()
+		entries, err := os.ReadDir(fdDir)
+		if err != nil {
+			t.Skipf("cannot observe open file descriptors: %v", err)
+		}
+		return len(entries)
+	}
+	service := pty.New()
+	defer service.Close()
+	exits := make(chan struct{}, 1)
+	service.SetEventSink(context.Background(), func(event string, _ any) error {
+		if event == pty.EventExit {
+			exits <- struct{}{}
+		}
+		return nil
+	})
+	root := t.TempDir()
+	run := func(tab string) {
+		t.Helper()
+		spawnTerminalShell(t, service, root, tab, "exit 0")
+		select {
+		case <-exits:
+		case <-time.After(3 * time.Second):
+			t.Fatal("no terminal exit")
+		}
+	}
+	run("initial")
+	before := countFDs()
+	for i := range 8 {
+		run(strconv.Itoa(i))
+	}
+	if after := countFDs(); after > before+2 {
+		t.Fatalf("descriptors after repeated terminal exits: before %d, after %d", before, after)
+	}
 }
