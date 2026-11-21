@@ -28,6 +28,8 @@ const { emptyTabState, useChatStore } = await import(
   "../../../../../src/renderer/services/chat/store"
 );
 
+const { chatSubmissionInfo } = await import("../../../../../src/renderer/services/cli/chat-view");
+
 import type { ChatTabState } from "../../../../../src/renderer/services/chat/store";
 
 const FROM = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "ws", tabId: "t0" } as const;
@@ -105,6 +107,26 @@ describe("a Codex tab's held messages", () => {
     c.removeQueued(id as string);
     expect(c.editQueued(id as string, "again")).toBe(false);
   });
+});
+
+test.each([
+  "claude",
+  "codex",
+] as const)("%s cancellation ends the held submission's wait", (agent) => {
+  const target = { workspaceId: "ws-queue", tabId: `cancel-${agent}`, cwd: "/p" };
+  const controller = agent === "claude" ? new ChatController(target) : new CodexController(target);
+  live.push(controller);
+  running(controller.key);
+  controller.enqueue("Review this", [], undefined, undefined, "receipt");
+  expect(chatSubmissionInfo(agent, controller.state, "receipt").state).toBe("working");
+
+  expect(controller.removeQueued("receipt")?.text).toBe("Review this");
+  expect(chatSubmissionInfo(agent, controller.state, "receipt")).toEqual({
+    agent,
+    state: "error",
+    message: "the held message was cancelled",
+  });
+  expect(chatSubmissionInfo(agent, controller.state, "still-pending").state).toBe("working");
 });
 
 test("an unconfirmed queue entry keeps its payload until independently observed", async () => {

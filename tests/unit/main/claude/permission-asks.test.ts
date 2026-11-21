@@ -3,7 +3,8 @@
  * what each one shows, how an answer reads to Claude Code, and when one is
  * let go of.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import { answerHook } from "../../../../src/main/features/claude/hook-handler";
 import {
   alwaysOf,
   answersDialog,
@@ -12,6 +13,7 @@ import {
   PermissionAsks,
 } from "../../../../src/main/features/claude/permission-asks";
 import { MAIN_AGENT } from "../../../../src/main/features/claude/permission-dialogs";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
 import type { HookResponse } from "../../../../src/shared/claude/status";
 
 const SUGGESTIONS = [
@@ -28,7 +30,7 @@ function makeAsks(answers = true) {
   const asks = new PermissionAsks(
     async (workspaceId, hookId, response) => {
       sent.push({ workspaceId, hookId, response });
-      return answers;
+      return answers ? "answered" : "gone";
     },
     () => 1_000,
   );
@@ -101,6 +103,36 @@ describe("PermissionAsks", () => {
     asks.onAnswered((_ask, answer) => answered.push(answer));
     expect(await asks.answer("ws", "t1", "h1", "allow")).toBe(false);
     expect(answered).toEqual([]);
+    expect(asks.list("ws", "t1")).toEqual([]);
+  });
+
+  test("an unavailable agent leaves its request available for a retry", async () => {
+    const call = mock(async () => ({}));
+    let channel: AgentChannel | null = null;
+    const provider = { tryGetAgentChannel: async () => channel };
+    const asks = new PermissionAsks((workspaceId, id, response) =>
+      answerHook(provider, workspaceId, id, response),
+    );
+    asks.hold("ws", "t1", "h1", MAIN_AGENT, "call", payload);
+    expect(await asks.answer("ws", "t1", "h1", "deny")).toBe(false);
+    expect(asks.list("ws", "t1").map(({ id }) => id)).toEqual(["h1"]);
+
+    channel = { call } as unknown as AgentChannel;
+    expect(await asks.answer("ws", "t1", "h1", "deny")).toBe(true);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(asks.list("ws", "t1")).toEqual([]);
+  });
+
+  test("only one answer can be in flight for the same hook", async () => {
+    const receipt = Promise.withResolvers<"answered">();
+    const respond = mock(() => receipt.promise);
+    const asks = new PermissionAsks(respond);
+    asks.hold("ws", "t1", "h1", MAIN_AGENT, "call", payload);
+    const pending = asks.answer("ws", "t1", "h1", "deny");
+    expect(await asks.answer("ws", "t1", "h1", "deny")).toBe(false);
+    expect(respond).toHaveBeenCalledTimes(1);
+    receipt.resolve("answered");
+    expect(await pending).toBe(true);
     expect(asks.list("ws", "t1")).toEqual([]);
   });
 

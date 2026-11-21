@@ -23,3 +23,19 @@ test("a destroyed renderer rejects the CLI request and cancels its reply timer",
     jest.useRealTimers();
   }
 });
+
+test("aborting a CLI request cancels its pending renderer reply and timer", async () => {
+  jest.useFakeTimers();
+  const controller = new AbortController();
+  const bridge = new RendererBridge(() => ({ webContents: { send: () => {}, focus: () => {} } }));
+  try {
+    const answer = bridge.ask("tabs.list", { workspaceId: "test" }, 15_000, controller.signal);
+    expect(jest.getTimerCount()).toBe(1);
+    controller.abort();
+    await expect(answer).rejects.toThrow();
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    bridge.dispose();
+    jest.useRealTimers();
+  }
+});

@@ -44,6 +44,8 @@
     "unencodable": "{{encoding}} has no character \"{{char}}\" (line {{line}}, column {{column}})"
   },
   "chat": {
+    "ambiguousProfile": "More than one profile is named “{{name}}”. Choose a profile ID from nexus chat profiles.",
+    "permissionModeMismatch": "The agent applied permission mode {{applied}} instead of the requested mode {{requested}}",
     "commandLineTooLong": "The instructions for this chat are too long for Windows to start Claude Code. Shorten the instructions in Settings or for this session, then try again."
   }
 }

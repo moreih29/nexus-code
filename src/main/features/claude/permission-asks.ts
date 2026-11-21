@@ -21,12 +21,14 @@ import type { HookResponse } from "../../../shared/claude/status";
 import { MAIN_AGENT } from "./permission-dialogs";
 import { describeTool } from "./session-activity";
 
-/** Answers a waiting hook; false when it is no longer waiting. */
+export type HookAnswerResult = "answered" | "gone" | "unavailable";
+
+/** Answers a waiting hook, distinguishing a transport failure from a closed hook. */
 export type HookResponder = (
   workspaceId: string,
   hookId: string,
   response: HookResponse,
-) => Promise<boolean>;
+) => Promise<HookAnswerResult>;
 
 /** The request an answer from the app was for. */
 export interface AnsweredAsk {
@@ -60,6 +62,7 @@ type Payload = Record<string, unknown>;
 export class PermissionAsks {
   /** By the hook's id, oldest first. */
   private readonly held = new Map<string, Held>();
+  private readonly answering = new Set<Held>();
   private readonly listeners = new Set<AnsweredListener>();
   private readonly terminalListeners = new Set<TerminalAnswerListener>();
 
@@ -110,7 +113,7 @@ export class PermissionAsks {
 
   /**
    * Answers the request `id` of the session in `tabId` as the user chose:
-   * false when it is no longer held, or no longer waits. Stopping the turn
+   * false when the answer could not be delivered. Stopping the turn
    * is for the session's own requests: a subagent's is not answered so.
    */
   async answer(
@@ -122,17 +125,25 @@ export class PermissionAsks {
   ): Promise<boolean> {
     const held = this.held.get(id);
     if (!held || held.workspaceId !== workspaceId || held.tabId !== tabId) return false;
+    if (this.answering.has(held)) return false;
     if (answer === "denyStop" && held.agent !== MAIN_AGENT) return false;
     if (answer === "allowAlways" && held.suggestions.length === 0) return false;
-    this.held.delete(id);
-    const answered = await this.respond(workspaceId, id, {
-      stdout: decisionOutput(answer, held.suggestions, message),
-      exitCode: 0,
-    });
-    if (answered) {
-      for (const listener of this.listeners) listener(held, answer);
+    this.answering.add(held);
+    try {
+      const result = await this.respond(workspaceId, id, {
+        stdout: decisionOutput(answer, held.suggestions, message),
+        exitCode: 0,
+      });
+      if (result !== "unavailable" && this.held.get(id) === held) {
+        this.held.delete(id);
+        if (result === "answered") {
+          for (const listener of this.listeners) listener(held, answer);
+        }
+      }
+      return result === "answered";
+    } finally {
+      this.answering.delete(held);
     }
-    return answered;
   }
 
   /**
@@ -194,7 +205,7 @@ export class PermissionAsks {
     for (const [id, held] of this.held) {
       if (!releases(held)) continue;
       this.held.delete(id);
-      void this.respond(held.workspaceId, id, { exitCode: 0 });
+      if (!this.answering.has(held)) void this.respond(held.workspaceId, id, { exitCode: 0 });
     }
   }
 }

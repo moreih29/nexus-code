@@ -78,7 +78,7 @@ export async function peerChatTool(
 }
 
 const CHATS: readonly RemoteSession["kind"][] = ["claude", "codex"];
-/** Most items chat read --all or --since reads back through, a page at a time. */
+/** Most items one chat read returns, across all its pages. */
 const MAX_ITEMS = 5_000;
 
 /** Where a remote tab is, as JSON names it. */
@@ -121,58 +121,79 @@ export async function waitOnPeerChats(
   after?: number,
 ): Promise<WaitResult & { peer?: PeerTab }> {
   const { clock } = ctx.services;
-  const startedAt = clock.now();
-  const share = Math.max(1_000, Math.floor(MAX_REQUEST_WAIT_MS / peers.length));
-  for (;;) {
-    for (const peer of peers) {
-      const left = timeoutMs - (clock.now() - startedAt);
-      const asked = clock.now();
-      const slice = Math.max(1, Math.min(share, left));
-      let answer: Awaited<ReturnType<typeof askDevice<"chat.wait">>>;
-      try {
-        answer = await askDevice(ctx, peer.device, "chat.wait", {
-          ...target(peer),
-          timeoutMs: slice,
-          ...(after !== undefined ? { after } : {}),
-        });
-      } catch (error) {
-        if (!wentAway(error)) throw error;
-        return {
-          done: false,
-          state: "offline",
-          text: `${(error as Error).message}: stopped waiting on ${peer.session.title}. Wait again when it is back.`,
-          peer,
-        };
-      }
-      if (answer.done) {
-        const text =
-          answer.state === "closed"
-            ? `${peer.session.title} was closed.`
-            : chatStateText(peer.session, {
-                agent: agentOf(peer.session),
-                state: answer.state,
-                ...(answer.message ? { message: answer.message } : {}),
-              });
-        return {
-          done: true,
-          state: answer.state,
-          text,
-          ...(answer.message ? { message: answer.message } : {}),
-          peer,
-        };
-      }
-      // An answer sooner than asked: the other computer does not hold the wait.
-      if (clock.now() - asked < slice / 2) await clock.sleep(WAIT_POLL_MS);
-    }
-    if (clock.now() - startedAt >= timeoutMs || ctx.signal?.aborted) {
-      const which = peers.length === 1 ? (peers[0] as PeerTab).session.title : "every tab";
+  const deadline = clock.now() + timeoutMs;
+  const controller = new AbortController();
+  const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
+  const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  const poll = async (
+    peer: PeerTab,
+    slice: number,
+  ): Promise<(WaitResult & { peer: PeerTab }) | null> => {
+    let answer: Awaited<ReturnType<typeof askDevice<"chat.wait">>>;
+    try {
+      answer = await askDevice(
+        ctx,
+        peer.device,
+        "chat.wait",
+        { ...target(peer), timeoutMs: slice, ...(after === undefined ? {} : { after }) },
+        signal,
+      );
+    } catch (error) {
+      if (!wentAway(error)) throw error;
       return {
         done: false,
-        state: "timeout",
-        text: `${which} was still working when the wait ran out; see it with "nexus chat read".`,
+        state: "offline",
+        text: `${(error as Error).message}: stopped waiting on ${peer.session.title}. Wait again when it is back.`,
+        peer,
       };
     }
+    if (!answer.done) return null;
+    const text =
+      answer.state === "closed"
+        ? `${peer.session.title} was closed.`
+        : chatStateText(peer.session, {
+            agent: agentOf(peer.session),
+            state: answer.state,
+            ...(answer.message ? { message: answer.message } : {}),
+          });
+    return {
+      done: true,
+      state: answer.state,
+      text,
+      ...(answer.message ? { message: answer.message } : {}),
+      peer,
+    };
+  };
+  try {
+    // A zero timeout asks for one snapshot. Multiple tabs always use a short
+    // snapshot so a busy tab spends no part of another tab's wait.
+    let first = true;
+    while (!signal.aborted && (first || clock.now() < deadline)) {
+      first = false;
+      const asked = clock.now();
+      const slice =
+        peers.length === 1 ? Math.max(1, Math.min(MAX_REQUEST_WAIT_MS, deadline - asked)) : 1;
+      const results = await Promise.all(peers.map((peer) => poll(peer, slice)));
+      if (signal.aborted) break;
+      const result = results.find((outcome) => outcome !== null);
+      if (result) return result;
+      // A peer that replies early (including a snapshot) needs polling.
+      const now = clock.now();
+      const pause = Math.min(WAIT_POLL_MS, deadline - now);
+      if (pause > 0 && (slice === 1 || now - asked < slice / 2)) await clock.sleep(pause);
+    }
+  } catch (error) {
+    if (!signal.aborted) throw error;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
   }
+  const which = peers.length === 1 ? (peers[0] as PeerTab).session.title : "every tab";
+  return {
+    done: false,
+    state: "timeout",
+    text: `${which} was still working when the wait ran out; see it with "nexus chat read".`,
+  };
 }
 
 /** A wait's result as the command prints it: exit 3 when the computer went away, 124 when it ran out. */
@@ -271,7 +292,6 @@ export async function waitOnPeer(
 export interface PeerReadQuery {
   readonly messages?: number;
   readonly since?: number;
-  readonly all: boolean;
   readonly subagents: boolean;
 }
 
@@ -291,6 +311,7 @@ export async function readPeerChat(
   info: CliChatInfo;
   entries: CliChatEntry[];
   end: number;
+  nextSince?: number;
 }> {
   const peer = await resolvePeerTab(
     ctx,
@@ -299,39 +320,45 @@ export async function readPeerChat(
     selector,
     CHATS,
   );
-  const back = query.all || query.since !== undefined;
-  let page = await askDevice(ctx, device, "chat.read", {
-    ...target(peer),
-    limit: back ? MAX_READ_ITEMS : Math.min(query.messages ?? 20, MAX_READ_ITEMS),
-  });
-  // Cleared or rewound since #since: from its start, as here.
-  const end = page.total - 1;
+  const readPage = (limit: number, before?: number) =>
+    askDevice(
+      ctx,
+      device,
+      "chat.read",
+      { ...target(peer), limit, ...(before === undefined ? {} : { before }) },
+      ctx.signal,
+    );
+  let page = await readPage(Math.min(query.messages ?? MAX_READ_ITEMS, MAX_READ_ITEMS));
+  const { total } = page;
+  const end = total - 1;
+  // A cursor past the end belongs to a conversation that was cleared or rewound.
   const since = query.since !== undefined && query.since <= end ? query.since : -1;
-  if (back) {
-    let read = page.items.length;
-    while (page.start > since + 1 && page.start > 0 && read < MAX_ITEMS) {
-      const before = await askDevice(ctx, device, "chat.read", {
-        ...target(peer),
-        before: page.start,
-        limit: MAX_READ_ITEMS,
-      });
-      if (before.items.length === 0) break;
-      read += before.items.length;
-      page = {
-        ...page,
-        start: before.start,
-        items: [...before.items, ...page.items],
-        tools: { ...before.tools, ...page.tools },
-      };
+  const first = Math.max(since + 1, total - (query.messages ?? total));
+  const stop = Math.min(total, first + MAX_ITEMS);
+  const readBefore = async (before: number) => {
+    const previous = await readPage(Math.min(before - first, MAX_READ_ITEMS), before);
+    if (previous.items.length === 0 || previous.start + previous.items.length !== before) {
+      throw new CliError("the remote conversation changed while reading; run chat read again");
     }
+    return previous;
+  };
+  // Start at the first batch of the requested range so its cursor can be resumed.
+  if (stop < total) page = await readBefore(stop);
+  while (page.start > first) {
+    const before = await readBefore(page.start);
+    page = {
+      ...page,
+      start: before.start,
+      items: [...before.items, ...page.items],
+      tools: { ...before.tools, ...page.tools },
+    };
   }
   const { entries: all } = await ctx.services.ui("chat.pageEntries", {
     page,
     ...(query.subagents ? { subagents: true } : {}),
   });
-  const after = all.filter((entry) => entry.i > since);
-  const entries =
-    query.messages === undefined ? after : after.slice(Math.max(0, after.length - query.messages));
+  const selected = all.filter((entry) => entry.i >= first);
+  const entries = query.messages === undefined ? selected : selected.slice(-query.messages);
   const now = await askDevice(ctx, device, "chat.wait", { ...target(peer), timeoutMs: 1 });
   const info: CliChatInfo = {
     agent: page.status.agent,
@@ -341,7 +368,7 @@ export async function readPeerChat(
     ...(peer.session.since !== undefined ? { since: peer.session.since } : {}),
     ...(peer.session.profile ? { profile: peer.session.profile } : {}),
   };
-  return { peer, info, entries, end };
+  return { peer, info, entries, end, ...(stop < total ? { nextSince: stop - 1 } : {}) };
 }
 
 /** chat new --device: a tab in a workspace of the other computer, sent the prompt if given. */
@@ -382,9 +409,12 @@ export async function newPeerChat(
     cwd: folder ?? workspace.path,
   };
   if (error !== undefined) {
+    const failure = Object.keys(settings).length
+      ? "could not set it"
+      : "could not submit its first prompt";
     const sent = prompt === "" ? "" : " The prompt was not sent.";
     return output(
-      `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${where}, but could not set it: ${error}.${sent}`,
+      `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${where}, but ${failure}: ${error}.${sent}`,
       { ...json, error },
       { exitCode: 1 },
     );

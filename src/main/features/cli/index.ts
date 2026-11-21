@@ -172,12 +172,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const startedAgents = new StartedAgents(agentHost);
   // Every consent prompt, kept by id while it waits, for another device to answer too.
   const consents = new ConsentPrompts({
-    ask: (args, timeoutMs) => bridge.ask("consent.ask", args, timeoutMs),
+    ask: (args, timeoutMs, signal) => bridge.ask("consent.ask", args, timeoutMs, signal),
     settle: async (id, answer, by) =>
       (await bridge.ask("consent.settle", { id, answer, by })).settled,
   });
-  const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
-    (await consents.ask({ ...request, timeoutMs })).answer;
+  const askConsent = async (request: ChangeRequest, timeoutMs: number, signal?: AbortSignal) =>
+    (await consents.ask({ ...request, timeoutMs }, undefined, signal)).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
@@ -350,8 +350,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       );
       return read.kind === "ok" ? read.base64 : null;
     },
-    allowChange: (request) => consent.check(request),
-    askUser: (request) => consent.ask(request),
+    allowChange: (request, signal) => consent.check(request, signal),
+    askUser: (request, signal) => consent.ask(request, signal),
     agentContextEnabled: () => options.settings().enabled && options.settings().agentContext,
     claudeInstructions: options.claudeInstructions,
     terminalClaudeInstructions: options.terminalClaudeInstructions,

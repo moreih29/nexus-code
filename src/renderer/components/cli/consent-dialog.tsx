@@ -36,6 +36,7 @@ export interface CliConsentPrompt {
 interface Pending {
   readonly prompt: CliConsentPrompt;
   readonly resolve: (answer: CliConsentAnswer) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 let queue: Pending[] = [];
@@ -46,6 +47,7 @@ export const CONSENT_DESCRIPTION_CLASS = "break-keep [overflow-wrap:anywhere]";
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
   queue = queue.filter((p) => p !== pending);
+  clearTimeout(pending.timer);
   pending.resolve(answer);
   bus.notify();
 }
@@ -75,10 +77,10 @@ export function settleCliConsent(
 /** Shows the prompt and resolves to the user's answer, or "timeout". */
 export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswer> {
   return new Promise((resolve) => {
-    const pending: Pending = { prompt, resolve };
+    const timer = setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
+    const pending: Pending = { prompt, resolve, timer };
     queue.push(pending);
     bus.notify();
-    setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
   });
 }
 

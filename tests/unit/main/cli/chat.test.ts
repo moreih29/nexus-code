@@ -300,6 +300,38 @@ describe("chat new with settings", () => {
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
   });
+
+  test("reports a failed first prompt even when no settings were requested", async () => {
+    const app = withChoices();
+    app.uiAnswers.set("chat.open", { tabId: NEW_TAB, error: "Claude startup failed" });
+    const result = await nexus(app, ["chat", "new", "--prompt", "Review this", "--json"]);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      tabId: NEW_TAB,
+      error: "Claude startup failed",
+    });
+  });
+
+  test("does not open a chat after the client cancels during workspace approval", async () => {
+    const app = withChoices();
+    const controller = new AbortController();
+    const pending = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    app.services.allowChange = async (_request, signal) => {
+      expect(signal).toBe(controller.signal);
+      arrived.resolve();
+      await pending.promise;
+    };
+    const result = runCli(CLI_COMMANDS, {
+      ...contextFor(app, ["chat", "new", "--workspace", "api"]),
+      signal: controller.signal,
+    });
+    await arrived.promise;
+    controller.abort();
+    pending.resolve();
+    expect((await result).exitCode).toBe(1);
+    expect(uiArgs(app, "chat.open")).toBeUndefined();
+  });
 });
 
 describe("delegating a chat mode", () => {

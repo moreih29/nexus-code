@@ -358,18 +358,22 @@ async function mayLoosen(
   name: string,
   to: string,
   from?: string,
+  signal?: AbortSignal,
 ): Promise<CallerMode | undefined> {
   const dangerous = to === CHAT_MODES[agent].dangerous;
   if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
   const caller = await verifiedChatMode(ctx);
   if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
   if (dangerous) throw dangerousModeError(to);
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
-  });
+  await ctx.services.askUser(
+    {
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: workspace.id,
+      change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
+    },
+    signal,
+  );
 }
 
 export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
@@ -456,11 +460,17 @@ const chatNew: CliCommand = {
     const instructions =
       instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
     const body = [prompt, instructions].filter(Boolean).join("\n\n");
-    await mayChange(ctx, workspace, {
-      kind: "chatNew",
-      detail: AGENT_NAMES[agent],
-      ...(body ? { body } : {}),
-    });
+    await mayChange(
+      ctx,
+      workspace,
+      {
+        kind: "chatNew",
+        detail: AGENT_NAMES[agent],
+        ...(body ? { body } : {}),
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
     const delegated =
       settings.mode === undefined
         ? undefined
@@ -471,10 +481,12 @@ const chatNew: CliCommand = {
             `"${AGENT_NAMES[agent]}"`,
             settings.mode,
             CHAT_MODES[agent].fallback,
+            ctx.signal,
           );
     const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
+    ctx.signal?.throwIfAborted();
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
@@ -491,15 +503,16 @@ const chatNew: CliCommand = {
           ? { profile: flags.profile.trim() }
           : {}),
       },
-      // Its program starts and lists its models before the settings go.
-      setting ? SEND_TIMEOUT_MS : undefined,
+      // Its program starts before applying settings or submitting the first message.
+      setting || prompt !== "" ? SEND_TIMEOUT_MS : undefined,
     );
     const reach =
       workspace.id === ctx.caller.workspaceId ? "" : ` --workspace ${shortId(workspace.id)}`;
     if (error !== undefined) {
+      const failure = setting ? "could not set it" : "could not submit its first prompt";
       const sent = prompt === "" ? "" : " The prompt was not sent.";
       return output(
-        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but could not set it: ${error}.${sent}`,
+        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but ${failure}: ${error}.${sent}`,
         { tabId, workspaceId: workspace.id, agent, cwd, error },
         { exitCode: 1 },
       );
@@ -791,11 +804,10 @@ const chatRead: CliCommand = {
     }
     const maxChars = maxCharsFlag(flags);
     const device = await resolveDevice(ctx, deviceFlag(flags));
-    const { tab, workspaceId, entries, end, info } = device
+    const read = device
       ? await readPeerChat(ctx, device, flags, selector, {
           ...(messages !== undefined ? { messages } : {}),
           ...(since !== undefined ? { since } : {}),
-          all: flags.all === true,
           subagents: flags.subagents === true,
         }).then((read) => ({
           tab: { id: read.peer.session.tabId, title: read.peer.session.title },
@@ -803,6 +815,8 @@ const chatRead: CliCommand = {
           ...read,
         }))
       : await readChat(ctx, flags, selector, messages, since);
+    const { tab, workspaceId, entries, end, info } = read;
+    const nextSince = "nextSince" in read ? read.nextSince : undefined;
     const shown =
       maxChars === undefined
         ? entries
@@ -816,10 +830,11 @@ const chatRead: CliCommand = {
     }${about ? `\n${about}` : ""}`;
     // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
-    const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
+    const last = nextSince ?? entries.at(-1)?.i ?? (restarted ? undefined : since);
     const stands = {
       ...infoJson(tab, workspaceId, info, device ?? undefined),
       ...(restarted ? { restarted } : {}),
+      ...(nextSince === undefined ? {} : { more: true, last: nextSince }),
     };
     const json = { ...stands, entries: shown, ...(last !== undefined ? { last } : {}) };
     const before = restarted
@@ -827,9 +842,15 @@ const chatRead: CliCommand = {
       : since !== undefined && entries.length === 0
         ? `Nothing after #${since}.\n`
         : "";
-    return output(transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`, json, {
-      records: [...shown, stands],
-    });
+    const more =
+      nextSince === undefined
+        ? ""
+        : `\nMore messages remain. Continue with --since ${nextSince}, omitting --all and --messages.`;
+    return output(
+      `${transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`}${more}`,
+      json,
+      { records: [...shown, stands] },
+    );
   },
 };
 
@@ -1164,11 +1185,15 @@ async function answerTerminal(
   });
   const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
   if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
-    throw new CliError(
-      answer === "denyStop"
-        ? "a subagent's request cannot stop the turn"
-        : "that request no longer waits for an answer",
-    );
+    if (answer === "denyStop" && ask.agentId !== undefined) {
+      throw new CliError("a subagent's request cannot stop the turn");
+    }
+    if (ctx.services.claudeAsks(workspace.id, tab.id).some(({ id }) => id === ask.id)) {
+      throw new CliError(
+        "the answer could not be delivered; try again if the request is still open",
+      );
+    }
+    throw new CliError("that request no longer waits for an answer");
   }
   if (delegated) logDelegation(ctx, tab.id, delegated);
   const target = { workspaceId: workspace.id, tabId: tab.id };

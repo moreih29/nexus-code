@@ -43,6 +43,7 @@ import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
+  cancelQueuedMessage,
   clearObservedQueued,
   dispatchQueuedMessage,
   isChatWriteRejected,
@@ -1682,7 +1683,7 @@ export class ChatController {
   removeQueued(id: string): QueuedMessage | undefined {
     const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
     if (!item) return undefined;
-    this.update((prev) => ({ ...prev, queue: prev.queue.filter((q) => q.id !== id) }));
+    this.update((prev) => cancelQueuedMessage(prev, id));
     return item;
   }
 

@@ -29,6 +29,8 @@ test.each([
 
 test.each([
   [["--nope"], "unknown flag --nope"],
+  [["--constructor", "spare"], "unknown flag --constructor"],
+  [["--toString=spare"], "unknown flag --toString"],
   [["--enter=yes"], "--enter takes no value"],
   [["--lines", ""], '--lines takes a number, not ""'],
   // PowerShell 5.1 drops `""`: the way to an empty value is told.

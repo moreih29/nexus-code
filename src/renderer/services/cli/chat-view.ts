@@ -187,6 +187,9 @@ export function chatSubmissionInfo(
   ) {
     return chatInfoOf(agent, chat, false);
   }
+  if (chat.cancelledSubmissions?.includes(submissionId)) {
+    return { agent, state: "error", message: "the held message was cancelled" };
+  }
   const queued = chat.queue.find((item) => item.id === submissionId);
   if (queued?.status === "failed" || queued?.status === "unconfirmed") {
     return { agent, state: "error", message: queued.error ?? "could not confirm the submission" };

@@ -41,7 +41,6 @@ import {
   type AgentTabController,
   agentInstructionTarget,
   agentTabController,
-  startAgentTab,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
 import type { ForkPoint } from "../chat/claude/controller";
@@ -57,7 +56,12 @@ import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
-import { sendToAgentTab, sendUnseen, submissionAt } from "../chat/transport/submission";
+import {
+  sendFirstMessage,
+  sendToAgentTab,
+  sendUnseen,
+  submissionAt,
+} from "../chat/transport/submission";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
@@ -372,8 +376,11 @@ async function applySettings(
   tabId: string,
   target: AgentTabController,
   wanted: CliChatSettings,
-  allowDangerousMode = false,
-  expectedMode?: string,
+  {
+    allowDangerousMode = false,
+    expectedMode,
+    confirmMode = false,
+  }: { allowDangerousMode?: boolean; expectedMode?: string; confirmMode?: boolean } = {},
 ): Promise<void> {
   const { agent, controller } = target;
   await whenReady(workspaceId, tabId, agent, true);
@@ -408,7 +415,25 @@ async function applySettings(
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
   if (plan.mode !== undefined) {
     currentTab();
-    await controller.setPermissionMode(plan.mode);
+    const applied = await controller.setPermissionMode(plan.mode);
+    // A reply can explicitly name the mode the program accepted. If it does
+    // not, the renderer may still be waiting to read the change from the log.
+    if (
+      confirmMode &&
+      typeof applied === "object" &&
+      applied !== null &&
+      "mode" in applied &&
+      typeof applied.mode === "string" &&
+      applied.mode !== "" &&
+      applied.mode !== plan.mode
+    ) {
+      throw new UiRequestError(
+        i18next.t("errors:chat.permissionModeMismatch", {
+          requested: plan.mode,
+          applied: applied.mode,
+        }),
+      );
+    }
   }
   await whenShown(workspaceId, tabId, target, plan);
 }
@@ -416,15 +441,18 @@ async function applySettings(
 /** The agent's profile a --profile flag names, by name (any case) or id. */
 function profileNamed(agent: ChatAgent, name: string): string {
   const profiles = profilesOf(useAgentProfilesStore.getState().config, agent);
-  const wanted = name.trim().toLowerCase();
-  const found = profiles.find(
-    (p) =>
-      p.id.toLowerCase() === wanted ||
-      p.name.trim().toLowerCase() === wanted ||
-      (isDefaultProfileId(p.id) && p.name.trim() === "" && wanted === "default"),
-  );
-  if (found) return found.id;
-  const names = profiles.map((p) => p.name.trim() || "default").join(", ");
+  const selector = name.trim();
+  const exact = profiles.find((p) => p.id === selector);
+  if (exact) return exact.id;
+  const wanted = selector.toLowerCase();
+  const id = profiles.find((p) => p.id.toLowerCase() === wanted);
+  if (id) return id.id;
+  const [match, ...others] = profiles.filter((p) => cliProfileName(p).toLowerCase() === wanted);
+  if (others.length > 0) {
+    throw new UiRequestError(i18next.t("errors:chat.ambiguousProfile", { name }));
+  }
+  if (match) return match.id;
+  const names = profiles.map(cliProfileName).join(", ");
   throw new UiRequestError(`${agent} has no profile "${name}"; it has ${names}`);
 }
 
@@ -484,18 +512,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         ? ({ type: "claude", props } as const)
         : ({ type: "codex", props } as const);
     const tabId = openTab(workspaceId, tab, placement);
-    if (!hasSettings(settings)) {
-      startAgentTab(workspaceId, tabId, prompt, from);
-      return { tabId };
-    }
-    // Set before the first message: its turn runs with them.
+    const text = prompt.trim();
+    const setting = hasSettings(settings);
+    if (!setting && text === "") return { tabId };
     const target = agentTabController(workspaceId, tabId);
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
-      await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
-      if (prompt.trim() !== "") {
-        await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
+      if (setting) {
+        // Set before the first message so its turn runs with the new settings.
+        await target.controller.open();
+        await applySettings(workspaceId, tabId, target, settings, {
+          allowDangerousMode: user || allowDangerousMode,
+          confirmMode: text !== "",
+        });
+        if (text !== "") await sendToAgentTab(workspaceId, tabId, target, text, from);
+      } else {
+        await sendFirstMessage(workspaceId, tabId, target, text, from);
       }
     } catch (err) {
       return { tabId, error: (err as Error).message };
@@ -827,14 +859,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (hasSettings(settings))
-      await applySettings(
-        workspaceId,
-        tabId,
-        target,
-        settings,
-        user || allowDangerousMode,
+      await applySettings(workspaceId, tabId, target, settings, {
+        allowDangerousMode: user || allowDangerousMode,
         expectedMode,
-      );
+      });
     else await whenReady(workspaceId, tabId, target.agent, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
