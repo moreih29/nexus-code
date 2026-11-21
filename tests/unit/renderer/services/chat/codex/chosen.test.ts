@@ -1078,3 +1078,42 @@ test.each([
     closeCodexTab(workspaceId, tabRecord.id);
   }
 });
+
+test.each([
+  false,
+  true,
+])("denying extra permissions stops only the requesting Codex turn (ended: %s)", async (ended) => {
+  const c = tab();
+  await c.sendWithTiming("Prompt", [], "next", undefined, undefined, "prompt");
+  const notify = (message: Message) => c.receive({ seq: ++lineSeq, dir: "out", message });
+  const params = {
+    threadId: "t1",
+    turnId: "turn-1",
+    permissions: { network: { enabled: true } },
+  };
+  notify({ id: 73, method: "item/permissions/requestApproval", params });
+  c.flushNow();
+
+  const permission = c.model.permissions[0];
+  expect(permission?.toolName).toBe("Permissions");
+  const answer = c.answerPermission(permission, { kind: "deny-stop" });
+  if (ended) {
+    notify({
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "turn-1", status: "completed" } },
+    });
+    notify({
+      method: "turn/started",
+      params: { threadId: "t1", turn: { id: "turn-2" } },
+    });
+  }
+  await answer;
+
+  expect(sent.find(({ id }) => id === 73)).toEqual({
+    id: 73,
+    result: { permissions: {}, scope: "turn" },
+  });
+  expect(
+    sent.filter(({ method }) => method === "turn/interrupt").map(({ params }) => params),
+  ).toEqual(ended ? [] : [{ threadId: "t1", turnId: "turn-1" }]);
+});

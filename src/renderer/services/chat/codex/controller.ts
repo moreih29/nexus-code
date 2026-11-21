@@ -2052,12 +2052,19 @@ export class CodexController {
 
   /** Answers an approval or a question the server asked. */
   async answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {
+    this.flushNow();
     if (!this.model.permissions.includes(request)) return;
     const asked = this.model.requests[request.requestId];
     if (!asked) return;
     const id = JSON.parse(request.requestId) as string | number;
     const result = answerOf(asked.method, asked.params, answer);
     await this.write({ id, result });
+    if (answer.kind === "deny-stop" && asked.method === "item/permissions/requestApproval") {
+      this.flushNow();
+      const { threadId, turnId, running } = this.model;
+      if (running && turnId && threadId === asked.params.threadId && turnId === asked.params.turnId)
+        await this.interrupt();
+    }
     // What the user said with a decline goes to the turn, which goes on.
     const message = answer.kind === "deny" ? answer.message : undefined;
     if (message) await this.sendNow(message).catch(() => {});
