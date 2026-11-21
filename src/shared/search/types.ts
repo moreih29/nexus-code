@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  NonnegativeIntegerSchema,
+  NonnegativeNumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { MAX_SEARCHABLE_FILE_SIZE } from "../fs/defaults";
 
 export const TextSearchQuerySchema = z.object({
@@ -8,15 +13,15 @@ export const TextSearchQuerySchema = z.object({
   isWordMatch: z.boolean().default(false),
   includes: z.array(z.string()).default([]),
   excludes: z.array(z.string()).default([]),
-  maxResults: z.number().int().positive().max(20000).default(2000),
-  maxFileSize: z.number().int().positive().default(MAX_SEARCHABLE_FILE_SIZE),
+  maxResults: PositiveIntegerSchema.check(z.lte(20000)).default(2000),
+  maxFileSize: PositiveIntegerSchema.default(MAX_SEARCHABLE_FILE_SIZE),
 });
 export type TextSearchQuery = z.infer<typeof TextSearchQuerySchema>;
 
 export const SearchRangeSchema = z.object({
-  line: z.number().int().nonnegative(),
-  startCol: z.number().int().nonnegative(),
-  endCol: z.number().int().nonnegative(),
+  line: NonnegativeIntegerSchema,
+  startCol: NonnegativeIntegerSchema,
+  endCol: NonnegativeIntegerSchema,
 });
 export type SearchRange = z.infer<typeof SearchRangeSchema>;
 
@@ -28,7 +33,7 @@ export const FileMatchSchema = z.object({
       preview: z.string(),
       // Column where `preview` begins when the agent cut a long line down to
       // a window around the match; `range` stays relative to the whole line.
-      previewStart: z.number().int().nonnegative().optional(),
+      previewStart: NonnegativeIntegerSchema.optional(),
     }),
   ),
 });
@@ -38,9 +43,9 @@ export const SearchProgressSchema = z.array(FileMatchSchema);
 export type SearchProgress = z.infer<typeof SearchProgressSchema>;
 
 export const SearchCompleteSchema = z.object({
-  filesScanned: z.number().int().nonnegative(),
-  matchesFound: z.number().int().nonnegative(),
+  filesScanned: NonnegativeIntegerSchema,
+  matchesFound: NonnegativeIntegerSchema,
   limitHit: z.boolean(),
-  elapsedMs: z.number().nonnegative(),
+  elapsedMs: NonnegativeNumberSchema,
 });
 export type SearchComplete = z.infer<typeof SearchCompleteSchema>;

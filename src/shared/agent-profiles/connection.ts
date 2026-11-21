@@ -1,8 +1,13 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeNumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { AgentProfile } from "./profiles";
 
-const limit = z.number().int().positive().max(2_147_483_647);
+const limit = PositiveIntegerSchema.check(z.lte(2_147_483_647));
 const modelId = z
   .string()
   .trim()
@@ -75,7 +80,7 @@ const profileConnectionSchema = z.discriminatedUnion("method", [
         maxOutputTokens: limit.optional(),
         disableExperimentalBetas: z.boolean().optional(),
         query: fields.optional(),
-        retries: z.number().int().min(0).max(100).optional(),
+        retries: IntegerSchema.check(z.gte(0)).check(z.lte(100)).optional(),
         streamIdleTimeoutMs: limit.optional(),
       })
       .optional(),
@@ -196,13 +201,13 @@ export const ConnectionProbeSchema = z.object({
 export type ConnectionProbe = z.infer<typeof ConnectionProbeSchema>;
 
 export const DiscoveredModelSchema = ConnectionModelSchema.extend({
-  bytes: z.number().nonnegative().optional(),
+  bytes: NonnegativeNumberSchema.optional(),
 });
 export type DiscoveredModel = z.infer<typeof DiscoveredModelSchema>;
 export const ConnectionFailureSchema = z.object({
   ok: z.literal(false),
   reason: z.enum(["auth", "model", "network", "address", "unsupported", "response"]),
-  status: z.number().int().optional(),
+  status: IntegerSchema.optional(),
 });
 export type ConnectionFailure = z.infer<typeof ConnectionFailureSchema>;
 const connectionModelsResultSchema = z.union([
@@ -213,7 +218,7 @@ export type ConnectionModelsResult = z.infer<typeof connectionModelsResultSchema
 export const ConnectionModelsResultSchema: z.ZodType<ConnectionModelsResult> =
   connectionModelsResultSchema;
 const connectionTestResultSchema = z.union([
-  z.object({ ok: z.literal(true), ms: z.number().nonnegative() }),
+  z.object({ ok: z.literal(true), ms: NonnegativeNumberSchema }),
   ConnectionFailureSchema,
 ]);
 export type ConnectionTestResult = z.infer<typeof connectionTestResultSchema>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { DiagnosticSchema } from "./diagnostics";
 import { DocumentUriSchema, TextEditSchema } from "./primitives";
 import { VersionedTextDocumentIdentifierSchema } from "./text-document";
@@ -102,7 +103,7 @@ export type ApplyWorkspaceEditParams = z.infer<typeof ApplyWorkspaceEditParamsSc
 export const ApplyWorkspaceEditResultSchema = z.object({
   applied: z.boolean(),
   failureReason: z.string().optional(),
-  failedChange: z.number().int().nonnegative().optional(),
+  failedChange: NonnegativeIntegerSchema.optional(),
 });
 export type ApplyWorkspaceEditResult = z.infer<typeof ApplyWorkspaceEditResultSchema>;
 

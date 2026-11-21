@@ -3,6 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { StateService } from "../../../../../src/main/infra/storage/state-service";
+import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
+import { ipcContract } from "../../../../../src/shared/ipc/contract";
+import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voice-names";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +120,29 @@ describe("StateService", () => {
     const state = new StateService(filePath).getState();
 
     expect(state.lspLanguages).toEqual({ typescript: { lowMemory: true } });
+  });
+
+  it("loads a saved workspace ID using the legacy UUID format", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workspaceId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const original = {
+      updateChannel: "beta",
+      filesPanelModeByWorkspace: { [workspaceId]: "tree" },
+    };
+    fs.writeFileSync(filePath, JSON.stringify(original), "utf8");
+
+    expect(new StateService(filePath).getState()).toMatchObject(original);
+    expect(fs.existsSync(`${filePath}.invalid`)).toBe(false);
+  });
+
+  it("leaves omitted settings out of partial updates", () => {
+    expect(ipcContract.appState.call.set.args.parse({ updateChannel: "beta" })).toEqual({
+      updateChannel: "beta",
+    });
+    expect(GitPanelStateUpdateSchema.parse({ commitDraft: "draft" })).toEqual({
+      commitDraft: "draft",
+    });
+    expect(VoiceNamePreferencesSchema.parse({ suggest: false })).toEqual({ suggest: false });
   });
 
   it("backs up a state file that is not valid JSON", () => {

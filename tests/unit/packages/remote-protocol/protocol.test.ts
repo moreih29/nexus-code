@@ -25,6 +25,8 @@ import {
   PushSendResultSchema,
   PushSendSchema,
   RPC_METHODS,
+  RpcIdSchema,
+  RpcResponseSchema,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
   SealedMessageSchema,
@@ -74,6 +76,49 @@ describe("the relay's frames", () => {
     const frame = { from: "dev-a", to: "dev-b", seq: 7, kid: 2 };
     expect(aadOf(frame)).toBe("nexus-remote/v2|dev-a|dev-b|7|2");
     expect(aadOf({ ...frame, to: "dev-c" })).not.toBe(aadOf(frame));
+  });
+});
+
+describe("0.19.0 wire compatibility", () => {
+  test("accepts integer IDs outside the safe range and rejects fractions", () => {
+    expect(RpcIdSchema.parse(Number.MAX_SAFE_INTEGER + 1)).toBe(Number.MAX_SAFE_INTEGER + 1);
+    expect(RpcIdSchema.safeParse(1.5).success).toBe(false);
+    expect(RpcIdSchema.safeParse(Number.POSITIVE_INFINITY).success).toBe(false);
+  });
+
+  test("keeps an absent RPC result and strips unknown fields", () => {
+    expect(RpcResponseSchema.parse({ jsonrpc: "2.0", id: 1, extra: true })).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+    });
+  });
+
+  test("accepts UUID-shaped transfer IDs with legacy variant bits", () => {
+    const { params } = RPC_METHODS["files.read"];
+    const input = {
+      workspaceId: "w",
+      path: "file",
+      transferId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    };
+    expect(params.parse(input)).toEqual(input);
+    expect(params.safeParse({ ...input, transferId: "not-a-uuid" }).success).toBe(false);
+  });
+
+  test("retains unrestricted numbers and validates record values before dropping reserved keys", () => {
+    const { result } = RPC_METHODS["browser.permissions"];
+    expect(PushSendResultSchema.parse(JSON.parse('{"sent":1e400,"skipped":0}'))).toEqual({
+      sent: Number.POSITIVE_INFINITY,
+      skipped: 0,
+    });
+    expect(
+      result.parse(JSON.parse('{"global":{"__proto__":true,"camera":true},"sites":[]}')),
+    ).toEqual({
+      global: { camera: true },
+      sites: [],
+    });
+    expect(result.safeParse(JSON.parse('{"global":{"__proto__":"yes"},"sites":[]}')).success).toBe(
+      false,
+    );
   });
 });
 

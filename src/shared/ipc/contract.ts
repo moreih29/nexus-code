@@ -7,6 +7,12 @@ import {
   TerminalUpdateSchema,
 } from "../../../packages/remote-protocol/src/rpc";
 import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
+import {
   BehaviorChangesSchema,
   BehaviorFileSchema,
   BehaviorWriteResultSchema,
@@ -198,29 +204,27 @@ import { WorkspaceColorSchema } from "../types/workspace-color";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 import { ReleaseNotesResultSchema } from "../updates/release-notes";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
+import { partialWithoutDefaults } from "../validation/partial";
+import { UrlSchema } from "../validation/string";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
 // ---------------------------------------------------------------------------
 
 // call: one-shot RPC — renderer→main only; args validated by zod
-interface CallProcedure<A extends z.ZodTypeAny, R extends z.ZodTypeAny> {
+interface CallProcedure<A extends z.ZodType, R extends z.ZodType> {
   args: A;
   result: R;
 }
 
 // listen: event stream — main→renderer; args schema stored for documentation
 // Hot-path validation intentionally omitted (PTY data chunks, etc.)
-interface ListenProcedure<A extends z.ZodTypeAny> {
+interface ListenProcedure<A extends z.ZodType> {
   args: A;
 }
 
 // stream: request-scoped progress channel — renderer→main start, main→renderer progress
-export interface StreamProcedure<
-  A extends z.ZodTypeAny,
-  P extends z.ZodTypeAny,
-  R extends z.ZodTypeAny,
-> {
+export interface StreamProcedure<A extends z.ZodType, P extends z.ZodType, R extends z.ZodType> {
   args: A;
   progress: P;
   result: R;
@@ -228,23 +232,20 @@ export interface StreamProcedure<
 }
 
 type ChannelDefinition = {
-  call: Record<string, CallProcedure<z.ZodTypeAny, z.ZodTypeAny>>;
-  listen: Record<string, ListenProcedure<z.ZodTypeAny>>;
-  stream?: Record<string, StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny>>;
+  call: Record<string, CallProcedure<z.ZodType, z.ZodType>>;
+  listen: Record<string, ListenProcedure<z.ZodType>>;
+  stream?: Record<string, StreamProcedure<z.ZodType, z.ZodType, z.ZodType>>;
 };
 
-function call<A extends z.ZodTypeAny, R extends z.ZodTypeAny>(
-  args: A,
-  result: R,
-): CallProcedure<A, R> {
+function call<A extends z.ZodType, R extends z.ZodType>(args: A, result: R): CallProcedure<A, R> {
   return { args, result };
 }
 
-function listen<A extends z.ZodTypeAny>(args: A): ListenProcedure<A> {
+function listen<A extends z.ZodType>(args: A): ListenProcedure<A> {
   return { args };
 }
 
-export function stream<A extends z.ZodTypeAny, P extends z.ZodTypeAny, R extends z.ZodTypeAny>(
+export function stream<A extends z.ZodType, P extends z.ZodType, R extends z.ZodType>(
   args: A,
   progress: P,
   result: R,
@@ -258,26 +259,26 @@ export function stream<A extends z.ZodTypeAny, P extends z.ZodTypeAny, R extends
 // ---------------------------------------------------------------------------
 
 export type InferArgs<T> =
-  T extends StreamProcedure<infer A, z.ZodTypeAny, z.ZodTypeAny>
+  T extends StreamProcedure<infer A, z.ZodType, z.ZodType>
     ? z.infer<A>
-    : T extends CallProcedure<infer A, z.ZodTypeAny>
+    : T extends CallProcedure<infer A, z.ZodType>
       ? z.infer<A>
       : T extends ListenProcedure<infer A>
         ? z.infer<A>
         : never;
 
 export type InferReturn<T> =
-  T extends StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny>
+  T extends StreamProcedure<z.ZodType, z.ZodType, z.ZodType>
     ? never
-    : T extends CallProcedure<z.ZodTypeAny, infer R>
+    : T extends CallProcedure<z.ZodType, infer R>
       ? z.infer<R>
       : never;
 
 export type InferProgress<T> =
-  T extends StreamProcedure<z.ZodTypeAny, infer P, z.ZodTypeAny> ? z.infer<P> : never;
+  T extends StreamProcedure<z.ZodType, infer P, z.ZodType> ? z.infer<P> : never;
 
 export type InferComplete<T> =
-  T extends StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, infer R> ? z.infer<R> : never;
+  T extends StreamProcedure<z.ZodType, z.ZodType, infer R> ? z.infer<R> : never;
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas (used across channels)
@@ -295,7 +296,7 @@ const WorkspaceCreateLocationArgsSchema = z.object({
   // directory-browse session, this carries that session's id so the main
   // process can reuse its already-authenticated ControlMaster instead of
   // opening — and re-authenticating — a second SSH connection.
-  sshBrowseSessionId: z.string().uuid().optional(),
+  sshBrowseSessionId: z.guid().optional(),
 });
 
 const WorkspaceCreateArgsSchema = z.union([
@@ -304,7 +305,7 @@ const WorkspaceCreateArgsSchema = z.union([
 ]);
 
 const WorkspaceUpdateArgsSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   name: z.string().optional(),
   color: WorkspaceColorSchema.optional(),
   pinned: z.boolean().optional(),
@@ -313,7 +314,7 @@ const WorkspaceUpdateArgsSchema = z.object({
 const WorkspaceIdSchema = z.object({ id: WorkspaceIdPrimitive });
 const PtyWorkspaceTabSchema = z.object({
   workspaceId: WorkspaceIdPrimitive,
-  tabId: z.string().uuid(),
+  tabId: z.guid(),
 });
 
 const FsMutationRelPathSchema = z
@@ -327,7 +328,7 @@ const FsMutationRelPathSchema = z
 const WorkspaceTestSshArgsSchema = z.object({
   host: z.string().min(1),
   user: z.string().min(1).optional(),
-  port: z.number().int().positive().max(65_535).optional(),
+  port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   identityFile: z.string().min(1).optional(),
   authMode: z.enum(["interactive", "key-only"]).default("interactive"),
   remotePath: z.string().min(1),
@@ -345,13 +346,13 @@ const WorkspaceTestSshArgsSchema = z.object({
  */
 export const WorkspaceReorderArgsSchema = z
   .object({
-    id: z.string().uuid(),
-    beforeId: z.string().uuid().optional(),
-    afterId: z.string().uuid().optional(),
+    id: z.guid(),
+    beforeId: z.guid().optional(),
+    afterId: z.guid().optional(),
     targetGroup: z.enum(["pinned", "unpinned"]),
   })
   .refine((data) => !(data.beforeId && data.afterId), {
-    message: "beforeId and afterId are mutually exclusive",
+    error: "beforeId and afterId are mutually exclusive",
   });
 
 /**
@@ -361,9 +362,9 @@ export const WorkspaceReorderArgsSchema = z
 export const WorkspaceReorderedEventSchema = z.object({
   orders: z.array(
     z.object({
-      id: z.string().uuid(),
-      sortOrder: z.number().int(),
-      pinnedSortOrder: z.number().int(),
+      id: z.guid(),
+      sortOrder: IntegerSchema,
+      pinnedSortOrder: IntegerSchema,
       pinned: z.boolean(),
     }),
   ),
@@ -378,24 +379,24 @@ const ClaudeSessionSchema = z.object({
   customTitle: z.string().optional(),
   firstPrompt: z.string().optional(),
   gitBranch: z.string().optional(),
-  lastModified: z.number(),
-  createdAt: z.number().optional(),
-  size: z.number(),
+  lastModified: NumberSchema,
+  createdAt: NumberSchema.optional(),
+  size: NumberSchema,
 });
 
 const SshBrowseConnParamsSchema = z.object({
   host: z.string().min(1),
   user: z.string().min(1).optional(),
-  port: z.number().int().positive().max(65_535).optional(),
+  port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   identityFile: z.string().min(1).optional(),
   authMode: z.enum(["interactive", "key-only"]).default("interactive"),
   // Client-generated correlation id so the renderer can subscribe to
   // `ssh.browseProgress` events for THIS connect attempt before any
   // sessionId/workspaceId exists. Optional: omitting it just disables progress.
-  progressId: z.string().uuid().optional(),
+  progressId: z.guid().optional(),
 });
 
-const SshBrowseSessionIdSchema = z.object({ sessionId: z.string().uuid() });
+const SshBrowseSessionIdSchema = z.object({ sessionId: z.guid() });
 
 const SshBrowseResultSchema = z.object({
   entries: z.array(DirEntrySchema),
@@ -534,7 +535,7 @@ const GitCommitShaArgsSchema = GitWorkspaceIdSchema.extend({
 
 const GitCommitSearchArgsSchema = GitWorkspaceIdSchema.extend({
   query: z.string(),
-  limit: z.number().int().positive().max(200).optional(),
+  limit: PositiveIntegerSchema.check(z.lte(200)).optional(),
 });
 
 const GitResetSoftArgsSchema = GitWorkspaceIdSchema.extend({
@@ -558,7 +559,7 @@ const GitDiscardChangesArgsSchema = GitRelPathsArgsSchema.extend({
 });
 
 const GitStashIndexArgsSchema = GitWorkspaceIdSchema.extend({
-  index: z.number().int().nonnegative(),
+  index: NonnegativeIntegerSchema,
 });
 
 const GitStashGroupArgsSchema = GitWorkspaceIdSchema.extend({
@@ -609,7 +610,7 @@ const SshConfigHostSchema = z.object({
   alias: z.string().min(1),
   host: z.string().optional(),
   user: z.string().optional(),
-  port: z.number().int().positive().max(65_535).optional(),
+  port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   identityFile: z.string().optional(),
 });
 
@@ -621,7 +622,7 @@ const transcriptPageResult = z.object({
   found: z.boolean(),
   lines: z.array(z.unknown()),
   truncated: z.boolean(),
-  positions: z.array(z.number().int().nonnegative()).optional(),
+  positions: z.array(NonnegativeIntegerSchema).optional(),
   snapshot: z.string().optional(),
   cursor: z.string().optional(),
   beforeAnchor: z.string().optional(),
@@ -629,7 +630,7 @@ const transcriptPageResult = z.object({
   cutMatched: z.boolean().optional(),
   fragment: z
     .object({
-      position: z.number().int().nonnegative(),
+      position: NonnegativeIntegerSchema,
       data: z.string(),
       first: z.boolean(),
       last: z.boolean(),
@@ -685,7 +686,7 @@ const notesContracts = {
       saveTranscript: call(NotesArgs.saveTranscript, z.void()),
       appendAudio: call(NotesArgs.appendAudio, z.void()),
       /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
-      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
+      voicePrint: call(NotesArgs.voicePrint, z.array(NumberSchema).nullable()),
       removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
     },
     listen: {
@@ -765,7 +766,7 @@ const coreIpcContract = {
       openBrowseSession: call(
         SshBrowseConnParamsSchema,
         z.object({
-          sessionId: z.string().uuid(),
+          sessionId: z.guid(),
           initialPath: z.string(),
           // The user actually connected as — when the caller omits `user`,
           // the handler defaults to the local account name and reports it
@@ -797,7 +798,7 @@ const coreIpcContract = {
       listDistros: call(z.void(), z.array(z.string())),
       openBrowseSession: call(
         z.object({ distro: z.string().min(1), progressId: z.string().optional() }),
-        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+        z.object({ sessionId: z.guid(), initialPath: z.string() }),
       ),
     },
     listen: {},
@@ -856,8 +857,8 @@ const coreIpcContract = {
         }),
         TabMetaSchema,
       ),
-      close: call(z.object({ id: z.string().uuid() }), z.void()),
-      switch: call(z.object({ id: z.string().uuid() }), z.void()),
+      close: call(z.object({ id: z.guid() }), z.void()),
+      switch: call(z.object({ id: z.guid() }), z.void()),
     },
     listen: {},
   },
@@ -867,9 +868,9 @@ const coreIpcContract = {
       spawn: call(
         PtyWorkspaceTabSchema.extend({
           cwd: z.string(),
-          cols: z.number().int().positive(),
-          rows: z.number().int().positive(),
-          env: z.record(z.string()).optional(),
+          cols: PositiveIntegerSchema,
+          rows: PositiveIntegerSchema,
+          env: z.record(z.string(), z.string()).optional(),
           args: z.array(z.string()).optional(),
           /**
            * The shell this tab opens with. Absent: the default shell from
@@ -885,7 +886,7 @@ const coreIpcContract = {
           profile: z.string().max(64).optional(),
         }),
         z.object({
-          pid: z.number().int(),
+          pid: IntegerSchema,
           /** The shell started, when main knows it (local workspaces). */
           shellPath: z.string().optional(),
           /**
@@ -898,12 +899,12 @@ const coreIpcContract = {
       write: call(PtyWorkspaceTabSchema.extend({ data: z.string() }), z.void()),
       resize: call(
         PtyWorkspaceTabSchema.extend({
-          cols: z.number().int().positive(),
-          rows: z.number().int().positive(),
+          cols: PositiveIntegerSchema,
+          rows: PositiveIntegerSchema,
         }),
         z.void(),
       ),
-      ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: z.number().int() }), z.void()),
+      ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: IntegerSchema }), z.void()),
       kill: call(PtyWorkspaceTabSchema, z.void()),
       /**
        * Looks up the program basename of the current PTY foreground process group leader.
@@ -944,12 +945,12 @@ const coreIpcContract = {
        * "not-connected" or "failed".
        */
       forward: call(
-        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        z.object({ workspaceId: z.string(), port: PositiveIntegerSchema.check(z.lte(65_535)) }),
         PortForwardSchema,
       ),
       /** Stops forwarding a port of an SSH workspace's host. */
       unforward: call(
-        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        z.object({ workspaceId: z.string(), port: PositiveIntegerSchema.check(z.lte(65_535)) }),
         z.void(),
       ),
       /**
@@ -971,7 +972,7 @@ const coreIpcContract = {
       data: listen(
         PtyWorkspaceTabSchema.extend({ chunk: z.string(), replay: z.boolean().optional() }),
       ),
-      exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
+      exit: listen(PtyWorkspaceTabSchema.extend({ code: IntegerSchema.nullable() })),
       notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
       /**
        * Fired when the channel enters `reconnecting` state and the PTY session
@@ -1032,7 +1033,7 @@ const coreIpcContract = {
         z.discriminatedUnion("ok", [
           z.object({
             ok: z.literal(true),
-            pid: z.number().int(),
+            pid: IntegerSchema,
             attached: z.boolean(),
             /** `claude --version`'s x.y.z; null when it could not be read. */
             version: z.string().nullable(),
@@ -1057,7 +1058,7 @@ const coreIpcContract = {
         z.discriminatedUnion("ok", [
           z.object({
             ok: z.literal(true),
-            pid: z.number().int(),
+            pid: IntegerSchema,
             attached: z.boolean(),
             /** `codex --version`'s x.y.z; null when it could not be read. */
             version: z.string().nullable(),
@@ -1073,7 +1074,7 @@ const coreIpcContract = {
       /** Writes one message to the program as a line. */
       send: call(
         PtyWorkspaceTabSchema.extend({
-          message: z.record(z.unknown()),
+          message: z.record(z.string(), z.unknown()),
           profileId: z.string().max(64).optional(),
           instructions: InstructionTextSchema.optional(),
         }),
@@ -1085,12 +1086,12 @@ const coreIpcContract = {
       close: call(PtyWorkspaceTabSchema, z.void()),
       /** Sends the tab's log again as `line` events, after `afterSeq`. */
       replay: call(
-        PtyWorkspaceTabSchema.extend({ afterSeq: z.number().int().nonnegative().optional() }),
+        PtyWorkspaceTabSchema.extend({ afterSeq: NonnegativeIntegerSchema.optional() }),
         z.object({
           found: z.boolean(),
           running: z.boolean(),
           truncated: z.boolean(),
-          lastSeq: z.number().int(),
+          lastSeq: IntegerSchema,
         }),
       ),
       /**
@@ -1195,7 +1196,7 @@ const coreIpcContract = {
         z.object({ workspaceId: WorkspaceIdPrimitive, profileId: z.string().max(64).optional() }),
         z.object({
           found: z.boolean(),
-          values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+          values: z.record(z.string(), z.union([z.string(), NumberSchema, z.boolean()])),
         }),
       ),
       /**
@@ -1250,7 +1251,7 @@ const coreIpcContract = {
           ]),
         }),
         z.object({
-          code: z.number().int(),
+          code: IntegerSchema,
           stdout: z.string(),
           stderr: z.string(),
           timedOut: z.boolean().optional(),
@@ -1284,25 +1285,25 @@ const coreIpcContract = {
           workspaceId: WorkspaceIdPrimitive,
           paths: z.array(z.string().max(4096)).max(500),
         }),
-        z.record(z.string(), z.number()),
+        z.record(z.string(), NumberSchema),
       ),
     },
     listen: {
       // Not validated: a line can carry megabytes of image data.
       line: listen(
         PtyWorkspaceTabSchema.extend({
-          seq: z.number().int(),
+          seq: IntegerSchema,
           dir: z.enum(["out", "in", "sys"]),
           message: z.unknown().optional(),
           text: z.string().optional(),
           /** When the agent got the line, in Unix milliseconds. */
-          at: z.number().optional(),
+          at: NumberSchema.optional(),
           replay: z.boolean().optional(),
         }),
       ),
       exit: listen(
         PtyWorkspaceTabSchema.extend({
-          code: z.number().int().nullable(),
+          code: IntegerSchema.nullable(),
           signal: z.string().optional(),
           stderrTail: z.string().optional(),
         }),
@@ -1365,7 +1366,7 @@ const coreIpcContract = {
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           languageId: z.string(),
-          afterSeq: z.number().int().optional(),
+          afterSeq: IntegerSchema.optional(),
         }),
         z.array(LspLogEntrySchema),
       ),
@@ -1430,11 +1431,9 @@ const coreIpcContract = {
     call: {
       get: call(z.void(), AppStateSchema),
       set: call(
-        AppStateSchema.omit({ rememberedVoices: true })
-          .partial()
-          .extend({
-            instructionEdits: z.array(InstructionEditSchema).optional(),
-          }),
+        partialWithoutDefaults(AppStateSchema.omit({ rememberedVoices: true })).extend({
+          instructionEdits: z.array(InstructionEditSchema).optional(),
+        }),
         z.void(),
       ),
     },
@@ -1691,8 +1690,8 @@ const coreIpcContract = {
           scope: GitLogScopeSchema.optional(),
           afterSha: z.string().min(1).optional(),
           grep: z.string().min(1).optional(),
-          skip: z.number().int().nonnegative().optional(),
-          limit: z.number().int().positive().optional(),
+          skip: NonnegativeIntegerSchema.optional(),
+          limit: PositiveIntegerSchema.optional(),
         }),
         LogChunkSchema,
         LogCompleteSchema,
@@ -1762,8 +1761,8 @@ const coreIpcContract = {
       readRange: call(
         workspaceScoped({
           relPath: z.string(),
-          offset: z.number().int().min(0),
-          length: z.number().int().min(0),
+          offset: IntegerSchema.check(z.gte(0)),
+          length: IntegerSchema.check(z.gte(0)),
         }),
         FileReadBinaryResultSchema,
       ),
@@ -1877,7 +1876,7 @@ const coreIpcContract = {
        * that slept with it (a tab going on once its usage limit resets) look
        * at the clock again. `at`: when, in Unix ms.
        */
-      woke: listen(z.object({ at: z.number() })),
+      woke: listen(z.object({ at: NumberSchema })),
     },
   },
 
@@ -1894,7 +1893,7 @@ const coreIpcContract = {
       toggleMaximize: call(z.void(), z.void()),
       close: call(z.void(), z.void()),
       closePrepared: call(
-        z.object({ attempt: z.number().int().positive(), saved: z.boolean() }),
+        z.object({ attempt: PositiveIntegerSchema, saved: z.boolean() }),
         z.void(),
       ),
       isMaximized: call(z.void(), z.boolean()),
@@ -1903,13 +1902,13 @@ const coreIpcContract = {
        * and Linux show no menu bar under the hidden title bar; the titlebar's
        * menu button opens it instead.
        */
-      showAppMenu: call(z.object({ x: z.number(), y: z.number() }), z.void()),
+      showAppMenu: call(z.object({ x: NumberSchema, y: NumberSchema }), z.void()),
     },
     listen: {
       /** Sent to one window only, when it is maximized or restored. */
       maximizedChanged: listen(z.object({ maximized: z.boolean() })),
       /** Sent to the window whose latest layout must be written before closing. */
-      prepareClose: listen(z.object({ attempt: z.number().int().positive() })),
+      prepareClose: listen(z.object({ attempt: PositiveIntegerSchema })),
     },
   },
 
@@ -1994,16 +1993,16 @@ const coreIpcContract = {
       /** Create (or replace) the WebContentsView backing `tabId`. */
       create: call(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
+          tabId: z.guid(),
+          viewId: z.guid(),
           workspaceId: WorkspaceIdPrimitive,
-          url: z.string().url(),
+          url: UrlSchema,
           partition: z.string().min(1),
         }),
         z.void(),
       ),
       /** Destroy the WebContentsView and release all resources for `tabId`. */
-      destroy: call(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() }), z.void()),
+      destroy: call(z.object({ tabId: z.guid(), viewId: z.guid() }), z.void()),
       /**
        * Resize/reposition the view.
        *
@@ -2015,29 +2014,26 @@ const coreIpcContract = {
        */
       setBounds: call(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
-          x: z.number(),
-          y: z.number(),
-          width: z.number(),
-          height: z.number(),
+          tabId: z.guid(),
+          viewId: z.guid(),
+          x: NumberSchema,
+          y: NumberSchema,
+          width: NumberSchema,
+          height: NumberSchema,
         }),
         z.void(),
       ),
       /** Attach (active=true) or detach (active=false) the view. */
       setActive: call(
-        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), active: z.boolean() }),
+        z.object({ tabId: z.guid(), viewId: z.guid(), active: z.boolean() }),
         z.void(),
       ),
       /** Navigate the tab to `url`. */
-      navigate: call(z.object({ tabId: z.string().uuid(), url: z.string().url() }), z.void()),
-      goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
-      goForward: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      navigate: call(z.object({ tabId: z.guid(), url: UrlSchema }), z.void()),
+      goBack: call(z.object({ tabId: z.guid() }), z.void()),
+      goForward: call(z.object({ tabId: z.guid() }), z.void()),
       /** Reload the tab; pass `ignoreCache:true` for a hard reload. */
-      reload: call(
-        z.object({ tabId: z.string().uuid(), ignoreCache: z.boolean().optional() }),
-        z.void(),
-      ),
+      reload: call(z.object({ tabId: z.guid(), ignoreCache: z.boolean().optional() }), z.void()),
       /**
        * Toggle DevTools for the tab, docked inline as a sibling
        * WebContentsView within the browser tab area.
@@ -2051,7 +2047,7 @@ const coreIpcContract = {
        * After the toggle, main broadcasts `devtoolsToggled` so the renderer
        * can show / hide the splitter region.
        */
-      openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      openDevTools: call(z.object({ tabId: z.guid() }), z.void()),
       /**
        * Resize/reposition the DevTools-host WebContentsView for `tabId`.
        *
@@ -2060,12 +2056,12 @@ const coreIpcContract = {
        */
       setDevToolsBounds: call(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
-          x: z.number(),
-          y: z.number(),
-          width: z.number(),
-          height: z.number(),
+          tabId: z.guid(),
+          viewId: z.guid(),
+          x: NumberSchema,
+          y: NumberSchema,
+          width: NumberSchema,
+          height: NumberSchema,
         }),
         z.void(),
       ),
@@ -2104,8 +2100,8 @@ const coreIpcContract = {
        */
       navigated: listen(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
+          tabId: z.guid(),
+          viewId: z.guid(),
           url: z.string(),
           canGoBack: z.boolean(),
           canGoForward: z.boolean(),
@@ -2113,13 +2109,13 @@ const coreIpcContract = {
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
       loadingChanged: listen(
-        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), isLoading: z.boolean() }),
+        z.object({ tabId: z.guid(), viewId: z.guid(), isLoading: z.boolean() }),
       ),
       /** The main frame's last load failure, cleared on successful navigation. */
       loadFailureChanged: listen(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
+          tabId: z.guid(),
+          viewId: z.guid(),
           failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
@@ -2129,17 +2125,15 @@ const coreIpcContract = {
        */
       refused: listen(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
+          tabId: z.guid(),
+          viewId: z.guid(),
           url: z.string(),
           kind: z.string(),
           message: z.string(),
         }),
       ),
       /** Emitted when the page title changes. */
-      titleUpdated: listen(
-        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), title: z.string() }),
-      ),
+      titleUpdated: listen(z.object({ tabId: z.guid(), viewId: z.guid(), title: z.string() })),
       /**
        * Emitted when the page advertises favicon(s).
        *
@@ -2150,8 +2144,8 @@ const coreIpcContract = {
        */
       faviconUpdated: listen(
         z.object({
-          tabId: z.string().uuid(),
-          viewId: z.string().uuid(),
+          tabId: z.guid(),
+          viewId: z.guid(),
           favicons: z.array(z.string()).nullable(),
         }),
       ),
@@ -2171,14 +2165,14 @@ const coreIpcContract = {
         z.discriminatedUnion("kind", [
           z.object({
             kind: z.literal("set"),
-            tabId: z.string().uuid(),
-            viewId: z.string().uuid(),
+            tabId: z.guid(),
+            viewId: z.guid(),
             dataUrl: z.string(),
           }),
           z.object({
             kind: z.literal("cleared"),
-            tabId: z.string().uuid(),
-            viewId: z.string().uuid(),
+            tabId: z.guid(),
+            viewId: z.guid(),
           }),
         ]),
       ),
@@ -2187,9 +2181,7 @@ const coreIpcContract = {
        * docked-DevTools state so the renderer can show / hide its splitter
        * region and start / stop reporting `setDevToolsBounds`.
        */
-      devtoolsToggled: listen(
-        z.object({ tabId: z.string().uuid(), viewId: z.string().uuid(), open: z.boolean() }),
-      ),
+      devtoolsToggled: listen(z.object({ tabId: z.guid(), viewId: z.guid(), open: z.boolean() })),
       /**
        * Emitted when the tab's WebContentsView gains focus (e.g. the user
        * clicks anywhere in the page).
@@ -2203,7 +2195,7 @@ const coreIpcContract = {
        * activate the group that owns `tabId` whenever the page itself is
        * clicked, matching the behaviour of every other panel type.
        */
-      focused: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
+      focused: listen(z.object({ tabId: z.guid(), viewId: z.guid() })),
       /**
        * Emitted when the browser URL-focus shortcut (browser.focusUrl,
        * ⌘L by default) fires while the page itself has focus. Because the
@@ -2213,7 +2205,7 @@ const coreIpcContract = {
        * focus the address bar. The other browser shortcuts act in main
        * directly; only URL focus needs a renderer round-trip.
        */
-      focusUrl: listen(z.object({ tabId: z.string().uuid(), viewId: z.string().uuid() })),
+      focusUrl: listen(z.object({ tabId: z.guid(), viewId: z.guid() })),
       /**
        * A download the user started in a browser tab is done, saved as
        * `file` where downloads go. One a nexus command started is told in
@@ -2375,7 +2367,7 @@ const coreIpcContract = {
        * The main process validates the scheme (https only) before calling
        * shell.openExternal, so the renderer never touches the OS handler directly.
        */
-      openReleasePage: call(z.object({ url: z.string().url() }), z.void()),
+      openReleasePage: call(z.object({ url: UrlSchema }), z.void()),
       /**
        * The status to show now — the last check or the step of an update
        * under way — and the download's progress, for a view opened after
@@ -2523,11 +2515,11 @@ const coreIpcContract = {
        * that tells an agent about the element, or why none was picked.
        */
       pickElement: call(
-        z.object({ tabId: z.string().uuid() }),
+        z.object({ tabId: z.guid() }),
         z.union([z.object({ text: z.string() }), z.object({ cancelled: z.string() })]),
       ),
       /** Ends the pick going on in a browser tab, if there is one. */
-      cancelPick: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      cancelPick: call(z.object({ tabId: z.guid() }), z.void()),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),
@@ -2593,7 +2585,7 @@ const coreIpcContract = {
       /** Stops a sign-in. */
       loginCancel: call(z.object({ id: z.string().max(64) }), z.void()),
       /** Opens a sign-in's https address in the system browser. */
-      openUrl: call(z.object({ url: z.string().url().max(8192) }), z.void()),
+      openUrl: call(z.object({ url: UrlSchema.max(8192) }), z.void()),
       /**
        * The profile's behavior file (settings.json, config.toml) on this machine and
        * the values of the fields Settings edits. `prepare` first makes the folder and links.
@@ -2619,7 +2611,7 @@ const coreIpcContract = {
     },
     listen: {
       loginOutput: listen(z.object({ id: z.string(), text: z.string() })),
-      loginExit: listen(z.object({ id: z.string(), code: z.number().int().nullable() })),
+      loginExit: listen(z.object({ id: z.string(), code: IntegerSchema.nullable() })),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
@@ -2898,18 +2890,16 @@ const remoteContracts = {
           deviceId: z.string().min(1).max(64),
           workspaceId: z.string(),
           path: z.string().min(1).max(4096),
-          offset: z
-            .number()
-            .int()
-            .nonnegative()
-            .max(Number.MAX_SAFE_INTEGER - READ_RANGE_MAX_BYTES),
-          length: z.number().int().positive().max(READ_RANGE_MAX_BYTES),
+          offset: NonnegativeIntegerSchema.check(
+            z.lte(Number.MAX_SAFE_INTEGER - READ_RANGE_MAX_BYTES),
+          ),
+          length: PositiveIntegerSchema.check(z.lte(READ_RANGE_MAX_BYTES)),
           whole: z.literal(true).optional(),
           requireVersion: z.string().min(1).max(128).optional(),
         }),
         z.object({
           parts: z.array(z.string()),
-          size: z.number().int().nonnegative(),
+          size: NonnegativeIntegerSchema,
           version: z.string().optional(),
         }),
       ),

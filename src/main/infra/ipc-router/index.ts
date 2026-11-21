@@ -21,6 +21,10 @@ import {
 } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
+import {
+  validationErrorMessage,
+  validationErrorOptions,
+} from "../../../shared/validation/error-message";
 import { GitError } from "../../features/git/domain/error";
 import { agentCallError } from "./agent-errors";
 import { fsCallError } from "./fs-errors";
@@ -57,7 +61,7 @@ type StreamHandler<TArgs = unknown, TProgress = unknown, TComplete = unknown> = 
 }["handle"];
 type AnyStreamHandler = StreamHandler;
 type StreamHandlers = Record<string, AnyStreamHandler>;
-type AnyStreamProcedure = StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny>;
+type AnyStreamProcedure = StreamProcedure<z.ZodType, z.ZodType, z.ZodType>;
 type IpcContract = typeof ipcContract;
 type ContractChannelName = keyof IpcContract & string;
 type ContractStreamProcedures<C extends ContractChannelName> = IpcContract[C] extends {
@@ -338,21 +342,21 @@ function getStreamDescriptor(channelName: string, method: string): AnyStreamProc
   return contract[channelName]?.stream?.[method];
 }
 
-function parseOrInvalidInput<T extends z.ZodTypeAny>(
+function parseOrInvalidInput<T extends z.ZodType>(
   schema: T,
   value: unknown,
   prefix: string,
 ): z.infer<T> | IpcErrResult<"invalid-args"> {
-  const parsed = schema.safeParse(value);
+  const parsed = schema.safeParse(value, validationErrorOptions);
   if (!parsed.success) {
-    return ipcErr("invalid-args", `${prefix}: ${parsed.error.message}`, {
+    return ipcErr("invalid-args", `${prefix}: ${validationErrorMessage(parsed.error)}`, {
       category: "invalid-input" as const,
     });
   }
   return parsed.data as z.infer<T>;
 }
 
-function validateStreamValue<T extends z.ZodTypeAny>(
+function validateStreamValue<T extends z.ZodType>(
   schema: T,
   value: unknown,
   label: "args" | "progress" | "result",
@@ -548,10 +552,12 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
 }
 
 /** Parses handler arguments and lets the router envelope validation failures. */
-export function validateArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
-  const parsed = schema.safeParse(args);
+export function validateArgs<T extends z.ZodType>(schema: T, args: unknown): z.infer<T> {
+  const parsed = schema.safeParse(args, validationErrorOptions);
   if (!parsed.success) {
-    throw new IpcValidationError(`ipc:call — invalid args: ${parsed.error.message}`);
+    throw new IpcValidationError(
+      `ipc:call — invalid args: ${validationErrorMessage(parsed.error)}`,
+    );
   }
   return parsed.data as z.infer<T>;
 }

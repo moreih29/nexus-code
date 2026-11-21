@@ -6,6 +6,11 @@
  */
 import { z } from "zod";
 import {
+  IntegerSchema,
+  NonnegativeNumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
+import {
   TranscriptionSchema,
   VoiceLanguageSchema,
   VoicePurposeSchema,
@@ -79,8 +84,8 @@ export const VoiceStartResultSchema = z.discriminatedUnion("status", [
     status: z.literal("ready"),
     id: z.string(),
     /** The rate to capture at: the server's `ready` names it. */
-    sampleRate: z.number().int().positive(),
-    maxSeconds: z.number().nonnegative(),
+    sampleRate: PositiveIntegerSchema,
+    maxSeconds: NonnegativeNumberSchema,
   }),
   z.object({ status: z.literal("failed"), reason: VoiceFailureSchema, message: z.string() }),
 ]);
@@ -102,7 +107,7 @@ export const VoiceEventSchema = z.object({
   id: z.string(),
   event: z.union([
     VoiceServerMessageSchema,
-    z.object({ t: z.literal("closed"), code: z.number().int() }),
+    z.object({ t: z.literal("closed"), code: IntegerSchema }),
   ]),
 });
 export type VoiceEvent = z.infer<typeof VoiceEventSchema>;

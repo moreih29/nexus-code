@@ -39,6 +39,10 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import type { RoomPeer, RoomState, RoomStatus } from "../../../shared/remote/room";
+import {
+  validationErrorMessage,
+  validationErrorOptions,
+} from "../../../shared/validation/error-message";
 import { frameStallDeadline } from "./frame-stall";
 import { type FrameKind, FramePriority, OutgoingFrames } from "./outgoing";
 import type {
@@ -1220,7 +1224,7 @@ export class RemoteRoom {
       return { error: { code: RpcErrorCode.MethodNotFound, message: `no method ${method}` } };
     }
     const spec = RPC_METHODS[method];
-    const parsed = spec.params.safeParse(params ?? {});
+    const parsed = spec.params.safeParse(params ?? {}, validationErrorOptions);
     // An agent's request (`from`) is taken as the user lets agents act here, not as people may;
     // `from` is looked for as it came, since a method whose params have none drops it.
     const byAgent =
@@ -1273,7 +1277,9 @@ export class RemoteRoom {
       };
     }
     if (!parsed.success) {
-      return { error: { code: RpcErrorCode.InvalidParams, message: parsed.error.message } };
+      return {
+        error: { code: RpcErrorCode.InvalidParams, message: validationErrorMessage(parsed.error) },
+      };
     }
     const started = performance.now();
     const slow = setTimeout(() => {

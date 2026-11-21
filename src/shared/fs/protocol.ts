@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
+import {
   ExpectedFileStateSchema,
   FileReadBinaryResultSchema,
   FileReadResultSchema,
@@ -69,8 +73,8 @@ export const FS_READ_RANGE_METHOD = "fs.readRange" as const;
 export const FS_READ_ABSOLUTE_RANGE_METHOD = "fs.readAbsoluteRange" as const;
 
 const RangeSchema = {
-  offset: z.number().int().min(0),
-  length: z.number().int().min(0),
+  offset: IntegerSchema.check(z.gte(0)),
+  length: IntegerSchema.check(z.gte(0)),
 };
 
 export const FsReadRangeParamsSchema = z.object({ relPath: RelPathSchema, ...RangeSchema });
@@ -101,7 +105,7 @@ export const FsPreviewResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     base64: z.string(),
-    sizeBytes: z.number().int().nonnegative(),
+    sizeBytes: NonnegativeIntegerSchema,
     version: z.string().min(1).max(128).optional(),
   }),
   z.object({ kind: z.literal("notModified"), version: z.string().min(1).max(128) }),

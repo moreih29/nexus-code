@@ -6,6 +6,7 @@
  * user's. What the user sends through the command themselves is theirs.
  */
 import { z } from "zod";
+import { NumberSchema } from "../../../packages/remote-protocol/src/validation";
 
 /** Who sent a message through the nexus command, when an agent did. */
 export const RelaySenderSchema = z.object({
@@ -52,7 +53,7 @@ export const RelayedMessageSchema = z.object({
   id: z.string().max(128),
   turnId: z.string().max(128).optional(),
   from: RelaySenderSchema,
-  at: z.number(),
+  at: NumberSchema,
 });
 export type RelayedMessage = z.infer<typeof RelayedMessageSchema>;
 

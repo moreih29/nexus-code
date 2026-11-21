@@ -255,7 +255,22 @@ describe("the room", () => {
     ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     await expect(
       b.room.request("a", "sessions.unwatch", {} as { watchId: string }),
-    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.InvalidParams,
+      message: JSON.stringify(
+        [
+          {
+            code: "invalid_type",
+            expected: "string",
+            received: "undefined",
+            path: ["watchId"],
+            message: "Required",
+          },
+        ],
+        null,
+        2,
+      ),
+    });
     expect(a.served).toEqual([]);
   });
 

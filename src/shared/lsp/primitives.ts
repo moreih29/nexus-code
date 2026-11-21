@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 
 export const DocumentUriSchema = z.string();
 export type DocumentUri = z.infer<typeof DocumentUriSchema>;
 
 export const PositionSchema = z.object({
-  line: z.number().int().nonnegative(),
-  character: z.number().int().nonnegative(),
+  line: NonnegativeIntegerSchema,
+  character: NonnegativeIntegerSchema,
 });
 export type Position = z.infer<typeof PositionSchema>;
 

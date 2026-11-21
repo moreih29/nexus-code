@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IntegerSchema, NumberSchema } from "../../../packages/remote-protocol/src/validation";
 import { InstructionTextSchema } from "../chat/instructions";
 import { AppMessagesSchema, RelayedMessagesSchema, TerminalOpenerSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
@@ -59,7 +60,7 @@ export const PROFILE_MOVES_KEPT = 20;
 export const ProfileMoveSchema = z.object({
   profileId: z.string().max(64),
   after: z.string().max(128),
-  at: z.number(),
+  at: NumberSchema,
 });
 export type ProfileMove = z.infer<typeof ProfileMoveSchema>;
 
@@ -85,8 +86,9 @@ export type ChatChosen = NonNullable<z.infer<typeof ChatChosenSchema>>;
 export const MAX_CHAT_PEER_SUBMISSIONS = 256;
 const PeerSubmissionsSchema = z
   .record(
+    z.string(),
     z.object({
-      clientNonce: z.string().uuid(),
+      clientNonce: z.guid(),
       clientDeviceId: z.string().min(1).max(64),
       written: z.boolean().optional(),
     }),
@@ -101,11 +103,11 @@ const PeerSubmissionsSchema = z
 export const LimitResumeSchema = z
   .object({
     /** When the turn stopped (its result's time, Unix ms): the stop it is for. */
-    stopAt: z.number(),
+    stopAt: NumberSchema,
     /** When the limit resets, as the program or the plan's usage told; absent: not known. */
-    resetsAt: z.number().optional(),
+    resetsAt: NumberSchema.optional(),
     /** When the app sends the message to go on. */
-    at: z.number().optional(),
+    at: NumberSchema.optional(),
     /**
      * waiting: to send at `at`; unknown: no reset time, nothing to send;
      * cancelled: the user called it off; sent: the message went, at `sentAt`;
@@ -113,8 +115,8 @@ export const LimitResumeSchema = z
      */
     state: z.enum(["waiting", "unknown", "cancelled", "sent", "gave_up"]),
     /** Times it was put off or sent for the same limit. */
-    tries: z.number().int().min(0),
-    sentAt: z.number().optional(),
+    tries: IntegerSchema.check(z.gte(0)),
+    sentAt: NumberSchema.optional(),
     /** The session or thread it is for: another one leaves it. */
     session: z.string().max(128).optional(),
   })
@@ -203,7 +205,7 @@ const TAB_TITLES = {
 
 export const SerializedTabSchema = z.discriminatedUnion("type", [
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("terminal"),
     title: z.string(),
     ...TAB_TITLES,
@@ -212,7 +214,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("editor"),
     title: z.string(),
     ...TAB_TITLES,
@@ -223,7 +225,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     viewMode: z.enum(["raw", "preview"]).optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("editor.diff"),
     title: z.string(),
     ...TAB_TITLES,
@@ -232,7 +234,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("git.commit"),
     title: z.string(),
     ...TAB_TITLES,
@@ -241,7 +243,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("note"),
     title: z.string(),
     ...TAB_TITLES,
@@ -250,7 +252,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("browser"),
     title: z.string(),
     ...TAB_TITLES,
@@ -259,7 +261,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("claude"),
     title: z.string(),
     ...TAB_TITLES,
@@ -268,7 +270,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     isPinned: z.boolean().optional(),
   }),
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal("codex"),
     title: z.string(),
     ...TAB_TITLES,
@@ -316,9 +318,9 @@ export type SerializedNode = SerializedLeaf | SerializedSplit;
 // Leaf schema — no recursion, straightforward ZodObject
 export const SerializedLeafSchema = z.object({
   kind: z.literal("leaf"),
-  id: z.string().uuid(),
-  tabIds: z.array(z.string().uuid()),
-  activeTabId: z.string().uuid().nullable(),
+  id: z.guid(),
+  tabIds: z.array(z.guid()),
+  activeTabId: z.guid().nullable(),
 });
 
 // Node schema — z.lazy wraps both variants to allow self-reference.
@@ -330,9 +332,9 @@ export const SerializedNodeSchema: z.ZodType<SerializedNode> = z.lazy(() =>
     SerializedLeafSchema,
     z.object({
       kind: z.literal("split"),
-      id: z.string().uuid(),
+      id: z.guid(),
       orientation: SplitOrientationSchema,
-      ratio: z.number().min(0.05).max(0.95),
+      ratio: NumberSchema.check(z.gte(0.05)).check(z.lte(0.95)),
       first: SerializedNodeSchema,
       second: SerializedNodeSchema,
     }),
@@ -345,7 +347,7 @@ export const SerializedNodeSchema: z.ZodType<SerializedNode> = z.lazy(() =>
 
 export const WorkspaceLayoutSnapshotSchema = z.object({
   root: SerializedNodeSchema,
-  activeGroupId: z.string().uuid(),
+  activeGroupId: z.guid(),
   tabs: z.array(SerializedTabSchema),
 });
 export type WorkspaceLayoutSnapshot = z.infer<typeof WorkspaceLayoutSnapshotSchema>;

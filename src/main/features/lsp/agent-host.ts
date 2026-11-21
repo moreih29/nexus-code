@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
 import {
   AgentManifestSchema,
   findLspBinary,
@@ -213,7 +214,7 @@ const MESSAGE_LOG_LEVELS: Record<number, LspLogLevel> = {
   5: "log",
 };
 
-const LogMessageParamsSchema = z.object({ type: z.number(), message: z.string() });
+const LogMessageParamsSchema = z.object({ type: NumberSchema, message: z.string() });
 
 const SERVER_EVENT_METHODS = new Set<string>([
   "window/logMessage",
@@ -1865,7 +1866,7 @@ interface RequestSpec<A> {
   lspMethod: string;
   capabilityKey: string;
   emptyResponse: unknown;
-  outSchema: z.ZodTypeAny;
+  outSchema: z.ZodType;
   params: (args: A) => unknown;
   transform?: (raw: unknown) => unknown;
 }

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { FileReadResultSchema } from "../fs/types";
 import {
   type CommitDetail,
@@ -76,7 +81,7 @@ export const AgentGitRunParamsSchema = z.object({
   cwd: z.string().optional(),
   env: GitEnvSchema.optional(),
   interactive: z.boolean().optional(),
-  stdoutCapBytes: z.number().int().positive().optional(),
+  stdoutCapBytes: PositiveIntegerSchema.optional(),
   runId: AgentGitRunIdSchema,
 });
 export type AgentGitRunParams = z.infer<typeof AgentGitRunParamsSchema>;
@@ -84,7 +89,7 @@ export type AgentGitRunParams = z.infer<typeof AgentGitRunParamsSchema>;
 export const AgentGitRunResultSchema = z.object({
   stdout: z.string(),
   stderr: z.string(),
-  code: z.number().int(),
+  code: IntegerSchema,
   errorKind: GitErrorKindSchema.optional(),
   errorHint: GitActionHintSchema.optional(),
   errorMessage: z.string().optional(),
@@ -146,13 +151,13 @@ export type AgentGitAskpassRespondParams = z.infer<typeof AgentGitAskpassRespond
 
 export const AgentGitMetadataParamsSchema = z.object({
   gitDir: z.string().min(1),
-  conflictCount: z.number().int().nonnegative().optional(),
+  conflictCount: NonnegativeIntegerSchema.optional(),
 });
 export type AgentGitMetadataParams = z.infer<typeof AgentGitMetadataParamsSchema>;
 
 export const AgentGitMetadataResultSchema = z.object({
   operationState: GitOperationStateSchema,
-  lastFetchedAt: z.number().int().nonnegative().nullable(),
+  lastFetchedAt: NonnegativeIntegerSchema.nullable(),
 });
 export type AgentGitMetadataResult = z.infer<typeof AgentGitMetadataResultSchema>;
 
@@ -207,8 +212,8 @@ export const AgentGitLogParamsSchema = z.object({
   scope: GitLogScopeSchema.optional(),
   ref: z.string().min(1).optional(),
   grep: z.string().optional(),
-  skip: z.number().int().nonnegative().optional(),
-  limit: z.number().int().nonnegative().optional(),
+  skip: NonnegativeIntegerSchema.optional(),
+  limit: NonnegativeIntegerSchema.optional(),
   afterSha: z.string().min(1).optional(),
   paths: z.array(z.string().min(1)).optional(),
   source: z.boolean().optional(),
@@ -221,7 +226,7 @@ export const AgentGitLogBatchPayloadSchema = LogChunkSchema.extend({
 export type AgentGitLogBatchPayload = LogChunk & { readonly streamId: string };
 
 export const AgentGitLogResultSchema = LogCompleteSchema.extend({
-  totalScanned: z.number().int().nonnegative().optional(),
+  totalScanned: NonnegativeIntegerSchema.optional(),
 }) as z.ZodType<LogComplete & { readonly totalScanned?: number }>;
 export type AgentGitLogResult = z.infer<typeof AgentGitLogResultSchema>;
 
@@ -232,10 +237,10 @@ export const AgentGitDiffParamsSchema = z.object({
   to: z.string().min(1).optional(),
   cached: z.boolean().optional(),
   paths: z.array(z.string().min(1)).optional(),
-  context: z.number().int().nonnegative().optional(),
-  unified: z.number().int().nonnegative().optional(),
-  maxChunkBytes: z.number().int().positive().optional(),
-  maxBytes: z.number().int().nonnegative().optional(),
+  context: NonnegativeIntegerSchema.optional(),
+  unified: NonnegativeIntegerSchema.optional(),
+  maxChunkBytes: PositiveIntegerSchema.optional(),
+  maxBytes: NonnegativeIntegerSchema.optional(),
 });
 export type AgentGitDiffParams = z.infer<typeof AgentGitDiffParamsSchema>;
 
@@ -250,7 +255,7 @@ export type AgentGitDiffResult = DiffComplete;
 const AgentGitBlobHeaderProbeSchema = z.object({
   isBinary: z.boolean(),
   encoding: z.enum(["utf8", "utf8-bom", "binary"]),
-  probeBytes: z.number().int().nonnegative(),
+  probeBytes: NonnegativeIntegerSchema,
   probeBase64: z.string(),
 });
 
@@ -259,8 +264,8 @@ export const AgentGitBlobParamsSchema = z.object({
   streamId: z.string().min(1),
   ref: z.string().min(1),
   relPath: z.string().min(1),
-  maxBytes: z.number().int().nonnegative().optional(),
-  maxChunkBytes: z.number().int().positive().optional(),
+  maxBytes: NonnegativeIntegerSchema.optional(),
+  maxChunkBytes: PositiveIntegerSchema.optional(),
 });
 export type AgentGitBlobParams = z.infer<typeof AgentGitBlobParamsSchema>;
 
@@ -272,10 +277,10 @@ export const AgentGitBlobChunkPayloadSchema = z.object({
 export type AgentGitBlobChunkPayload = z.infer<typeof AgentGitBlobChunkPayloadSchema>;
 
 export const AgentGitBlobResultSchema = z.object({
-  size: z.number().int().nonnegative(),
+  size: NonnegativeIntegerSchema,
   isBinary: z.boolean(),
   encoding: z.enum(["utf8", "utf8-bom", "binary"]),
-  mtime: z.number().int().nonnegative().nullable(),
+  mtime: NonnegativeIntegerSchema.nullable(),
   truncated: z.boolean(),
   errorKind: GitErrorKindSchema.optional(),
   errorMessage: z.string().optional(),
@@ -324,7 +329,7 @@ export type AgentGitStashListResult = StashEntry[];
 
 export const AgentGitStashApplyParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
-  index: z.number().int().nonnegative(),
+  index: NonnegativeIntegerSchema,
 });
 export type AgentGitStashApplyParams = z.infer<typeof AgentGitStashApplyParamsSchema>;
 
@@ -337,7 +342,7 @@ export type AgentGitStashApplyResult = z.infer<typeof AgentGitStashApplyResultSc
 
 export const AgentGitStashDropParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
-  index: z.number().int().nonnegative(),
+  index: NonnegativeIntegerSchema,
 });
 export type AgentGitStashDropParams = z.infer<typeof AgentGitStashDropParamsSchema>;
 
@@ -349,8 +354,8 @@ export type AgentGitStashPopParams = z.infer<typeof AgentGitStashPopParamsSchema
 export const AgentGitStashShowParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   streamId: z.string().min(1),
-  index: z.number().int().nonnegative(),
-  maxChunkBytes: z.number().int().positive().optional(),
+  index: NonnegativeIntegerSchema,
+  maxChunkBytes: PositiveIntegerSchema.optional(),
 });
 export type AgentGitStashShowParams = z.infer<typeof AgentGitStashShowParamsSchema>;
 
@@ -605,9 +610,9 @@ export type AgentGitPullParams = z.infer<typeof AgentGitPullParamsSchema>;
 export const AgentGitPullResultSchema = z.object({
   alreadyUpToDate: z.boolean(),
   fastForward: z.boolean().optional(),
-  filesChanged: z.number().int().nonnegative().optional(),
-  insertions: z.number().int().nonnegative().optional(),
-  deletions: z.number().int().nonnegative().optional(),
+  filesChanged: NonnegativeIntegerSchema.optional(),
+  insertions: NonnegativeIntegerSchema.optional(),
+  deletions: NonnegativeIntegerSchema.optional(),
   summary: z.string().optional(),
 });
 export type AgentGitPullResult = z.infer<typeof AgentGitPullResultSchema>;
@@ -625,7 +630,7 @@ export const AgentGitPushResultSchema = z.object({
   pushed: z.boolean(),
   remote: z.string().optional(),
   branch: z.string().optional(),
-  commitsPushed: z.number().int().nonnegative().optional(),
+  commitsPushed: NonnegativeIntegerSchema.optional(),
   summary: z.string().optional(),
 });
 export type AgentGitPushResult = z.infer<typeof AgentGitPushResultSchema>;

@@ -9,16 +9,22 @@
  * (UnknownItemSchema): a newer device may send more, and an older one skips it.
  */
 import { z } from "zod";
+import {
+  NonnegativeIntegerSchema,
+  NonnegativeNumberSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "./validation.js";
 
 /** An image a message or a tool result holds. Its bytes stay on the serving device in v1. */
 export const ImageRefSchema = z.object({
   mediaType: z.string(),
   /** How many bytes the image takes. */
-  bytes: z.number().int().nonnegative(),
+  bytes: NonnegativeIntegerSchema,
 });
 export type ImageRef = z.infer<typeof ImageRefSchema>;
 
-const at = z.number().optional();
+const at = NumberSchema.optional();
 
 /** A submission ID generated once by the sending client. */
 export const ClientNonceSchema = z
@@ -137,9 +143,10 @@ export const ITEM_KINDS: ReadonlySet<string> = new Set([
  * An item of a kind this version does not know: kept so the list stays
  * whole, and not drawn. A known kind that does not fit its shape is no such item.
  */
-export const UnknownItemSchema = z
-  .object({ kind: z.string().refine((kind) => !ITEM_KINDS.has(kind)), key: z.string() })
-  .passthrough();
+export const UnknownItemSchema = z.looseObject({
+  kind: z.string().refine((kind) => !ITEM_KINDS.has(kind)),
+  key: z.string(),
+});
 
 export const ViewItemSchema = z.union([
   UserItemSchema,
@@ -159,7 +166,7 @@ export const ViewToolCallSchema = z.object({
   id: z.string(),
   name: z.string(),
   displayName: z.string().optional(),
-  input: z.unknown(),
+  input: z.unknown().optional(),
   /** streaming, running, done, error, denied, stopped. */
   status: z.string(),
   result: z
@@ -183,7 +190,7 @@ export const ViewPermissionSchema = z.object({
   requestId: z.string(),
   toolName: z.string(),
   displayName: z.string().optional(),
-  input: z.record(z.unknown()),
+  input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
   decisionReason: z.string().optional(),
   toolUseId: z.string().optional(),
@@ -207,8 +214,8 @@ export const ViewTaskSchema = z.object({
   description: z.string(),
   status: z.string(),
   toolUseId: z.string().optional(),
-  startedAt: z.number().optional(),
-  endedAt: z.number().optional(),
+  startedAt: NumberSchema.optional(),
+  endedAt: NumberSchema.optional(),
   summary: z.string().optional(),
   activity: z.string().optional(),
   /**
@@ -266,17 +273,17 @@ export const ChatStatusSchema = z.object({
   /** How its program last exited: its code or signal, and the end of what it wrote to stderr. Since 0.13.0. */
   exit: z
     .object({
-      code: z.number().nullable(),
+      code: NumberSchema.nullable(),
       signal: z.string().optional(),
       stderrTail: z.string().optional(),
     })
     .optional(),
   turn: z
     .object({
-      startedAt: z.number().optional(),
-      outputTokens: z.number(),
+      startedAt: NumberSchema.optional(),
+      outputTokens: NumberSchema,
       /** The thinking it has done, as its program estimates it. Since 0.13.0. */
-      thinkingTokens: z.number().optional(),
+      thinkingTokens: NumberSchema.optional(),
       /** requesting, compacting… */
       status: z.string().optional(),
       /**
@@ -285,13 +292,13 @@ export const ChatStatusSchema = z.object({
        */
       retry: z
         .object({
-          attempt: z.number(),
-          maxRetries: z.number().optional(),
-          delayMs: z.number().optional(),
+          attempt: NumberSchema,
+          maxRetries: NumberSchema.optional(),
+          delayMs: NumberSchema.optional(),
           /** When the program said so, in Unix milliseconds: the wait ends `delayMs` after. Since 0.19.0. */
-          at: z.number().optional(),
+          at: NumberSchema.optional(),
           /** The HTTP status of the error it tries again after; none when no answer came. Since 0.19.0. */
-          status: z.number().optional(),
+          status: NumberSchema.optional(),
           /**
            * Why: rate_limit, overloaded, server, connection, auth or other;
            * another this version does not know reads as other. Since 0.19.0.
@@ -320,8 +327,8 @@ export const ViewAgentRowSchema = z.object({
   prompt: z.string().optional(),
   /** running, completed, failed or stopped. */
   status: z.string(),
-  startedAt: z.number().optional(),
-  endedAt: z.number().optional(),
+  startedAt: NumberSchema.optional(),
+  endedAt: NumberSchema.optional(),
 });
 
 /** A goal the chat works toward (/goal), and where it stands. */
@@ -329,24 +336,24 @@ export const ViewGoalSchema = z.object({
   condition: z.string(),
   /** active, paused, met or failed. */
   status: z.string(),
-  setAt: z.number().optional(),
+  setAt: NumberSchema.optional(),
   /** How many checks found it unmet so far. */
-  checks: z.number().int().nonnegative(),
+  checks: NonnegativeIntegerSchema,
   /** Once it ended: why. */
   reason: z.string().optional(),
   /** The checks that found it unmet, oldest first, with what each said. Since 0.11.0. */
-  checkReasons: z.array(z.object({ at: z.number().optional(), reason: z.string() })).optional(),
+  checkReasons: z.array(z.object({ at: NumberSchema.optional(), reason: z.string() })).optional(),
   /** A Codex goal: the seconds Codex worked toward it, as of `usedAt`. Since 0.11.0. */
-  usedSeconds: z.number().nonnegative().optional(),
-  usedAt: z.number().optional(),
+  usedSeconds: NonnegativeNumberSchema.optional(),
+  usedAt: NumberSchema.optional(),
   /** The tokens it took so far, and a Codex goal's budget (null: none). Since 0.11.0. */
-  tokens: z.number().int().nonnegative().optional(),
-  tokenBudget: z.number().int().nonnegative().nullable().optional(),
+  tokens: NonnegativeIntegerSchema.optional(),
+  tokenBudget: NonnegativeIntegerSchema.nullable().optional(),
   /** Once it ended: how long it took, and when. Since 0.11.0. */
-  durationMs: z.number().nonnegative().optional(),
-  endedAt: z.number().optional(),
+  durationMs: NonnegativeNumberSchema.optional(),
+  endedAt: NumberSchema.optional(),
   /** Once a Claude goal ended: the checks it took, the last that ended it too. Since 0.13.0. */
-  iterations: z.number().int().nonnegative().optional(),
+  iterations: NonnegativeIntegerSchema.optional(),
 });
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 
@@ -362,11 +369,11 @@ export const ViewUsageMeterSchema = z.object({
    */
   kind: z.string(),
   scope: z.string().optional(),
-  windowMins: z.number().int().positive().optional(),
+  windowMins: PositiveIntegerSchema.optional(),
   /** How much of it is spent, from 0 to 100. */
-  percent: z.number(),
+  percent: NumberSchema,
   /** When it starts over, in Unix milliseconds. */
-  resetsAt: z.number().optional(),
+  resetsAt: NumberSchema.optional(),
 });
 export type ViewUsageMeter = z.infer<typeof ViewUsageMeterSchema>;
 
@@ -387,8 +394,8 @@ export const ChatPanelSchema = z.object({
     z.object({
       /** Absolute, on the serving device, as the chat's tool calls name it. */
       path: z.string(),
-      added: z.number().int().nonnegative().optional(),
-      removed: z.number().int().nonnegative().optional(),
+      added: NonnegativeIntegerSchema.optional(),
+      removed: NonnegativeIntegerSchema.optional(),
       /** The chat made it: its first change wrote it new. Since 0.13.0. */
       created: z.boolean().optional(),
     }),
@@ -396,22 +403,22 @@ export const ChatPanelSchema = z.object({
   /** The context window: tokens in it, and how many it takes; null before the program said. */
   context: z
     .object({
-      usedTokens: z.number().int().nonnegative(),
-      maxTokens: z.number().int().positive(),
+      usedTokens: NonnegativeIntegerSchema,
+      maxTokens: PositiveIntegerSchema,
       /**
        * What fills it, by kind (the system prompt, tools, messages), as a
        * Claude chat's program tells it. Since 0.13.0.
        */
       categories: z
-        .array(z.object({ name: z.string().max(200), tokens: z.number().int().nonnegative() }))
+        .array(z.object({ name: z.string().max(200), tokens: NonnegativeIntegerSchema }))
         .max(50)
         .optional(),
       /** How many of its tokens are free, as a Claude chat's program tells it. Since 0.13.0. */
-      freeTokens: z.number().int().nonnegative().optional(),
+      freeTokens: NonnegativeIntegerSchema.optional(),
     })
     .nullable(),
   /** What the conversation cost so far, in US dollars, when the program tells it. */
-  costUsd: z.number().nonnegative().optional(),
+  costUsd: NonnegativeNumberSchema.optional(),
   /**
    * The plan's usage limits, for a profile signed in with a subscription:
    * those the desktop shows (the session's and the week's first), none
@@ -427,7 +434,7 @@ export const ChatPanelSchema = z.object({
   rateLimit: z
     .object({
       status: z.string(),
-      resetsAt: z.number().optional(),
+      resetsAt: NumberSchema.optional(),
       /** five_hour, seven_day… as the program names the window. */
       kind: z.string().optional(),
     })
@@ -444,9 +451,9 @@ export const ChatPanelSchema = z.object({
   limitResume: z
     .object({
       state: z.string().max(32),
-      at: z.number().optional(),
-      resetsAt: z.number().optional(),
-      tries: z.number().int().nonnegative().optional(),
+      at: NumberSchema.optional(),
+      resetsAt: NumberSchema.optional(),
+      tries: NonnegativeIntegerSchema.optional(),
     })
     .optional()
     .catch(undefined),
@@ -487,7 +494,7 @@ export const ChatPanelSchema = z.object({
    * whose key is `after`, in the profile named `profile` (profiles.list's
    * name), at `at`. Since 0.11.0.
    */
-  moves: z.array(z.object({ after: z.string(), profile: z.string(), at: z.number() })).optional(),
+  moves: z.array(z.object({ after: z.string(), profile: z.string(), at: NumberSchema })).optional(),
   /**
    * What another device can do with the chat now: rewind it to before one
    * of the user's messages (chat.rewind), fork it (chat.fork), send a
@@ -535,8 +542,8 @@ export const ChatPanelSchema = z.object({
         error: z.string().max(1000).optional(),
         text: z.string(),
         truncated: z.boolean().optional(),
-        images: z.number().int().positive().optional(),
-        files: z.number().int().positive().optional(),
+        images: PositiveIntegerSchema.optional(),
+        files: PositiveIntegerSchema.optional(),
       }),
     )
     .optional(),

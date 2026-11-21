@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { NumberSchema } from "../../../packages/remote-protocol/src/validation";
 import type { ChatAgent } from "../sessions/task-agent";
 
 export type BehaviorValue = string | number | boolean;
@@ -86,7 +87,7 @@ export const BEHAVIOR_FILE: Record<ChatAgent, string> = {
   codex: "config.toml",
 };
 
-export const BehaviorValueSchema = z.union([z.string().max(4096), z.number(), z.boolean()]);
+export const BehaviorValueSchema = z.union([z.string().max(4096), NumberSchema, z.boolean()]);
 
 /** What a profile's file holds now. */
 export const BehaviorFileSchema = z.object({

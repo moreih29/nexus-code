@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { Base64UrlSchema, DeviceIdSchema } from "./relay.js";
+import { IntegerSchema, PositiveIntegerSchema } from "./validation.js";
 
 /** The associated data the key is sealed with: the user's id and the key's version, so a bundle cannot pass for another's. */
 export function bundleAadOf(userId: string, kid: number): string {
@@ -16,13 +17,9 @@ export function bundleAadOf(userId: string, kid: number): string {
 export const KdfSchema = z.object({
   alg: z.literal("argon2id13"),
   /** crypto_pwhash's opslimit. */
-  ops: z.number().int().min(1).max(10),
+  ops: IntegerSchema.check(z.gte(1)).check(z.lte(10)),
   /** crypto_pwhash's memlimit, in bytes. */
-  mem: z
-    .number()
-    .int()
-    .min(16 * 1024 * 1024)
-    .max(1024 * 1024 * 1024),
+  mem: IntegerSchema.check(z.gte(16 * 1024 * 1024)).check(z.lte(1024 * 1024 * 1024)),
   /** 16 random bytes. */
   salt: Base64UrlSchema,
 });
@@ -47,7 +44,7 @@ export const MAX_OPEN_KDF = { ops: 4, mem: 256 * 1024 * 1024 } as const;
  */
 export const KeyBundleSchema = z.object({
   v: z.literal(1),
-  kid: z.number().int().positive(),
+  kid: PositiveIntegerSchema,
   kdf: KdfSchema,
   /** 24 random bytes. */
   nonce: Base64UrlSchema,
@@ -64,7 +61,7 @@ export const VerifierSchema = Base64UrlSchema.length(43);
 /** A reset asked for without the password, which waits (see ./device-keys.ts). */
 export const PendingResetSchema = z.object({
   /** When it is put in place, in Unix ms. */
-  appliesAt: z.number().int(),
+  appliesAt: IntegerSchema,
   /** The device that asked for it. */
   deviceId: DeviceIdSchema,
 });
@@ -74,7 +71,7 @@ export type PendingReset = z.infer<typeof PendingResetSchema>;
 export const KeyBundleResponseSchema = z.object({
   bundle: KeyBundleSchema,
   /** Counts the bundle's writes, for the next PUT to say which one it replaces. */
-  version: z.number().int().positive(),
+  version: PositiveIntegerSchema,
   /** A reset that waits, if one does. */
   pendingReset: PendingResetSchema.nullable().optional(),
 });
@@ -89,7 +86,7 @@ export type KeyBundleResponse = z.infer<typeof KeyBundleResponseSchema>;
  */
 export const KeyBundlePutSchema = z.object({
   bundle: KeyBundleSchema,
-  expected: z.number().int().positive().nullable(),
+  expected: PositiveIntegerSchema.nullable(),
   /**
    * The verifier of the password the bundle is locked with. A write after
    * the first needs the password's proof of the bundle it replaces

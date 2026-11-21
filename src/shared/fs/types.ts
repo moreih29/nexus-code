@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { WorkspaceIdSchema } from "../types/workspace-id";
 
 export const FsEntryTypeSchema = z.enum(["file", "dir", "symlink"]);
@@ -10,14 +14,14 @@ export type FsChangeKind = z.infer<typeof FsChangeKindSchema>;
 export const DirEntrySchema = z.object({
   name: z.string(),
   type: FsEntryTypeSchema,
-  size: z.number().int().nonnegative().optional(),
+  size: NonnegativeIntegerSchema.optional(),
   mtime: z.string().optional(),
 });
 export type DirEntry = z.infer<typeof DirEntrySchema>;
 
 export const FsStatSchema = z.object({
   type: FsEntryTypeSchema,
-  size: z.number().int().nonnegative(),
+  size: NonnegativeIntegerSchema,
   mtime: z.string(),
   isSymlink: z.boolean(),
 });
@@ -46,7 +50,7 @@ export const FileContentSchema = z.object({
   content: z.string(),
   encoding: FileEncodingSchema,
   bytes: z.string().optional(),
-  sizeBytes: z.number().int().min(0),
+  sizeBytes: IntegerSchema.check(z.gte(0)),
   isBinary: z.boolean(),
   mtime: z.string(),
 });
@@ -57,7 +61,7 @@ export type FileContent = z.infer<typeof FileContentSchema>;
 // "first save of a new file" case.
 export const ExpectedFileStateSchema = z.discriminatedUnion("exists", [
   z.object({ exists: z.literal(false) }),
-  z.object({ exists: z.literal(true), mtime: z.string(), size: z.number().int().nonnegative() }),
+  z.object({ exists: z.literal(true), mtime: z.string(), size: NonnegativeIntegerSchema }),
 ]);
 export type ExpectedFileStateContract = z.infer<typeof ExpectedFileStateSchema>;
 
@@ -65,7 +69,7 @@ export const WriteFileResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     mtime: z.string(),
-    size: z.number().int().nonnegative(),
+    size: NonnegativeIntegerSchema,
   }),
   z.object({
     kind: z.literal("conflict"),
@@ -84,7 +88,7 @@ export const FileReadResultSchema = z.discriminatedUnion("kind", [
     content: z.string(),
     encoding: FileEncodingSchema,
     bytes: z.string().optional(),
-    sizeBytes: z.number().int().min(0),
+    sizeBytes: IntegerSchema.check(z.gte(0)),
     isBinary: z.boolean(),
     mtime: z.string(),
   }),
@@ -104,7 +108,7 @@ export const FileReadBinaryResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     base64: z.string(),
-    sizeBytes: z.number().int().min(0),
+    sizeBytes: IntegerSchema.check(z.gte(0)),
     mtime: z.string(),
   }),
   z.object({

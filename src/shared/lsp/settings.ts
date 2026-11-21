@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { IntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { LSP_MAX_ACTIVE_WORKSPACES } from "../util/timing-constants";
 import { BUILTIN_LSP_PRESETS, type LspServerSpec } from "./config";
 
@@ -25,7 +26,7 @@ export const LSP_MAX_ACTIVE_WORKSPACES_LIMIT = 16;
 export const LspSettingsSchema = z.object({
   enabled: z.boolean(),
   languages: z.record(z.string(), LspLanguageSettingsSchema),
-  maxActiveWorkspaces: z.number().int().min(1).max(LSP_MAX_ACTIVE_WORKSPACES_LIMIT),
+  maxActiveWorkspaces: IntegerSchema.check(z.gte(1)).check(z.lte(LSP_MAX_ACTIVE_WORKSPACES_LIMIT)),
   /** workspaceId → languages turned off in that workspace. */
   disabledByWorkspace: z.record(z.string(), z.array(z.string())),
 });

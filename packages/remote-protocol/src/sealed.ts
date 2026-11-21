@@ -46,6 +46,7 @@
 import { z } from "zod";
 import { Base64UrlSchema, type DeviceId, DeviceIdSchema } from "./relay.js";
 import { RpcMessageSchema } from "./rpc.js";
+import { PositiveIntegerSchema } from "./validation.js";
 
 /**
  * The version of what is sealed; a device tells it in its hello, and it is
@@ -132,7 +133,7 @@ export type Capability = (typeof CAPABILITIES)[number];
  */
 export const HelloSchema = z.object({
   type: z.literal("hello"),
-  protocol: z.number().int().positive(),
+  protocol: PositiveIntegerSchema,
   device: z.object({
     id: DeviceIdSchema,
     name: z.string(),
@@ -176,7 +177,7 @@ export const SenderConnectionSchema = z.object({
   /** The sender's run: random, as an epoch is, made once as its room starts. */
   boot: EpochSchema,
   /** The connection's number in that run, counted from 1: each new one is higher. */
-  n: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  n: PositiveIntegerSchema.check(z.lte(Number.MAX_SAFE_INTEGER)),
 });
 export type SenderConnection = z.infer<typeof SenderConnectionSchema>;
 

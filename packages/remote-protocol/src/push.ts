@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import { DeviceIdSchema } from "./relay.js";
+import { NumberSchema, PositiveIntegerSchema, wireRecord } from "./validation.js";
 
 export const PUSH_VERSION = 1;
 
@@ -43,7 +44,7 @@ export const PushSendSchema = z.object({
   id: z.string().regex(PUSH_EVENT_ID_PATTERN),
   kind: PushKindSchema,
   /** Seconds from when the server takes the request, before it clamps to the kind's range. */
-  ttl: z.number().int().positive(),
+  ttl: PositiveIntegerSchema,
   to: z.array(DeviceIdSchema).min(1).max(20).optional(),
 });
 export type PushSend = z.infer<typeof PushSendSchema>;
@@ -51,14 +52,14 @@ export type PushSend = z.infer<typeof PushSendSchema>;
 /** A send's counts, or that the server has already seen this event. */
 export const PushSendResultSchema = z.union([
   z.object({
-    sent: z.number(),
-    skipped: z.number(),
+    sent: NumberSchema,
+    skipped: NumberSchema,
     /**
      * How many phones were skipped for each reason, only those above 0. The
      * keys known now are `unregistered`, `kind`, `signedOut`, `limited` and
      * `failed`; a newer server may add others.
      */
-    reasons: z.record(z.string(), z.number()).optional(),
+    reasons: wireRecord(z.string(), NumberSchema).optional(),
   }),
   z.object({ duplicate: z.literal(true) }),
 ]);

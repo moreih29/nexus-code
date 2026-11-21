@@ -45,7 +45,7 @@ export class SealedFile<T> implements Kept<T> {
   constructor(
     private readonly file: string,
     private readonly box: SecretBox,
-    private readonly schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+    private readonly schema: z.ZodType<T, unknown>,
   ) {}
 
   async load(): Promise<T | null> {

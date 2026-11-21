@@ -4,10 +4,14 @@
  * for the status bar and the task switcher to show and open.
  */
 import { z } from "zod";
+import {
+  IntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 
 export const ListeningPortSchema = z.object({
-  port: z.number().int().positive(),
-  pid: z.number().int(),
+  port: PositiveIntegerSchema,
+  pid: IntegerSchema,
   /** The program's file name. */
   process: z.string(),
   /** The terminal the program was started in. */
@@ -43,8 +47,8 @@ export function portsLabel(ports: readonly { port: number }[], max: number): str
  * one waits for the workspace to connect again.
  */
 export const PortForwardSchema = z.object({
-  remotePort: z.number().int().positive(),
-  localPort: z.number().int().positive(),
+  remotePort: PositiveIntegerSchema,
+  localPort: PositiveIntegerSchema,
   active: z.boolean(),
 });
 export type PortForward = z.infer<typeof PortForwardSchema>;
