@@ -32,7 +32,7 @@ func (s *Service) AddToGitignore(ctx context.Context, raw json.RawMessage) (any,
 	if err != nil {
 		return nil, err
 	}
-	pattern, err := normalizeIgnorePattern(params.RelPath)
+	pattern, err := literalIgnorePattern(params.RelPath)
 	if err != nil {
 		return nil, err
 	}
@@ -101,39 +101,26 @@ func atomicWriteText(targetPath string, content string) error {
 
 func containsIgnorePattern(content string, pattern string) bool {
 	for _, line := range strings.Split(content, "\n") {
-		if normalizeExistingPatternLine(strings.TrimSuffix(line, "\r")) == pattern {
+		if strings.TrimSuffix(line, "\r") == pattern {
 			return true
 		}
 	}
 	return false
 }
 
-func normalizeIgnorePattern(relPath string) (string, error) {
-	slashPath := strings.TrimPrefix(strings.ReplaceAll(relPath, "\\", "/"), "./")
-	parts := strings.Split(slashPath, "/")
-	cleaned := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part != "" {
-			cleaned = append(cleaned, part)
-		}
+func literalIgnorePattern(relPath string) (string, error) {
+	path, err := normalizeRelPath(relPath)
+	if err != nil || strings.ContainsAny(path, "\r\n") {
+		return "", proto.ProtocolError("git.addToGitignore requires a repository-relative path on one line")
 	}
-	normalized := strings.Join(cleaned, "/")
-	if normalized == "" ||
-		strings.HasPrefix(slashPath, "/") ||
-		windowsAbs.MatchString(slashPath) ||
-		strings.Contains(slashPath, "\x00") ||
-		containsPart(cleaned, "..") {
-		return "", proto.ProtocolError("git.addToGitignore relPath must stay inside the repository")
-	}
-	return normalized, nil
-}
 
-func normalizeExistingPatternLine(line string) string {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "!") {
-		return ""
+	var pattern strings.Builder
+	pattern.WriteByte('/')
+	for _, r := range path {
+		if strings.ContainsRune(`\*?[] `, r) {
+			pattern.WriteByte('\\')
+		}
+		pattern.WriteRune(r)
 	}
-	trimmed = strings.TrimPrefix(trimmed, "/")
-	trimmed = strings.TrimPrefix(trimmed, "./")
-	return trimmed
+	return pattern.String(), nil
 }

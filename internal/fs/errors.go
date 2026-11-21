@@ -17,6 +17,7 @@ const (
 	CodeIsDirectory      = "IS_DIRECTORY"
 	CodeNotDirectory     = "NOT_DIRECTORY"
 	CodeTooLarge         = "TOO_LARGE"
+	CodeTransferTooLarge = "TRANSFER_TOO_LARGE"
 	CodeOutOfWorkspace   = "OUT_OF_WORKSPACE"
 
 	// New for fs.writeFile / fs.rmdir / fs.rename.

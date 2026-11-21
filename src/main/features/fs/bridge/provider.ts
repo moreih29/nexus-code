@@ -25,7 +25,7 @@ export interface FsProvider {
   readFileNoLinks?(relPath: string): Promise<FileReadResult>;
   readBinaryNoLinks?(relPath: string): Promise<FileReadBinaryResult>;
   readRangeNoLinks?(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult>;
-  stat(relPath: string): Promise<FsStat>;
+  stat(relPath: string, followSymlink?: boolean): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
   /**
    * Read a workspace-relative file as base64-encoded bytes. Used for binary

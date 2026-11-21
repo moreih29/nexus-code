@@ -108,8 +108,8 @@ export class AgentFsProvider implements AgentBackedProvider {
     return parseAgentResult(FileReadBinaryResultSchema, result);
   }
 
-  async stat(relPath: string): Promise<FsStat> {
-    const result = await this.callAgent("fs.stat", { relPath });
+  async stat(relPath: string, followSymlink?: boolean): Promise<FsStat> {
+    const result = await this.callAgent("fs.stat", { relPath, followSymlink });
     return parseAgentResult(FsStatSchema, result);
   }
 

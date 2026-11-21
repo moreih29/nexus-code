@@ -237,14 +237,15 @@ func runPrint(
 	// is its answer. A terminal stays claude's own: claude prints to it as a
 	// terminal, and its answer is then its transcript's.
 	text := run.format != "stream-json" && run.format != "json"
-	var out io.ReadCloser
+	var out *printOutput
 	if teller != nil && (!text || !isTerminal(stdout)) {
-		pipe, err := cmd.StdoutPipe()
+		pipe, err := capturePrintOutput(&cmd.Stdout)
 		if err != nil {
 			fmt.Fprintf(stderr, "nexus: %v\n", err)
 			return 127, 0
 		}
 		out = pipe
+		defer out.close()
 	} else {
 		cmd.Stdout = stdout
 	}
@@ -281,13 +282,9 @@ func runPrint(
 			teller.tell("print-init", map[string]any{"tools_told": true})
 		})
 	}
-	if out != nil {
-		passOutput(out, stdout, watch.line)
-		// Output no one reads any more: claude finds its pipe closed, as it
-		// would writing to it alone.
-		_ = out.Close()
-	}
-	_ = cmd.Wait()
+	var readers sync.WaitGroup
+	out.start(&readers, stdout, watch.line)
+	waitPrint(cmd, &readers, out)
 	answer := watch.answer
 	if transcript != nil && transcript.end(printEndWait) && answer == "" {
 		answer = told.reply
@@ -339,6 +336,7 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 			signal.Stop(quiet)
 		}
 	}
+	cmd.WaitDelay = printOutputGrace
 	if err := cmd.Start(); err != nil {
 		release()
 		fmt.Fprintf(stderr, "nexus: %v\n", err)
@@ -401,6 +399,65 @@ func (p *supervised) ending() (code int, sig int, end map[string]any) {
 	default:
 	}
 	return code, sig, end
+}
+
+const printOutputGrace = 500 * time.Millisecond
+
+type printOutput struct {
+	reader *os.File
+	writer *os.File
+}
+
+// Use an owned pipe so waiting for the main process cannot close the reader
+// before its final output has been delivered.
+func capturePrintOutput(output *io.Writer) (*printOutput, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	*output = writer
+	return &printOutput{reader: reader, writer: writer}, nil
+}
+
+func (p *printOutput) start(readers *sync.WaitGroup, dst io.Writer, line func([]byte)) {
+	if p == nil {
+		return
+	}
+	_ = p.writer.Close()
+	readers.Add(1)
+	go func() {
+		defer readers.Done()
+		defer p.reader.Close()
+		passOutput(p.reader, dst, line)
+	}()
+}
+
+func (p *printOutput) close() {
+	if p != nil {
+		_ = p.writer.Close()
+		_ = p.reader.Close()
+	}
+}
+
+// A worker left by the main process can keep a writer open indefinitely.
+// Let available output drain, then close the capture pipes and report exit.
+func waitPrint(cmd *exec.Cmd, readers *sync.WaitGroup, outputs ...*printOutput) {
+	_ = cmd.Wait()
+	drained := make(chan struct{})
+	go func() {
+		readers.Wait()
+		close(drained)
+	}()
+	timer := time.NewTimer(printOutputGrace)
+	defer timer.Stop()
+	select {
+	case <-drained:
+	case <-timer.C:
+		for _, output := range outputs {
+			output.close()
+		}
+		<-drained
+	}
 }
 
 // passOutput copies r to w as it comes, and hands each line to `line`

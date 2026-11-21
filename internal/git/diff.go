@@ -54,7 +54,7 @@ func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 		defer s.unregisterStream(params.StreamID)
 	}
 
-	cmd, err := s.command(streamCtx, diffArgs(params), params.Cwd, nil, false)
+	cmd, err := s.command(streamCtx, diffArgs(params), params.Cwd, selectedPathEnv(params.Paths), false)
 	if err != nil {
 		return nil, err
 	}

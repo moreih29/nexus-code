@@ -56,6 +56,9 @@ func newStopDaemonHandler(ownRoot string) dispatch.Handler {
 		if err != nil {
 			return nil, err
 		}
+		if err := paths.EnsureSocketDir(); err != nil {
+			return nil, err
+		}
 		ctx, cancel := context.WithTimeout(ctx, stopDaemonTimeout)
 		defer cancel()
 		stopped, err := agentrun.StopDaemon(ctx, paths.Sock)

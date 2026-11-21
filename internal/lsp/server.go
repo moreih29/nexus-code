@@ -26,10 +26,11 @@ type serverProcess struct {
 	initOptions   json.RawMessage
 	idleTimeout   time.Duration
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
+	cmd      *exec.Cmd
+	stopTree func()
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	stderr   io.ReadCloser
 
 	writeSlot chan struct{}
 	inputDone chan struct{}
@@ -107,11 +108,13 @@ func (p *serverProcess) start(ctx context.Context) error {
 	if err != nil {
 		return requestFailed("lsp.spawn stderr pipe failed: %s", err)
 	}
-	if err := cmd.Start(); err != nil {
+	stopTree, err := startServerCommand(cmd)
+	if err != nil {
 		return requestFailed("lsp.spawn failed: %s", err)
 	}
 
 	p.cmd = cmd
+	p.stopTree = stopTree
 	p.mu.Lock()
 	p.pid = cmd.Process.Pid
 	p.mu.Unlock()

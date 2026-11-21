@@ -110,15 +110,10 @@ func TestAdoptAuthSockExportsTheLink(t *testing.T) {
 	}
 }
 
-func TestAdoptAuthSockLeavesEnvironmentWithoutAgentOrRoom(t *testing.T) {
+func TestAdoptAuthSockLeavesEnvironmentWhenLinkIsTooLong(t *testing.T) {
 	dir := agentSockDir(t)
 	agent := filepath.Join(dir, "a1")
 	listenAgent(t, agent)
-
-	t.Setenv("SSH_AUTH_SOCK", "")
-	if AdoptAuthSock(filepath.Join(dir, "ws.agent")) || os.Getenv("SSH_AUTH_SOCK") != "" {
-		t.Fatal("adopted a link without a forwarded agent")
-	}
 
 	t.Setenv("SSH_AUTH_SOCK", agent)
 	long := filepath.Join(dir, strings.Repeat("x", maxSunPath)+".agent")

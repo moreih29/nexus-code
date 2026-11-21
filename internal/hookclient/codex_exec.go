@@ -334,19 +334,21 @@ func runCodexExec(
 	// A run that prints events tells of itself on its output, and a text
 	// run's output is its answer. A text run's stderr tells its model and
 	// session, unless it is a terminal, which stays codex's.
-	var out, errOut io.ReadCloser
+	var out, errOut *printOutput
 	var prompt io.WriteCloser
 	if teller != nil {
 		var err error
-		if out, err = cmd.StdoutPipe(); err != nil {
+		if out, err = capturePrintOutput(&cmd.Stdout); err != nil {
 			fmt.Fprintf(stderr, "nexus: %v\n", err)
 			return 127, 0
 		}
+		defer out.close()
 		if !run.events && !isTerminal(stderr) {
-			if errOut, err = cmd.StderrPipe(); err != nil {
+			if errOut, err = capturePrintOutput(&cmd.Stderr); err != nil {
 				fmt.Fprintf(stderr, "nexus: %v\n", err)
 				return 127, 0
 			}
+			defer errOut.close()
 		}
 		// The prompt codex reads from stdin is read as it passes; a
 		// terminal stays codex's.
@@ -423,27 +425,16 @@ func runCodexExec(
 			teller.tell("print-init", map[string]any{"tools_told": true})
 		})
 	}
-	var reading sync.WaitGroup
+	var readers sync.WaitGroup
 	if errOut != nil {
 		header := &codexHeader{run: &run, tell: teller.tell}
 		if rollout != nil {
 			header.session = rollout.know
 		}
-		reading.Add(1)
-		go func() {
-			defer reading.Done()
-			passOutput(errOut, stderr, header.line)
-			_ = errOut.Close()
-		}()
+		errOut.start(&readers, stderr, header.line)
 	}
-	if out != nil {
-		passOutput(out, stdout, watch.line)
-		// Output no one reads any more: codex finds its pipe closed, as it
-		// would writing to it alone.
-		_ = out.Close()
-	}
-	reading.Wait()
-	_ = cmd.Wait()
+	out.start(&readers, stdout, watch.line)
+	waitPrint(cmd, &readers, out, errOut)
 	if rollout != nil {
 		rollout.end(printEndWait)
 	}

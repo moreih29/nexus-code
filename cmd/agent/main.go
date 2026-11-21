@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/agentrun"
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -88,6 +89,20 @@ func main() {
 	if args.daemonRoot != "" {
 		runDaemon(args.daemonRoot)
 		return // unreachable; runDaemon calls os.Exit
+	}
+
+	// Resolve the socket on the host using the same paths as the daemon.
+	if args.dialRoot != "" {
+		paths, err := agentrun.For(args.dialRoot, proto.ServerVersion)
+		if err == nil {
+			err = paths.EnsureSocketDir()
+		}
+		if err != nil {
+			agentLogger.Error("daemon socket directory unavailable", "err", err)
+			os.Exit(1)
+		}
+		runDialer(paths.Sock)
+		return
 	}
 
 	// --dial <sock>: relay stdin/stdout to an existing daemon's Unix socket.
@@ -292,6 +307,8 @@ type runArgs struct {
 	// dialSock is the Unix socket path for `--dial <sock>` mode.
 	// Non-empty triggers the dialer execution path.
 	dialSock string
+	// dialRoot is the workspace root for `--dial-workspace <root>` mode.
+	dialRoot string
 }
 
 // parseRunArgs extracts the workspace root and option flags from argv for the
@@ -325,13 +342,18 @@ func parseRunArgs(argv []string) runArgs {
 				i++
 				args.daemonRoot = argv[i]
 			}
+		case "--dial-workspace":
+			if i+1 < len(argv) {
+				i++
+				args.dialRoot = argv[i]
+			}
 		case "--dial":
 			if i+1 < len(argv) {
 				i++
 				args.dialSock = argv[i]
 			}
 		default:
-			if args.root == "" && args.daemonRoot == "" && args.dialSock == "" {
+			if args.root == "" && args.daemonRoot == "" && args.dialSock == "" && args.dialRoot == "" {
 				args.root = arg
 			}
 		}

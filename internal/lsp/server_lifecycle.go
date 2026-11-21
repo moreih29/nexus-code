@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"strconv"
 	"time"
@@ -60,7 +61,9 @@ func (p *serverProcess) forceClose() {
 func (p *serverProcess) abortInput() {
 	p.abortOnce.Do(func() {
 		close(p.inputDone)
-		p.kill()
+		if p.stopTree != nil {
+			p.stopTree()
+		}
 		go func() { _ = p.stdin.Close() }()
 	})
 }
@@ -99,18 +102,16 @@ func (p *serverProcess) stopIdleTimer() {
 	}
 }
 
-// waitLoop reports the server's exit once its output has been read.
-//
-// It does not use cmd.Wait, which closes the stdout and stderr pipes as soon
-// as the process exits and so cuts off whatever the readers have not
-// consumed yet: the end of a crash trace that serverExited reports as
-// StderrTail, or the last messages. It reaps the process, waits for the
-// readers to reach EOF (drained), at most outputDrainGrace, and then closes
-// the pipes itself as cmd.Wait would.
+// waitLoop reports the server's exit once its last output has been read.
+// Wait on the process directly so cmd.Wait cannot close the output pipes
+// early. On Unix, observing the exit before reaping keeps the group leader's
+// PID reserved while we drain its pipes and stop any remaining workers.
 func (p *serverProcess) waitLoop(drained <-chan struct{}) {
-	state, err := p.cmd.Process.Wait()
-	if err == nil && !state.Success() {
-		err = &exec.ExitError{ProcessState: state}
+	exitObserved := observeServerExit(p.cmd.Process)
+	var state *os.ProcessState
+	var err error
+	if !exitObserved {
+		state, err = p.cmd.Process.Wait()
 	}
 	timer := time.NewTimer(outputDrainGrace)
 	select {
@@ -118,6 +119,13 @@ func (p *serverProcess) waitLoop(drained <-chan struct{}) {
 	case <-timer.C:
 	}
 	timer.Stop()
+	p.stopTree()
+	if exitObserved {
+		state, err = p.cmd.Process.Wait()
+	}
+	if err == nil && !state.Success() {
+		err = &exec.ExitError{ProcessState: state}
+	}
 	_ = p.stdin.Close()
 	_ = p.stdout.Close()
 	_ = p.stderr.Close()
@@ -216,11 +224,4 @@ func (p *serverProcess) waitForExit(timeout time.Duration) bool {
 	case <-time.After(timeout):
 		return false
 	}
-}
-
-func (p *serverProcess) kill() {
-	if p.cmd == nil || p.cmd.Process == nil {
-		return
-	}
-	_ = p.cmd.Process.Kill()
 }

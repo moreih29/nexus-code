@@ -1739,7 +1739,10 @@ const coreIpcContract = {
         }),
         z.array(DirEntrySchema),
       ),
-      stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
+      stat: call(
+        workspaceScoped({ relPath: z.string(), followSymlink: z.boolean().optional() }),
+        FsStatSchema,
+      ),
       watch: call(
         workspaceScoped({ relPath: z.string(), panel: z.literal(true).optional() }),
         z.void(),
