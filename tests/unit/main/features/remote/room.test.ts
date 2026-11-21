@@ -23,6 +23,7 @@ import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remot
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { FileWrites } from "../../../../../src/main/features/remote/file-writes";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
+import { dropPeerHolds } from "../../../../../src/main/features/remote/peer-holds";
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
   MAX_MESSAGE_BYTES,
@@ -33,6 +34,7 @@ import {
 import { openMessage, type RoomKey } from "../../../../../src/main/features/remote/seal";
 
 import { servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import { mainWarnMock } from "../../../../log-test-spies";
 import { fakeApp } from "../../cli/fake-services";
 
@@ -719,6 +721,69 @@ describe("what the relay keeps and sends again", () => {
     // b asks a as before.
     await b.room.request("a", "sessions.list", {});
     expect(a.served).toHaveLength(1);
+  });
+
+  test("a device back with a new connection the room never showed gone holds no watch of its old one, and keeps the one it asks for again", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const sessions = new SessionWatches({
+      snapshot: async () => {
+        const list = { workspaces: [], sessions: [] };
+        return { list, incompleteWorkspaces: new Set<string>(), forDevice: async () => list };
+      },
+      notify: async () => true,
+      // Polled by no one: only which watches are kept matters here.
+      pollMs: 60_000,
+    });
+    const dropped: string[] = [];
+    const watchesOf = (kind: string) => ({
+      dropDevice: async (id: string) => {
+        dropped.push(`${kind}:${id}`);
+      },
+      dropAll: async () => {
+        dropped.push(`${kind}:all`);
+      },
+    });
+    const a = device(relay, "a", key, {
+      serve: async ({ from, method }) => {
+        if (method === "sessions.watch") return sessions.watch(from);
+        throw new RpcFailure(RpcErrorCode.MethodNotFound, method);
+      },
+      // As the app wires it.
+      onDisconnect: (peer) =>
+        dropPeerHolds(
+          {
+            chats: watchesOf("chat"),
+            sessions,
+            terminals: watchesOf("terminal"),
+            fileWrites: { drop: async () => {} },
+          },
+          peer,
+        ),
+    });
+    const b = device(relay, "b", key);
+    try {
+      a.room.start();
+      b.room.start();
+      await flushRelay();
+      const before = await b.room.request("a", "sessions.watch", {});
+      dropped.length = 0;
+      // b's socket dropped and opened again; the room showed it online all the
+      // while, and the unwatch it tried while out of the room never went.
+      b.reopen();
+      await flushRelay();
+      expect(a.room.state().peers[0]).toMatchObject({ id: "b", online: true, rejoins: 1 });
+      // Its new connection asks for the watch again: that one stays, the old one is gone.
+      const after = await b.room.request("a", "sessions.watch", {});
+      await flushRelay();
+      expect(dropped).toEqual(["chat:b", "terminal:b"]);
+      expect(() => sessions.unwatch("b", { watchId: before.watchId })).toThrow("no such watch");
+      expect(sessions.unwatch("b", { watchId: after.watchId })).toEqual({});
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      sessions.dropAll();
+    }
   });
 
   test("a message for another device, passed on to this one, is not taken", async () => {
