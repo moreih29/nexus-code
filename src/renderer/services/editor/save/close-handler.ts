@@ -45,7 +45,8 @@ export async function closeEditorWithConfirm(
   }
 
   const filePath = tab.props.filePath;
-  if (!isDirty(cacheUriFor(workspaceId, filePath))) {
+  const cacheUri = cacheUriFor(workspaceId, filePath);
+  if (!isDirty(cacheUri)) {
     closeEditor(tabId);
     return "closed";
   }
@@ -64,6 +65,7 @@ export async function closeEditorWithConfirm(
       reportSaveFailure(result);
       return "save-failed";
     }
+    if (isDirty(cacheUri)) return "cancelled";
   }
   // For "dont-save" we drop the buffer's edits silently.
 
@@ -83,9 +85,11 @@ export async function closeDiffWithConfirm(
   if (!tab || tab.type !== "editor.diff") return "closed";
 
   const filePath = workingFileOfDiff(tab.props);
+  const cacheUri = filePath === null ? null : cacheUriFor(workspaceId, filePath);
   if (
     filePath === null ||
-    !isDirty(cacheUriFor(workspaceId, filePath)) ||
+    cacheUri === null ||
+    !isDirty(cacheUri) ||
     otherTabShowsFile(workspaceId, tabId, filePath)
   ) {
     closeTab(workspaceId, tabId);
@@ -102,6 +106,7 @@ export async function closeDiffWithConfirm(
       reportSaveFailure(result);
       return "save-failed";
     }
+    if (isDirty(cacheUri)) return "cancelled";
   }
 
   closeTab(workspaceId, tabId);
