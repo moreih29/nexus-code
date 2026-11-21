@@ -281,7 +281,7 @@ export function withSecondPass(
   const fresh = words.map((s): TranscriptLine => {
     const startMs = t.offsetMs + s.startMs;
     const endMs = t.offsetMs + s.endMs;
-    const manual = greatestOverlap(overlapBySpeaker(pinned, startMs, endMs));
+    const manual = pinnedSpeaker(overlapBySpeaker(pinned, startMs, endMs), endMs - startMs);
     return {
       speaker: manual ?? keyOfLabel(s.speaker),
       startMs,
@@ -355,14 +355,14 @@ function withSecondPassByVoice(
       if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
         near = l;
     }
-    const speaker =
-      greatestOverlap(pinned.size ? pinned : shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
+    const manual = pinnedSpeaker(pinned, endMs - startMs);
+    const speaker = manual ?? greatestOverlap(shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
     return {
       speaker,
       startMs,
       endMs,
       text: s.text.trim(),
-      ...(pinned.size ? { pinned: true } : {}),
+      ...(manual ? { pinned: true } : {}),
     };
   });
   return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
@@ -379,6 +379,15 @@ function overlapBySpeaker(
     if (ms > 0) shared.set(line.speaker, (shared.get(line.speaker) ?? 0) + ms);
   }
   return shared;
+}
+
+/** Preserve manual assignments across shifted boundaries without pinning incidental overlap. */
+function pinnedSpeaker(
+  shared: ReadonlyMap<string, number>,
+  durationMs: number,
+): string | undefined {
+  const speaker = greatestOverlap(shared);
+  return speaker && (shared.get(speaker) ?? 0) >= durationMs / 4 ? speaker : undefined;
 }
 
 function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefined {

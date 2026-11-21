@@ -364,3 +364,25 @@ test.each([
   expect(withSecondPass(live, 0, [])).toBe(live);
   expect(withSecondPass(live, 0, [line("1", 0, 5000, "   ")])).toBe(live);
 });
+
+test.each([
+  false,
+  true,
+])("ignores a sliver of overlap with a manual assignment (voicePrint: %p)", (voicePrint) => {
+  const live = recording({
+    voicePrint,
+    speakers: { "1": "Alex", "2": "Pat" },
+    lines: [
+      { ...line("1", 0, 500, "Yes"), pinned: true },
+      line("2", 500, 6000, "The rest of the sentence"),
+    ],
+  });
+  const merged = withSecondPass(live, 0, [
+    line("2", 10, 440, "Yes"),
+    line("2", 450, 6000, "The rest of the sentence"),
+  ]);
+  expect(merged.lines).toEqual([
+    { ...line("1", 10, 440, "Yes"), pinned: true },
+    line("2", 450, 6000, "The rest of the sentence"),
+  ]);
+});
