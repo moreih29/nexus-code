@@ -92,6 +92,7 @@ export function describeConsent(
     "fromWorkspace" | "fromTab" | "fromAgent" | "fromDevice" | "toWorkspace"
   >,
   action: string,
+  profileAdd = false,
 ): string {
   const to = prompt.toWorkspace;
   if (prompt.fromDevice) {
@@ -104,15 +105,28 @@ export function describeConsent(
   }
   const from = prompt.fromWorkspace;
   if (prompt.fromAgent) {
-    return t("agentCli.consent.agent_description", {
-      agent: AGENT_NAMES[prompt.fromAgent],
+    return t(
+      profileAdd
+        ? "agentCli.consent.profile_add_agent_description"
+        : "agentCli.consent.agent_description",
+      {
+        agent: AGENT_NAMES[prompt.fromAgent],
+        tab: prompt.fromTab,
+        from,
+        to,
+        action,
+      },
+    );
+  }
+  return t(
+    profileAdd ? "agentCli.consent.profile_add_description" : "agentCli.consent.description",
+    {
       tab: prompt.fromTab,
       from,
       to,
       action,
-    });
-  }
-  return t("agentCli.consent.description", { tab: prompt.fromTab, from, to, action });
+    },
+  );
 }
 
 /**
@@ -127,6 +141,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "chatProfile" || kind === "chatProfileNew") {
     return "agentCli.consent.profile_title" as const;
   }
+  if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;
   }
@@ -145,7 +160,9 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  const description = prompt ? describeConsent(t, prompt, action) : "";
+  const description = prompt
+    ? describeConsent(t, prompt, action, prompt.change.kind === "profileAdd")
+    : "";
 
   return (
     <Dialog

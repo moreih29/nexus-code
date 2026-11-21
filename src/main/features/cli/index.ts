@@ -115,6 +115,7 @@ export interface SetupCliFeatureOptions {
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
   appVersion: string;
+  profileConnections: CliServices["profileConnections"];
   notificationsEnabled: () => boolean;
   /** The nexus settings (Settings › Agents), read on every command. */
   settings: () => {
@@ -258,6 +259,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const services: CliServices = {
     appVersion: options.appVersion,
+    profileConnections: options.profileConnections,
     listWorkspaces: () => workspaceManager.list(),
     addWorkspace: async (location, name, color) => {
       const listed = await listedAt(workspaceManager.list(), location);

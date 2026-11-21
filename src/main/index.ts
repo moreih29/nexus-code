@@ -22,6 +22,7 @@ import {
   registerAgentProfilesChannel,
 } from "./features/agent-profiles";
 import { type ConnectionKeys, openConnectionKeys } from "./features/agent-profiles/connection-keys";
+import { createProfileConnections } from "./features/agent-profiles/connection-save";
 import { registerAppStateChannel } from "./features/app-state";
 import {
   getBrowserRegistry,
@@ -727,10 +728,15 @@ app.whenReady().then(async () => {
 
   // Settings' view of the Claude and Codex profiles on this machine.
   profileConnectionKeys = await openConnectionKeys();
-  agentProfiles = registerAgentProfilesChannel(
+  const profileConnections = createProfileConnections(
     stateService,
     profileConnectionKeys,
     agentProfilesChanged,
+  );
+  agentProfiles = registerAgentProfilesChannel(
+    stateService,
+    profileConnectionKeys,
+    profileConnections,
   );
   pruneProfileKeys();
 
@@ -797,6 +803,7 @@ app.whenReady().then(async () => {
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
+    profileConnections,
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
     claudeInstructions: (workspaceId, tabId, launch, hook) =>
       chatHost?.claudeHookInstructions(workspaceId, tabId, launch, hook) ?? "",

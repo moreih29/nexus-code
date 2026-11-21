@@ -5,11 +5,10 @@ import { cn } from "@/utils/cn";
 import {
   CONNECTION_AUTH,
   CONNECTION_METHODS,
-  CONNECTION_PRESETS,
   CONNECTION_REASONING,
   type ConnectionModel,
   type ConnectionPreset,
-  isLocalConnectionPreset,
+  connectionPresetsFor,
 } from "../../../../shared/agent-profiles/connection";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { Button } from "../../ui/button";
@@ -114,9 +113,7 @@ export function ProfileConnectionSection({
   const group = useId();
   const custom = draft.method === "custom";
   const claude = agent === "claude";
-  const presets = CONNECTION_PRESETS.filter(
-    (value) => claude || value === "litellm" || isLocalConnectionPreset(value),
-  );
+  const presets = connectionPresetsFor(agent);
   return (
     <>
       <fieldset className="min-w-0 border-t border-border pt-3">

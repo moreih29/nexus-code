@@ -138,6 +138,8 @@ nexus chat set 3fa2                                      # 지금 모델 · 추�
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 nexus chat profiles --agent codex --workspace WS --json
+nexus chat profiles add --agent codex --name Personal
+nexus chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json
 nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
 nexus chat send 3fa2 --after "끝나면 PR 올려줘"           # 턴이 끝날 때까지 보류 (id 출력)
 nexus chat send 3fa2 --now "그거 말고 이거부터"           # 턴 중에 바로 넣기 (Claude)
@@ -192,7 +194,15 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 
 Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책을 따릅니다. `chat command TAB remote-control`은 토글이고, `chat remote-control TAB on` 또는 `off`로 상태를 지정할 수 있습니다. `chat send TAB /remote-control`과 별칭 `/rc`도 토글합니다. `--device`를 쓰면 받는 기기의 원격 에이전트 정책이 적용됩니다.
 
-`chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다. `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
+`chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
+
+`chat profiles add`는 로컬 워크스페이스에서 이 기기의 프로필을 추가합니다. `--agent claude|codex`와 `--name NAME`이 필요합니다. `--dir PATH`를 생략하면 설정 대화상자와 같은 규칙으로 `~/.claude-gateway` 같은 폴더를 제안합니다. 상대 경로는 CLI의 현재 폴더 기준입니다. 같은 에이전트의 이름은 대소문자를 무시해 비교하고, 이미 쓰는 폴더도 거절합니다. `--color`와 `--instructions-file FILE`로 색과 프로필 지시를 지정할 수 있습니다.
+
+- 계정 로그인은 기본 연결입니다. 추가한 뒤 설정 › 에이전트에서 로그인합니다. 제공자 기본 API에 연결하려면 `--method api-key --key-file FILE`을 씁니다.
+- 외부 API는 `--preset ID`나 `--base-url URL`로 선택합니다. 둘을 함께 주면 프리셋의 기본 주소를 바꿉니다. `--model ID`는 여러 번 줄 수 있고, 첫 모델이 기본입니다. `--default-model ID`와 Claude의 `--light-model ID`는 목록에 있는 모델을 고릅니다. `--auth bearer|x-api-key`는 Claude에서 인증 헤더를 고릅니다. Codex는 bearer만 사용합니다. 프리셋 목록은 `nexus chat profiles add --help`로 확인합니다.
+- 키가 필요한 경우 `--key-file FILE` 또는 `--key-file -`로 전달합니다. 승인 창에는 이름, 에이전트, 폴더, 연결 주소가 표시되며 사용자 승인은 매번 필요합니다. 성공하면 만든 프로필을 목록과 같은 열로 출력합니다. `--json`은 프로필 하나를 출력합니다.
+
+`chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 
 ## 세션들의 변화 따라가기
 

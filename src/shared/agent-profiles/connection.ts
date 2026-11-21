@@ -11,6 +11,10 @@ const modelId = z
   .regex(/^[^\s\p{Cc}]+$/u);
 const fields = z.record(z.string().min(1).max(128), z.string().max(4096));
 export const CONNECTION_METHODS = ["account", "api-key", "custom"] as const;
+export const API_KEY_CONNECTION_URL: Record<ChatAgent, string> = {
+  claude: "https://api.anthropic.com",
+  codex: "https://api.openai.com/v1",
+};
 export const CONNECTION_AUTH = ["bearer", "x-api-key"] as const;
 export const CONNECTION_REASONING = ["none", "high", "xhigh"] as const;
 export const LOCAL_CONNECTION_PRESETS = ["ollama", "lmstudio", "strata"] as const;
@@ -94,6 +98,12 @@ export function isLocalConnectionPreset(
   preset: ConnectionPreset | undefined,
 ): preset is (typeof LOCAL_CONNECTION_PRESETS)[number] {
   return LOCAL_CONNECTION_PRESETS.some((value) => value === preset);
+}
+
+export function connectionPresetsFor(agent: ChatAgent): readonly ConnectionPreset[] {
+  return agent === "claude"
+    ? CONNECTION_PRESETS
+    : CONNECTION_PRESETS.filter((value) => value === "litellm" || isLocalConnectionPreset(value));
 }
 
 export function connectionPreset(agent: ChatAgent, preset: ConnectionPreset) {

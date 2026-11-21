@@ -265,6 +265,7 @@ export type CliChangeKind =
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
+  | "profileAdd"
   | "chatRewind"
   | "chatRewindFiles"
   | "chatFork"

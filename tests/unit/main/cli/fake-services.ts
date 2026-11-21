@@ -771,6 +771,15 @@ export function fakeApp(now = Date.now()): FakeApp {
   const waits = new WaitRegistry();
   const services: CliServices = {
     appVersion: "1.2.3",
+    profileConnections: {
+      config: () => ({ profiles: [], rules: [], defaults: {} }),
+      checkNew: () => {
+        throw new Error("unexpected profile validation");
+      },
+      save: async () => {
+        throw new Error("unexpected profile save");
+      },
+    },
     listWorkspaces: () => workspaces,
     addWorkspace: async (location, name, color) => {
       added.push({ location, name, ...(color ? { color } : {}) });

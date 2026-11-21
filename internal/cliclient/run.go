@@ -105,7 +105,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if root, ok := os.LookupEnv(envMsysRoot); ok {
 		req.MsysRoot = &root
 	}
-	if slices.Contains(args, "-") {
+	keyStdin := len(args) >= 3 && slices.Equal(args[:3], []string{"chat", "profiles", "add"}) &&
+		slices.Contains(args[3:], "--key-file=-")
+	if slices.Contains(args, "-") || keyStdin {
 		data, err := io.ReadAll(io.LimitReader(stdin, maxStdinBytes+1))
 		if err != nil {
 			fmt.Fprintf(stderr, "nexus: reading stdin: %v\n", err)

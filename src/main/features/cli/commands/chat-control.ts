@@ -17,7 +17,7 @@ import {
 } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
-import { ago, oneLine, table } from "../format";
+import { ago, oneLine } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
   askPeerCli,
@@ -31,6 +31,7 @@ import {
 } from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
+import { chatProfilesAdd, profileTable } from "./chat-profiles";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -919,16 +920,7 @@ const chatProfiles: CliCommand = {
       ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
     }));
     return output(
-      table(
-        ["AGENT", "NAME", "ID", "WORKSPACE DEFAULT", "PATH"],
-        rows.map((row) => [
-          row.agent,
-          row.name,
-          row.id,
-          row.workspaceDefault ? "yes" : "",
-          row.path ?? "",
-        ]),
-      ),
+      profileTable(rows),
       {
         workspaceId: workspace.id,
         profiles: rows,
@@ -976,6 +968,7 @@ export const chatControlCommands: CliCommand[] = [
   chatCommandRun,
   chatHistory,
   chatProfiles,
+  chatProfilesAdd,
   chatFiles,
   chatResume,
 ];
