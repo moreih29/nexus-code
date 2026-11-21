@@ -58,6 +58,20 @@ describe("notes on disk", () => {
     expect(location).toEqual(here);
   });
 
+  test("concurrent title, document and block saves build on one another", async () => {
+    const note = await store.create(here, "Old");
+    const appended = { type: "paragraph", content: [{ type: "text", text: "Appended" }] };
+    await Promise.all([
+      store.save(here, note.id, { title: "Renamed" }),
+      store.save(here, note.id, { doc: doc("Edited") }),
+      store.appendBlocks(here, note.id, [appended]),
+    ]);
+    expect(await store.read(here, note.id)).toMatchObject({
+      title: "Renamed",
+      doc: { type: "doc", content: [...doc("Edited").content, appended] },
+    });
+  });
+
   test("saving writes the document and its Markdown, newest first in the list", async () => {
     const a = await store.create(here, "a");
     const b = await store.create(here, "b");

@@ -77,8 +77,8 @@ export function newSketchId(now = Date.now()): string {
 }
 
 export class NotesStore {
-  /** By note folder: the blocks going into that note's document now, which the next wait for. */
-  private readonly appendTurns = new Map<string, Promise<void>>();
+  /** Serializes document updates by note folder. */
+  private readonly documentTurns = new Map<string, Promise<void>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
 
   constructor(
@@ -142,6 +142,15 @@ export class NotesStore {
     change: { title?: string; doc?: DocNode },
   ): Promise<NoteSummary> {
     const dir = this.noteDir(location, id);
+    return this.queueWrite(this.documentTurns, dir, () => this.saveNote(location, id, dir, change));
+  }
+
+  private async saveNote(
+    location: NoteLocation,
+    id: string,
+    dir: string,
+    change: { title?: string; doc?: DocNode },
+  ): Promise<NoteSummary> {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
@@ -226,18 +235,12 @@ export class NotesStore {
     under?: string,
   ): Promise<void> {
     const dir = this.noteDir(location, id);
-    const turn = (this.appendTurns.get(dir) ?? Promise.resolve()).then(async () => {
+    await this.queueWrite(this.documentTurns, dir, async () => {
       const note = await this.read(location, id);
       const doc = withBlocks(note.doc, blocks, under);
       if (!doc) throw new NoteError("bad-request", `no heading "${under}" in the note`);
-      await this.save(location, id, { doc });
+      await this.saveNote(location, id, dir, { doc });
     });
-    const settled = turn.catch(() => {});
-    this.appendTurns.set(dir, settled);
-    void settled.then(() => {
-      if (this.appendTurns.get(dir) === settled) this.appendTurns.delete(dir);
-    });
-    await turn;
   }
 
   /** Writes a file's bytes into the note's materials/, under a name not taken yet. */
@@ -283,7 +286,7 @@ export class NotesStore {
   /** Writes transcript.json, and transcript.md (with the note's title) beside it. */
   async saveTranscript(location: NoteLocation, id: string, file: TranscriptFile): Promise<void> {
     const dir = this.noteDir(location, id);
-    await this.transcriptTurn(dir, () => this.writeTranscript(dir, id, file));
+    await this.queueWrite(this.transcriptTurns, dir, () => this.writeTranscript(dir, id, file));
   }
 
   /** Applies only changed recordings to the latest file, across all windows and aliases. */
@@ -294,7 +297,7 @@ export class NotesStore {
   ): Promise<void> {
     if (!edits.length) return;
     const dir = this.noteDir(location, id);
-    await this.transcriptTurn(dir, async () => {
+    await this.queueWrite(this.transcriptTurns, dir, async () => {
       const file = await readTranscript(dir);
       const recordings = new Map(file.recordings.map((recording) => [recording.id, recording]));
       for (const { id: recordingId, before, after } of edits) {
@@ -311,15 +314,19 @@ export class NotesStore {
     });
   }
 
-  private transcriptTurn<T>(dir: string, work: () => Promise<T>): Promise<T> {
-    const turn = (this.transcriptTurns.get(dir) ?? Promise.resolve()).then(work);
+  private queueWrite<T>(
+    turns: Map<string, Promise<void>>,
+    dir: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const turn = (turns.get(dir) ?? Promise.resolve()).then(work);
     const settled = turn.then(
       () => {},
       () => {},
     );
-    this.transcriptTurns.set(dir, settled);
+    turns.set(dir, settled);
     void settled.then(() => {
-      if (this.transcriptTurns.get(dir) === settled) this.transcriptTurns.delete(dir);
+      if (turns.get(dir) === settled) turns.delete(dir);
     });
     return turn;
   }
@@ -376,7 +383,7 @@ export class NotesStore {
     if (!RECORDING_ID_RE.test(recordingId))
       throw new NoteError("bad-request", `not a recording id: ${recordingId}`);
     const dir = this.noteDir(location, id);
-    return this.transcriptTurn(dir, async () => {
+    return this.queueWrite(this.transcriptTurns, dir, async () => {
       const file = await readTranscript(dir);
       for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
         if (name.startsWith(`${recordingId}-`))
