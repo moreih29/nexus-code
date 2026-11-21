@@ -65,12 +65,25 @@ function imageTypeOf(bytes: Buffer, mediaType: string | undefined): string | nul
   return IMAGE_TYPES.find((t) => looksLike(t, bytes)) ?? null;
 }
 
+/** Runs `run` in `ms`, unless cancelled first. */
+type Schedule = (run: () => void, ms: number) => () => void;
+
+/** A timer that does not keep the app from quitting. */
+const scheduleSweep: Schedule = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+};
+
 export class Uploads {
   private uploads: Upload[] = [];
+  /** Cancels the sweep due when the upload idle longest runs out of time; null with none under way. */
+  private cancelSweep: (() => void) | null = null;
 
   constructor(
     private readonly attachments: Attachments,
     private readonly now: () => number = Date.now,
+    private readonly schedule: Schedule = scheduleSweep,
   ) {}
 
   /** Starts one; its id. The device's oldest goes when it has too many under way. */
@@ -104,6 +117,7 @@ export class Uploads {
       received: 0,
       at: this.now(),
     });
+    this.armSweep();
     return id;
   }
 
@@ -163,10 +177,31 @@ export class Uploads {
 
   private drop(upload: Upload): void {
     this.uploads = this.uploads.filter((u) => u !== upload);
+    this.armSweep();
   }
 
   private sweep(): void {
     const now = this.now();
     this.uploads = this.uploads.filter((u) => now - u.at < ATTACHMENT_TTL_MS);
+    this.armSweep();
+  }
+
+  /**
+   * Sweeps again when the upload idle longest runs out of time, so the
+   * pieces of one its device left unfinished (gone from the room, say) do
+   * not stay till another upload comes; none is due with none under way.
+   */
+  private armSweep(): void {
+    this.cancelSweep?.();
+    this.cancelSweep = null;
+    if (this.uploads.length === 0) return;
+    const idleSince = Math.min(...this.uploads.map((u) => u.at));
+    this.cancelSweep = this.schedule(
+      () => {
+        this.cancelSweep = null;
+        this.sweep();
+      },
+      Math.max(1, idleSince + ATTACHMENT_TTL_MS - this.now()),
+    );
   }
 }
