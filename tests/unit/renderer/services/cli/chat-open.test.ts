@@ -3,6 +3,7 @@ import * as agentTab from "../../../../../src/renderer/services/chat/agent-tab";
 import { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
 import { emptyTabState, useChatStore } from "../../../../../src/renderer/services/chat/store";
 import { chatHandlers } from "../../../../../src/renderer/services/cli/chat-actions";
+import { useAgentProfilesStore } from "../../../../../src/renderer/state/stores/agent-profiles";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout/store";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
@@ -26,6 +27,7 @@ const args = {
 let restore: () => void;
 beforeEach(() => {
   const { workspaces } = useWorkspacesStore.getState();
+  const profiles = useAgentProfilesStore.getState().config;
   const tabs = useTabsStore.getState().byWorkspace;
   const layout = useLayoutStore.getState().byWorkspace;
   useWorkspacesStore.setState({ workspaces: [workspace] });
@@ -33,6 +35,7 @@ beforeEach(() => {
     useTabsStore.setState({ byWorkspace: tabs });
     useLayoutStore.setState({ byWorkspace: layout });
     useWorkspacesStore.setState({ workspaces });
+    useAgentProfilesStore.getState().hydrate(profiles);
   };
 });
 afterEach(() => restore());
@@ -106,5 +109,30 @@ test.each([
     setMode.mockRestore();
     prepare.mockRestore();
     send.mockRestore();
+  }
+});
+
+test("an exact profile ID takes precedence over a name and duplicate names require an ID", async () => {
+  useAgentProfilesStore.getState().hydrate({
+    profiles: [
+      { id: "claude-default", name: "claude-8301a924", agent: "claude", color: "blue", dir: "" },
+      { id: "claude-8301a924", name: "Office", agent: "claude", color: "cyan", dir: "/office" },
+      { id: "claude-1de212b3", name: "office", agent: "claude", color: "violet", dir: "/other" },
+    ],
+    rules: [],
+    defaults: {},
+  });
+  const target = spyOn(agentTab, "agentTabController").mockReturnValue(null);
+  try {
+    const open = chatHandlers["chat.open"];
+    await expect(open({ ...args, prompt: "", profile: "Office" })).rejects.toThrow(
+      /profile ID|프로필 ID|ambiguousProfile/,
+    );
+    const { tabId } = await open({ ...args, prompt: "", profile: "claude-8301a924" });
+    expect(useTabsStore.getState().byWorkspace[workspace.id]?.[tabId]?.props).toMatchObject({
+      profileId: "claude-8301a924",
+    });
+  } finally {
+    target.mockRestore();
   }
 });

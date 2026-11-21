@@ -437,15 +437,18 @@ async function applySettings(
 /** The agent's profile a --profile flag names, by name (any case) or id. */
 function profileNamed(agent: ChatAgent, name: string): string {
   const profiles = profilesOf(useAgentProfilesStore.getState().config, agent);
-  const wanted = name.trim().toLowerCase();
-  const found = profiles.find(
-    (p) =>
-      p.id.toLowerCase() === wanted ||
-      p.name.trim().toLowerCase() === wanted ||
-      (isDefaultProfileId(p.id) && p.name.trim() === "" && wanted === "default"),
-  );
-  if (found) return found.id;
-  const names = profiles.map((p) => p.name.trim() || "default").join(", ");
+  const selector = name.trim();
+  const exact = profiles.find((p) => p.id === selector);
+  if (exact) return exact.id;
+  const wanted = selector.toLowerCase();
+  const id = profiles.find((p) => p.id.toLowerCase() === wanted);
+  if (id) return id.id;
+  const [match, ...others] = profiles.filter((p) => cliProfileName(p).toLowerCase() === wanted);
+  if (others.length > 0) {
+    throw new UiRequestError(i18next.t("errors:chat.ambiguousProfile", { name }));
+  }
+  if (match) return match.id;
+  const names = profiles.map(cliProfileName).join(", ");
   throw new UiRequestError(`${agent} has no profile "${name}"; it has ${names}`);
 }
 
