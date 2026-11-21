@@ -273,7 +273,7 @@ describe("chat set", () => {
     const result = await nexus(app, ["chat", "set", "eeee", "--mode", "acceptEdits"]);
     expect(result.exitCode).toBe(0);
     expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "chatMode", detail: '"Fix the login" (default → acceptEdits)' },
+      { kind: "chatMode", detail: '"Fix the login" (default → acceptEdits)', eachTime: true },
     ]);
     const denied = withChoices();
     expect((await nexus(denied, ["chat", "set", "eeee", "--mode", "auto"])).stderr).toBe(
@@ -324,6 +324,7 @@ describe("chat new with settings", () => {
       kind: "chatMode",
       detail: '"Claude" (default → acceptEdits)',
       body: "go",
+      eachTime: true,
     });
     expect(uiArgs(app, "chat.open")).toMatchObject({
       prompt: "go",
@@ -545,6 +546,7 @@ describe("delegating a chat answer", () => {
                     kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
                     detail: "Bash (Fix the login)",
                     body: request.input,
+                    eachTime: true,
                   },
                 ]
               : [],
@@ -817,8 +819,8 @@ describe("chat set --profile", () => {
     const fresh = await nexus(app, ["chat", "set", "eeee", "--profile", "Work", "--new"]);
     expect(fresh.stdout).toContain('"Work", in a new conversation.');
     expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "chatProfile", detail: '"Fix the login" (default → Work)' },
-      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)' },
+      { kind: "chatProfile", detail: '"Fix the login" (default → Work)', eachTime: true },
+      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)', eachTime: true },
     ]);
     const calls = app.uiCalls.filter((c) => c.op === "chat.profile").map((c) => c.args);
     expect(calls).toEqual([
@@ -1000,7 +1002,8 @@ describe("sandbox execution approvals", () => {
     expect(result.stderr).toBe(
       "nexus: The user denied running this command outside the sandbox.\n",
     );
-    expect(app.asked[0]?.change).toMatchObject({ kind: "sandboxExecution", eachTime: true });
+    expect(app.asked[0]?.change).toMatchObject({ kind: "sandboxExecution" });
+    expect(app.asked[0]?.change.eachTime).toBeUndefined();
     if (body) expect(app.asked[0]?.change.body).toContain(body);
     expect(uiArgs(app, op)).toBeUndefined();
     expect(app.browser.calls).toEqual([]);
@@ -1064,7 +1067,9 @@ describe("sandbox execution approvals", () => {
       expect((await nexus(app, command, terminal)).exitCode).toBe(0);
     }
     expect(app.asked).toEqual([]);
-    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(1);
+    app.answers.push("session");
+    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
+    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
     app.foreground.set(SHELL_TAB, "zsh");
     expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
     expect(app.asked).toHaveLength(1);
@@ -1095,30 +1100,126 @@ describe("sandbox execution approvals", () => {
     expect(app.asked).toHaveLength(2);
   });
 
-  test.each([
-    "allow",
-    "ask",
-  ] as const)("asks each time with workspace policy %s", async (policy) => {
+  test("remembers approval for only the requesting tab and destination", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = (from = caller, workspace = "app") =>
+      nexus(app, ["terminal", "new", "--workspace", workspace], from);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    expect(app.asked).toHaveLength(1);
+
+    app.foreground.set(SHELL_TAB, "codex");
+    expect((await run({ ...caller, tabId: SHELL_TAB })).exitCode).toBe(1);
+    expect((await run(caller, "api")).exitCode).toBe(1);
+    expect(app.asked.map((r) => [r.fromTabId, r.toWorkspaceId])).toEqual([
+      [CALLER_TAB, APP],
+      [SHELL_TAB, APP],
+      [CALLER_TAB, API],
+    ]);
+  });
+
+  test("asks again after the calling tab changes conversation or closes", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    let session: string | null = "first-conversation";
+    app.uiAnswers.set("tab.sandboxSession", () => session);
+    const run = () => nexus(app, ["terminal", "new"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    session = "second-conversation";
+    expect((await run()).exitCode).toBe(1);
+    session = null;
+    app.tabs[APP] = app.tabs[APP]?.filter((tab) => tab.id !== caller.tabId) ?? [];
+    expect((await run()).exitCode).toBe(1);
+    expect(app.asked.map((r) => r.change.eachTime)).toEqual([undefined, undefined, true]);
+  });
+
+  test("requires a verified tab to use or remember an approval", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = (verified: boolean) => nexus(app, ["terminal", "new"], { ...caller, verified });
+    app.answers.push("session", "session");
+    expect((await run(true)).exitCode).toBe(0);
+    expect((await run(false)).exitCode).toBe(1);
+    expect((await run(true)).exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change.eachTime)).toEqual([undefined, true]);
+  });
+
+  test("still asks each time for permission answers, looser modes and profile changes", async () => {
+    const app = withChoices({
+      state: "asking",
+      message: "asks to run Bash",
+      request: { id: "req", tool: "Bash", input: "make" },
+    });
+    const caller = addCaller(app, "codex", "auto", true);
+    app.answers.push("session");
+    expect((await nexus(app, ["terminal", "new"], caller)).exitCode).toBe(0);
+    for (const command of [
+      ["chat", "answer", "eeee", "allow"],
+      ["chat", "set", "eeee", "--mode", "acceptEdits"],
+      ["chat", "set", "eeee", "--profile", "Work"],
+    ]) {
+      app.answers.push("session");
+      expect((await nexus(app, command, caller)).exitCode).toBe(1);
+      expect(app.asked.at(-1)?.change).toMatchObject({ kind: "sandboxExecution", eachTime: true });
+    }
+    expect(app.asked).toHaveLength(4);
+  });
+
+  test("stores the sandbox approval from a combined prompt without granting workspace changes", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = () => nexus(app, ["terminal", "new", "--workspace", "api"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).stderr).toBe("nexus: the user did not allow it\n");
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    app.settings.crossWorkspace = "deny";
+    expect((await run()).stderr).toContain("changing other workspaces is turned off");
+    expect(app.asked.map((r) => r.change.kind)).toEqual([
+      "sandboxExecution",
+      "terminalNew",
+      "terminalNew",
+    ]);
+  });
+
+  test("workspace approval still requires sandbox consent and one-time approval expires", async () => {
     const app = withChat();
     const caller = addCaller(app, "codex", "auto", true);
     app.answers.push("session");
     expect(
       (await nexus(app, ["tab", "rename", "codex", "New", "--workspace", "api"], caller)).exitCode,
     ).toBe(0);
-    app.settings.crossWorkspace = policy;
     const run = () =>
       nexus(app, ["terminal", "new", "--command", "make test", "--workspace", "api"], caller);
-    app.answers.push("once", "session", "timeout");
+    app.answers.push("once", "timeout", "session");
     expect((await run()).exitCode).toBe(0);
-    expect((await run()).exitCode).toBe(1);
     expect((await run()).stderr).toBe(
       "nexus: The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.\n",
     );
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
     expect(app.asked.slice(1).map(({ change }) => [change.kind, change.eachTime])).toEqual([
-      ["sandboxExecution", true],
-      ["sandboxExecution", true],
-      ["sandboxExecution", true],
+      ["sandboxExecution", undefined],
+      ["sandboxExecution", undefined],
+      ["sandboxExecution", undefined],
     ]);
-    expect(app.uiCalls.filter(({ op }) => op === "terminal.open")).toHaveLength(1);
+    expect(app.uiCalls.filter(({ op }) => op === "terminal.open")).toHaveLength(3);
+  });
+
+  test("asks for sandbox approval with workspace policy allow", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    app.settings.crossWorkspace = "allow";
+    const run = () => nexus(app, ["terminal", "new", "--workspace", "api"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["sandboxExecution"]);
   });
 });

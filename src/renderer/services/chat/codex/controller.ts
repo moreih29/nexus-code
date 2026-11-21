@@ -285,6 +285,7 @@ export class CodexController {
   private stoppingTurn?: string;
   private deferToolSendsForTurn?: string;
   private resumingSelection = false;
+  private sandboxSessionId = crypto.randomUUID();
   /** A thread started here that has yet to see any turn. */
   private emptyThread?: string;
   private canonicalCwd: string | undefined;
@@ -1132,6 +1133,7 @@ export class CodexController {
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
       checkTarget?.();
+      this.sandboxSessionId = crypto.randomUUID();
       const source = this.state;
       const sourceModel = this.model;
       const target = this.target;
@@ -1399,9 +1401,16 @@ export class CodexController {
     return this.model.threadId ?? this.target.threadId;
   }
 
+  get sandboxSession(): string | null {
+    this.flushNow();
+    return this.disposed || this.resumingSelection || this.rewinding ? null : this.sandboxSessionId;
+  }
+
   /** Persists the program's thread after the current selection commits. */
   private rememberThread(threadId: string): void {
     if (threadId === this.target.threadId) return;
+    if (this.target.threadId && !this.resumingSelection)
+      this.sandboxSessionId = crypto.randomUUID();
     this.target = { ...this.target, threadId, fork: undefined };
     if (!this.resumingSelection) this.hooks.onThread?.(threadId);
   }

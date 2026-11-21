@@ -178,11 +178,23 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       (await bridge.ask("consent.settle", { id, answer, by })).settled,
     onChange: () => options.onConsentsChanged?.(),
   });
-  const askConsent = async (request: ChangeRequest, timeoutMs: number, signal?: AbortSignal) =>
-    (await consents.ask({ ...request, timeoutMs }, undefined, signal)).answer;
+  const askConsent = async (
+    { fromWorkspaceId, fromTabId, toWorkspaceId, change }: ChangeRequest,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) =>
+    (
+      await consents.ask(
+        { fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs },
+        undefined,
+        signal,
+      )
+    ).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
+    sandboxSession: (workspaceId, tabId, signal) =>
+      bridge.ask("tab.sandboxSession", { workspaceId, tabId }, undefined, signal),
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);

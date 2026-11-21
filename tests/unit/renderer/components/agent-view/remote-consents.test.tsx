@@ -128,6 +128,14 @@ describe("what another computer's consent prompt says", () => {
     expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow once/);
   });
 
+  test("sandbox approval offers the same choices in the same order", () => {
+    const change = { kind: "sandboxExecution", body: "nexus terminal new" };
+    const html = card(consent({ change }));
+    expect(html).toContain("Let an agent run a command outside its sandbox?");
+    expect(html).toMatch(/Don&#x27;t allow.*Allow until restart.*Allow once/s);
+    expect(card(consent({ change, eachTime: true }))).not.toContain("Allow until restart");
+  });
+
   test("one this computer may not answer says where to, with no answers", () => {
     const html = card(consent({ answerable: false }));
     expect(html).toContain("Answer it on Work PC");

@@ -588,6 +588,7 @@ describe("chat answer for a terminal's Claude Code", () => {
       kind: "permissionDeny",
       detail: "Bash (✳ Claude Code)",
       body: "Bash rm -rf build",
+      eachTime: true,
     });
     expect(app.terminalAnswered).toEqual([{ tabId: CLAUDE_TAB, askId: "h1", answer: "denyStop" }]);
     const none = await nexus(app, [

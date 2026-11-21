@@ -630,6 +630,11 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; force: boolean };
     result: Record<string, never>;
   };
+  /** The live chat conversation or terminal session a sandbox grant can be bound to. */
+  "tab.sandboxSession": {
+    args: { workspaceId: string; tabId: string };
+    result: string | null;
+  };
   /** Opens a browser tab on a URL or an address such as localhost:3000. */
   "browser.open": {
     args: { workspaceId: string; url: string; placement: CliPlacement };

@@ -13,6 +13,8 @@ import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { readSessionEvents } from "../agent-sessions/session-events";
+import { existingChatController } from "../chat/claude/controller";
+import { existingCodexController } from "../chat/codex/controller";
 import { focusHolder, restoreFocus } from "../keep-focus";
 import { startTerminalWatch, stopTerminalWatch } from "../remote/terminal-watch";
 import { getTerminalController } from "../terminal/terminal-registry";
@@ -77,6 +79,19 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
+  "tab.sandboxSession": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type === "codex") {
+      return existingCodexController(workspaceId, tabId)?.sandboxSession ?? null;
+    }
+    if (tab?.type === "claude") {
+      return existingChatController(workspaceId, tabId)?.sandboxSession ?? null;
+    }
+    if (tab?.type === "terminal" && !tab.props.dead) {
+      return getTerminalController(tabId)?.sandboxSession ?? null;
+    }
+    return null;
+  },
   "terminal.read": async ({ workspaceId, tabId, lines, ansi }) => {
     const controller = await startedTerminal(workspaceId, tabId);
     return ansi ? controller.readScreen(lines) : { text: controller.readText(lines) };

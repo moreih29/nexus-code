@@ -348,6 +348,7 @@ export class ChatController {
   /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
+  private sandboxSessionId = crypto.randomUUID();
   /**
    * A name the user gave the tab before its conversation began: the session
    * takes it once it has an id. Until then there is no session to name.
@@ -1110,6 +1111,11 @@ export class ChatController {
     return this.sessionId;
   }
 
+  get sandboxSession(): string | null {
+    this.flushNow();
+    return this.disposed || this.changingSession ? null : this.sandboxSessionId;
+  }
+
   /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
   forkPoint(uuid: string, { before }: { before: boolean }): ForkPoint | null {
     const sessionId = this.sessionId ?? this.target.fork?.sessionId;
@@ -1352,6 +1358,7 @@ export class ChatController {
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
       checkTarget?.();
+      this.sandboxSessionId = crypto.randomUUID();
       const source = this.state;
       const transcriptSource = this.transcriptSource;
       const transcriptPages = this.transcriptPages;
@@ -2656,6 +2663,7 @@ export class ChatController {
       // A name the user gave the tab before goes first; the tab's own
       // name names a new session after /clear or another profile.
       const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
+      if (this.sessionId && !this.changingSession) this.sandboxSessionId = crypto.randomUUID();
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       if (!this.changingSession) {
@@ -2665,6 +2673,7 @@ export class ChatController {
     }
     // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {
+      this.sandboxSessionId = crypto.randomUUID();
       this.resetTranscript();
       this.update((prev) =>
         prev.history || prev.card ? { ...prev, history: null, card: undefined } : prev,

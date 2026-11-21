@@ -118,15 +118,14 @@ test("profile additions use settings connection labels in the dialog language", 
   );
 });
 
-test("sandbox approval shows localized copy and can only be allowed once", async () => {
+test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),
-    change: { kind: "sandboxExecution", eachTime: true, body: "make test" },
+    change: { kind: "sandboxExecution", body: "make test" },
   } as const;
   const asked = askCliConsent(request);
-  expect(settleCliConsent("sandbox", "session", "iPhone")).toBe(false);
-  expect(settleCliConsent("sandbox", "once", "iPhone")).toBe(true);
-  expect(await asked).toBe("once");
+  expect(settleCliConsent("sandbox", "session", "iPhone")).toBe(true);
+  expect(await asked).toBe("session");
   const title = consentTitleOf(request.change.kind, false);
   const en = i18next.getFixedT("en", "settings");
   expect(en(title)).toBe("Let an agent run a command outside its sandbox?");
@@ -142,4 +141,14 @@ test("sandbox approval shows localized copy and can only be allowed once", async
   expect(describeConsent(en, sameWorkspace, "", false, true)).toBe(
     'Review the command requested by "zsh" in app.',
   );
+});
+
+test("sandbox approval for a one-time change can only be allowed once", async () => {
+  const asked = askCliConsent({
+    ...prompt("sandbox-once"),
+    change: { kind: "sandboxExecution", eachTime: true },
+  });
+  expect(settleCliConsent("sandbox-once", "session", "iPhone")).toBe(false);
+  expect(settleCliConsent("sandbox-once", "once", "iPhone")).toBe(true);
+  expect(await asked).toBe("once");
 });
