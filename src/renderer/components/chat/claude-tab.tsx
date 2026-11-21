@@ -180,12 +180,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     if (!isVisible || opened.current) return;
     opened.current = true;
     void controller.open();
-    const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-    const open = Object.values(tabs).filter((tab) => tab.type === "claude");
-    pruneAttachmentsOnce(
-      workspaceId,
-      open.map((tab) => tab.id),
-    );
+    pruneAttachmentsOnce(workspaceId);
   }, [isVisible, controller, workspaceId]);
 
   // A name the user gives the tab names its session too, as /rename does,

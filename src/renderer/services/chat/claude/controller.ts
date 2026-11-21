@@ -20,6 +20,7 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import {
   type ChatLine,
@@ -2699,12 +2700,16 @@ registerWorkspaceCleanup((workspaceId) => pruned.delete(workspaceId));
 
 /**
  * Removes, once per workspace while the app runs, the attached files the
- * agent still keeps for Claude tabs that closed while the app was away.
+ * agent still keeps for chat tabs that closed while the app was away.
  */
-export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]): void {
+export function pruneAttachmentsOnce(workspaceId: string): void {
   if (pruned.has(workspaceId)) return;
   pruned.add(workspaceId);
-  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds: openTabIds }).catch(
+  const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const keepTabIds = Object.values(tabs)
+    .filter((tab) => tab.type === "claude" || tab.type === "codex")
+    .map((tab) => tab.id);
+  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds }).catch(
     (err: Error) => {
       pruned.delete(workspaceId);
       log.warn(`pruning attachments failed: ${err.message}`);
