@@ -224,7 +224,9 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
 /**
  * Asks `device` for `method`: a request with `from` waits on its user's
  * consent, a wait on its own time. Offline, older and refusing devices
- * are CliErrors as the command tells them.
+ * are CliErrors as the command tells them. A consent prompt is never
+ * answered from here: the user answers it in the app, and an agent does
+ * not allow itself.
  */
 export async function askDevice<M extends RpcMethod>(
   ctx: CliContext,
@@ -234,6 +236,13 @@ export async function askDevice<M extends RpcMethod>(
   signal?: AbortSignal,
 ): Promise<RpcResult<M>> {
   signal?.throwIfAborted();
+  if (method === "consent.answer") {
+    throw new CliError("consent prompts are answered by the user in the app", 1, {
+      error: "refused",
+      device: deviceRef(device),
+      message: "consent prompts are answered by the user in the app",
+    });
+  }
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
   // A read says who reads: a device whose user turned agents down is read by people alone.

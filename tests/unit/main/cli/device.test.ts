@@ -285,6 +285,20 @@ describe("--device", () => {
     expect(app.peers.requests).toEqual([]);
   });
 
+  test("a consent prompt is never answered from a command: an agent does not allow itself", async () => {
+    const app = withDevices();
+    const mini = app.peers.devices[1] as CliDevice;
+    app.peers.answer = async () => ({});
+    await expect(
+      askDevice(ctx(app, CLAUDE_TAB), mini, "consent.answer", { id: "c1", answer: "once" }),
+    ).rejects.toMatchObject({
+      message: "consent prompts are answered by the user in the app",
+      exitCode: 1,
+      json: { error: "refused", device: { id: MINI, name: "Mac mini" } },
+    });
+    expect(app.peers.requests).toEqual([]);
+  });
+
   test("the sender a request goes with: its tab, the manager's own, the user's terminal", async () => {
     const app = withDevices();
     // The user at a shell is not told from an agent there: it goes as one in that terminal.
