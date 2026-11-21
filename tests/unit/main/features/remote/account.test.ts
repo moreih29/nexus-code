@@ -2,7 +2,7 @@
  * Signing the app in to its NexusCode account: PKCE, the loopback the
  * browser comes back to, and the token traded for its code.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { SavedAccount } from "../../../../../src/main/features/remote/account";
 import {
   RemoteAccount,
@@ -87,6 +87,34 @@ function browser(back: (start: URL) => Record<string, string>) {
 const accounts: RemoteAccount[] = [];
 afterEach(() => {
   for (const a of accounts.splice(0)) a.cancelSignIn();
+});
+
+test.each([
+  ["60", 60],
+  ["Thu, 01 Jan 2026 00:01:00 GMT", 60],
+  [undefined, undefined],
+  ["1.5", undefined],
+] as const)("preserves Retry-After %s from a ticket 429", async (header, retryAfter) => {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1));
+  const account = new RemoteAccount({
+    server: SERVER,
+    store: memoryStore({ server: SERVER, token: "mock", user, device }),
+    openExternal: async () => {},
+    fetch: (async () =>
+      Response.json(
+        { error: "rate_limited" },
+        {
+          status: 429,
+          headers: header === undefined ? {} : { "Retry-After": header },
+        },
+      )) as unknown as typeof fetch,
+  });
+  try {
+    await account.restore();
+    await expect(askTicket(account)).rejects.toMatchObject({ status: 429, retryAfter });
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 describe("PKCE", () => {

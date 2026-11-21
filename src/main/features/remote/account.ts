@@ -23,6 +23,7 @@ import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
+import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
 
@@ -370,10 +371,13 @@ export class RemoteAccount {
       if (signedInAsSent()) this.forget();
       throw new SignedOutError();
     }
+    const retryAfter = retryAfterSeconds(res.headers.get("retry-after"));
     const text = await readResponseText(res).catch((error: unknown) => {
       if (error instanceof ResponseTooLargeError) {
-        throw new ServerError(res.status, error.code, `${method} ${path}`);
+        throw new ServerError(res.status, error.code, `${method} ${path}`, retryAfter);
       }
+      if (res.status === 429)
+        throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
       throw error;
     });
     signal?.throwIfAborted();
@@ -389,13 +393,7 @@ export class RemoteAccount {
         }
         throw new SignedOutError();
       }
-      const retryAfter = Number(res.headers.get("retry-after"));
-      throw new ServerError(
-        res.status,
-        code,
-        `${method} ${path}`,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-      );
+      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter);
     }
     return answer ?? {};
   }

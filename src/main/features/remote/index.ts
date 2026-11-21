@@ -35,6 +35,7 @@ import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
 import { RelayConnection } from "./relay-connection";
+import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
@@ -296,6 +297,7 @@ export async function registerRemoteChannel(options: {
     },
   });
   keys = accountKeys;
+  const socketRetryAfter = new SocketRetryAfter();
   // The names of the moment a voice session sends along, when the user turned them on.
   const voiceNames = new VoiceNames({
     enabled: () => options.voiceNames?.() ?? false,
@@ -370,6 +372,7 @@ export async function registerRemoteChannel(options: {
         relay = new RelayConnection({
           ...handlers,
           url: relayUrl,
+          retryAfter: socketRetryAfter,
           unreachable: (url) => void account.route.unreachable(url),
         });
         return relay;
@@ -456,7 +459,8 @@ export async function registerRemoteChannel(options: {
             deviceName: (id) => roomState.peers.find((p) => p.id === id)?.name,
           }
         : null,
-    connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
+    connect: (handlers) =>
+      new RelayConnection({ ...handlers, url: relayUrl, retryAfter: socketRetryAfter }),
     qr: async (text) =>
       `data:image/svg+xml;base64,${Buffer.from(renderSVG(text, { border: 2 })).toString("base64")}`,
     onChange: (state) => broadcast("remote", "pairChanged", state),
