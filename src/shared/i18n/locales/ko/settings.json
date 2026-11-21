@@ -921,9 +921,11 @@
       "lightHint": "대화 제목과 요약 등 백그라운드 작업",
       "reasoning": "추론 강도",
       "effort": {
+        "auto": "자동",
         "none": "없음",
         "high": "low~high",
-        "xhigh": "low~xhigh"
+        "xhigh": "low~xhigh",
+        "max": "low~max"
       },
       "addModel": "모델 추가",
       "removeModel": "모델 삭제",
@@ -961,6 +963,7 @@
         "model": "{{model}} 모델을 찾지 못했습니다",
         "network": "서버에 연결하지 못했습니다. 주소와 네트워크를 확인하세요",
         "address": "올바른 HTTP 또는 HTTPS API 주소를 적으세요",
+        "reasoningModelId": "추론 강도를 선택하려면 모델 ID에서 ; , =와 끝의 *를 빼세요",
         "unsupported": "이 주소는 Responses API를 받지 않습니다",
         "response": "서버가 예상과 다른 응답을 보냈습니다",
         "missingKey": "설정에서 이 프로필의 API 키를 입력하세요",

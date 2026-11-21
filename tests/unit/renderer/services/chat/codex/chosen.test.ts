@@ -195,6 +195,39 @@ describe("the model and effort picked in a Codex tab", () => {
     }
   });
 
+  test("a custom model sends max effort when its row allows it", async () => {
+    const { config, hydrate } = useAgentProfilesStore.getState();
+    hydrate({
+      ...config,
+      profiles: [
+        {
+          agent: "codex",
+          id: "codex-default",
+          name: "",
+          dir: "",
+          color: "blue",
+          connection: {
+            method: "custom",
+            baseUrl: "http://localhost:8080/v1",
+            defaultModel: "gateway-model",
+            models: [{ id: "gateway-model", reasoning: "max" }],
+          },
+        },
+      ],
+    });
+    try {
+      const c = tab({ model: "gateway-model", effort: "max" });
+      await c.readDefaults();
+      await c.send("hi");
+      expect(sent.find((m) => m.method === "turn/start")?.params).toMatchObject({
+        model: "gateway-model",
+        effort: "max",
+      });
+    } finally {
+      hydrate(config);
+    }
+  });
+
   test("are forgotten once a turn takes them: the thread holds them from then on", async () => {
     const picks: unknown[] = [];
     const c = tab({ model: "gpt-5.4-mini" }, (pick) => picks.push(pick));

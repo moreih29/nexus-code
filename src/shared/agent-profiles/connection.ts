@@ -16,7 +16,7 @@ export const API_KEY_CONNECTION_URL: Record<ChatAgent, string> = {
   codex: "https://api.openai.com/v1",
 };
 export const CONNECTION_AUTH = ["bearer", "x-api-key"] as const;
-export const CONNECTION_REASONING = ["none", "high", "xhigh"] as const;
+export const CONNECTION_REASONING = ["none", "high", "xhigh", "max"] as const;
 export const LOCAL_CONNECTION_PRESETS = ["ollama", "lmstudio", "strata"] as const;
 export const CONNECTION_PRESETS = [
   "openrouter",
@@ -35,6 +35,26 @@ export const ConnectionModelSchema = z.object({
   reasoning: z.enum(CONNECTION_REASONING).optional(),
 });
 export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
+
+/** Whether Claude Code's capability-rule grammar can name this model exactly. */
+export function claudeReasoningModelIdSupported(id: string): boolean {
+  const normalized = id.replace(/\[1m\]$/i, "");
+  return !/[;,=]/.test(normalized) && !normalized.endsWith("*");
+}
+
+/** The effort levels a custom model offers, from the conservative default to its configured maximum. */
+export function connectionReasoningLevels(reasoning: ConnectionModel["reasoning"]): string[] {
+  switch (reasoning) {
+    case "max":
+      return ["low", "medium", "high", "xhigh", "max"];
+    case "xhigh":
+      return ["low", "medium", "high", "xhigh"];
+    case "high":
+      return ["low", "medium", "high"];
+    default:
+      return [];
+  }
+}
 
 const profileConnectionSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("account") }),

@@ -29,7 +29,7 @@ test.each([
   "chat rewind 3fa2 12 --preview",
   "chat profiles --agent codex --workspace WS --json",
   "chat profiles add --agent codex --name Personal",
-  "chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json",
+  "chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --reasoning glm=max --reasoning kimi=auto --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json",
   "view layout --json",
   "view open-file README.md --panel 1",
   "view split right --key KEY",
