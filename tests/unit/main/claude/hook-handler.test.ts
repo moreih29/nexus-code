@@ -190,7 +190,7 @@ function makeHarness(
   const asks = opts.asks
     ? new PermissionAsks(async (_workspaceId, hookId, response) => {
         await channel.call("claude.respondHook", { hookId, response });
-        return true;
+        return "answered";
       })
     : undefined;
   const chatAnswers = new ChatAnswers();

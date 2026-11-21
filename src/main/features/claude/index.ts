@@ -109,10 +109,11 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   const stopPrintRun = async (workspaceId: string, tabId: string, agentId: string) => {
     const watch = activity.printWatch(workspaceId, tabId, agentId);
     if (watch === undefined) return false;
-    return answerHook(workspaceManager, workspaceId, watch, {
+    const result = await answerHook(workspaceManager, workspaceId, watch, {
       stdout: PRINT_STOP_ANSWER,
       exitCode: 0,
     });
+    return result === "answered";
   };
 
   // 2. Register the IPC channels (must be called after setupRouter()).

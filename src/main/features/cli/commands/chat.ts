@@ -1185,11 +1185,15 @@ async function answerTerminal(
   });
   const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
   if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
-    throw new CliError(
-      answer === "denyStop"
-        ? "a subagent's request cannot stop the turn"
-        : "that request no longer waits for an answer",
-    );
+    if (answer === "denyStop" && ask.agentId !== undefined) {
+      throw new CliError("a subagent's request cannot stop the turn");
+    }
+    if (ctx.services.claudeAsks(workspace.id, tab.id).some(({ id }) => id === ask.id)) {
+      throw new CliError(
+        "the answer could not be delivered; try again if the request is still open",
+      );
+    }
+    throw new CliError("that request no longer waits for an answer");
   }
   if (delegated) logDelegation(ctx, tab.id, delegated);
   const target = { workspaceId: workspace.id, tabId: tab.id };

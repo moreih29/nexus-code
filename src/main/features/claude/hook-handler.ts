@@ -49,7 +49,7 @@ import { showDesktopNotification } from "../../infra/platform/desktop-notificati
 import type { ActiveContextStore } from "./active-context";
 import type { ChatAnswers } from "./chat-answers";
 import { handlePermissionRequest } from "./permission";
-import type { AnsweredAsk, PermissionAsks } from "./permission-asks";
+import type { AnsweredAsk, HookAnswerResult, PermissionAsks } from "./permission-asks";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
 import type { SessionActivityLog } from "./session-activity";
 import type { ClaudeStatusBroker } from "./status";
@@ -785,27 +785,28 @@ async function respondHook(
   await answerHook(channelProvider, workspaceId, hookId, response);
 }
 
-/**
- * Answers the waiting hook `hookId` through its workspace's agent: false when
- * it could not, as when the hook no longer waits.
- */
+/** Answers the waiting hook through its agent, reporting whether it can still be retried. */
 export async function answerHook(
   channelProvider: HookChannelProvider,
   workspaceId: string,
   hookId: string,
   response: HookResponse,
-): Promise<boolean> {
+): Promise<HookAnswerResult> {
   try {
     const channel = await channelProvider.tryGetAgentChannel(workspaceId);
     if (!channel) {
       log.warn(`respondHook: channel not found for workspace=${workspaceId}`);
-      return false;
+      return "unavailable";
     }
     await channel.call("claude.respondHook", { hookId, response });
-    return true;
+    return "answered";
   } catch (err) {
     log.warn(`respondHook failed for hookId=${hookId}: ${(err as Error).message}`);
-    return false;
+    // The agent's reply from Respond means it took the waiting connection
+    // or found that it had already closed. Transport errors leave it unknown.
+    return (err as { code?: string } | null)?.code === "server.request-failed"
+      ? "gone"
+      : "unavailable";
   }
 }
 

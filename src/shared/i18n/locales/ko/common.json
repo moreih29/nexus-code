@@ -632,7 +632,7 @@
       "cancel": "취소",
       "message_placeholder": "Claude에게 전할 말 (선택)",
       "terminal_too": "터미널의 권한 창에서도 응답할 수 있습니다.",
-      "failed": "터미널에서 이미 답했거나 만료된 요청입니다."
+      "failed": "응답을 전달하지 못했습니다. 요청이 아직 열려 있으면 다시 시도하십시오."
     },
     "elapsed": {
       "seconds": "{{count}}초",

@@ -632,7 +632,7 @@
       "cancel": "Cancel",
       "message_placeholder": "What Claude should do instead (optional)",
       "terminal_too": "The terminal's permission prompt can answer it too.",
-      "failed": "Already answered in the terminal or expired."
+      "failed": "The answer could not be delivered. If the request is still open, try again."
     },
     "elapsed": {
       "seconds": "{{count}}s",
