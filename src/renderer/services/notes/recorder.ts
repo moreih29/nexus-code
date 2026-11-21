@@ -349,6 +349,7 @@ export async function startRecording(
   active = mine;
   set({ ...IDLE, phase: "starting", workspaceId, noteId, recordingId });
   await loadTranscript(workspaceId, noteId);
+  if (active !== mine) return;
   updateTranscript(workspaceId, noteId, (file) => ({
     ...file,
     recordings: [
@@ -364,17 +365,15 @@ export async function startRecording(
       },
     ],
   }));
-  if (!(await startTake(mine))) {
+  if (!(await startTake(mine)) && active === mine) {
     // Nothing was recorded: the recording goes.
     updateTranscript(workspaceId, noteId, (file) => ({
       ...file,
       recordings: file.recordings.filter((r) => r.id !== recordingId),
     }));
     void flushTranscript(workspaceId, noteId);
-    if (active === mine) {
-      active = null;
-      set(IDLE);
-    }
+    active = null;
+    set(IDLE);
   }
 }
 
@@ -398,14 +397,20 @@ async function startTake(a: Active): Promise<boolean> {
 
   if (!a.stream) {
     const access = await ipcCallResult("remote", "voiceMicrophone", undefined);
+    if (active !== a) return false;
     if (!access.ok || access.value === "denied") {
       tellFailure("denied");
       return false;
     }
     try {
-      a.stream = await openMicrophone();
+      const stream = await openMicrophone();
+      if (active !== a) {
+        for (const track of stream.getTracks()) track.stop();
+        return false;
+      }
+      a.stream = stream;
     } catch (error) {
-      tellFailure(error instanceof CaptureError ? error.reason : "failed");
+      if (active === a) tellFailure(error instanceof CaptureError ? error.reason : "failed");
       return false;
     }
   }
@@ -413,6 +418,11 @@ async function startTake(a: Active): Promise<boolean> {
     language: a.language,
     purpose: "note",
   });
+  if (active !== a) {
+    if (started.ok && started.value.status === "ready")
+      void ipcCallResult("remote", "voiceCancel", { id: started.value.id });
+    return false;
+  }
   if (!started.ok || started.value.status === "failed") {
     tellFailure(
       started.ok && started.value.status === "failed" ? started.value.reason : "failed",
@@ -421,15 +431,16 @@ async function startTake(a: Active): Promise<boolean> {
     releaseMicrophone(a);
     return false;
   }
-  if (active !== a) {
-    void ipcCallResult("remote", "voiceCancel", { id: started.value.id });
-    return false;
-  }
   const { id, sampleRate } = started.value;
   const stream = a.stream;
   // The first take finds out whether the app can tell the voices apart; the recording keys its
   // voices so from its first line on.
-  if (a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint) && active === a) {
+  const usePrints = a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint);
+  if (active !== a) {
+    void ipcCallResult("remote", "voiceCancel", { id });
+    return false;
+  }
+  if (usePrints) {
     const count = a.participantCount;
     a.voices = new VoiceTracker(typeof count === "number" ? count : undefined);
     update((r) => ({ ...r, voicePrint: true, participantCount: count }));
@@ -437,15 +448,23 @@ async function startTake(a: Active): Promise<boolean> {
   const voices = a.voices;
   voices?.startTake();
   try {
-    a.capture = await startCapture(
+    const capture = await startCapture(
       stream,
       sampleRate,
-      (audio) => void ipcCallResult("remote", "voiceAudio", { id, audio }),
+      (audio) => {
+        if (active === a) void ipcCallResult("remote", "voiceAudio", { id, audio });
+      },
       { keepStream: true, ...(voices ? { onSamples: (s: Float32Array) => voices.hear(s) } : {}) },
     );
+    if (active !== a) {
+      capture.stop();
+      void ipcCallResult("remote", "voiceCancel", { id });
+      return false;
+    }
+    a.capture = capture;
   } catch (error) {
     void ipcCallResult("remote", "voiceCancel", { id });
-    tellFailure(error instanceof CaptureError ? error.reason : "failed");
+    if (active === a) tellFailure(error instanceof CaptureError ? error.reason : "failed");
     releaseMicrophone(a);
     return false;
   }

@@ -101,3 +101,50 @@ test("removing a notes location closes its tab and stops its active recorder", a
     hardware.restore();
   }
 });
+
+test("stops a microphone acquired after its recording was dropped", async () => {
+  const hardware = mockHardware();
+  const entered = Promise.withResolvers<void>();
+  const opening = Promise.withResolvers<MediaStream>();
+  hardware.open.mockImplementationOnce(() => {
+    entered.resolve();
+    return opening.promise;
+  });
+  try {
+    const starting = startRecording(workspaceId, noteId, "en");
+    await entered.promise;
+    dropRecording(workspaceId, noteId);
+    opening.resolve(hardware.stream);
+    await starting;
+
+    expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
+    expect(calls).not.toContain("voiceStart");
+    expect(useRecorderStore.getState().phase).toBe("idle");
+  } finally {
+    hardware.restore();
+  }
+});
+
+test("drops capture and its session when audio setup completes after deletion", async () => {
+  const hardware = mockHardware();
+  const entered = Promise.withResolvers<void>();
+  const captureReady = Promise.withResolvers<capture.Capture>();
+  hardware.start.mockImplementationOnce(() => {
+    entered.resolve();
+    return captureReady.promise;
+  });
+  try {
+    const starting = startRecording(workspaceId, noteId, "en");
+    await entered.promise;
+    dropRecording(workspaceId, noteId);
+    captureReady.resolve(hardware.running);
+    await starting;
+
+    expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
+    expect(hardware.stopCapture).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("voiceCancel");
+    expect(useRecorderStore.getState().phase).toBe("idle");
+  } finally {
+    hardware.restore();
+  }
+});
