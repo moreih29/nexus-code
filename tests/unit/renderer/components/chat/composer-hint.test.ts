@@ -1,8 +1,9 @@
 /** What an empty composer tells of its keys, and what each does with a message during a turn. */
 import { describe, expect, test } from "bun:test";
 import i18next from "i18next";
+import { modelPickerOf } from "../../../../../src/renderer/services/chat/model-picker";
 
-const { composerHint, composerKeys, modelPickerOptions } = await import(
+const { composerHint, composerKeys } = await import(
   "../../../../../src/renderer/components/chat/composer"
 );
 
@@ -33,7 +34,7 @@ describe("the composer's hint", () => {
   });
 });
 
-test("hides Claude's duplicate default alias and generic description for a custom connection", () => {
+test("shows a custom profile default once and hides its generic description", () => {
   const defaultModel = {
     value: "default",
     displayName: "Default (recommended)",
@@ -45,9 +46,13 @@ test("hides Claude's duplicate default alias and generic description for a custo
     displayName: "GLM 5 Plus",
     description: "Custom model (glm-5-plus)",
   };
-  const models = [defaultModel, custom];
-  expect(modelPickerOptions(models, true)).toEqual([{ model: custom, label: "GLM 5 Plus" }]);
-  expect(modelPickerOptions(models, false)[0]).toEqual({
+  const model = {
+    init: { models: [defaultModel, custom], commands: [], remoteControl: false },
+  };
+  const picker = modelPickerOf("claude", model, { profileDefault: custom.value });
+  expect(picker.options).toEqual([{ model: custom, label: "Default · GLM 5 Plus" }]);
+  expect(picker.label).toBe("Default · GLM 5 Plus");
+  expect(modelPickerOf("claude", model).options[0]).toEqual({
     model: defaultModel,
     label: defaultModel.displayName,
     detail: defaultModel.description,

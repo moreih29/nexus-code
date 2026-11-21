@@ -16,10 +16,18 @@ import { ShieldQuestion } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConsentAnswer, RemoteConsent } from "../../../../packages/remote-protocol/src/rpc";
+import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
-import { consentTitleOf, describeConsent } from "../cli/consent-dialog";
+import { cn } from "../../utils/cn";
+import {
+  CONSENT_CONFIRM_BUTTON_CLASS,
+  CONSENT_DESCRIPTION_CLASS,
+  consentNamesTarget,
+  consentTitleOf,
+  describeConsent,
+} from "../cli/consent-dialog";
 import { Button } from "../ui/button";
 
 /** How long a prompt found answered or over still shows, saying so. */
@@ -29,7 +37,9 @@ const GONE_SHOWN_MS = 1500;
 export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent["change"]): string {
   const key = `agentCli.consent.action.${change.kind}`;
   return i18next.exists(key, { ns: "settings" })
-    ? t(key as `agentCli.consent.action.${CliChangeKind}`, { detail: change.detail ?? "" })
+    ? t(key as `agentCli.consent.action.${CliChangeKind}`, {
+        detail: consentDetailsOf(t, change).detail,
+      })
     : t("agentCli.consent.action_other", { kind: change.kind });
 }
 
@@ -45,8 +55,10 @@ export function consentSentenceOf(
 ): string {
   const { from } = consent;
   const action = consentActionOf(t, consent.change);
+  const namesTarget = consentNamesTarget(consent.change.kind);
   if (from.manager && !from.device) {
-    return t("agentCli.consent.manager_description", { to, action });
+    const destination = namesTarget ? "" : t("agentCli.consent.destination", { to });
+    return t("agentCli.consent.manager_description", { destination, action });
   }
   return describeConsent(
     t,
@@ -57,6 +69,7 @@ export function consentSentenceOf(
       toWorkspace: to,
     },
     action,
+    namesTarget,
   );
 }
 
@@ -112,6 +125,7 @@ export function RemoteConsentCard({
     <Button
       variant={variant}
       size="sm"
+      className={choice === "once" ? CONSENT_CONFIRM_BUTTON_CLASS : undefined}
       loading={busy === choice}
       disabled={busy !== null}
       onClick={() => void answer(choice)}
@@ -121,6 +135,7 @@ export function RemoteConsentCard({
   );
 
   const title = t(consentTitleOf(consent.change.kind, false));
+  const { body } = consentDetailsOf(t, consent.change);
   return (
     <section
       aria-label={title}
@@ -131,13 +146,13 @@ export function RemoteConsentCard({
         <ShieldQuestion aria-hidden className="mt-0.5 size-3 shrink-0" />
         <span>{title}</span>
       </span>
-      <p className="text-app-ui-sm text-foreground">
+      <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
         {consentSentenceOf(t, consent, workspaceName)}
       </p>
-      {consent.change.body && (
+      {body && (
         // What an answer lets run, whole: its first line can hide the rest.
         <pre className="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
-          {consent.change.body}
+          {body}
         </pre>
       )}
       <p className="text-app-micro text-muted-foreground">

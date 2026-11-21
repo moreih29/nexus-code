@@ -10,7 +10,10 @@ import {
   type RpcMethod,
   type RpcParams,
 } from "../../../../packages/remote-protocol/src";
-import { InstructionTextSchema } from "../../../shared/chat/instructions";
+import {
+  InstructionTextSchema,
+  workspaceInstructionTarget,
+} from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliServices } from "../cli/context";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
@@ -168,6 +171,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "chat.tool",
   "chat.fileSuggestions",
   "chat.instructions",
+  "settings.instructions",
   "chat.entryItem",
   "chat.rewindPreview",
   "chat.image",
@@ -191,6 +195,7 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.tool": 12_000,
   "chat.fileSuggestions": 12_000,
   "chat.instructions": 12_000,
+  "settings.instructions": 12_000,
   "chat.entryItem": 12_000,
   "chat.rewindPreview": 12_000,
   "chat.image": 12_000,
@@ -217,7 +222,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
   async function dispatch(services: CliServices, request: RemoteServeRequest) {
-    const { from, method, params } = request;
+    const { from, method } = request;
+    let { params } = request;
     let s = services;
     if (sessions && method === "sessions.watch") return sessions.watch(from);
     if (sessions && method === "sessions.unwatch") {
@@ -245,15 +251,26 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     }
     // File controls ask in their handlers, after validating their scope.
     const agentOnly =
-      method === "settings.instructions.set" || method === "notes.voiceNames.delete";
+      method === "settings.instructions" ||
+      method === "settings.instructions.set" ||
+      method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
-    if (
-      method === "settings.instructions.set" &&
-      !InstructionTextSchema.safeParse((params as RpcParams<"settings.instructions.set">).text)
-        .success
-    )
-      throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
+    if (method === "settings.instructions.set") {
+      const edit = params as RpcParams<"settings.instructions.set">;
+      if (!InstructionTextSchema.safeParse(edit.text).success)
+        throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid persistent instruction text");
+      if (edit.layer === "workspace") {
+        watches.agents?.checkRead();
+        const workspaces = s.listWorkspaces();
+        const workspace = workspaces.find(({ id }) => id === edit.workspaceId);
+        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const target = workspaceInstructionTarget(workspace, workspaces);
+        if (!target) throw new RpcFailure(RpcErrorCode.NotFound, "no parent workspace");
+        // Ask for consent on the workspace whose instructions will be changed.
+        params = { ...edit, workspaceId: target.id };
+      }
+    }
     const checkInHandler = isFileTransferMethod(method);
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
@@ -293,16 +310,28 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
         return noteTranscript(s, request.params as RpcParams<"notes.transcript">);
+      case "settings.instructions": {
+        const { workspaceId, agent, profileId } = params as RpcParams<"settings.instructions">;
+        if (!workspaceOf(s, workspaceId))
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        // The renderer uses the selected workspace for profile rules and resolves its layer separately.
+        return s
+          .ui("settings.instructions", { workspaceId, agent, ...(profileId ? { profileId } : {}) })
+          .catch(unavailable);
+      }
       case "settings.instructions.set": {
-        const { workspaceId, layer, text } = params as RpcParams<"settings.instructions.set">;
+        const edit = params as RpcParams<"settings.instructions.set">;
+        const { workspaceId, text } = edit;
         if (!workspaceOf(s, workspaceId))
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         const scope =
-          layer === "all"
-            ? { kind: "all" as const }
-            : layer === "workspace"
-              ? { kind: "workspace" as const, id: workspaceId }
-              : { kind: "agent" as const, agent: layer };
+          edit.layer === "profile"
+            ? { kind: "profile" as const, id: edit.profileId }
+            : edit.layer === "all"
+              ? { kind: "all" as const }
+              : edit.layer === "workspace"
+                ? { kind: "workspace" as const, id: workspaceId }
+                : { kind: "agent" as const, agent: edit.layer };
         return s.ui("settings.instructions.set", { scope, text }).catch(unavailable);
       }
       case "notes.speakers": {
@@ -433,7 +462,11 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         if (!InstructionTextSchema.safeParse(text).success)
           throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid session instruction text");
         await tabOf(s, workspaceId, tabId, ["claude", "codex"]);
-        return s.ui("chat.instructions", { workspaceId, tabId, text }).catch(unavailable);
+        checkCurrent();
+        const { instructions } = await s
+          .ui("chat.instructions", { workspaceId, tabId, text })
+          .catch(unavailable);
+        return { instructions };
       }
       case "chat.instructions": {
         const { workspaceId, tabId } = request.params as RpcParams<"chat.instructions">;

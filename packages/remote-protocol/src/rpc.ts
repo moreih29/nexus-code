@@ -336,6 +336,31 @@ export const RemoteConsentSchema = z.object({
     kind: z.string(),
     detail: z.string().optional(),
     body: z.string().optional(),
+    instructionEdit: z
+      .object({
+        layer: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("all") }),
+          z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
+          z.object({
+            kind: z.literal("profile"),
+            agent: z.enum(["claude", "codex"]),
+            name: z.string(),
+            id: z.string(),
+            showId: z.boolean().optional(),
+          }),
+          z.object({ kind: z.literal("workspace"), name: z.string() }),
+        ]),
+        clear: z.boolean(),
+      })
+      .optional(),
+    profileAdd: z
+      .object({
+        agent: z.enum(["claude", "codex"]),
+        folder: z.string(),
+        connection: z.enum(["account", "api-key", "custom"]),
+        endpoint: z.string().optional(),
+      })
+      .optional(),
   }),
   /** It is asked about each time: "session" is not an answer to it. */
   eachTime: z.boolean(),
@@ -415,6 +440,22 @@ export type AgentSender = z.infer<typeof AgentSenderSchema>;
  * with it, so it goes only to one of 0.12.0 or later.
  */
 const ReadBy = { from: AgentSenderSchema.optional() };
+const InstructionProfileId = z.string().min(1).max(64);
+const InstructionWrite = z.object({
+  workspaceId: z.string(),
+  text: z.string().max(5000),
+  from: AgentSenderSchema,
+});
+const InstructionLayerSchema = z.object({
+  scope: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("all") }),
+    z.object({ kind: z.literal("agent"), agent: z.enum(["claude", "codex"]) }),
+    z.object({ kind: z.literal("profile"), id: z.string() }),
+    z.object({ kind: z.literal("workspace"), id: z.string() }),
+  ]),
+  title: z.string(),
+  text: z.string(),
+});
 
 /** The keys terminal.input presses by name, as `nexus terminal key` names them. */
 export const TERMINAL_KEYS = [
@@ -2125,14 +2166,25 @@ export const RPC_METHODS = {
     params: z.object({ ...TabRef, from: AgentSenderSchema }),
     result: Ok,
   },
-  "settings.instructions.set": {
-    capability: "chat.control",
+  "settings.instructions": {
+    capability: "settings.instructions",
     params: z.object({
       workspaceId: z.string(),
-      layer: z.enum(["all", "claude", "codex", "workspace"]),
-      text: z.string().max(5000),
+      agent: z.enum(["claude", "codex"]),
+      profileId: InstructionProfileId.optional(),
       from: AgentSenderSchema,
     }),
+    result: z.object({
+      layers: z.array(InstructionLayerSchema),
+      instructions: z.string(),
+    }),
+  },
+  "settings.instructions.set": {
+    capability: "chat.control",
+    params: z.discriminatedUnion("layer", [
+      InstructionWrite.extend({ layer: z.enum(["all", "claude", "codex", "workspace"]) }),
+      InstructionWrite.extend({ layer: z.literal("profile"), profileId: InstructionProfileId }),
+    ]),
     result: Ok,
   },
   "notes.speakers": {
@@ -2265,15 +2317,22 @@ export const RPC_METHODS = {
     params: z.object({ ...TabRef, i: z.number().int().nonnegative(), ...ReadBy }),
     result: z.object({ itemKey: z.string(), kind: z.string(), text: z.string().optional() }),
   },
+  /** Replace the session layer. With from, the receiving device's agent policy applies. */
   "chat.instructions.set": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema }),
+    params: z.object({ ...TabRef, text: z.string().max(5000), from: AgentSenderSchema.optional() }),
     result: z.object({ instructions: z.string() }),
   },
   "chat.instructions": {
     capability: "chat.read",
     params: z.object({ ...TabRef, ...ReadBy }),
-    result: z.object({ instructions: z.string() }),
+    result: z.object({
+      instructions: z.string(),
+      /** The editable session text. Since 0.16.0. Older hosts only return the combined text. */
+      session: z.string().optional(),
+      /** The tab's persistent layers in composer order, including empty layers. Since 0.16.0. */
+      layers: z.array(InstructionLayerSchema).optional(),
+    }),
   },
   /**
    * Puts a photo at the end of a note, as one picked on the serving device

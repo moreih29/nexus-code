@@ -11,6 +11,8 @@ import type {
   ChatCommand,
   ChatConfig,
   ChatPage,
+  RemoteConsent,
+  RpcResult,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
@@ -265,6 +267,7 @@ export type CliChangeKind =
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
+  | "profileAdd"
   | "chatRewind"
   | "chatRewindFiles"
   | "chatFork"
@@ -300,7 +303,7 @@ export type CliChangeKind =
   | "permissionAllow"
   | "permissionDeny";
 
-export interface CliChange {
+export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
@@ -806,7 +809,7 @@ export interface CliUiOps {
   };
   "chat.instructions": {
     args: { workspaceId: string; tabId: string; text?: string };
-    result: { instructions: string };
+    result: Required<RpcResult<"chat.instructions">>;
   };
   /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {
@@ -1343,11 +1346,8 @@ export interface CliUiOps {
   };
   /** The persistent instruction layers that apply when starting a new chat. */
   "settings.instructions": {
-    args: { workspaceId: string; agent: ChatAgent };
-    result: {
-      layers: { scope: InstructionScope; title: string; text: string }[];
-      instructions: string;
-    };
+    args: { workspaceId: string; agent: ChatAgent; profileId?: string };
+    result: RpcResult<"settings.instructions">;
   };
   "settings.keys": {
     args: Record<string, never>;
@@ -1362,7 +1362,7 @@ export interface CliUiOps {
     };
   };
   "settings.instructions.set": {
-    args: { scope: Exclude<InstructionScope, { kind: "profile" }>; text: string };
+    args: { scope: InstructionScope; text: string };
     result: Record<string, never>;
   };
   /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */

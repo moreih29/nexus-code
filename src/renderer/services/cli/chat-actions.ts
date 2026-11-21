@@ -15,6 +15,10 @@ import {
   profileOf,
   profilesOf,
 } from "../../../shared/agent-profiles/profiles";
+import {
+  mergeAgentInstructions,
+  persistentInstructionLayers,
+} from "../../../shared/chat/instructions";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -22,8 +26,8 @@ import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import {
-  currentSessionInstructions,
   saveSessionInstructions,
+  useAgentInstructionsStore,
 } from "../../state/stores/agent-instructions";
 import {
   defaultFolderLabel,
@@ -35,17 +39,19 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   type AgentTabController,
-  agentInstructionsOf,
+  agentInstructionTarget,
   agentTabController,
   startAgentTab,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
 import type { ForkPoint } from "../chat/claude/controller";
+import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
 import { CodexReplyError } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
-import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
+import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
+import type { ModelPickerContext } from "../chat/model-picker";
 import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
@@ -245,6 +251,25 @@ function sourceOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatSou
 /** How long a tab's program may take to start and list its models. */
 const READY_TIMEOUT_MS = 30_000;
 
+function modelPickerContextOf(
+  target: AgentTabController,
+  model: ChatModel,
+): ModelPickerContext | undefined {
+  if (target.agent !== "claude") return undefined;
+  const { controller } = target;
+  return {
+    profileDefault: controller.claudeProfileDefaultModel,
+    defaultLabel: i18next.t("settings:profiles.connection.default"),
+    fallbackModels: model.init?.models.length
+      ? undefined
+      : borrowedClaudeModels(
+          useClaudeModelCatalog.getState(),
+          controller.modelCatalogKey,
+          controller.key,
+        ),
+  };
+}
+
 /**
  * Waits for the tab's program to run and list its models, as its composer
  * waits to offer them, and for a Codex tab's thread to tell its model;
@@ -254,6 +279,7 @@ function whenReady(
   workspaceId: string,
   tabId: string,
   agent: AgentTabController["agent"],
+  allowMissingInit = false,
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
   const check = (): boolean | Error => {
@@ -263,7 +289,9 @@ function whenReady(
     if (phase === "held") return new UiRequestError("its workspace's connection dropped");
     // Claude tells its model with its first turn; until then it runs the default.
     const told = agent === "claude" || model.model !== undefined;
-    if (model.process === "running" && model.init && told) return true;
+    // An attached Claude process can already run with initialize gone from its log.
+    const initialized = model.init || (allowMissingInit && agent === "claude" && phase === "ready");
+    if (model.process === "running" && initialized && told) return true;
     if (phase === "failed" || phase === "not-found") {
       return new UiRequestError(`its program did not start${chat.error ? `: ${chat.error}` : ""}`);
     }
@@ -304,16 +332,21 @@ const SHOWN_TIMEOUT_MS = 5_000;
 function whenShown(
   workspaceId: string,
   tabId: string,
-  agent: AgentTabController["agent"],
+  target: AgentTabController,
   plan: ChatSettingsPlan,
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
+  const { agent, controller } = target;
+  const profileDefault =
+    plan.model === "default" && agent === "claude"
+      ? controller.claudeProfileDefaultModel
+      : undefined;
   const shown = (): boolean => {
     const chat = useChatStore.getState().tabs[key];
     if (!chat) return true;
-    const now = chatChoicesOf(agent, chat.model);
+    const now = chatChoicesOf(agent, chat.model, modelPickerContextOf(target, chat.model));
     return (
-      (plan.model === undefined || now.model === plan.model) &&
+      (plan.model === undefined || now.model === plan.model || now.model === profileDefault) &&
       (plan.effort === undefined || now.effort === plan.effort) &&
       (plan.mode === undefined || now.mode === plan.mode)
     );
@@ -336,12 +369,13 @@ function whenShown(
 async function applySettings(
   workspaceId: string,
   tabId: string,
-  { agent, controller }: AgentTabController,
+  target: AgentTabController,
   wanted: CliChatSettings,
   allowDangerousMode = false,
   expectedMode?: string,
 ): Promise<void> {
-  await whenReady(workspaceId, tabId, agent);
+  const { agent, controller } = target;
+  await whenReady(workspaceId, tabId, agent, true);
   const currentTab = () => {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
@@ -363,6 +397,7 @@ async function applySettings(
       wanted,
       controller.supports("apply_flag_settings"),
       allowDangerousMode,
+      modelPickerContextOf(target, chat.model),
     );
   } catch (err) {
     throw new UiRequestError((err as Error).message);
@@ -374,7 +409,7 @@ async function applySettings(
     currentTab();
     await controller.setPermissionMode(plan.mode);
   }
-  await whenShown(workspaceId, tabId, agent, plan);
+  await whenShown(workspaceId, tabId, target, plan);
 }
 
 /** The agent's profile a --profile flag names, by name (any case) or id. */
@@ -467,18 +502,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.instructions": async ({ workspaceId, tabId, text }) => {
+    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
     if (tab?.type !== "claude" && tab?.type !== "codex") {
       throw new UiRequestError("that tab is not a Claude or Codex tab");
     }
-    if (text !== undefined) await saveSessionInstructions(workspaceId, tabId, text);
+    const session = tab.props.instructions ?? "";
+    const target = agentInstructionTarget(workspaceId, tab.type, tab.props.profileId, session);
+    const { config } = useAgentInstructionsStore.getState();
     return {
-      instructions: agentInstructionsOf(
-        workspaceId,
-        tab.type,
-        tab.props.profileId,
-        currentSessionInstructions(workspaceId, tabId),
-      ),
+      instructions: mergeAgentInstructions(config, target),
+      session,
+      layers: persistentInstructionLayers(config, target),
     };
   },
 
@@ -798,10 +833,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         user || allowDangerousMode,
         expectedMode,
       );
-    else await whenReady(workspaceId, tabId, target.agent);
+    else await whenReady(workspaceId, tabId, target.agent, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
-    return chatChoicesOf(target.agent, chat.model);
+    return chatChoicesOf(target.agent, chat.model, modelPickerContextOf(target, chat.model));
   },
 
   "chat.rename": async ({ workspaceId, tabId, title }) => {

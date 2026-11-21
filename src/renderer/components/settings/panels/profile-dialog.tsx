@@ -13,10 +13,10 @@ import { cn } from "@/utils/cn";
 import { isReservedProfileEnvName } from "../../../../shared/agent-profiles/env";
 import {
   type AgentProfile,
-  isDefaultDir,
   isDefaultProfileId,
   PROFILE_COLORS,
   portableProfileDir,
+  profileDirConflict,
   profilesOf,
   SHARABLE_LABELS,
   SHAREABLE,
@@ -125,6 +125,7 @@ export function ProfileDialog({
 }) {
   const { t } = useTranslation(["settings", "common"]);
   const config = useAgentProfilesStore((s) => s.config);
+  const defaultDir = useAgentProfilesStore((s) => s.defaultDirs[agent]);
   const hydrate = useAgentProfilesStore((s) => s.hydrate);
   const saveProfile = useAgentProfilesStore((s) => s.saveProfile);
   const connection = useProfileConnection(agent, profile);
@@ -170,15 +171,20 @@ export function ProfileDialog({
   const shareId = useId();
 
   const takenDirs = others.map((p) => p.dir).filter(Boolean);
-  const shownDir = dirTouched ? dir : suggestedProfileDir(agent, name, takenDirs);
   const options = matchOptions();
-  const dirError = isDefault
-    ? null
-    : isDefaultDir(agent, shownDir, options)
-      ? t("profiles.dialog.folderDefault")
-      : takenDirs.some((d) => isDefaultDir(agent, d, options) === false && sameDir(d, shownDir))
-        ? t("profiles.dialog.folderTaken")
-        : null;
+  const shownDir = dirTouched
+    ? dir
+    : suggestedProfileDir(agent, name, [defaultDir, ...takenDirs], options);
+  const folderConflict = isDefault
+    ? undefined
+    : profileDirConflict(agent, shownDir, takenDirs, options, defaultDir);
+  const dirError = folderConflict
+    ? t(
+        folderConflict === "default"
+          ? "profiles.dialog.folderDefault"
+          : "profiles.dialog.folderTaken",
+      )
+    : null;
   // A folder there already (one set up by hand) keeps what it links now,
   // rather than losing a link the defaults leave out.
   const [existing, setExisting] = useState(false);
@@ -471,11 +477,6 @@ export function ProfileDialog({
       </form>
     </Dialog>
   );
-}
-
-function sameDir(a: string, b: string): boolean {
-  const norm = (p: string) => p.trim().replace(/[\\/]+$/, "");
-  return norm(a) === norm(b);
 }
 
 // ---------------------------------------------------------------------------

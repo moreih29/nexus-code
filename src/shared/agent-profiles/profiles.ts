@@ -53,6 +53,7 @@ export function isDefaultProfileId(id: string): boolean {
 }
 
 const ProfileIdSchema = z.string().min(1).max(64);
+export const MAX_AGENT_PROFILES = 64;
 
 const EnvKeySchema = z
   .string()
@@ -110,7 +111,7 @@ function lenientArray<T extends z.ZodTypeAny>(item: T, max: number) {
 }
 
 const agentProfilesSchema = z.object({
-  profiles: lenientArray(AgentProfileSchema, 64),
+  profiles: lenientArray(AgentProfileSchema, MAX_AGENT_PROFILES),
   rules: lenientArray(ProfileRuleSchema, 512),
   /** Each agent's profile where no rule says; absent = the default profile. */
   defaults: z.object({ claude: ProfileIdSchema.optional(), codex: ProfileIdSchema.optional() }),
@@ -374,6 +375,7 @@ export function suggestedProfileDir(
   agent: ChatAgent,
   name: string,
   taken: readonly string[],
+  options: MatchOptions = {},
 ): string {
   const slug =
     name
@@ -383,10 +385,11 @@ export function suggestedProfileDir(
       .replace(/^-+|-+$/g, "")
       .slice(0, 24) || "profile";
   const base = `${DEFAULT_PROFILE_DIR[agent]}-${slug}`;
-  if (!taken.includes(base)) return base;
+  const used = new Set(taken.map((dir) => normalizePath(portableProfileDir(dir), options)));
+  if (!used.has(normalizePath(base, options))) return base;
   for (let n = 2; ; n++) {
     const candidate = `${base}-${n}`;
-    if (!taken.includes(candidate)) return candidate;
+    if (!used.has(normalizePath(candidate, options))) return candidate;
   }
 }
 
@@ -405,6 +408,25 @@ export function isDefaultDir(agent: ChatAgent, dir: string, options: MatchOption
   const trimmed = dir.trim();
   if (trimmed === "") return true;
   return normalizePath(trimmed, options) === normalizePath(DEFAULT_PROFILE_DIR[agent], options);
+}
+
+/** Whether a folder can be assigned to a non-default profile of this agent. */
+export function profileDirConflict(
+  agent: ChatAgent,
+  dir: string,
+  taken: readonly string[],
+  options: MatchOptions = {},
+  defaultDir?: string,
+): "default" | "taken" | undefined {
+  const normalized = (value: string) => normalizePath(portableProfileDir(value), options);
+  const target = normalized(dir);
+  if (
+    isDefaultDir(agent, portableProfileDir(dir), options) ||
+    (defaultDir && normalized(defaultDir) === target)
+  ) {
+    return "default";
+  }
+  if (taken.some((other) => other.trim() && normalized(other) === target)) return "taken";
 }
 
 /** How a shareable entry reads in a list: a folder with its slash. */

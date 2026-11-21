@@ -103,6 +103,45 @@ function agentRun(over: Partial<AgentRun>): AgentRun {
   };
 }
 
+test("a peer editing a task's workspace instructions asks for and changes the parent layer", async () => {
+  const calls: [string, unknown][] = [];
+  const base = services();
+  const s = {
+    ...base,
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return op === "consent.ask" ? { answer: "once" } : {};
+    },
+  } as CliServices;
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "ask" }) });
+
+  await expect(
+    serve({
+      from: "d",
+      method: "settings.instructions.set",
+      params: {
+        workspaceId: "w2",
+        layer: "workspace",
+        text: "",
+        from: { kind: "tab", workspaceId: "other-workspace", tabId: "other-tab" },
+      },
+    }),
+  ).resolves.toEqual({});
+  expect(calls).toEqual([
+    [
+      "consent.ask",
+      expect.objectContaining({
+        toWorkspaceId: "w1",
+        change: expect.objectContaining({
+          kind: "instructionsEdit",
+          instructionEdit: { layer: { kind: "workspace", name: "app" }, clear: true },
+        }),
+      }),
+    ],
+    ["settings.instructions.set", { scope: { kind: "workspace", id: "w1" }, text: "" }],
+  ]);
+});
+
 describe("the sessions list's renderer deadline", () => {
   test("a stuck tab list or chat leaves the other rows and the consent prompt usable", async () => {
     const pending: PendingConsent[] = [

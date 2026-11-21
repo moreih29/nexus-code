@@ -18,6 +18,7 @@ import {
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
+import { consentProfileLayer } from "../../../shared/cli/consent-copy";
 import type { CliChange } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/chat-modes";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
@@ -25,6 +26,7 @@ import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
 import { findNote } from "./notes";
 import { RpcFailure } from "./room";
+import { unavailable } from "./serving/common";
 
 const MINUTE_MS = 60_000;
 
@@ -429,16 +431,34 @@ async function changeOf(
         detail: `"${await title()}" (${profiles.from} → ${profiles.to})`,
       };
     }
-    case "settings.instructions.set":
+    case "settings.instructions.set": {
+      const { layer, profileId, text } = params;
+      let target: NonNullable<CliChange["instructionEdit"]>["layer"];
+      if (layer === "profile") {
+        const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
+        const profile = profiles.find(({ id }) => id === profileId);
+        if (!profile) throw new RpcFailure(RpcErrorCode.NotFound, "no such profile");
+        target = consentProfileLayer(profile, profiles);
+      } else {
+        target =
+          layer === "workspace"
+            ? {
+                kind: "workspace",
+                name:
+                  services.listWorkspaces().find((workspace) => workspace.id === workspaceId)
+                    ?.name ?? workspaceId.slice(0, 8),
+              }
+            : layer === "claude" || layer === "codex"
+              ? { kind: "agent", agent: layer }
+              : { kind: "all" };
+      }
       return {
         kind: "instructionsEdit",
-        detail:
-          params.layer === "workspace"
-            ? services.listWorkspaces().find((workspace) => workspace.id === workspaceId)?.name
-            : (AGENT_NAMES[String(params.layer)] ?? "Shared"),
-        body: String(params.text || "Clear this layer"),
+        instructionEdit: { layer: target, clear: !text },
+        body: String(text ?? ""),
         ...(eachTime ? { eachTime: true } : {}),
       };
+    }
     case "notes.speakers": {
       const action = params.change as Record<string, unknown>;
       return {

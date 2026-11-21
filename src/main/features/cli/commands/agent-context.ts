@@ -93,6 +93,8 @@ export function chatAgentContext(
 const remoteInstructions = [
   "Find other devices with nexus device list and session list --device all. Use --device NAME on",
   "chat, terminal, note, worktree, layout and view commands. The receiver sets the policy.",
+  "Use --device NAME with chat instructions TAB --show, --set-file FILE, or --clear,",
+  "and with settings instructions show/set.",
   "Use file list/pull/push --device NAME --workspace WS and events --device all --json for device cursors.",
 ];
 
@@ -125,7 +127,10 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
     "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
-    "chat profiles lists choices. Use chat fork/rewind and chat export --stdout for either agent.",
+    "chat profiles lists choices. On this computer, chat profiles add creates a profile with the user's",
+    "approval. Give API keys through --key-file FILE or --key-file - for stdin. Custom models accept",
+    "repeatable --reasoning MODEL=LEVEL (none, high, xhigh, max; Claude also auto).",
+    "Use chat fork/rewind and chat export --stdout for either agent.",
     "Claude Remote Control follows the workspace or device policy.",
     "Use --json for structured results. Repeat events --since N --wait 10m, one batch at a time.",
     ...(inRoom ? remoteInstructions : []),
@@ -145,6 +150,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
     "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
     "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
+    "Use settings instructions show --profile PROFILE for a profile's layers and",
+    "settings instructions set profile --profile PROFILE to edit its layer. chat profiles lists ids and names.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",

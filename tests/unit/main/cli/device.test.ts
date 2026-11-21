@@ -84,6 +84,41 @@ function rpcError(code: number, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
+test("setting a peer task's workspace instructions sends and names its parent workspace", async () => {
+  const app = withDevices();
+  app.peers.devices = app.peers.devices.map((device) =>
+    device.id === MINI ? { ...device, serves: [...device.serves, "agents.cli"] } : device,
+  );
+  app.peers.answer = async (_device, method) =>
+    method === "sessions.list"
+      ? {
+          workspaces: [
+            { id: PEER_WS, name: "site", path: "/Users/me/site" },
+            { id: "repair", name: "repair", path: "/Users/me/repair", parentId: PEER_WS },
+          ],
+          sessions: [],
+        }
+      : {};
+
+  const result = await nexus(app, [
+    "settings",
+    "instructions",
+    "set",
+    "workspace",
+    "--device",
+    MINI,
+    "--workspace",
+    "repair",
+    "--clear",
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe('Updated the workspace instruction layer for "site" on "Mac mini".\n');
+  expect(app.peers.requests.at(-1)).toMatchObject({
+    method: "settings.instructions.set",
+    params: { workspaceId: PEER_WS, layer: "workspace", text: "" },
+  });
+});
+
 describe("nexus device list", () => {
   test("lists the account's computers, this one first as the server has them", async () => {
     const result = await nexus(withDevices(), ["device", "list"]);
@@ -345,6 +380,10 @@ describe("nexus agent-context", () => {
       "Make worktrees with nexus worktree new, not git worktree add",
     );
     expect(note()?.status).toContain("--device NAME");
+    expect(note()?.status).toContain("chat instructions TAB --show, --set-file FILE, or --clear");
+    expect(note()?.status).toContain("settings instructions show/set");
+    expect(note()?.commands).toContain("settings instructions show --profile PROFILE");
+    expect(note()?.commands).toContain("settings instructions set profile --profile PROFILE");
     app.peers.inRoom = false;
     expect(note()?.status).toContain("outside a Nexus remote room");
     current.agentContext = false;

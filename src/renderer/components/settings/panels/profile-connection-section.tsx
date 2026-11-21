@@ -5,11 +5,10 @@ import { cn } from "@/utils/cn";
 import {
   CONNECTION_AUTH,
   CONNECTION_METHODS,
-  CONNECTION_PRESETS,
   CONNECTION_REASONING,
   type ConnectionModel,
   type ConnectionPreset,
-  isLocalConnectionPreset,
+  connectionPresetsFor,
 } from "../../../../shared/agent-profiles/connection";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { Button } from "../../ui/button";
@@ -114,9 +113,7 @@ export function ProfileConnectionSection({
   const group = useId();
   const custom = draft.method === "custom";
   const claude = agent === "claude";
-  const presets = CONNECTION_PRESETS.filter(
-    (value) => claude || value === "litellm" || isLocalConnectionPreset(value),
-  );
+  const presets = connectionPresetsFor(agent);
   return (
     <>
       <fieldset className="min-w-0 border-t border-border pt-3">
@@ -294,8 +291,8 @@ function ProfileConnectionModels({
   const grid = cn(
     "grid items-center gap-1.5",
     claude
-      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_3rem_1.5rem]"
-      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_5rem_3rem_1.5rem]",
+      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]"
+      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]",
   );
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-3">
@@ -355,12 +352,8 @@ function ProfileConnectionModels({
       <div aria-hidden="true" className={cn(grid, hintClass)}>
         <span>{t("profiles.connection.modelId")}</span>
         <span>{t("profiles.connection.label")}</span>
-        {!claude && (
-          <>
-            <span>{t("profiles.connection.context")}</span>
-            <span>{t("profiles.connection.reasoning")}</span>
-          </>
-        )}
+        {!claude && <span>{t("profiles.connection.context")}</span>}
+        <span>{t("profiles.connection.reasoning")}</span>
         <span className="text-center">{t("profiles.connection.default")}</span>
         <span />
       </div>
@@ -389,31 +382,32 @@ function ProfileConnectionModels({
             className={inputClass}
           />
           {!claude && (
-            <>
-              <NumberField
-                label={t("profiles.connection.context")}
-                value={row.contextWindow}
-                placeholder="131072"
-                onChange={(value) => draft.updateModel(row.rowId, { contextWindow: value })}
-              />
-              <select
-                aria-label={t("profiles.connection.reasoning")}
-                value={row.reasoning ?? "none"}
-                className={cn(inputClass, "px-1")}
-                onChange={(event) =>
-                  draft.updateModel(row.rowId, {
-                    reasoning: event.target.value as ConnectionModel["reasoning"],
-                  })
-                }
-              >
-                {CONNECTION_REASONING.map((value) => (
-                  <option key={value} value={value}>
-                    {t(`profiles.connection.effort.${value}`)}
-                  </option>
-                ))}
-              </select>
-            </>
+            <NumberField
+              label={t("profiles.connection.context")}
+              value={row.contextWindow}
+              placeholder="131072"
+              onChange={(value) => draft.updateModel(row.rowId, { contextWindow: value })}
+            />
           )}
+          <select
+            aria-label={t("profiles.connection.reasoning")}
+            value={row.reasoning ?? (claude ? "auto" : "none")}
+            className={cn(inputClass, "px-1")}
+            onChange={(event) => {
+              const value = event.target.value;
+              draft.updateModel(row.rowId, {
+                reasoning:
+                  claude && value === "auto" ? undefined : (value as ConnectionModel["reasoning"]),
+              });
+            }}
+          >
+            {claude && <option value="auto">{t("profiles.connection.effort.auto")}</option>}
+            {CONNECTION_REASONING.map((value) => (
+              <option key={value} value={value}>
+                {t(`profiles.connection.effort.${value}`)}
+              </option>
+            ))}
+          </select>
           <input
             type="radio"
             name={`${group}-default`}
@@ -432,6 +426,9 @@ function ProfileConnectionModels({
           </button>
         </div>
       ))}
+      {draft.reasoningModelIdError && (
+        <p className={errorClass}>{t("profiles.connection.errors.reasoningModelId")}</p>
+      )}
       <Button
         variant="ghost"
         size="sm"

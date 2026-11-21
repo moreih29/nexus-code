@@ -48,6 +48,14 @@ export interface InstructionTarget {
   session?: string;
 }
 
+/** Resolve the workspace layer from local metadata or a remote workspace listing. */
+export function workspaceInstructionTarget<
+  T extends { id: string; task?: { parentId: string }; parentId?: string },
+>(workspace: T | undefined, workspaces: readonly T[]): T | undefined {
+  const parentId = workspace?.task?.parentId ?? workspace?.parentId;
+  return parentId === undefined ? workspace : workspaces.find(({ id }) => id === parentId);
+}
+
 export function instructionText(config: AgentInstructions, scope: InstructionScope): string {
   switch (scope.kind) {
     case "all":
@@ -84,8 +92,8 @@ export function withInstruction(
   }
 }
 
-export function instructionLayers(config: AgentInstructions, target: InstructionTarget) {
-  const { agent, profile, workspace, session } = target;
+export function persistentInstructionLayers(config: AgentInstructions, target: InstructionTarget) {
+  const { agent, profile, workspace } = target;
   const scopes: { scope: InstructionScope; title: string }[] = [
     { scope: { kind: "all" }, title: "All agents" },
     { scope: { kind: "agent", agent }, title: agent === "claude" ? "Claude" : "Codex" },
@@ -100,13 +108,17 @@ export function instructionLayers(config: AgentInstructions, target: Instruction
       scope: { kind: "workspace", id: workspace.id },
       title: `Workspace: ${workspace.name}`,
     });
+  return scopes.map(({ scope, title }) => ({
+    scope,
+    title,
+    text: instructionText(config, scope).trim(),
+  }));
+}
+
+export function instructionLayers(config: AgentInstructions, target: InstructionTarget) {
   return [
-    ...scopes.map(({ scope, title }) => ({
-      scope,
-      title,
-      text: instructionText(config, scope).trim(),
-    })),
-    { scope: null, title: "This session", text: session?.trim() ?? "" },
+    ...persistentInstructionLayers(config, target),
+    { scope: null, title: "This session", text: target.session?.trim() ?? "" },
   ];
 }
 

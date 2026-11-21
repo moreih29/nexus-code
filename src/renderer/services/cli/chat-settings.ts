@@ -8,18 +8,22 @@ import type { CliChatChoices, CliChatSettings } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { type ChatModel, currentModelInfo, type ModelInfo } from "../chat/model";
+import { type ModelPickerContext, modelPickerOf } from "../chat/model-picker";
 
 /** What a tab runs with now, and what it may be set to. */
-export function chatChoicesOf(agent: ChatAgent, model: ChatModel): CliChatChoices {
-  const models = model.init?.models ?? [];
-  const current = currentModelInfo(models, model.model, model.chosenModel);
+export function chatChoicesOf(
+  agent: ChatAgent,
+  model: ChatModel,
+  context?: ModelPickerContext,
+): CliChatChoices {
+  const picker = modelPickerOf(agent, model, context);
   return {
     agent,
-    model: current?.value ?? model.model ?? null,
+    model: picker.value ?? null,
     effort: model.effort ?? null,
     mode: model.permissionMode ?? CHAT_MODES[agent].fallback,
-    models: models.map((m) => ({ value: m.value, name: m.displayName ?? m.value })),
-    efforts: current?.supportedEffortLevels ?? [],
+    models: picker.options.map(({ model, label }) => ({ value: model.value, name: label })),
+    efforts: picker.current?.supportedEffortLevels ?? [],
     ...(model.bypassBlocked ? { dangerousBlocked: model.bypassBlocked } : {}),
   };
 }
@@ -33,12 +37,17 @@ export interface ChatSettingsPlan {
 
 const listed = (names: readonly string[]) => names.join(", ");
 
-function modelNamed(models: readonly ModelInfo[], name: string): ModelInfo | undefined {
+function modelNamed(picker: ReturnType<typeof modelPickerOf>, name: string): ModelInfo | undefined {
   const lower = name.trim().toLowerCase();
+  const { models, options } = picker;
+  // The full list still accepts aliases the picker folds into a profile model.
   return (
     models.find((m) => m.value.toLowerCase() === lower) ??
     models.find((m) => m.displayName?.toLowerCase() === lower) ??
-    models.find((m) => m.resolvedModel?.toLowerCase() === lower)
+    models.find((m) => m.resolvedModel?.toLowerCase() === lower) ??
+    options.find(
+      ({ model, label }) => model.value.toLowerCase() === lower || label.toLowerCase() === lower,
+    )?.model
   );
 }
 
@@ -55,21 +64,22 @@ export function planChatSettings(
   effortSettable: boolean,
   /** Main authorized the dangerous mode, subject to the program's policy. */
   allowDangerousMode = false,
+  context?: ModelPickerContext,
 ): ChatSettingsPlan {
-  const models = model.init?.models ?? [];
-  const now = chatChoicesOf(agent, model);
+  const picker = modelPickerOf(agent, model, context);
   let nextModel: ModelInfo | undefined;
   if (wanted.model !== undefined) {
-    nextModel = modelNamed(models, wanted.model);
+    nextModel = modelNamed(picker, wanted.model);
     if (!nextModel) {
+      const values = picker.options.map(({ model }) => model.value);
       throw new Error(
-        models.length === 0
+        values.length === 0
           ? "it lists no models to pick from"
-          : `it offers no model "${wanted.model}"; it offers ${listed(models.map((m) => m.value))}`,
+          : `it offers no model "${wanted.model}"; it offers ${listed(values)}`,
       );
     }
   }
-  const modelInfo = nextModel ?? currentModelInfo(models, model.model, model.chosenModel);
+  const modelInfo = nextModel ?? picker.current;
   let effort: string | undefined;
   if (wanted.effort !== undefined) {
     if (!effortSettable) throw new Error("its Claude Code is too old to set the effort");
@@ -93,13 +103,20 @@ export function planChatSettings(
       throw new Error(`${mode} is turned off here: ${model.bypassBlocked}`);
     }
   }
-  const newModel = nextModel && nextModel.value !== now.model ? nextModel.value : undefined;
+  // A legacy default request may still change which alias is kept across restarts.
+  const currentValue =
+    nextModel?.value === "default"
+      ? (currentModelInfo(picker.models, model.model, model.chosenModel)?.value ?? picker.value)
+      : picker.value;
+  const newModel = nextModel && nextModel.value !== currentValue ? nextModel.value : undefined;
   return {
     ...(newModel !== undefined ? { model: newModel } : {}),
     // A new model may start at its own effort: set again after it.
-    ...(effort !== undefined && (effort !== now.effort || newModel !== undefined)
+    ...(effort !== undefined && (effort !== model.effort || newModel !== undefined)
       ? { effort }
       : {}),
-    ...(mode !== undefined && mode !== now.mode ? { mode } : {}),
+    ...(mode !== undefined && mode !== (model.permissionMode ?? CHAT_MODES[agent].fallback)
+      ? { mode }
+      : {}),
   };
 }

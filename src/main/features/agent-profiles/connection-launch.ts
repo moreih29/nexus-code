@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import {
+  API_KEY_CONNECTION_URL,
+  type ConnectionModel,
   type CustomConnection,
+  claudeReasoningModelIdSupported,
+  connectionReasoningLevels,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
@@ -31,6 +35,36 @@ export function sameLaunchConnection(before: AgentProfile | null, after: AgentPr
   return isDeepStrictEqual(launchConnection(before), launchConnection(after));
 }
 
+const NO_CLAUDE_EFFORT = "-effort,-xhigh_effort,-max_effort";
+
+function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): string {
+  switch (reasoning) {
+    case "max":
+      return "effort,xhigh_effort,max_effort";
+    case "high":
+      return "effort,-xhigh_effort,-max_effort";
+    case "xhigh":
+      return "effort,xhigh_effort,-max_effort";
+    default:
+      return NO_CLAUDE_EFFORT;
+  }
+}
+
+/**
+ * Claude Code's custom-endpoint capability rules. A blank reasoning, or a model
+ * ID its grammar cannot name, stays on Claude Code's own defaults. The settings
+ * dialog rejects that combination before it becomes a new saved profile.
+ */
+function claudeModelCapabilities(models: readonly ConnectionModel[]): string | undefined {
+  const rules: string[] = [];
+  for (const model of models) {
+    if (!model.reasoning || !claudeReasoningModelIdSupported(model.id)) continue;
+    const id = model.id.replace(/\[1m\]$/i, "").toLowerCase();
+    rules.push(`${id}=${claudeReasoningCapabilities(model.reasoning)}`);
+  }
+  return rules.length ? rules.join(";") : undefined;
+}
+
 export function claudeConnectionEnv(
   connection: AgentProfile["connection"],
   key: string | undefined,
@@ -48,7 +82,7 @@ export function claudeConnectionEnv(
   if (connection.method === "api-key") {
     return {
       ...routing,
-      ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      ANTHROPIC_BASE_URL: API_KEY_CONNECTION_URL.claude,
       ANTHROPIC_AUTH_TOKEN: "",
       ANTHROPIC_API_KEY: key ?? "",
     };
@@ -63,6 +97,8 @@ export function claudeConnectionEnv(
     ANTHROPIC_MODEL: defaultModel,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "0",
   };
+  const capabilities = claudeModelCapabilities(models);
+  if (capabilities) env.CLAUDE_CODE_MODEL_CAPABILITIES = capabilities;
   for (const [tier, id] of [
     ["OPUS", defaultModel],
     ["SONNET", defaultModel],
@@ -128,7 +164,7 @@ export function codexConnectionArgs(
       "-c",
       `model_provider=${tomlString(CODEX_PROVIDER)}`,
       "-c",
-      `model_providers.${CODEX_PROVIDER}={ name = "OpenAI API", base_url = "https://api.openai.com/v1", env_key = "${CODEX_PROVIDER_KEY}", wire_api = "responses", requires_openai_auth = false }`,
+      `model_providers.${CODEX_PROVIDER}={ name = "OpenAI API", base_url = "${API_KEY_CONNECTION_URL.codex}", env_key = "${CODEX_PROVIDER_KEY}", wire_api = "responses", requires_openai_auth = false }`,
     ];
   }
   if (connection?.method !== "custom") return [];
@@ -177,12 +213,7 @@ export function codexConnectionCatalog(connection: CustomConnection) {
   return {
     models: ordered.map((model, priority) => {
       const context = model.contextWindow ?? 131_072;
-      const efforts =
-        model.reasoning === "xhigh"
-          ? ["low", "medium", "high", "xhigh"]
-          : model.reasoning === "high"
-            ? ["low", "medium", "high"]
-            : [];
+      const efforts = connectionReasoningLevels(model.reasoning);
       return {
         slug: model.id,
         display_name: model.label || model.id,

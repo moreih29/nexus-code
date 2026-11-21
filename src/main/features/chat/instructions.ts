@@ -5,19 +5,24 @@ import {
   type AgentInstructions,
   ClaudeInstructionDigestSchema,
   mergeAgentInstructions,
+  workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 
 export function instructionsFor(
   config: AgentInstructions,
   profile: AgentProfile,
-  workspace: WorkspaceMeta | undefined,
+  workspaceId: string,
+  workspaces: readonly WorkspaceMeta[],
   session?: string,
 ): string {
   return mergeAgentInstructions(config, {
     agent: profile.agent,
     profile,
-    workspace,
+    workspace: workspaceInstructionTarget(
+      workspaces.find(({ id }) => id === workspaceId),
+      workspaces,
+    ),
     session,
   });
 }

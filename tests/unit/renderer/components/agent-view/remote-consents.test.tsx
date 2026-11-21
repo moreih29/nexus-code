@@ -71,6 +71,7 @@ describe("what another computer's consent prompt says", () => {
   test("a card: its question, all it would run, the seconds left, and the three answers", () => {
     const html = card(consent());
     expect(html).toContain("Allow an agent to change another workspace?");
+    expect(html).toMatch(/<p class="[^"]*break-keep \[overflow-wrap:anywhere\][^"]*">The terminal/);
     expect(html).toContain("rm -rf dist\nbun run build");
     // The body scrolls, as the prompt's box does.
     expect(html).toMatch(/<pre class="[^"]*overflow-auto/);
@@ -87,10 +88,44 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
+  test("instruction prompts use the viewer's language and name the layer", () => {
+    const change = {
+      kind: "instructionsEdit",
+      instructionEdit: {
+        layer: { kind: "profile", agent: "claude", name: "default", id: "claude-default" },
+        clear: true,
+      },
+      detail: "Old display text",
+      body: "이전 표시 문구",
+    } as const satisfies RemoteConsent["change"];
+    const prompt = consent({ change });
+    expect(consentActionOf(i18next.getFixedT("ko", "settings"), change)).toBe(
+      'Claude 프로필 "default" 지시 바꾸기를',
+    );
+    expect(consentSentenceOf(t, prompt, "api")).toBe(
+      'The terminal "zsh" in app asks to change instructions for Claude profile "default".',
+    );
+    const html = card(prompt);
+    expect(html).toContain("Allow an agent to change instructions?");
+    expect(html).toContain("Clear instructions");
+    expect(html).not.toContain(change.body);
+    const duplicate = {
+      ...change,
+      instructionEdit: {
+        ...change.instructionEdit,
+        layer: { ...change.instructionEdit.layer, showId: true },
+      },
+    };
+    expect(consentActionOf(t, duplicate)).toBe(
+      'change instructions for Claude profile "default" (claude-default)',
+    );
+  });
+
   test("one asked about each time is not answered until restart", () => {
     const html = card(consent({ eachTime: true }));
     expect(html).not.toContain("Allow until restart");
     expect(html).toContain("Allow once");
+    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow once/);
   });
 
   test("one this computer may not answer says where to, with no answers", () => {

@@ -138,6 +138,8 @@ nexus chat set 3fa2                                      # 지금 모델 · 추�
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 nexus chat profiles --agent codex --workspace WS --json
+nexus chat profiles add --agent codex --name Personal
+nexus chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --reasoning glm=max --reasoning kimi=auto --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json
 nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
 nexus chat send 3fa2 --after "끝나면 PR 올려줘"           # 턴이 끝날 때까지 보류 (id 출력)
 nexus chat send 3fa2 --now "그거 말고 이거부터"           # 턴 중에 바로 넣기 (Claude)
@@ -183,7 +185,7 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 - `chat history [검색어]` 는 워크스페이스 폴더의 지난 대화를 최신순으로 보여주고(`--agent codex`, `--limit N`), `chat resume <id>` 는 그 대화를 새 탭(뒤쪽)에서 이어갑니다. id 는 앞부분만 줘도 됩니다. 이미 열린 탭이 있으면 그 탭을 알려주고, `--tab` 이면 대화가 없는 그 탭에서 이어갑니다.
 - 다른 컴퓨터에서도 `chat send --after` 를 쓸 수 있습니다. 수신 기기에서 에이전트 제어를 끄면 에이전트가 보류한 메시지는 취소됩니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
-- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. `chat instructions`는 `--device`로 다른 기기의 세션 지시도 읽거나 수정할 수 있습니다.
+- `chat new --instructions-file` 과 `chat instructions --set-file` 은 명령을 실행한 곳의 UTF-8 파일을 읽습니다. 세션 지시를 고치면 다음 메시지부터 적용됩니다. `chat instructions`의 `--show`, `--set-file`, `--clear`는 모두 `--device`로 다른 기기에서도 쓸 수 있습니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 확인된 로컬 채팅 탭은 자기 권한 수준까지 다른 탭에 부여할 수 있습니다. 더 넓은 모드를 부여할 때는 사용자에게 묻습니다. 제한 없는 모드(`bypassPermissions`, `fullAccess`)를 CLI로 부여할 수 있는 것은 이미 그 모드로 실행 중인 로컬 채팅 탭입니다. 자기 탭의 설정은 바꾸지 않습니다.
@@ -192,7 +194,16 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 
 Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책을 따릅니다. `chat command TAB remote-control`은 토글이고, `chat remote-control TAB on` 또는 `off`로 상태를 지정할 수 있습니다. `chat send TAB /remote-control`과 별칭 `/rc`도 토글합니다. `--device`를 쓰면 받는 기기의 원격 에이전트 정책이 적용됩니다.
 
-`chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다. `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
+`chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
+
+`chat profiles add`는 로컬 워크스페이스에서 이 기기의 프로필을 추가합니다. `--agent claude|codex`와 `--name NAME`이 필요합니다. `--dir PATH`를 생략하면 설정 대화상자와 같은 규칙으로 `~/.claude-gateway` 같은 폴더를 제안합니다. 상대 경로는 CLI의 현재 폴더 기준입니다. 같은 에이전트의 이름은 대소문자를 무시해 비교하고, 이미 쓰는 폴더도 거절합니다. `--color`와 `--instructions-file FILE`로 색과 프로필 지시를 지정할 수 있습니다.
+
+- 계정 로그인은 기본 연결입니다. 추가한 뒤 설정 › 에이전트에서 로그인합니다. 제공자 기본 API에 연결하려면 `--method api-key --key-file FILE`을 씁니다.
+- 외부 API는 `--preset ID`나 `--base-url URL`로 선택합니다. 둘을 함께 주면 프리셋의 기본 주소를 바꿉니다. `--model ID`는 여러 번 줄 수 있고, 첫 모델이 기본입니다. `--default-model ID`와 Claude의 `--light-model ID`는 목록에 있는 모델을 고릅니다. `--auth bearer|x-api-key`는 Claude에서 인증 헤더를 고릅니다. Codex는 bearer만 사용합니다. 프리셋 목록은 `nexus chat profiles add --help`로 확인합니다.
+- `--reasoning MODEL=LEVEL`은 모델별 추론 강도를 정하며 여러 번 줄 수 있습니다. LEVEL은 `none`, `high`, `xhigh`, `max`이고 Claude는 `auto`도 받습니다. MODEL은 `--model`로 준 ID 중 하나여야 합니다. 생략한 모델은 설정 화면과 같게 Claude는 자동, Codex는 없음으로 저장됩니다. Claude 모델 ID에 `;`, `,`, `=` 또는 끝의 `*`가 있으면 `auto`만 지정할 수 있습니다.
+- 키가 필요한 경우 `--key-file FILE` 또는 `--key-file -`로 전달합니다. 승인 창에는 이름, 에이전트, 폴더, 연결 주소가 표시되며 사용자 승인은 매번 필요합니다. 성공하면 만든 프로필을 목록과 같은 열로 출력합니다. `--json`은 프로필 하나를 출력합니다.
+
+`chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 
 ## 세션들의 변화 따라가기
 
@@ -239,6 +250,7 @@ nexus chat tool 1a2b 4 --device "Mac mini"
 nexus chat files 1a2b report --device "Mac mini" --json
 nexus chat instructions 1a2b --show --device "Mac mini"
 nexus chat instructions 1a2b --set-file rules.md --device "Mac mini"
+nexus chat instructions 1a2b --clear --device "Mac mini"
 nexus chat rewind 1a2b 5 --device "Mac mini" --preview
 nexus chat set 1a2b --profile Work --device "Mac mini"
 nexus chat send 1a2b --after --image screenshot.png --device "Mac mini" "확인해 주세요"
@@ -521,7 +533,11 @@ nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이�
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings reset editor.fontSize        # 기본값으로
 nexus settings instructions show --workspace WS --agent codex --json
+nexus settings instructions show --device "Mac mini" --workspace WS --agent codex --json
+nexus settings instructions show --workspace WS --profile Work --json
 nexus settings instructions set codex --file rules.md
+nexus settings instructions set profile --profile Work --file -
+nexus settings instructions set profile --profile codex-default --device "Mac mini" --clear
 nexus settings instructions set workspace --workspace WS --clear
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
@@ -533,7 +549,10 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.
 - `terminal.shell` 은 로컬 워크스페이스의 새 터미널이 여는 셸입니다. `nexus terminal shells` 의 이름이나 id, 또는 `system`(시스템 기본)입니다.
 - `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
-- 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
+- `settings instructions show` 는 새 채팅에 적용될 지시의 출처와 합친 텍스트를 보여줍니다. 기본 에이전트는 Claude이고 워크스페이스 규칙이 프로필을 정합니다. `--profile`을 주면 그 프로필을 쓰며, `--agent`를 생략하면 프로필의 에이전트를 사용합니다. `--device`로 조회할 때 `--workspace`를 생략하면 상대 기기 사이드바의 첫 워크스페이스를 사용합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
+- 조회와 `settings instructions set profile`의 `--profile`은 `chat profiles`에 표시되는 ID 또는 이름을 받습니다. 이름이 겹치면 ID를 쓰세요. 프로필 레이어를 바꾸려면 `--file FILE` 또는 `--file -`로 새 텍스트를 주고, 비우려면 `--clear`를 씁니다. 원격 조회와 프로필 편집에는 에이전트 요청을 받는 원격 스키마 0.16.0 이상 기기가 필요합니다. 편집에는 대상 기기의 채팅 제어도 필요합니다.
+- 작업 워크스페이스를 지정하면 로컬·원격 `show`와 `set workspace` 모두 부모의 워크스페이스 레이어를 사용합니다. 편집에는 부모 워크스페이스의 변경 정책이 적용됩니다.
+- 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex·프로필 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
 - `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 

@@ -17,10 +17,12 @@ import {
 } from "../../../../../src/main/features/agent-profiles/connection-probe";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 import {
+  ConnectionModelSchema,
   type CustomConnection,
   connectionDefaultModel,
   connectionKeyTarget,
   connectionPreset,
+  connectionReasoningLevels,
   normalizeConnectionUrl,
 } from "../../../../../src/shared/agent-profiles/connection";
 import { mergeAgentEnv } from "../../../../../src/shared/agent-profiles/env";
@@ -119,6 +121,18 @@ describe("profile connections", () => {
     expect(JSON.stringify(resolved)).not.toContain("do-not-persist");
   });
 
+  test("reads old model rows and shares the same effort levels with both agents", () => {
+    expect(ConnectionModelSchema.parse({ id: "legacy" })).toEqual({ id: "legacy" });
+    expect(ConnectionModelSchema.parse({ id: "maximum", reasoning: "max" })).toEqual({
+      id: "maximum",
+      reasoning: "max",
+    });
+    expect(connectionReasoningLevels(undefined)).toEqual([]);
+    expect(connectionReasoningLevels("high")).toEqual(["low", "medium", "high"]);
+    expect(connectionReasoningLevels("xhigh")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(connectionReasoningLevels("max")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
   test("normalizes bases and preserves gateway prefixes and Codex query options", () => {
     expect(normalizeConnectionUrl("claude", "https://example.com/api/v1/")).toBe(
       "https://example.com/api",
@@ -153,6 +167,7 @@ describe("profile connections", () => {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "main/model",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "main/model",
       ANTHROPIC_DEFAULT_FABLE_MODEL: "main/model",
+      CLAUDE_CODE_MODEL_CAPABILITIES: "small=effort,-xhigh_effort,-max_effort",
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: "65536",
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
       CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
@@ -174,6 +189,57 @@ describe("profile connections", () => {
       { model: "main/model", label: "Main" },
     ]);
     expect(claudeModelPicker(undefined)).toBeUndefined();
+  });
+
+  test("leaves existing Claude profiles on Claude Code defaults until reasoning is explicit", () => {
+    const automatic: CustomConnection = {
+      ...connection,
+      defaultModel: "main/model",
+      models: [{ id: "main/model" }],
+    };
+    expect(claudeConnectionEnv(automatic, undefined)).not.toHaveProperty(
+      "CLAUDE_CODE_MODEL_CAPABILITIES",
+    );
+    expect(
+      claudeConnectionEnv(
+        { ...automatic, models: [{ id: "main/model", reasoning: "none" }] },
+        undefined,
+      ).CLAUDE_CODE_MODEL_CAPABILITIES,
+    ).toBe("main/model=-effort,-xhigh_effort,-max_effort");
+  });
+
+  test("bounds Claude effort per model and leaves unrepresentable IDs automatic", () => {
+    const custom: CustomConnection = {
+      ...connection,
+      defaultModel: "UPPER[1m]",
+      models: [{ id: "UPPER[1m]", reasoning: "xhigh" }],
+    };
+    expect(claudeConnectionEnv(custom, undefined).CLAUDE_CODE_MODEL_CAPABILITIES).toBe(
+      "upper=effort,xhigh_effort,-max_effort",
+    );
+    expect(
+      claudeConnectionEnv({ ...custom, models: [{ id: "UPPER[1m]", reasoning: "max" }] }, undefined)
+        .CLAUDE_CODE_MODEL_CAPABILITIES,
+    ).toBe("upper=effort,xhigh_effort,max_effort");
+    for (const id of ["model;other", "model,other", "model=other", "model*"]) {
+      for (const reasoning of ["none", "high"] as const) {
+        const env = claudeConnectionEnv(
+          {
+            ...custom,
+            defaultModel: id,
+            models: [
+              { id, reasoning },
+              { id: "UPPER[1m]", reasoning: "xhigh" },
+            ],
+          },
+          undefined,
+        );
+        expect(env.CLAUDE_CODE_MODEL_CAPABILITIES).toBe("upper=effort,xhigh_effort,-max_effort");
+      }
+      expect(
+        claudeConnectionEnv({ ...custom, defaultModel: id, models: [{ id }] }, undefined),
+      ).not.toHaveProperty("CLAUDE_CODE_MODEL_CAPABILITIES");
+    }
   });
 
   test("builds Codex provider overrides and a model catalog without exposing keys in args", () => {
@@ -211,6 +277,19 @@ describe("profile connections", () => {
       "low",
       "medium",
       "high",
+    ]);
+    const [maximum] = codexConnectionCatalog({
+      ...connection,
+      defaultModel: "maximum",
+      models: [{ id: "maximum", reasoning: "max" }],
+    }).models;
+    expect(maximum?.default_reasoning_level).toBe("low");
+    expect(maximum?.supported_reasoning_levels.map(({ effort }) => effort)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
     ]);
   });
 
