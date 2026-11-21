@@ -711,6 +711,9 @@ function mustBeLongEnough(password: string): void {
 function keyErrorOf(error: unknown, now: number, rethrow?: unknown): KeyError {
   if (error instanceof KeyError) return error;
   if (error instanceof SignedOutError) return new KeyError("signed-out");
+  if (error instanceof ServerError && error.status === 400 && error.code === "weak_kdf") {
+    return new KeyError("weak-kdf");
+  }
   if (error instanceof ServerError && error.status === 429) {
     return new KeyError("unavailable", now + (error.retryAfter ?? 60) * 1000);
   }
