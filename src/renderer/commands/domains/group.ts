@@ -4,7 +4,7 @@
 
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
-import { Grid } from "../../engine";
+import { type Direction, Grid } from "../../engine";
 import { openOrRevealEditor } from "../../services/editor";
 import { closeTabWithConfirm } from "../../services/editor/save/close-tab";
 import { requestTabFocus } from "../../services/tab-focus";
@@ -43,28 +43,16 @@ function splitActiveGroup(orientation: "horizontal" | "vertical"): void {
   }
 }
 
-function moveFocus(direction: "left" | "right" | "up" | "down"): void {
+function moveFocus(direction: Direction): void {
   const wsId = useActiveStore.getState().activeWorkspaceId;
   if (!wsId) return;
   const layout = useLayoutStore.getState().byWorkspace[wsId];
   if (!layout) return;
-  const leaves = Grid.allLeaves(layout.root);
-  if (leaves.length <= 1) return;
-  const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
-  if (currentIdx === -1) return;
-  const nextIdx =
-    direction === "left" || direction === "up"
-      ? currentIdx > 0
-        ? currentIdx - 1
-        : leaves.length - 1
-      : currentIdx < leaves.length - 1
-        ? currentIdx + 1
-        : 0;
-  const nextLeaf = leaves[nextIdx];
-  if (nextLeaf) {
-    useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
-    if (nextLeaf.activeTabId) requestTabFocus(nextLeaf.activeTabId);
-  }
+  const nextLeaf = Grid.adjacentLeaf(layout.root, layout.activeGroupId, direction);
+  if (!nextLeaf) return;
+
+  useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+  if (nextLeaf.activeTabId) requestTabFocus(nextLeaf.activeTabId);
 }
 
 export function registerGroupCommands(): Array<() => void> {
