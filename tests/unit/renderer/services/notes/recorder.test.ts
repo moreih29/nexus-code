@@ -13,7 +13,11 @@ import { startNoteRemovalListener } from "../../../../../src/renderer/state/note
 import { openOrRevealNoteTab } from "../../../../../src/renderer/state/operations/tabs";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import type { TranscriptFile } from "../../../../../src/shared/notes/transcript";
-import type { VoiceEvent, VoiceStartResult } from "../../../../../src/shared/remote/voice";
+import {
+  VOICE_CLOSE_SIGNED_OUT,
+  type VoiceEvent,
+  type VoiceStartResult,
+} from "../../../../../src/shared/remote/voice";
 import type { NoteChanged } from "../../../../../src/shared/types/notes";
 
 const realWindow = globalThis.window;
@@ -218,6 +222,40 @@ test("pause releases the microphone and excludes waiting for the server from the
   } finally {
     unsubscribe();
     clock.mockRestore();
+    hardware.restore();
+  }
+});
+
+test.each([
+  false,
+  true,
+])("4001 finalizes the recording with next take queued=%p", async (chaining) => {
+  const hardware = mockHardware();
+  const idle = Promise.withResolvers<void>();
+  const unsubscribe = useRecorderStore.subscribe((state) => {
+    if (state.phase === "idle") idle.resolve();
+  });
+  try {
+    await startRecording(workspaceId, noteId, "en");
+    if (!voiceEvent) throw new Error("missing voice listener");
+    voiceEvent({ id: ready.id, event: { t: "final", text: "one", speaker: "1" } });
+    voiceEvent({ id: ready.id, event: { t: "final", text: "two", speaker: "2" } });
+    if (chaining) {
+      voiceEvent({ id: ready.id, event: { t: "limit", reason: "session" } });
+      expect(useRecorderStore.getState().phase).toBe("starting");
+    }
+    voiceEvent({ id: ready.id, event: { t: "closed", code: VOICE_CLOSE_SIGNED_OUT } });
+    await idle.promise;
+    expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
+    expect(hardware.stopCapture).toHaveBeenCalledTimes(1);
+    expect(calls.filter((call) => call === "voiceStart")).toHaveLength(1);
+    expect(calls).not.toContain("voiceTranscribe");
+    const recording = useTranscriptsStore.getState().byNote[key]?.recordings[0];
+    expect(recording?.takes).toHaveLength(1);
+    expect(recording?.takes[0]?.token).toBeUndefined();
+    expect(recording?.lines.map((line) => line.text)).toEqual(["one", "two"]);
+  } finally {
+    unsubscribe();
     hardware.restore();
   }
 });

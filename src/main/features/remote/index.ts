@@ -313,6 +313,7 @@ export async function registerRemoteChannel(options: {
   const voice = new VoiceSessions({
     account,
     names,
+    retryAfter: socketRetryAfter,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   // A note's recording: its own session, so a dictation can go on beside it.
@@ -320,6 +321,7 @@ export async function registerRemoteChannel(options: {
     account,
     purpose: "note",
     names,
+    retryAfter: socketRetryAfter,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
@@ -437,7 +439,7 @@ export async function registerRemoteChannel(options: {
       onAccountEvent: () => void keys?.refresh().catch(() => {}),
       onPairFrame: (frame) => pairing.onRoomFrame(frame),
       // The relay says the sign-in ended: the server's 401 then signs the app out.
-      onSignedOut: () => void account.request("GET", "/me").catch(() => {}),
+      onSignedOut: () => account.recheckSignIn(),
     });
     room.start();
   }

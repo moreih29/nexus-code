@@ -18,6 +18,7 @@
  * socket's URL, which the server's edge logs.
  */
 import { randomUUID } from "node:crypto";
+import type { IncomingHttpHeaders } from "node:http";
 import WebSocket from "ws";
 import { z } from "zod";
 import {
@@ -33,6 +34,7 @@ import {
 import {
   type TranscribeFailure,
   type TranscribeResult,
+  VOICE_CLOSE_SIGNED_OUT,
   type VoiceEvent,
   type VoiceFailure,
   type VoiceStartResult,
@@ -45,6 +47,7 @@ import {
 } from "../../infra/http/body";
 import type { RemoteAccount } from "./account";
 import { OutdatedError, ServerError, SignedOutError, UnreachableError } from "./errors";
+import { retryAfterSeconds, SocketRetryAfter } from "./retry-after";
 import { askTicket } from "./ticket";
 import { voiceNamesOf } from "./voice-names";
 
@@ -52,6 +55,8 @@ import { voiceNamesOf } from "./voice-names";
 export const READY_TIMEOUT_MS = 10_000;
 /** How long after `end` the socket is closed if the server has not finished. */
 export const END_TIMEOUT_MS = 8_000;
+/** A voice rate limit without a Retry-After header still pauses new sessions. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
 /** The part of a `ws` socket used here, so a test can stand in for it. */
 export interface VoiceSocket {
@@ -72,6 +77,7 @@ export interface VoiceSocket {
 /** The refused upgrade's response, as much of it as is read. */
 export interface UpgradeRefusal {
   statusCode?: number;
+  headers: IncomingHttpHeaders;
   destroy(): void;
   on(event: "data", listener: (chunk: Buffer) => void): unknown;
   on(event: "end", listener: () => void): unknown;
@@ -79,7 +85,7 @@ export interface UpgradeRefusal {
 }
 
 export interface VoiceSessionsDeps {
-  account: Pick<RemoteAccount, "state" | "info" | "request" | "upload" | "route">;
+  account: Pick<RemoteAccount, "state" | "info" | "request" | "upload" | "route" | "recheckSignIn">;
   /** What the sessions are for; a note's carry voices, times and a second pass. */
   purpose?: VoicePurpose;
   emit(event: VoiceEvent): void;
@@ -89,6 +95,7 @@ export interface VoiceSessionsDeps {
    */
   names?: () => Promise<readonly string[]>;
   socket?: (url: string) => VoiceSocket;
+  retryAfter?: SocketRetryAfter;
 }
 
 interface Open {
@@ -99,9 +106,10 @@ interface Open {
 
 /** Why the server refused the upgrade, from its status and its body's `error`. */
 export function refusalOf(status: number | undefined, code: string | undefined): VoiceFailure {
+  if (status === 429) return code === "too_many_sessions" ? "busy" : "rate-limited";
   if (status === 401 || code === "unauthorized" || code === "not_invited") return "signed-out";
   if (status === 403 || code === "quota_exceeded") return "quota";
-  if (status === 429 || code === "too_many_sessions") return "busy";
+  if (code === "too_many_sessions") return "busy";
   if (status === 503 || code === "voice_unavailable") return "unavailable";
   return "failed";
 }
@@ -137,8 +145,11 @@ export class VoiceSessions {
   private open: Open | null = null;
   /** A start under way, so a second click does not open a second socket. */
   private starting = false;
+  private readonly retryAfter: SocketRetryAfter;
 
-  constructor(private readonly deps: VoiceSessionsDeps) {}
+  constructor(private readonly deps: VoiceSessionsDeps) {
+    this.retryAfter = deps.retryAfter ?? new SocketRetryAfter();
+  }
 
   /** Whether `id` is this one's open session. */
   has(id: string): boolean {
@@ -160,6 +171,7 @@ export class VoiceSessions {
     const { account } = this.deps;
     const state = account.state();
     if (state.status !== "signed-in") return failed("signed-out", "not signed in to NexusCode");
+    if (this.retryAfter.remaining() > 0) return this.rateLimited();
     let ticket: string;
     // Gathered while the server is asked what it offers.
     const names = (this.deps.names?.() ?? Promise.resolve([])).catch(() => []);
@@ -167,12 +179,15 @@ export class VoiceSessions {
       const info = await account.info();
       if (!info.voice) return failed("unavailable", "the server has no voice input");
       const body = ticketBody(await names);
+      if (this.retryAfter.remaining() > 0) return this.rateLimited();
       ticket = await askTicket(account, body);
     } catch (error) {
       if (error instanceof SignedOutError) return failed("signed-out", error.message);
       if (error instanceof OutdatedError) return failed("outdated", error.message);
       if (error instanceof UnreachableError) return failed("network", error.message);
       if (error instanceof ServerError) {
+        if (error.status === 429)
+          return this.rateLimited(error.retryAfter ?? DEFAULT_RETRY_AFTER_SECONDS);
         return failed(
           error.code === RESPONSE_TOO_LARGE ? RESPONSE_TOO_LARGE : "failed",
           error.message,
@@ -180,6 +195,7 @@ export class VoiceSessions {
       }
       throw error;
     }
+    if (this.retryAfter.remaining() > 0) return this.rateLimited();
     const url = account.route.url("/voice", { socket: true });
     url.search = new URLSearchParams({
       v: String(VOICE_VERSION),
@@ -207,6 +223,13 @@ export class VoiceSessions {
       };
 
       socket.on("unexpected-response", (_request, response) => {
+        const retryAfter = retryAfterSeconds(response.headers["retry-after"]);
+        if (!settled && response.statusCode === 429 && retryAfter !== undefined) {
+          settle(this.rateLimited(retryAfter));
+          socket.terminate();
+          response.destroy();
+          return;
+        }
         const decoder = new TextDecoder();
         const body: string[] = [];
         let bytes = 0;
@@ -227,11 +250,14 @@ export class VoiceSessions {
           if (settled) return;
           body.push(decoder.decode());
           const code = errorOf(body.join(""));
+          const reason = refusalOf(response.statusCode, code);
           settle(
-            failed(
-              refusalOf(response.statusCode, code),
-              `the server refused voice input (${response.statusCode ?? "?"}${code ? ` ${code}` : ""})`,
-            ),
+            reason === "rate-limited"
+              ? this.rateLimited(DEFAULT_RETRY_AFTER_SECONDS)
+              : failed(
+                  reason,
+                  `the server refused voice input (${response.statusCode ?? "?"}${code ? ` ${code}` : ""})`,
+                ),
           );
           socket.terminate();
         });
@@ -268,13 +294,20 @@ export class VoiceSessions {
         if (this.open?.id === id) this.deps.emit({ id, event: message });
       });
       socket.on("close", (code) => {
-        settle(failed("network", `the voice socket closed (${code})`));
+        const signedOut = code === VOICE_CLOSE_SIGNED_OUT;
+        if (signedOut) account.recheckSignIn();
+        settle(failed(signedOut ? "signed-out" : "network", `the voice socket closed (${code})`));
         if (this.open?.id !== id) return;
         clearTimeout(this.open.endTimer);
         this.open = null;
         this.deps.emit({ id, event: { t: "closed", code } });
       });
     });
+  }
+
+  private rateLimited(seconds?: number): VoiceStartResult {
+    if (seconds !== undefined) this.retryAfter.pause(seconds);
+    return failed("rate-limited", "the server limited voice connection attempts");
   }
 
   /** Sends audio to the open session; audio for another, or after it ended, is dropped. */

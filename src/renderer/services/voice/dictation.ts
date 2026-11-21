@@ -10,7 +10,11 @@
 import i18next from "i18next";
 import { create } from "zustand";
 import type { VoicePurpose } from "../../../../packages/remote-protocol/src/voice";
-import type { VoiceEvent, VoiceFailure } from "../../../shared/remote/voice";
+import {
+  VOICE_CLOSE_SIGNED_OUT,
+  type VoiceEvent,
+  type VoiceFailure,
+} from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
@@ -60,6 +64,10 @@ interface Session {
   owner: string;
   id: string | null;
   capture: Capture | null;
+  /** Revocations received while waiting for IPC to return the session's id. */
+  revokedBeforeStart?: Set<string>;
+  /** Releases the microphone while the audio worklet is still starting. */
+  releaseStartingStream?: () => void;
   /** Stopped (or dropped) while still starting: the start undoes itself. */
   abandoned: boolean;
   stopTimer?: ReturnType<typeof setTimeout>;
@@ -135,7 +143,13 @@ function listen(): void {
 }
 
 function onEvent({ id, event }: VoiceEvent): void {
-  if (!session || session.id !== id) return;
+  if (!session) return;
+  if (session.id !== id) {
+    if (event.t === "closed" && event.code === VOICE_CLOSE_SIGNED_OUT) {
+      session.revokedBeforeStart?.add(id);
+    }
+    return;
+  }
   switch (event.t) {
     case "partial":
       useDictationStore.setState({ partial: event.text });
@@ -157,7 +171,7 @@ function onEvent({ id, event }: VoiceEvent): void {
     case "closed": {
       const stopping = useDictationStore.getState().phase === "stopping";
       // 4001: the sign-in ended. Anything but a finished session while still listening: it dropped.
-      if (event.code === 4001) tellFailure("signed-out");
+      if (event.code === VOICE_CLOSE_SIGNED_OUT) tellFailure("signed-out");
       else if (event.code !== 1000 && !stopping) {
         showToast({ kind: "error", message: i18next.t("common:voice.failure.dropped") });
       }
@@ -172,6 +186,7 @@ function finish(): void {
   const ending = session;
   if (!ending) return;
   session = null;
+  ending.releaseStartingStream?.();
   ending.capture?.stop();
   clearTimeout(ending.stopTimer);
   clearInterval(ending.levelTimer);
@@ -206,10 +221,9 @@ async function startDictation(owner: string, language: string): Promise<void> {
   session = mine;
   useDictationStore.setState({ phase: "starting", owner, finals: "", partial: "", level: 0 });
   const giveUp = (reason?: VoiceFailure | CaptureError["reason"]) => {
-    if (session === mine) {
-      session = null;
-      useDictationStore.setState({ phase: "idle", owner: null, finals: "", partial: "" });
-    }
+    if (session !== mine) return;
+    session = null;
+    useDictationStore.setState({ phase: "idle", owner: null, finals: "", partial: "" });
     if (reason && !mine.abandoned) tellFailure(reason);
   };
 
@@ -234,7 +248,10 @@ async function startDictation(owner: string, language: string): Promise<void> {
     return giveUp();
   }
 
+  const revoked = new Set<string>();
+  mine.revokedBeforeStart = revoked;
   const started = await ipcCallResult("remote", "voiceStart", { language });
+  mine.revokedBeforeStart = undefined;
   if (!started.ok) {
     stopStream();
     return giveUp("failed");
@@ -244,19 +261,26 @@ async function startDictation(owner: string, language: string): Promise<void> {
     return giveUp(started.value.reason);
   }
   const { id, sampleRate, maxSeconds } = started.value;
+  if (revoked.has(id)) {
+    stopStream();
+    return giveUp("signed-out");
+  }
   mine.id = id;
   if (mine.abandoned) {
     stopStream();
     void ipcCallResult("remote", "voiceCancel", { id });
     return giveUp();
   }
+  mine.releaseStartingStream = stopStream;
   try {
     mine.capture = await startCapture(stream, sampleRate, (audio) => {
-      void ipcCallResult("remote", "voiceAudio", { id, audio });
+      if (session === mine) void ipcCallResult("remote", "voiceAudio", { id, audio });
     });
   } catch (error) {
     void ipcCallResult("remote", "voiceCancel", { id });
     return giveUp(error instanceof CaptureError ? error.reason : "failed");
+  } finally {
+    mine.releaseStartingStream = undefined;
   }
   if (mine.abandoned || session !== mine) {
     mine.capture.stop();

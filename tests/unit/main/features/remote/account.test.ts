@@ -397,6 +397,34 @@ describe("the account", () => {
     expect(store.value).toBeNull();
   });
 
+  test("simultaneous socket revocations recheck /me once and a 401 clears the sign-in", async () => {
+    const store = memoryStore({ server: SERVER, token: "tok", user, device });
+    const response = Promise.withResolvers<Response>();
+    const signedOut = Promise.withResolvers<void>();
+    const paths: string[] = [];
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      fetch: ((url: URL) => {
+        paths.push(url.pathname);
+        return response.promise;
+      }) as typeof fetch,
+      onChange: (state) => {
+        if (state.status === "signed-out") signedOut.resolve();
+      },
+    });
+    await account.restore();
+    account.recheckSignIn();
+    account.recheckSignIn();
+    expect(paths).toEqual(["/me"]);
+    response.resolve(new Response(null, { status: 401 }));
+    await signedOut.promise;
+    expect(store.value).toBeNull();
+    account.recheckSignIn();
+    expect(paths).toEqual(["/me"]);
+  });
+
   test("a 403 not_invited signs it out and says why; another 403 does not", async () => {
     const saved = { server: SERVER, token: "tok", user, device };
     const store = memoryStore(saved);

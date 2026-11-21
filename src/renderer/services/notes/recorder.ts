@@ -24,7 +24,11 @@ import {
 } from "../../../shared/notes/transcript";
 import { VOICE_NAME_LINE_MS } from "../../../shared/notes/voice-names";
 import type { VoiceSample } from "../../../shared/notes/voices";
-import type { VoiceEvent } from "../../../shared/remote/voice";
+import {
+  VOICE_CLOSE_SIGNED_OUT,
+  type VoiceEvent,
+  type VoiceFailure,
+} from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { voiceAvailability, voiceAvailabilityNow } from "../voice/availability";
@@ -309,13 +313,15 @@ function onEvent({ id, event }: VoiceEvent): void {
       return;
     case "ready":
       return;
-    case "closed":
-      if (event.code === 4001) tellFailure("signed-out", "note");
+    case "closed": {
+      const signedOut = event.code === VOICE_CLOSE_SIGNED_OUT;
+      if (signedOut) tellFailure("signed-out", "note");
       else if (event.code !== 1000 && !a.ending) {
         showToast({ kind: "error", message: t("failure.dropped") });
       }
-      void finishTake(a);
+      void finishTake(a, signedOut);
       return;
+    }
   }
 }
 
@@ -459,11 +465,10 @@ async function startVoiceTake(
     return false;
   }
   if (!started.ok || started.value.status === "failed") {
-    tellFailure(
+    voiceStartFailed(
+      a,
       started.ok && started.value.status === "failed" ? started.value.reason : "failed",
-      "note",
     );
-    releaseMicrophone(a);
     return false;
   }
   const { id, sampleRate } = started.value;
@@ -472,9 +477,11 @@ async function startVoiceTake(
     if (active !== a) return false;
     const code = starting.closed.get(id);
     if (code === undefined) return true;
-    releaseMicrophone(a);
-    if (code === 4001) tellFailure("signed-out", "note");
-    else showToast({ kind: "error", message: t("failure.dropped") });
+    if (code === VOICE_CLOSE_SIGNED_OUT) voiceStartFailed(a, "signed-out");
+    else {
+      releaseMicrophone(a);
+      showToast({ kind: "error", message: t("failure.dropped") });
+    }
     return false;
   }
   if (!canCapture()) return false;
@@ -530,6 +537,12 @@ async function startVoiceTake(
   }, 100);
   set({ phase: "recording", baseMs: a.offsetMs, takeSince: a.takeSince, partial: null });
   return true;
+}
+
+function voiceStartFailed(a: Active, reason: VoiceFailure): void {
+  releaseMicrophone(a);
+  tellFailure(reason, "note");
+  if (reason === "signed-out" && a.take >= 0) void finishRecording(a, false);
 }
 
 /** Records the stream as Opus into the take's file, a piece every AUDIO_SLICE_MS. */
@@ -612,13 +625,17 @@ function releaseMicrophone(a: Active): void {
 }
 
 /** The take's session closed: its file is written out, then the recording pauses, stops or goes on. */
-async function finishTake(a: Active): Promise<void> {
+async function finishTake(a: Active, signedOut = false): Promise<void> {
   if (!a.sessionId) return;
   a.sessionId = null;
   clearTimeout(a.endTimer);
   // Closed without being ended (it dropped): what was heard is kept, and the recording pauses.
-  const ending = a.ending ?? "pause";
+  const ending = signedOut ? "stop" : (a.ending ?? "pause");
   if (!a.ending) endTakeAudio(a, ending);
+  else if (signedOut) {
+    releaseMicrophone(a);
+    set({ phase: "stopping" });
+  }
   const baseMs = a.offsetMs + (a.takeLengthMs ?? 0);
   await a.mediaDone;
   await a.writes;
@@ -644,10 +661,10 @@ async function finishTake(a: Active): Promise<void> {
     await flushTranscript(a.workspaceId, a.noteId, true);
     return;
   }
-  await finishRecording(a);
+  await finishRecording(a, !signedOut);
 }
 
-async function finishRecording(a: Active): Promise<void> {
+async function finishRecording(a: Active, secondPass = true): Promise<void> {
   updateRecording(a.workspaceId, a.noteId, a.recordingId, numberSpeakers);
   active = null;
   stopListening();
@@ -658,7 +675,9 @@ async function finishRecording(a: Active): Promise<void> {
   if (!recording) return;
   if (a.audioSaved && a.voices) await refreshVoiceSuggestions(a, a.voices.nameSamples());
   // Words of more than one person: a meeting, which the second pass hears better. One: done.
-  if (peopleIn(recording) >= 2) void runSecondPass(a.workspaceId, a.noteId, a.recordingId);
+  if (secondPass && peopleIn(recording) >= 2) {
+    void runSecondPass(a.workspaceId, a.noteId, a.recordingId);
+  }
 }
 
 /**

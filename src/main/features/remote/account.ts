@@ -101,6 +101,7 @@ export interface RemoteAccountDeps {
 export class RemoteAccount {
   private saved: SavedAccount | null = null;
   private signingIn: LoopbackListener | null = null;
+  private recheckingToken: string | undefined;
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
   private readonly fetch: typeof fetch;
@@ -206,6 +207,18 @@ export class RemoteAccount {
     if (!this.saved) return;
     await this.call("POST", "/auth/logout").catch(() => {});
     this.forget();
+  }
+
+  /** A socket says the sign-in ended. Let the authenticated request confirm it. */
+  recheckSignIn(): void {
+    const token = this.token();
+    if (!token || this.recheckingToken === token) return;
+    this.recheckingToken = token;
+    void this.request("GET", "/me")
+      .catch(() => {})
+      .finally(() => {
+        if (this.recheckingToken === token) this.recheckingToken = undefined;
+      });
   }
 
   /** What the server offers: its sign-ins, and whether it has the relay and voice. */

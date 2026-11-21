@@ -2037,6 +2037,7 @@
       "unavailable": "No voice input on this server.",
       "quota": "This month's voice minutes are used up.",
       "busy": "Voice input is already on in two places. Stop one first.",
+      "rate-limited": "Too many voice requests. Try again in a moment.",
       "network": "Can't reach the server.",
       "outdated": "Update NexusCode to use voice input.",
       "failed": "Voice input didn't start.",
