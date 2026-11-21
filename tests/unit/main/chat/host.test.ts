@@ -194,6 +194,37 @@ describe("Claude instruction history", () => {
     return params.env.NEXUS_CHAT_INSTRUCTION_LAUNCH ?? "";
   }
 
+  test.each([
+    "prompt",
+    "restore",
+  ] as const)("a %s hook picks up saved session edits and clears without another send", async (phase) => {
+    let saved = { profileId: "claude-default", instructions: "BASE" };
+    const instructions = mock(
+      (_workspaceId: string, _profile: AgentProfile, session?: string) => session ?? "",
+    );
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      instructions,
+      savedClaudeInstructions: () => saved,
+    });
+    await host.start(WS, TAB, "/repo", {}, undefined, saved.instructions);
+    await host.send(WS, TAB, { type: "user" }, { instructions: saved.instructions });
+    const launch = launchOf(channel);
+    const hook = { sessionId: parent, phase };
+
+    saved = { profileId: "other-profile", instructions: "EDITED" };
+    expect(host.claudeHookInstructions(WS, TAB, launch, hook)).toEndWith("EDITED");
+    expect(instructions).toHaveBeenLastCalledWith(
+      WS,
+      expect.objectContaining({ id: "claude-default" }),
+      "EDITED",
+    );
+
+    saved = { ...saved, instructions: "" };
+    expect(host.claudeHookInstructions(WS, TAB, launch, hook)).toContain(
+      "NexusCode instructions were cleared.",
+    );
+  });
+
   test("a restarted app replaces a stale block on the first prompt of a resumed chat", async () => {
     const { open, sendOriginalReplacement } = instructionsFixture();
     await sendOriginalReplacement();
