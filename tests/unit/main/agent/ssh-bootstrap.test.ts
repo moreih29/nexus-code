@@ -1102,6 +1102,35 @@ describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
     expect(cmd).toContain(".sock");
   });
 
+  it.skipIf(process.platform === "win32")(
+    "passes a socket under a home with spaces as one argument",
+    () => {
+      const bin = path.join(tmpDir, "fake agent");
+      const home = path.join(tmpDir, "remote home");
+      const root = "/project";
+      const version = "0.9.0";
+      fs.writeFileSync(
+        bin,
+        '#!/bin/sh\nif [ "$1" = --dial ]; then printf "%s\\n" "$#" "$2"; fi\n',
+        { mode: 0o755 },
+      );
+
+      // Run the generated script without local login profiles overriding the remote HOME.
+      const command = buildRemoteAgentCommand(bin, root, version).replace(
+        /^bash -lc /,
+        "/bin/bash --noprofile -c ",
+      );
+      const result = spawnSync("/bin/sh", ["-c", command], {
+        cwd: tmpDir,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(`2\n${home}/.nexus-code/run/${computeWsId(root, version)}.sock\n`);
+    },
+  );
+
   it("computeWsId matches Go agentrun.WsID (TestWsIDMatchesClient)", () => {
     expect(computeWsId("/home/user/repo", "0.9.0")).toBe("750ec38c28740580");
   });
