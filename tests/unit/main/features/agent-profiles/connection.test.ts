@@ -153,6 +153,8 @@ describe("profile connections", () => {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "main/model",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "main/model",
       ANTHROPIC_DEFAULT_FABLE_MODEL: "main/model",
+      CLAUDE_CODE_MODEL_CAPABILITIES:
+        "-effort,-xhigh_effort,-max_effort;small=effort,-xhigh_effort,-max_effort",
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: "65536",
       CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
       CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
@@ -174,6 +176,28 @@ describe("profile connections", () => {
       { model: "main/model", label: "Main" },
     ]);
     expect(claudeModelPicker(undefined)).toBeUndefined();
+  });
+
+  test("bounds Claude effort per model without confusing capability-rule delimiters", () => {
+    const custom: CustomConnection = {
+      ...connection,
+      defaultModel: "UPPER[1m]",
+      models: [{ id: "UPPER[1m]", reasoning: "xhigh" }],
+    };
+    expect(claudeConnectionEnv(custom, undefined).CLAUDE_CODE_MODEL_CAPABILITIES).toBe(
+      "-effort,-xhigh_effort,-max_effort;upper=effort,xhigh_effort,-max_effort",
+    );
+    for (const id of ["model;other", "model,other", "model=other", "model*"]) {
+      expect(() =>
+        claudeConnectionEnv(
+          { ...custom, defaultModel: id, models: [{ id, reasoning: "high" }] },
+          undefined,
+        ),
+      ).toThrow("cannot configure reasoning");
+      expect(() =>
+        claudeConnectionEnv({ ...custom, defaultModel: id, models: [{ id }] }, undefined),
+      ).not.toThrow();
+    }
   });
 
   test("builds Codex provider overrides and a model catalog without exposing keys in args", () => {

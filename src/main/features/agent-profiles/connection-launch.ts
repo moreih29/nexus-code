@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import {
   API_KEY_CONNECTION_URL,
+  type ConnectionModel,
   type CustomConnection,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
@@ -30,6 +31,40 @@ function launchConnection(profile: AgentProfile | null): unknown {
 
 export function sameLaunchConnection(before: AgentProfile | null, after: AgentProfile): boolean {
   return isDeepStrictEqual(launchConnection(before), launchConnection(after));
+}
+
+const NO_CLAUDE_EFFORT = "-effort,-xhigh_effort,-max_effort";
+
+function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): string {
+  switch (reasoning) {
+    case "high":
+      return "effort,-xhigh_effort,-max_effort";
+    case "xhigh":
+      return "effort,xhigh_effort,-max_effort";
+    default:
+      return NO_CLAUDE_EFFORT;
+  }
+}
+
+/**
+ * Claude Code's custom-endpoint capability rules. An unset rule enables every
+ * effort level on unknown models, so opt out globally and enable each configured
+ * model explicitly. The grammar has no escaping for these model-ID delimiters.
+ */
+function claudeModelCapabilities(models: readonly ConnectionModel[]): string {
+  const rules = [NO_CLAUDE_EFFORT];
+  for (const model of models) {
+    if (!model.reasoning || model.reasoning === "none") continue;
+    const id = model.id.replace(/\[1m\]$/i, "").toLowerCase();
+    if (/[;,=]/.test(id) || id.endsWith("*")) {
+      throw new Error(
+        `Claude model ID ${JSON.stringify(model.id)} cannot configure reasoning: ` +
+          '";", ",", "=", and a trailing "*" are reserved by Claude Code',
+      );
+    }
+    rules.push(`${id}=${claudeReasoningCapabilities(model.reasoning)}`);
+  }
+  return rules.join(";");
 }
 
 export function claudeConnectionEnv(
@@ -63,6 +98,7 @@ export function claudeConnectionEnv(
     ANTHROPIC_API_KEY: connection.auth === "x-api-key" ? token : "",
     ANTHROPIC_MODEL: defaultModel,
     CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "0",
+    CLAUDE_CODE_MODEL_CAPABILITIES: claudeModelCapabilities(models),
   };
   for (const [tier, id] of [
     ["OPUS", defaultModel],

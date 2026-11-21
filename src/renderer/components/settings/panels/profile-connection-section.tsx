@@ -291,7 +291,7 @@ function ProfileConnectionModels({
   const grid = cn(
     "grid items-center gap-1.5",
     claude
-      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_3rem_1.5rem]"
+      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_3rem_1.5rem]"
       : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_5rem_3rem_1.5rem]",
   );
   return (
@@ -352,12 +352,8 @@ function ProfileConnectionModels({
       <div aria-hidden="true" className={cn(grid, hintClass)}>
         <span>{t("profiles.connection.modelId")}</span>
         <span>{t("profiles.connection.label")}</span>
-        {!claude && (
-          <>
-            <span>{t("profiles.connection.context")}</span>
-            <span>{t("profiles.connection.reasoning")}</span>
-          </>
-        )}
+        {!claude && <span>{t("profiles.connection.context")}</span>}
+        <span>{t("profiles.connection.reasoning")}</span>
         <span className="text-center">{t("profiles.connection.default")}</span>
         <span />
       </div>
@@ -386,31 +382,29 @@ function ProfileConnectionModels({
             className={inputClass}
           />
           {!claude && (
-            <>
-              <NumberField
-                label={t("profiles.connection.context")}
-                value={row.contextWindow}
-                placeholder="131072"
-                onChange={(value) => draft.updateModel(row.rowId, { contextWindow: value })}
-              />
-              <select
-                aria-label={t("profiles.connection.reasoning")}
-                value={row.reasoning ?? "none"}
-                className={cn(inputClass, "px-1")}
-                onChange={(event) =>
-                  draft.updateModel(row.rowId, {
-                    reasoning: event.target.value as ConnectionModel["reasoning"],
-                  })
-                }
-              >
-                {CONNECTION_REASONING.map((value) => (
-                  <option key={value} value={value}>
-                    {t(`profiles.connection.effort.${value}`)}
-                  </option>
-                ))}
-              </select>
-            </>
+            <NumberField
+              label={t("profiles.connection.context")}
+              value={row.contextWindow}
+              placeholder="131072"
+              onChange={(value) => draft.updateModel(row.rowId, { contextWindow: value })}
+            />
           )}
+          <select
+            aria-label={t("profiles.connection.reasoning")}
+            value={row.reasoning ?? "none"}
+            className={cn(inputClass, "px-1")}
+            onChange={(event) =>
+              draft.updateModel(row.rowId, {
+                reasoning: event.target.value as ConnectionModel["reasoning"],
+              })
+            }
+          >
+            {CONNECTION_REASONING.map((value) => (
+              <option key={value} value={value}>
+                {t(`profiles.connection.effort.${value}`)}
+              </option>
+            ))}
+          </select>
           <input
             type="radio"
             name={`${group}-default`}
