@@ -1078,3 +1078,70 @@ test.each([
     closeCodexTab(workspaceId, tabRecord.id);
   }
 });
+
+test.each([
+  false,
+  true,
+])("denying extra permissions stops only the requesting Codex turn (ended: %s)", async (ended) => {
+  const c = tab();
+  await c.sendWithTiming("Prompt", [], "next", undefined, undefined, "prompt");
+  const notify = (message: Message) => c.receive({ seq: ++lineSeq, dir: "out", message });
+  const params = {
+    threadId: "t1",
+    turnId: "turn-1",
+    permissions: { network: { enabled: true } },
+  };
+  notify({ id: 73, method: "item/permissions/requestApproval", params });
+  c.flushNow();
+
+  const permission = c.model.permissions[0];
+  expect(permission?.toolName).toBe("Permissions");
+  const answer = c.answerPermission(permission, { kind: "deny-stop" });
+  if (ended) {
+    notify({
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "turn-1", status: "completed" } },
+    });
+    notify({
+      method: "turn/started",
+      params: { threadId: "t1", turn: { id: "turn-2" } },
+    });
+  }
+  await answer;
+
+  expect(sent.find(({ id }) => id === 73)).toEqual({
+    id: 73,
+    result: { permissions: {}, scope: "turn" },
+  });
+  expect(
+    sent.filter(({ method }) => method === "turn/interrupt").map(({ params }) => params),
+  ).toEqual(ended ? [] : [{ threadId: "t1", turnId: "turn-1" }]);
+});
+
+test("a late Codex refusal makes a direct desktop prompt and its image recoverable", async () => {
+  const refusal = Promise.withResolvers<{ error: { code: number; message: string } }>();
+  const c = tab(undefined, undefined, ({ method }) =>
+    method === "turn/start" ? refusal.promise : undefined,
+  );
+  const images = [{ mediaType: "image/png", data: "AA==" }];
+  await c.send("Recover this prompt", images);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "user", text: "Recover this prompt", state: "sent" }),
+  );
+
+  refusal.resolve({ error: { code: -32602, message: "model not supported" } });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(c.model.items.some((item) => item.kind === "user")).toBe(false);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "notice", code: "error", detail: "model not supported" }),
+  );
+  expect(c.state.queue).toMatchObject([
+    { status: "failed", error: "model not supported", text: "Recover this prompt", images },
+  ]);
+  expect(c.removeQueued(c.state.queue[0].id)).toMatchObject({
+    text: "Recover this prompt",
+    images,
+  });
+  expect(sent.filter(({ method }) => method === "turn/start")).toHaveLength(1);
+});

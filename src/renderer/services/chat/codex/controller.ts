@@ -1038,37 +1038,37 @@ export class CodexController {
    * without one, and the tab takes its default name until the first message.
    */
   async newThread(): Promise<void> {
-    if (this.rewinding || this.resumingSelection)
-      throw new Error("Codex is changing the conversation");
-    if (this.model.running) throw new Error("a turn is running");
-    const { workspaceId, tabId } = this.target;
-    if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
-    }
-    this.flushNow();
-    // The tab's model, effort and preset go on with the new thread, as the
-    // CLI's /new keeps its session's; a pick not sent yet still wins.
-    const picks = { ...picksOf(this.model), ...this.next };
-    this.next = picks;
-    this.target = { ...this.target, threadId: undefined, fork: undefined, moves: undefined };
-    this.hooks.onMoves?.([]);
-    this.hooks.onTitle?.("");
-    this.titled = false;
-    // The chips show the picks at once, not the defaults until the thread
-    // starts; a command's card told of the thread the tab had.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      queue: [],
-      card: undefined,
-      model: {
-        ...nextThreadModel(this.model),
-        model: picks.model,
-        effort: picks.effort,
-        permissionMode: picks.mode,
+    await this.changeThread(
+      async () => {
+        // Keep the tab's picks, as the CLI's /new does.
+        const picks = { ...picksOf(this.model), ...this.next };
+        this.next = picks;
+        this.target = { ...this.target, threadId: undefined, fork: undefined, moves: undefined };
+        this.titled = false;
+        this.update((prev) => ({
+          ...prev,
+          history: null,
+          queue: [],
+          card: undefined,
+          model: {
+            ...nextThreadModel(this.model),
+            model: picks.model,
+            effort: picks.effort,
+            permissionMode: picks.mode,
+          },
+        }));
+        if (!(await this.start({ resetLog: true }))) {
+          throw new Error(this.state.error ?? "Codex is not running");
+        }
+        const threadId = this.currentThread();
+        if (threadId) this.hooks.onThread?.(threadId);
+        this.hooks.onMoves?.([]);
+        this.hooks.onTitle?.(this.model.threadName ?? "");
       },
-    }));
-    await this.start({ resetLog: true });
+      () => {
+        if (this.model.running) throw new Error("a turn is running");
+      },
+    );
   }
 
   /**
@@ -1702,12 +1702,31 @@ export class CodexController {
           this.confirmTurnPicks(clientUserMessageId);
           told(result);
         },
-        (error: unknown) => {
+        async (error: unknown) => {
           if (
             this.turnPicks?.clientId === clientUserMessageId &&
             (error instanceof CodexReplyError || isChatWriteRejected(error))
           ) {
             this.turnPicks = undefined;
+          }
+          // The composer can accept follow-ups after the write. Keep a later
+          // definitive refusal available to take back, unless the write already failed.
+          if (!id && error instanceof CodexReplyError) {
+            await written.then(
+              () => {
+                const failed: QueuedMessage = {
+                  id: clientUserMessageId,
+                  text,
+                  images,
+                  ...(from ? { from } : {}),
+                  ...(device ? { device } : {}),
+                  status: "failed",
+                  error: error.message.slice(0, 1000),
+                };
+                this.update((prev) => ({ ...prev, queue: [...prev.queue, failed] }));
+              },
+              () => {},
+            );
           }
           throw error;
         },
@@ -2052,12 +2071,19 @@ export class CodexController {
 
   /** Answers an approval or a question the server asked. */
   async answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {
+    this.flushNow();
     if (!this.model.permissions.includes(request)) return;
     const asked = this.model.requests[request.requestId];
     if (!asked) return;
     const id = JSON.parse(request.requestId) as string | number;
     const result = answerOf(asked.method, asked.params, answer);
     await this.write({ id, result });
+    if (answer.kind === "deny-stop" && asked.method === "item/permissions/requestApproval") {
+      this.flushNow();
+      const { threadId, turnId, running } = this.model;
+      if (running && turnId && threadId === asked.params.threadId && turnId === asked.params.turnId)
+        await this.interrupt();
+    }
     // What the user said with a decline goes to the turn, which goes on.
     const message = answer.kind === "deny" ? answer.message : undefined;
     if (message) await this.sendNow(message).catch(() => {});
@@ -2266,14 +2292,14 @@ export class CodexController {
   /** A line from the agent, buffered for the next frame. */
   receive(line: ChatLine): void {
     if (this.disposed) return;
-    if (!line.replay) this.inspectLive(line);
+    this.inspectLine(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
     if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
-  /** What a live line asks of the controller, beyond the model. */
-  private inspectLive(line: ChatLine): void {
+  /** Settles pending replies on replay and handles live server notifications. */
+  private inspectLine(line: ChatLine): void {
     const message = line.message as Record<string, unknown> | undefined;
     if (line.dir !== "out" || !message) return;
     const key = idKey(message.id);
@@ -2293,6 +2319,7 @@ export class CodexController {
       } else entry.resolve((message.result as Record<string, unknown>) ?? {});
       return;
     }
+    if (line.replay) return;
     if (key && method && !CARD_REQUESTS.has(method)) {
       // Requests no card answers are refused, so the turn does not wait on them.
       const reply =

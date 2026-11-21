@@ -25,6 +25,7 @@ import {
   setActiveLeaf,
   splitLeaf,
 } from "@/services/agent-view/layout";
+import { useAgentResumeCheckpoint } from "@/services/agent-view/resume-terminal";
 import { focusPanelTab } from "@/services/agent-view/show";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
@@ -95,6 +96,8 @@ export const AgentPane = memo(function AgentPane({
     front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
   );
   const viewShown = useAgentViewStore((s) => s.mode === "agents");
+  const frontAgent = leaf.activeTabId !== null ? agents.byKey.get(leaf.activeTabId) : undefined;
+  const resumeCheckpoint = useAgentResumeCheckpoint(viewShown ? frontAgent?.session : undefined);
 
   const slotElRef = useRef<HTMLElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -364,8 +367,12 @@ export const AgentPane = memo(function AgentPane({
         ))}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
-      {frontKind === "terminal" && frontEnded && leaf.activeTabId !== null && (
-        <EndedBar sessionKey={leaf.activeTabId} ended={frontEnded} />
+      {frontKind === "terminal" && front && frontEnded && (
+        <EndedBar
+          ended={frontEnded}
+          terminal={front}
+          checkpoint={resumeCheckpoint(front.tabId, frontEnded.agent)}
+        />
       )}
 
       {/* The panel of the agent the pointer is on in the list. */}

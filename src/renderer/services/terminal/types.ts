@@ -69,6 +69,11 @@ export interface TerminalControllerOptions {
   onExit?: (args: { code: number | null }) => void;
 }
 
+/** A new snapshot for each interaction that may change the terminal input. */
+export interface TerminalInputCheckpoint {
+  readonly hasInput: boolean;
+}
+
 export interface TerminalController {
   /**
    * Re-rasterize the visible viewport from xterm's in-memory line buffer.
@@ -99,6 +104,8 @@ export interface TerminalController {
    * terminal has opened.
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
+  getInputCheckpoint: () => TerminalInputCheckpoint;
+  onInput: (listener: () => void) => () => void;
   /**
    * True once input reaches its shell: it has opened (after its view
    * registers it, once its fonts have loaded) and its shell has started,

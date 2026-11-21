@@ -44,7 +44,9 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
     if (method === "codexStart") {
       starts.push(args);
       onStart?.();
-      const value = { ok: true, pid: 1, attached: false, version: installedVersion, ...hostFolder };
+      const value = startFailure
+        ? { ok: false, reason: "failed", message: startFailure }
+        : { ok: true, pid: 1, attached: false, version: installedVersion, ...hostFolder };
       return Promise.resolve({
         ok: true,
         value: catalog ? contract.codexStart.result.parse(value) : value,
@@ -76,6 +78,7 @@ let installedVersion: string | null = null;
 let replayResponse: (() => unknown) | undefined;
 let onStart: (() => void) | undefined;
 let onStop: (() => void) | undefined;
+let startFailure: string | undefined;
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
@@ -90,6 +93,7 @@ afterEach(() => {
   replayResponse = undefined;
   onStart = undefined;
   onStop = undefined;
+  startFailure = undefined;
 });
 
 /** A tab whose program is not running and answers initialize a while after it is asked. */
@@ -753,4 +757,78 @@ test("peer history filter requests share eight real catalog lifecycles", async (
   } finally {
     wire.mockRestore();
   }
+});
+
+test("replaying a Codex turn reply settles the tracked send without repeating server requests", async () => {
+  const c = tab();
+  const line = (dir: "sys" | "in" | "out", message: Message, replay = false) =>
+    c.receive({ seq: ++lineSeq, dir, message, replay });
+  onStart = () => line("sys", { event: "start" });
+  await c.prepareSend();
+
+  const wrote = Promise.withResolvers<Message>();
+  codex = (message) => {
+    sent.push(message);
+    if (message.method === "turn/start") {
+      line("in", message);
+      wrote.resolve(message);
+    }
+  };
+  const sending = c.sendWithTiming("Tracked turn", [], "next", undefined, undefined, "tracked-id");
+  const request = await wrote.promise;
+  c.held();
+  replayResponse = () => {
+    line("out", { id: request.id, result: { turn: { id: "accepted" } } }, true);
+    line("out", { id: "old-ask", method: "mcpServer/elicitation/request" }, true);
+    return { found: true, running: true, truncated: false, lastSeq: lineSeq };
+  };
+
+  await c.resync();
+  expect(await Promise.race([sending, Bun.sleep(100).then(() => "still pending")])).toBeUndefined();
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({
+      kind: "user",
+      text: "Tracked turn",
+      state: "taken",
+      turnId: "accepted",
+    }),
+  );
+  expect(sent.some(({ id }) => id === "old-ask")).toBe(false);
+});
+
+test("a failed Codex /new keeps the source history, queue, and saved thread", async () => {
+  const c = tab(({ method }) => {
+    if (method !== "thread/resume") return undefined;
+    const item = {
+      type: "userMessage",
+      id: "original",
+      content: [{ type: "text", text: "Source" }],
+    };
+    return {
+      thread: { id: "t1", turns: [{ id: "old-turn", status: "completed", items: [item] }] },
+    };
+  });
+  onStart = () => c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start" } });
+  await c.prepareSend();
+  const queued = { id: "held", text: "Recoverable prompt", images: [], status: "failed" as const };
+  useChatStore.getState().update(c.key, (prev) => ({
+    ...prev,
+    queue: [queued],
+  }));
+  const onThread = mock(() => {});
+  const onTitle = mock(() => {});
+  const onMoves = mock(() => {});
+  c.setHooks({ onThread, onTitle, onMoves });
+  startFailure = "replacement could not start";
+  onStart = undefined;
+  onStop = () => c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 0 } });
+
+  await expect(c.newThread()).rejects.toThrow("replacement could not start");
+  expect(c.currentThread()).toBe("t1");
+  expect(c.model.items).toContainEqual(expect.objectContaining({ kind: "user", text: "Source" }));
+  expect(c.state.queue).toEqual([queued]);
+  expect(c.state.phase).toBe("failed");
+  expect(onThread).not.toHaveBeenCalled();
+  expect(onTitle).not.toHaveBeenCalled();
+  expect(onMoves).not.toHaveBeenCalled();
 });

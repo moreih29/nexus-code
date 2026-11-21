@@ -632,7 +632,7 @@
       "cancel": "취소",
       "message_placeholder": "Claude에게 전할 말 (선택)",
       "terminal_too": "터미널의 권한 창에서도 응답할 수 있습니다.",
-      "failed": "응답을 전달하지 못했습니다. 요청이 아직 열려 있으면 다시 시도하십시오."
+      "failed": "응답을 전달하지 못했습니다. 요청이 아직 열려 있으면 다시 시도하세요."
     },
     "elapsed": {
       "seconds": "{{count}}초",
@@ -1150,6 +1150,8 @@
       "no_files": "되돌릴 파일 변경이 없습니다.",
       "conversation": "대화만 되감기",
       "conversation_and_files": "대화와 코드 되감기",
+      "message_unavailable": "선택한 메시지가 현재 대화에 없습니다.",
+      "files_restored_only": "파일을 되돌렸지만 대화는 되감지 못했습니다. {{error}}",
       "failed": "되감지 못했습니다: {{error}}"
     },
     "fork": {
@@ -1364,6 +1366,7 @@
       "title": "이전 대화",
       "open": "탭에 열려 있음",
       "more": "{{count}}개 더 보기",
+      "resume_queued": "다른 대화를 이어가기 전에 대기 중인 메시지를 회수하세요.",
       "resume_failed": "대화를 이어가지 못했습니다. {{message}}",
       "show": "이전 대화 이어가기 · {{count}}개",
       "all_profiles": "전체",
@@ -1909,7 +1912,8 @@
       "message": "{{agent}} 세션 종료",
       "agent": "에이전트",
       "resume": "이어하기",
-      "resume_title": "터미널에 {{line}} 입력"
+      "resume_title": "터미널에 {{line}} 입력",
+      "resume_manual_title": "세션을 이어가려면 터미널에서 이 명령을 실행하세요."
     },
     "remote": {
       "title": "다른 컴퓨터",

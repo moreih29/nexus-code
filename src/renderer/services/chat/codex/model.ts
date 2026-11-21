@@ -403,12 +403,14 @@ function applyResponse(
       m.forkSource = undefined;
     }
     if (QUIET_REQUESTS.has(sent.subtype)) return;
-    if (sent.subtype === "turn/steer") {
-      // The turn ended first: the app sends the message as the next turn's.
+    if (sent.subtype === "turn/start" || sent.subtype === "turn/steer") {
       const clientId = str(sent.request.clientUserMessageId);
-      const index = m.items.findIndex((i) => i.kind === "user" && i.key === `u-${clientId}`);
-      if (clientId && index >= 0) draft.items().splice(index, 1);
-      return;
+      const index = m.items.findIndex(
+        (item) => item.kind === "user" && item.state === "sent" && item.key === `u-${clientId}`,
+      );
+      if (clientId && index >= 0) draft.removeItem(index);
+      // A refused steer can be held by the app for the next turn.
+      if (sent.subtype === "turn/steer") return;
     }
     if (sent.subtype === "thread/resume") {
       // The tab keeps its conversation when resuming it fails.

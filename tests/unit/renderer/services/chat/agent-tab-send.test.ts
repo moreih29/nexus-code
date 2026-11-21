@@ -16,10 +16,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: () => Promise.resolve({ ok: true, value: undefined }),
 }));
 
-const { sendToAgentTab, sendUnseen } = await import(
+const { sendFirstMessage, sendToAgentTab, sendUnseen } = await import(
   "../../../../../src/renderer/services/chat/transport/submission"
 );
 const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
 
 type Target = Parameters<typeof sendToAgentTab>[2];
 
@@ -28,11 +29,7 @@ let seq = 0;
 const keys: string[] = [];
 
 afterEach(() => {
-  useChatStore.setState((state) => {
-    const tabs = { ...state.tabs };
-    for (const key of keys.splice(0)) delete tabs[key];
-    return { tabs };
-  });
+  for (const key of keys.splice(0)) useChatStore.getState().remove(key);
 });
 
 /** Shows `count` messages of the user's in the tab. */
@@ -57,8 +54,7 @@ function showUserMessages(key: string, count: number): void {
  * `resumed` messages of a conversation it had; sending writes the message
  * but shows nothing yet.
  */
-function tab(resumed: number, fail?: Error) {
-  const tabId = `t${++seq}`;
+function tab(resumed: number, fail?: Error, tabId = `t${++seq}`) {
   const key = chatKey(WS, tabId);
   keys.push(key);
   const sent: string[] = [];
@@ -144,4 +140,57 @@ describe("sendToAgentTab", () => {
     expect(t.sent).toEqual([]);
     expect(sendUnseen(WS, t.tabId)).toBe(false);
   });
+});
+
+test("closing the chat clears a submitted prompt's unseen marker", async () => {
+  const t = tab(0);
+  await sendToAgentTab(WS, t.tabId, t.target, "Waiting to show");
+  expect(sendUnseen(WS, t.tabId)).toBe(true);
+  useChatStore.getState().remove(t.key);
+  expect(sendUnseen(WS, t.tabId)).toBe(false);
+});
+
+test("delayed send preparation cannot restore a closed tab's unseen marker or peer state", async () => {
+  const tabs = useTabsStore.getState();
+  const { id } = tabs.createTab(WS, { type: "codex", props: { cwd: "/p" } });
+  const t = tab(0, undefined, id);
+  const prepared = Promise.withResolvers<void>();
+  t.target.controller.prepareSend = () => prepared.promise;
+  const send = sendToAgentTab(
+    WS,
+    t.tabId,
+    t.target,
+    "Pending peer prompt",
+    undefined,
+    [],
+    "next",
+    undefined,
+    { clientNonce: "nonce", clientDeviceId: "peer" },
+  );
+  expect(sendUnseen(WS, t.tabId)).toBe(true);
+  useChatStore.getState().remove(t.key);
+  tabs.removeTab(WS, id);
+  prepared.resolve();
+
+  await expect(send).rejects.toThrow("the tab closed");
+  expect(sendUnseen(WS, t.tabId)).toBe(false);
+  expect(useChatStore.getState().tabs[t.key]).toBeUndefined();
+});
+
+test("first-message callers see a close during startup without recreating the send marker", async () => {
+  const tabs = useTabsStore.getState();
+  const { id } = tabs.createTab(WS, { type: "codex", props: { cwd: "/p" } });
+  const t = tab(0, undefined, id);
+  const opened = Promise.withResolvers<void>();
+  t.target.controller.open = () => opened.promise;
+  const sending = sendFirstMessage(WS, id, t.target, "First prompt");
+  expect(sendUnseen(WS, id)).toBe(true);
+
+  useChatStore.getState().remove(t.key);
+  tabs.removeTab(WS, id);
+  opened.resolve();
+
+  await expect(sending).rejects.toThrow("the tab closed");
+  expect(sendUnseen(WS, id)).toBe(false);
+  expect(t.sent).toEqual([]);
 });

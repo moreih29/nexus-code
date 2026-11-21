@@ -5,7 +5,7 @@
  * in. The tab's first program starts as the settings say.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { ChatLine, UserItem } from "../../../../../../src/renderer/services/chat/model";
+import type { ChatLine } from "../../../../../../src/renderer/services/chat/model";
 
 type Message = Record<string, unknown> & {
   request_id?: string;
@@ -187,7 +187,21 @@ describe("the permission mode of a Claude tab's program started again", () => {
     await c.setPermissionMode("plan");
     await settle();
     sent.length = 0;
-    const item = { kind: "user", key: "u1", uuid: "m1", text: "again" } as UserItem;
+    receive("out", {
+      type: "user",
+      isReplay: true,
+      uuid: "m1",
+      message: { role: "user", content: "again" },
+    });
+    c.receive({
+      seq: ++lineSeq,
+      dir: "out",
+      replay: true,
+      message: { type: "result", subtype: "success" },
+    });
+    c.flushNow();
+    const item = c.state.model.items.find((item) => item.kind === "user" && item.uuid === "m1");
+    if (item?.kind !== "user") throw new Error("missing prompt");
     await c.rewind(item, { files: false });
     await settle();
     expect(modesAsked()).toEqual(["plan"]);
