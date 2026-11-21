@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/fs"
@@ -81,5 +82,22 @@ func TestSymlinkSaveUsesTargetMetadata(t *testing.T) {
 	}
 	if _, err := os.Readlink(filepath.Join(root, "link.txt")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteFileWithLongBasename(t *testing.T) {
+	root, service := filesystem(t)
+	name := strings.Repeat("n", 251) + ".txt"
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, []byte("before"), 0600); err != nil {
+		t.Skipf("test filesystem does not allow the fixture name: %v", err)
+	}
+	result := call(t, service.WriteFile, fs.WriteFileParams{RelPath: name, Content: "after"}).(fs.WriteFileResult)
+	if result.Kind != "ok" {
+		t.Fatalf("save = %#v", result)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "after" {
+		t.Fatalf("saved content = %q, err = %v", got, err)
 	}
 }

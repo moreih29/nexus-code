@@ -431,31 +431,33 @@ func successResult(info os.FileInfo) WriteFileResult {
 // the replacement so a save does not turn 0600 into 0644 or drop an exec bit.
 func atomicReplace(abs, content string, existing os.FileInfo) (os.FileInfo, error) {
 	dir := filepath.Dir(abs)
-	base := filepath.Base(abs)
 	suffix, err := randomSuffix()
 	if err != nil {
 		return nil, err
 	}
-	tmp := filepath.Join(dir, fmt.Sprintf("%s%s.%s", tmpPrefix, base, suffix))
+	tmp := filepath.Join(dir, tmpPrefix+suffix)
 
 	perm := os.FileMode(0o644)
 	if existing != nil {
 		perm = existing.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
 	}
-	if err := writeAndSync(tmp, content, perm); err != nil {
-		_ = os.Remove(tmp)
+	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
 		return nil, err
+	}
+	defer os.Remove(tmp)
+	writeErr := writeAndSync(file, content)
+	if closeErr := file.Close(); writeErr != nil || closeErr != nil {
+		return nil, errors.Join(writeErr, closeErr)
 	}
 	if existing != nil {
 		// OpenFile's mode is filtered by the umask, so set it exactly.
 		if err := os.Chmod(tmp, perm); err != nil {
-			_ = os.Remove(tmp)
 			return nil, err
 		}
 		keepGroup(tmp, existing)
 	}
 	if err := os.Rename(tmp, abs); err != nil {
-		_ = os.Remove(tmp)
 		return nil, err
 	}
 	return os.Lstat(abs)
@@ -464,18 +466,18 @@ func atomicReplace(abs, content string, existing os.FileInfo) (os.FileInfo, erro
 // plainWrite truncates and writes through to `abs` directly. Used for the
 // files whose inode must survive (see needsInPlaceWrite).
 func plainWrite(abs, content string) (os.FileInfo, error) {
-	if err := writeAndSync(abs, content, 0o644); err != nil {
+	file, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return nil, err
+	}
+	writeErr := writeAndSync(file, content)
+	if closeErr := file.Close(); writeErr != nil || closeErr != nil {
+		return nil, errors.Join(writeErr, closeErr)
 	}
 	return os.Lstat(abs)
 }
 
-func writeAndSync(abs, content string, perm os.FileMode) error {
-	file, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+func writeAndSync(file *os.File, content string) error {
 	if _, err := file.WriteString(content); err != nil {
 		return err
 	}
