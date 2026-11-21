@@ -15,8 +15,10 @@ import {
 } from "../../../../../../src/renderer/services/chat/claude/model-catalog";
 import { claudeModelLabel } from "../../../../../../src/renderer/services/chat/claude/settings-defaults";
 import { currentModelInfo } from "../../../../../../src/renderer/services/chat/model";
+import { chatHandlers } from "../../../../../../src/renderer/services/cli/chat-actions";
 import { chatChoicesOf } from "../../../../../../src/renderer/services/cli/chat-settings";
 import { chatCommandsOf } from "../../../../../../src/renderer/services/remote/chat-commands";
+import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
 import type { TranscriptPageResult } from "../../../../../../src/shared/ipc/contract";
 
 import { type IpcErrResult, ipcErr } from "../../../../../../src/shared/ipc/result";
@@ -41,6 +43,7 @@ let completeReads = 0;
 const realIpc = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
+  ipcListen: () => () => {},
   ipcCallResult: (
     _channel: string,
     method: string,
@@ -94,7 +97,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { ChatController } = await import(
+const { ChatController, chatController } = await import(
   "../../../../../../src/renderer/services/chat/claude/controller"
 );
 const { useChatStore, chatKey } = await import(
@@ -360,7 +363,13 @@ test("a truncated tab borrows model and effort options from its profile until it
   expect(button(render(different), "Model")).toMatch(disabled);
   expect(button(render(different), "Effort")).toBeUndefined();
   expect(older.state.model.init).toBeUndefined();
-  expect(chatChoicesOf("claude", older.state.model)).toMatchObject({ models: [], efforts: [] });
+  expect(
+    chatChoicesOf("claude", older.state.model, { fallbackModels: borrowed(older) }),
+  ).toMatchObject({
+    model: "opus",
+    models: [{ value: "opus", name: "Profile Opus" }],
+    efforts: ["high", "xhigh"],
+  });
   expect(chatCommandsOf("claude", older.state.model).map(({ name }) => name)).not.toContain(
     "only-in-initialize",
   );
@@ -374,6 +383,74 @@ test("a truncated tab borrows model and effort options from its profile until it
   expect(borrowed(older)?.[0]?.displayName).toBe("Updated Profile Opus");
   expect(render(older)).toContain("This Tab&#x27;s Opus");
   expect(button(render(older), "Effort")).toBeUndefined();
+});
+
+test("chat.settings reads and sets a running Claude tab whose initialize is gone", async () => {
+  const workspaceId = "ws-catalog-cli";
+  const { id: tabId } = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "claude", props: { cwd: "/p" } });
+  const ref = { workspaceId, tabId };
+  const c = chatController({ ...ref, cwd: "/p" });
+  const catalog = useClaudeModelCatalog.getState();
+  const donor = "catalog-cli-donor";
+  try {
+    replayLog = () => {
+      c.receive({
+        dir: "out",
+        seq: 900,
+        replay: true,
+        message: { type: "system", subtype: "init", model: "claude-opus-5-5" },
+      });
+      return { found: true, truncated: true, running: true, lastSeq: 900 };
+    };
+    await c.open();
+
+    const settings = await chatHandlers["chat.settings"]({ ...ref, settings: {} });
+    expect(settings).toMatchObject({
+      model: "claude-opus-5-5",
+      models: [{ value: "claude-opus-5-5", name: "Opus 5.5" }],
+      efforts: [],
+    });
+    expect(
+      await chatHandlers["chat.settings"]({ ...ref, settings: { model: "Opus 5.5" } }),
+    ).toEqual(settings);
+
+    catalog.remember({
+      tabKey: donor,
+      profileKey: c.modelCatalogKey,
+      models: [
+        { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Profile Opus" },
+        { value: "sonnet", displayName: "Profile Sonnet" },
+      ],
+    });
+    const borrowed = await chatHandlers["chat.settings"]({ ...ref, settings: {} });
+    expect(borrowed).toMatchObject({
+      model: "opus",
+      models: [
+        { value: "opus", name: "Profile Opus" },
+        { value: "sonnet", name: "Profile Sonnet" },
+      ],
+    });
+    replyToInitialize = (requestId) =>
+      c.receive({
+        dir: "out",
+        seq: 901,
+        message: {
+          type: "control_response",
+          response: { request_id: requestId, subtype: "success" },
+        },
+      });
+    const updated = await chatHandlers["chat.settings"]({
+      ...ref,
+      settings: { model: "Profile Sonnet" },
+    });
+    expect(updated).toMatchObject({ model: "sonnet", models: borrowed.models });
+  } finally {
+    catalog.forget(donor);
+    c.dispose();
+    useTabsStore.getState().removeTab(workspaceId, tabId);
+  }
 });
 
 test.each([
