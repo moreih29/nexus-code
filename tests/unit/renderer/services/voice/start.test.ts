@@ -34,6 +34,7 @@ let previousTranscripts: ReturnType<typeof useTranscriptsStore.getState>;
 let stopWatching: () => void;
 let signedIn: boolean;
 let voice: boolean;
+let startSignedOut: boolean;
 let open: ReturnType<typeof spyOn<typeof capture, "openMicrophone">>;
 let start: ReturnType<typeof spyOn<typeof capture, "startCapture">>;
 
@@ -45,6 +46,7 @@ beforeEach(() => {
   stopWatching = watchToasts((toast) => toasts.push(toast));
   signedIn = true;
   voice = true;
+  startSignedOut = false;
   globals.window = {
     ipc: {
       async call(channel: string, method: string) {
@@ -53,7 +55,8 @@ beforeEach(() => {
         if (method === "serverInfo") return { voice };
         if (method === "voiceMicrophone") return "granted";
         if (method === "voiceStart") {
-          return { status: "started", id: "session", sampleRate: 8000, maxSeconds: 600 };
+          if (startSignedOut) return { status: "failed", reason: "signed-out" };
+          return { status: "ready", id: "session", sampleRate: 8000, maxSeconds: 600 };
         }
         if (method === "readTranscript") return EMPTY_TRANSCRIPT;
         if (method === "voicePrint") return null;
@@ -119,7 +122,19 @@ test("signed-out recording keeps the microphone off", async () => {
   expect(calls).toEqual([]);
   expect(open).not.toHaveBeenCalled();
   expect(useRecorderStore.getState().phase).toBe("idle");
-  expect(toasts.map((toast) => toast.message)).toEqual(["Sign in to use voice input."]);
+  expect(toasts.map((toast) => toast.message)).toEqual(["Sign in to start recording."]);
+  const action = toasts[0]?.actions?.[0];
+  expect(action?.label).toBe("Sign in");
+  action?.onAction();
+  expect(useSettingsUIStore.getState().initialActiveId).toBe("remote");
+});
+
+test("a recording start refused by the server uses the recording sign-in toast", async () => {
+  startSignedOut = true;
+  expect(await availability.voiceAvailabilityNow()).toBe("ready");
+  await startRecording(workspaceId, noteId, "en");
+  expect(useRecorderStore.getState().phase).toBe("idle");
+  expect(toasts.map((toast) => toast.message)).toEqual(["Sign in to start recording."]);
 });
 
 test("a server without voice stops dictation and recording before microphone access", async () => {

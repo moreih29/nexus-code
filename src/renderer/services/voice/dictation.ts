@@ -9,6 +9,7 @@
 
 import i18next from "i18next";
 import { create } from "zustand";
+import type { VoicePurpose } from "../../../../packages/remote-protocol/src/voice";
 import type { VoiceEvent, VoiceFailure } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
@@ -69,19 +70,22 @@ let session: Session | null = null;
 let endedCount = 0;
 let listening = false;
 
-const t = (key: string, options?: Record<string, unknown>) =>
-  i18next.t(`common:voice.${key}`, options ?? {});
-
 /** Tells why voice input did not start or stopped, with the way out where there is one. */
-export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void {
+export function tellFailure(
+  reason: VoiceFailure | CaptureError["reason"],
+  purpose: VoicePurpose = "dictation",
+): void {
   switch (reason) {
     case "signed-out":
       showToast({
         kind: "info",
-        message: t("failure.signed-out"),
+        message:
+          purpose === "note"
+            ? i18next.t("notes:recorder.failure.signed-out")
+            : i18next.t("common:voice.failure.signed-out"),
         actions: [
           {
-            label: t("signIn"),
+            label: i18next.t("common:voice.signIn"),
             dedupeKey: "remote-settings",
             onAction: () => useSettingsUIStore.getState().openSettingsAt("remote"),
           },
@@ -91,10 +95,10 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
     case "denied":
       showToast({
         kind: "error",
-        message: t("failure.denied"),
+        message: i18next.t("common:voice.failure.denied"),
         actions: [
           {
-            label: t("openSettings"),
+            label: i18next.t("common:voice.openSettings"),
             dedupeKey: "microphone-settings",
             onAction: () => void ipcCallResult("remote", "openMicrophoneSettings", undefined),
           },
@@ -104,10 +108,10 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
     case "outdated":
       showToast({
         kind: "error",
-        message: t("failure.outdated"),
+        message: i18next.t("common:voice.failure.outdated"),
         actions: [
           {
-            label: t("update"),
+            label: i18next.t("common:voice.update"),
             dedupeKey: "remote-settings",
             onAction: () => useSettingsUIStore.getState().openSettingsAt("remote"),
           },
@@ -117,10 +121,10 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
     case "in-use":
       return;
     case "response-too-large":
-      showToast({ kind: "error", message: t("failure.failed") });
+      showToast({ kind: "error", message: i18next.t("common:voice.failure.failed") });
       return;
     default:
-      showToast({ kind: "error", message: t(`failure.${reason}`) });
+      showToast({ kind: "error", message: i18next.t(`common:voice.failure.${reason}`) });
   }
 }
 
@@ -140,12 +144,12 @@ function onEvent({ id, event }: VoiceEvent): void {
       useDictationStore.setState((s) => ({ finals: s.finals + event.text, partial: "" }));
       return;
     case "limit":
-      showToast({ kind: "info", message: t(`limit.${event.reason}`) });
+      showToast({ kind: "info", message: i18next.t(`common:voice.limit.${event.reason}`) });
       stopDictation();
       return;
     case "error":
       if (event.code === "unauthorized") tellFailure("signed-out");
-      else showToast({ kind: "error", message: t("failure.recognition") });
+      else showToast({ kind: "error", message: i18next.t("common:voice.failure.recognition") });
       return;
     case "done":
     case "ready":
@@ -155,7 +159,7 @@ function onEvent({ id, event }: VoiceEvent): void {
       // 4001: the sign-in ended. Anything but a finished session while still listening: it dropped.
       if (event.code === 4001) tellFailure("signed-out");
       else if (event.code !== 1000 && !stopping) {
-        showToast({ kind: "error", message: t("failure.dropped") });
+        showToast({ kind: "error", message: i18next.t("common:voice.failure.dropped") });
       }
       finish();
       return;

@@ -75,11 +75,13 @@ export function RecordControls({
               ? t("recorder.elsewhere")
               : availability === "unavailable"
                 ? t("recorder.unavailable")
-                : t("recorder.recordHint")
+                : availability === "signed-out"
+                  ? t("recorder.needsSignIn")
+                  : t("recorder.recordHint")
           }
           onClick={() => {
             if (availability === "signed-out") {
-              tellFailure("signed-out");
+              tellFailure("signed-out", "note");
               return;
             }
             onStart();

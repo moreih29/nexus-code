@@ -279,7 +279,7 @@ function onEvent({ id, event }: VoiceEvent): void {
         const token = event.transcribeToken;
         setTake((tk) => ({ ...tk, token }));
       }
-      if (event.code === "unauthorized") tellFailure("signed-out");
+      if (event.code === "unauthorized") tellFailure("signed-out", "note");
       else showToast({ kind: "error", message: t("failure.recognition") });
       return;
     case "done":
@@ -292,7 +292,7 @@ function onEvent({ id, event }: VoiceEvent): void {
     case "ready":
       return;
     case "closed":
-      if (event.code === 4001) tellFailure("signed-out");
+      if (event.code === 4001) tellFailure("signed-out", "note");
       else if (event.code !== 1000 && !a.ending) {
         showToast({ kind: "error", message: t("failure.dropped") });
       }
@@ -392,7 +392,7 @@ async function startTake(a: Active): Promise<boolean> {
   if (availability === "unknown") availability = await voiceAvailabilityNow();
   if (active !== a) return false;
   if (availability === "signed-out" || availability === "unavailable") {
-    tellFailure(availability);
+    tellFailure(availability, "note");
     return false;
   }
 
@@ -414,7 +414,10 @@ async function startTake(a: Active): Promise<boolean> {
     purpose: "note",
   });
   if (!started.ok || started.value.status === "failed") {
-    tellFailure(started.ok && started.value.status === "failed" ? started.value.reason : "failed");
+    tellFailure(
+      started.ok && started.value.status === "failed" ? started.value.reason : "failed",
+      "note",
+    );
     releaseMicrophone(a);
     return false;
   }
