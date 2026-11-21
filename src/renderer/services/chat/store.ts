@@ -33,6 +33,8 @@ export interface ChatTabState {
   historyPage?: { hasEarlier: boolean; loading: boolean };
   /** Messages the app holds for a tool completion or the end of the turn. */
   queue: QueuedMessage[];
+  /** Recently cancelled queue entries, for callers waiting on those submissions. */
+  cancelledSubmissions?: readonly string[];
   /** Authenticated remote user submissions, keyed by the host-generated message ID. */
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
 
