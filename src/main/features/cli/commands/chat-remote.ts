@@ -388,9 +388,12 @@ export async function newPeerChat(
     cwd: folder ?? workspace.path,
   };
   if (error !== undefined) {
+    const failure = Object.keys(settings).length
+      ? "could not set it"
+      : "could not submit its first prompt";
     const sent = prompt === "" ? "" : " The prompt was not sent.";
     return output(
-      `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${where}, but could not set it: ${error}.${sent}`,
+      `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${where}, but ${failure}: ${error}.${sent}`,
       { ...json, error },
       { exitCode: 1 },
     );

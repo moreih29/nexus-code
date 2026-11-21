@@ -184,7 +184,7 @@ export function startAgentTab(
   const text = message.trim();
   const target = agentTabController(workspaceId, tabId);
   if (text === "" || !target) return;
-  sendFirstMessage(workspaceId, tabId, target, text, from);
+  void sendFirstMessage(workspaceId, tabId, target, text, from).catch(() => {});
 }
 
 /**

@@ -136,3 +136,24 @@ test("an exact profile ID takes precedence over a name and duplicate names requi
     target.mockRestore();
   }
 });
+
+test("a new chat with a prompt and no settings returns its tab ID and startup failure", async () => {
+  const target = mockClaudeForOpen("default");
+  const open = spyOn(ChatController.prototype, "open").mockRejectedValue(
+    new Error("Claude startup failed"),
+  );
+  const send = spyOn(ChatController.prototype, "send").mockResolvedValue(undefined);
+  try {
+    const result = await chatHandlers["chat.open"]({ ...args, prompt: "Review this" });
+    expect(result).toEqual({ tabId: expect.any(String), error: "Claude startup failed" });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+  } finally {
+    target.mock.results.forEach((result) => {
+      if (result.type === "return") result.value?.controller.dispose();
+    });
+    target.mockRestore();
+    open.mockRestore();
+    send.mockRestore();
+  }
+});

@@ -300,6 +300,17 @@ describe("chat new with settings", () => {
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
   });
+
+  test("reports a failed first prompt even when no settings were requested", async () => {
+    const app = withChoices();
+    app.uiAnswers.set("chat.open", { tabId: NEW_TAB, error: "Claude startup failed" });
+    const result = await nexus(app, ["chat", "new", "--prompt", "Review this", "--json"]);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      tabId: NEW_TAB,
+      error: "Claude startup failed",
+    });
+  });
 });
 
 describe("delegating a chat mode", () => {

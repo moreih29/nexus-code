@@ -140,21 +140,22 @@ export async function sendToAgentTab(
 export type SendTiming = "next" | "now" | "after";
 
 /** Opens the program and sends the first message while marking the tab as working. */
-export function sendFirstMessage(
+export async function sendFirstMessage(
   workspaceId: string,
   tabId: string,
   target: AgentTabController,
   text: string,
   from?: RelaySender,
-): void {
+): Promise<void> {
   const key = chatKey(workspaceId, tabId);
   // Working from now: opening the program comes before the message.
   unseenSends.set(key, 0);
-  void target.controller
-    .open()
-    .then(() => sendToAgentTab(workspaceId, tabId, target, text, from))
-    .catch((err: Error) => {
-      unseenSends.delete(key);
-      log.warn(`first message to ${target.agent} tab not sent: ${err.message}`);
-    });
+  try {
+    await target.controller.open();
+    await sendToAgentTab(workspaceId, tabId, target, text, from);
+  } catch (error) {
+    unseenSends.delete(key);
+    log.warn(`first message to ${target.agent} tab not sent: ${(error as Error).message}`);
+    throw error;
+  }
 }

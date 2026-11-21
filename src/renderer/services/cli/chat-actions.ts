@@ -41,7 +41,6 @@ import {
   type AgentTabController,
   agentInstructionTarget,
   agentTabController,
-  startAgentTab,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
 import type { ForkPoint } from "../chat/claude/controller";
@@ -57,7 +56,12 @@ import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
-import { sendToAgentTab, sendUnseen, submissionAt } from "../chat/transport/submission";
+import {
+  sendFirstMessage,
+  sendToAgentTab,
+  sendUnseen,
+  submissionAt,
+} from "../chat/transport/submission";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
@@ -508,21 +512,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         ? ({ type: "claude", props } as const)
         : ({ type: "codex", props } as const);
     const tabId = openTab(workspaceId, tab, placement);
-    if (!hasSettings(settings)) {
-      startAgentTab(workspaceId, tabId, prompt, from);
-      return { tabId };
-    }
-    // Set before the first message: its turn runs with them.
+    const text = prompt.trim();
+    const setting = hasSettings(settings);
+    if (!setting && text === "") return { tabId };
     const target = agentTabController(workspaceId, tabId);
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
-      await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, {
-        allowDangerousMode: user || allowDangerousMode,
-        confirmMode: prompt.trim() !== "",
-      });
-      if (prompt.trim() !== "") {
-        await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
+      if (setting) {
+        // Set before the first message so its turn runs with the new settings.
+        await target.controller.open();
+        await applySettings(workspaceId, tabId, target, settings, {
+          allowDangerousMode: user || allowDangerousMode,
+          confirmMode: text !== "",
+        });
+        if (text !== "") await sendToAgentTab(workspaceId, tabId, target, text, from);
+      } else {
+        await sendFirstMessage(workspaceId, tabId, target, text, from);
       }
     } catch (err) {
       return { tabId, error: (err as Error).message };

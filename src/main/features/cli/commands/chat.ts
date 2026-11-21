@@ -491,15 +491,16 @@ const chatNew: CliCommand = {
           ? { profile: flags.profile.trim() }
           : {}),
       },
-      // Its program starts and lists its models before the settings go.
-      setting ? SEND_TIMEOUT_MS : undefined,
+      // Its program starts before applying settings or submitting the first message.
+      setting || prompt !== "" ? SEND_TIMEOUT_MS : undefined,
     );
     const reach =
       workspace.id === ctx.caller.workspaceId ? "" : ` --workspace ${shortId(workspace.id)}`;
     if (error !== undefined) {
+      const failure = setting ? "could not set it" : "could not submit its first prompt";
       const sent = prompt === "" ? "" : " The prompt was not sent.";
       return output(
-        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but could not set it: ${error}.${sent}`,
+        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but ${failure}: ${error}.${sent}`,
         { tabId, workspaceId: workspace.id, agent, cwd, error },
         { exitCode: 1 },
       );
