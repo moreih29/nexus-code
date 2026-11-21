@@ -321,10 +321,15 @@ export class RemoteAccount {
     const { signal } = options;
     signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
+    // The token the request goes with: a refusal of it signs out that sign-in alone.
+    let token: string | undefined;
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
-      headers.authorization = `Bearer ${this.saved.token}`;
+      token = this.saved.token;
+      headers.authorization = `Bearer ${token}`;
     }
+    // Signed out, or in again, while the request was away: the sign-in now is not the one refused.
+    const signedInAsSent = () => this.saved !== null && this.saved.token === token;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     if (options.raw) headers["content-type"] = options.raw.type;
     const body = options.raw
@@ -362,7 +367,7 @@ export class RemoteAccount {
     signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
       void res.body?.cancel().catch(() => {});
-      this.forget();
+      if (signedInAsSent()) this.forget();
       throw new SignedOutError();
     }
     const text = await readResponseText(res).catch((error: unknown) => {
@@ -378,8 +383,10 @@ export class RemoteAccount {
       // An account taken off an invite-only server's list: signed out as by a
       // 401, saying why.
       if (res.status === 403 && code === "not_invited" && options.signedIn !== false) {
-        this.failure = "not_invited";
-        this.forget();
+        if (signedInAsSent()) {
+          this.failure = "not_invited";
+          this.forget();
+        }
         throw new SignedOutError();
       }
       const retryAfter = Number(res.headers.get("retry-after"));
