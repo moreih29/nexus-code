@@ -270,6 +270,9 @@ export function TerminalView({
       container,
       autoSpawn: shouldAutoSpawn,
       onExit: () => {
+        setHeldAt(null);
+        setShowInputHint(false);
+        setShowRestoredFlash(false);
         useTabsStore.getState().setTerminalDead(workspaceId, tabId, true);
         setReopenState("idle");
       },
