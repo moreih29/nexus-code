@@ -89,6 +89,11 @@ export function recorderElapsedMs(s: RecorderState, now = Date.now()): number {
 
 type Ending = "pause" | "stop" | "chain";
 
+interface StartingVoice {
+  id: string | null;
+  closed: Map<string, number>;
+}
+
 interface Active {
   workspaceId: string;
   noteId: string;
@@ -102,6 +107,7 @@ interface Active {
   media: MediaRecorder | null;
   /** The take's voice session. */
   sessionId: string | null;
+  startingVoice: StartingVoice | null;
   /** Where the take starts in the recording. */
   offsetMs: number;
   takeSince: number;
@@ -124,7 +130,7 @@ interface Active {
 }
 
 let active: Active | null = null;
-let listening = false;
+let unlisten: (() => void) | undefined;
 
 const t = (key: string, options?: Record<string, unknown>) =>
   i18next.t(`notes:recorder.${key}`, options ?? {});
@@ -141,9 +147,12 @@ function set(state: Partial<RecorderState>): void {
 }
 
 function listen(): void {
-  if (listening) return;
-  listening = true;
-  ipcListen("remote", "voiceEvent", onEvent);
+  unlisten ??= ipcListen("remote", "voiceEvent", onEvent);
+}
+
+function stopListening(): void {
+  unlisten?.();
+  unlisten = undefined;
 }
 
 function update(change: (r: TranscriptRecording) => TranscriptRecording): void {
@@ -224,7 +233,15 @@ function refreshLiveNames(a: Active, at: number, force = false): void {
 
 function onEvent({ id, event }: VoiceEvent): void {
   const a = active;
-  if (!a || a.sessionId !== id) return;
+  if (!a) return;
+  if (a.sessionId !== id) {
+    const starting = a.startingVoice;
+    if (event.t === "closed" && starting && (!starting.id || starting.id === id)) {
+      starting.closed.set(id, event.code);
+      if (starting.id === id) releaseMicrophone(a);
+    }
+    return;
+  }
   switch (event.t) {
     case "partial": {
       const text = event.text.trim();
@@ -334,6 +351,7 @@ export async function startRecording(
     capture: null,
     media: null,
     sessionId: null,
+    startingVoice: null,
     offsetMs: 0,
     takeSince: 0,
     ending: null,
@@ -373,6 +391,7 @@ export async function startRecording(
     }));
     void flushTranscript(workspaceId, noteId);
     active = null;
+    stopListening();
     set(IDLE);
   }
 }
@@ -414,6 +433,20 @@ async function startTake(a: Active): Promise<boolean> {
       return false;
     }
   }
+  const starting: StartingVoice = { id: null, closed: new Map() };
+  a.startingVoice = starting;
+  try {
+    return await startVoiceTake(a, a.stream, starting);
+  } finally {
+    a.startingVoice = null;
+  }
+}
+
+async function startVoiceTake(
+  a: Active,
+  stream: MediaStream,
+  starting: StartingVoice,
+): Promise<boolean> {
   const started = await ipcCallResult("remote", "voiceStart", {
     language: a.language,
     purpose: "note",
@@ -432,14 +465,21 @@ async function startTake(a: Active): Promise<boolean> {
     return false;
   }
   const { id, sampleRate } = started.value;
-  const stream = a.stream;
+  starting.id = id;
+  function canCapture(): boolean {
+    if (active !== a) return false;
+    const code = starting.closed.get(id);
+    if (code === undefined) return true;
+    releaseMicrophone(a);
+    if (code === 4001) tellFailure("signed-out", "note");
+    else showToast({ kind: "error", message: t("failure.dropped") });
+    return false;
+  }
+  if (!canCapture()) return false;
   // The first take finds out whether the app can tell the voices apart; the recording keys its
   // voices so from its first line on.
   const usePrints = a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint);
-  if (active !== a) {
-    void ipcCallResult("remote", "voiceCancel", { id });
-    return false;
-  }
+  if (!canCapture()) return false;
   if (usePrints) {
     const count = a.participantCount;
     a.voices = new VoiceTracker(typeof count === "number" ? count : undefined);
@@ -452,20 +492,22 @@ async function startTake(a: Active): Promise<boolean> {
       stream,
       sampleRate,
       (audio) => {
-        if (active === a) void ipcCallResult("remote", "voiceAudio", { id, audio });
+        if (active === a && !starting.closed.has(id))
+          void ipcCallResult("remote", "voiceAudio", { id, audio });
       },
       { keepStream: true, ...(voices ? { onSamples: (s: Float32Array) => voices.hear(s) } : {}) },
     );
-    if (active !== a) {
+    if (!canCapture()) {
       capture.stop();
-      void ipcCallResult("remote", "voiceCancel", { id });
       return false;
     }
     a.capture = capture;
   } catch (error) {
-    void ipcCallResult("remote", "voiceCancel", { id });
-    if (active === a) tellFailure(error instanceof CaptureError ? error.reason : "failed");
-    releaseMicrophone(a);
+    if (canCapture()) {
+      void ipcCallResult("remote", "voiceCancel", { id });
+      tellFailure(error instanceof CaptureError ? error.reason : "failed");
+      releaseMicrophone(a);
+    }
     return false;
   }
   a.take += 1;
@@ -603,6 +645,7 @@ async function finishTake(a: Active): Promise<void> {
 async function finishRecording(a: Active): Promise<void> {
   updateRecording(a.workspaceId, a.noteId, a.recordingId, numberSpeakers);
   active = null;
+  stopListening();
   set(IDLE);
   await flushTranscript(a.workspaceId, a.noteId, true);
   const file = await loadTranscript(a.workspaceId, a.noteId);
@@ -701,8 +744,10 @@ export function dropRecording(workspaceId: string, noteId: string): void {
   const a = active;
   if (!a || a.workspaceId !== workspaceId || a.noteId !== noteId) return;
   active = null;
+  stopListening();
   clearVoiceSuggestions(a);
-  if (a.sessionId) void ipcCallResult("remote", "voiceCancel", { id: a.sessionId });
+  const id = a.sessionId ?? a.startingVoice?.id;
+  if (id) void ipcCallResult("remote", "voiceCancel", { id });
   stopCapture(a);
   releaseMicrophone(a);
   clearTimeout(a.endTimer);

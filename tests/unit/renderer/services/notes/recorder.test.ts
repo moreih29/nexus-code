@@ -11,7 +11,7 @@ import { startNoteRemovalListener } from "../../../../../src/renderer/state/note
 import { openOrRevealNoteTab } from "../../../../../src/renderer/state/operations/tabs";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import type { TranscriptFile } from "../../../../../src/shared/notes/transcript";
-import type { VoiceStartResult } from "../../../../../src/shared/remote/voice";
+import type { VoiceEvent, VoiceStartResult } from "../../../../../src/shared/remote/voice";
 import type { NoteChanged } from "../../../../../src/shared/types/notes";
 
 const realWindow = globalThis.window;
@@ -21,6 +21,8 @@ const noteId = "recording-note";
 const key = `${workspaceId}/${noteId}`;
 const empty: TranscriptFile = { version: 1, recordings: [] };
 const calls: string[] = [];
+let voiceEvent: ((payload: VoiceEvent) => void) | undefined;
+let startVoice: () => VoiceStartResult | Promise<VoiceStartResult>;
 let noteChanged: ((payload: NoteChanged) => void) | undefined;
 const ready: VoiceStartResult = {
   status: "ready",
@@ -31,6 +33,7 @@ const ready: VoiceStartResult = {
 
 beforeEach(() => {
   calls.length = 0;
+  startVoice = () => ready;
   originalNotes = { ...notesApi };
   notesApi.readTranscript = async () => empty;
   notesApi.saveTranscript = async () => {};
@@ -42,9 +45,11 @@ beforeEach(() => {
         if (method === "account") return { status: "signed-in" };
         if (method === "serverInfo") return { voice: true };
         if (method === "voiceMicrophone") return "granted";
-        if (method === "voiceStart") return ready;
+        if (method === "voiceStart") return startVoice();
       },
       listen(channel: string, name: string, listener: (payload: never) => void) {
+        if (channel === "remote" && name === "voiceEvent")
+          voiceEvent = listener as typeof voiceEvent;
         if (channel === "notes" && name === "changed") noteChanged = listener as typeof noteChanged;
         return () => {};
       },
@@ -143,6 +148,36 @@ test("drops capture and its session when audio setup completes after deletion", 
     expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
     expect(hardware.stopCapture).toHaveBeenCalledTimes(1);
     expect(calls).toContain("voiceCancel");
+    expect(useRecorderStore.getState().phase).toBe("idle");
+  } finally {
+    hardware.restore();
+  }
+});
+
+test.each([
+  "reply",
+  "capture",
+] as const)("does not start a recording when the voice socket closes before %s", async (before) => {
+  const hardware = mockHardware();
+  const close = () => {
+    if (!voiceEvent) throw new Error("missing voice listener");
+    voiceEvent({ id: ready.id, event: { t: "closed", code: 1006 } });
+  };
+  if (before === "reply")
+    startVoice = () => {
+      close();
+      return ready;
+    };
+  else
+    hardware.start.mockImplementationOnce(async () => {
+      close();
+      return hardware.running;
+    });
+  try {
+    await startRecording(workspaceId, noteId, "en");
+    expect(hardware.stopTrack).toHaveBeenCalledTimes(1);
+    expect(hardware.start).toHaveBeenCalledTimes(before === "capture" ? 1 : 0);
+    expect(hardware.stopCapture).toHaveBeenCalledTimes(before === "capture" ? 1 : 0);
     expect(useRecorderStore.getState().phase).toBe("idle");
   } finally {
     hardware.restore();
