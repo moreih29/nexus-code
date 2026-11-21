@@ -241,7 +241,7 @@ export async function registerRemoteChannel(options: {
       const snapshot = await snapshotSessions(services, git, options.notes, "sessions.watch", from);
       return {
         ...snapshot,
-        forDevice: (to) => snapshot.forDevice(to, controls()),
+        forDevice: () => snapshot.forDevice(controls()),
       };
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),

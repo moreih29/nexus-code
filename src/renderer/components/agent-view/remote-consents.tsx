@@ -6,9 +6,11 @@
  * own prompt (consent-dialog): what it asks, what it would run or write
  * (all of it, in a box that scrolls), the seconds left before it counts as
  * turned down, and the answers it allows ("until restart" not for one
- * asked about each time). One this computer may not answer (its own
- * agent's, one too long to be sent whole, or one the settings there keep
- * from here) shows, to be answered at that computer.
+ * asked about each time). Its own agent's too: the user answers it here as
+ * from any other computer. One this computer may not answer (one too long
+ * to be sent whole, one the settings there keep from here, or its own
+ * agent's where that computer runs an older NexusCode) shows, to be
+ * answered at that computer.
  */
 
 import i18next, { type TFunction } from "i18next";
