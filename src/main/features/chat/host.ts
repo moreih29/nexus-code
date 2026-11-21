@@ -621,7 +621,8 @@ export class ChatHost {
     }
     const restoring = hook.phase === "restore";
     const profile = this.instructionProfile("claude", layer.profileId);
-    const session = (restoring ? saved?.instructions : undefined) ?? layer.instructions;
+    // Claude can submit a prompt without going through send(), so prefer the saved session text.
+    const session = saved?.instructions ?? layer.instructions;
     const text = this.options.instructions(workspaceId, profile, session);
     const update = claudeInstructionUpdate(launchState.systemDigest, previous, text, restoring);
     if (!update) return "";

@@ -20,6 +20,7 @@ import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import type { ProfileConnections } from "../agent-profiles/connection-save";
 import type { ClaudeInstructionHook } from "../chat/instructions";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
@@ -109,6 +110,7 @@ export interface CliServices {
   /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;
+  readonly profileConnections: ProfileConnections;
   listWorkspaces(): WorkspaceMeta[];
   /**
    * Adds a workspace to the app's list, as Add Workspace does, connected

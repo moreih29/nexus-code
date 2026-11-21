@@ -4,7 +4,10 @@ import {
   type ChatHostOptions,
   type ChatWorkspaceManager,
 } from "../../../../src/main/features/chat/host";
-import { claudeInstructionLaunchState } from "../../../../src/main/features/chat/instructions";
+import {
+  claudeInstructionLaunchState,
+  instructionsFor,
+} from "../../../../src/main/features/chat/instructions";
 import {
   APPEND_PROMPT_FILE_FROM,
   CLAUDE_TAB_ARGS,
@@ -35,6 +38,7 @@ import type {
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
 import type { CustomConnection } from "../../../../src/shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
+import { WorkspaceMetaSchema } from "../../../../src/shared/types/workspace";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -194,6 +198,37 @@ describe("Claude instruction history", () => {
     return params.env.NEXUS_CHAT_INSTRUCTION_LAUNCH ?? "";
   }
 
+  test.each([
+    "prompt",
+    "restore",
+  ] as const)("a %s hook picks up saved session edits and clears without another send", async (phase) => {
+    let saved = { profileId: "claude-default", instructions: "BASE" };
+    const instructions = mock(
+      (_workspaceId: string, _profile: AgentProfile, session?: string) => session ?? "",
+    );
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      instructions,
+      savedClaudeInstructions: () => saved,
+    });
+    await host.start(WS, TAB, "/repo", {}, undefined, saved.instructions);
+    await host.send(WS, TAB, { type: "user" }, { instructions: saved.instructions });
+    const launch = launchOf(channel);
+    const hook = { sessionId: parent, phase };
+
+    saved = { profileId: "other-profile", instructions: "EDITED" };
+    expect(host.claudeHookInstructions(WS, TAB, launch, hook)).toEndWith("EDITED");
+    expect(instructions).toHaveBeenLastCalledWith(
+      WS,
+      expect.objectContaining({ id: "claude-default" }),
+      "EDITED",
+    );
+
+    saved = { ...saved, instructions: "" };
+    expect(host.claudeHookInstructions(WS, TAB, launch, hook)).toContain(
+      "NexusCode instructions were cleared.",
+    );
+  });
+
   test("a restarted app replaces a stale block on the first prompt of a resumed chat", async () => {
     const { open, sendOriginalReplacement } = instructionsFixture();
     await sendOriginalReplacement();
@@ -316,6 +351,44 @@ describe("Claude instruction history", () => {
 });
 
 describe("chat launch", () => {
+  test("Claude launches and Codex turns in a task use the parent workspace layer", async () => {
+    const defaults = { pinned: false, tabs: [] };
+    const parent = WorkspaceMetaSchema.parse({
+      ...defaults,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-bbbbbbbbbbbb",
+      name: "Parent",
+      rootPath: "/repo",
+    });
+    const task = WorkspaceMetaSchema.parse({
+      ...defaults,
+      id: WS,
+      name: "Task",
+      rootPath: "/worktree",
+      task: { parentId: parent.id, branch: "task", worktreePath: "/worktree" },
+    });
+    const config = { workspaces: { [parent.id]: "Parent rules", [task.id]: "Legacy rules" } };
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      instructions: (workspaceId, profile, session) =>
+        instructionsFor(config, profile, workspaceId, [parent, task], session),
+    });
+    const layers = "## Workspace: Parent\nParent rules\n\n## This session\nSession rules";
+
+    await host.start(WS, TAB, "/worktree", {}, undefined, "Session rules");
+    const { args } = channel.calls.find(({ method }) => method === "chat.start")?.params as {
+      args: string[];
+    };
+    const prompt = args[args.indexOf("--append-system-prompt") + 1];
+    expect(prompt).toEndWith(layers);
+    expect(prompt).not.toContain("Legacy rules");
+
+    await host.send(WS, TAB, { method: "turn/start" }, { instructions: "Session rules" });
+    const { codexContext } = channel.calls.at(-1)?.params as {
+      codexContext: { instructions: string };
+    };
+    expect(codexContext.instructions).toEndWith(layers);
+    expect(codexContext.instructions).not.toContain("Legacy rules");
+  });
+
   test("resume and fork add their flags after the stream-json ones", () => {
     expect(claudeTabArgs({})).toEqual([
       ...CLAUDE_TAB_ARGS,

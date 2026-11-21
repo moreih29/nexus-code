@@ -7,7 +7,7 @@ import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
 import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
 import { useAgentListViewStore } from "@/state/stores/agent-list-view";
-import { resolveWorkspaceProfile } from "@/state/stores/agent-profiles";
+import { resolveWorkspaceProfile, useAgentProfilesStore } from "@/state/stores/agent-profiles";
 import { useChatFontStore } from "@/state/stores/chat-font";
 import { useEditorFontStore } from "@/state/stores/editor-font";
 import { ICON_THEMES, useIconThemeStore } from "@/state/stores/icon-theme";
@@ -29,7 +29,12 @@ import { useUpdatesStore } from "@/state/stores/updates";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
-import { instructionLayers, mergeAgentInstructions } from "../../../shared/chat/instructions";
+import { profilesOf } from "../../../shared/agent-profiles/profiles";
+import {
+  mergeAgentInstructions,
+  persistentInstructionLayers,
+  workspaceInstructionTarget,
+} from "../../../shared/chat/instructions";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
@@ -579,17 +584,21 @@ export const settingsHandlers: {
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
-  "settings.instructions": async ({ workspaceId, agent }) => {
+  "settings.instructions": async ({ workspaceId, agent, profileId }) => {
     const { workspaces } = useWorkspacesStore.getState();
     const workspace = workspaces.find((w) => w.id === workspaceId);
     if (!workspace) throw new UiRequestError("that workspace is gone");
-    const { profile } = resolveWorkspaceProfile(agent, workspace, workspaces);
+    const profile =
+      profileId === undefined
+        ? resolveWorkspaceProfile(agent, workspace, workspaces).profile
+        : profilesOf(useAgentProfilesStore.getState().config, agent).find(
+            (p) => p.id === profileId,
+          );
+    if (!profile) throw new UiRequestError(`no ${agent} profile with id "${profileId}"`);
     const config = useAgentInstructionsStore.getState().config;
-    const target = { agent, workspace, profile };
+    const target = { agent, workspace: workspaceInstructionTarget(workspace, workspaces), profile };
     return {
-      layers: instructionLayers(config, target).flatMap(({ scope, title, text }) =>
-        scope ? [{ scope, title, text }] : [],
-      ),
+      layers: persistentInstructionLayers(config, target),
       instructions: mergeAgentInstructions(config, target),
     };
   },

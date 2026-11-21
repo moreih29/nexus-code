@@ -50,15 +50,19 @@ export function WorkspaceMenuContent({
       />
       <WorkspaceColorMenu color={workspace.color} onSelect={onColor} />
       <WorkspaceProfileMenu workspace={workspace} />
-      <ContextMenuAction
-        onSelect={() =>
-          handoff.defer(() =>
-            useSettingsUIStore.getState().openInstructions({ kind: "workspace", id: workspace.id }),
-          )
-        }
-      >
-        {t("settings:instructions.workspaceMenu")}
-      </ContextMenuAction>
+      {!workspace.task && (
+        <ContextMenuAction
+          onSelect={() =>
+            handoff.defer(() =>
+              useSettingsUIStore
+                .getState()
+                .openInstructions({ kind: "workspace", id: workspace.id }),
+            )
+          }
+        >
+          {t("settings:instructions.workspaceMenu")}
+        </ContextMenuAction>
+      )}
       {dismiss && (
         <>
           <ContextMenuSeparator />

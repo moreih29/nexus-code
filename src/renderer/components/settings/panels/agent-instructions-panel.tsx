@@ -21,7 +21,7 @@ import {
 } from "../../../state/stores/agent-instructions";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { useSettingsUIStore } from "../../../state/stores/settings-ui";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspacesStore, visibleWorkspaces } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { ProfileDot, profileName } from "../../agent-profiles/profile-badge";
 import { Button } from "../../ui/button";
@@ -46,7 +46,7 @@ export function AgentInstructionsPanel() {
   const { t } = useTranslation(["settings", "common"]);
   const config = useAgentInstructionsStore((state) => state.config);
   const profiles = useAgentProfilesStore((state) => state.config);
-  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const workspaces = visibleWorkspaces(useWorkspacesStore((state) => state.workspaces));
   const initialScope = useSettingsUIStore((state) => state.initialInstructionScope);
   const [selected, setSelected] = useState(initialScope ?? all);
   const [drafts, setDrafts] = useState<Record<string, InstructionEdit>>({});

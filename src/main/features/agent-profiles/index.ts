@@ -9,22 +9,18 @@ import {
 } from "../../../shared/agent-profiles/connection";
 import {
   type AgentProfile,
-  defaultProfileId,
   EMPTY_AGENT_PROFILES,
-  isDefaultProfileId,
   PROFILE_AGENTS,
   profilesOf,
-  withProfile,
 } from "../../../shared/agent-profiles/profiles";
-import { EMPTY_INSTRUCTIONS, withInstruction } from "../../../shared/chat/instructions";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
 import { readBehavior, unshareBehaviorFile, writeBehavior } from "./behavior";
 import type { ConnectionKeys } from "./connection-keys";
-import { sameLaunchConnection } from "./connection-launch";
 import { discoverConnectionModels, testConnection } from "./connection-probe";
+import { findProfile, type ProfileConnections } from "./connection-save";
 import {
   inspectLocalFolder,
   LocalLogins,
@@ -35,15 +31,7 @@ import {
 
 const c = ipcContract.agentProfiles.call;
 
-/** The profile of that id, of either agent; null when there is none. */
-export function findProfile(state: StateService, id: string): AgentProfile | null {
-  const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
-  for (const agent of PROFILE_AGENTS) {
-    const found = profilesOf(config, agent).find((p) => p.id === id);
-    if (found) return found;
-  }
-  return null;
-}
+export { findProfile } from "./connection-save";
 
 export function profileKeyIds(state: StateService): ReadonlySet<string> {
   return new Set(
@@ -56,7 +44,7 @@ export function profileKeyIds(state: StateService): ReadonlySet<string> {
 export function registerAgentProfilesChannel(
   state: StateService,
   keys: ConnectionKeys,
-  onChanged: (connectionChangedProfileId?: string) => void,
+  connections: ProfileConnections,
 ): { dispose(): void } {
   const logins = new LocalLogins({
     output: (id, text) => broadcast("agentProfiles", "loginOutput", { id, text }),
@@ -100,47 +88,8 @@ export function registerAgentProfilesChannel(
         if (profileId) profile(profileId);
         return ipcOk(await keys.status(profileId, target));
       },
-      connectionSave: async (args: unknown) => {
-        const { profile: next, key, instructions } = validateArgs(c.connectionSave.args, args);
-        const connection = next.connection;
-        if (isDefaultProfileId(next.id) && next.id !== defaultProfileId(next.agent)) {
-          throw new Error("Profile does not belong to this agent");
-        }
-        if (connection?.method === "custom") {
-          connection.baseUrl = normalizeConnectionUrl(next.agent, connection.baseUrl);
-          const ids = new Set(connection.models.map(({ id }) => id));
-          if (
-            ids.size !== connection.models.length ||
-            !ids.has(connection.defaultModel) ||
-            (connection.lightModel && !ids.has(connection.lightModel))
-          )
-            throw new Error("Select a default model and provide unique model IDs");
-        }
-        let connectionChanged = false;
-        const keyChanged = await keys.saveProfile(next, key, () => {
-          const current = state.getState();
-          const existing = findProfile(state, next.id);
-          if (existing && existing.agent !== next.agent)
-            throw new Error("Profile does not belong to this agent");
-          connectionChanged = !sameLaunchConnection(existing, next);
-          const agentProfiles = withProfile(current.agentProfiles ?? EMPTY_AGENT_PROFILES, next);
-          const agentInstructions =
-            instructions === undefined
-              ? undefined
-              : withInstruction(current.agentInstructions ?? EMPTY_INSTRUCTIONS, {
-                  scope: { kind: "profile", id: next.id },
-                  text: instructions,
-                });
-          state.setState({ agentProfiles, ...(agentInstructions ? { agentInstructions } : {}) });
-        });
-        if (instructions !== undefined) {
-          broadcast("appState", "agentInstructionsChanged", {
-            config: state.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,
-          });
-        }
-        onChanged(connectionChanged || keyChanged ? next.id : undefined);
-        return ipcOk(state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES);
-      },
+      connectionSave: async (args: unknown) =>
+        ipcOk(await connections.save(validateArgs(c.connectionSave.args, args))),
       connectionDiscover: async (args: unknown) => {
         const probe = validateArgs(c.connectionDiscover.args, args);
         return ipcOk(await discoverConnectionModels(probe, await probeKey(probe)));

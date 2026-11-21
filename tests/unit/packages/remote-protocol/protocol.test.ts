@@ -209,6 +209,16 @@ describe("the methods", () => {
     const { result } = RPC_METHODS["sessions.list"];
     const listed = result.parse({ workspaces: [], sessions: [], consents: [consent] });
     expect(listed.consents?.[0]?.change.kind).toBe("terminalInput");
+    const instructionEdit = {
+      layer: { kind: "profile", agent: "claude", name: "default", id: "claude-default" },
+      clear: true,
+    };
+    const instruction = result.parse({
+      workspaces: [],
+      sessions: [],
+      consents: [{ ...consent, change: { kind: "instructionsEdit", instructionEdit } }],
+    });
+    expect(instruction.consents?.[0]?.change.instructionEdit).toEqual(instructionEdit);
     // A kind this version does not name is still a prompt.
     expect(
       result.safeParse({
@@ -625,13 +635,16 @@ test("expanded CLI peers share the v2 envelope and strip private transcript data
   const hello = {
     type: "hello",
     protocol: 2,
-    schema: "0.15.0",
+    schema: SCHEMA_VERSION,
     device: { id: "dev-a", name: "Mac", platform: "darwin" },
-    serves: ["sessions", "agents.cli"],
+    serves: ["sessions", "agents.cli", "settings.instructions"],
     app: { name: "nexus-code", version: "0.36.0" },
     reply: true,
   };
   expect(SealedMessageSchema.parse(hello)).toMatchObject(hello);
+  expect(
+    SealedMessageSchema.parse({ ...hello, schema: "0.15.0", serves: ["sessions", "agents.cli"] }),
+  ).toMatchObject({ protocol: 2, schema: "0.15.0", serves: ["sessions", "agents.cli"] });
   expect(
     SealedMessageSchema.parse({ ...hello, schema: "0.14.0", serves: ["sessions"] }),
   ).toMatchObject({
@@ -686,12 +699,54 @@ test("peer view changes take a declared action and validated arguments", () => {
   }
 });
 
-test("peer instruction writes exclude profile editing; remembered voice results expose names only", () => {
+test("peer profile instruction reads and writes carry a valid profile id", () => {
   const set = RPC_METHODS["settings.instructions.set"].params;
   const from = { kind: "tab", workspaceId: "source", tabId: "t" };
-  expect(set.safeParse({ workspaceId: "w", layer: "profile", text: "prompt", from }).success).toBe(
-    false,
-  );
+  const write = { workspaceId: "w", layer: "profile", text: "prompt", from };
+  expect(set.safeParse(write).success).toBe(false);
+  expect(set.safeParse({ ...write, profileId: "" }).success).toBe(false);
+  expect(set.parse({ ...write, profileId: "codex-default" })).toEqual({
+    ...write,
+    profileId: "codex-default",
+  });
+  const read = { workspaceId: "w", agent: "codex", from, profileId: "codex-default" };
+  expect(RPC_METHODS["settings.instructions"].params.parse(read)).toEqual(read);
+});
+
+test("chat instruction reads accept older replies and the same persistent layers as settings", () => {
+  const chat = RPC_METHODS["chat.instructions"].result;
+  const settings = RPC_METHODS["settings.instructions"].result;
+  const legacy = { instructions: "Combined text" };
+  expect(chat.parse(legacy)).toEqual(legacy);
+
+  const layers = [
+    { scope: { kind: "all" }, title: "All agents", text: "" },
+    { scope: { kind: "agent", agent: "claude" }, title: "Claude", text: "Agent rules" },
+    { scope: { kind: "profile", id: "work" }, title: "Profile: Work", text: "" },
+    { scope: { kind: "workspace", id: "w" }, title: "Workspace: Parent", text: "Parent rules" },
+  ];
+  expect(settings.parse({ ...legacy, layers })).toEqual({ ...legacy, layers });
+  expect(chat.parse({ ...legacy, session: "", layers })).toEqual({
+    ...legacy,
+    session: "",
+    layers,
+  });
+  expect(
+    chat.safeParse({ ...legacy, session: "", layers: [{ ...layers[0], scope: null }] }).success,
+  ).toBe(false);
+});
+
+test("people and agents can write chat instructions up to 5,000 characters", () => {
+  const { params } = RPC_METHODS["chat.instructions.set"];
+  const write = { workspaceId: "w", tabId: "t", text: "r".repeat(5000) };
+  const from = { kind: "tab", workspaceId: "source", tabId: "t" };
+  expect(params.parse(write)).toEqual(write);
+  expect(params.parse({ ...write, from })).toEqual({ ...write, from });
+  expect(params.safeParse({ ...write, text: `${write.text}r` }).success).toBe(false);
+  expect(params.safeParse({ ...write, from: null }).success).toBe(false);
+});
+
+test("remembered voice results expose names only", () => {
   const suggestions = RPC_METHODS["notes.voiceSuggestions.list"].result.parse({
     noteId: "note",
     recordingId: "rec",
@@ -702,7 +757,9 @@ test("peer instruction writes exclude profile editing; remembered voice results 
 
 test.each([
   ["browser.devtools", { tabId: "t" }],
+  ["settings.instructions", { agent: "codex" }],
   ["settings.instructions.set", { layer: "workspace", text: "prompt" }],
+  ["settings.instructions.set", { layer: "profile", profileId: "codex-default", text: "" }],
   ["notes.speakers", { note: "n", change: { op: "regroup", participants: "auto" } }],
   [
     "notes.voiceSuggestions.change",
@@ -713,7 +770,6 @@ test.each([
   ["agentView.change", { change: { op: "show", view: "agents" } }],
   ["worktree.new", { name: "work", prompt: "", show: false }],
   ["worktree.remove", { force: false, deleteBranch: false }],
-  ["chat.instructions.set", { tabId: "t", text: "prompt" }],
 ] as const)("%s requires an agent sender", (method, args) => {
   const { params } = RPC_METHODS[method];
   const request = { workspaceId: "w", ...args };

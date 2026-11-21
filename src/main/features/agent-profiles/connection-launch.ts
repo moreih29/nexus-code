@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import {
+  API_KEY_CONNECTION_URL,
   type CustomConnection,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
@@ -48,7 +49,7 @@ export function claudeConnectionEnv(
   if (connection.method === "api-key") {
     return {
       ...routing,
-      ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      ANTHROPIC_BASE_URL: API_KEY_CONNECTION_URL.claude,
       ANTHROPIC_AUTH_TOKEN: "",
       ANTHROPIC_API_KEY: key ?? "",
     };
@@ -128,7 +129,7 @@ export function codexConnectionArgs(
       "-c",
       `model_provider=${tomlString(CODEX_PROVIDER)}`,
       "-c",
-      `model_providers.${CODEX_PROVIDER}={ name = "OpenAI API", base_url = "https://api.openai.com/v1", env_key = "${CODEX_PROVIDER_KEY}", wire_api = "responses", requires_openai_auth = false }`,
+      `model_providers.${CODEX_PROVIDER}={ name = "OpenAI API", base_url = "${API_KEY_CONNECTION_URL.codex}", env_key = "${CODEX_PROVIDER_KEY}", wire_api = "responses", requires_openai_auth = false }`,
     ];
   }
   if (connection?.method !== "custom") return [];

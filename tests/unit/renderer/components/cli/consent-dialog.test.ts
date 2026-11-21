@@ -1,11 +1,14 @@
 /** A consent prompt answered on another device of the user's comes down here, saying so. */
 import { describe, expect, test } from "bun:test";
+import i18next from "i18next";
 import {
   askCliConsent,
+  consentNamesTarget,
   describeConsent,
   settleCliConsent,
 } from "../../../../../src/renderer/components/cli/consent-dialog";
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
+import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
 
 const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
@@ -53,30 +56,63 @@ describe("settling a consent prompt from another device", () => {
 });
 
 describe("who a consent prompt says asks", () => {
-  const t = (key: string, values: Record<string, string>) => `${key} ${JSON.stringify(values)}`;
+  const t = i18next.getFixedT("en", "settings");
 
   test("a terminal is told as one", () => {
     expect(describeConsent(t, prompt(), "send")).toBe(
-      'agentCli.consent.description {"tab":"zsh","from":"app","to":"api","action":"send"}',
+      'The terminal "zsh" in app asks to send in api.',
     );
   });
 
   test("a Claude or Codex tab is told as that agent's tab, not a terminal", () => {
     expect(
       describeConsent(t, { ...prompt(), fromTab: "Review", fromAgent: "claude" }, "send"),
-    ).toBe(
-      'agentCli.consent.agent_description {"agent":"Claude","tab":"Review","from":"app","to":"api","action":"send"}',
-    );
+    ).toBe('The Claude tab "Review" in app asks to send in api.');
     expect(describeConsent(t, { ...prompt(), fromAgent: "codex" }, "send")).toContain(
-      '"agent":"Codex"',
+      "The Codex tab",
     );
   });
 
   test("another computer's agent is told by that computer", () => {
     expect(
       describeConsent(t, { ...prompt(), fromDevice: "Mac", fromAgent: "claude" }, "send"),
-    ).toBe(
-      'agentCli.consent.remote_description {"device":"Mac","tab":"zsh","to":"api","action":"send"}',
-    );
+    ).toBe('"zsh" on the computer Mac asks to send in api.');
   });
+});
+
+test("instruction edits and profile additions use the same Korean sentence as other approvals", () => {
+  const t = i18next.getFixedT("ko", "settings");
+  const change = {
+    kind: "instructionsEdit",
+    instructionEdit: { layer: { kind: "all" }, clear: true },
+  } as const;
+  const { detail, body } = consentDetailsOf(t, change);
+  const edit = t("agentCli.consent.action.instructionsEdit", { detail });
+  const add = t("agentCli.consent.action.profileAdd", { detail: "QA Codex" });
+  expect(describeConsent(t, prompt(), edit, consentNamesTarget(change.kind))).toBe(
+    'app의 터미널 "zsh"이(가) 모든 에이전트 지시 바꾸기를 하려고 합니다.',
+  );
+  expect(describeConsent(t, prompt(), add, consentNamesTarget("profileAdd"))).toBe(
+    'app의 터미널 "zsh"이(가) 에이전트 프로필 "QA Codex" 추가를 하려고 합니다.',
+  );
+  expect(body).toBe("지시 비우기");
+});
+
+test("profile additions use settings connection labels in the dialog language", () => {
+  const change = {
+    kind: "profileAdd",
+    detail: "Gateway",
+    profileAdd: {
+      agent: "codex",
+      folder: "/tmp/gateway",
+      connection: "custom",
+      endpoint: "https://gateway.example",
+    },
+  } as const;
+  expect(consentDetailsOf(i18next.getFixedT("en", "settings"), change).body).toBe(
+    "Agent Codex\nFolder /tmp/gateway\nConnection Custom API address · https://gateway.example",
+  );
+  expect(consentDetailsOf(i18next.getFixedT("ko", "settings"), change).body).toBe(
+    "에이전트 Codex\n폴더 /tmp/gateway\n연결 사용자 지정 API 주소 · https://gateway.example",
+  );
 });

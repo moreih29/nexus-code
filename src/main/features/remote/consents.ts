@@ -14,7 +14,9 @@ import {
   type RemoteConsent,
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
+import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import { isTerminalChange } from "../../../shared/cli/ui";
+import { getMainI18n, tryGetMainT } from "../../i18n";
 import type { CliServices, PendingConsent } from "../cli/context";
 import { RpcFailure } from "./room";
 
@@ -73,6 +75,7 @@ export async function remoteConsents(
     return (await listed).find((t) => t.id === tabId)?.title;
   };
   const workspaces = services.listWorkspaces();
+  const t = tryGetMainT() ? getMainI18n().getFixedT(null, "settings") : undefined;
   return Promise.all(
     pending.map(async (p): Promise<RemoteConsent> => {
       const { request } = p;
@@ -83,7 +86,10 @@ export async function remoteConsents(
       const name =
         request.fromName ??
         (remote ? undefined : await titleOf(request.fromWorkspaceId, request.fromTabId));
-      const { kind, detail, body } = request.change;
+      const { kind, instructionEdit, profileAdd } = request.change;
+      // Keep display text for peers that only know detail and body.
+      const { detail, body } =
+        t && (instructionEdit || profileAdd) ? consentDetailsOf(t, request.change) : request.change;
       return {
         id: p.id,
         at: p.at,
@@ -103,6 +109,8 @@ export async function remoteConsents(
           kind,
           ...(detail !== undefined ? { detail } : {}),
           ...(body !== undefined ? { body: clipBody(body) } : {}),
+          ...(instructionEdit ? { instructionEdit } : {}),
+          ...(profileAdd ? { profileAdd } : {}),
         },
         eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, deviceId, controls) === null,

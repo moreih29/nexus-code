@@ -1260,7 +1260,8 @@ const chatInstructions: CliCommand = {
   summary: "View or edit a chat tab's instructions",
   args: "<tab>",
   details:
-    "Use exactly one of --show, --set-file FILE, or --clear. Edits apply from the next message. Other devices support --show.",
+    "Use exactly one of --show, --set-file FILE, or --clear. All three work with --device. " +
+    "Edits apply from the next message.",
   flags: {
     show: { type: "boolean", description: "Print the combined instructions for the tab" },
     "set-file": {

@@ -4,10 +4,12 @@
  * terms, signed out) told as such rather than as empty.
  */
 import { expect, test } from "bun:test";
+import { SCHEMA_VERSION } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { CliSettingInfo, CliUiOps } from "../../../../src/shared/cli/ui";
-import { API, contextFor, type FakeApp, fakeApp } from "./fake-services";
+import { API, APP, contextFor, type FakeApp, FIX, fakeApp, SHELL_TAB } from "./fake-services";
 
 const SETTINGS: CliSettingInfo[] = [
   {
@@ -87,4 +89,277 @@ test("settings instructions previews the workspace and agent layers without chan
   });
   expect(app.uiCalls.at(-1)?.args).toEqual({ workspaceId: API, agent: "codex" });
   expect(app.asked).toEqual([]);
+});
+
+const MINI: CliDevice = {
+  id: "9b1e44d2-0000-4000-8000-000000000002",
+  name: "Mac mini",
+  platform: "darwin",
+  online: true,
+  self: false,
+  serves: ["sessions", "chat.read", "agents", "agents.cli", "settings.instructions"],
+  schema: SCHEMA_VERSION,
+};
+const PEER_COMMAND = ["settings", "instructions", "show", "--device", MINI.name];
+const SITE = "33333333-3333-4333-8333-333333333333";
+const TOOLS = "44444444-4444-4444-8444-444444444444";
+
+test("settings instructions shows peer layers in the local format and selects Codex", async () => {
+  const app = fakeApp();
+  const from = { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB };
+  const preview = {
+    layers: [
+      { scope: { kind: "all" }, title: "All agents", text: "Use tests." },
+      { scope: { kind: "agent", agent: "codex" }, title: "Codex", text: "" },
+      { scope: { kind: "profile", id: "work" }, title: "Profile: Work", text: "Use bun." },
+      { scope: { kind: "workspace", id: TOOLS }, title: "Workspace: Tools", text: "Use fixtures." },
+    ],
+    instructions:
+      "## All agents\nUse tests.\n\n## Profile: Work\nUse bun.\n\n## Workspace: Tools\nUse fixtures.",
+  };
+  app.peers.devices = [MINI];
+  app.peers.answer = async (_device, method, params) => {
+    if (method === "sessions.list") {
+      expect(params).toEqual({ from });
+      return {
+        workspaces: [
+          { id: SITE, name: "Site", path: "/site" },
+          { id: TOOLS, name: "Tools", path: "/tools" },
+        ],
+        sessions: [],
+      };
+    }
+    expect(method).toBe("settings.instructions");
+    if ((params as { workspaceId: string }).workspaceId === SITE) {
+      expect(params).toEqual({ workspaceId: SITE, agent: "claude", from });
+      return { layers: [], instructions: "" };
+    }
+    expect(params).toEqual({ workspaceId: TOOLS, agent: "codex", from });
+    return preview;
+  };
+  const command = [...PEER_COMMAND, "--workspace", "Tools", "--agent", "codex"];
+  expect(await nexus(app, command)).toEqual({
+    exitCode: 0,
+    stderr: "",
+    stdout: `Sources, in order:\n- All agents\n- Codex (empty)\n- Profile: Work\n- Workspace: Tools\n\n${preview.instructions}\n`,
+  });
+  const json = await nexus(app, [...command, "--json"]);
+  expect(JSON.parse(json.stdout)).toEqual({
+    workspaceId: TOOLS,
+    agent: "codex",
+    ...preview,
+    device: { id: MINI.id, name: MINI.name },
+  });
+  expect((await nexus(app, PEER_COMMAND)).stdout).toBe("Sources, in order:\n\n(no instructions)\n");
+  expect(app.uiCalls.some(({ op }) => op === "settings.instructions")).toBe(false);
+  expect(app.asked).toEqual([]);
+});
+
+test("settings instructions shows update guidance for a 0.36.x peer before contacting it", async () => {
+  const app = fakeApp();
+  app.peers.devices = [
+    { ...MINI, schema: "0.15.0", serves: MINI.serves.filter((c) => c !== "settings.instructions") },
+  ];
+  const result = await nexus(app, PEER_COMMAND);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain('Update NexusCode on "Mac mini"');
+  expect(app.peers.requests).toEqual([]);
+});
+
+test("settings instructions refuses a peer that does not take agent requests", async () => {
+  const app = fakeApp();
+  app.peers.devices = [{ ...MINI, serves: MINI.serves.filter((c) => c !== "agents") }];
+  const result = await nexus(app, PEER_COMMAND);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('"Mac mini" does not take requests from agents');
+  expect(app.peers.requests).toEqual([]);
+});
+
+const WORK_PROFILE = { id: "work-codex", agent: "codex", name: "Work", isDefault: false };
+const OTHER_PROFILE = { id: "work-claude", agent: "claude", name: "Work", isDefault: false };
+const SET_PROFILE = ["settings", "instructions", "set", "profile"];
+const SHOW_PROFILE = ["settings", "instructions", "show", "--profile"];
+
+test("a profile id selects its agent and ambiguous names require the id", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("chat.profiles", { profiles: [WORK_PROFILE, OTHER_PROFILE] });
+  const show = await nexus(app, [...SHOW_PROFILE, WORK_PROFILE.id, "--json"]);
+  expect(JSON.parse(show.stdout)).toMatchObject({
+    workspaceId: APP,
+    agent: "codex",
+    profileId: WORK_PROFILE.id,
+  });
+  expect(app.uiCalls.at(-1)).toEqual({
+    op: "settings.instructions",
+    args: { workspaceId: APP, agent: "codex", profileId: WORK_PROFILE.id },
+  });
+  for (const command of [
+    [...SHOW_PROFILE, "work"],
+    [...SET_PROFILE, "--profile", "work", "--clear"],
+  ]) {
+    const result = await nexus(app, command);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Use its id from nexus chat profiles");
+  }
+  expect(app.asked).toEqual([]);
+});
+
+test("local profile writes take stdin and clear with fresh approval each time", async () => {
+  const app = fakeApp();
+  app.settings.crossWorkspace = "allow";
+  app.uiAnswers.set("chat.profiles", { profiles: [WORK_PROFILE, OTHER_PROFILE] });
+  app.uiAnswers.set("settings.instructions.set", {});
+  app.answers.push("once", "once", "deny");
+  const command = [...SET_PROFILE, "--profile", WORK_PROFILE.id];
+  const set = await runCli(
+    CLI_COMMANDS,
+    contextFor(app, [...command, "--file", "-", "--json"], undefined, { stdin: "Use bun." }),
+  );
+  const scope = { kind: "profile", id: WORK_PROFILE.id };
+  expect(JSON.parse(set.stdout)).toEqual({ scope, text: "Use bun." });
+  expect((await nexus(app, [...command, "--clear"])).exitCode).toBe(0);
+  expect((await nexus(app, [...command, "--clear"])).exitCode).toBe(1);
+  expect(app.asked.map(({ change }) => change)).toEqual(
+    ["Use bun.", "", ""].map((body) => ({
+      kind: "instructionsEdit",
+      instructionEdit: {
+        layer: { kind: "profile", agent: "codex", name: "Work", id: "work-codex" },
+        clear: !body,
+      },
+      eachTime: true,
+      body,
+    })),
+  );
+  expect(app.uiCalls.filter(({ op }) => op === "settings.instructions.set")).toEqual(
+    ["Use bun.", ""].map((text) => ({ op: "settings.instructions.set", args: { scope, text } })),
+  );
+});
+
+test("local profile approvals include the id when the same agent has another profile with that name", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("chat.profiles", {
+    profiles: [WORK_PROFILE, { ...WORK_PROFILE, id: "other-codex", name: "work" }],
+  });
+  app.uiAnswers.set("settings.instructions.set", {});
+  app.answers.push("once");
+  expect(
+    (await nexus(app, [...SET_PROFILE, "--profile", WORK_PROFILE.id, "--clear"])).exitCode,
+  ).toBe(0);
+  expect(app.asked[0]?.change.instructionEdit?.layer).toEqual({
+    kind: "profile",
+    agent: "codex",
+    name: "Work",
+    id: WORK_PROFILE.id,
+    showId: true,
+  });
+});
+
+test("peer profile reads and writes resolve the receiving device's profiles", async () => {
+  const app = fakeApp();
+  app.peers.devices = [MINI];
+  const from = { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB };
+  app.peers.answer = async (_device, method, params) => {
+    switch (method) {
+      case "sessions.list":
+        return { workspaces: [{ id: SITE, name: "Site", path: "/site" }], sessions: [] };
+      case "profiles.list":
+        return { profiles: [WORK_PROFILE] };
+      case "settings.instructions":
+        expect(params).toEqual({
+          workspaceId: SITE,
+          agent: "codex",
+          profileId: WORK_PROFILE.id,
+          from,
+        });
+        return { layers: [], instructions: "Use bun." };
+      case "settings.instructions.set":
+        expect(params).toEqual({
+          workspaceId: SITE,
+          layer: "profile",
+          profileId: WORK_PROFILE.id,
+          text: "",
+          from,
+        });
+        return {};
+      default:
+        throw new Error(`unexpected request ${method}`);
+    }
+  };
+  const device = ["--device", MINI.name];
+  const shown = await nexus(app, [
+    ...SHOW_PROFILE,
+    "Work",
+    "--agent",
+    "codex",
+    ...device,
+    "--json",
+  ]);
+  expect(JSON.parse(shown.stdout)).toMatchObject({
+    profileId: WORK_PROFILE.id,
+    instructions: "Use bun.",
+  });
+  expect(app.peers.requests.find(({ method }) => method === "profiles.list")?.params).toEqual({
+    agent: "codex",
+    from,
+  });
+  const set = await nexus(app, [
+    ...SET_PROFILE,
+    "--profile",
+    "Work",
+    ...device,
+    "--clear",
+    "--json",
+  ]);
+  expect(JSON.parse(set.stdout)).toMatchObject({ layer: "profile", profileId: WORK_PROFILE.id });
+  expect(
+    app.uiCalls.some(({ op }) => op === "chat.profiles" || op === "settings.instructions.set"),
+  ).toBe(false);
+  expect(app.asked).toEqual([]);
+});
+
+test("peer profile writes require the instruction capability before discovery", async () => {
+  const app = fakeApp();
+  app.peers.devices = [
+    { ...MINI, schema: "0.15.0", serves: MINI.serves.filter((c) => c !== "settings.instructions") },
+  ];
+  const result = await nexus(app, [
+    ...SET_PROFILE,
+    "--profile",
+    "Work",
+    "--device",
+    MINI.name,
+    "--clear",
+  ]);
+  expect(result.exitCode).toBe(3);
+  expect(result.stderr).toContain('Update NexusCode on "Mac mini"');
+  expect(app.peers.requests).toEqual([]);
+});
+
+test("setting a task workspace's instructions asks to edit the parent and names it in the output", async () => {
+  const app = fakeApp();
+  app.answers.push("once");
+  const result = await runCli(
+    CLI_COMMANDS,
+    contextFor(
+      app,
+      ["settings", "instructions", "set", "workspace", "--workspace", FIX, "--clear"],
+      { workspaceId: FIX, tabId: SHELL_TAB },
+    ),
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe('Cleared the workspace instruction layer for "app".\n');
+  expect(app.asked).toMatchObject([
+    {
+      toWorkspaceId: APP,
+      change: {
+        kind: "instructionsEdit",
+        instructionEdit: { layer: { kind: "workspace", name: "app" }, clear: true },
+      },
+    },
+  ]);
+  expect(app.uiCalls.at(-1)).toEqual({
+    op: "settings.instructions.set",
+    args: { scope: { kind: "workspace", id: APP }, text: "" },
+  });
 });
