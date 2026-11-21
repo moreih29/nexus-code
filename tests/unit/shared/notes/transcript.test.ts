@@ -355,3 +355,12 @@ describe("a note's transcript", () => {
     expect(TranscriptFileSchema.safeParse(bad).success).toBe(false);
   });
 });
+
+test.each([
+  false,
+  true,
+])("keeps live lines when a second pass has no usable text (voicePrint: %p)", (voicePrint) => {
+  const live = recording({ voicePrint, lines: [line("1", 0, 5000, "Live transcript")] });
+  expect(withSecondPass(live, 0, [])).toBe(live);
+  expect(withSecondPass(live, 0, [line("1", 0, 5000, "   ")])).toBe(live);
+});

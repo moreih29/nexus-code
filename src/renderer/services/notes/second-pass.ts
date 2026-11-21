@@ -166,8 +166,9 @@ async function waitForPasses(
         const take = r.takes[index];
         if (!take || take.transcriptionId !== id || take.pass !== "pending") return r;
         before = r;
-        const done = transcription.status === "done";
-        const next = done ? withSecondPass(r, index, transcription.segments) : r;
+        const next =
+          transcription.status === "done" ? withSecondPass(r, index, transcription.segments) : r;
+        const done = next !== r;
         applied = {
           ...next,
           takes: next.takes.map((tk, i) => {
@@ -179,7 +180,7 @@ async function waitForPasses(
         return applied;
       });
       if (!before || !applied) continue;
-      if (transcription.status !== "done" && !told) {
+      if (applied.takes[index]?.pass === "error" && !told) {
         tell("failed");
         told = true;
       }

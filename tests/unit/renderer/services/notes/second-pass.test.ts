@@ -78,3 +78,32 @@ test("retains a second-pass job when saving fails and discards it only after a s
     dropTranscript(workspaceId, noteId);
   }
 });
+
+test("reports an empty second pass as an error while retaining the live transcript", async () => {
+  const savedWindow = globalThis.window;
+  globalThis.window = {
+    ipc: {
+      async call(_channel: string, method: string) {
+        if (method === "voiceTranscription")
+          return { status: "done", id: "job", seconds: 10, segments: [] };
+      },
+    },
+  } as unknown as typeof window;
+  const read = spyOn(notesApi, "readTranscript").mockResolvedValue({
+    version: 1,
+    recordings: [recording],
+  });
+  const save = spyOn(notesApi, "saveTranscript").mockResolvedValue();
+  try {
+    await runSecondPass(workspaceId, noteId, recording.id);
+    expect((await loadTranscript(workspaceId, noteId)).recordings[0]).toMatchObject({
+      takes: [{ pass: "error" }],
+      lines: [line],
+    });
+  } finally {
+    save.mockRestore();
+    read.mockRestore();
+    globalThis.window = savedWindow;
+    dropTranscript(workspaceId, noteId);
+  }
+});
