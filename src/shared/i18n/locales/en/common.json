@@ -1149,6 +1149,7 @@
       "conversation": "Rewind the conversation",
       "conversation_and_files": "Rewind the conversation and code",
       "message_unavailable": "This message is no longer in the current conversation.",
+      "files_restored_only": "The files were restored. The conversation could not be rewound. {{error}}",
       "failed": "Couldn't rewind: {{error}}"
     },
     "fork": {

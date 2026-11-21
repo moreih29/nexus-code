@@ -1149,6 +1149,7 @@
       "conversation": "대화만 되감기",
       "conversation_and_files": "대화와 코드 되감기",
       "message_unavailable": "선택한 메시지가 현재 대화에 없습니다.",
+      "files_restored_only": "파일을 되돌렸지만 대화는 되감지 못했습니다. {{error}}",
       "failed": "되감지 못했습니다: {{error}}"
     },
     "fork": {
