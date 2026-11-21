@@ -429,6 +429,11 @@ function ProfileConnectionModels({
       {draft.reasoningModelIdError && (
         <p className={errorClass}>{t("profiles.connection.errors.reasoningModelId")}</p>
       )}
+      <p className={hintClass}>
+        {t(
+          claude ? "profiles.connection.reasoningHintClaude" : "profiles.connection.reasoningHint",
+        )}
+      </p>
       <Button
         variant="ghost"
         size="sm"

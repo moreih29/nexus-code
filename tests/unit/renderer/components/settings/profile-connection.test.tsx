@@ -52,13 +52,13 @@ describe("custom profile reasoning controls", () => {
       <ProfileConnectionSection agent="claude" draft={draftOf("claude")} />,
     );
 
-    expect(html.match(/aria-label="Reasoning"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Max effort"/g)).toHaveLength(2);
     expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]");
     expect(html).toContain('<option value="auto">Auto</option>');
-    expect(html).toContain('<option value="none">None</option>');
-    expect(html).toContain('<option value="high">low–high</option>');
-    expect(html).toContain('<option value="xhigh">low–xhigh</option>');
-    expect(html).toContain('<option value="max">low–max</option>');
+    expect(html).toContain('<option value="none">Unsupported</option>');
+    expect(html).toContain('<option value="high">high</option>');
+    expect(html).toContain('<option value="xhigh">xhigh</option>');
+    expect(html).toContain('<option value="max">max</option>');
   });
 
   test("gives Codex reasoning options the same readable column width", () => {
@@ -67,7 +67,19 @@ describe("custom profile reasoning controls", () => {
     );
 
     expect(html).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]");
-    expect(html).toContain('<option value="xhigh">low–xhigh</option>');
+    expect(html).toContain('<option value="xhigh">xhigh</option>');
+  });
+
+  test("explains the effort column as the chat menu limit per agent", () => {
+    const claude = renderToStaticMarkup(
+      <ProfileConnectionSection agent="claude" draft={draftOf("claude")} />,
+    );
+    expect(claude).toContain("Upper limit of the chat effort menu · Auto keeps Claude Code");
+    const codex = renderToStaticMarkup(
+      <ProfileConnectionSection agent="codex" draft={draftOf("codex")} />,
+    );
+    expect(codex).toContain("Upper limit of the chat effort menu<");
+    expect(codex).not.toContain("Auto keeps");
   });
 
   test("rejects an unrepresentable Claude reasoning ID in the dialog, not at launch", () => {
@@ -84,7 +96,7 @@ describe("custom profile reasoning controls", () => {
     expect(draft.reasoningModelIdError).toBe(true);
     expect(draft.valid).toBe(false);
     const html = renderToStaticMarkup(<ProfileConnectionSection agent="claude" draft={draft} />);
-    expect(html).toContain("To choose reasoning");
+    expect(html).toContain("To choose a max effort");
     expect(html).not.toContain("`");
 
     const automatic = draftOf("claude", {
