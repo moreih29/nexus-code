@@ -635,7 +635,12 @@
     "ariaFontSize": "채팅 글자 크기",
     "ariaFontFamily": "채팅 글꼴 종류",
     "previewReply": "답변은 이 크기와 글꼴로 보입니다. `코드`는 고정폭 글꼴 그대로입니다.",
-    "previewTool": "src/greet.ts 읽기"
+    "previewTool": "src/greet.ts 읽기",
+    "limits": "사용량 한도",
+    "limitResume": {
+      "label": "한도가 풀리면 이어 하기",
+      "description": "구독 프로필 · 풀린 지 1분 뒤 앱이 이어 하기 메시지 전송"
+    }
   },
   "profiles": {
     "heading": "프로필",

@@ -100,6 +100,7 @@ import { CodexDefaultsDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
+import { LimitResumeBanner } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -772,6 +773,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               </button>
             </div>
           )}
+          <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
           <TurnFailureBanner model={model} onRetry={(text) => controller.send(text)} />
           <Composer
             instructionsTab={instructionsTab}

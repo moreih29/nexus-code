@@ -603,6 +603,10 @@ app.whenReady().then(async () => {
     updatesHandle?.startAutoChecks();
     powerMonitor.on("resume", () => updatesHandle?.onResume());
   }
+  // Timers in the windows slept with the computer: a tab going on once its
+  // usage limit resets looks at the clock again.
+  powerMonitor.on("resume", () => broadcast("system", "woke", { at: Date.now() }));
+  powerMonitor.on("unlock-screen", () => broadcast("system", "woke", { at: Date.now() }));
 
   // Remove nexus-ssh-* control-socket directories orphaned by previous app
   // instances that died without dispose() (crash, SIGKILL). Live masters —

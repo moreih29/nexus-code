@@ -635,7 +635,12 @@
     "ariaFontSize": "Chat text size",
     "ariaFontFamily": "Chat font family",
     "previewReply": "Replies show in this size and font. `Code` keeps its monospace font.",
-    "previewTool": "Read src/greet.ts"
+    "previewTool": "Read src/greet.ts",
+    "limits": "Usage limits",
+    "limitResume": {
+      "label": "Go on when the limit resets",
+      "description": "Subscription profiles · The app sends a message to go on a minute after the reset"
+    }
   },
   "profiles": {
     "heading": "Profiles",

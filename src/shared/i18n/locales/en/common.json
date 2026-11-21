@@ -1069,6 +1069,17 @@
       "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
       "dismiss": "Close"
     },
+    "limit_resume": {
+      "waiting": "Usage limit · Goes on at {{time}}",
+      "unknown": "Usage limit · Reset time unknown · Send a message once it resets",
+      "cancelled": "Usage limit · Resets at {{time}} · Going on cancelled",
+      "gave_up": "Usage limit · Still reached after {{tries}} tries · Stopped going on",
+      "cancel": "Cancel",
+      "now": "Go on now",
+      "prompt": "The usage limit has reset. Please continue from where you left off.",
+      "status": "Waiting for limit · {{time}}",
+      "status_unknown": "Waiting for limit"
+    },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
       "show": "Show the terminal"

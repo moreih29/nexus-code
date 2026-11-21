@@ -99,6 +99,7 @@ import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
+import { LimitResumeBanner, showsLimitResume } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -821,7 +822,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               </div>
             </div>
           )}
-          <RateLimitBanner limit={state.model.rateLimit} />
+          {showsLimitResume(props.limitResume) ? (
+            <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
+          ) : (
+            <RateLimitBanner limit={state.model.rateLimit} />
+          )}
           <TurnFailureBanner model={state.model} onRetry={(text) => controller.send(text)} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer

@@ -13,6 +13,7 @@ import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
   type CodexFork,
+  type LimitResume,
   MAX_CHAT_PEER_SUBMISSIONS,
   type NoteTabProps,
   PROFILE_MOVES_KEPT,
@@ -82,6 +83,8 @@ export interface ClaudeTabProps {
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 export interface CodexTabProps {
@@ -105,6 +108,8 @@ export interface CodexTabProps {
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 interface TabBase {
@@ -344,6 +349,8 @@ interface TabsState {
     submission: PeerSubmission,
   ) => void;
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
+  /** Sets, or with undefined drops, a chat tab's going on after the usage limit. */
+  setLimitResume: (workspaceId: string, tabId: string, record: LimitResume | undefined) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -873,6 +880,17 @@ export const useTabsStore = create<TabsState>((set, get) => {
           }
           const relayed = withRelayedMessage(tab.props.relayed, record);
           return { ...tab, props: { ...tab.props, relayed } } as Tab;
+        }),
+      );
+    },
+
+    setLimitResume(workspaceId, tabId, record) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.limitResume === record) return tab;
+          const { limitResume: _was, ...props } = tab.props;
+          return { ...tab, props: record ? { ...props, limitResume: record } : props } as Tab;
         }),
       );
     },

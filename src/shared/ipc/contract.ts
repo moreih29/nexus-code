@@ -1871,7 +1871,14 @@ const coreIpcContract = {
        */
       fontNames: call(z.void(), z.object({ groups: z.array(z.array(z.string())) })),
     },
-    listen: {},
+    listen: {
+      /**
+       * The computer woke from sleep, or its screen was unlocked: timers
+       * that slept with it (a tab going on once its usage limit resets) look
+       * at the clock again. `at`: when, in Unix ms.
+       */
+      woke: listen(z.object({ at: z.number() })),
+    },
   },
 
   // ---------------------------------------------------------------------------
