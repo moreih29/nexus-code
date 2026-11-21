@@ -44,6 +44,7 @@
     "unencodable": "{{encoding}} has no character \"{{char}}\" (line {{line}}, column {{column}})"
   },
   "chat": {
+    "permissionModeMismatch": "The agent applied permission mode {{applied}} instead of the requested mode {{requested}}",
     "commandLineTooLong": "The instructions for this chat are too long for Windows to start Claude Code. Shorten the instructions in Settings or for this session, then try again."
   }
 }

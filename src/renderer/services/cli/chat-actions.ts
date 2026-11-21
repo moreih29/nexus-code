@@ -372,8 +372,11 @@ async function applySettings(
   tabId: string,
   target: AgentTabController,
   wanted: CliChatSettings,
-  allowDangerousMode = false,
-  expectedMode?: string,
+  {
+    allowDangerousMode = false,
+    expectedMode,
+    confirmMode = false,
+  }: { allowDangerousMode?: boolean; expectedMode?: string; confirmMode?: boolean } = {},
 ): Promise<void> {
   const { agent, controller } = target;
   await whenReady(workspaceId, tabId, agent, true);
@@ -408,7 +411,25 @@ async function applySettings(
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
   if (plan.mode !== undefined) {
     currentTab();
-    await controller.setPermissionMode(plan.mode);
+    const applied = await controller.setPermissionMode(plan.mode);
+    // A reply can explicitly name the mode the program accepted. If it does
+    // not, the renderer may still be waiting to read the change from the log.
+    if (
+      confirmMode &&
+      typeof applied === "object" &&
+      applied !== null &&
+      "mode" in applied &&
+      typeof applied.mode === "string" &&
+      applied.mode !== "" &&
+      applied.mode !== plan.mode
+    ) {
+      throw new UiRequestError(
+        i18next.t("errors:chat.permissionModeMismatch", {
+          requested: plan.mode,
+          applied: applied.mode,
+        }),
+      );
+    }
   }
   await whenShown(workspaceId, tabId, target, plan);
 }
@@ -493,7 +514,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
       await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
+      await applySettings(workspaceId, tabId, target, settings, {
+        allowDangerousMode: user || allowDangerousMode,
+        confirmMode: prompt.trim() !== "",
+      });
       if (prompt.trim() !== "") {
         await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
       }
@@ -827,14 +851,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (hasSettings(settings))
-      await applySettings(
-        workspaceId,
-        tabId,
-        target,
-        settings,
-        user || allowDangerousMode,
+      await applySettings(workspaceId, tabId, target, settings, {
+        allowDangerousMode: user || allowDangerousMode,
         expectedMode,
-      );
+      });
     else await whenReady(workspaceId, tabId, target.agent, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
