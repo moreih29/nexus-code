@@ -27,6 +27,7 @@ import type { VoiceSample } from "../../../shared/notes/voices";
 import type { VoiceEvent } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { voiceAvailability, voiceAvailabilityNow } from "../voice/availability";
 import { type Capture, CaptureError, openMicrophone, startCapture } from "../voice/capture";
 import { tellFailure } from "../voice/dictation";
 import { notesApi } from "./api";
@@ -278,7 +279,7 @@ function onEvent({ id, event }: VoiceEvent): void {
         const token = event.transcribeToken;
         setTake((tk) => ({ ...tk, token }));
       }
-      if (event.code === "unauthorized") tellFailure("signed-out");
+      if (event.code === "unauthorized") tellFailure("signed-out", "note");
       else showToast({ kind: "error", message: t("failure.recognition") });
       return;
     case "done":
@@ -291,7 +292,7 @@ function onEvent({ id, event }: VoiceEvent): void {
     case "ready":
       return;
     case "closed":
-      if (event.code === 4001) tellFailure("signed-out");
+      if (event.code === 4001) tellFailure("signed-out", "note");
       else if (event.code !== 1000 && !a.ending) {
         showToast({ kind: "error", message: t("failure.dropped") });
       }
@@ -387,6 +388,14 @@ export async function resumeRecording(): Promise<void> {
 
 /** Opens the microphone (if it is not open) and a voice session, and records a take; false if it could not. */
 async function startTake(a: Active): Promise<boolean> {
+  let availability = voiceAvailability();
+  if (availability === "unknown") availability = await voiceAvailabilityNow();
+  if (active !== a) return false;
+  if (availability === "signed-out" || availability === "unavailable") {
+    tellFailure(availability, "note");
+    return false;
+  }
+
   if (!a.stream) {
     const access = await ipcCallResult("remote", "voiceMicrophone", undefined);
     if (!access.ok || access.value === "denied") {
@@ -405,7 +414,10 @@ async function startTake(a: Active): Promise<boolean> {
     purpose: "note",
   });
   if (!started.ok || started.value.status === "failed") {
-    tellFailure(started.ok && started.value.status === "failed" ? started.value.reason : "failed");
+    tellFailure(
+      started.ok && started.value.status === "failed" ? started.value.reason : "failed",
+      "note",
+    );
     releaseMicrophone(a);
     return false;
   }

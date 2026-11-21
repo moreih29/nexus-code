@@ -155,6 +155,7 @@
     "participants": "Participants",
     "participantsAuto": "Auto",
     "recordHint": "Record into this note. What is said goes into the transcript beside it.",
+    "needsSignIn": "Sign in to record",
     "pause": "Pause",
     "resume": "Resume recording",
     "stop": "Stop recording",
@@ -168,6 +169,7 @@
       "quota": "Recording stopped at the monthly limit."
     },
     "failure": {
+      "signed-out": "Sign in to start recording.",
       "recognition": "Something went wrong with the transcription.",
       "dropped": "The connection to the server dropped, so the recording paused. You can resume it.",
       "write": "Couldn’t save the recording file. Transcription continues."

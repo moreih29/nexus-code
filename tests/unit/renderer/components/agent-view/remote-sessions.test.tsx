@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
+import * as button from "../../../../../src/renderer/components/ui/button";
+import * as account from "../../../../../src/renderer/services/remote/account";
+import * as room from "../../../../../src/renderer/services/remote/room";
+import { useSettingsUIStore } from "../../../../../src/renderer/state/stores/settings-ui";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
 const {
@@ -8,6 +13,7 @@ const {
   OfflinePeer,
   PeerGroup,
   RemoteSessionRow,
+  RemoteSessions,
   RemoteTabLabel,
   agentRunsOf,
   listedByDefault,
@@ -15,9 +21,65 @@ const {
   remoteSessionMenu,
   workspaceGroups,
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
-const { offlinePeers, peerServes, servingPeers } = await import(
-  "../../../../../src/renderer/services/remote/room"
-);
+const { offlinePeers, peerServes, servingPeers } = room;
+
+describe("Other computers sign-in guidance", () => {
+  const server = "https://nexus.example";
+  let readAccount: ReturnType<typeof spyOn<typeof account, "useRemoteAccount">>;
+  let readRoom: ReturnType<typeof spyOn<typeof room, "useRemoteRoom">>;
+
+  beforeEach(() => {
+    readAccount = spyOn(account, "useRemoteAccount").mockReturnValue({
+      status: "signed-out",
+      server,
+    });
+    readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({ status: "off", peers: [] });
+  });
+
+  afterEach(() => {
+    readAccount.mockRestore();
+    readRoom.mockRestore();
+    useSettingsUIStore.getState().closeSettings();
+  });
+
+  test("shows a signed-out account where to sign in", () => {
+    const renderButton = spyOn(button, "Button");
+    try {
+      const html = renderToStaticMarkup(<RemoteSessions query="" />);
+      expect(html).toContain("Other computers");
+      expect(html).toContain("Sign in to see your other computers here");
+      expect(html).toContain('data-variant="link"');
+      expect(html).toContain(">Sign in<");
+      const link = renderButton.mock.calls.find(([props]) => props.variant === "link")?.[0];
+      link?.onClick?.({} as MouseEvent<HTMLButtonElement>);
+      expect(useSettingsUIStore.getState()).toMatchObject({
+        settingsOpen: true,
+        initialActiveId: "remote",
+      });
+    } finally {
+      renderButton.mockRestore();
+    }
+  });
+
+  test("hides the signed-out section during search", () => {
+    expect(renderToStaticMarkup(<RemoteSessions query="some session" />)).toBe("");
+  });
+
+  test.each([
+    "off",
+    "connecting",
+    "waiting",
+  ] as const)("a signed-in account with no peers keeps the section hidden when the room is %s", (status) => {
+    readAccount.mockReturnValue({
+      status: "signed-in",
+      server,
+      user: { id: "u1", email: "me@example.com", name: "Me" },
+      device: { id: "d1", name: "Mac", platform: "darwin" },
+    });
+    readRoom.mockReturnValue({ status, peers: [] });
+    expect(renderToStaticMarkup(<RemoteSessions query="" />)).toBe("");
+  });
+});
 
 const peer: RoomPeer = {
   id: "d2",

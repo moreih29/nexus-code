@@ -23,7 +23,8 @@ import {
 import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
 import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
-import { ipcCallResult, ipcListen } from "../../../ipc/client";
+import { ipcCallResult } from "../../../ipc/client";
+import { useRemoteAccount } from "../../../services/remote/account";
 import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
@@ -61,23 +62,6 @@ const PLATFORMS: Record<string, string> = {
   android: "Android",
   web: "Web",
 };
-
-/** The account's state from main, kept up as it changes. */
-function useRemoteAccount(): RemoteAccountState | null {
-  const [state, setState] = useState<RemoteAccountState | null>(null);
-  useEffect(() => {
-    let live = true;
-    const off = ipcListen("remote", "accountChanged", (next) => setState(next));
-    void ipcCallResult("remote", "account", undefined).then((result) => {
-      if (live && result.ok) setState((now) => now ?? result.value);
-    });
-    return () => {
-      live = false;
-      off();
-    };
-  }, []);
-  return state;
-}
 
 /**
  * The sign-ins the server offers, asked while signed out: Google's alone
