@@ -1060,6 +1060,14 @@
       "rejected_until": "Usage limit reached · resets at {{time}}",
       "dismiss": "Close until the limit resets"
     },
+    "failure": {
+      "transient": "A temporary API error stopped the work · {{reason}}",
+      "auth": "Sign-in failed and the work stopped · {{reason}} · Check the sign-in or API key, then send again",
+      "request": "The API refused the request ({{code}}) · Trying again fails the same way. Fix the request or shorten the conversation with /compact, then send",
+      "retry": "Try again",
+      "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
+      "dismiss": "Close"
+    },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
       "show": "Show the terminal"

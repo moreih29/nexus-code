@@ -111,6 +111,7 @@ import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
 import { toolSummary } from "./tool-row";
+import { TurnFailureBanner } from "./turn-failure-banner";
 import { CodexUsageLine } from "./usage-line";
 
 interface CodexTabViewProps {
@@ -768,6 +769,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               </button>
             </div>
           )}
+          <TurnFailureBanner model={model} onRetry={(text) => controller.send(text)} />
           <Composer
             instructionsTab={instructionsTab}
             controller={controller}

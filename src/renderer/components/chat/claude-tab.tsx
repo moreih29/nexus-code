@@ -112,6 +112,7 @@ import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { SummaryLine, summaryCountsOf } from "./summary-line";
 import { toolSummary } from "./tool-row";
+import { TurnFailureBanner } from "./turn-failure-banner";
 import { ClaudeUsageLine } from "./usage-line";
 
 interface ClaudeTabViewProps {
@@ -818,6 +819,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             </div>
           )}
           <RateLimitBanner limit={state.model.rateLimit} />
+          <TurnFailureBanner model={state.model} onRetry={(text) => controller.send(text)} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             instructionsTab={instructionsTab}

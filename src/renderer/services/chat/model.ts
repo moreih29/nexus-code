@@ -2,7 +2,7 @@
 
 import type { ClaudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
-import type { RetryReason } from "./api-errors";
+import type { RetryReason, TurnFailure } from "./api-errors";
 import type { ClaudeGoal } from "./goal";
 
 export type LineDir = "out" | "in" | "sys";
@@ -385,6 +385,8 @@ export interface ResultInfo {
   terminalReason?: string;
   outcome?: ClaudeTurnResult["outcome"];
   error?: string;
+  /** Why the turn failed on the API, and whether trying again can help. */
+  failure?: TurnFailure;
   /** When the turn ended, in Unix milliseconds. */
   at?: number;
 }

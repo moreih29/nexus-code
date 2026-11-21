@@ -12,7 +12,7 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
-import { codexErrorStatus, codexRetryCount, retryReasonOf } from "../api-errors";
+import { codexErrorStatus, codexRetryCount, codexTurnFailure, retryReasonOf } from "../api-errors";
 import { fileMention } from "../composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "../goal";
 import {
@@ -1239,11 +1239,13 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     m.permissions = m.permissions.filter((p) => !keys.has(p.requestId));
   }
   if (sawTurnStart) markHistoryBoundary(draft, turnId, status === "completed");
+  const apiFailure = status === "failed" ? codexTurnFailure(turn.error) : undefined;
   m.lastResult = {
     subtype: status,
     isError: status === "failed",
     durationMs: num(turn.durationMs),
     at,
+    ...(apiFailure ? { failure: apiFailure } : {}),
   };
   const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
   finishSubmittedTurn(draft, turnId, failure);

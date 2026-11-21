@@ -8,7 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { claudeTurnResult } from "../../../../shared/claude/turn-result";
-import { retryReasonOf } from "../api-errors";
+import { claudeTurnFailure, retryReasonOf } from "../api-errors";
 import { type ClaudeGoal, goalFeedbackReason } from "../goal";
 import {
   type AccountInfo,
@@ -451,6 +451,15 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
   const when = time(message.timestamp) ?? at;
   if (!parent && applyGoalCommand(draft, message, content, seq, when)) return;
 
+  // An API error Claude Code wrote in the turn's place: an error notice, not
+  // Claude's words; the result after it says the same and adds none.
+  if (!parent && isApiErrorMessage(message)) {
+    const detail = userContent(content).text.trim();
+    takeLimitParams(m, message);
+    pushErrorNotice(draft, detail || str(message.error) || "API error", `n${seq}`, when);
+    return;
+  }
+
   const blocks: AssistantBlock[] = [];
   for (const raw of content) {
     const block = rec(raw);
@@ -774,6 +783,7 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
     m.processCostUsd = cost;
   }
+  const failure = outcome === "error" ? claudeTurnFailure(message) : undefined;
   m.lastResult = {
     subtype,
     isError,
@@ -784,11 +794,45 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     outcome,
     at,
     ...(outcome === "error" ? { error: detail } : {}),
+    ...(failure ? { failure } : {}),
   };
-  if (outcome === "error") {
-    draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
-  }
+  if (outcome === "error") pushErrorNotice(draft, detail, `n${seq}`, at);
   finishSubmittedTurn(draft, turnId, outcome === "error" ? detail : undefined);
+}
+
+/** Claude Code's message for an API error that ended the turn (`is_api_error_message`). */
+function isApiErrorMessage(message: Rec): boolean {
+  return (
+    message.is_api_error_message === true ||
+    (str(message.error) !== undefined && str(rec(message.message)?.model) === "<synthetic>")
+  );
+}
+
+/**
+ * The plan's limit an API error tells (`api_error_params.rate_limit_info`),
+ * as a rate_limit_event would: a transcript read again has no such event.
+ */
+function takeLimitParams(m: ChatModel, message: Rec): void {
+  const info = rec(rec(message.api_error_params)?.rate_limit_info);
+  const status = str(info?.status);
+  if (!info || !status) return;
+  m.rateLimit = {
+    status,
+    resetsAt: num(info.resetsAt),
+    rateLimitType: str(info.rateLimitType),
+  };
+}
+
+/** An error notice, once: the API error and the result after it tell the same. */
+function pushErrorNotice(
+  draft: Draft,
+  detail: string | undefined,
+  key: string,
+  at: number | undefined,
+): void {
+  const last = draft.next.items.at(-1);
+  if (last?.kind === "notice" && last.code === "error" && last.detail === detail) return;
+  draft.push({ kind: "notice", key, code: "error", detail, at });
 }
 
 /**
