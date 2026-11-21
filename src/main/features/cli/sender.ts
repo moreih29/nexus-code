@@ -13,6 +13,18 @@ import type { CliContext } from "./context";
  * terminal (here or from another computer). A user-opened terminal with no
  * running agent returns undefined for the user. Unverified requests and
  * requests with an unknown tab are attributed to an unnamed agent.
+ *
+ * Telling an agent from the user is a guardrail for agents that use the
+ * nexus command as intended, not a security boundary. Code running as the
+ * same OS user is inside the trust boundary: it can act as the user here
+ * (type into a terminal the user opened, with `nexus terminal send` or
+ * otherwise, read another process's environment, its tab token included,
+ * or read the app's stored credentials), so the agent-only limits hold
+ * against misled agents, not against malicious code running as the user.
+ * Passing for the user here gains nothing on another computer: the nexus
+ * command sends every request there as an agent's, under that computer's
+ * `agents` setting (agentSenderOf), and never answers a consent prompt,
+ * which only the user answers in the app (docs/CLI.md).
  */
 export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined> {
   const { workspaceId, tabId, verified } = ctx.caller;
