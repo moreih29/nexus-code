@@ -615,8 +615,8 @@ test("chat profiles exposes selectable names and the workspace default, with por
 });
 
 describe("chat usage", () => {
-  const fetchedAt = Date.parse("2026-11-22T12:00:00Z");
-  const resetsAt = fetchedAt + 3_600_000;
+  const now = Date.parse("2026-11-22T12:00:00Z");
+  const fetchedAt = now - 5_000;
   const result = {
     profiles: [
       {
@@ -625,7 +625,30 @@ describe("chat usage", () => {
         agent: "claude",
         status: "stale",
         fetchedAt,
-        limits: [{ kind: "session", percent: 18.5, fetchedAt, resetsAt, stale: true }],
+        limits: [
+          {
+            kind: "session",
+            percent: 18.5,
+            fetchedAt: now - 12_000,
+            resetsAt: now + (4 * 60 + 55) * 60_000,
+            stale: false,
+          },
+          {
+            kind: "weekly",
+            percent: 50,
+            fetchedAt,
+            resetsAt: now + (4 * 24 + 3) * 3_600_000,
+            stale: false,
+          },
+          {
+            kind: "weekly_scoped",
+            scope: "Sonnet",
+            percent: 80,
+            fetchedAt,
+            resetsAt: now - 5 * 60_000,
+            stale: true,
+          },
+        ],
       },
       {
         id: "gateway",
@@ -637,13 +660,15 @@ describe("chat usage", () => {
     ],
   } satisfies CliUiOps["chat.usage"]["result"];
 
-  test("prints observed and reset times, staleness and non-subscription rows", async () => {
-    const app = fakeApp();
+  test("prints relative times in text and Unix milliseconds in JSON and JSONL", async () => {
+    const app = fakeApp(now);
     app.uiAnswers.set("chat.usage", result);
     const text = await nexus(app, ["chat", "usage"]);
     expect(text.stdout).toBe(
-      "claude · Work (work) · Stale · Observed 2026-11-22T12:00:00.000Z\n" +
-        "  5-hour session 18.5% used · Resets 2026-11-22T13:00:00.000Z · Stale\n\n" +
+      "claude · Work (work) · Stale · Observed 5s ago\n" +
+        "  5-hour session 18.5% used · Resets in 4h 55m · Observed 12s ago\n" +
+        "  Weekly 50% used · Resets in 4d 3h\n" +
+        "  Weekly (Sonnet) 80% used · Reset 5m ago · Stale\n\n" +
         "codex · Gateway (gateway) · No subscription\n",
     );
     const json = await nexus(app, ["chat", "usage", "--json"]);

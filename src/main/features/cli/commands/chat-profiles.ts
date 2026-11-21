@@ -30,7 +30,7 @@ import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { expandHome, inspectLocalFolder, localDefaultDir } from "../../agent-profiles/local";
 import { CliUsageError, exactArgs, type FlagValues } from "../args";
 import { type CliContext, CliError, resolveWorkspace } from "../context";
-import { oneLine, table } from "../format";
+import { ago, oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
 import {
@@ -54,16 +54,27 @@ const USAGE_STATUS: Record<ProfileUsageResult["profiles"][number]["status"], str
   "not-subscription": "No subscription",
 };
 
-function usageTime(at: number): string {
-  const date = new Date(at);
-  return Number.isNaN(date.getTime()) ? "unknown" : date.toISOString();
+function usageResetText(at: number, now: number): string {
+  if (at <= now) return `Reset ${ago(at, now)}`;
+  const seconds = Math.ceil((at - now) / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours >= 24) {
+    const remainingHours = hours % 24;
+    return `Resets in ${Math.floor(hours / 24)}d${remainingHours ? ` ${remainingHours}h` : ""}`;
+  }
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return `Resets in ${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ""}`;
+  }
+  return `Resets in ${minutes ? `${minutes}m` : `${seconds}s`}`;
 }
 
-function usageText({ profiles }: ProfileUsageResult): string {
+function usageText({ profiles }: ProfileUsageResult, now: number): string {
   return profiles
     .map(({ id, name, agent, status, fetchedAt, limits }) => {
       const header = [agent, `${oneLine(name, 80)} (${oneLine(id, 64)})`, USAGE_STATUS[status]];
-      if (fetchedAt !== undefined) header.push(`Observed ${usageTime(fetchedAt)}`);
+      if (fetchedAt !== undefined) header.push(`Observed ${ago(fetchedAt, now)}`);
       const windows = limits.map((limit) => {
         const label =
           limit.kind === "session" || (limit.kind === "window" && limit.windowMins === 300)
@@ -75,8 +86,8 @@ function usageText({ profiles }: ProfileUsageResult): string {
                 : oneLine(limit.kind, 80);
         const scoped = limit.scope ? `${label} (${oneLine(limit.scope, 80)})` : label;
         const parts = [`${scoped} ${limit.percent}% used`];
-        if (limit.resetsAt !== undefined) parts.push(`Resets ${usageTime(limit.resetsAt)}`);
-        if (limit.fetchedAt !== fetchedAt) parts.push(`Observed ${usageTime(limit.fetchedAt)}`);
+        if (limit.resetsAt !== undefined) parts.push(usageResetText(limit.resetsAt, now));
+        if (limit.fetchedAt !== fetchedAt) parts.push(`Observed ${ago(limit.fetchedAt, now)}`);
         if (limit.stale) parts.push("Stale");
         return `  ${parts.join(" · ")}`;
       });
@@ -131,7 +142,7 @@ export const chatUsage: CliCommand = {
           refresh ? PROFILE_USAGE_REFRESH_TIMEOUT_MS : undefined,
         );
     return output(
-      usageText(result),
+      usageText(result, ctx.services.clock.now()),
       { ...params, ...result, ...(device ? { device: deviceRef(device) } : {}) },
       { records: result.profiles },
     );
