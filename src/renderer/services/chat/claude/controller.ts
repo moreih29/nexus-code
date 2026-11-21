@@ -412,8 +412,28 @@ export class ChatController {
       usageKey: () => this.usageKey(),
       ready: () => this.lineCanAsk() && !this.initPending && this.supports("get_usage"),
       busy: () => this.state.model.running,
-      fetchUsage: () => this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS),
+      fetchUsage: () => this.readPlanUsage(),
     });
+  }
+
+  /** Reads a profile's limits through the stream protocol, without a conversation. */
+  static async probePlanUsage(target: Pick<ChatTabTarget, "workspaceId" | "cwd" | "profileId">) {
+    const tabId = crypto.randomUUID();
+    const controller = new ChatController({ ...target, tabId }, {}, { receiveAgentEvents: true });
+    try {
+      const result = await startChat({ ...target, tabId, usageOnly: true });
+      if (!result.ok) throw new Error(result.message);
+      controller.update((prev) => ({ ...prev, version: result.version }));
+      if (!controller.supports("get_usage")) throw new Error("get_usage needs a newer Claude Code");
+      await controller.request("initialize", { hooks: null });
+      return await controller.readPlanUsage();
+    } finally {
+      await controller.close();
+    }
+  }
+
+  private readPlanUsage(): Promise<Record<string, unknown>> {
+    return this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS);
   }
 
   /** The profile whose plan usage the tab shows: its agent, host and profile. */
@@ -2639,6 +2659,7 @@ function startChat(
     cwd: string;
     profileId?: string;
     instructions?: string;
+    usageOnly?: boolean;
   },
 ) {
   return ipcCallResult("chat", "start", args).then(unwrapIpcResult);

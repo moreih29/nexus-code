@@ -142,6 +142,7 @@ const BULK_FRAMES = new Set([
 ]);
 const LARGE_READ_REPLY_BYTES = 64 * 1024;
 const LARGE_READ_REPLIES = new Set([
+  "profiles.usage",
   "chat.panel",
   "chat.tool",
   "chat.instructions",
@@ -164,6 +165,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "sessions.list",
   "events.read",
   "profiles.list",
+  "profiles.usage",
   "folders.list",
   "history.list",
   "chat.read",

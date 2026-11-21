@@ -113,6 +113,8 @@ export interface ResumeOptions {
   /** Drop the tab's log before starting (a rewind). */
   readonly resetLog?: boolean;
   readonly connectionChanged?: boolean;
+  /** A disposable process for get_usage. */
+  readonly usageOnly?: boolean;
 }
 
 /**
@@ -128,6 +130,15 @@ export function claudeTabArgs(
   instructions = "",
   promptFile?: string,
 ): string[] {
+  if (options.usageOnly) {
+    return [
+      ...CLAUDE_TAB_ARGS,
+      "--no-session-persistence",
+      "--strict-mcp-config",
+      "--settings",
+      '{"disableAllHooks":true}',
+    ];
+  }
   const args = [
     ...CLAUDE_TAB_ARGS,
     ...(promptFile === undefined

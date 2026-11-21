@@ -24,6 +24,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
 | `nexus chat read <탭>` | Claude · Codex 탭의 최근 대화와 상태 |
+| `nexus chat usage` | Claude · Codex 프로필별 구독 사용량과 초기화 시각 |
 | `nexus events` | 모든 워크스페이스 에이전트 세션의 상태 변화(번호순). `--since N --wait 10m` 으로 다음 변화를 기다림 |
 | `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 (SSH 워크스페이스면 이 컴퓨터에서 열리는 주소도) |
 | `nexus device list` | 원격에 로그인한 내 컴퓨터들. 다른 컴퓨터의 세션은 `--device` 로 읽고 조작 |
@@ -138,6 +139,9 @@ nexus chat set 3fa2                                      # 지금 모델 · 추�
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 nexus chat profiles --agent codex --workspace WS --json
+nexus chat usage --json
+nexus chat usage --agent claude --profile "개인" --refresh
+nexus chat usage --device "Mac mini" --agent codex --json
 nexus chat profiles add --agent codex --name Personal
 nexus chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --reasoning glm=max --reasoning kimi=auto --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json
 nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
@@ -195,6 +199,13 @@ nexus chat resume 5f2a                                   # 지난 대화 이어�
 Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책을 따릅니다. `chat command TAB remote-control`은 토글이고, `chat remote-control TAB on` 또는 `off`로 상태를 지정할 수 있습니다. `chat send TAB /remote-control`과 별칭 `/rc`도 토글합니다. `--device`를 쓰면 받는 기기의 원격 에이전트 정책이 적용됩니다.
 
 `chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
+
+`chat usage`는 기기의 각 Claude · Codex 프로필에 대해 앱이 마지막으로 받은 구독 사용량을 표시합니다. `--agent`로 에이전트를, `--profile`로 이름이나 ID를 고릅니다. 이름이 겹치면 에이전트나 ID로 지정합니다. 기본값은 앱이 실행 중인 기기의 프로필입니다. SSH나 WSL에서 구동하는 에이전트의 사용량은 `--workspace`로 해당 실행 호스트를 고릅니다.
+
+- 각 한도에 사용 비율, 수신 시각, 제공된 경우 초기화 시각을 표시합니다. 수신 후 2분이 지났거나 초기화 시각이 지나면 `Stale`입니다. 프로필의 한도 중 하나라도 오래되면 프로필도 `stale`로 표시합니다. `--json`의 `fetchedAt`과 `resetsAt`은 Unix 밀리초입니다.
+- 이번 앱 실행에서 사용량을 받은 적이 없거나 현재 구독 한도를 읽을 수 없으면 `No usage snapshot`이 표시됩니다. API 키 · 직접 연결 프로필은 `No subscription`으로 표시합니다.
+- `--refresh`는 기존 사용량 조회 간격과 실패 시 대기 시간을 따릅니다. 실행 중인 프로필의 프로그램이 있으면 재사용합니다. 없으면 실행 호스트의 워크스페이스에서 임시 Claude Code 또는 Codex 프로세스를 열어 사용량을 읽고 닫습니다. 채팅 탭이나 대화는 만들지 않습니다. 기기에 로컬 워크스페이스가 없으면, 실행 중인 프로그램이 없는 로컬 프로필은 기존 스냅샷을 반환합니다.
+- `--device`는 원격 스키마 0.17.0 이상과 대상 기기의 에이전트 요청 허용이 필요합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
 
 `chat profiles add`는 로컬 워크스페이스에서 이 기기의 프로필을 추가합니다. `--agent claude|codex`와 `--name NAME`이 필요합니다. `--dir PATH`를 생략하면 설정 대화상자와 같은 규칙으로 `~/.claude-gateway` 같은 폴더를 제안합니다. 상대 경로는 CLI의 현재 폴더 기준입니다. 같은 에이전트의 이름은 대소문자를 무시해 비교하고, 이미 쓰는 폴더도 거절합니다. `--color`와 `--instructions-file FILE`로 색과 프로필 지시를 지정할 수 있습니다.
 

@@ -15,6 +15,7 @@ import {
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
+import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import type { CliServices } from "../cli/context";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
@@ -177,6 +178,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "chat.image",
   "history.list",
   "profiles.list",
+  "profiles.usage",
   "terminal.shells",
   "notes.list",
   "notes.read",
@@ -201,6 +203,7 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.image": 12_000,
   "history.list": 12_000,
   "profiles.list": 12_000,
+  "profiles.usage": 12_000,
   "terminal.shells": 12_000,
   "notes.list": 12_000,
   "notes.read": 12_000,
@@ -253,6 +256,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const agentOnly =
       method === "settings.instructions" ||
       method === "settings.instructions.set" ||
+      method === "profiles.usage" ||
       method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
@@ -605,6 +609,13 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readEvents(s, request.params as RpcParams<"events.read">);
       case "profiles.list":
         return listProfiles(s, request.params as RpcParams<"profiles.list">);
+      case "profiles.usage": {
+        const { from: _, ...usage } = params as RpcParams<"profiles.usage">;
+        if (usage.workspaceId !== undefined && !workspaceOf(s, usage.workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        return s.ui("chat.usage", usage).catch(unavailable);
+      }
       case "chat.rename":
         return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":
@@ -680,7 +691,10 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   return async (request: RemoteServeRequest) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-    const timeout = READ_DEADLINES[request.method];
+    const timeout =
+      request.method === "profiles.usage" && (request.params as RpcParams<"profiles.usage">).refresh
+        ? PROFILE_USAGE_REFRESH_TIMEOUT_MS
+        : READ_DEADLINES[request.method];
     if (timeout === undefined) return dispatch(s, request);
     const budget = new ReadBudget(s, request.method, request.from, timeout);
     const reader: CliServices = {

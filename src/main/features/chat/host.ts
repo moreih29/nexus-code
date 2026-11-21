@@ -229,13 +229,24 @@ export class ChatHost {
     }
 
     const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const version = await this.probeVersion(
-      channel,
-      "claude",
-      cwd,
-      found.path,
-      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
-    );
+    const launchEnv = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
+    const version = await this.probeVersion(channel, "claude", cwd, found.path, launchEnv);
+
+    if (resume.usageOnly) {
+      try {
+        const result = await this.spawn(key, intent, channel, {
+          workspaceId,
+          tabId,
+          cwd,
+          program: found.path,
+          args: claudeTabArgs(resume),
+          env: launchEnv,
+        });
+        return { ok: true, pid: result.pid, attached: result.attached === true, version };
+      } catch (err) {
+        return { ok: false, reason: "failed", message: (err as Error).message };
+      }
+    }
 
     if (profile.connection?.method === "custom" && version && !gte(version, CUSTOM_CLAUDE_FROM)) {
       return {

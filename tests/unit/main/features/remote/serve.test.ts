@@ -142,6 +142,32 @@ test("a peer editing a task's workspace instructions asks for and changes the pa
   ]);
 });
 
+test("profile usage follows the receiving device's agent read policy", async () => {
+  const calls: [string, unknown][] = [];
+  const s = {
+    ...services(),
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return { profiles: [] };
+    },
+  } as CliServices;
+  let policy: "ask" | "deny" = "ask";
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => policy }) });
+  const params = { agent: "claude", workspaceId: "w1", profile: "Work" };
+  const from = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
+  const request = { from: "d", method: "profiles.usage" as const, params };
+  expect(servesWith(false, false, true)).toContain("profiles.usage");
+  await expect(serve(request)).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  await expect(serve({ ...request, params: { ...params, from } })).resolves.toEqual({
+    profiles: [],
+  });
+  policy = "deny";
+  await expect(serve({ ...request, params: { ...params, from } })).rejects.toMatchObject({
+    code: RpcErrorCode.Forbidden,
+  });
+  expect(calls).toEqual([["chat.usage", params]]);
+});
+
 describe("the sessions list's renderer deadline", () => {
   test("a stuck tab list or chat leaves the other rows and the consent prompt usable", async () => {
     const pending: PendingConsent[] = [

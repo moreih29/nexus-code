@@ -31,7 +31,7 @@ import {
 } from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
-import { chatProfilesAdd, profileTable } from "./chat-profiles";
+import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -969,6 +969,7 @@ export const chatControlCommands: CliCommand[] = [
   chatHistory,
   chatProfiles,
   chatProfilesAdd,
+  chatUsage,
   chatFiles,
   chatResume,
 ];

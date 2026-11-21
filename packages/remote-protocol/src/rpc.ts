@@ -21,6 +21,7 @@ import {
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
+  ViewUsageMeterSchema,
 } from "./view.js";
 
 // ---------------------------------------------------------------------------
@@ -948,6 +949,32 @@ export const RPC_METHODS = {
           isDefault: z.boolean(),
           workspaceDefault: z.boolean().optional(),
           path: z.string().optional(),
+        }),
+      ),
+    }),
+  },
+  /** Subscription limits last observed for the profiles on a workspace host. */
+  "profiles.usage": {
+    capability: "profiles.usage",
+    params: z.object({
+      agent: z.enum(["claude", "codex"]).optional(),
+      profile: z.string().min(1).max(64).optional(),
+      workspaceId: z.string().optional(),
+      refresh: z.boolean().optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      profiles: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          agent: z.enum(["claude", "codex"]),
+          status: z.enum(["fresh", "stale", "unavailable", "not-subscription"]),
+          /** When the serving app last received limits, in Unix milliseconds. */
+          fetchedAt: z.number().optional(),
+          limits: z.array(
+            ViewUsageMeterSchema.extend({ fetchedAt: z.number(), stale: z.boolean() }),
+          ),
         }),
       ),
     }),

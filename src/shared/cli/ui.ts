@@ -12,6 +12,7 @@ import type {
   ChatConfig,
   ChatPage,
   RemoteConsent,
+  RpcParams,
   RpcResult,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
@@ -21,6 +22,9 @@ import type { RelaySender } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
+
+/** A refresh may start a provider CLI and wait for its usage request. */
+export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
@@ -824,6 +828,10 @@ export interface CliUiOps {
         path?: string;
       }[];
     };
+  };
+  "chat.usage": {
+    args: Omit<RpcParams<"profiles.usage">, "from">;
+    result: RpcResult<"profiles.usage">;
   };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {

@@ -16,6 +16,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
@@ -210,6 +211,7 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "chat.image",
   "history.list",
   "profiles.list",
+  "profiles.usage",
   "terminal.shells",
   "notes.list",
   "notes.read",
@@ -260,7 +262,7 @@ export async function askDevice<M extends RpcMethod>(
     (params as { permissionMode?: string }).permissionMode !== undefined
   )
     requirePeerCli(ctx, device);
-  const timeoutMs =
+  let timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
@@ -292,6 +294,9 @@ export async function askDevice<M extends RpcMethod>(
                   needsFileConsent(method, params as { anywhere?: true }))
               ? AGENT_REQUEST_MS
               : undefined;
+  if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
+    timeoutMs = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 5_000;
+  }
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {
