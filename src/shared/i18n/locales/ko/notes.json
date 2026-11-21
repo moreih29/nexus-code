@@ -238,6 +238,7 @@
       "description": "녹음 파일은 휴지통으로 이동하고 원문도 지워집니다.",
       "confirm": "지우기"
     },
+    "saveConflict": "다른 곳에서 이 녹음이 변경되어 최근 변경 사항을 저장하지 못했습니다.",
     "saveFailed": "원문을 저장하지 못했습니다: {{message}}",
     "passFailed": {
       "signed-out": "NexusCode에 로그인해야 다시 받아쓸 수 있습니다.",

@@ -66,11 +66,12 @@ export interface UpdateInstaller {
   /** Starts an update; while one is under way, reports where it stands instead. */
   install(channel: UpdateChannel): Promise<void>;
   /** Quits and installs the staged update; does nothing until one is ready. */
-  restart(): void;
+  restart(): Promise<void>;
 }
 
 export interface CreateUpdateInstallerOptions {
   backend: UpdateBackend;
+  prepareRestart?: () => Promise<void>;
   onStatus: (status: InstallStatus) => void;
   /** Reports how far the download of `version` has got. */
   onProgress: (version: string, progress: DownloadProgress) => void;
@@ -87,8 +88,9 @@ type State =
   | { kind: "ready"; version: string };
 
 export function createUpdateInstaller(options: CreateUpdateInstallerOptions): UpdateInstaller {
-  const { backend, onStatus, onProgress, releaseUrl, logger } = options;
+  const { backend, prepareRestart, onStatus, onProgress, releaseUrl, logger } = options;
   let state: State = { kind: "idle" };
+  let preparingRestart = false;
 
   function fail(version: string | null, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
@@ -153,8 +155,18 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       }
     },
 
-    restart() {
-      if (state.kind === "ready") backend.quitAndInstall();
+    async restart() {
+      if (state.kind !== "ready" || preparingRestart) return;
+      const readyUpdate = state;
+      preparingRestart = true;
+      try {
+        if (prepareRestart) await prepareRestart();
+        if (state === readyUpdate) backend.quitAndInstall();
+      } catch (error) {
+        if (state === readyUpdate) fail(readyUpdate.version, error);
+      } finally {
+        preparingRestart = false;
+      }
     },
   };
 }

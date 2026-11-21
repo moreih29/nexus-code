@@ -10,7 +10,13 @@ import {
   type UpdateBackend,
 } from "../../../../../src/main/features/updates/installer";
 
-function setup(offered: string | null = "1.2.0", { installAsksForPassword = false } = {}) {
+function setup(
+  offered: string | null = "1.2.0",
+  {
+    installAsksForPassword = false,
+    prepareRestart,
+  }: { installAsksForPassword?: boolean; prepareRestart?: () => Promise<void> } = {},
+) {
   const statuses: InstallStatus[] = [];
   const progress: { version: string; progress: DownloadProgress }[] = [];
   let staged: () => void = () => {};
@@ -48,6 +54,7 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
   };
   const installer = createUpdateInstaller({
     backend,
+    ...(prepareRestart && { prepareRestart }),
     onStatus: (status) => statuses.push(status),
     onProgress: (version, report) => progress.push({ version, progress: report }),
     releaseUrl: (version) => (version === null ? "releases" : `releases/v${version}`),
@@ -83,6 +90,23 @@ describe("createUpdateInstaller", () => {
     expect(t.statuses.at(-1)).toEqual({ kind: "ready", version: "1.2.0" });
 
     t.installer.restart();
+    expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("waits for open windows to flush before handing off to the updater", async () => {
+    const prepared = Promise.withResolvers<void>();
+    const t = setup("1.2.0", { prepareRestart: () => prepared.promise });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+
+    const restarting = t.installer.restart();
+    await t.installer.restart();
+    expect(t.calls.quitAndInstall).toBe(0);
+    prepared.resolve();
+    await restarting;
     expect(t.calls.quitAndInstall).toBe(1);
   });
 

@@ -154,8 +154,8 @@ function withNoteErrors(
           return await handler(args, ctx);
         } catch (error) {
           if (!(error instanceof NoteError)) throw error;
-          if (error.code === "not-found") {
-            return ipcErr("not-found", error.message, { category: "failed", code: error.code });
+          if (error.code === "not-found" || error.code === "conflict") {
+            return ipcErr(error.code, error.message, { category: "failed", code: error.code });
           }
           return ipcErr("invalid-args", error.message, {
             category: "invalid-input",
@@ -443,12 +443,9 @@ export function registerNotesChannel(opts: {
         return ipcOk(await store.readTranscript(locationOf(workspaceId), noteId));
       },
       saveTranscript: async (args: unknown) => {
-        const { workspaceId, noteId, transcript, announce } = validateArgs(
-          c.saveTranscript.args,
-          args,
-        );
+        const { workspaceId, noteId, edits, announce } = validateArgs(c.saveTranscript.args, args);
         const location = locationOf(workspaceId);
-        await store.saveTranscript(location, noteId, transcript);
+        await store.editTranscript(location, noteId, edits);
         if (announce) changed({ locationKey: location.key, noteId, change: "saved" });
         return ipcOk(undefined);
       },

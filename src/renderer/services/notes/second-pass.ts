@@ -8,7 +8,7 @@
  */
 import i18next from "i18next";
 import { create } from "zustand";
-import { withSecondPass } from "../../../shared/notes/transcript";
+import { type TranscriptRecording, withSecondPass } from "../../../shared/notes/transcript";
 import type { TranscribeResult } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
@@ -160,27 +160,51 @@ async function waitForPasses(
       }
       const transcription = asked.value;
       if (transcription.status === "pending") continue;
-      if (transcription.status === "done") {
-        updateRecording(workspaceId, noteId, recordingId, (r) => {
-          const next = withSecondPass(r, index, transcription.segments);
-          return {
-            ...next,
-            takes: next.takes.map((tk, i) => {
-              if (i !== index) return tk;
-              const { transcriptionId: _id, ...rest } = tk;
-              return { ...rest, pass: "done" as const };
-            }),
-          };
-        });
-      } else {
-        setTake(workspaceId, noteId, recordingId, index, { pass: "error" }, ["transcriptionId"]);
-        if (!told) tell("failed");
+      let before: TranscriptRecording | undefined;
+      let applied: TranscriptRecording | undefined;
+      updateRecording(workspaceId, noteId, recordingId, (r) => {
+        const take = r.takes[index];
+        if (!take || take.transcriptionId !== id || take.pass !== "pending") return r;
+        before = r;
+        const next =
+          transcription.status === "done" ? withSecondPass(r, index, transcription.segments) : r;
+        const done = next !== r;
+        applied = {
+          ...next,
+          takes: next.takes.map((tk, i) => {
+            if (i !== index) return tk;
+            const { transcriptionId: _id, ...rest } = tk;
+            return { ...rest, pass: done ? "done" : "error" };
+          }),
+        };
+        return applied;
+      });
+      if (!before || !applied) continue;
+      if (applied.takes[index]?.pass === "error" && !told) {
+        tell("failed");
         told = true;
       }
-      await flushTranscript(workspaceId, noteId, true);
+      const previous = before;
+      const completed = applied;
+      try {
+        await flushTranscript(workspaceId, noteId, true, true);
+      } catch {
+        // Keep the job available for another attempt. Preserve edits made during the write.
+        updateRecording(workspaceId, noteId, recordingId, (r) => {
+          if (r === completed) return previous;
+          if (r.takes[index] !== completed.takes[index]) return r;
+          return {
+            ...r,
+            takes: r.takes.map((tk, i) => (i === index ? (previous.takes[index] ?? tk) : tk)),
+          };
+        });
+        return;
+      }
       // The text is here: the server and its provider can let the file and the text go.
       void ipcCallResult("remote", "voiceTranscriptionDrop", { id });
     }
+    const current = recordingOf(workspaceId, noteId, recordingId);
+    if (!current?.takes.some((take) => take.pass === "pending" && take.transcriptionId)) return;
     await sleep(POLL_MS);
   }
 }

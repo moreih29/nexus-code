@@ -2,7 +2,7 @@ import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { MAIN_QUIT_GRACE_MS } from "../../infra/main-shutdown";
 
-/** How long close waits for a renderer to finish its durable layout write. */
+/** How long close waits for a renderer to finish its pending writes. */
 const CLOSE_FLUSH_TIMEOUT_MS = 1_000;
 
 interface CloseWindow {
@@ -18,7 +18,7 @@ interface CloseEvent {
   preventDefault(): void;
 }
 
-/** Coordinates a bounded layout flush before Electron runs its unload guards. */
+/** Coordinates a bounded flush before Electron runs its unload guards. */
 export class ClosePersistence {
   private readonly answers: PendingRequestMap<string, boolean>;
   private readonly windowFlushes = new Map<number, Promise<void>>();
@@ -77,6 +77,11 @@ export class ClosePersistence {
     });
   }
 
+  /** Flush before handing window closure to the native updater. */
+  async prepareUpdaterClose(windows: CloseWindow[]): Promise<void> {
+    await Promise.all(windows.map((win) => this.flushWindow(win)));
+  }
+
   /** The native updater owns its window close sequence. */
   allowUpdaterClose(): void {
     this.quitPhase = "closing";
@@ -114,10 +119,10 @@ export class ClosePersistence {
     const flush = answer
       .then(
         (saved) => {
-          if (!saved) this.warn(`Layout save failed before closing window ${senderId}`);
+          if (!saved) this.warn(`Save failed before closing window ${senderId}`);
         },
         (error: unknown) => {
-          this.warn(`Layout flush did not complete for window ${senderId}: ${String(error)}`);
+          this.warn(`Save did not complete for window ${senderId}: ${String(error)}`);
         },
       )
       .finally(() => this.windowFlushes.delete(senderId));

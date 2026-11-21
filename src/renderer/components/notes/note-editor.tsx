@@ -16,6 +16,11 @@ import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/ty
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
 import {
+  createNoteAutoSave,
+  type NoteSaveState,
+  registerNoteSave,
+} from "../../services/notes/save";
+import {
   dropTranscript,
   loadTranscript,
   transcriptKey,
@@ -41,12 +46,8 @@ import { RecordControls } from "./record-controls";
 import { SendToAgent } from "./send-to-agent";
 import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
 
-const SAVE_DELAY_MS = 500;
-
 /** How long after the last key typed in the title the tab takes its name. */
 const TAB_TITLE_DELAY_MS = 150;
-
-type SaveState = "saved" | "saving" | "error";
 
 export function NoteEditor({
   workspaceId,
@@ -107,7 +108,7 @@ function LoadedNote({
   // The title as typed. The input keeps it itself: a key typed there draws
   // nothing else again, not the header, nor the transcript beside it.
   const title = useRef(note.title);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveState, setSaveState] = useState<NoteSaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
 
@@ -147,33 +148,16 @@ function LoadedNote({
     };
   }, [nameTab]);
 
-  // Saving: the latest title and document, a moment after the last change.
-  const pending = useRef<{ title?: string; doc?: DocNode }>({});
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flush = useCallback(async () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    const change = pending.current;
-    pending.current = {};
-    if (change.title === undefined && change.doc === undefined) return;
-    setSaveState("saving");
-    try {
-      await notesApi.save(workspaceId, note.id, change);
-      setSaveState("saved");
-    } catch {
-      pending.current = { ...change, ...pending.current };
-      setSaveState("error");
-    }
-  }, [workspaceId, note.id]);
-  const schedule = useCallback(
-    (change: { title?: string; doc?: DocNode }) => {
-      pending.current = { ...pending.current, ...change };
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
-    },
-    [flush],
+  const { schedule, flush, discard } = useMemo(
+    () => createNoteAutoSave((change) => notesApi.save(workspaceId, note.id, change), setSaveState),
+    [workspaceId, note.id],
   );
-  useEffect(() => () => void flush(), [flush]);
+  useEffect(() => {
+    const unregister = registerNoteSave(flush);
+    return () => {
+      void flush().finally(unregister);
+    };
+  }, [flush]);
 
   const urls = useMemo(() => new NoteAssetUrls(workspaceId, note.id), [workspaceId, note.id]);
   useEffect(() => () => urls.dispose(), [urls]);
@@ -399,8 +383,7 @@ function LoadedNote({
       variant: "destructive",
     });
     if (!ok) return;
-    if (timer.current) clearTimeout(timer.current);
-    pending.current = {};
+    discard();
     dropRecording(workspaceId, note.id);
     await notesApi.remove(workspaceId, note.id);
     dropTranscript(workspaceId, note.id);
@@ -496,7 +479,9 @@ function LoadedNote({
             cwd={workspace?.rootPath ?? ""}
             noteId={note.id}
             title={titleNow}
-            beforeSend={flush}
+            beforeSend={async () => {
+              await flush();
+            }}
             trigger={
               <button
                 type="button"

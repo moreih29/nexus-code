@@ -227,6 +227,7 @@
       "programFound": "Found: {{path}}",
       "programNotFound": "No program with this path or name was found.",
       "args": "Arguments (optional)",
+      "argsHint": "Wrap arguments with spaces in double quotes. Type \"\" for a literal double quote.",
       "argsPlaceholder": "e.g. -l",
       "hint": "New terminals only · SSH workspaces use the remote login shell"
     },

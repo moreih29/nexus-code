@@ -41,22 +41,39 @@ export const ShellInfoSchema = z.object({
 export type ShellInfo = z.infer<typeof ShellInfoSchema>;
 
 /**
- * Splits an arguments field the way a shell would: on whitespace, except
- * inside double quotes, which may sit anywhere in an argument
- * (`--init-file="/a b/rc"`). No escapes; good enough for flags like `-l` or
- * `-NoLogo -ExecutionPolicy Bypass`.
+ * Splits the settings field on whitespace outside double quotes. Inside a quoted
+ * argument, doubled quotes insert a literal quote. Backslashes are literal.
  */
 export function splitShellArgs(text: string): string[] {
   const args: string[] = [];
-  for (const match of text.matchAll(/(?:"[^"]*(?:"|$)|[^\s"]+)+/g)) {
-    args.push(match[0].replaceAll('"', ""));
+  let arg: string | null = null;
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charAt(i);
+    if (char === '"') {
+      arg ??= "";
+      if (quoted && text.charAt(i + 1) === '"') {
+        arg += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && /\s/.test(char)) {
+      if (arg !== null) args.push(arg);
+      arg = null;
+    } else {
+      arg = (arg ?? "") + char;
+    }
   }
+  if (arg !== null) args.push(arg);
   return args;
 }
 
 /** The inverse of `splitShellArgs`, for showing stored arguments in the field. */
 export function joinShellArgs(args: readonly string[]): string {
-  return args.map((arg) => (/\s/.test(arg) || arg === "" ? `"${arg}"` : arg)).join(" ");
+  return args
+    .map((arg) => (/[\s"]/.test(arg) || arg === "" ? `"${arg.replaceAll('"', '""')}"` : arg))
+    .join(" ");
 }
 
 /** A literal value for a POSIX shell. */

@@ -521,6 +521,7 @@ updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
+  prepareRestart: isMac() ? () => closePersistence.prepareUpdaterClose(getAppWindows()) : undefined,
   // A packaged macOS app, Linux AppImage or deb updates itself in place; any
   // other build leaves the user the release page.
   updateBackend:

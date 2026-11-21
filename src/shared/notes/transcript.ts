@@ -90,6 +90,14 @@ export const TranscriptRecordingSchema = z.object({
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
 
+/** One recording changed against the version the editor last read or saved. */
+export const TranscriptEditSchema = z.object({
+  id: z.string().regex(RECORDING_ID_RE),
+  before: TranscriptRecordingSchema.optional(),
+  after: TranscriptRecordingSchema.optional(),
+});
+export type TranscriptEdit = z.infer<typeof TranscriptEditSchema>;
+
 export const TranscriptFileSchema = z.object({
   version: z.literal(TRANSCRIPT_VERSION),
   recordings: z.array(TranscriptRecordingSchema),
@@ -241,12 +249,14 @@ export function withSecondPass(
 ): TranscriptRecording {
   const t = recording.takes[take];
   if (!t) return recording;
+  const words = segments.filter((segment) => segment.text.trim());
+  if (!words.length) return recording;
   const until = recording.takes[take + 1]?.offsetMs ?? Number.POSITIVE_INFINITY;
   const inTake = (l: TranscriptLine) => l.startMs >= t.offsetMs && l.startMs < until;
   const old = recording.lines.filter(inTake);
   const rest = recording.lines.filter((l) => !inTake(l));
   if (recording.voicePrint) {
-    return numberSpeakers(withSecondPassByVoice(recording, t, old, rest, segments));
+    return numberSpeakers(withSecondPassByVoice(recording, t, old, rest, words));
   }
 
   const pinned = old.filter((l) => l.pinned);
@@ -256,7 +266,7 @@ export function withSecondPass(
     ...Object.keys(recording.speakers),
     ...recording.lines.map((l) => l.speaker),
   ]);
-  for (const s of segments) taken.add(speakerKey(take, s.speaker));
+  for (const s of words) taken.add(speakerKey(take, s.speaker));
   const byLabel = new Map<string, string>();
   const keyOfLabel = (label: string) => {
     const original = speakerKey(take, label);
@@ -268,20 +278,18 @@ export function withSecondPass(
     byLabel.set(label, key);
     return key;
   };
-  const fresh = segments
-    .filter((s) => s.text.trim())
-    .map((s): TranscriptLine => {
-      const startMs = t.offsetMs + s.startMs;
-      const endMs = t.offsetMs + s.endMs;
-      const manual = greatestOverlap(overlapBySpeaker(pinned, startMs, endMs));
-      return {
-        speaker: manual ?? keyOfLabel(s.speaker),
-        startMs,
-        endMs,
-        text: s.text.trim(),
-        ...(manual ? { pinned: true } : {}),
-      };
-    });
+  const fresh = words.map((s): TranscriptLine => {
+    const startMs = t.offsetMs + s.startMs;
+    const endMs = t.offsetMs + s.endMs;
+    const manual = pinnedSpeaker(overlapBySpeaker(pinned, startMs, endMs), endMs - startMs);
+    return {
+      speaker: manual ?? keyOfLabel(s.speaker),
+      startMs,
+      endMs,
+      text: s.text.trim(),
+      ...(manual ? { pinned: true } : {}),
+    };
+  });
   const carried = carryNames(
     old,
     recording.speakers,
@@ -331,34 +339,32 @@ function withSecondPassByVoice(
     }
     return key;
   };
-  const fresh = segments
-    .filter((s) => s.text.trim())
-    .map((s): TranscriptLine => {
-      const startMs = take.offsetMs + s.startMs;
-      const endMs = take.offsetMs + s.endMs;
-      const shared = new Map<string, number>();
-      const pinned = new Map<string, number>();
-      let near: TranscriptLine | null = null;
-      for (const l of old) {
-        const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
-        if (ms > 0) {
-          shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
-          if (l.pinned) pinned.set(l.speaker, (pinned.get(l.speaker) ?? 0) + ms);
-        }
-        const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
-        if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
-          near = l;
+  const fresh = segments.map((s): TranscriptLine => {
+    const startMs = take.offsetMs + s.startMs;
+    const endMs = take.offsetMs + s.endMs;
+    const shared = new Map<string, number>();
+    const pinned = new Map<string, number>();
+    let near: TranscriptLine | null = null;
+    for (const l of old) {
+      const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
+      if (ms > 0) {
+        shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
+        if (l.pinned) pinned.set(l.speaker, (pinned.get(l.speaker) ?? 0) + ms);
       }
-      const speaker =
-        greatestOverlap(pinned.size ? pinned : shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
-      return {
-        speaker,
-        startMs,
-        endMs,
-        text: s.text.trim(),
-        ...(pinned.size ? { pinned: true } : {}),
-      };
-    });
+      const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
+      if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
+        near = l;
+    }
+    const manual = pinnedSpeaker(pinned, endMs - startMs);
+    const speaker = manual ?? greatestOverlap(shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
+    return {
+      speaker,
+      startMs,
+      endMs,
+      text: s.text.trim(),
+      ...(manual ? { pinned: true } : {}),
+    };
+  });
   return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
 }
 
@@ -373,6 +379,15 @@ function overlapBySpeaker(
     if (ms > 0) shared.set(line.speaker, (shared.get(line.speaker) ?? 0) + ms);
   }
   return shared;
+}
+
+/** Preserve manual assignments across shifted boundaries without pinning incidental overlap. */
+function pinnedSpeaker(
+  shared: ReadonlyMap<string, number>,
+  durationMs: number,
+): string | undefined {
+  const speaker = greatestOverlap(shared);
+  return speaker && (shared.get(speaker) ?? 0) >= durationMs / 4 ? speaker : undefined;
 }
 
 function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefined {

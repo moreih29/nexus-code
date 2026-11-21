@@ -461,6 +461,7 @@ function CustomShellForm({
         </label>
         <input
           id={argsId}
+          aria-describedby={`${argsId}-hint`}
           type="text"
           value={argsText}
           spellCheck={false}
@@ -468,6 +469,9 @@ function CustomShellForm({
           placeholder={t("terminal.shell.argsPlaceholder")}
           className={inputClass}
         />
+        <p id={`${argsId}-hint`} className="text-app-ui-sm text-muted-foreground">
+          {t("terminal.shell.argsHint")}
+        </p>
       </div>
 
       <div className="flex justify-end gap-2">
