@@ -46,6 +46,7 @@
 import { z } from "zod";
 import { Base64UrlSchema, type DeviceId, DeviceIdSchema } from "./relay.js";
 import { RpcMessageSchema } from "./rpc.js";
+import { PositiveIntegerSchema } from "./validation.js";
 
 /**
  * The version of what is sealed; a device tells it in its hello, and it is
@@ -58,7 +59,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.19.0";
+export const SCHEMA_VERSION = "0.20.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -132,7 +133,7 @@ export type Capability = (typeof CAPABILITIES)[number];
  */
 export const HelloSchema = z.object({
   type: z.literal("hello"),
-  protocol: z.number().int().positive(),
+  protocol: PositiveIntegerSchema,
   device: z.object({
     id: DeviceIdSchema,
     name: z.string(),
@@ -176,7 +177,7 @@ export const SenderConnectionSchema = z.object({
   /** The sender's run: random, as an epoch is, made once as its room starts. */
   boot: EpochSchema,
   /** The connection's number in that run, counted from 1: each new one is higher. */
-  n: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  n: PositiveIntegerSchema.check(z.lte(Number.MAX_SAFE_INTEGER)),
 });
 export type SenderConnection = z.infer<typeof SenderConnectionSchema>;
 

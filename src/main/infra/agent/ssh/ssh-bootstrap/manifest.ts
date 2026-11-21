@@ -5,6 +5,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../../../../packages/remote-protocol/src/validation";
 import {
   AgentArtifactPlatformSchema,
   type LspBinaryManifestEntry,
@@ -30,14 +31,14 @@ export const RemoteArtifactRecordSchema = z.object({
   arch: AgentArtifactPlatformSchema.shape.arch.optional(),
   path: z.string(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  size: z.number().int().nonnegative().optional(),
+  size: NonnegativeIntegerSchema.optional(),
   installedAt: z.string(),
 });
 
 export const RemoteArtifactManifestSchema = z.object({
   version: z.string().optional(),
   protocolVersion: z.string().optional(),
-  artifacts: z.record(RemoteArtifactRecordSchema),
+  artifacts: z.record(z.string(), RemoteArtifactRecordSchema),
 });
 
 const LegacyRemoteManifestSchema = z.object({

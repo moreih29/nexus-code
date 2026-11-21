@@ -3,6 +3,10 @@
  * which server, and this device as the server knows it.
  */
 import { z } from "zod";
+import {
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 
 /** The sign-ins the app knows, in display order; GET /info says which to offer. */
 export const SIGN_IN_PROVIDERS = ["apple", "google", "github", "dev"] as const;
@@ -17,21 +21,19 @@ export const RemoteUserSchema = z.object({
 export type RemoteUser = z.infer<typeof RemoteUserSchema>;
 
 /** A device of the account, as the server knows it. */
-export const RemoteDeviceInfoSchema = z
-  .object({
-    id: z.string(),
-    /** The name it signed in with (its host's). */
-    name: z.string(),
-    /** The name the user gave it, shown in its place; null or absent for none. */
-    alias: z.string().nullable().optional(),
-    platform: z.string(),
-    /** When the device signed in, and when the server last heard from it, in Unix ms. */
-    createdAt: z.number().optional(),
-    lastSeenAt: z.number().optional(),
-    /** Whether it is the device asking. */
-    current: z.boolean().optional(),
-  })
-  .passthrough();
+export const RemoteDeviceInfoSchema = z.looseObject({
+  id: z.string(),
+  /** The name it signed in with (its host's). */
+  name: z.string(),
+  /** The name the user gave it, shown in its place; null or absent for none. */
+  alias: z.string().nullable().optional(),
+  platform: z.string(),
+  /** When the device signed in, and when the server last heard from it, in Unix ms. */
+  createdAt: NumberSchema.optional(),
+  lastSeenAt: NumberSchema.optional(),
+  /** Whether it is the device asking. */
+  current: z.boolean().optional(),
+});
 export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
 
 /** The longest alias a device is given (the server's limit). */
@@ -107,7 +109,7 @@ export const MIN_PASSWORD_LENGTH = 12;
  * (`self` when it is this one).
  */
 export const PendingResetInfoSchema = z.object({
-  appliesAt: z.number(),
+  appliesAt: NumberSchema,
   deviceId: z.string(),
   self: z.boolean().optional(),
 });
@@ -133,13 +135,9 @@ export const AccountKeyStateSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("signed-out") }),
   z.object({ status: z.literal("checking") }),
   z.object({ status: z.literal("missing") }),
-  z
-    .object({ status: z.literal("locked"), kid: z.number().int().positive() })
-    .merge(KeyExtrasSchema),
-  z
-    .object({ status: z.literal("unlocked"), kid: z.number().int().positive() })
-    .merge(KeyExtrasSchema),
-  z.object({ status: z.literal("unavailable"), retryAt: z.number().optional() }),
+  z.object({ status: z.literal("locked"), kid: PositiveIntegerSchema }).merge(KeyExtrasSchema),
+  z.object({ status: z.literal("unlocked"), kid: PositiveIntegerSchema }).merge(KeyExtrasSchema),
+  z.object({ status: z.literal("unavailable"), retryAt: NumberSchema.optional() }),
 ]);
 export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
 

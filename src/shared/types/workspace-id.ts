@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Canonical primitive for a workspace UUID field. */
-export const WorkspaceIdSchema = z.string().uuid();
+export const WorkspaceIdSchema = z.guid();
 
 /**
  * Returns a `z.object` that always includes `workspaceId: WorkspaceIdSchema`
@@ -11,6 +11,6 @@ export const WorkspaceIdSchema = z.string().uuid();
  *   workspaceScoped({ relPath: z.string() })
  *   // → z.object({ workspaceId: WorkspaceIdSchema, relPath: z.string() })
  */
-export function workspaceScoped<T extends z.ZodRawShape>(extra: T) {
+export function workspaceScoped<T extends z.core.$ZodShape>(extra: T) {
   return z.object({ workspaceId: WorkspaceIdSchema, ...extra });
 }

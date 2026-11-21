@@ -212,7 +212,7 @@ export function ipcListen<C extends ListenChannels, E extends ListenEvents<C>>(
   event: E,
   callback: (args: ListenArg<C, E>) => void,
 ): () => void {
-  return window.ipc.listen(channel, event, callback as Parameters<typeof window.ipc.listen>[2]);
+  return window.ipc.listen(channel, event, callback);
 }
 
 /**

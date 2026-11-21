@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { isRemoteFileKey, parseRemoteFileKey } from "../fs/remote-file-key";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +29,7 @@ const RemoteFileSnapshotSchema = z.object({
   deviceName: z.string(),
   workspaceRoot: z.string(),
   at: z
-    .object({ line: z.number().int().positive(), column: z.number().int().positive().optional() })
+    .object({ line: PositiveIntegerSchema, column: PositiveIntegerSchema.optional() })
     .optional()
     .catch(undefined),
   mode: z.enum(["raw", "preview"]).optional(),
@@ -55,7 +59,7 @@ export type AgentViewNode = AgentViewLeaf | AgentViewSplit;
 
 const AgentViewLeafSchema = z.object({
   kind: z.literal("leaf"),
-  id: z.string().uuid(),
+  id: z.guid(),
   tabIds: z.array(PanelKeySchema).max(256),
   activeTabId: PanelKeySchema.nullable(),
 });
@@ -65,9 +69,9 @@ export const AgentViewNodeSchema: z.ZodType<AgentViewNode> = z.lazy(() =>
     AgentViewLeafSchema,
     z.object({
       kind: z.literal("split"),
-      id: z.string().uuid(),
+      id: z.guid(),
       orientation: z.enum(["horizontal", "vertical"]),
-      ratio: z.number().min(0.05).max(0.95),
+      ratio: NumberSchema.check(z.gte(0.05)).check(z.lte(0.95)),
       first: AgentViewNodeSchema,
       second: AgentViewNodeSchema,
     }),
@@ -89,7 +93,7 @@ export type EndedAgentSnapshot = z.infer<typeof EndedAgentSnapshotSchema>;
 export const AgentViewSnapshotSchema = z.object({
   mode: AgentViewModeSchema,
   root: AgentViewNodeSchema,
-  activeLeafId: z.string().uuid(),
+  activeLeafId: z.guid(),
   remoteFiles: z.record(RemoteFileKeySchema, RemoteFileSnapshotSchema).optional().catch(undefined),
   // The ended agents the panels show, by session key. Ones this version
   // cannot read are dropped rather than costing the panels.

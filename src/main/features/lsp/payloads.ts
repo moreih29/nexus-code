@@ -4,6 +4,7 @@
 // when the payload does not match).
 
 import { z } from "zod";
+import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
 import {
   type ServerCapabilities,
   ServerCapabilitiesSchema,
@@ -58,7 +59,7 @@ export function parseFindBinaryResult(result: unknown): { path: string; envPath?
 }
 
 const StatsResultSchema = z.object({
-  servers: z.array(z.object({ serverId: z.string(), rssBytes: z.number() })),
+  servers: z.array(z.object({ serverId: z.string(), rssBytes: NumberSchema })),
 });
 
 /** lsp.stats: each server's memory, with the processes it started. */

@@ -1,5 +1,9 @@
 /** The notes channel's arguments and results (see shared/notes/types.ts). */
 import { z } from "zod";
+import {
+  NonnegativeNumberSchema,
+  NumberSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptEditSchema } from "../notes/transcript";
 import { NOTE_ID_RE, SKETCH_ID_RE } from "../notes/types";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -7,7 +11,7 @@ import { WorkspaceIdSchema } from "./workspace-id";
 export const NoteIdSchema = z.string().regex(NOTE_ID_RE);
 
 /** A document as TipTap's getJSON() gives it; checked for its shape only at the top. */
-export const NoteDocSchema = z.object({ type: z.literal("doc") }).passthrough();
+export const NoteDocSchema = z.looseObject({ type: z.literal("doc") });
 
 /** Most bytes of a pasted image, before base64. */
 export const MAX_NOTE_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -21,21 +25,23 @@ export const MAX_VOICE_PRINT_SAMPLES = 16_000 * 10;
 export const MAX_SKETCH_SCENE_CHARS = 60 * 1024 * 1024;
 
 const NoteCountsSchema = z.object({
-  sketches: z.number(),
-  files: z.number(),
-  images: z.number(),
-  todos: z.number(),
-  todosDone: z.number(),
+  sketches: NumberSchema,
+  files: NumberSchema,
+  images: NumberSchema,
+  todos: NumberSchema,
+  todosDone: NumberSchema,
 });
 
 export const NoteSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
+  createdAt: NumberSchema,
+  updatedAt: NumberSchema,
   counts: NoteCountsSchema,
   excerpt: z.string(),
-  recording: z.object({ recordings: z.number(), ms: z.number(), people: z.number() }).optional(),
+  recording: z
+    .object({ recordings: NumberSchema, ms: NumberSchema, people: NumberSchema })
+    .optional(),
 });
 
 export const NoteContentSchema = NoteSummarySchema.extend({
@@ -43,7 +49,7 @@ export const NoteContentSchema = NoteSummarySchema.extend({
   dir: z.string(),
 });
 
-export const NoteAssetSchema = z.object({ src: z.string(), name: z.string(), size: z.number() });
+export const NoteAssetSchema = z.object({ src: z.string(), name: z.string(), size: NumberSchema });
 
 export const NoteLocationSchema = z.object({
   key: z.string(),
@@ -55,15 +61,15 @@ export const NoteLocationSchema = z.object({
 
 export const NoteStorageEntrySchema = z.object({
   location: NoteLocationSchema,
-  notes: z.number(),
+  notes: NumberSchema,
   bytes: z.object({
-    text: z.number(),
-    sketches: z.number(),
-    files: z.number(),
-    images: z.number(),
-    recordings: z.number(),
+    text: NumberSchema,
+    sketches: NumberSchema,
+    files: NumberSchema,
+    images: NumberSchema,
+    recordings: NumberSchema,
   }),
-  updatedAt: z.number(),
+  updatedAt: NumberSchema,
   /** The workspaces open in the app whose folder this is. */
   workspaceIds: z.array(z.string()),
 });
@@ -137,7 +143,7 @@ export const NotesArgs = {
     now: z
       .object({
         ...note,
-        recordedMs: z.number().nonnegative(),
+        recordedMs: NonnegativeNumberSchema,
         paused: z.boolean(),
       })
       .nullable(),

@@ -12,6 +12,7 @@
 import { z } from "zod";
 import { KeyBundleSchema, VerifierSchema } from "./account.js";
 import { Base64UrlSchema, DeviceIdSchema } from "./relay.js";
+import { PositiveIntegerSchema } from "./validation.js";
 
 // ---------------------------------------------------------------------------
 // The password's proof
@@ -84,7 +85,7 @@ export function deviceCertInputOf(
  */
 export const DeviceKeySchema = z.object({
   publicKey: Base64UrlSchema.length(43),
-  kid: z.number().int().positive(),
+  kid: PositiveIntegerSchema,
   cert: Base64UrlSchema.length(43),
 });
 export type DeviceKey = z.infer<typeof DeviceKeySchema>;
@@ -119,7 +120,7 @@ export function envelopeInfoOf(userId: string, from: string, to: string, kid: nu
  */
 export const KeyEnvelopeSchema = z.object({
   v: z.literal(1),
-  kid: z.number().int().positive(),
+  kid: PositiveIntegerSchema,
   from: DeviceIdSchema,
   fromKey: DeviceKeySchema,
   /** 24 random bytes. */
@@ -143,7 +144,7 @@ export type KeyEnvelopesResponse = z.infer<typeof KeyEnvelopesResponseSchema>;
  */
 export const KeyRotationSchema = z.object({
   bundle: KeyBundleSchema,
-  expected: z.number().int().positive(),
+  expected: PositiveIntegerSchema,
   verifier: VerifierSchema,
   removeDeviceIds: z.array(DeviceIdSchema).max(32),
   envelopes: z.array(z.object({ deviceId: DeviceIdSchema, envelope: KeyEnvelopeSchema })).max(32),
@@ -219,7 +220,7 @@ export const PairMessageSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("pair-key"),
     v: z.literal(1),
-    kid: z.number().int().positive(),
+    kid: PositiveIntegerSchema,
     key: Base64UrlSchema.length(43),
   }),
   z.object({ t: z.literal("pair-done"), v: z.literal(1) }),

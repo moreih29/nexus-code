@@ -1493,7 +1493,7 @@ export type CliUiOp = keyof CliUiOps;
 export const CliUiRequestSchema = z.object({
   requestId: z.string().min(1),
   op: z.string().min(1),
-  args: z.unknown(),
+  args: z.unknown().optional(),
 });
 export type CliUiRequest = z.infer<typeof CliUiRequestSchema>;
 

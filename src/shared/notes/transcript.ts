@@ -16,6 +16,11 @@
  * Pure: no IO here.
  */
 import { z } from "zod";
+import {
+  NonnegativeNumberSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { nextVoiceKey, voicePerson } from "./voices";
 
 export const TRANSCRIPT_VERSION = 1;
@@ -29,7 +34,7 @@ export const TAKE_FILE_RE = /^recordings\/r[0-9a-z]{6,12}[0-9a-f]{4}-\d{1,3}\.(w
 export const ParticipantCountSchema = z.union([
   z.literal("auto"),
   z.literal("7+"),
-  z.number().int().positive(),
+  PositiveIntegerSchema,
 ]);
 export type ParticipantCount = z.infer<typeof ParticipantCountSchema>;
 
@@ -38,8 +43,8 @@ export const PARTICIPANT_OPTIONS = ["auto", 2, 3, 4, 5, 6, "7+"] as const;
 /** One stretch of one voice's words. Times are from the recording's start, in ms. */
 export const TranscriptLineSchema = z.object({
   speaker: z.string().min(1).max(40),
-  startMs: z.number().nonnegative(),
-  endMs: z.number().nonnegative(),
+  startMs: NonnegativeNumberSchema,
+  endMs: NonnegativeNumberSchema,
   text: z.string(),
   /** The user moved the line to its voice: it stays there. */
   pinned: z.boolean().optional(),
@@ -54,9 +59,9 @@ export const TranscriptTakeSchema = z.object({
   /** recordings/<recording id>-<n>.webm */
   file: z.string().regex(TAKE_FILE_RE),
   /** Where the take starts in the recording. */
-  offsetMs: z.number().nonnegative(),
+  offsetMs: NonnegativeNumberSchema,
   /** Its length, as the server counted it once it was done. */
-  seconds: z.number().nonnegative(),
+  seconds: NonnegativeNumberSchema,
   /** The session's `done` (or `error`) `transcribeToken`, until it is used. */
   token: z.string().optional(),
   /** The second pass on the server, while it is under way. */
@@ -68,7 +73,7 @@ export type TranscriptTake = z.infer<typeof TranscriptTakeSchema>;
 export const TranscriptRecordingSchema = z.object({
   id: z.string().regex(RECORDING_ID_RE),
   /** Epoch ms. */
-  startedAt: z.number(),
+  startedAt: NumberSchema,
   /** The language listened for. */
   language: z.string(),
   takes: z.array(TranscriptTakeSchema),

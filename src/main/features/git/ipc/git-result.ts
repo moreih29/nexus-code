@@ -129,7 +129,7 @@ export interface WithRepoOpts {
  *                   and call context.
  * @param opts     - Behavioural flags (see `WithRepoOpts`).
  */
-export function withRepo<S extends z.ZodTypeAny, R>(
+export function withRepo<S extends z.ZodType, R>(
   registry: GitRegistry,
   schema: S,
   run: (

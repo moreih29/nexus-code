@@ -4,6 +4,7 @@
  * (features/claude/session-activity.ts) for the agent list.
  */
 import { z } from "zod";
+import { IntegerSchema, NumberSchema } from "../../../packages/remote-protocol/src/validation";
 
 /** How many of the session's own tools are kept, the latest. */
 export const SESSION_TOOLS_KEPT = 60;
@@ -24,9 +25,9 @@ export const ToolRunSchema = z.object({
   target: z.string().optional(),
   /** What the model said it does, as a Bash command's description. */
   note: z.string().optional(),
-  start: z.number(),
+  start: NumberSchema,
   /** Absent while it runs. */
-  end: z.number().optional(),
+  end: NumberSchema.optional(),
   failed: z.boolean().optional(),
   /** Why it failed, as Claude Code reported it (its first line). */
   error: z.string().optional(),
@@ -39,7 +40,7 @@ export type ToolRun = z.infer<typeof ToolRunSchema>;
 
 /** What a run wrote between its tools, as its output or transcript tells it. */
 export const AgentMessageSchema = z.object({
-  at: z.number(),
+  at: NumberSchema,
   text: z.string(),
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
@@ -86,8 +87,8 @@ export const AgentRunSchema = z.object({
   description: z.string().optional(),
   prompt: z.string().optional(),
   background: z.boolean().optional(),
-  start: z.number(),
-  end: z.number().optional(),
+  start: NumberSchema,
+  end: NumberSchema.optional(),
   state: AgentRunStateSchema,
   /** Its last answer, once it ended. */
   answer: z.string().optional(),
@@ -95,12 +96,12 @@ export const AgentRunSchema = z.object({
   tools: z.array(ToolRunSchema),
   /** For a run: its latest messages, oldest first; its answer is the last once it ended. */
   messages: z.array(AgentMessageSchema).optional(),
-  toolCount: z.number().int(),
-  failedCount: z.number().int(),
+  toolCount: IntegerSchema,
+  failedCount: IntegerSchema,
   /** For a run: whether its tools are told (its output is a stream of events). */
   toolsTold: z.boolean().optional(),
   /** For a run: how it exited. */
-  exitCode: z.number().int().optional(),
+  exitCode: IntegerSchema.optional(),
   /**
    * For a run: its session's id, which `claude -p --resume` (or `codex exec
    * resume`) goes on; a run that does is told as this one going on.
@@ -143,7 +144,7 @@ export const PermissionAskSchema = z.object({
   note: z.string().optional(),
   /** What allowing it always would let through; empty when Claude Code offers nothing. */
   always: z.array(PermissionAlwaysSchema),
-  since: z.number(),
+  since: NumberSchema,
 });
 export type PermissionAsk = z.infer<typeof PermissionAskSchema>;
 
@@ -157,12 +158,12 @@ export const SessionActivitySchema = z.object({
   /** The Claude Code session the terminal runs, as its hooks tell. */
   sessionId: z.string().optional(),
   /** When the user's last prompt came. */
-  turnStart: z.number().optional(),
+  turnStart: NumberSchema.optional(),
   /** The session's own latest tools, oldest first. */
   tools: z.array(ToolRunSchema),
   /** Tools run since the turn began, failed ones among them. */
-  toolCount: z.number().int(),
-  failedCount: z.number().int(),
+  toolCount: IntegerSchema,
+  failedCount: IntegerSchema,
   /** Files the turn's tools wrote to, relative to the session's directory where under it. */
   files: z.array(z.string()),
   todos: z.array(TodoSchema),

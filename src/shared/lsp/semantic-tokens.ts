@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { DocumentUriSchema } from "./primitives";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ export type SemanticTokensArgs = z.infer<typeof SemanticTokensArgsSchema>;
 
 export const SemanticTokensResultSchema = z.object({
   resultId: z.string().optional(),
-  data: z.array(z.number().int().nonnegative()),
+  data: z.array(NonnegativeIntegerSchema),
 });
 export type SemanticTokensResult = z.infer<typeof SemanticTokensResultSchema>;
 

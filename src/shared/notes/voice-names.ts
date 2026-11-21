@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  NonnegativeIntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
+import { partialWithoutDefaults } from "../validation/partial";
 import { RECORDING_ID_RE, type TranscriptRecording } from "./transcript";
 import type { VoiceSample } from "./voices";
 
@@ -11,28 +16,27 @@ export const VOICE_NAME_RECORDINGS = 5;
 export const VOICE_NAME_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 
 export const VoiceNameSchema = z.string().trim().min(1).max(80);
-const VectorSchema = z.array(z.number().finite()).length(192);
+const VectorSchema = z.array(z.number()).length(192);
 export const VoiceNameSettingsSchema = z.object({
   consent: z.enum(["pending", "allowed", "declined"]).default("pending"),
   suggest: z.boolean().default(true),
   expire: z.boolean().default(true),
 });
 export type VoiceNameSettings = z.infer<typeof VoiceNameSettingsSchema>;
-export const VoiceNamePreferencesSchema = VoiceNameSettingsSchema.pick({
-  suggest: true,
-  expire: true,
-}).partial();
+export const VoiceNamePreferencesSchema = partialWithoutDefaults(
+  VoiceNameSettingsSchema.pick({ suggest: true, expire: true }),
+);
 export const VoiceNameStatusSchema = VoiceNameSettingsSchema.extend({
   available: z.boolean(),
-  revision: z.number().int().nonnegative(),
-  count: z.number().int().nonnegative(),
+  revision: NonnegativeIntegerSchema,
+  count: NonnegativeIntegerSchema,
 });
 export type VoiceNameStatus = z.infer<typeof VoiceNameStatusSchema>;
 
 export const VoiceNamePersonSchema = z.object({
   name: VoiceNameSchema,
-  count: z.number().int().positive(),
-  lastHeard: z.number().finite(),
+  count: PositiveIntegerSchema,
+  lastHeard: z.number(),
 });
 export type VoiceNamePerson = z.infer<typeof VoiceNamePersonSchema>;
 
@@ -44,7 +48,7 @@ const CandidateSchema = z.object({
 export type VoiceNameCandidate = z.infer<typeof CandidateSchema>;
 
 export const VoiceNameMatchArgsSchema = z.object({
-  revision: z.number().int().nonnegative(),
+  revision: NonnegativeIntegerSchema,
   named: z.array(VoiceNameSchema),
   speakers: z.array(CandidateSchema),
 });
@@ -57,7 +61,7 @@ export const VoiceNameLearnArgsSchema = z.object({
   revision: VoiceNameMatchArgsSchema.shape.revision,
   name: VoiceNameSchema,
   recordingId: z.string().regex(RECORDING_ID_RE),
-  recordedAt: z.number().finite().nonnegative(),
+  recordedAt: z.number().nonnegative(),
   vector: VectorSchema,
 });
 

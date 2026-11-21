@@ -81,7 +81,7 @@ export type AgentProfile = z.infer<typeof agentProfileSchema>;
 export const AgentProfileSchema: z.ZodType<AgentProfile> = agentProfileSchema;
 
 export const ProfileTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("workspace"), workspaceId: z.string().uuid() }),
+  z.object({ kind: z.literal("workspace"), workspaceId: z.guid() }),
   /** A local folder and every folder under it. */
   z.object({ kind: z.literal("folder"), path: z.string().min(1).max(1024) }),
   /** Every workspace on an SSH host, by the name it was reached by. */
@@ -100,7 +100,7 @@ export const ProfileRuleSchema = z.object({
 export type ProfileRule = z.infer<typeof ProfileRuleSchema>;
 
 /** An array that drops the entries it cannot read, rather than failing whole. */
-function lenientArray<T extends z.ZodTypeAny>(item: T, max: number) {
+function lenientArray<T extends z.ZodType>(item: T, max: number) {
   return z.preprocess(
     (value) =>
       Array.isArray(value)
@@ -117,8 +117,7 @@ const agentProfilesSchema = z.object({
   defaults: z.object({ claude: ProfileIdSchema.optional(), codex: ProfileIdSchema.optional() }),
 });
 export type AgentProfiles = z.infer<typeof agentProfilesSchema>;
-export const AgentProfilesSchema: z.ZodType<AgentProfiles, z.ZodTypeDef, unknown> =
-  agentProfilesSchema;
+export const AgentProfilesSchema: z.ZodType<AgentProfiles, unknown> = agentProfilesSchema;
 
 export const EMPTY_AGENT_PROFILES: AgentProfiles = { profiles: [], rules: [], defaults: {} };
 

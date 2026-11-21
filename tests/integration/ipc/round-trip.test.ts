@@ -138,6 +138,21 @@ describe("ipc round-trip — call.echo with zod validation", () => {
     expect(isIpcErrResult(result)).toBe(true);
     expect((result as Record<string, unknown>).kind).toBe("invalid-args");
     expect((result as Record<string, unknown>).category).toBe("invalid-input");
+    expect((result as Record<string, unknown>).message).toBe(
+      `ipc:call — invalid args: ${JSON.stringify(
+        [
+          {
+            code: "invalid_type",
+            expected: "string",
+            received: "undefined",
+            path: ["val"],
+            message: "Required",
+          },
+        ],
+        null,
+        2,
+      )}`,
+    );
   });
 
   it("call.echo returns invalid-args IpcErrResult when val is not a string", async () => {

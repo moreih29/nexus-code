@@ -133,7 +133,7 @@ function salvageAppState(raw: unknown, empty: AppState): AppState {
 }
 
 function salvageField(
-  schema: z.ZodTypeAny,
+  schema: z.ZodType,
   value: unknown,
 ): { ok: true; value: unknown } | { ok: false } {
   const direct = schema.safeParse(value);

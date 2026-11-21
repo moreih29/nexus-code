@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { IntegerSchema, NumberSchema } from "../../../packages/remote-protocol/src/validation";
 
 /**
  * Why a server is not running:
@@ -51,8 +52,8 @@ export type LspLogLevel = z.infer<typeof LspLogLevelSchema>;
 
 export const LspLogEntrySchema = z.object({
   /** Increasing per server, so a viewer can ask for what came after. */
-  seq: z.number().int(),
-  time: z.number(),
+  seq: IntegerSchema,
+  time: NumberSchema,
   level: LspLogLevelSchema,
   message: z.string(),
 });
@@ -61,6 +62,6 @@ export type LspLogEntry = z.infer<typeof LspLogEntrySchema>;
 export const LspServerMemorySchema = z.object({
   languageId: z.string(),
   /** Resident memory of the server and the processes it started. */
-  rssBytes: z.number(),
+  rssBytes: NumberSchema,
 });
 export type LspServerMemory = z.infer<typeof LspServerMemorySchema>;

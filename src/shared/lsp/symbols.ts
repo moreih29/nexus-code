@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { IntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { LocationSchema, type Range, RangeSchema } from "./primitives";
 
-export const SymbolKindSchema = z.number().int().min(1).max(26);
+export const SymbolKindSchema = IntegerSchema.check(z.gte(1)).check(z.lte(26));
 export type SymbolKind = z.infer<typeof SymbolKindSchema>;
 
 export const SymbolTagSchema = z.literal(1);

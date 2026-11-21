@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { WorkspaceIdSchema } from "./workspace-id";
 
-const TabIdSchema = z.string().uuid();
+const TabIdSchema = z.guid();
 
 const TabBaseSchema = z.object({
   id: TabIdSchema,

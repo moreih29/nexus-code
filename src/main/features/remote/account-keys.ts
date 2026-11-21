@@ -23,6 +23,10 @@ import {
   KeyEnvelopesResponseSchema,
   type KeyRotation,
 } from "../../../../packages/remote-protocol/src";
+import {
+  IntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../../packages/remote-protocol/src/validation";
 import { shortId } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import type {
@@ -59,12 +63,12 @@ const BUNDLE_PATH = "/account/key-bundle";
 /** The account key as this device keeps it, sealed: whose, and which version. */
 export const SavedKeySchema = z.object({
   userId: z.string(),
-  kid: z.number().int().positive(),
+  kid: PositiveIntegerSchema,
   key: Base64UrlSchema,
   /** This device's X25519 key pair (account keys v2), made once it held the key. */
   device: z.object({ secretKey: Base64UrlSchema, publicKey: Base64UrlSchema }).optional(),
   /** The key version its public key was last registered with on the server. */
-  registered: z.number().int().optional(),
+  registered: IntegerSchema.optional(),
 });
 export type SavedKey = z.infer<typeof SavedKeySchema>;
 
@@ -98,9 +102,7 @@ export interface AccountKeysDeps {
 
 /** A device of the account with its key, as GET /devices tells it. */
 const KeyedDevicesSchema = z.object({
-  devices: z.array(
-    z.object({ id: z.string(), key: DeviceKeySchema.nullable().optional() }).passthrough(),
-  ),
+  devices: z.array(z.looseObject({ id: z.string(), key: DeviceKeySchema.nullable().optional() })),
 });
 
 /** What the server said of the account key the last time it was asked. */

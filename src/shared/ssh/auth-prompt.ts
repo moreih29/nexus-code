@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PositiveIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { WorkspaceIdSchema } from "../types/workspace-id";
 
 export const SshAuthPromptIdSchema = z.string().min(1);
@@ -7,7 +8,7 @@ const SshAuthPromptBaseSchema = z.object({
   promptId: SshAuthPromptIdSchema,
   workspaceId: WorkspaceIdSchema.optional(),
   host: z.string().min(1),
-  port: z.number().int().positive().max(65_535).optional(),
+  port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   username: z.string().min(1).optional(),
   /**
    * `true` when this prompt repeats a previously-failed authentication round
