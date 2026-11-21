@@ -2,7 +2,7 @@
 
 [English](#nexuscode-privacy-policy)
 
-시행일: 2026년 11월 17일
+시행일: 2026년 11월 23일
 
 NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 않습니다. 앱은 로그인하지 않고도 쓸 수 있고, 그때는 **설정 → 원격**에서 로그인 방법 목록을 불러올 때 말고는 개발자가 운영하는 서버와 통신하지 않습니다. 이 요청에는 계정이나 기기에 관한 정보가 들어 있지 않습니다. NexusCode 계정으로 로그인해 원격, 음성 입력, 노트 녹음, 모바일 앱을 쓸 때만 아래 [NexusCode 계정](#nexuscode-계정)에 적은 정보가 개발자가 운영하는 서버(이하 "서버")를 거칩니다.
 
@@ -21,15 +21,16 @@ NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 �
 
 로그인해서 계정 기능을 쓸 때 서버가 처리하는 정보입니다.
 
-- **로그인**: Google 또는 GitHub로 로그인하면 이메일 주소, 이름, 그 서비스의 계정 식별자를 받아 계정을 만들고, 계정을 지울 때까지 보관합니다.
+- **로그인**할 때 Google, GitHub 또는 Apple에서 이메일 주소, 제공된 이름(Apple은 첫 로그인 때), 그 서비스의 계정 식별자를 받아 계정을 만들고, 계정을 지울 때까지 보관합니다. Apple에서 ‘나의 이메일 가리기’를 선택하면 Apple이 발급한 중계 주소를 이메일 주소로 저장합니다. Apple이 보낸 갱신 토큰은 계정을 지울 때 폐기를 요청하려고 보관합니다.
 - **기기**: 로그인한 기기마다 기기 이름(컴퓨터나 휴대폰의 이름), 운영체제, 로그인한 시각, 마지막으로 접속한 시각(1시간 단위)을 보관합니다. 로그인은 30일 동안 쓰지 않으면 끝나고, 그 기기의 정보도 지웁니다. 서버에는 로그인 토큰을 해시로만 저장합니다.
 - **계정 비밀번호와 종단간 암호화**: 계정 비밀번호는 서버로 보내지 않습니다. 기기들이 함께 쓰는 계정 키는 기기에서 계정 비밀번호로 잠근 뒤 서버에 맡기며, 서버는 이를 열 수 없습니다.
 - **원격**: 기기 사이에 오가는 내용(에이전트 세션, 터미널 화면, 파일, 사진)은 종단간 암호화되어 서버를 거쳐 전달됩니다. 서버는 어느 기기에서 어느 기기로 가는지와 크기, 시각만 알 수 있고, 내용을 열거나 저장하지 않습니다.
-- **음성 입력**: 말하는 동안 소리를 서버를 거쳐 음성 인식 서비스 Soniox로 보내 실시간으로 받아씁니다. 서버는 소리와 받아쓴 글을 저장하지 않고, 쓴 시간만 기록합니다.
+- **음성 입력**: 말하는 동안 소리를 서버를 거쳐 음성 인식 서비스 Soniox로 보내 실시간으로 받아씁니다. 서버는 소리와 받아쓴 글을 저장하지 않습니다. 음성 입력에 쓴 시간은 기록합니다. 사용자가 등록한 **음성 인식 단어**는 계정을 지울 때까지 서버에 저장합니다. 받아쓸 때 이 단어 목록도 소리와 함께 Soniox에 보냅니다.
 - **노트 녹음**: 녹음하는 동안의 소리는 음성 입력처럼 Soniox로 보내 실시간으로 받아쓰고, 목소리를 구별해 말한 사람별로 나눕니다(누구인지 알아내지는 않습니다). 앱도 컴퓨터에서 목소리를 소리로 구별합니다. 줄마다 목소리 특징(성문)을 컴퓨터 안에서 계산하며, 이 값은 컴퓨터 밖으로 나가지 않고 녹음하는 동안 메모리에만 두며 저장하지 않습니다. 녹음이 끝난 뒤 더 정확한 글을 얻으려고 녹음 파일을 서버를 거쳐 Soniox로 한 번 더 보낼 수 있습니다. 이 파일은 받아쓴 글이 나오면 바로 지우고, 글은 앱이 가져가면 지우며, 늦어도 파일을 보내고 하루 안에 모두 지웁니다. 서버는 그동안 녹음 길이와 처리 상태만 보관합니다.
 - **사용량**: 음성 입력과 노트 녹음에 쓴 시간을 달마다 기록합니다.
-- **모바일 앱**: 사용자가 고른 사진만 읽어서, 종단간 암호화해 컴퓨터로 보냅니다. 카메라와 마이크는 쓰지 않습니다.
-- **운영 기록**: 서버는 Cloudflare에서 돌아갑니다. 요청을 처리한 기록(시각, 경로, 결과, IP 주소 같은 접속 정보)은 오류를 찾고 남용을 막는 데만 쓰며 Cloudflare에 며칠 동안 남습니다. 로그인 시도가 지나치게 많은 곳을 막으려고 접속한 네트워크를 잠시 셉니다.
+- **모바일 앱**: 채팅과 노트에 붙일 사진은 사용자가 고른 것만 읽어 종단간 암호화해 컴퓨터로 보냅니다. 카메라는 기기를 연결할 때 QR 코드를 읽는 데만 씁니다. QR 코드 내용은 기기 안에서 읽고, 카메라 화면은 저장하거나 보내지 않습니다. 마이크는 음성 입력에 씁니다. 컴퓨터에서 음성 입력을 할 때처럼 소리는 서버를 거쳐 Soniox로 보냅니다.
+- **푸시 알림**을 iOS 앱에서 켜면 서버는 푸시 토큰, 알림 언어와 종류를 기기 정보와 함께 보관합니다. 에이전트가 승인이나 답을 기다리면 Apple 푸시 알림 서비스(APNs)를 통해 알림을 보낼 수 있습니다. 알림에는 “승인을 기다리는 요청이 있습니다” 같은 정해진 문구만 표시합니다. 세션 제목, 컴퓨터 이름, 명령, 경로, 대화 내용은 알림에 들어가지 않습니다. 중복 발송을 막으려고 알림마다 무작위 식별자를 하루 동안 보관한 뒤 다음 정리 때 지웁니다. 알림 끄기, 로그아웃, 기기 제거, 계정 삭제가 서버에서 처리되면 등록 정보를 지웁니다. Apple이 무효라고 알린 토큰도 지웁니다.
+- **운영 기록**: 서버는 Cloudflare에서 돌아갑니다. 앱은 AWS Lightsail(서울)의 중계 서버를 먼저 거쳐 Cloudflare에 연결하며, 중계 서버는 접속 기록을 남기지 않습니다. Cloudflare의 요청 처리 기록(시각, 경로, 결과, IP 주소 같은 접속 정보)은 오류를 찾고 남용을 막는 데만 쓰며 Cloudflare에 며칠 동안 남습니다. 로그인 시도가 지나치게 많은 곳을 막으려고 접속한 네트워크를 잠시 셉니다.
 
 Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 
@@ -39,13 +40,17 @@ Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 
 ### 처리를 맡기는 곳과 국외 이전
 
-계정 기능을 쓰는 동안 아래 회사가 정보를 처리하며, 이들의 서버는 대한민국 밖에 있습니다. 정보는 해당 기능을 쓸 때 네트워크로 전송됩니다. 로그인하지 않거나 해당 기능을 쓰지 않으면 보내지 않습니다.
+계정 기능을 쓰는 동안 아래 회사가 정보를 처리합니다. Amazon Web Services의 중계 서버는 대한민국 서울에 있고, 나머지 회사의 서버는 대한민국 밖에 있습니다. 정보는 해당 기능을 쓸 때 네트워크로 전송됩니다. 로그인하지 않거나 해당 기능을 쓰지 않으면 보내지 않습니다.
+
+중계 서버는 전송 암호화(TLS)를 풀어 Cloudflare 서버와 같은 정보를 볼 수 있습니다. 여기에는 로그인 토큰, 음성과 받아쓴 글, 잠긴 계정 키가 포함됩니다. 원격 내용은 종단간 암호화된 채로 전달됩니다.
 
 | 받는 곳 | 하는 일 | 위치 | 받는 정보 | 보관 기간 |
 |---|---|---|---|---|
+| Amazon Web Services, Inc. | 연결 중계 | 대한민국(서울) | 위 계정 정보와 음성(전달만) | 저장하지 않음 |
 | Cloudflare, Inc. | 서버와 데이터베이스 운영 | 미국 등 Cloudflare의 데이터 센터 | 위 계정 정보, 원격의 암호화된 내용(전달만) | 계정을 지울 때까지 |
-| Soniox | 음성 인식 | 미국 | 음성 입력과 노트 녹음의 소리, 노트 녹음 파일 | 실시간은 받아쓰는 동안, 녹음 파일과 그 글은 최대 하루 |
+| Soniox | 음성 인식 | 미국 | 음성 입력과 노트 녹음의 소리, 노트 녹음 파일, 음성 인식 단어 | 실시간 소리는 받아쓰는 동안, 녹음 파일과 그 글은 최대 하루 |
 | Google, GitHub | 로그인 | 미국 | 사용자가 그 서비스에서 직접 로그인합니다 | 각 서비스의 방침에 따름 |
+| Apple Inc. | 로그인, 푸시 알림 전달 | 미국 등 | Apple에서 직접 로그인(계정을 지울 때 Apple에 토큰 폐기 요청) · 휴대폰의 푸시 토큰, 정해진 알림 문구와 종류 | 로그인은 Apple의 방침에 따름 · 푸시는 전달 대기 중 임시 보관(최대 15분으로 설정) |
 
 ## 업데이트 확인
 
@@ -53,7 +58,7 @@ Microsoft Store에서 설치한 앱은 Store가 업데이트하며, 앱이 따�
 
 ## 다른 서비스
 
-Microsoft Store, Apple App Store, Cloudflare, Soniox, GitHub, Google, 그리고 사용자가 접속하는 호스트와 웹 사이트는 각자의 개인정보처리방침을 따릅니다.
+Microsoft Store, Apple App Store, Amazon Web Services, Cloudflare, Soniox, GitHub, Google, 그리고 사용자가 접속하는 호스트와 웹 사이트는 각자의 개인정보처리방침을 따릅니다.
 
 ## 문의
 
@@ -67,7 +72,7 @@ Microsoft Store, Apple App Store, Cloudflare, Soniox, GitHub, Google, 그리고 
 
 # NexusCode Privacy Policy
 
-Effective November 17, 2026
+Effective November 23, 2026
 
 NexusCode sends no usage statistics, analytics or error reports to its developer. The app works without signing in, and then it does not talk to any server the developer runs, except to list the ways to sign in when you open **Settings → Remote**; that request carries nothing about you or your device. Only when you sign in to a NexusCode account to use remote, voice input, note recording or the mobile app does the information under [NexusCode account](#nexuscode-account) go through the developer's server (the "server").
 
@@ -86,15 +91,16 @@ App state such as settings, the workspace list and open tabs, and your notes (te
 
 What the server handles when you sign in and use account features.
 
-- **Sign-in**: signing in with Google or GitHub gives the server your email address, your name and your account's identifier at that service. They make your account and are kept until you delete it.
+- **Sign-in** with Google, GitHub or Apple gives the server your email address, your name if provided (on the first sign-in with Apple), and your account's identifier at that service. The server uses these to make your account and keeps them until you delete it. If you choose Hide My Email with Apple, the server stores the relay address as your email address. It keeps any Apple refresh token so it can request revocation when you delete your account.
 - **Devices**: for each device signed in, the server keeps its name (your computer's or phone's), its operating system, when it signed in and when it was last seen (to the hour). A sign-in not used for 30 days ends, and the device's details go with it. Sign-in tokens are stored only as hashes.
 - **Account password and end-to-end encryption**: your account password is never sent to the server. The account key your devices share is locked with it on your device before the server keeps it, and the server cannot open it.
 - **Remote**: what passes between your devices (agent sessions, terminal screens, files, photos) is end-to-end encrypted and relayed by the server. The server can tell only which device it goes from and to, its size and its time; it cannot read it and does not store it.
-- **Voice input**: while you speak, the sound goes through the server to the speech-to-text service Soniox, which transcribes it as you speak. The server stores neither the sound nor the text, only how long you used it.
+- **Voice input**: while you speak, the sound goes through the server to the speech-to-text service Soniox, which transcribes it as you speak. The server does not store the sound or the transcript. It records how long you used voice input. The server keeps the **speech recognition words** you add until you delete your account. It sends the list to Soniox along with the audio for transcription.
 - **Note recording**: while you record, the sound goes to Soniox and is transcribed as voice input is, with voices told apart so the text is split by speaker (it does not identify anyone). The app also tells the voices apart on your computer by how they sound: it works out a voice print of each line there, which never leaves the computer, is kept in memory only while you record, and is not saved. After the recording, its file may go once more through the server to Soniox for a more accurate text. The file is deleted as soon as its text is ready, the text once the app has it, and both within a day of the file being sent at the latest. Until then the server keeps only the recording's length and how far its transcription is.
 - **Usage**: the time you used voice input and note recording is recorded each month.
-- **Mobile app**: it reads only the photos you choose, and sends them end-to-end encrypted to your computers. It does not use the camera or the microphone.
-- **Operational logs**: the server runs on Cloudflare. Records of the requests it handles (time, path, result and connection details such as your IP address) are used only to find faults and stop abuse, and stay with Cloudflare for a few days. To stop excessive sign-in attempts, the server briefly counts requests from each network.
+- **Mobile app**: it reads only the photos you choose to attach to chats and notes and sends them end-to-end encrypted to your computer. It uses the camera only to scan QR codes when you link devices. It reads the QR code on the device without saving or sending the camera image. It uses the microphone for voice input. The audio goes through the server to Soniox, as it does on a computer.
+- When you turn on **push notifications** in the iOS app, the server keeps the push token, notification language and kinds with your device's details. When an agent is waiting for approval or an answer, the server can send a notification through the Apple Push Notification service (APNs). It shows only a fixed message such as “A request is waiting for your approval.” Notifications contain no session titles, computer names, commands, paths or conversation content. To prevent duplicates, the server keeps a random identifier for each notification for a day and deletes it at the next cleanup. The server deletes the registration when it processes a request to turn notifications off, a sign-out, device removal or account deletion. It also deletes tokens Apple reports as invalid.
+- **Operational logs**: the server runs on Cloudflare. The app connects to Cloudflare through a relay on AWS Lightsail in Seoul, which keeps no access logs. Records of the requests the Cloudflare server handles (time, path, result and connection details such as your IP address) are used only to find faults and stop abuse, and stay with Cloudflare for a few days. To stop excessive sign-in attempts, the server briefly counts requests from each network.
 
 Soniox does not use the sound or text it receives to train its models.
 
@@ -104,13 +110,17 @@ Deleting your account in the app (**Settings → Remote**) deletes the informati
 
 ### Processors and transfers abroad
 
-While you use account features, the companies below process your information on servers outside the Republic of Korea. It is sent over the network when you use the feature concerned; nothing is sent if you do not sign in or do not use it.
+While you use account features, the companies below process your information. The Amazon Web Services relay is in Seoul, Republic of Korea. The other companies' servers are outside the Republic of Korea. The information is sent over the network when you use the feature concerned. The app does not send it if you do not sign in or do not use the feature.
+
+The relay decrypts the TLS connection and can see the same information as the Cloudflare server. This includes sign-in tokens, audio and transcribed text, and locked account keys. Remote content passes through with its end-to-end encryption intact.
 
 | Recipient | Role | Location | What it receives | Kept for |
 |---|---|---|---|---|
+| Amazon Web Services, Inc. | Connection relay | Republic of Korea (Seoul) | The account information and voice data above (relayed only) | Not stored |
 | Cloudflare, Inc. | Runs the server and its database | Cloudflare data centers, including in the US | The account information above, and remote's encrypted content (relayed only) | Until you delete your account |
-| Soniox | Speech-to-text | United States | The sound of voice input and note recording, and note recordings' files | Live: while transcribing; files and their text: a day at most |
+| Soniox | Speech-to-text | United States | The sound of voice input and note recording, note recordings' files, and speech recognition words | Live audio for the duration of transcription. Files and their text for up to a day. |
 | Google, GitHub | Sign-in | United States | You sign in at their service directly | As their policies say |
+| Apple Inc. | Sign-in, push notification delivery | United States and elsewhere | Direct sign-in at Apple (the server asks Apple to revoke the token on account deletion) · Phone push token, fixed notification text and kind | Sign-in follows Apple's policy · Push notifications are held for delivery (delivery window set to at most 15 minutes) |
 
 ## Update checks
 
@@ -118,7 +128,7 @@ The Microsoft Store updates the app installed from it; that app does not check f
 
 ## Other services
 
-The Microsoft Store, the Apple App Store, Cloudflare, Soniox, GitHub, Google, and the hosts and websites you connect to follow their own privacy policies.
+The Microsoft Store, the Apple App Store, Amazon Web Services, Cloudflare, Soniox, GitHub, Google, and the hosts and websites you connect to follow their own privacy policies.
 
 ## Contact
 
