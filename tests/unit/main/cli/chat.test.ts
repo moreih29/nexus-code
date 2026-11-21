@@ -311,6 +311,27 @@ describe("chat new with settings", () => {
       error: "Claude startup failed",
     });
   });
+
+  test("does not open a chat after the client cancels during workspace approval", async () => {
+    const app = withChoices();
+    const controller = new AbortController();
+    const pending = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    app.services.allowChange = async (_request, signal) => {
+      expect(signal).toBe(controller.signal);
+      arrived.resolve();
+      await pending.promise;
+    };
+    const result = runCli(CLI_COMMANDS, {
+      ...contextFor(app, ["chat", "new", "--workspace", "api"]),
+      signal: controller.signal,
+    });
+    await arrived.promise;
+    controller.abort();
+    pending.resolve();
+    expect((await result).exitCode).toBe(1);
+    expect(uiArgs(app, "chat.open")).toBeUndefined();
+  });
 });
 
 describe("delegating a chat mode", () => {

@@ -184,12 +184,12 @@ export interface CliServices {
    * Resolves when a change to another workspace than the caller's may go
    * ahead, as the setting or the user says; a CliError saying why when not.
    */
-  allowChange(request: ChangeRequest): Promise<void>;
+  allowChange(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
   /**
    * Resolves when the user allows `request`, asked whatever the setting;
    * a CliError saying why when not.
    */
-  askUser(request: ChangeRequest): Promise<void>;
+  askUser(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
   claudeInstructions?(
@@ -327,14 +327,18 @@ export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (workspace.id === ctx.caller.workspaceId) return;
-  await ctx.services.allowChange({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change,
-  });
+  await ctx.services.allowChange(
+    {
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: workspace.id,
+      change,
+    },
+    signal,
+  );
 }
 
 /** The agents of a terminal's Claude session (claude/session-activity.ts). */

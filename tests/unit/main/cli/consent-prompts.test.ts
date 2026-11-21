@@ -15,7 +15,7 @@ const request: AskArgs = {
 
 function setup() {
   const shown: { args: AskArgs; timeoutMs: number; answer: (a: CliConsentAnswer) => void }[] = [];
-  const settled: { id: string; answer: string; by: string }[] = [];
+  const settled: { id: string; answer: string; by?: string }[] = [];
   let settles = true;
   const prompts = new ConsentPrompts({
     ask: (args, timeoutMs) =>
@@ -71,6 +71,18 @@ describe("the consent prompts waiting on the user", () => {
     expect(settled).toEqual([{ id, answer: "session", by: "iPhone" }]);
     expect(await asked).toEqual({ answer: "session" });
     expect(prompts.list()).toEqual([]);
+  });
+
+  test("cancelling the requester closes and delists the pending prompt", async () => {
+    const { prompts, settled } = setup();
+    const controller = new AbortController();
+    const asked = prompts.ask(request, undefined, controller.signal);
+    const id = prompts.list()[0]?.id as string;
+    controller.abort();
+    await expect(asked).rejects.toThrow();
+    expect(settled).toEqual([{ id, answer: "deny", by: undefined }]);
+    expect(prompts.list()).toEqual([]);
+    expect(await prompts.answer(id, "once", "iPhone")).toBe(false);
   });
 
   test("one that no longer waits is not answered", async () => {

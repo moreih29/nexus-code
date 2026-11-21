@@ -22,7 +22,7 @@ export interface ChangeRequest {
 
 export interface ConsentDeps {
   policy(): CrossWorkspacePolicy;
-  ask(request: ChangeRequest, timeoutMs: number): Promise<CliConsentAnswer>;
+  ask(request: ChangeRequest, timeoutMs: number, signal?: AbortSignal): Promise<CliConsentAnswer>;
 }
 
 function refusal(answer: CliConsentAnswer): CliError {
@@ -40,7 +40,8 @@ export class CrossWorkspaceConsent {
   constructor(private readonly deps: ConsentDeps) {}
 
   /** Resolves when the change may go ahead; a CliError saying why when not. */
-  async check(request: ChangeRequest): Promise<void> {
+  async check(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const policy = this.deps.policy();
     if (policy === "allow") return;
     if (policy === "deny") {
@@ -48,7 +49,7 @@ export class CrossWorkspaceConsent {
         "changing other workspaces is turned off in NexusCode's settings (Agents)",
       );
     }
-    await this.ask(request);
+    await this.ask(request, signal);
   }
 
   /**
@@ -58,10 +59,12 @@ export class CrossWorkspaceConsent {
    * request, a looser mode or another profile, in the caller's own workspace
    * too. Resolves when allowed; a CliError saying why when not.
    */
-  async ask(request: ChangeRequest): Promise<void> {
+  async ask(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const pair = `${request.fromWorkspaceId}>${request.toWorkspaceId}`;
     if (!request.change.eachTime && this.allowed.has(pair)) return;
-    const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
+    const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS, signal);
+    signal?.throwIfAborted();
     if (answer === "session" && !request.change.eachTime) this.allowed.add(pair);
     if (answer === "once" || (answer === "session" && !request.change.eachTime)) return;
     throw refusal(answer);

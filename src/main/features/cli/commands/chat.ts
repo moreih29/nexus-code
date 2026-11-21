@@ -358,18 +358,22 @@ async function mayLoosen(
   name: string,
   to: string,
   from?: string,
+  signal?: AbortSignal,
 ): Promise<CallerMode | undefined> {
   const dangerous = to === CHAT_MODES[agent].dangerous;
   if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
   const caller = await verifiedChatMode(ctx);
   if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
   if (dangerous) throw dangerousModeError(to);
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
-  });
+  await ctx.services.askUser(
+    {
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: workspace.id,
+      change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
+    },
+    signal,
+  );
 }
 
 export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
@@ -456,11 +460,17 @@ const chatNew: CliCommand = {
     const instructions =
       instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
     const body = [prompt, instructions].filter(Boolean).join("\n\n");
-    await mayChange(ctx, workspace, {
-      kind: "chatNew",
-      detail: AGENT_NAMES[agent],
-      ...(body ? { body } : {}),
-    });
+    await mayChange(
+      ctx,
+      workspace,
+      {
+        kind: "chatNew",
+        detail: AGENT_NAMES[agent],
+        ...(body ? { body } : {}),
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
     const delegated =
       settings.mode === undefined
         ? undefined
@@ -471,10 +481,12 @@ const chatNew: CliCommand = {
             `"${AGENT_NAMES[agent]}"`,
             settings.mode,
             CHAT_MODES[agent].fallback,
+            ctx.signal,
           );
     const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
+    ctx.signal?.throwIfAborted();
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
