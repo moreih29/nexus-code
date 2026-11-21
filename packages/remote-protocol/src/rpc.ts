@@ -346,6 +346,7 @@ export const RemoteConsentSchema = z.object({
             agent: z.enum(["claude", "codex"]),
             name: z.string(),
             id: z.string(),
+            showId: z.boolean().optional(),
           }),
           z.object({ kind: z.literal("workspace"), name: z.string() }),
         ]),

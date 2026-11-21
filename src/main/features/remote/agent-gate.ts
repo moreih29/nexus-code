@@ -18,6 +18,7 @@ import {
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
+import { consentProfileLayer } from "../../../shared/cli/consent-copy";
 import type { CliChange } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/chat-modes";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
@@ -437,7 +438,7 @@ async function changeOf(
         const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
         const profile = profiles.find(({ id }) => id === profileId);
         if (!profile) throw new RpcFailure(RpcErrorCode.NotFound, "no such profile");
-        target = { kind: "profile", agent: profile.agent, name: profile.name, id: profile.id };
+        target = consentProfileLayer(profile, profiles);
       } else {
         target =
           layer === "workspace"

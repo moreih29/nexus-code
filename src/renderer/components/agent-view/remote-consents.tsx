@@ -55,12 +55,8 @@ export function consentSentenceOf(
   const action = consentActionOf(t, consent.change);
   const namesTarget = consentNamesTarget(consent.change.kind);
   if (from.manager && !from.device) {
-    return t(
-      namesTarget
-        ? "agentCli.consent.manager_named_description"
-        : "agentCli.consent.manager_description",
-      { to, action },
-    );
+    const destination = namesTarget ? "" : t("agentCli.consent.destination", { to });
+    return t("agentCli.consent.manager_description", { destination, action });
   }
   return describeConsent(
     t,

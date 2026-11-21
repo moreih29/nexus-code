@@ -9,6 +9,7 @@ import {
   type InstructionScope,
   workspaceInstructionTarget,
 } from "../../../../shared/chat/instructions";
+import { consentProfileLayer } from "../../../../shared/cli/consent-copy";
 import {
   describeShape,
   formatSettingValue,
@@ -160,7 +161,7 @@ async function instructionProfile(
     ? await askDevice(ctx, device, "profiles.list", filter, ctx.signal)
     : await ctx.services.ui("chat.profiles", filter);
   const exact = profiles.find((profile) => profile.id === selector);
-  if (exact) return exact;
+  if (exact) return consentProfileLayer(exact, profiles);
   const wanted = selector.trim().toLowerCase();
   const [match, ...others] = profiles.filter(
     ({ id, name }) => id.toLowerCase() === wanted || name.toLowerCase() === wanted,
@@ -173,7 +174,7 @@ async function instructionProfile(
     throw new CliError(
       `no ${agent ? `${agent} ` : ""}profile "${selector}". See nexus chat profiles.`,
     );
-  return match;
+  return consentProfileLayer(match, profiles);
 }
 
 const settingsInstructions: CliCommand = {
@@ -329,12 +330,7 @@ const settingsInstructionsSet: CliCommand = {
       instructionEdit: {
         layer:
           edit.layer === "profile"
-            ? {
-                kind: "profile",
-                agent: edit.profile.agent,
-                name: edit.profile.name,
-                id: edit.profile.id,
-              }
+            ? edit.profile
             : edit.layer === "workspace"
               ? { kind: "workspace", name: workspace.name }
               : edit.layer === "all"

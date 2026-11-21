@@ -207,10 +207,10 @@ test("a profile id selects its agent and ambiguous names require the id", async 
 test("local profile writes take stdin and clear with fresh approval each time", async () => {
   const app = fakeApp();
   app.settings.crossWorkspace = "allow";
-  app.uiAnswers.set("chat.profiles", { profiles: [WORK_PROFILE] });
+  app.uiAnswers.set("chat.profiles", { profiles: [WORK_PROFILE, OTHER_PROFILE] });
   app.uiAnswers.set("settings.instructions.set", {});
   app.answers.push("once", "once", "deny");
-  const command = [...SET_PROFILE, "--profile", "work"];
+  const command = [...SET_PROFILE, "--profile", WORK_PROFILE.id];
   const set = await runCli(
     CLI_COMMANDS,
     contextFor(app, [...command, "--file", "-", "--json"], undefined, { stdin: "Use bun." }),
@@ -233,6 +233,25 @@ test("local profile writes take stdin and clear with fresh approval each time", 
   expect(app.uiCalls.filter(({ op }) => op === "settings.instructions.set")).toEqual(
     ["Use bun.", ""].map((text) => ({ op: "settings.instructions.set", args: { scope, text } })),
   );
+});
+
+test("local profile approvals include the id when the same agent has another profile with that name", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("chat.profiles", {
+    profiles: [WORK_PROFILE, { ...WORK_PROFILE, id: "other-codex", name: "work" }],
+  });
+  app.uiAnswers.set("settings.instructions.set", {});
+  app.answers.push("once");
+  expect(
+    (await nexus(app, [...SET_PROFILE, "--profile", WORK_PROFILE.id, "--clear"])).exitCode,
+  ).toBe(0);
+  expect(app.asked[0]?.change.instructionEdit?.layer).toEqual({
+    kind: "profile",
+    agent: "codex",
+    name: "Work",
+    id: WORK_PROFILE.id,
+    showId: true,
+  });
 });
 
 test("peer profile reads and writes resolve the receiving device's profiles", async () => {

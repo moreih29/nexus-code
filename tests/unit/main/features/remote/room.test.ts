@@ -1363,6 +1363,9 @@ test("profile instruction writes pin the profile id and need a fresh approval", 
       });
     await expect(set("missing", "Use bun.")).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
     await expect(set(profile.id, "Use bun.")).resolves.toEqual({});
+    app.uiAnswers.set("chat.profiles", {
+      profiles: [profile, { ...profile, id: "another", name: "work" }],
+    });
     app.uiAnswers.set("consent.ask", { answer: "session" });
     await expect(set(profile.id, "")).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     expect(app.uiCalls.filter(({ op }) => op === "consent.ask").map(({ args }) => args)).toEqual(
@@ -1372,7 +1375,13 @@ test("profile instruction writes pin the profile id and need a fresh approval", 
             kind: "instructionsEdit",
             body,
             instructionEdit: {
-              layer: { kind: "profile", agent: "codex", name: "Work", id: "work" },
+              layer: {
+                kind: "profile",
+                agent: "codex",
+                name: "Work",
+                id: "work",
+                ...(!body ? { showId: true } : {}),
+              },
               clear: !body,
             },
             eachTime: true,

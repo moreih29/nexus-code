@@ -4,6 +4,24 @@ import type { ChatAgent } from "../sessions/task-agent";
 
 export const CONSENT_AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
 
+type ProfileLayer = Extract<
+  NonNullable<RemoteConsent["change"]["instructionEdit"]>["layer"],
+  { kind: "profile" }
+>;
+type ProfileIdentity = Pick<ProfileLayer, "id" | "agent" | "name">;
+
+export function consentProfileLayer(
+  { id, agent, name }: ProfileIdentity,
+  profiles: readonly ProfileIdentity[],
+): ProfileLayer {
+  const label = name.trim().toLowerCase();
+  const showId = profiles.some(
+    (other) =>
+      other.id !== id && other.agent === agent && other.name.trim().toLowerCase() === label,
+  );
+  return { kind: "profile", id, agent, name, ...(showId ? { showId } : {}) };
+}
+
 export function consentDetailsOf(t: TFunction<"settings">, change: RemoteConsent["change"]) {
   if (change.profileAdd) {
     const { agent, folder, connection, endpoint } = change.profileAdd;
@@ -29,13 +47,14 @@ export function consentDetailsOf(t: TFunction<"settings">, change: RemoteConsent
     case "agent":
       detail = CONSENT_AGENT_NAMES[layer.agent];
       break;
-    case "profile":
-      detail = t("agentCli.consent.instructions_profile", {
+    case "profile": {
+      const name = t("agentCli.consent.instructions_profile", {
         agent: CONSENT_AGENT_NAMES[layer.agent],
         name: layer.name,
-        id: layer.id,
       });
+      detail = layer.showId ? `${name} (${layer.id})` : name;
       break;
+    }
     case "workspace":
       detail = layer.name;
       break;

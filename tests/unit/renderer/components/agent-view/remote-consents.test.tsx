@@ -88,7 +88,7 @@ describe("what another computer's consent prompt says", () => {
   });
 
   test("instruction prompts use the viewer's language and name the layer", () => {
-    const change: RemoteConsent["change"] = {
+    const change = {
       kind: "instructionsEdit",
       instructionEdit: {
         layer: { kind: "profile", agent: "claude", name: "default", id: "claude-default" },
@@ -96,18 +96,28 @@ describe("what another computer's consent prompt says", () => {
       },
       detail: "Old display text",
       body: "이전 표시 문구",
-    };
+    } as const satisfies RemoteConsent["change"];
     const prompt = consent({ change });
     expect(consentActionOf(i18next.getFixedT("ko", "settings"), change)).toBe(
-      'Claude 프로필 "default" (claude-default) 지시 바꾸기를',
+      'Claude 프로필 "default" 지시 바꾸기를',
     );
     expect(consentSentenceOf(t, prompt, "api")).toBe(
-      'The terminal "zsh" in app asks to change instructions for Claude profile "default" (claude-default)',
+      'The terminal "zsh" in app asks to change instructions for Claude profile "default".',
     );
     const html = card(prompt);
     expect(html).toContain("Allow an agent to change instructions?");
-    expect(html).toContain("Clear this layer");
-    expect(html).not.toContain(change.body as string);
+    expect(html).toContain("Clear instructions");
+    expect(html).not.toContain(change.body);
+    const duplicate = {
+      ...change,
+      instructionEdit: {
+        ...change.instructionEdit,
+        layer: { ...change.instructionEdit.layer, showId: true },
+      },
+    };
+    expect(consentActionOf(t, duplicate)).toBe(
+      'change instructions for Claude profile "default" (claude-default)',
+    );
   });
 
   test("one asked about each time is not answered until restart", () => {

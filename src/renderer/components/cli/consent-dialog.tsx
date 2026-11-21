@@ -99,39 +99,31 @@ export function describeConsent(
   action: string,
   namesTarget = false,
 ): string {
-  const to = prompt.toWorkspace;
+  const destination = namesTarget
+    ? ""
+    : t("agentCli.consent.destination", { to: prompt.toWorkspace });
   if (prompt.fromDevice) {
-    return t(
-      namesTarget
-        ? "agentCli.consent.remote_named_description"
-        : "agentCli.consent.remote_description",
-      {
-        device: prompt.fromDevice,
-        tab: prompt.fromTab,
-        to,
-        action,
-      },
-    );
+    return t("agentCli.consent.remote_description", {
+      device: prompt.fromDevice,
+      tab: prompt.fromTab,
+      destination,
+      action,
+    });
   }
   const from = prompt.fromWorkspace;
   if (prompt.fromAgent) {
-    return t(
-      namesTarget
-        ? "agentCli.consent.named_agent_description"
-        : "agentCli.consent.agent_description",
-      {
-        agent: CONSENT_AGENT_NAMES[prompt.fromAgent],
-        tab: prompt.fromTab,
-        from,
-        to,
-        action,
-      },
-    );
+    return t("agentCli.consent.agent_description", {
+      agent: CONSENT_AGENT_NAMES[prompt.fromAgent],
+      tab: prompt.fromTab,
+      from,
+      destination,
+      action,
+    });
   }
-  return t(namesTarget ? "agentCli.consent.named_description" : "agentCli.consent.description", {
+  return t("agentCli.consent.description", {
     tab: prompt.fromTab,
     from,
-    to,
+    destination,
     action,
   });
 }
