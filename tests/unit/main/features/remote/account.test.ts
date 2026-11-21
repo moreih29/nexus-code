@@ -402,6 +402,43 @@ describe("the account", () => {
     expect(kept.value).not.toBeNull();
   });
 
+  test.each([
+    ["a 401", { status: 401, error: "unauthorized" }],
+    ["a 403 not_invited", { status: 403, error: "not_invited" }],
+  ] as const)("%s for a request sent before signing out and in again leaves the new sign-in", async (_, refusal) => {
+    const store = memoryStore({ server: SERVER, token: "old", user, device });
+    const server = fakeServer();
+    const answer = Promise.withResolvers<Response>();
+    const { openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal,
+      fetch: ((input: URL | string, init?: RequestInit) => {
+        // A long upload, sent with the token of the sign-in about to end.
+        if (new URL(String(input)).pathname === "/voice/transcriptions") return answer.promise;
+        return server.fetchFn(input, init);
+      }) as typeof fetch,
+    });
+    accounts.push(account);
+    await account.restore();
+    const upload = account
+      .upload("/voice/transcriptions", new Uint8Array([1]), { type: "audio/ogg" })
+      .catch((error: unknown) => error);
+    await account.signOut();
+    expect((await account.signIn()).status).toBe("signed-in");
+    expect(store.value?.token).toBe("tok");
+
+    // The old token's refusal comes back only now.
+    answer.resolve(new Response(JSON.stringify({ error: refusal.error }), refusal));
+    expect(await upload).toBeInstanceOf(SignedOutError);
+    expect(account.state()).toEqual({ status: "signed-in", server: SERVER, user, device });
+    expect(store.value?.token).toBe("tok");
+  });
+
   test("removing this device, signing out, or deleting the account forgets the sign-in", async () => {
     const saved = { server: SERVER, token: "tok", user, device };
     for (const leave of [

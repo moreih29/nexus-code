@@ -33,6 +33,7 @@ import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
+import { dropPeerHolds } from "./peer-holds";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
@@ -401,7 +402,13 @@ export async function registerRemoteChannel(options: {
         controls,
       }),
       onChange: setRoomState,
-      onDisconnect: (peer) => void fileWrites.drop(peer),
+      // Also a device back with a new connection the room never showed gone:
+      // the watches its old one opened end here, as setRoomState cannot see.
+      onDisconnect: (peer) =>
+        dropPeerHolds(
+          { chats: watches, sessions: sessionWatches, terminals: terminalWatches, fileWrites },
+          peer,
+        ),
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {

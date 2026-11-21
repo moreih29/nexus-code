@@ -841,6 +841,44 @@ describe("serving a workspace's notes", () => {
     expect(attached).toHaveLength(1);
   });
 
+  test("a note's transcript by its recording; a recording it has not, or several, is not found", async () => {
+    const recording = (id: string) => ({
+      id,
+      startedAt: 1000,
+      language: "en",
+      takes: [],
+      speakers: {},
+      lines: [{ speaker: "s1", startMs: 0, endMs: 900, text: `in ${id}` }],
+    });
+    const note = { id: "n1", title: "Standup", updatedAt: 1000 };
+    const s = {
+      ...services(),
+      notes: {
+        list: async () => [note],
+        read: async () => note,
+        transcript: async () => ({
+          version: 1,
+          recordings: [recording("rec1aaaa"), recording("rec1bbbb")],
+        }),
+      },
+    } as unknown as CliServices;
+    const transcript = (recording: string) =>
+      serveWith(() => s)({
+        from: "phone",
+        method: "notes.transcript",
+        params: { workspaceId: "w1", note: "n1", recording },
+      });
+    expect(await transcript("rec1bbbb")).toMatchObject({
+      id: "n1",
+      recordings: [{ id: "rec1bbbb", lines: [{ text: "in rec1bbbb" }] }],
+    });
+    await expect(transcript("rec9")).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+      message: 'no recording "rec9"',
+    });
+    await expect(transcript("rec1")).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+  });
+
   test("thirty photos a minute from one device; more wait for the minute to pass", async () => {
     const { remote, attached } = notes();
     let now = 0;
