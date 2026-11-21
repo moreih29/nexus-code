@@ -1,35 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  Phase 1: ad-hoc 서명 단계에서는 이 파일을 사용하지 않는다.
-  Apple Developer Program 등록 후 유효한 서명·공증으로 전환할 때 아래 키 주석을 해제하고
-  electron-builder.yml의 mac.entitlementsFile / mac.entitlementsInheritFile 을 이 경로로 지정한다.
-
-  전환 시 채워야 할 핵심 4개 키:
-
-  1. com.apple.security.cs.allow-jit
-     — JIT 컴파일을 허용한다. Electron 렌더러가 V8 JIT를 사용하므로 필수.
-
-  2. com.apple.security.cs.allow-unsigned-executable-memory
-     — 서명되지 않은 실행 가능 메모리 매핑 허용. Electron/Node 네이티브 모듈 로딩에 필요.
-
-  3. com.apple.security.cs.disable-library-validation
-     — 서드파티 라이브러리(node-pty, better-sqlite3 등 .node 바인딩) 로드 허용.
-
-  4. com.apple.security.cs.allow-dyld-environment-variables
-     — DYLD 환경 변수 허용. Electron 내부 동작에 필요.
--->
 <plist version="1.0">
   <dict>
-    <!--
+    <!-- V8 JIT in Electron's main process, including ELECTRON_RUN_AS_NODE. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <!-- Voice input and note recording use the microphone. -->
+    <key>com.apple.security.device.audio-input</key>
     <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
+    <!-- Terminal and agent child processes may capture video from a camera. -->
+    <key>com.apple.security.device.camera</key>
     <true/>
-    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <!-- Terminal and agent child processes may automate apps using Apple Events. -->
+    <key>com.apple.security.automation.apple-events</key>
     <true/>
-    -->
+    <!-- Terminal and agent child processes may request access to Location Services. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    <!-- Terminal and agent child processes may access Contacts. -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <!-- Terminal and agent child processes may access calendars through EventKit. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <!-- Terminal and agent child processes may access the Photos library. -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
   </dict>
 </plist>
