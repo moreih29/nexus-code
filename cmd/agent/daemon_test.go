@@ -238,75 +238,106 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 	}
 }
 
-// TestDaemonTakeoverResumesPausedPTY is the regression test for the
-// reconnected-but-frozen terminal: dialer A reads PTY output but never acks it
-// (a renderer that vanished while the socket still absorbed writes), so the
-// session pauses at the high watermark with ~100 KB of debt. After dialer B
-// takes over, that stale debt must be dropped and the rest of the output must
-// reach B; before takeover reset renderer credit, the session stayed paused
-// forever.
+// TestDaemonTakeoverResumesPausedPTY verifies that a replacement dialer can
+// receive live output without inheriting the old dialer's credit debt, and
+// recover all retained output through replay.
 func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 	t.Parallel()
-	bin := agentBinary(t)
 	root := t.TempDir()
-	fakeHome := shortHome(t)
-
-	cmd, runDir := startDaemon(t, bin, root, fakeHome)
+	cmd, runDir := startDaemon(t, agentBinary(t), root, shortHome(t))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	sockPath := waitForSocket(t, runDir, root)
 
-	connA, _ := readReady(t, sockPath)
-	defer connA.Close()
-	spawn, _ := json.Marshal(map[string]any{
-		"id": "spawn", "method": "pty.spawn",
-		"params": map[string]any{
-			"workspaceId": "ws", "tabId": "tab", "cwd": root, "cols": 80, "rows": 24,
-			"shell": "/bin/sh",
-			// 150 KB pauses the session at the 100 KB watermark while A never
-			// acks; what is left after the pause still fits in B's window.
-			"args": []string{"-c", "stty -echo; head -c 150000 /dev/zero | tr '\\0' a; echo; echo END-MARKER; sleep 30"},
-		},
-	})
-	if _, err := connA.Write(append(spawn, '\n')); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	// Drain A without acking until the output stops (the session paused).
-	got := 0
-	for {
-		_ = connA.SetReadDeadline(time.Now().Add(time.Second))
-		n, err := connA.Read(make([]byte, 64*1024))
-		got += n
-		if err != nil {
-			break
+	a, nextA := connectPTYDialer(t, sockPath)
+	spawnOn(t, a, "tab", root, `stty -echo; head -c 150000 /dev/zero | tr '\0' a; read -r go; printf '\nEND-MARKER\n'; read -r stop`)
+	// Reading a full credit window without ACKs puts A's PTY into backpressure.
+	for received := 0; received < pty.HighWatermarkBytes; {
+		if f := nextA(); f.Event == pty.EventData {
+			received += len(f.ptyChunk(t))
 		}
-	}
-	if got < 100_000 {
-		t.Fatalf("dialer A received only %d bytes before the pause", got)
 	}
 
-	connB, _ := readReady(t, sockPath)
-	defer connB.Close()
-	_ = connB.SetReadDeadline(time.Now().Add(5 * time.Second))
-	sc := bufio.NewScanner(connB)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	var tail strings.Builder
-	for sc.Scan() {
-		var frame struct {
-			Event   string `json:"event"`
-			Payload struct {
-				Chunk string `json:"chunk"`
-			} `json:"payload"`
-		}
-		if json.Unmarshal(sc.Bytes(), &frame) != nil || frame.Event != "pty.data" {
-			continue
-		}
-		chunk, _ := base64.StdEncoding.DecodeString(frame.Payload.Chunk)
-		tail.Write(chunk)
-		if strings.Contains(tail.String(), "END-MARKER") {
-			return
+	b, nextB := connectPTYDialer(t, sockPath)
+	// The shell prints the marker only after B sends input. Earlier bytes may
+	// have gone into the replay buffer while the daemon switched dialers.
+	sendDaemonRequest(t, b, "write", "pty.write", `{"workspaceId":"ws","tabId":"tab","data":"go\n"}`)
+	const marker = "\r\nEND-MARKER\r\n"
+	var live strings.Builder
+	for !strings.HasSuffix(live.String(), marker) {
+		if f := nextB(); f.Event == pty.EventData && !f.Payload.Replay {
+			live.Write(f.ptyChunk(t))
 		}
 	}
-	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
+
+	// Now ACK B's output and replay the whole history as the app does.
+	ackDaemonPTY(t, b, "live-ack", live.Len())
+	sendDaemonRequest(t, b, "replay", "pty.replay", `{"workspaceId":"ws","tabId":"tab"}`)
+	var replay strings.Builder
+	for f := nextB(); f.ID != "replay"; f = nextB() {
+		if f.Event == pty.EventData && f.Payload.Replay {
+			chunk := f.ptyChunk(t)
+			replay.Write(chunk)
+			ackDaemonPTY(t, b, "replay-ack", len(chunk))
+		}
+	}
+	if want := "\x1bc" + strings.Repeat("a", 150_000) + marker; replay.String() != want {
+		t.Fatalf("replacement replay did not match the full output (%d bytes, want %d)", replay.Len(), len(want))
+	}
+}
+
+type daemonPTYFrame struct {
+	proto.Response
+	Type    string          `json:"type"`
+	Event   string          `json:"event"`
+	Payload pty.DataPayload `json:"payload"`
+}
+
+func (f daemonPTYFrame) ptyChunk(t *testing.T) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(f.Payload.Chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// connectPTYDialer keeps the same decoder from Ready through all PTY frames.
+func connectPTYDialer(t *testing.T, sockPath string) (net.Conn, func() daemonPTYFrame) {
+	t.Helper()
+	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	decoder := json.NewDecoder(conn)
+	next := func() daemonPTYFrame {
+		t.Helper()
+		var f daemonPTYFrame
+		if err := decoder.Decode(&f); err != nil {
+			t.Fatalf("read dialer frame: %v", err)
+		}
+		if f.Error != nil {
+			t.Fatalf("request %s failed: %+v", f.ID, f.Error)
+		}
+		return f
+	}
+	if f := next(); f.Type != "ready" {
+		t.Fatalf("first frame type = %q, want ready", f.Type)
+	}
+	return conn, next
+}
+
+func sendDaemonRequest(t *testing.T, conn net.Conn, id, method, params string) {
+	t.Helper()
+	if err := json.NewEncoder(conn).Encode(proto.Request{ID: id, Method: method, Params: json.RawMessage(params)}); err != nil {
+		t.Fatalf("send %s: %v", method, err)
+	}
+}
+
+func ackDaemonPTY(t *testing.T, conn net.Conn, id string, count int) {
+	t.Helper()
+	sendDaemonRequest(t, conn, id, "pty.ack", fmt.Sprintf(`{"workspaceId":"ws","tabId":"tab","bytesConsumed":%d}`, count))
 }
 
 // TestDaemonTakeoverCancelsCreditBlockedReplay withholds A's replay ACKs
@@ -318,52 +349,7 @@ func TestDaemonTakeoverCancelsCreditBlockedReplay(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	sockPath := waitForSocket(t, runDir, root)
 
-	type frame struct {
-		proto.Response
-		Type    string          `json:"type"`
-		Event   string          `json:"event"`
-		Payload pty.DataPayload `json:"payload"`
-	}
-	connect := func() (net.Conn, func() frame) {
-		conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = conn.Close() })
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-		decoder := json.NewDecoder(conn)
-		next := func() frame {
-			var f frame
-			if err := decoder.Decode(&f); err != nil {
-				t.Fatalf("read dialer frame: %v", err)
-			}
-			if f.Error != nil {
-				t.Fatalf("request %s failed: %+v", f.ID, f.Error)
-			}
-			return f
-		}
-		if f := next(); f.Type != "ready" {
-			t.Fatalf("first frame type = %q, want ready", f.Type)
-		}
-		return conn, next
-	}
-	send := func(conn net.Conn, id, method, params string) {
-		if err := json.NewEncoder(conn).Encode(proto.Request{ID: id, Method: method, Params: json.RawMessage(params)}); err != nil {
-			t.Fatalf("send %s: %v", method, err)
-		}
-	}
-	ack := func(conn net.Conn, id string, count int) {
-		send(conn, id, "pty.ack", fmt.Sprintf(`{"workspaceId":"ws","tabId":"tab","bytesConsumed":%d}`, count))
-	}
-	chunk := func(f frame) []byte {
-		data, err := base64.StdEncoding.DecodeString(f.Payload.Chunk)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return data
-	}
-
-	a, nextA := connect()
+	a, nextA := connectPTYDialer(t, sockPath)
 	spawnOn(t, a, "tab", root, `stty -echo; head -c 120000 /dev/zero | tr '\0' a; printf '\nHISTORY-END\n'; read -r stop`)
 	var history strings.Builder
 	credited := 0
@@ -375,36 +361,36 @@ func TestDaemonTakeoverCancelsCreditBlockedReplay(t *testing.T) {
 		if f.Event != pty.EventData {
 			continue
 		}
-		history.Write(chunk(f))
+		history.Write(f.ptyChunk(t))
 		if credited == 0 && history.Len() >= pty.HighWatermarkBytes {
 			credited = history.Len()
-			ack(a, "first-ack", credited)
+			ackDaemonPTY(t, a, "first-ack", credited)
 		}
 		if strings.HasSuffix(history.String(), "HISTORY-END\r\n") {
-			ack(a, "last-ack", history.Len()-credited)
+			ackDaemonPTY(t, a, "last-ack", history.Len()-credited)
 		}
 	}
 
 	const tab = `{"workspaceId":"ws","tabId":"tab"}`
-	send(a, "old-replay", "pty.replay", tab)
+	sendDaemonRequest(t, a, "old-replay", "pty.replay", tab)
 	for received := 0; received < pty.HighWatermarkBytes; {
 		f := nextA()
 		if f.ID == "old-replay" {
 			t.Fatal("old replay finished without credit")
 		}
 		if f.Event == pty.EventData && f.Payload.Replay {
-			received += len(chunk(f))
+			received += len(f.ptyChunk(t))
 		}
 	}
 
-	b, nextB := connect()
-	send(b, "new-replay", "pty.replay", tab)
+	b, nextB := connectPTYDialer(t, sockPath)
+	sendDaemonRequest(t, b, "new-replay", "pty.replay", tab)
 	var replay strings.Builder
 	for f := nextB(); f.ID != "new-replay"; f = nextB() {
 		if f.Event == pty.EventData && f.Payload.Replay {
-			data := chunk(f)
+			data := f.ptyChunk(t)
 			replay.Write(data)
-			ack(b, "ack", len(data))
+			ackDaemonPTY(t, b, "ack", len(data))
 		}
 	}
 	if want := "\x1bc" + history.String(); replay.String() != want {
