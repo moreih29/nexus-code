@@ -1039,6 +1039,16 @@
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "retry_reason": {
+        "rate_limit": "Rate limited",
+        "overloaded": "Server overloaded",
+        "server": "Server error",
+        "connection": "Connection lost",
+        "auth": "Authentication failed",
+        "other": "API error"
+      },
+      "retry_code": "{{reason}} ({{code}})",
+      "retry_in": "in {{seconds}}s",
       "tokens": "↓ {{count}} tokens",
       "agents_one": "{{count}} subagent running",
       "agents_other": "{{count}} subagents running"

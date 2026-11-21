@@ -8,6 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { claudeTurnResult } from "../../../../shared/claude/turn-result";
+import { retryReasonOf } from "../api-errors";
 import { type ClaudeGoal, goalFeedbackReason } from "../goal";
 import {
   type AccountInfo,
@@ -265,12 +266,16 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     }
     case "api_retry": {
       if (m.turn) {
+        const status = num(message.error_status);
         m.turn = {
           ...m.turn,
           retry: {
             attempt: num(message.attempt) ?? 1,
             maxRetries: num(message.max_retries),
             delayMs: num(message.retry_delay_ms),
+            ...(at === undefined ? {} : { at }),
+            ...(status === undefined ? {} : { status }),
+            reason: retryReasonOf(status, str(message.error)),
           },
         };
       }

@@ -2,6 +2,7 @@
 
 import type { ClaudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
+import type { RetryReason } from "./api-errors";
 import type { ClaudeGoal } from "./goal";
 
 export type LineDir = "out" | "in" | "sys";
@@ -273,7 +274,21 @@ export interface TurnState {
   thinkingTokens: number;
   /** requesting: waiting on the API; compacting: /compact runs. */
   status?: string;
-  retry?: { attempt: number; maxRetries?: number; delayMs?: number };
+  retry?: TurnRetry;
+}
+
+/** The program is trying the API again after an error (see api-errors). */
+export interface TurnRetry {
+  /** The try it is on, from 1. */
+  attempt: number;
+  maxRetries?: number;
+  /** How long it waits before the try. */
+  delayMs?: number;
+  /** When it said so, in Unix milliseconds: the wait ends `delayMs` after. */
+  at?: number;
+  /** The HTTP status of the error it tries again after; none when no answer came. */
+  status?: number;
+  reason?: RetryReason;
 }
 
 export function noteTurnActivity(model: ChatModel, at: number | undefined): void {

@@ -4,7 +4,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNow } from "../../hooks/use-now";
-import type { ChatModel } from "../../services/chat/model";
+import type { ChatModel, TurnRetry } from "../../services/chat/model";
 import { agentsOf } from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
 import { elapsedLabel } from "../agent-list/agent-status";
@@ -22,7 +22,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
   const quiet = generatingElapsed(model, now);
   const activity =
     quiet === undefined
-      ? activityOf(model, t)
+      ? activityOf(model, t, now)
       : t("chat.status.generating", { elapsed: elapsedLabel(quiet) });
   const elapsed =
     quiet === undefined && turn.startedAt !== undefined ? now - turn.startedAt : undefined;
@@ -78,14 +78,35 @@ export function generatingElapsed(model: ChatModel, now: number): number | undef
   return elapsed;
 }
 
-function activityOf(model: ChatModel, t: Translate): string {
+/**
+ * A retry in a line: which try of how many, why ("요청 한도 초과 (429)"),
+ * and how long until it goes, while the program waits.
+ */
+export function retryText(retry: TurnRetry, t: Translate, now: number): string {
+  const parts = [
+    retry.maxRetries
+      ? t("chat.status.retrying_of", { attempt: retry.attempt, max: retry.maxRetries })
+      : t("chat.status.retrying", { attempt: retry.attempt }),
+  ];
+  if (retry.reason) {
+    const reason = t(`chat.status.retry_reason.${retry.reason}`);
+    parts.push(
+      retry.status === undefined
+        ? reason
+        : t("chat.status.retry_code", { reason, code: retry.status }),
+    );
+  }
+  if (retry.at !== undefined && retry.delayMs !== undefined) {
+    const left = retry.at + retry.delayMs - now;
+    if (left >= 1_000) parts.push(t("chat.status.retry_in", { seconds: Math.ceil(left / 1_000) }));
+  }
+  return parts.join(" · ");
+}
+
+function activityOf(model: ChatModel, t: Translate, now: number): string {
   const turn = model.turn;
   if (model.interrupting) return t("chat.status.interrupting");
-  if (turn?.retry) {
-    return turn.retry.maxRetries
-      ? t("chat.status.retrying_of", { attempt: turn.retry.attempt, max: turn.retry.maxRetries })
-      : t("chat.status.retrying", { attempt: turn.retry.attempt });
-  }
+  if (turn?.retry) return retryText(turn.retry, t, now);
   if (turn?.status === "compacting") return t("chat.status.compacting");
   if (model.permissions.length > 0) return t("chat.status.waiting_permission");
   const blocks = model.streaming ? Object.values(model.streaming.blocks) : [];
