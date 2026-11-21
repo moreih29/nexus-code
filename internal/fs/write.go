@@ -54,6 +54,11 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 		return nil, mapWriteError(statErr, abs)
 	}
 
+	if info != nil && info.Mode()&os.ModeSymlink != 0 &&
+		(p.Expected == nil || p.Expected.Exists) {
+		return writeLinkedFile(abs, p.Content, p.Expected)
+	}
+
 	if p.Expected != nil {
 		if actual, conflict := expectedConflict(p.Expected, info); conflict {
 			return WriteFileResult{Kind: "conflict", Actual: actual}, nil
@@ -63,21 +68,6 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 		// — the atomic rename would silently replace it with a regular
 		// file, which is never the user's intent.
 		return nil, FSError{Code: CodeIsDirectory, Path: abs}
-	}
-
-	if info != nil && info.Mode()&os.ModeSymlink != 0 {
-		// Resolve through the link and write at the target so the link
-		// itself survives the save. The atomic-rename path would swap
-		// the link for a regular file.
-		target, err := filepath.EvalSymlinks(abs)
-		if err != nil {
-			return nil, mapWriteError(err, abs)
-		}
-		stat, err := plainWrite(target, p.Content)
-		if err != nil {
-			return nil, mapWriteError(err, abs)
-		}
-		return successResult(stat), nil
 	}
 
 	if info != nil && info.Mode().IsRegular() && needsInPlaceWrite(abs, info) {
@@ -93,6 +83,60 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 		return nil, mapWriteError(err, abs)
 	}
 	return successResult(stat), nil
+}
+
+// writeLinkedFile compares the metadata on the open target before truncating
+// it. Keeping the handle through the write also preserves the link and inode.
+func writeLinkedFile(abs, content string, expected *ExpectedFileState) (any, error) {
+	target, err := os.Stat(abs)
+	if err != nil {
+		if expected != nil && errors.Is(err, iofs.ErrNotExist) {
+			return WriteFileResult{Kind: "conflict", Actual: &ExpectedFileState{}}, nil
+		}
+		return nil, mapWriteError(err, abs)
+	}
+	if expected != nil {
+		if actual, conflict := expectedConflict(expected, target); conflict {
+			return WriteFileResult{Kind: "conflict", Actual: actual}, nil
+		}
+	}
+	if !target.Mode().IsRegular() {
+		if target.IsDir() {
+			return nil, FSError{Code: CodeIsDirectory, Path: abs}
+		}
+		return nil, proto.ProtocolError("fs.writeFile target must be a regular file")
+	}
+	file, err := os.OpenFile(abs, os.O_WRONLY, 0)
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if !os.SameFile(info, target) {
+		return WriteFileResult{Kind: "conflict", Actual: statToExpected(info)}, nil
+	}
+	if expected != nil {
+		if actual, conflict := expectedConflict(expected, info); conflict {
+			return WriteFileResult{Kind: "conflict", Actual: actual}, nil
+		}
+	}
+	if err := file.Truncate(0); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if _, err := file.WriteString(content); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if err := file.Sync(); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	info, err = file.Stat()
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return successResult(info), nil
 }
 
 // CreateFile implements fs.createFile with O_EXCL semantics.
@@ -418,7 +462,6 @@ func atomicReplace(abs, content string, existing os.FileInfo) (os.FileInfo, erro
 }
 
 // plainWrite truncates and writes through to `abs` directly. Used for the
-// symlink fallback where atomic rename would swap the link itself, and for
 // files whose inode must survive (see needsInPlaceWrite).
 func plainWrite(abs, content string) (os.FileInfo, error) {
 	if err := writeAndSync(abs, content, 0o644); err != nil {

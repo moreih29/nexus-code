@@ -47,8 +47,8 @@ func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error)
 	return out, nil
 }
 
-// Stat returns Lstat metadata for relPath. Symlinks are reported as symlinks
-// and are not followed.
+// Stat returns Lstat metadata by default. An editor can ask for the target
+// metadata used by ReadFile and WriteFile.
 func (s *Service) Stat(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -57,7 +57,17 @@ func (s *Service) Stat(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(abs)
+	var options struct {
+		FollowSymlink bool `json:"followSymlink"`
+	}
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, proto.ProtocolError("invalid fs.stat options")
+	}
+	stat := os.Lstat
+	if options.FollowSymlink {
+		stat = os.Stat
+	}
+	info, err := stat(abs)
 	if err != nil {
 		return nil, mapPathError(err, abs)
 	}
@@ -200,30 +210,17 @@ func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error
 }
 
 func readBinaryAt(ctx context.Context, abs string) (any, error) {
-	info, err := os.Lstat(abs)
-	if err != nil {
-		if errors.Is(err, iofs.ErrNotExist) {
-			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
-		}
-		return nil, mapPathError(err, abs)
-	}
-	if info.IsDir() {
-		return nil, FSError{Code: CodeIsDirectory, Path: abs}
-	}
-	if info.Size() > MaxReadableFileSize {
-		return nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, info.Size())}
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	buf, regular, err := readTarget(abs)
+	buf, info, err := readTarget(abs)
 	if err != nil {
 		if errors.Is(err, iofs.ErrNotExist) {
 			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
 		}
 		return nil, mapPathError(err, abs)
 	}
-	if !regular {
+	if !info.Mode().IsRegular() {
 		return ReadBinaryResult{Kind: "ok", Base64: "", Size: info.Size(), MTime: formatMTime(info.ModTime())}, nil
 	}
 	return ReadBinaryResult{
@@ -235,66 +232,59 @@ func readBinaryAt(ctx context.Context, abs string) (any, error) {
 }
 
 func readFileAt(ctx context.Context, abs string) (any, error) {
-	info, err := os.Lstat(abs)
-	if err != nil {
-		if errors.Is(err, iofs.ErrNotExist) {
-			return ReadFileResult{Kind: "missing", Reason: "not-found"}, nil
-		}
-		return nil, mapPathError(err, abs)
-	}
-	if info.IsDir() {
-		return nil, FSError{Code: CodeIsDirectory, Path: abs}
-	}
-	if info.Size() > MaxReadableFileSize {
-		return nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, info.Size())}
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	buf, regular, err := readTarget(abs)
+	buf, info, err := readTarget(abs)
 	if err != nil {
 		if errors.Is(err, iofs.ErrNotExist) {
 			return ReadFileResult{Kind: "missing", Reason: "not-found"}, nil
 		}
 		return nil, mapPathError(err, abs)
 	}
-	if !regular {
+	if !info.Mode().IsRegular() {
 		return ReadFileResult{Kind: "ok", Content: "", Encoding: "utf8", Size: info.Size(), IsBinary: true, MTime: formatMTime(info.ModTime())}, nil
 	}
 	return buildFileContent(buf, info), nil
 }
 
-// readTarget reads abs up to MaxReadableFileSize, following a symlink.
-// Callers check and report the Lstat metadata, which describes a link itself,
-// so the cap is enforced here on what is actually read: a link to /dev/zero
-// or to a file over the cap would otherwise be read without bound.
-// regular=false means the target is a device, FIFO or socket; it is not
-// opened (opening a FIFO blocks until a writer appears).
-func readTarget(abs string) (buf []byte, regular bool, err error) {
+// readTarget returns the bytes and metadata of the same file, following
+// symlinks. A device, FIFO or socket is reported without opening it.
+func readTarget(abs string) ([]byte, os.FileInfo, error) {
 	target, err := os.Stat(abs)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	if target.IsDir() {
-		return nil, false, FSError{Code: CodeIsDirectory, Path: abs}
+		return nil, nil, FSError{Code: CodeIsDirectory, Path: abs}
 	}
 	if !target.Mode().IsRegular() {
-		return nil, false, nil
+		return nil, target, nil
 	}
 	if target.Size() > MaxReadableFileSize {
-		return nil, false, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, target.Size())}
+		return nil, nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, target.Size())}
 	}
 	file, err := os.Open(abs)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	defer file.Close()
-	buf, err = io.ReadAll(io.LimitReader(file, MaxReadableFileSize+1))
+	info, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
+	}
+	if info.IsDir() {
+		return nil, nil, FSError{Code: CodeIsDirectory, Path: abs}
+	}
+	if !info.Mode().IsRegular() {
+		return nil, info, nil
+	}
+	buf, err := io.ReadAll(io.LimitReader(file, MaxReadableFileSize+1))
+	if err != nil {
+		return nil, nil, err
 	}
 	if len(buf) > MaxReadableFileSize {
-		return nil, false, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (over %d bytes)", abs, MaxReadableFileSize)}
+		return nil, nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (over %d bytes)", abs, MaxReadableFileSize)}
 	}
-	return buf, true, nil
+	return buf, info, nil
 }
