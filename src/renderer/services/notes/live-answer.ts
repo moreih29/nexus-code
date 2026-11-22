@@ -1,7 +1,18 @@
-import { liveAnswerText, type NoteLastAnswer } from "../../../shared/notes/links";
-import { type ChatModel, num, rec } from "../chat/model";
+import { liveAnswerText, liveAnswerTime, type NoteLastAnswer } from "../../../shared/notes/links";
+import { slashWindowsPath } from "../chat/links";
+import { type ChatModel, num, rec, str } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
 import type { ChatTabState } from "../chat/store";
+
+function liveCardFileCount(tools: ChatModel["tools"]): number {
+  const paths = new Set(changedFilesOf(tools).map(({ path }) => path));
+  for (const tool of Object.values(tools)) {
+    if (tool.name !== "Delete" || tool.status !== "done") continue;
+    const file = str(rec(tool.input)?.file_path);
+    if (file) paths.add(slashWindowsPath(file));
+  }
+  return paths.size;
+}
 
 function modelAnswer(
   model: ChatModel,
@@ -20,8 +31,9 @@ function modelAnswer(
       item.blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" "),
     );
     if (!text) continue;
-    const files = before === undefined ? changedFilesOf(model.tools).length : 0;
-    return { text, at: endAt ?? item.at ?? Date.now(), ...(files ? { files } : {}) };
+    const files = before === undefined ? liveCardFileCount(model.tools) : 0;
+    const now = Date.now();
+    return { text, at: liveAnswerTime(endAt ?? item.at ?? now, now), ...(files ? { files } : {}) };
   }
 }
 
@@ -60,7 +72,7 @@ export function codexStoredAnswer(turns: readonly unknown[]): NoteLastAnswer | u
         num(item.completedAtMs) ??
         num(item.startedAtMs) ??
         (turnAt === undefined ? Date.now() : turnAt * 1000);
-      return { text, at };
+      return { text, at: liveAnswerTime(at) };
     }
   }
 }

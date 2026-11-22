@@ -3,11 +3,13 @@ import * as ipc from "../../../../../src/renderer/ipc/client";
 import { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
 import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { changedFilesOf } from "../../../../../src/renderer/services/chat/panel";
 import { emptyTabState, useChatStore } from "../../../../../src/renderer/services/chat/store";
 import {
   liveAnswerOf,
   loadedAnswerOf,
 } from "../../../../../src/renderer/services/notes/live-answer";
+import { LIVE_ANSWER_CLOCK_TOLERANCE_MS } from "../../../../../src/shared/notes/links";
 
 test("a snapshot is capped at 500 Unicode characters with no format controls", () => {
   const model: ChatModel = {
@@ -39,10 +41,30 @@ test("a snapshot is capped at 500 Unicode characters with no format controls", (
         parentToolUseId: null,
         input: { file_path: "two.ts" },
       },
+      deleteEdited: {
+        id: "deleteEdited",
+        name: "Delete",
+        status: "done",
+        parentToolUseId: null,
+        input: { file_path: "one.ts" },
+      },
     },
   };
   expect(liveAnswerOf(model)).toEqual({ text: `${"a".repeat(499)}😀`, at: 100, files: 2 });
+  expect(changedFilesOf(model.tools).map(({ path }) => path)).toEqual(["one.ts"]);
   expect(liveAnswerOf({ ...model, running: true })).toBeUndefined();
+  const now = spyOn(Date, "now").mockReturnValue(1_000);
+  try {
+    const limit = 1_000 + LIVE_ANSWER_CLOCK_TOLERANCE_MS;
+    const withResultAt = (at: number): ChatModel => ({
+      ...model,
+      lastResult: { subtype: "success", isError: false, at },
+    });
+    expect(liveAnswerOf(withResultAt(limit))?.at).toBe(limit);
+    expect(liveAnswerOf(withResultAt(limit + 1))?.at).toBe(1_000);
+  } finally {
+    now.mockRestore();
+  }
 });
 
 test.each([
@@ -59,7 +81,22 @@ test.each([
       : new CodexController({ ...target, threadId: "thread" }, { onTurnEnd });
   useChatStore.getState().update(controller.key, (state) => ({
     ...state,
-    model: { ...state.model, process: "running", threadId: "thread" },
+    model: {
+      ...state.model,
+      process: "running",
+      threadId: "thread",
+      tasks:
+        agent === "codex"
+          ? {
+              child: {
+                taskId: "child",
+                type: "codex_subagent",
+                status: "running",
+                description: "Child",
+              },
+            }
+          : {},
+    },
   }));
   let seq = 0;
   const line = (message: unknown, replay = false) =>
@@ -90,6 +127,21 @@ test.each([
   try {
     turn("replayed answer", true);
     expect(onTurnEnd).not.toHaveBeenCalled();
+    if (agent === "codex") {
+      codex("turn/completed", {
+        threadId: "child",
+        turn: {
+          id: "child-turn",
+          status: "completed",
+          items: [{ type: "agentMessage", id: "child-answer", text: "Child answer" }],
+        },
+      });
+      controller.flushNow();
+      expect(onTurnEnd).not.toHaveBeenCalled();
+      expect(useChatStore.getState().tabs[controller.key].model.tasks.child.status).toBe(
+        "completed",
+      );
+    }
     turn("new answer", false);
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
     expect(onTurnEnd.mock.results[0].value).toEqual({ text: "new answer", at: seq * 100 });

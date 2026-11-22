@@ -7,6 +7,11 @@ export const MAX_LINK_TITLE = 200;
 export const MAX_EARLIER_SESSIONS = 5;
 export const MAX_REPORT_CHARS = 500;
 export const MAX_LIVE_ANSWER_CHARS = 500;
+export const LIVE_ANSWER_CLOCK_TOLERANCE_MS = 24 * 60 * 60 * 1000;
+
+export function liveAnswerTime(at: number, now = Date.now()): number {
+  return at > now + LIVE_ANSWER_CLOCK_TOLERANCE_MS ? now : at;
+}
 
 export const NoteLinkIdSchema = z.string().regex(/^l[a-z0-9]{7,39}$/);
 const sessionId = z.string().min(1).max(256);

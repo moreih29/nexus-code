@@ -360,7 +360,7 @@ export interface ChangedFile {
 export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
   const files = new Map<string, ChangedFile>();
   for (const tool of Object.values(tools)) {
-    if ((!EDIT_TOOLS.has(tool.name) && tool.name !== "Delete") || tool.status !== "done") continue;
+    if (!EDIT_TOOLS.has(tool.name) || tool.status !== "done") continue;
     const input = rec(tool.input) ?? {};
     const named = str(input.file_path) ?? str(input.notebook_path);
     if (!named) continue;
