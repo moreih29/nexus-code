@@ -62,6 +62,7 @@ import { showToast } from "../ui/toast";
 import { ArtifactRow } from "./artifact-card";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { Highlighted } from "./code-highlight";
+import { ConversationChildren } from "./conversation-tree";
 import { FileKindIcon } from "./file-kind-icon";
 import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
@@ -70,6 +71,7 @@ import { ActivitySections } from "./running-section";
 const log = createLogger("chat-side-panel");
 
 interface SidePanelProps {
+  conversationTabId?: string;
   controller: ChatController;
   /**
    * The state beside a streaming reply (beside-stream): its `model.streaming`,
@@ -98,6 +100,7 @@ interface SidePanelProps {
 
 /** Memoized: a chunk of a streaming reply changes nothing it shows. */
 export const SidePanel = memo(function SidePanel({
+  conversationTabId,
   controller,
   state,
   workspaceId,
@@ -216,6 +219,7 @@ export const SidePanel = memo(function SidePanel({
         onBackground={onBackground}
         jobDetail={jobDetail}
       />
+      {conversationTabId && <ConversationChildren tabId={conversationTabId} />}
       <ResultsSection
         items={items}
         tools={tools}
