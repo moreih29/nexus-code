@@ -514,15 +514,17 @@ updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  prepareRestart: () => closePersistence.prepareUpdaterClose(getAppWindows()),
   // A packaged macOS app, Linux AppImage or deb updates itself in place; any
   // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
-      ? createElectronUpdateBackend(createLogger("updates"), () => {
-          // The native updater can end the process before will-quit.
-          stateService.flushNow();
-          currentRun?.quit(logger, "restart to install an update");
+      ? createElectronUpdateBackend(createLogger("updates"), {
+          prepareRestart: () => closePersistence.prepareUpdaterClose(getAppWindows()),
+          beforeInstall() {
+            // The native updater can end the process before will-quit.
+            stateService.flushNow();
+            currentRun?.quit(logger, "restart to install an update");
+          },
         })
       : undefined,
 });

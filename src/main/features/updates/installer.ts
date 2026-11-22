@@ -53,6 +53,7 @@ export interface UpdateBackend {
    * resolved — Squirrel.Mac checks the signature once the file is handed over.
    */
   onError(listener: (error: Error) => void): void;
+  prepareRestart?(): Promise<void>;
   quitAndInstall(): void | Promise<void>;
 }
 
@@ -71,7 +72,6 @@ export interface UpdateInstaller {
 
 export interface CreateUpdateInstallerOptions {
   backend: UpdateBackend;
-  prepareRestart?: () => Promise<void>;
   onStatus: (status: InstallStatus) => void;
   /** Reports how far the download of `version` has got. */
   onProgress: (version: string, progress: DownloadProgress) => void;
@@ -88,7 +88,7 @@ type State =
   | { kind: "ready"; version: string };
 
 export function createUpdateInstaller(options: CreateUpdateInstallerOptions): UpdateInstaller {
-  const { backend, prepareRestart, onStatus, onProgress, releaseUrl, logger } = options;
+  const { backend, onStatus, onProgress, releaseUrl, logger } = options;
   let state: State = { kind: "idle" };
   let preparingRestart = false;
 
@@ -160,7 +160,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       const readyUpdate = state;
       preparingRestart = true;
       try {
-        if (prepareRestart) await prepareRestart();
+        if (backend.prepareRestart) await backend.prepareRestart();
         if (state === readyUpdate) await backend.quitAndInstall();
       } catch (error) {
         if (state === readyUpdate) fail(readyUpdate.version, error);

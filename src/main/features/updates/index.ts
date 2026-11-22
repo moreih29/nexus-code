@@ -89,7 +89,6 @@ export interface InstallUpdatesDomainOptions {
    * unpackaged or non-macOS build): "newer" then offers the release page only.
    */
   updateBackend?: UpdateBackend;
-  prepareRestart?: () => Promise<void>;
 }
 
 export interface UpdatesDomainHandle {
@@ -143,7 +142,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     now = Date.now,
     fetchImpl,
     updateBackend,
-    prepareRestart,
   } = options;
 
   // What `updates.getStatus` answers.
@@ -159,7 +157,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     updateBackend &&
     createUpdateInstaller({
       backend: updateBackend,
-      ...(prepareRestart && { prepareRestart }),
       // In-place update progress is never deduped: each step is news.
       onStatus: (status) => {
         remember(status);

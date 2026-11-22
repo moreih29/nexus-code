@@ -33,6 +33,7 @@ function setup(
 
   const backend: UpdateBackend = {
     installAsksForPassword,
+    ...(prepareRestart && { prepareRestart }),
     check: async () => {
       calls.check += 1;
       return offered;
@@ -60,7 +61,6 @@ function setup(
   };
   const installer = createUpdateInstaller({
     backend,
-    ...(prepareRestart && { prepareRestart }),
     onStatus: (status) => statuses.push(status),
     onProgress: (version, report) => progress.push({ version, progress: report }),
     releaseUrl: (version) => (version === null ? "releases" : `releases/v${version}`),

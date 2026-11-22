@@ -21,7 +21,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { autoUpdater as nativeUpdater } from "electron";
+import * as electron from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
 import { isLinux, isMac } from "../../infra/platform";
@@ -55,7 +55,7 @@ function isDebInstall(): boolean {
 
 export function createElectronUpdateBackend(
   logger: Logger,
-  beforeInstall: () => void,
+  { prepareRestart, beforeInstall }: { prepareRestart(): Promise<void>; beforeInstall(): void },
 ): UpdateBackend {
   const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
@@ -105,7 +105,7 @@ export function createElectronUpdateBackend(
   }
 
   if (isMac()) {
-    nativeUpdater.on("update-downloaded", () => {
+    electron.autoUpdater.on("update-downloaded", () => {
       for (const listener of stagedListeners) listener();
     });
   }
@@ -130,6 +130,7 @@ export function createElectronUpdateBackend(
     onError(listener) {
       errorListeners.push(listener);
     },
+    prepareRestart,
     async quitAndInstall() {
       const updater = await load();
       beforeInstall();
