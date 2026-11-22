@@ -155,14 +155,16 @@ function terminalSession(
 ): RemoteSession {
   const claude = services.claudeStatus(workspaceId, tab.id);
   const state = describeTerminal(claude, services.activity(workspaceId, tab.id), tab.title, now);
-  const ask = terminalAsk(services, workspaceId, tab.id, claude?.status);
+  const agent = isAgentSession(state) ? (state.agent ?? "agent") : undefined;
+  const status = agent ? (tab.dead ? "ended" : terminalSessionState(state.state)) : "idle";
+  const ask = tab.dead ? undefined : terminalAsk(services, workspaceId, tab.id, claude?.status);
   return {
     workspaceId,
     tabId: tab.id,
     kind: "terminal",
     title: tab.title,
-    state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
-    ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
+    state: status,
+    ...(agent ? { agent } : {}),
     ...(state.since !== undefined ? { since: state.since } : {}),
     ...(state.message ? { last: oneLine(state.message) } : {}),
     ...(ask
@@ -176,7 +178,7 @@ function terminalSession(
           },
         }
       : {}),
-    ...agentsField(services, workspaceId, tab.id),
+    ...(tab.dead ? {} : agentsField(services, workspaceId, tab.id)),
   };
 }
 

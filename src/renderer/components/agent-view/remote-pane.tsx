@@ -114,6 +114,7 @@ import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
+import { consentFromChat, PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
@@ -383,6 +384,7 @@ function planModeOf(
 export function remoteAnswerOf(
   answer: PermissionAnswer,
   request: PermissionRequest,
+  planModeOptions: boolean,
 ): {
   decision: "allow" | "deny";
   message?: string;
@@ -395,7 +397,9 @@ export function remoteAnswerOf(
     case "allow": {
       // A plan's approval: the mode it goes on in, as the card set it.
       const planMode =
-        request.toolName === "ExitPlanMode" ? planModeOf(answer.updatedPermissions) : undefined;
+        planModeOptions && request.toolName === "ExitPlanMode"
+          ? planModeOf(answer.updatedPermissions)
+          : undefined;
       return {
         decision: "allow",
         ...(answer.updatedInput ? { updatedInput: answer.updatedInput } : {}),
@@ -521,6 +525,26 @@ function RemoteChatView({
 }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
+  const listed = usePeerSessions([deviceId], visible && reach === "online")[deviceId];
+  const list = listed?.status === "ready" ? listed.list : undefined;
+  const consents = usePeerConsents(deviceId, list?.consents).filter((consent) =>
+    consentFromChat(consent, target),
+  );
+  const consentCards = consents.length
+    ? consents.map((consent) => (
+        <PeerConsentCard
+          key={consent.id}
+          consent={controls ? consent : { ...consent, answerable: false }}
+          deviceId={deviceId}
+          device={target.deviceName}
+          sessions={list?.sessions}
+          workspaceName={
+            list?.workspaces.find((workspace) => workspace.id === consent.workspaceId)?.name ??
+            consent.workspaceId.slice(0, 8)
+          }
+        />
+      ))
+    : null;
   const submissions = usePeerSubmissions({ deviceId, workspaceId, tabId });
   const previewItems = useMemo(() => {
     const visible = submissions.filter(
@@ -1000,12 +1024,15 @@ function RemoteChatView({
                     notice={unreachableNotice}
                   />
                 ) : !controls ? (
-                  <ViewOnly
-                    model={model}
-                    device={target.deviceName}
-                    goalBar={goalBar}
-                    notice={viewOnlyNotice}
-                  />
+                  <>
+                    {consentCards && <RemoteRequestDock>{consentCards}</RemoteRequestDock>}
+                    <ViewOnly
+                      model={model}
+                      device={target.deviceName}
+                      goalBar={goalBar}
+                      notice={viewOnlyNotice}
+                    />
+                  </>
                 ) : (
                   <RemoteControls
                     target={target}
@@ -1015,6 +1042,7 @@ function RemoteChatView({
                     toMain={shown !== undefined}
                     onShowMain={() => showAgent(null)}
                     goalBar={goalBar}
+                    consentCards={consentCards}
                     onPanelPart={askPanel}
                     selfId={selfId}
                   />
@@ -1092,6 +1120,15 @@ function RemoteChatView({
   );
 }
 
+/** Docked over the composer, so requests are seen wherever the chat is scrolled. */
+function RemoteRequestDock({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-2">{children}</div>
+    </div>
+  );
+}
+
 /** What the user answers, stops and writes to the chat with: this app's own card and composer. */
 function RemoteControls({
   target,
@@ -1101,6 +1138,7 @@ function RemoteControls({
   toMain,
   onShowMain,
   goalBar,
+  consentCards,
   onPanelPart,
   selfId,
 }: {
@@ -1113,6 +1151,7 @@ function RemoteControls({
   toMain: boolean;
   onShowMain: () => void;
   goalBar?: React.ReactNode;
+  consentCards: React.ReactNode;
   /** A bare /status, /context or /usage shows the side panel's part, as a chat here's does. */
   onPanelPart?: (part: RemotePanelPart) => void;
 }) {
@@ -1120,6 +1159,8 @@ function RemoteControls({
   const links = useChatLinks();
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
+  const peerTakesPlanMode = usePeerSpeaks(deviceId, "0.13.0");
+  const planModeOptions = agent === "claude" && peerTakesPlanMode;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
   // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
@@ -1221,7 +1262,7 @@ function RemoteControls({
         workspaceId,
         tabId,
         requestId: request.requestId,
-        ...remoteAnswerOf(given, request),
+        ...remoteAnswerOf(given, request, planModeOptions),
       }),
     );
   // /resume's list above the composer, with the words it was given, as a chat here shows it.
@@ -1273,40 +1314,37 @@ function RemoteControls({
       : { ...target, kind: "claude" as const };
   return (
     <>
-      {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
-      {(model.permissions.length > 0 || model.running || goalBar) && (
-        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-            {goalBar}
-            {model.permissions.length > 0 && toMain && (
-              <div
-                className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
-                role="status"
+      {(consentCards || model.permissions.length > 0 || model.running || goalBar) && (
+        <RemoteRequestDock>
+          {goalBar}
+          {consentCards}
+          {model.permissions.length > 0 && toMain && (
+            <div
+              className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
+              role="status"
+            >
+              <span className="min-w-0 flex-1 truncate">{t("chat.strip.permission_waiting")}</span>
+              <button
+                type="button"
+                onClick={onShowMain}
+                className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {t("chat.strip.permission_waiting")}
-                </span>
-                <button
-                  type="button"
-                  onClick={onShowMain}
-                  className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
-                >
-                  {t("chat.strip.to_main")}
-                </button>
-              </div>
-            )}
-            {model.permissions.length > 0 && !toMain && (
-              <PermissionCard
-                requests={model.permissions}
-                workspaceId={peerWorkspaceId(deviceId, workspaceId)}
-                cwd={target.cwd ?? target.path}
-                rootPath={target.path}
-                onAnswer={answer}
-              />
-            )}
-            <StatusLine model={model} />
-          </div>
-        </div>
+                {t("chat.strip.to_main")}
+              </button>
+            </div>
+          )}
+          {model.permissions.length > 0 && !toMain && (
+            <PermissionCard
+              requests={model.permissions}
+              workspaceId={peerWorkspaceId(deviceId, workspaceId)}
+              cwd={target.cwd ?? target.path}
+              rootPath={target.path}
+              planModeOptions={planModeOptions}
+              onAnswer={answer}
+            />
+          )}
+          <StatusLine model={model} />
+        </RemoteRequestDock>
       )}
       {/* The serving app goes on in it by itself, as it tells (from 0.19.0). */}
       <LimitResumeView scope={bannerScope} record={page.panel?.limitResume} />
@@ -1412,9 +1450,8 @@ function RemoteTerminal({
   const controls = usePeerControls(deviceId);
   // The request answered here, kept out of sight until the list no longer says it waits.
   const [answered, setAnswered] = useState<string | null>(null);
-  // What its Claude Code asks, as the computer lists it: watched here as well, for the agent
-  // view's list may be hidden; the list's last word (target.ask) until it comes.
-  const listed = usePeerSessions([deviceId], visible && controls)[deviceId];
+  // Its state and Claude Code's requests keep updating while the sidebar is hidden.
+  const listed = usePeerSessions([deviceId], visible)[deviceId];
   const ask =
     listed?.status === "ready"
       ? (() => {

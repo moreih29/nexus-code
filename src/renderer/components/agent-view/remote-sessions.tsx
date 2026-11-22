@@ -28,6 +28,7 @@ import {
   type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -38,9 +39,8 @@ import type {
   SessionState,
 } from "../../../../packages/remote-protocol/src/rpc";
 import type { AgentRun } from "../../../shared/claude/activity";
-import type { RoomPeer } from "../../../shared/remote/room";
+import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
-import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
 import { moveKey, movePeer, orderPeers, reorderSubset } from "../../services/agent-view/order";
@@ -50,7 +50,6 @@ import {
   offlinePeers,
   type PeerSessions,
   peerServes,
-  refreshPeerSessions,
   type SessionsList,
   servingPeers,
   usePeerSessions,
@@ -78,7 +77,7 @@ import {
 import { PromptDialog, type PromptRequest } from "../ui/prompt-dialog";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
-import { RemoteConsentCard } from "./remote-consents";
+import { PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
 import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
 import {
@@ -131,6 +130,10 @@ export function listedByDefault(session: RemoteSession): boolean {
   );
 }
 
+function isEndedTerminal({ kind, state }: Pick<RemoteSession, "kind" | "state">): boolean {
+  return kind === "terminal" && state === "ended";
+}
+
 /**
  * The sessions the list shows: those it shows unasked, a terminal in a
  * panel too, and those a search finds; and by workspace, its terminals with
@@ -145,6 +148,7 @@ export function listedSessions(
   const listed: RemoteSession[] = [];
   const plain = new Map<string, RemoteSession[]>();
   for (const s of sessions) {
+    if (isEndedTerminal(s)) continue;
     if (listedByDefault(s) || inPanel(s)) listed.push(s);
     else plain.set(s.workspaceId, [...(plain.get(s.workspaceId) ?? []), s]);
   }
@@ -152,6 +156,7 @@ export function listedSessions(
 }
 
 function matches(session: RemoteSession, query: string): boolean {
+  if (isEndedTerminal(session)) return false;
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return session.title.toLowerCase().includes(q) || (session.last ?? "").toLowerCase().includes(q);
@@ -188,6 +193,8 @@ export function workspaceGroups(
   const keepsWorktreeVisible = (s: RemoteSession) =>
     s.state === "running" ||
     s.state === "needs-you" ||
+    s.state === "new-result" ||
+    s.limitWait !== undefined ||
     s.waiting !== undefined ||
     s.agents?.some((a) => a.state === "running" || a.state === "permissionPending") ||
     inPanel(s);
@@ -220,12 +227,36 @@ function toggleWorkspace(current: ReadonlySet<string>, id: string): ReadonlySet<
 }
 
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
-  const { t } = useTranslation();
   const account = useRemoteAccount();
-  const signedOut = account?.status === "signed-out";
   const accountKey = remoteAccountKey(account);
+  return (
+    <AccountRemoteSessions
+      key={accountKey}
+      accountKey={accountKey}
+      signedOut={account?.status === "signed-out"}
+      query={query}
+      shown={shown}
+    />
+  );
+}
+
+function AccountRemoteSessions({
+  accountKey,
+  signedOut,
+  query,
+  shown,
+}: {
+  accountKey: string | null;
+  signedOut: boolean;
+  query: string;
+  shown: boolean;
+}) {
+  const { t } = useTranslation();
   const room = useRemoteRoom();
-  const outdated = room?.status === "outdated";
+  // Keep brief relay and peer drops off the screen while watching the real room.
+  const seen = useShownRoom(room);
+  const roomStatus = seen?.status;
+  const outdated = roomStatus === "outdated";
   const signInNotice = useBannerDismissal(
     ["remote-sessions-sign-in"],
     signedOut ? [true] : undefined,
@@ -241,25 +272,50 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
     s.peerOrder?.accountKey === accountKey ? s.peerOrder.ids : undefined,
   );
   const [drag, setDrag] = useState<PeerDrag | null>(null);
-  // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
-  const seen = useShownRoom(room);
-  const peers = orderPeers(servingPeers(seen), peerOrder);
+  const lastOnline = useRef<RoomState | null>(null);
+  const roomOnline = room?.status === "online";
+  const connected = roomStatus === "online";
+  const connecting = roomStatus === "connecting" || roomStatus === "waiting";
+  useEffect(() => {
+    if (roomOnline) lastOnline.current = seen;
+  }, [roomOnline, seen]);
+  const displayedRoom = connected ? seen : lastOnline.current;
   // Searching, an offline computer has no sessions to find.
   const searching = query.trim() !== "";
-  const away = searching ? [] : orderPeers(offlinePeers(seen), peerOrder);
+  const away = searching ? [] : orderPeers(offlinePeers(displayedRoom), peerOrder);
   const online = servingPeers(room);
   const lists = usePeerSessions(
     online.map((peer) => peer.id),
     shown,
   );
+  const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
+    (peer) => connected || lists[peer.id]?.status === "ready",
+  );
+  const peers = searching
+    ? listedPeers.filter((peer) => {
+        const sessions = lists[peer.id];
+        return (
+          sessions?.status === "ready" &&
+          sessions.list.sessions.some((session) => matches(session, query))
+        );
+      })
+    : listedPeers;
   const canReorder =
     !searching && accountKey !== null && accountKey === peerOrderAccount && online.length > 1;
   useEffect(() => {
     if (!canReorder) setDrag(null);
   }, [canReorder]);
+  if (searching && peers.length === 0) return null;
   if (signedOut && (searching || signInNotice.dismissed)) return null;
   if (!signedOut && outdated && outdatedNotice.dismissed) return null;
-  if (!signedOut && !outdated && peers.length === 0 && away.length === 0) return null;
+  if (!signedOut && !outdated && (accountKey === null || (!connected && !connecting))) return null;
+  const status = !connected
+    ? roomStatus === "waiting" || lastOnline.current
+      ? t("agentView.remote.reconnecting")
+      : t("agentView.remote.connecting")
+    : peers.length === 0 && away.length === 0
+      ? t("agentView.remote.noComputers")
+      : null;
   const ids = canReorder ? orderPeers(online, peerOrder).map((peer) => peer.id) : [];
   const reorder: PeerReorder | undefined = canReorder
     ? {
@@ -309,20 +365,33 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
       ) : outdated ? (
         <OutdatedLine dismiss={outdatedNotice.dismiss} />
       ) : (
-        <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
-          {peers.map((peer) => (
-            <PeerGroup
-              key={peer.id}
-              peer={peer}
-              sessions={lists[peer.id]}
-              query={query}
-              reorder={reorder?.ids.includes(peer.id) ? reorder : undefined}
-            />
-          ))}
-          {away.map((peer) => (
-            <OfflinePeer key={peer.id} peer={peer} />
-          ))}
-        </div>
+        <>
+          {status && (
+            <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
+              {status}
+            </p>
+          )}
+          <div
+            inert={!connected}
+            className={cn(
+              "flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0",
+              !connected && "opacity-60",
+            )}
+          >
+            {peers.map((peer) => (
+              <PeerGroup
+                key={peer.id}
+                peer={peer}
+                sessions={lists[peer.id]}
+                query={query}
+                reorder={reorder?.ids.includes(peer.id) ? reorder : undefined}
+              />
+            ))}
+            {away.map((peer) => (
+              <OfflinePeer key={peer.id} peer={peer} />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );
@@ -366,8 +435,6 @@ export function PeerGroup({
   // asked for on its own; not kept.
   const [terminalsIn, setTerminalsIn] = useState<ReadonlySet<string>>(() => new Set());
   const [worktreesIn, setWorktreesIn] = useState<ReadonlySet<string>>(() => new Set());
-  // The consent prompts answered here, or found answered there: left out until asked again.
-  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   // The session being renamed, while the dialog asks its new title.
   const [renaming, setRenaming] = useState<PeerSessionRef | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -386,16 +453,12 @@ export function PeerGroup({
     inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
     worktreesIn,
   });
-  const consents = (list?.consents ?? []).filter((c) => !settled.has(c.id));
+  const consents = usePeerConsents(peer.id, list?.consents);
   const waiting =
     (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length;
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
   const open = useRemoteViewStore((s) => s.open);
-  // The tabs of this computer's sessions take up their new titles.
-  useEffect(() => {
-    if (list) useRemoteViewStore.getState().refresh(peer.id, list);
-  }, [peer.id, list]);
   useEffect(() => {
     if (!list) return;
     setPendingOrders((pending) => {
@@ -535,24 +598,15 @@ export function PeerGroup({
               {consents.length > 0 && (
                 <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
                   {consents.map((consent) => (
-                    <RemoteConsentCard
+                    <PeerConsentCard
                       key={consent.id}
                       consent={consent}
+                      deviceId={peer.id}
                       device={peer.name}
+                      sessions={sessions.list.sessions}
                       workspaceName={
                         names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
                       }
-                      onAnswer={(answer) =>
-                        ipcCallResult("remote", "peerConsentAnswer", {
-                          deviceId: peer.id,
-                          id: consent.id,
-                          answer,
-                        })
-                      }
-                      onSettled={() => {
-                        setSettled((now) => new Set(now).add(consent.id));
-                        refreshPeerSessions(peer.id);
-                      }}
                     />
                   ))}
                 </div>
@@ -956,7 +1010,7 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
 /**
  * A tab's face for another computer's session: the computer (unless the
  * panel shows it once for all), the kind of session, its title, and its
- * state while it is not idle.
+ * state while it is active or its terminal has ended.
  */
 export function RemoteTabLabel({
   target,
@@ -968,19 +1022,21 @@ export function RemoteTabLabel({
   const { t } = useTranslation();
   const Icon =
     target.kind === "claude" ? ClaudeIcon : target.kind === "codex" ? CodexIcon : SquareTerminal;
-  const group = target.state ? GROUP_OF[target.state] : "idle";
+  const { state } = target;
+  const group = state ? GROUP_OF[state] : "idle";
+  const ended = target.kind === "terminal" && state === "ended";
   return (
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{target.title}</span>
-      {target.state && group !== "idle" && (
+      {state && (ended || group !== "idle") && (
         <span
           role="img"
-          aria-label={t(`agentView.remote.state.${target.state}`)}
+          aria-label={t(`agentView.remote.state.${state}`)}
           className="inline-flex shrink-0"
         >
-          <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
+          <StateGlyph state={ended ? "exited" : GROUP_STATE[group]} className={GROUP_TINT[group]} />
         </span>
       )}
     </>

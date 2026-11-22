@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import i18next from "i18next";
 import type { ComponentProps, DragEvent, MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import {
   type PeerReorder,
@@ -33,7 +35,7 @@ const {
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, peerServes, servingPeers } = room;
 
-describe("Other computers sign-in guidance", () => {
+describe("Other computers connection guidance", () => {
   const server = "https://nexus.example";
   const signedIn = {
     status: "signed-in" as const,
@@ -101,13 +103,98 @@ describe("Other computers sign-in guidance", () => {
   });
 
   test.each([
-    "off",
-    "connecting",
-    "waiting",
-  ] as const)("a signed-in account with no peers keeps the section hidden when the room is %s", (status) => {
+    ["connecting", "Connecting…"],
+    ["waiting", "Disconnected · Reconnecting"],
+    ["online", "No connected computers · Open the app on another device"],
+  ] as const)("keeps the signed-in section visible when the room is %s", (status, message) => {
     readAccount.mockReturnValue(signedIn);
     readRoom.mockReturnValue({ status, peers: [] });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain("Other computers");
+    expect(html).toContain(message);
+    expect(html).not.toContain("No conversations");
+  });
+
+  test.each([
+    null,
+    "off",
+    "replaced",
+    "stopped",
+  ] as const)("hides the signed-in section with no connection attempt when the room is %s", (status) => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue(status === null ? null : { status, peers: [] });
     expect(renderToStaticMarkup(<RemoteSessions query="" />)).toBe("");
+  });
+
+  test("shows only the connection guidance before a list has been received", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status: "waiting", peers: [{ ...peer, online: false }] });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain("Disconnected · Reconnecting");
+    expect(html).not.toContain("Work PC");
+    expect(html).not.toContain("Loading…");
+  });
+
+  test.each([
+    "connecting",
+    "waiting",
+  ] as const)("keeps the sidebar undimmed during the relay drop grace period in %s", (status) => {
+    readAccount.mockReturnValue(signedIn);
+    const raw = { status, peers: [{ ...peer, online: false }] };
+    readRoom.mockReturnValue(raw);
+    const shown = spyOn(room, "useShownRoom").mockReturnValue({ status: "online", peers: [peer] });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      d2: { status: "ready", list: list([session({})]) },
+    });
+    try {
+      const html = renderToStaticMarkup(<RemoteSessions query="" />);
+      expect(html).toContain("Work PC");
+      expect(html).toContain("Fix the build");
+      expect(html).not.toContain("Connecting…");
+      expect(html).not.toContain("Disconnected");
+      expect(html).not.toContain("opacity-60");
+      expect(html).not.toContain('inert=""');
+      expect(readLists).toHaveBeenCalledWith([], true);
+    } finally {
+      readLists.mockRestore();
+      shown.mockRestore();
+    }
+  });
+
+  test("search shows only matching computers and hides the section when none match", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [peer, { ...peer, id: "d3", name: "Laptop" }],
+    });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      d2: { status: "ready", list: list([session({ last: "Review the audit" })]) },
+      d3: {
+        status: "ready",
+        list: list([
+          session({ title: "Write docs" }),
+          session({ kind: "terminal", state: "ended", title: "Audit from an exited terminal" }),
+        ]),
+      },
+    });
+    try {
+      const found = renderToStaticMarkup(<RemoteSessions query=" Audit " />);
+      expect(found).toContain("Other computers");
+      expect(found).toContain("Work PC");
+      expect(found).toContain("Review the audit");
+      expect(found).not.toContain("Laptop");
+      expect(found).not.toContain("No conversation matches");
+      expect(renderToStaticMarkup(<RemoteSessions query="exited terminal" />)).toBe("");
+    } finally {
+      readLists.mockRestore();
+    }
+  });
+
+  test("search hides the heading and connection guidance with no remote results", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status: "waiting", peers: [] });
+    expect(renderToStaticMarkup(<RemoteSessions query="audit" />)).toBe("");
+    expect(renderToStaticMarkup(<RemoteSessions query="" />)).toContain("Other computers");
   });
 });
 
@@ -166,6 +253,17 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
+  test("a Korean row waiting for a reply uses the local attention label", async () => {
+    const ko = i18next.cloneInstance({ lng: "ko" });
+    await ko.changeLanguage("ko");
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={ko}>
+        <RemoteSessionRow session={session({ state: "needs-you" })} />
+      </I18nextProvider>,
+    );
+    expect(html).toContain(`class="sr-only">${ko.t("agentList.group.attention")}</span>`);
+  });
+
   test("orders both groups and only offers reordering with multiple online computers outside search", () => {
     const signedIn = {
       status: "signed-in" as const,
@@ -174,14 +272,22 @@ describe("the agent view's other computers", () => {
       device: { id: "d1", name: "Mac", platform: "darwin" },
     };
     const peers = [
-      { ...peer, id: "desk", name: "Desk PC" },
-      { ...peer, id: "home", name: "Home PC", online: false },
-      { ...peer, id: "laptop", name: "Laptop" },
-      { ...peer, id: "office", name: "Office PC", online: false },
       { ...peer, id: "new", name: "New PC" },
+      { ...peer, id: "office", name: "Office PC", online: false },
+      { ...peer, id: "laptop", name: "Laptop" },
+      { ...peer, id: "home", name: "Home PC", online: false },
+      { ...peer, id: "desk", name: "Desk PC" },
     ];
     const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({ status: "online", peers });
     const readAccount = spyOn(account, "useRemoteAccount").mockReturnValue(signedIn);
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue(
+      Object.fromEntries(
+        peers.map(({ id }) => [
+          id,
+          { status: "ready", list: list([session({ title: "Example session" })]) },
+        ]),
+      ),
+    );
     const accountKey = JSON.stringify([signedIn.server, signedIn.user.id]);
     const state = agentView.useAgentViewStore.getInitialState();
     const readView = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
@@ -222,6 +328,7 @@ describe("the agent view's other computers", () => {
       expectHeaders(headers(), ["Desk PC", "Office PC", "Home PC"], 0);
     } finally {
       readView.mockRestore();
+      readLists.mockRestore();
       readRoom.mockRestore();
       readAccount.mockRestore();
     }
@@ -381,7 +488,7 @@ describe("the agent view's other computers", () => {
     expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
       true,
     );
-    // One that ended is a terminal again, as an agent here whose terminal ended.
+    // The local agent list also leaves out agents whose terminal ended.
     expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
   });
 
@@ -405,6 +512,25 @@ describe("the agent view's other computers", () => {
     });
     expect(listedSessions(all, "server", none)).toEqual({
       listed: [plain],
+      plain: new Map(),
+    });
+  });
+
+  test("ended terminals are excluded from the list, search and shell chip even if held", () => {
+    const ended = session({
+      kind: "terminal",
+      title: "Exited Codex",
+      agent: "codex",
+      state: "ended",
+    });
+    const inPanel = () => true;
+    expect(listedSessions([ended], "", inPanel)).toEqual({ listed: [], plain: new Map() });
+    expect(listedSessions([ended], "Exited", inPanel)).toEqual({
+      listed: [],
+      plain: new Map(),
+    });
+    expect(listedSessions([ended], "", () => false)).toEqual({
+      listed: [],
       plain: new Map(),
     });
   });
@@ -536,6 +662,21 @@ describe("the agent view's other computers", () => {
     expect(grouped().plain.has("open")).toBe(false);
   });
 
+  test("a new result or usage limit wait keeps a worktree visible", () => {
+    const { groups, worktreeCounts } = workspaceGroups(
+      {
+        ...worktreeList,
+        sessions: [
+          session({ workspaceId: "docs", state: "new-result" }),
+          session({ workspaceId: "cache", limitWait: { at: 12_000 } }),
+        ],
+      },
+      { query: "", opens: false, inPanel: () => false, worktreesIn: new Set() },
+    );
+    expect(groups.map(([id]) => id)).toEqual(["w1", "docs", "w2", "cache"]);
+    expect(worktreeCounts.size).toBe(0);
+  });
+
   test("a read-only parent with no sessions shows a worktree pill, before the terminal pill when present", () => {
     const html = renderToStaticMarkup(
       <PeerGroup peer={peer} query="" sessions={{ status: "ready", list: worktreeList }} />,
@@ -543,7 +684,7 @@ describe("the agent view's other computers", () => {
     const headers = html.split('data-testid="remote-workspace"').slice(1);
     const api = headers[0]?.split("</div>")[0];
     const web = headers[2]?.split("</div>")[0];
-    expect(api).toContain('aria-label="Show 1 worktree in api"');
+    expect(api).toContain('aria-label="Show 1 task in api"');
     expect(api).toContain('data-testid="remote-worktrees-toggle" data-workspace="w1"');
     expect(api).toContain('aria-expanded="false"');
     expect(api).toContain("lucide-git-branch");
@@ -551,7 +692,7 @@ describe("the agent view's other computers", () => {
     expect(api?.indexOf("remote-worktrees-toggle")).toBeLessThan(
       api?.indexOf("remote-terminals-toggle") ?? -1,
     );
-    expect(web).toContain('aria-label="Show 3 worktrees in web"');
+    expect(web).toContain('aria-label="Show 3 tasks in web"');
     expect(html.match(/data-testid="remote-worktrees-toggle"/g)).toHaveLength(2);
     expect(html).toContain("Fix login");
     expect(html).toContain("Approve refactor");
@@ -732,7 +873,7 @@ describe("the agent view's other computers", () => {
       renderToStaticMarkup(<PeerGroup peer={peer} query="" sessions={sessions} />);
     expect(render(undefined)).toContain("Loading…");
     expect(render({ status: "unavailable" })).toContain("No remote response");
-    expect(render({ status: "ready", list: list([]) })).toContain("No sessions");
+    expect(render({ status: "ready", list: list([]) })).toContain("No conversations");
   });
 
   test("a session waiting on the user says what for", () => {
@@ -997,6 +1138,17 @@ describe("the agent view's other computers", () => {
                 eachTime: false,
                 answerable: true,
               },
+              {
+                id: "c2",
+                at: 0,
+                expiresAt: 60_000,
+                expiresInMs: 30_000,
+                from: { workspaceId: "w1", workspaceName: "api", tabId: "t1", name: "Review" },
+                workspaceId: "w2",
+                change: { kind: "chatInput", detail: "Build", body: "Run tests" },
+                eachTime: false,
+                answerable: true,
+              },
             ],
           },
         }}
@@ -1004,6 +1156,7 @@ describe("the agent view's other computers", () => {
     );
     expect(html).toContain('data-testid="remote-consent"');
     expect(html).toContain("asks to send a message to the tab &quot;Review&quot; in web.");
+    expect(html).toContain("The Claude tab &quot;Review&quot; in api asks to");
     expect(html.indexOf("remote-consent")).toBeLessThan(html.indexOf("remote-workspace"));
   });
 
@@ -1035,5 +1188,10 @@ describe("the agent view's other computers", () => {
       <RemoteTabLabel target={{ ...target, state: "needs-you" }} />,
     );
     expect(waiting).toContain('aria-label="Needs you"');
+    const ended = renderToStaticMarkup(
+      <RemoteTabLabel target={{ ...target, kind: "terminal", state: "ended" }} />,
+    );
+    expect(ended).toContain('aria-label="Ended"');
+    expect(ended).toContain("lucide-circle-x");
   });
 });

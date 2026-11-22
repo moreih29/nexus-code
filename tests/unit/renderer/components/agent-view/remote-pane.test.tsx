@@ -19,18 +19,18 @@ describe("controlling another computer's chat", () => {
         { type: "remote", label: "Accept edits", index: 1 },
       ],
     };
-    expect(remoteAnswerOf({ kind: "allow" }, request)).toEqual({ decision: "allow" });
+    expect(remoteAnswerOf({ kind: "allow" }, request, false)).toEqual({ decision: "allow" });
     expect(
-      remoteAnswerOf({ kind: "allow", updatedInput: { answers: { q: "a" } } }, request),
+      remoteAnswerOf({ kind: "allow", updatedInput: { answers: { q: "a" } } }, request, false),
     ).toEqual({
       decision: "allow",
       updatedInput: { answers: { q: "a" } },
     });
-    expect(remoteAnswerOf({ kind: "deny", message: "not now" }, request)).toEqual({
+    expect(remoteAnswerOf({ kind: "deny", message: "not now" }, request, false)).toEqual({
       decision: "deny",
       message: "not now",
     });
-    expect(remoteAnswerOf({ kind: "deny-stop" }, request)).toEqual({
+    expect(remoteAnswerOf({ kind: "deny-stop" }, request, false)).toEqual({
       decision: "deny",
       stop: true,
     });
@@ -47,19 +47,20 @@ describe("controlling another computer's chat", () => {
       kind: "allow" as const,
       updatedPermissions: [{ type: "setMode", mode, destination: "session" }],
     });
-    expect(remoteAnswerOf(setMode("acceptEdits"), plan)).toEqual({
+    expect(remoteAnswerOf(setMode("acceptEdits"), plan, true)).toEqual({
       decision: "allow",
       planMode: "acceptEdits",
     });
-    expect(remoteAnswerOf(setMode("default"), plan)).toEqual({
+    expect(remoteAnswerOf(setMode("default"), plan, true)).toEqual({
       decision: "allow",
       planMode: "default",
     });
     // No other mode, and no other request's.
-    expect(remoteAnswerOf(setMode("bypassPermissions"), plan)).toEqual({ decision: "allow" });
-    expect(remoteAnswerOf(setMode("acceptEdits"), { ...plan, toolName: "Bash" })).toEqual({
+    expect(remoteAnswerOf(setMode("bypassPermissions"), plan, true)).toEqual({ decision: "allow" });
+    expect(remoteAnswerOf(setMode("acceptEdits"), { ...plan, toolName: "Bash" }, true)).toEqual({
       decision: "allow",
     });
+    expect(remoteAnswerOf(setMode("default"), plan, false)).toEqual({ decision: "allow" });
   });
 
   test("an always-allow keeps the suggestions it picked by their index there, or all of them", () => {
@@ -72,15 +73,21 @@ describe("controlling another computer's chat", () => {
         { type: "remote", label: "Accept edits", index: 1 },
       ],
     };
-    expect(remoteAnswerOf({ kind: "allow-always" }, request)).toEqual({
+    expect(remoteAnswerOf({ kind: "allow-always" }, request, false)).toEqual({
       decision: "allow",
       always: [0, 1],
     });
     expect(
-      remoteAnswerOf({ kind: "allow-always", suggestions: [request.suggestions[1]] }, request),
+      remoteAnswerOf(
+        { kind: "allow-always", suggestions: [request.suggestions[1]] },
+        request,
+        false,
+      ),
     ).toEqual({ decision: "allow", always: [1] });
     // A request with none to keep is allowed once.
-    expect(remoteAnswerOf({ kind: "allow-always" }, { ...request, suggestions: [] })).toEqual({
+    expect(
+      remoteAnswerOf({ kind: "allow-always" }, { ...request, suggestions: [] }, false),
+    ).toEqual({
       decision: "allow",
     });
   });
