@@ -107,13 +107,12 @@ export async function followFileLink(
 }
 
 /**
- * Leaves the agent view for the Claude tab's workspace, the Claude tab in
- * front there: what it opens goes in that workspace, out of sight while
- * the agent view is up. Whether it was up.
+ * Leaves the agent view for the chat's workspace and brings the chat to the front.
+ * Returns whether the agent view was shown.
  */
-function showWorkspaceOf(workspaceId: string, claudeTabId: string): boolean {
+export function showWorkspaceOf(workspaceId: string, tabId: string): boolean {
   if (!isAgentViewShown()) return false;
-  revealInWorkspace({ workspaceId, tabId: claudeTabId });
+  revealInWorkspace({ workspaceId, tabId });
   useAgentViewStore.getState().setMode("workspace");
   return true;
 }

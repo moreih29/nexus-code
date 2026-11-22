@@ -270,6 +270,7 @@
     "unlink": "Remove link",
     "saveError": "Link save failed",
     "actionError": "Conversation link action failed",
-    "noteSaveError": "Note save failed"
+    "noteSaveError": "Note save failed",
+    "fromNote": "Started from note “{{title}}”"
   }
 }

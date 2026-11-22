@@ -270,6 +270,7 @@
     "unlink": "연결 지우기",
     "saveError": "연결 저장 실패",
     "actionError": "대화 연결 작업 실패",
-    "noteSaveError": "노트 저장 실패"
+    "noteSaveError": "노트 저장 실패",
+    "fromNote": "노트 ‘{{title}}’에서 시작"
   }
 }
