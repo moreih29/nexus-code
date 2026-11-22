@@ -410,7 +410,7 @@ func runDaemon(root string) {
 			proto.HeartbeatAdvertiseMs,
 			int(reattachGrace/time.Millisecond),
 			epoch,
-			[]string{"reattach"},
+			[]string{"reattach", agentchat.RunCapability},
 		)); writeErr != nil {
 			agentLogger.Error("failed to write ready frame", "err", writeErr)
 			_ = conn.Close()

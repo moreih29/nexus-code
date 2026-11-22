@@ -226,16 +226,21 @@ func TestFindBinaryUsesProfilePathAndSkipsClaudeWrappers(t *testing.T) {
 	fallback := writeExecutable(t, filepath.Join(home, "fallback"), "claude")
 	t.Setenv("PATH", filepath.Dir(fallback))
 	want := writeExecutable(t, filepath.Join(home, "profile"), "claude")
-	got, err := New().FindBinary(context.Background(), mustJSON(t, map[string]string{
-		"name":       "claude",
-		"dir":        home,
-		"searchPath": strings.Join([]string{filepath.Dir(wrapper), filepath.Dir(want)}, string(os.PathListSeparator)),
+	got, err := New().FindBinary(context.Background(), mustJSON(t, FindBinaryParams{
+		Name:                 "claude",
+		Dir:                  home,
+		SearchPath:           strings.Join([]string{filepath.Dir(wrapper), filepath.Dir(want)}, string(os.PathListSeparator)),
+		ExcludeAgentWrappers: true,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result := got.(FindBinaryResult).Path; result != want {
 		t.Fatalf("FindBinary() = %q, want %q", result, want)
+	}
+	dirs := filepath.SplitList(got.(FindBinaryResult).EnvPath)
+	if slices.Contains(dirs, filepath.Dir(wrapper)) || !slices.Contains(dirs, filepath.Dir(want)) {
+		t.Fatalf("unexpected PATH: %v", dirs)
 	}
 }
 

@@ -115,8 +115,7 @@ func main() {
 
 	// Local stdio mode (no --daemon / --dial flags): the classical agent
 	// path where the Electron main process forks the agent directly with
-	// stdin/stdout connected. This path is completely unchanged — byte-for-byte
-	// compatible with all existing local workspace behaviour.
+	// stdin/stdout connected.
 	if args.root == "" {
 		agentLogger.Error("Usage: agent [--idle-watchdog] <rootPath>")
 		os.Exit(2)
@@ -231,10 +230,9 @@ func main() {
 	// is unrecoverable — without a Ready, the client will time out.
 	// methods 목록과 heartbeat 판정 기준(5s), idle watchdog 한도를 함께 전달해
 	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
-	// agentEpoch and capabilities are 0/nil in local stdio mode — the TS client
-	// (task 12) uses their presence to detect daemon-mode reattach capability.
+	// The local stdio agent advertises features without a reattach epoch.
 	if err := host.WriteFrame(
-		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, nil),
+		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, []string{agentchat.RunCapability}),
 	); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
