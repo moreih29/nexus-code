@@ -77,7 +77,9 @@ const MAX_PAGES = 5;
 const READ_INTERVAL_MS = 4000;
 
 const RECEIPTS = "sessions.markSeen";
+const RECEIPT_RETRY_DELAYS = [1_000, 2_000, 4_000];
 type Receipt = RpcParams<typeof RECEIPTS>["seen"][number];
+type QueuedReceipt = { receipt: Receipt; retries: number };
 type ResultRow = { deviceId: string; session: RemoteSession; hostReceipts?: boolean };
 
 function hostResultTime(row: RemoteSession): number | undefined {
@@ -106,8 +108,9 @@ interface ReceiptWatch {
 /** The sidebar and any open panes share the account's receipts to each host. */
 class ReadReceipts {
   private readonly watches = new Map<string, ReceiptWatch>();
-  private readonly waiting = new Map<string, Map<string, Receipt>>();
+  private readonly waiting = new Map<string, Map<string, QueuedReceipt>>();
   private readonly sending = new Set<string>();
+  private readonly retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly acknowledged = new Map<string, Map<string, number>>();
 
   constructor(private readonly saved: SeenResults) {}
@@ -146,35 +149,77 @@ class ReadReceipts {
       pending = new Map();
       this.waiting.set(deviceId, pending);
     }
-    if ((pending.get(key)?.upTo ?? -Infinity) < receipt.upTo) pending.set(key, receipt);
+    if ((pending.get(key)?.receipt.upTo ?? -Infinity) < receipt.upTo)
+      pending.set(key, { receipt, retries: 0 });
+  }
+
+  private retry(
+    deviceId: string,
+    pending: Map<string, QueuedReceipt>,
+    batch: readonly [string, QueuedReceipt][],
+  ): void {
+    let nextDelay = Infinity;
+    for (const [key, item] of batch) {
+      const delay = RECEIPT_RETRY_DELAYS[item.retries];
+      if (delay === undefined || pending.has(key)) continue;
+      pending.set(key, { receipt: item.receipt, retries: item.retries + 1 });
+      nextDelay = Math.min(nextDelay, delay);
+    }
+    if (!Number.isFinite(nextDelay)) return;
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(deviceId);
+      void this.send(deviceId);
+    }, nextDelay);
+    this.retryTimers.set(deviceId, timer);
+  }
+
+  private stopWatch(deviceId: string, watch: ReceiptWatch): void {
+    this.watches.delete(deviceId);
+    watch.stop();
+    const timer = this.retryTimers.get(deviceId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.retryTimers.delete(deviceId);
+      this.waiting.delete(deviceId);
+    }
   }
 
   private async send(deviceId: string): Promise<void> {
     const pending = this.waiting.get(deviceId);
-    if (!pending?.size || this.sending.has(deviceId)) return;
+    if (!pending?.size || this.sending.has(deviceId) || this.retryTimers.has(deviceId)) return;
+    const watch = this.watches.get(deviceId);
     const batch = [...pending].slice(0, MAX_MARK_SEEN);
     for (const [key] of batch) pending.delete(key);
     this.sending.add(deviceId);
+    let delivered = false;
     try {
       const result = await ipcCallResult("remote", "peerSessionsMarkSeen", {
         deviceId,
-        seen: batch.map(([, receipt]) => receipt),
+        seen: batch.map(([, { receipt }]) => receipt),
       });
       if (!result.ok) return;
+      delivered = true;
       const acknowledged = this.acknowledged.get(deviceId) ?? new Map<string, number>();
       this.acknowledged.set(deviceId, acknowledged);
       const changes: SeenChanges = new Map();
-      for (const [key, { upTo }] of batch) {
+      for (const [
+        key,
+        {
+          receipt: { upTo },
+        },
+      ] of batch) {
         acknowledged.set(key, upTo);
         if (receiptTime(this.saved.get(key)) === upTo) changes.set(key, null);
-        if (pending.get(key)?.upTo === upTo) pending.delete(key);
+        if (pending.get(key)?.receipt.upTo === upTo) pending.delete(key);
       }
       this.saved.update(changes);
       refreshPeerSessions(deviceId);
     } catch {
-      // The undelivered receipts remain saved for the next connection.
+      // A rejected IPC call is retried on the same terms as a failed response.
     } finally {
       this.sending.delete(deviceId);
+      if (!delivered && watch && this.watches.get(deviceId) === watch)
+        this.retry(deviceId, pending, batch);
       if (pending.size > 0) void this.send(deviceId);
       else this.waiting.delete(deviceId);
     }
@@ -214,9 +259,12 @@ class ReadReceipts {
     const current = this.watches.get(deviceId);
     let watch = current;
     if (!watch || watch.rejoin !== rejoin) {
-      current?.stop();
+      if (current) this.stopWatch(deviceId, current);
       let remaining: ReadonlySet<string> | undefined;
-      const stop = observePeerSessions(deviceId, rejoin, (listing) => {
+      // A shared listing can deliver its cached snapshot during subscribe.
+      watch = { rejoin, users: 0, stop: () => {} };
+      this.watches.set(deviceId, watch);
+      watch.stop = observePeerSessions(deviceId, rejoin, (listing) => {
         if (listing.status !== "ready") return;
         this.acknowledged.delete(deviceId);
         if (remaining?.size === 0) return;
@@ -226,15 +274,12 @@ class ReadReceipts {
           ? new Set([...remaining].filter((id) => incomplete.has(id)))
           : incomplete;
       });
-      watch = { rejoin, users: 0, stop };
-      this.watches.set(deviceId, watch);
     }
     watch.users++;
     return () => {
       watch.users--;
       if (watch.users > 0 || this.watches.get(deviceId) !== watch) return;
-      this.watches.delete(deviceId);
-      watch.stop();
+      this.stopWatch(deviceId, watch);
     };
   }
 }
@@ -477,7 +522,14 @@ export class RemoteResults {
     let pendingChanged = false;
     const changes: SeenChanges = new Map();
     for (const { deviceId, session, hostReceipts } of rows) {
-      if (hostReceipts || session.state !== "new-result" || session.failed) continue;
+      if (
+        hostReceipts ||
+        session.state !== "new-result" ||
+        session.failed ||
+        session.limitWait ||
+        session.waiting
+      )
+        continue;
       const key = remoteSessionKey({ deviceId, ...session });
       const waiting = this.pending.get(deviceId)?.get(key);
       if (waiting && !this.history.get(deviceId)?.get(key)?.outcome) {
@@ -522,7 +574,7 @@ export function markVisibleRemoteResult(
     seen.update(new Map([[key, withoutListing(before)]]));
     return;
   }
-  if (!focused || session.failed || session.limitWait) return;
+  if (!focused || session.failed || session.limitWait || session.waiting) return;
   if (session.state === "new-result") {
     const value: RemoteSeenResult = {
       at: session.since ?? 0,
@@ -561,7 +613,13 @@ export function useRemotePaneSeen(
   }, [accountKey, deviceId, focused, hostReceipts, session, visible]);
 }
 
-export function watchResults(results: RemoteResults, deviceId: string, rejoin: number) {
+export function watchResults(
+  results: RemoteResults,
+  deviceId: string,
+  rejoin: number,
+  hostReceipts = false,
+) {
+  if (hostReceipts) return results.watchReceipts(deviceId, rejoin);
   let live = true;
   let supported = true;
   let pending = true;
@@ -642,8 +700,7 @@ export function useRemoteResults(
   useEffect(() => {
     if (!shown) return;
     const stops = (JSON.parse(connections) as [string, number, boolean][]).map(
-      ([id, rejoin, receipts]) =>
-        receipts ? results.watchReceipts(id, rejoin) : watchResults(results, id, rejoin),
+      ([id, rejoin, receipts]) => watchResults(results, id, rejoin, receipts),
     );
     return () => {
       for (const stop of stops) stop();

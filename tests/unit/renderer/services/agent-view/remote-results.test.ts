@@ -1,8 +1,9 @@
 import { describe, expect, jest, spyOn, test } from "bun:test";
-import type {
-  RemoteSession,
-  RpcResult,
-  SessionEvent,
+import {
+  MAX_MARK_SEEN,
+  type RemoteSession,
+  type RpcResult,
+  type SessionEvent,
 } from "../../../../../packages/remote-protocol/src/rpc";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import { remoteSessionKey } from "../../../../../src/renderer/services/agent-view/layout";
@@ -37,6 +38,12 @@ describe("host read receipts", () => {
     ["a listed result", unread, "new-result"],
     ["a result without its time", { ...unread, since: undefined }, "idle"],
     ["a failed turn", { ...unread, failed: true }, "idle"],
+    ["a usage limit wait", { ...unread, limitWait: { at: 10 } }, "idle"],
+    [
+      "a pending permission",
+      { ...unread, waiting: { kind: "permission", text: "May I?" } },
+      "idle",
+    ],
     ["an idle chat with completion history", chat, "idle"],
   ] as const)("uses the listing for %s", (_label, row, state) => {
     const results = new RemoteResults();
@@ -63,6 +70,16 @@ describe("host read receipts", () => {
         { deviceId: "mac", session: unread, hostReceipts: true },
         { deviceId: "mac", session: second, hostReceipts: true },
         { deviceId: "mac", session: { ...unread, failed: true }, hostReceipts: true },
+        {
+          deviceId: "mac",
+          session: { ...unread, tabId: "limited", limitWait: { at: 10 } },
+          hostReceipts: true,
+        },
+        {
+          deviceId: "mac",
+          session: { ...unread, tabId: "asking", waiting: { kind: "permission", text: "May I?" } },
+          hostReceipts: true,
+        },
         { deviceId: "older", session: unread },
       ]);
       expect(call.mock.calls).toEqual([
@@ -95,7 +112,7 @@ describe("host read receipts", () => {
     }
   });
 
-  test("migrates matching saved times and retries only on a fresh connection after failure", async () => {
+  test("migrates matching saved times and retries on a fresh connection after failure", async () => {
     const { remoteSeen, peerOrderAccount } = useAgentViewStore.getState();
     const accountKey = "receipt-migration";
     const candidates = [
@@ -155,6 +172,117 @@ describe("host read receipts", () => {
       observe.mockRestore();
       call.mockRestore();
       useAgentViewStore.setState({ remoteSeen, peerOrderAccount });
+    }
+  });
+
+  test.each([
+    true,
+    false,
+  ])("retries within a live watch with bounded delays (recovers=%s)", async (recovers) => {
+    const results = new RemoteResults();
+    const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, take) => {
+      take({ status: "ready", list: { sessions: [unread], workspaces: [] } });
+      return () => {};
+    });
+    let healthy = false;
+    const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () =>
+      healthy ? ipcOk({ marked: 1 }) : ipcErr("unavailable", "the host did not answer"),
+    );
+    jest.useFakeTimers();
+    const stop = watchResults(results, "mac", 0, true);
+    try {
+      jest.advanceTimersByTime(0);
+      // The receipt-capable watch reads listings without asking for legacy events.
+      expect(call).not.toHaveBeenCalled();
+      results.markSeen([{ deviceId: "mac", session: unread, hostReceipts: true }]);
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(999);
+      expect(call).toHaveBeenCalledTimes(1);
+      healthy = recovers;
+      jest.advanceTimersByTime(1);
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(2);
+      for (const delay of [2_000, 4_000, 60_000]) {
+        jest.advanceTimersByTime(delay);
+        await Promise.resolve();
+      }
+      expect(call).toHaveBeenCalledTimes(recovers ? 2 : 4);
+      expect(call.mock.calls.every(([, method]) => method === "peerSessionsMarkSeen")).toBe(true);
+    } finally {
+      stop();
+      jest.useRealTimers();
+      observe.mockRestore();
+      call.mockRestore();
+    }
+  });
+
+  test("splits a selection of over 500 results into bounded receipts", async () => {
+    const previous = useAgentViewStore.getState();
+    const accountKey = "large-read-batch";
+    useAgentViewStore.setState({ peerOrderAccount: accountKey, remoteSeen: undefined });
+    const calls: string[][] = [];
+    const call = spyOn(ipc, "ipcCallResult").mockImplementation(async (_, __, params) => {
+      const seen = (params as { seen: { tabId: string }[] }).seen;
+      calls.push(seen.map(({ tabId }) => tabId));
+      return ipcOk({ marked: seen.length });
+    });
+    const tabIds = Array.from({ length: MAX_MARK_SEEN + 2 }, (_, i) => `tab-${i}`);
+    try {
+      new RemoteResults(accountKey).markSeen(
+        tabIds.map((tabId) => ({
+          deviceId: "mac",
+          session: { ...unread, tabId },
+          hostReceipts: true,
+        })),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(calls.map((batch) => batch.length)).toEqual([MAX_MARK_SEEN, 2]);
+      expect(calls.flat()).toEqual(tabIds);
+      expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
+    } finally {
+      call.mockRestore();
+      useAgentViewStore.setState({
+        remoteSeen: previous.remoteSeen,
+        peerOrderAccount: previous.peerOrderAccount,
+      });
+    }
+  });
+
+  test("retries a migrated receipt from a cached listing during the same watch", async () => {
+    const previous = useAgentViewStore.getState();
+    const accountKey = "cached-listing-retry";
+    const key = remoteSessionKey({ deviceId: "mac", ...unread });
+    useAgentViewStore.setState({
+      peerOrderAccount: accountKey,
+      remoteSeen: { accountKey, entries: new Map([[key, { at: 10 }]]) },
+    });
+    const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, take) => {
+      take({ status: "ready", list: { sessions: [unread], workspaces: [] } });
+      return () => {};
+    });
+    const call = spyOn(ipc, "ipcCallResult")
+      .mockImplementationOnce(async () => ipcErr("unavailable", "temporary failure"))
+      .mockImplementationOnce(async () => ipcOk({ marked: 1 }));
+    jest.useFakeTimers();
+    const stop = new RemoteResults(accountKey).watchReceipts("mac", 0);
+    try {
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(2);
+      expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
+    } finally {
+      stop();
+      jest.useRealTimers();
+      observe.mockRestore();
+      call.mockRestore();
+      useAgentViewStore.setState({
+        remoteSeen: previous.remoteSeen,
+        peerOrderAccount: previous.peerOrderAccount,
+      });
     }
   });
 
