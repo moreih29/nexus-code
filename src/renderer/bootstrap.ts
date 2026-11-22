@@ -35,7 +35,7 @@ import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentInstructionsStore } from "./state/stores/agent-instructions";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
-import { useAgentViewStore } from "./state/stores/agent-view";
+import { startAgentViewPeerOrderSync, useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useChatFontStore } from "./state/stores/chat-font";
@@ -294,6 +294,7 @@ async function bootstrapAppState(): Promise<void> {
   // keeping those that still exist, and let go of each tab as it closes.
   useAgentViewStore.getState().hydrate(state.agentView, tabExists);
   startAgentViewPruning();
+  startAgentViewPeerOrderSync();
 
   registerStatePersistence();
 

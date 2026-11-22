@@ -5,20 +5,34 @@
  */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { remoteFileKey } from "../../../../../src/shared/fs/remote-file-key";
+import { type IpcResult, ipcOk } from "../../../../../src/shared/ipc/result";
+import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import { AgentViewSnapshotSchema } from "../../../../../src/shared/types/agent-view";
 
 const stored: unknown[] = [];
+let accountReply: Promise<IpcResult<RemoteAccountState>> | undefined;
+let accountChanged: ((state: RemoteAccountState) => void) | undefined;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: unknown) => {
     if (channel === "appState" && method === "set") stored.push(args);
+    if (channel === "remote" && method === "account" && accountReply) return accountReply;
     return Promise.resolve({ ok: true as const, value: undefined });
+  },
+  ipcListen(channel: string, event: string, listener: (state: RemoteAccountState) => void) {
+    if (channel === "remote" && event === "accountChanged") accountChanged = listener;
+    return () => {
+      if (accountChanged === listener) accountChanged = undefined;
+    };
   },
 }));
 
-const { __resetAgentViewForTests, flushAgentViewPersistence, useAgentViewStore } = await import(
-  "../../../../../src/renderer/state/stores/agent-view"
-);
+const {
+  __resetAgentViewForTests,
+  flushAgentViewPersistence,
+  startAgentViewPeerOrderSync,
+  useAgentViewStore,
+} = await import("../../../../../src/renderer/state/stores/agent-view");
 const { heldKeys, openKey, remoteSessionKey, removeKey } = await import(
   "../../../../../src/renderer/services/agent-view/layout"
 );
@@ -27,6 +41,13 @@ const P1 = "00000000-0000-4000-8000-0000000000a1";
 const P2 = "00000000-0000-4000-8000-0000000000a2";
 const A = "ws-a:t1";
 const B = "ws-b:t2";
+const SIGNED_IN = {
+  status: "signed-in" as const,
+  server: "https://nexus.example",
+  user: { id: "user-1", name: "User", email: "user@example.com" },
+  device: { id: "self", name: "Mac", platform: "darwin" },
+};
+const PEER_ORDER_ACCOUNT = JSON.stringify([SIGNED_IN.server, SIGNED_IN.user.id]);
 
 /** Past the store's wait before it stores a change. */
 const settle = () => jest.advanceTimersByTime(400);
@@ -40,6 +61,8 @@ describe("agent view store", () => {
 
   afterEach(() => {
     __resetAgentViewForTests();
+    accountReply = undefined;
+    accountChanged = undefined;
     jest.useRealTimers();
   });
 
@@ -175,27 +198,63 @@ describe("agent view store", () => {
     });
   });
 
-  it("reads older snapshots and round-trips the computer order independently of session keys", async () => {
+  it("reads older snapshots and round-trips the computer order for the same account", async () => {
     const older = AgentViewSnapshotSchema.parse({
       mode: "agents",
       root: { kind: "leaf", id: P1, tabIds: [], activeTabId: null },
       activeLeafId: P1,
+      peerOrder: ["old-unscoped-device"],
     });
     const view = useAgentViewStore.getState();
     view.hydrate(older, () => false);
-    expect(useAgentViewStore.getState().peerOrder).toEqual([]);
+    expect(useAgentViewStore.getState().peerOrder).toBeUndefined();
 
-    view.setPeerOrder(["pc", "mac"]);
+    view.setPeerOrderAccount(PEER_ORDER_ACCOUNT);
+    view.setPeerOrder(PEER_ORDER_ACCOUNT, ["pc", "mac"]);
     expect(await flushAgentViewPersistence()).toBe(true);
     const saved = AgentViewSnapshotSchema.parse((stored[0] as { agentView: unknown }).agentView);
-    expect(saved.peerOrder).toEqual(["pc", "mac"]);
+    expect(saved.peerOrder).toEqual({ accountKey: PEER_ORDER_ACCOUNT, ids: ["pc", "mac"] });
 
     __resetAgentViewForTests();
     view.hydrate(saved, () => false);
-    expect(useAgentViewStore.getState().peerOrder).toEqual(["pc", "mac"]);
-    view.setPeerOrder(["pc", "mac"]);
+    view.setPeerOrderAccount(PEER_ORDER_ACCOUNT);
+    expect(useAgentViewStore.getState().peerOrder).toEqual(saved.peerOrder);
+    view.setPeerOrder(PEER_ORDER_ACCOUNT, ["pc", "mac"]);
     expect(await flushAgentViewPersistence()).toBe(true);
     expect(stored).toHaveLength(1);
+  });
+
+  it.each([
+    ["sign-out", { status: "signed-out", server: SIGNED_IN.server }],
+    ["switching accounts", { ...SIGNED_IN, user: { ...SIGNED_IN.user, id: "user-2" } }],
+    ["switching servers", { ...SIGNED_IN, server: "https://other.example" }],
+  ] as const)("clears persisted computer order on %s while the agent view is closed", async (_, next) => {
+    const view = useAgentViewStore.getState();
+    view.hydrate(
+      {
+        mode: "workspace",
+        root: { kind: "leaf", id: P1, tabIds: [], activeTabId: null },
+        activeLeafId: P1,
+        peerOrder: { accountKey: PEER_ORDER_ACCOUNT, ids: ["pc", "mac"] },
+      },
+      () => true,
+    );
+
+    const initial = Promise.withResolvers<IpcResult<RemoteAccountState>>();
+    accountReply = initial.promise;
+    const stop = startAgentViewPeerOrderSync();
+    try {
+      expect(accountChanged).toBeDefined();
+      accountChanged?.(next);
+      initial.resolve(ipcOk(SIGNED_IN));
+      await initial.promise;
+      view.setPeerOrder(PEER_ORDER_ACCOUNT, ["mac", "pc"]);
+      expect(useAgentViewStore.getState().peerOrder).toBeUndefined();
+      expect(await flushAgentViewPersistence()).toBe(true);
+      expect((stored[0] as { agentView: object }).agentView).not.toHaveProperty("peerOrder");
+    } finally {
+      stop();
+    }
   });
 
   it("lists by state until the user picks the workspaces, and stores only a pick that is not that", async () => {

@@ -20,7 +20,7 @@ export function orderSessions<T extends { readonly key: string }>(
 
 export function orderPeers<T extends { readonly id: string }>(
   peers: readonly T[],
-  order: readonly string[],
+  order: readonly string[] | undefined,
 ): readonly T[] {
   return orderRows(peers, order, (peer) => peer.id);
 }
@@ -55,18 +55,18 @@ export function moveKey(
   return rest;
 }
 
-/** Replace the group's slots in the shared order, using the room roster to drop removed IDs. */
+/** Move among online slots, using the room roster to drop removed IDs. */
 export function movePeer(
   peers: readonly { readonly id: string }[],
   order: readonly string[],
-  group: readonly string[],
+  online: readonly string[],
   moved: string,
   target: string,
   edge: DropEdge,
 ): readonly string[] {
   const ids = orderPeers(peers, order).map(({ id }) => id);
-  const members = new Set(group);
-  const current = ids.filter((id) => members.has(id));
+  const movable = new Set(online);
+  const current = ids.filter((id) => movable.has(id));
   const next = moveKey(current, moved, target, edge);
   if (next.every((id, index) => id === current[index])) return order;
   const replacements = new Map(current.map((id, index) => [id, next[index]]));

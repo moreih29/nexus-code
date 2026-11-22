@@ -28,26 +28,25 @@ export function peerOrderMenu(
   { ids, move }: Pick<PeerReorder, "ids" | "move">,
 ): MenuItemSpec[] {
   const index = ids.indexOf(id);
+  if (index === -1) return [];
   const above = ids[index - 1];
-  const below = index === -1 ? undefined : ids[index + 1];
-  return [
-    {
+  const below = ids[index + 1];
+  const items: MenuItemSpec[] = [];
+  if (above !== undefined) {
+    items.push({
       kind: "item",
       label: i18next.t("agentView.remote.moveUp"),
-      disabled: above === undefined,
-      onSelect: () => {
-        if (above !== undefined) move(id, above, "before");
-      },
-    },
-    {
+      onSelect: () => move(id, above, "before"),
+    });
+  }
+  if (below !== undefined) {
+    items.push({
       kind: "item",
       label: i18next.t("agentView.remote.moveDown"),
-      disabled: below === undefined,
-      onSelect: () => {
-        if (below !== undefined) move(id, below, "after");
-      },
-    },
-  ];
+      onSelect: () => move(id, below, "after"),
+    });
+  }
+  return items;
 }
 
 function openPeerMenu(button: HTMLButtonElement): void {
@@ -69,15 +68,13 @@ export function RemotePeerHeader({
   expanded,
   onToggle,
   className,
-  testId,
   children,
 }: {
   id: string;
   reorder: PeerReorder | undefined;
-  expanded?: boolean;
-  onToggle?: () => void;
+  expanded: boolean;
+  onToggle: () => void;
   className: string;
-  testId: string;
   children: ReactNode;
 }) {
   const activeDrag = reorder?.drag;
@@ -89,12 +86,8 @@ export function RemotePeerHeader({
       type="button"
       draggable={reorder !== undefined}
       aria-expanded={expanded}
-      aria-haspopup={reorder && !onToggle ? "menu" : undefined}
       aria-keyshortcuts={reorder ? "Shift+F10" : undefined}
-      onClick={(e) => {
-        if (onToggle) onToggle();
-        else if (reorder) openPeerMenu(e.currentTarget);
-      }}
+      onClick={onToggle}
       onKeyDown={(e) => {
         if (reorder && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) {
           e.preventDefault();
@@ -135,7 +128,7 @@ export function RemotePeerHeader({
         "relative text-left outline-none focus-visible:ring-1 focus-visible:ring-ring",
         className,
       )}
-      data-testid={testId}
+      data-testid="remote-peer-header"
     >
       {drop?.target === id && <SidebarDropIndicator edge={drop.edge} />}
       {children}

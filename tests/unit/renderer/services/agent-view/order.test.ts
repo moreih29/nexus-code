@@ -55,6 +55,7 @@ describe("the list's order", () => {
 describe("the other computers' order", () => {
   const peers = ["mac", "pc", "laptop", "office", "new", "newer"].map((id) => ({ id }));
   const saved = ["laptop", "removed", "pc", "office", "mac"];
+  const online = ["pc", "mac", "new"];
 
   it("follows the stored IDs and appends new computers in room order", () => {
     expect(orderPeers(peers, saved).map((peer) => peer.id)).toEqual([
@@ -68,8 +69,14 @@ describe("the other computers' order", () => {
     expect(orderPeers(peers, [])).toBe(peers);
   });
 
-  it("drops before or after a computer in the same group, keeping the other group's slots", () => {
-    expect(movePeer(peers, saved, ["pc", "mac", "new"], "new", "pc", "before")).toEqual([
+  it("swaps adjacent online computers and keeps the offline slots", () => {
+    const swapped = ["laptop", "mac", "office", "pc", "new", "newer"];
+    expect(movePeer(peers, saved, online, "mac", "pc", "before")).toEqual(swapped);
+    expect(movePeer(peers, saved, online, "pc", "mac", "after")).toEqual(swapped);
+  });
+
+  it("drops before or after an online computer, pruning missing devices and keeping offline slots", () => {
+    expect(movePeer(peers, saved, online, "new", "pc", "before")).toEqual([
       "laptop",
       "new",
       "office",
@@ -77,15 +84,21 @@ describe("the other computers' order", () => {
       "mac",
       "newer",
     ]);
-    expect(
-      movePeer(peers, saved, ["laptop", "office", "newer"], "laptop", "newer", "after"),
-    ).toEqual(["office", "pc", "newer", "mac", "new", "laptop"]);
+    expect(movePeer(peers, saved, online, "pc", "new", "after")).toEqual([
+      "laptop",
+      "mac",
+      "office",
+      "new",
+      "pc",
+      "newer",
+    ]);
   });
 
-  it("keeps the saved order on cross-group, missing, or no-op drops", () => {
-    const group = ["pc", "mac", "new"];
-    expect(movePeer(peers, saved, group, "mac", "office", "before")).toBe(saved);
-    expect(movePeer(peers, saved, group, "pc", "removed", "after")).toBe(saved);
-    expect(movePeer(peers, saved, group, "mac", "new", "before")).toBe(saved);
+  it("keeps the saved order on offline, missing, or no-op drops", () => {
+    expect(movePeer(peers, saved, online, "office", "laptop", "before")).toBe(saved);
+    expect(movePeer(peers, saved, online, "office", "mac", "before")).toBe(saved);
+    expect(movePeer(peers, saved, online, "mac", "office", "before")).toBe(saved);
+    expect(movePeer(peers, saved, online, "pc", "removed", "after")).toBe(saved);
+    expect(movePeer(peers, saved, online, "mac", "new", "before")).toBe(saved);
   });
 });

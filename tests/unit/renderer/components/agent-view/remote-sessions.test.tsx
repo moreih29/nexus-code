@@ -3,10 +3,12 @@ import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import { peerOrderMenu } from "../../../../../src/renderer/components/agent-view/remote-peer-header";
+import * as banner from "../../../../../src/renderer/components/ui/banner";
 import * as button from "../../../../../src/renderer/components/ui/button";
 import * as account from "../../../../../src/renderer/services/remote/account";
 import * as room from "../../../../../src/renderer/services/remote/room";
 import * as agentView from "../../../../../src/renderer/state/stores/agent-view";
+import { useNotificationsStore } from "../../../../../src/renderer/state/stores/notifications";
 import { useSettingsUIStore } from "../../../../../src/renderer/state/stores/settings-ui";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
@@ -27,6 +29,12 @@ const { offlinePeers, peerServes, servingPeers } = room;
 
 describe("Other computers sign-in guidance", () => {
   const server = "https://nexus.example";
+  const signedIn = {
+    status: "signed-in" as const,
+    server,
+    user: { id: "u1", email: "me@example.com", name: "Me" },
+    device: { id: "d1", name: "Mac", platform: "darwin" },
+  };
   let readAccount: ReturnType<typeof spyOn<typeof account, "useRemoteAccount">>;
   let readRoom: ReturnType<typeof spyOn<typeof room, "useRemoteRoom">>;
 
@@ -68,16 +76,30 @@ describe("Other computers sign-in guidance", () => {
   });
 
   test.each([
+    ["sign-in", "off"],
+    ["update", "outdated"],
+  ] as const)("closes the %s notice when its dismiss button is pressed", (_, status) => {
+    if (status === "outdated") readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status, peers: [] });
+    const { dismissedBanners } = useNotificationsStore.getState();
+    const renderDismiss = spyOn(banner, "BannerDismissButton");
+    try {
+      const render = () => renderToStaticMarkup(<RemoteSessions query="" />);
+      expect(render()).toContain('aria-label="Dismiss"');
+      renderDismiss.mock.calls[0]?.[0].dismiss.onDismiss();
+      expect(render()).toBe("");
+    } finally {
+      renderDismiss.mockRestore();
+      useNotificationsStore.setState({ dismissedBanners });
+    }
+  });
+
+  test.each([
     "off",
     "connecting",
     "waiting",
   ] as const)("a signed-in account with no peers keeps the section hidden when the room is %s", (status) => {
-    readAccount.mockReturnValue({
-      status: "signed-in",
-      server,
-      user: { id: "u1", email: "me@example.com", name: "Me" },
-      device: { id: "d1", name: "Mac", platform: "darwin" },
-    });
+    readAccount.mockReturnValue(signedIn);
     readRoom.mockReturnValue({ status, peers: [] });
     expect(renderToStaticMarkup(<RemoteSessions query="" />)).toBe("");
   });
@@ -138,42 +160,68 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
-  test("uses the saved order within the online and offline groups", () => {
-    const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({
-      status: "online",
-      peers: [
-        { ...peer, id: "desk", name: "Desk PC" },
-        { ...peer, id: "home", name: "Home PC", online: false },
-        { ...peer, id: "laptop", name: "Laptop" },
-        { ...peer, id: "office", name: "Office PC", online: false },
-        { ...peer, id: "new", name: "New PC" },
-      ],
-    });
+  test("orders both groups and only offers reordering with multiple online computers outside search", () => {
+    const signedIn = {
+      status: "signed-in" as const,
+      server: "https://nexus.example",
+      user: { id: "u1", email: "me@example.com", name: "Me" },
+      device: { id: "d1", name: "Mac", platform: "darwin" },
+    };
+    const peers = [
+      { ...peer, id: "desk", name: "Desk PC" },
+      { ...peer, id: "home", name: "Home PC", online: false },
+      { ...peer, id: "laptop", name: "Laptop" },
+      { ...peer, id: "office", name: "Office PC", online: false },
+      { ...peer, id: "new", name: "New PC" },
+    ];
+    const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({ status: "online", peers });
+    const readAccount = spyOn(account, "useRemoteAccount").mockReturnValue(signedIn);
+    const accountKey = JSON.stringify([signedIn.server, signedIn.user.id]);
     const state = agentView.useAgentViewStore.getInitialState();
     const readView = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
-      select({ ...state, peerOrder: ["office", "laptop", "home", "removed", "desk"] }),
+      select({
+        ...state,
+        peerOrder: { accountKey, ids: ["office", "laptop", "home", "removed", "desk"] },
+        peerOrderAccount: accountKey,
+      }),
     );
-    try {
-      const html = renderToStaticMarkup(<RemoteSessions query="" />);
-      const headers = [...html.matchAll(/<button[^>]*draggable="true"[^>]*>.*?<\/button>/g)];
-      expect(headers).toHaveLength(5);
-      for (const [index, name] of [
-        "Laptop",
-        "Desk PC",
-        "New PC",
-        "Office PC",
-        "Home PC",
-      ].entries()) {
-        expect(headers[index]?.[0]).toContain(name);
+    const headers = (query = "") => {
+      const html = renderToStaticMarkup(<RemoteSessions query={query} />);
+      return [
+        ...html.matchAll(
+          /<(?:button|div)[^>]*data-testid="remote-peer-(?:header|offline)"[^>]*>.*?<\/(?:button|div)>/g,
+        ),
+      ].map(([header]) => header);
+    };
+    const expectHeaders = (rows: string[], names: string[], reorderable: number) => {
+      expect(rows).toHaveLength(names.length);
+      for (const [index, name] of names.entries()) {
+        expect(rows[index]).toContain(name);
+        expect(rows[index]?.includes('draggable="true"')).toBe(index < reorderable);
+        expect(rows[index]?.includes('data-state="closed"')).toBe(index < reorderable);
       }
-      expect(renderToStaticMarkup(<RemoteSessions query="session" />)).not.toContain("Office PC");
+    };
+    try {
+      expectHeaders(headers(), ["Laptop", "Desk PC", "New PC", "Office PC", "Home PC"], 3);
+      expectHeaders(headers("session"), ["Laptop", "Desk PC", "New PC"], 0);
+
+      readAccount.mockReturnValue({ ...signedIn, user: { ...signedIn.user, id: "u2" } });
+      expectHeaders(headers(), ["Desk PC", "Laptop", "New PC", "Home PC", "Office PC"], 0);
+      readAccount.mockReturnValue(signedIn);
+
+      readRoom.mockReturnValue({
+        status: "online",
+        peers: peers.filter(({ id }) => id !== "laptop" && id !== "new"),
+      });
+      expectHeaders(headers(), ["Desk PC", "Office PC", "Home PC"], 0);
     } finally {
       readView.mockRestore();
       readRoom.mockRestore();
+      readAccount.mockRestore();
     }
   });
 
-  test("the computer's menu moves up or down and disables actions at the group's ends", () => {
+  test("the menu moves to the adjacent online computer and omits actions at the ends", () => {
     const moves: unknown[] = [];
     const ids = ["laptop", "pc", "mac"];
     const menu = (id: string) =>
@@ -182,12 +230,15 @@ describe("the agent view's other computers", () => {
       );
 
     expect(menu("pc").map((item) => item.label)).toEqual(["Move up", "Move down"]);
-    expect(menu("laptop").map((item) => item.disabled)).toEqual([true, false]);
-    expect(menu("mac").map((item) => item.disabled)).toEqual([false, true]);
+    expect(menu("laptop").map((item) => item.label)).toEqual(["Move down"]);
+    expect(menu("mac").map((item) => item.label)).toEqual(["Move up"]);
+    expect(menu("offline")).toEqual([]);
     menu("laptop")[0]?.onSelect();
-    menu("mac")[1]?.onSelect();
+    menu("mac")[0]?.onSelect();
     for (const item of menu("pc")) item.onSelect();
     expect(moves).toEqual([
+      ["laptop", "pc", "after"],
+      ["mac", "pc", "before"],
       ["pc", "laptop", "before"],
       ["pc", "mac", "after"],
     ]);
