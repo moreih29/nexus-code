@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { answerCardBlocks } from "../../../shared/notes/answer-card";
 import type { LineReport } from "../../../shared/notes/line-report";
 import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
@@ -31,6 +32,7 @@ const NOTE_WRITE_CALLS: readonly string[] = [
   "create",
   "save",
   "addLink",
+  "saveAnswer",
   "updateLink",
   "removeLink",
   "summarize",
@@ -429,6 +431,44 @@ export function registerNotesChannel(opts: {
         const entry = await store.addLink(location, noteId, link, touchExisting);
         linksChanged(location.key, noteId);
         return ipcOk(entry);
+      },
+      saveAnswer: async (args: unknown) => {
+        const request = validateArgs(c.saveAnswer.args, args);
+        const location = locationOf(request.workspaceId);
+        const blocks = answerCardBlocks(request.markdown, request.imageAlt);
+        if (!blocks.length) throw new NoteError("bad-request", "Empty answer");
+        const noteId = request.noteId ?? (await store.create(location)).id;
+        let written = false;
+        try {
+          await store.saveAnswer(
+            location,
+            noteId,
+            { ...request.source, workspaceId: request.workspaceId },
+            blocks,
+            (card, updatedAt) => {
+              written = true;
+              broadcast("notes", "blocksAdded", {
+                locationKey: location.key,
+                noteId,
+                blocks: [card as unknown as Record<string, unknown>],
+                updatedAt,
+              });
+            },
+          );
+        } catch (error) {
+          if (!written && !request.noteId) await store.remove(location, noteId);
+          throw error;
+        } finally {
+          if (written) {
+            linksChanged(location.key, noteId);
+            changed({
+              locationKey: location.key,
+              noteId,
+              change: request.noteId ? "saved" : "created",
+            });
+          }
+        }
+        return ipcOk(noteId);
       },
       updateLink: async (args: unknown) => {
         const update = validateArgs(c.updateLink.args, args);

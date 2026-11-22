@@ -88,6 +88,7 @@ import {
   relativeTimeFormat,
 } from "../../utils/intl-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
+import { SaveAnswerMenu } from "../notes/save-answer-menu";
 import { IconButton } from "../ui/icon-button";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
@@ -501,9 +502,10 @@ export function MessageList({
   // Each message, memoized, renders only when it, these or its part of the
   // sources (item-view) change: not for a streamed chunk, a call of
   // another message's, or its tab shown or hidden.
+  const wholeConversation = items === undefined;
   const ctx = useMemo<ItemContext>(
-    () => ({ workspaceId, tabId, cwd, rootPath, actions }),
-    [workspaceId, tabId, cwd, rootPath, actions],
+    () => ({ workspaceId, tabId, cwd, rootPath, actions, wholeConversation }),
+    [workspaceId, tabId, cwd, rootPath, actions, wholeConversation],
   );
   const under = useMemo(() => callsUnder(tools), [tools]);
   const views = useMemo(() => {
@@ -622,6 +624,7 @@ interface ItemContext {
   cwd: string;
   rootPath: string;
   actions?: MessageActions;
+  wholeConversation: boolean;
 }
 
 interface ItemProps {
@@ -1123,6 +1126,9 @@ function AssistantMessage({
             >
               <GitFork className="size-3.5" />
             </IconButton>
+          )}
+          {ctx.wholeConversation && ctx.tabId && (
+            <SaveAnswerMenu claudeUuid={item.uuid} messageId={item.messageId} markdown={text} />
           )}
           <MessageTime at={item.at} />
         </div>

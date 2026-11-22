@@ -13,11 +13,13 @@ import { useTranslation } from "react-i18next";
 import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
 import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
-import type { NoteLineReported } from "../../../shared/types/notes";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { noteLocation } from "../../services/notes/conversation";
+import {
+  createNoteDocumentInbox,
+  type NoteDocumentEvent,
+} from "../../services/notes/document-inbox";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
-import { createLineReportInbox } from "../../services/notes/report-inbox";
 import {
   createNoteAutoSave,
   type NoteSaveState,
@@ -44,11 +46,14 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
+import { NoteAnswerCards } from "./answer-cards";
 import { ConversationChips, NoteConversationLinks } from "./conversation-chips";
+import { applyAnswerCard } from "./editor/answer-card";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
 import { applyLineReport } from "./editor/line-report";
 import { RecordControls } from "./record-controls";
+import { NoteSelectionMenu } from "./selection-menu";
 import { SendToAgent } from "./send-to-agent";
 import { NoteSummaryBanners } from "./summary-banner";
 import { sameSummaryTaskTimes, summaryTaskTimes } from "./summary-task-times";
@@ -78,8 +83,20 @@ export function NoteEditor({
     const workspace = s.workspaces.find((w) => w.id === workspaceId);
     return workspace && noteLocation(workspace, s.workspaces);
   });
-  const reports = useMemo(() => createLineReportInbox(location, noteId), [location, noteId]);
-  useLayoutEffect(() => notesApi.onLineReported(reports.receive), [reports]);
+  const inbox = useMemo(
+    () => createNoteDocumentInbox<NoteDocumentEvent>(location, noteId),
+    [location, noteId],
+  );
+  useLayoutEffect(() => {
+    const stopReports = notesApi.onLineReported(inbox.receive);
+    const stopCards = notesApi.onBlocksAdded((event) => {
+      if (event.updatedAt !== undefined) inbox.receive({ ...event, updatedAt: event.updatedAt });
+    });
+    return () => {
+      stopCards();
+      stopReports();
+    };
+  }, [inbox]);
 
   useEffect(() => {
     let alive = true;
@@ -118,7 +135,7 @@ export function NoteEditor({
         tabId={tabId}
         note={note}
         isVisible={isVisible}
-        receiveReport={reports.attach}
+        receiveDocumentEvent={inbox.attach}
       />
     </NoteConversationLinks>
   );
@@ -129,13 +146,13 @@ function LoadedNote({
   tabId,
   note,
   isVisible,
-  receiveReport,
+  receiveDocumentEvent,
 }: {
   workspaceId: string;
   tabId: string;
   note: NoteContent;
   isVisible: boolean;
-  receiveReport: (apply: (event: NoteLineReported) => void) => () => void;
+  receiveDocumentEvent: (apply: (event: NoteDocumentEvent) => void) => () => void;
 }) {
   const { t } = useTranslation("notes");
   // The title as typed. The input keeps it itself: a key typed there draws
@@ -188,7 +205,7 @@ function LoadedNote({
     };
   }, [nameTab]);
 
-  const reportBase = useRef(note.updatedAt);
+  const documentBase = useRef(note.updatedAt);
   const { schedule, flush, discard } = useMemo(
     () => createNoteAutoSave((change) => notesApi.save(workspaceId, note.id, change), setSaveState),
     [workspaceId, note.id],
@@ -329,7 +346,7 @@ function LoadedNote({
       immediatelyRender: true,
       onUpdate: ({ editor: e }) => {
         const doc = e.getJSON() as DocNode;
-        schedule({ doc, baseUpdatedAt: reportBase.current });
+        schedule({ doc, baseUpdatedAt: documentBase.current });
         const next = summaryTaskTimes(doc);
         setTaskTimes((previous) => (sameSummaryTaskTimes(previous, next) ? previous : next));
       },
@@ -374,12 +391,16 @@ function LoadedNote({
 
   useLayoutEffect(() => {
     if (!editor) return;
-    return receiveReport((event) => {
-      if (editor.isDestroyed || event.updatedAt <= reportBase.current) return;
-      reportBase.current = event.updatedAt;
-      applyLineReport(editor, event);
+    return receiveDocumentEvent((event) => {
+      if (editor.isDestroyed || event.updatedAt <= documentBase.current) return;
+      documentBase.current = event.updatedAt;
+      if ("blocks" in event) {
+        for (const card of event.blocks) applyAnswerCard(editor, card as unknown as DocNode);
+      } else {
+        applyLineReport(editor, event);
+      }
     });
-  }, [editor, receiveReport]);
+  }, [editor, receiveDocumentEvent]);
 
   // A photo from the user's phone: written at the end of the note already;
   // put in this copy too (once), which saves it with what is typed here.
@@ -403,6 +424,7 @@ function LoadedNote({
   // them with what is typed here.
   useEffect(() => {
     return notesApi.onBlocksAdded((event) => {
+      if (event.updatedAt !== undefined) return;
       const e = editorRef.current;
       if (event.noteId !== note.id || !e || e.isDestroyed) return;
       const blocks = event.blocks as unknown as DocNode[];
@@ -612,7 +634,7 @@ function LoadedNote({
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
         <div
-          className="note-doc min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4"
+          className="note-doc relative min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4"
           {...{ [DND_FILE_SURFACE_ATTR]: "" }}
           onDragOver={(e) => {
             const types = e.dataTransfer.types;
@@ -625,6 +647,19 @@ function LoadedNote({
           }}
         >
           <EditorContent editor={editor} className="h-full" />
+          {editor && workspace && (
+            <>
+              <NoteAnswerCards editor={editor} />
+              <NoteSelectionMenu
+                editor={editor}
+                workspaceId={workspaceId}
+                cwd={workspace.rootPath}
+                noteId={note.id}
+                title={titleNow}
+                flush={flush}
+              />
+            </>
+          )}
           {editor && (
             <NoteTaskControls
               editor={editor}

@@ -508,3 +508,83 @@ test.each([
     read.mockRestore();
   }
 });
+
+test("saving an answer broadcasts the stored card and a stale autosave keeps the quote", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-card-ipc-"));
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  try {
+    const ipc = createIpcPair().window.ipc;
+    const location = notes.locationOf(id);
+    const open = await notes.store.create(location, "Review");
+    const caller = {
+      agent: "codex",
+      tabId: "tab",
+      session: "thread",
+      messageId: "turn",
+      cwd: "/workspace",
+      title: "Conversation",
+    } as const;
+    const result = await ipc.call("notes", "saveAnswer", {
+      workspaceId: id,
+      noteId: open.id,
+      markdown: "Answer ![chart](file:///private).",
+      imageAlt: "Image",
+      source: caller,
+    });
+    expect(result).toMatchObject({ ok: true, value: open.id });
+    const [{ id: linkId, link }] = await notes.store.links(location, open.id);
+    expect(link).toMatchObject({ ...caller, workspaceId: id, kind: "card" });
+    const stored = await notes.store.read(location, open.id);
+    const [card] = stored.doc.content ?? [];
+    expect(card).toMatchObject({ type: "blockquote", attrs: { nexusLink: linkId } });
+    expect(broadcast).toHaveBeenCalledWith("notes", "blocksAdded", {
+      locationKey: location.key,
+      noteId: open.id,
+      updatedAt: stored.updatedAt,
+      blocks: [card],
+    });
+    const edited = { type: "paragraph", content: [{ type: "text", text: "Concurrent edit" }] };
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId: open.id,
+        doc: { type: "doc", content: [edited] },
+        baseUpdatedAt: open.updatedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await notes.store.read(location, open.id)).doc.content).toEqual([edited, card]);
+    expect(await fs.readFile(path.join(open.dir, "note.md"), "utf8")).toBe(
+      "# Review\n\nConcurrent edit\n\n> Answer chart.\n",
+    );
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId: open.id,
+        doc: { type: "doc", content: [edited] },
+        baseUpdatedAt: stored.updatedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await notes.store.read(location, open.id)).doc.content).toEqual([edited]);
+
+    const newNote = await ipc.call("notes", "saveAnswer", {
+      workspaceId: id,
+      markdown: "New quote",
+      imageAlt: "Image",
+      source: caller,
+    });
+    expect(newNote).toMatchObject({ ok: true, value: expect.any(String) });
+    if (!newNote.ok) throw new Error("New note failed");
+    expect(newNote.value).not.toBe(open.id);
+    expect(await notes.store.list(location)).toHaveLength(2);
+  } finally {
+    notes.dispose();
+    broadcast.mockRestore();
+    await rm(userData, { recursive: true, force: true });
+  }
+});

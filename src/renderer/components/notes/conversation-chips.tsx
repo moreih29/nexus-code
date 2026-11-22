@@ -172,6 +172,7 @@ export function ConversationChip({
   note,
   onUnavailable,
   line = false,
+  card = false,
 }: {
   entry: NoteLinkEntry;
   target: ConversationResolution;
@@ -180,6 +181,7 @@ export function ConversationChip({
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
   line?: boolean;
+  card?: boolean;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
@@ -222,6 +224,31 @@ export function ConversationChip({
       setOpening(false);
     }
   };
+
+  if (card) {
+    return (
+      <div
+        className="flex min-w-0 items-center gap-1.5 pb-1 text-app-micro text-muted-foreground"
+        data-testid="note-answer-card-header"
+      >
+        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate font-medium text-foreground" title={title}>
+          {title}
+        </span>
+        <span aria-hidden="true">·</span>
+        {statusIcon}
+        <span className="truncate">{label}</span>
+        <button
+          type="button"
+          className="ml-auto shrink-0 rounded-(--radius-control) px-1.5 py-0.5 hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-50"
+          disabled={opening || target.kind === "missing"}
+          onClick={() => void openConversation()}
+        >
+          {t("connections.openConversation")}
+        </button>
+      </div>
+    );
+  }
 
   const agent = t(`common:task.agents.${link.agent}`);
   const lineState =

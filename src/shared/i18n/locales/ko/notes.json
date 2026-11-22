@@ -336,5 +336,24 @@
     "promptSection": " · {{heading}} 아래",
     "promptReport": "끝나면 `nexus note report --done \"한 줄 요약\" --pr <PR 주소>`로 이 줄에 결과를 남겨 주세요. 막히면 `--failed`.",
     "sentWithoutLink": "메시지 보냄 · 할 일 연결 실패"
+  },
+  "connections": {
+    "linkedNote": "이 대화의 노트",
+    "mentions": "노트 및 파일",
+    "removeMention": "노트 빼기",
+    "mention": "노트 ‘{{title}}’: `nexus note read {{id}}`",
+    "saveAnswer": "노트에 저장",
+    "savedAnswer": "답변을 노트에 저장함",
+    "imageAlt": "이미지",
+    "openConversation": "열기",
+    "bold": "굵게",
+    "italic": "기울임",
+    "link": "링크",
+    "linkUrl": "링크 URL",
+    "linkInvalid": "HTTP 또는 HTTPS 주소 필요",
+    "sendSelection": "선택한 글 보내기",
+    "selectionDefault": "이 부분을 봐 줘.",
+    "selectionQuote": "노트 ‘{{title}}’에서 고른 글:",
+    "read": "노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다."
   }
 }

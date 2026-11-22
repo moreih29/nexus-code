@@ -55,6 +55,7 @@ import {
 import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { chatKey, revealPart, useChatStore, useChatTab } from "../../services/chat/store";
+import { ChatNotesProvider } from "../../services/notes/chat-notes";
 import { chatPanelOf } from "../../services/remote/chat-panel";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -648,13 +649,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         onCheck={() => void controller.refreshAccount()}
       />
       {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
-      <ConversationNoteChip
-        workspaceId={workspaceId}
-        tabId={tabId}
-        agent="codex"
-        session={props.threadId}
-        visible={isVisible}
-      />
+      <ConversationNoteChip />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
@@ -952,7 +947,15 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   );
   return (
     <ChatAgentContext.Provider value="codex">
-      <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+      <ChatNotesProvider
+        workspaceId={workspaceId}
+        tabId={tabId}
+        agent="codex"
+        session={props.threadId}
+        visible={isVisible}
+      >
+        <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+      </ChatNotesProvider>
     </ChatAgentContext.Provider>
   );
 }

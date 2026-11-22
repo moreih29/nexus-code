@@ -78,6 +78,7 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
+import { ChatNotesProvider } from "../../services/notes/chat-notes";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -702,13 +703,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         className="shrink-0 pt-1"
       />
       {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
-      <ConversationNoteChip
-        workspaceId={workspaceId}
-        tabId={tabId}
-        agent="claude"
-        session={props.sessionId}
-        visible={isVisible}
-      />
+      <ConversationNoteChip />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
@@ -983,7 +978,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       )}
     </div>
   );
-  return <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>;
+  return (
+    <ChatNotesProvider
+      workspaceId={workspaceId}
+      tabId={tabId}
+      agent="claude"
+      session={props.sessionId}
+      visible={isVisible}
+    >
+      <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+    </ChatNotesProvider>
+  );
 }
 
 /** Sends a call the turn waits on to the background, as Ctrl+B does in the terminal. */

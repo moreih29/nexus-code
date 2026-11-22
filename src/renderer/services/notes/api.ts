@@ -69,6 +69,14 @@ export const notesApi = {
     link: NewNoteLink,
     touchExisting?: true | string,
   ) => call(ipcCallResult("notes", "addLink", { workspaceId, noteId, link, touchExisting })),
+  saveAnswer: (
+    workspaceId: string,
+    noteId: string | undefined,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent"> & { messageId: string },
+    markdown: string,
+    imageAlt: string,
+  ) =>
+    call(ipcCallResult("notes", "saveAnswer", { workspaceId, noteId, source, markdown, imageAlt })),
   updateLink: (workspaceId: string, noteId: string, linkId: string, patch: NoteLinkPatch) =>
     call(ipcCallResult("notes", "updateLink", { workspaceId, noteId, linkId, patch })),
   updateLinksForTab: (tab: NoteLinkTarget & Pick<NoteLink, "agent">) =>

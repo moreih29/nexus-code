@@ -113,6 +113,20 @@ export const NotesArgs = {
     link: NewNoteLinkSchema,
     touchExisting: z.union([z.literal(true), NoteLinkIdSchema]).optional(),
   }),
+  saveAnswer: z.object({
+    ...ws,
+    noteId: NoteIdSchema.optional(),
+    source: NewNoteLinkSchema.pick({
+      tabId: true,
+      cwd: true,
+      agent: true,
+      session: true,
+      profileId: true,
+      title: true,
+    }).extend({ messageId: NewNoteLinkSchema.shape.messageId.unwrap() }),
+    markdown: z.string().min(1),
+    imageAlt: z.string().trim().min(1).max(100),
+  }),
   updateLink: z.union([
     z.object({ ...note, linkId: NoteLinkIdSchema, patch: NoteLinkPatchSchema }),
     z.object({ tab: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }) }),
@@ -228,6 +242,7 @@ export const NoteBlocksAddedSchema = z.object({
   noteId: z.string(),
   blocks: z.array(z.record(z.string(), z.unknown())),
   under: z.string().optional(),
+  updatedAt: NonnegativeNumberSchema.optional(),
 });
 export type NoteBlocksAdded = z.infer<typeof NoteBlocksAddedSchema>;
 

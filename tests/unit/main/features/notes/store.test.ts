@@ -478,3 +478,33 @@ describe("a note's recordings", () => {
     expect(await store.prune(here, note.id, Date.now() + PRUNE_AFTER_MS * 10)).toEqual([]);
   });
 });
+
+test("an answer link is rolled back if the document cannot be written", async () => {
+  const note = await store.create(here, "Before answer");
+  const rename = fs.rename;
+  const writes = spyOn(fs, "rename").mockImplementation((from, to) =>
+    to === path.join(note.dir, "note.json")
+      ? Promise.reject(new Error("document failed"))
+      : rename(from, to),
+  );
+  const source = {
+    workspaceId: crypto.randomUUID(),
+    tabId: "tab",
+    cwd: "/repo",
+    title: "Conversation",
+    agent: "claude",
+    messageId: "message",
+  } as const;
+  try {
+    await expect(
+      store.saveAnswer(here, note.id, source, doc("Answer").content, () => {
+        throw new Error("Unexpected document notification");
+      }),
+    ).rejects.toThrow("document failed");
+    expect(await store.links(here, note.id)).toEqual([]);
+    expect(await store.linksOfConversation(here, source)).toEqual([]);
+    expect((await store.read(here, note.id)).doc).toEqual(note.doc);
+  } finally {
+    writes.mockRestore();
+  }
+});

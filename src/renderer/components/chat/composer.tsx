@@ -13,7 +13,18 @@
 // host, a file with no path here) the agent writes it first.
 
 import type { TFunction } from "i18next";
-import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
+import {
+  AtSign,
+  FileText,
+  NotebookPen,
+  Paperclip,
+  Pencil,
+  Plus,
+  Send,
+  Slash,
+  Square,
+  X,
+} from "lucide-react";
 import {
   memo,
   useCallback,
@@ -53,6 +64,9 @@ import { modelPickerOf } from "../../services/chat/model-picker";
 import { withRelayed } from "../../services/chat/relayed";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import type { QueuedMessage } from "../../services/chat/transport/queue";
+import { chatNoteTarget, sendWithNoteMentions } from "../../services/notes/chat-link";
+import { useChatNotes, useRecentChatNotes } from "../../services/notes/chat-notes";
+import { type NoteChoice, noteChoices } from "../../services/notes/choices";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
@@ -241,6 +255,9 @@ export const Composer = memo(function Composer({
   const [localFiles, setLocalFiles] = useState<ComposerAttachment[]>([]);
   const files = composition?.files ?? localFiles;
   const setFiles = composition?.setFiles ?? setLocalFiles;
+  const chatNotes = useChatNotes();
+  const [noteChips, setNoteChips] = useState<NoteChoice[]>([]);
+  const notes = chatNotes ? noteChips : [];
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -254,7 +271,7 @@ export const Composer = memo(function Composer({
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
-  const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
+  const hasText = text.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
   // Sent while listening, the dictation ends first and its whole text goes (submit);
   // not while it connects or finishes.
   const canSend =
@@ -342,6 +359,13 @@ export const Composer = memo(function Composer({
   // The command box shows "no matching commands" when it has none to offer.
   const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
+  const recent = useRecentChatNotes(fileQuery !== null);
+  const untitled = t("notes:panel.untitled");
+  const matchingNotes =
+    chatNotes && fileQuery !== null
+      ? noteChoices(chatNotes.notes ?? [], recent ?? [], fileQuery, untitled)
+      : [];
+  const [filesFor, setFilesFor] = useState<string | null>(null);
   useEffect(() => {
     if (fileQuery === null) return;
     let live = true;
@@ -352,6 +376,7 @@ export const Composer = memo(function Composer({
         .then((paths) => {
           if (!live) return;
           setSuggested(paths);
+          setFilesFor(fileQuery);
           // The CLI answers nothing while it first lists the folder's files.
           if (paths.length === 0 && again) timer = setTimeout(() => ask(false), SUGGEST_RETRY_MS);
         })
@@ -373,20 +398,37 @@ export const Composer = memo(function Composer({
           icon: "command" as const,
         }))
       : fileQuery !== null
-        ? suggested.map((path) => ({
-            key: path,
-            label: path,
-            icon: isFolder(path) ? ("folder" as const) : ("file" as const),
-          }))
+        ? [
+            ...matchingNotes.map((note) => ({
+              key: `note:${note.noteId}`,
+              label: note.title || untitled,
+              hint: note.linked ? t("notes:connections.linkedNote") : undefined,
+              icon: "note" as const,
+              note,
+            })),
+            ...(filesFor === fileQuery ? suggested : []).map((path) => ({
+              key: path,
+              label: path,
+              icon: isFolder(path) ? ("folder" as const) : ("file" as const),
+            })),
+          ]
         : [];
-  const [active, setActive] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = Math.min(activeIndex, Math.max(0, items.length - 1));
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new token or query starts at the top
-  useEffect(() => setActive(0), [completionKey, completion?.query]);
-
+  useEffect(() => setActiveIndex(0), [completionKey, completion?.query]);
   const pick = (index: number) => {
     if (!completion) return;
     const item = items[index];
     if (!item) return;
+    if (item.note) {
+      const note = item.note;
+      setNoteChips((prev) =>
+        prev.some(({ noteId }) => noteId === note.noteId) ? prev : [...prev, note],
+      );
+      edit(text.slice(0, completion.start) + text.slice(completion.end), completion.start);
+      return;
+    }
     const next = applyCompletion(
       text,
       completion,
@@ -430,6 +472,7 @@ export const Composer = memo(function Composer({
     setText("");
     setImages([]);
     setFiles([]);
+    setNoteChips([]);
   };
 
   /**
@@ -462,9 +505,9 @@ export const Composer = memo(function Composer({
       if (canSend) dictation.finish((heard) => void submitRef.current(how, heard));
       return;
     }
-    const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0;
+    const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
     if (blocked || sending || !hasBody) return;
-    if (images.length === 0 && files.length === 0 && onCommand?.(body)) {
+    if (images.length === 0 && files.length === 0 && notes.length === 0 && onCommand?.(body)) {
       clear();
       return;
     }
@@ -480,25 +523,30 @@ export const Composer = memo(function Composer({
     }
     setSending(true);
     try {
-      const { message, uploads } = await withAttachments(body);
-      clear();
-      try {
-        if (uploads.length > 0 && controller.sendUploaded) {
-          await controller.sendUploaded(as, message, images, uploads);
-        } else if (as === "queue") {
-          controller.enqueue(message, images);
-        } else if (as === "now" && controller.sendNow) {
-          await controller.sendNow(message, images);
-        } else {
-          await controller.send(message, images);
+      const target = chatNotes && notes.length ? chatNoteTarget(chatNotes.chat) : undefined;
+      const linked = await sendWithNoteMentions(body, notes, target, async (textWithNotes) => {
+        const { message, uploads } = await withAttachments(textWithNotes);
+        clear();
+        try {
+          if (uploads.length > 0 && controller.sendUploaded) {
+            await controller.sendUploaded(as, message, images, uploads);
+          } else if (as === "queue") {
+            controller.enqueue(message, images);
+          } else if (as === "now" && controller.sendNow) {
+            await controller.sendNow(message, images);
+          } else {
+            await controller.send(message, images);
+          }
+        } catch (error) {
+          // Restore the original text and attachments for another attempt.
+          if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
+          if (images.length) setImages((prev) => [...images, ...prev]);
+          if (files.length) setFiles((prev) => [...files, ...prev]);
+          if (notes.length) setNoteChips((prev) => [...notes, ...prev]);
+          throw error;
         }
-      } catch (error) {
-        // Restore the original text and attachments for another attempt.
-        if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
-        if (images.length) setImages((prev) => [...images, ...prev]);
-        if (files.length) setFiles((prev) => [...files, ...prev]);
-        throw error;
-      }
+      });
+      if (!linked) showToast({ kind: "error", message: t("notes:conversations.saveError") });
     } catch (error) {
       surfaceChatSendError(error);
     } finally {
@@ -557,7 +605,7 @@ export const Composer = memo(function Composer({
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const step = e.key === "ArrowDown" ? 1 : -1;
-        setActive((i) => (i + step + items.length) % items.length);
+        setActiveIndex((active + step + items.length) % items.length);
         return;
       }
       if ((e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) || e.key === "Tab") {
@@ -566,6 +614,7 @@ export const Composer = memo(function Composer({
           program === "codex" &&
           images.length === 0 &&
           files.length === 0 &&
+          notes.length === 0 &&
           e.key === "Enter" &&
           completion?.kind === "command" &&
           text.trim().toLowerCase() === `/${items[active]?.key}` &&
@@ -774,10 +823,10 @@ export const Composer = memo(function Composer({
               listing={listing}
               active={active}
               onPick={pick}
-              onHover={setActive}
+              onHover={setActiveIndex}
             />
           )}
-          {(images.length > 0 || files.length > 0) && (
+          {(images.length > 0 || files.length > 0 || notes.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2 pt-2">
               {images.map((image, i) => (
                 <div
@@ -799,6 +848,29 @@ export const Composer = memo(function Composer({
                   >
                     <X className="size-3" />
                   </button>
+                </div>
+              ))}
+              {notes.map(({ noteId, title }) => (
+                <div
+                  key={noteId}
+                  className="flex h-7 max-w-56 items-center gap-1.5 rounded-full border border-border pl-2 pr-1 text-app-ui-sm"
+                  title={title || untitled}
+                  data-testid="chat-note-mention"
+                >
+                  <NotebookPen
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 truncate">{title || untitled}</span>
+                  <IconButton
+                    label={t("notes:connections.removeMention")}
+                    size="xs"
+                    onClick={() =>
+                      setNoteChips((prev) => prev.filter((note) => note.noteId !== noteId))
+                    }
+                  >
+                    <X className="size-3" />
+                  </IconButton>
                 </div>
               ))}
               {files.map((attachment) => (

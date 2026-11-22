@@ -336,5 +336,24 @@
     "promptSection": " · Under {{heading}}",
     "promptReport": "When finished, use `nexus note report --done \"one-line summary\" --pr <PR URL>` to report to this to-do. If blocked, use `--failed`.",
     "sentWithoutLink": "Message sent · To-do link failed"
+  },
+  "connections": {
+    "linkedNote": "This conversation’s notes",
+    "mentions": "Notes and files",
+    "removeMention": "Remove note",
+    "mention": "Note ‘{{title}}’: `nexus note read {{id}}`",
+    "saveAnswer": "Save to note",
+    "savedAnswer": "Answer saved to note",
+    "imageAlt": "Image",
+    "openConversation": "Open",
+    "bold": "Bold",
+    "italic": "Italic",
+    "link": "Link",
+    "linkUrl": "Link URL",
+    "linkInvalid": "Enter an HTTP or HTTPS URL",
+    "sendSelection": "Send selected text",
+    "selectionDefault": "Take a look at this part.",
+    "selectionQuote": "Selected text from the note ‘{{title}}’:",
+    "read": "Note ‘{{title}}’: read it with `nexus note read {{id}}`."
   }
 }
