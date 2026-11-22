@@ -15,17 +15,32 @@ import {
 } from "../../../../../src/renderer/components/chat/permission-card";
 import type { PermissionRequest } from "../../../../../src/renderer/services/chat/model";
 
-function render(request: Partial<PermissionRequest>): string {
+function render(request: Partial<PermissionRequest>, planModeOptions?: boolean): string {
   return renderToStaticMarkup(
     <PermissionCard
       requests={[{ requestId: "r1", toolName: "Bash", input: {}, suggestions: [], ...request }]}
       workspaceId="w"
       cwd="/w"
       rootPath="/w"
+      {...(planModeOptions !== undefined ? { planModeOptions } : {})}
       onAnswer={() => {}}
     />,
   );
 }
+
+describe("plan approval", () => {
+  it("offers a single approval when the session cannot choose a permission mode", () => {
+    const plan = { toolName: "ExitPlanMode", input: {} };
+    const dropdown = i18next.t("chat.plan.approve_other");
+    const simple = render(plan, false);
+    expect(simple).toContain(i18next.t("chat.plan.approve"));
+    expect(simple).toContain(i18next.t("chat.plan.request_changes"));
+    expect(simple).not.toContain(dropdown);
+    expect(simple).not.toContain(i18next.t("chat.plan.accept_edits"));
+    expect(render(plan)).toContain(`aria-label="${dropdown}"`);
+    expect(render(plan, true)).toContain(`aria-label="${dropdown}"`);
+  });
+});
 
 describe("a tool's request", () => {
   it("shows a command of several lines whole: its first can hide the rest", () => {

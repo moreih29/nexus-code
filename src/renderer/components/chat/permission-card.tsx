@@ -52,6 +52,8 @@ interface PermissionCardProps {
   workspaceId: string;
   cwd: string;
   rootPath: string;
+  /** Whether the session accepts a permission mode along with plan approval. */
+  planModeOptions?: boolean;
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
 }
 
@@ -60,6 +62,7 @@ export function PermissionCard({
   workspaceId,
   cwd,
   rootPath,
+  planModeOptions = true,
   onAnswer,
 }: PermissionCardProps) {
   const { t } = useTranslation();
@@ -112,6 +115,7 @@ export function PermissionCard({
           workspaceId={workspaceId}
           cwd={cwd}
           rootPath={rootPath}
+          planModeOptions={planModeOptions}
         />
       ) : (
         <ToolApproval key={request.requestId} request={request} onAnswer={onAnswer} cwd={cwd} />
@@ -877,7 +881,8 @@ function PlanApproval({
   workspaceId,
   cwd,
   rootPath,
-}: FormProps & { workspaceId: string; cwd: string; rootPath: string }) {
+  planModeOptions,
+}: FormProps & { workspaceId: string; cwd: string; rootPath: string; planModeOptions: boolean }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const [changing, setChanging] = useState(false);
@@ -887,7 +892,9 @@ function PlanApproval({
   const approve = (mode: "acceptEdits" | "default") =>
     onAnswer(request, {
       kind: "allow",
-      updatedPermissions: [{ type: "setMode", mode, destination: "session" }],
+      ...(planModeOptions
+        ? { updatedPermissions: [{ type: "setMode", mode, destination: "session" }] }
+        : {}),
     });
   const sendFeedback = () => {
     if (feedback.trim()) onAnswer(request, { kind: "deny", message: feedback.trim() });
@@ -955,36 +962,40 @@ function PlanApproval({
           <Button size="sm" variant="outline" onClick={() => setChanging(true)}>
             {t("chat.plan.request_changes")}
           </Button>
-          <span className="text-app-micro text-muted-foreground">
-            {t("chat.plan.accept_edits")}
-          </span>
+          {planModeOptions && (
+            <span className="text-app-micro text-muted-foreground">
+              {t("chat.plan.accept_edits")}
+            </span>
+          )}
           <span className="inline-flex">
             <Button
               size="sm"
-              className="rounded-r-none pr-1.5"
-              title={t("chat.plan.approve_accept_edits")}
+              className={cn("pr-1.5", planModeOptions && "rounded-r-none")}
+              title={planModeOptions ? t("chat.plan.approve_accept_edits") : undefined}
               onClick={() => approve("acceptEdits")}
             >
               {t("chat.plan.approve")}
               <Keycap>↵</Keycap>
             </Button>
-            <DropdownMenuRoot>
-              <DropdownMenuTrigger>
-                <Button
-                  size="sm"
-                  className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
-                  title={t("chat.plan.approve_other")}
-                  aria-label={t("chat.plan.approve_other")}
-                >
-                  <ChevronDown className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => approve("default")}>
-                  {t("chat.plan.approve_manual")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenuRoot>
+            {planModeOptions && (
+              <DropdownMenuRoot>
+                <DropdownMenuTrigger>
+                  <Button
+                    size="sm"
+                    className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
+                    title={t("chat.plan.approve_other")}
+                    aria-label={t("chat.plan.approve_other")}
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => approve("default")}>
+                    {t("chat.plan.approve_manual")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenuRoot>
+            )}
           </span>
         </div>
       )}

@@ -384,6 +384,7 @@ function planModeOf(
 export function remoteAnswerOf(
   answer: PermissionAnswer,
   request: PermissionRequest,
+  planModeOptions: boolean,
 ): {
   decision: "allow" | "deny";
   message?: string;
@@ -396,7 +397,9 @@ export function remoteAnswerOf(
     case "allow": {
       // A plan's approval: the mode it goes on in, as the card set it.
       const planMode =
-        request.toolName === "ExitPlanMode" ? planModeOf(answer.updatedPermissions) : undefined;
+        planModeOptions && request.toolName === "ExitPlanMode"
+          ? planModeOf(answer.updatedPermissions)
+          : undefined;
       return {
         decision: "allow",
         ...(answer.updatedInput ? { updatedInput: answer.updatedInput } : {}),
@@ -1155,6 +1158,8 @@ function RemoteControls({
   const links = useChatLinks();
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
+  const peerTakesPlanMode = usePeerSpeaks(deviceId, "0.13.0");
+  const planModeOptions = agent === "claude" && peerTakesPlanMode;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
   // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
@@ -1256,7 +1261,7 @@ function RemoteControls({
         workspaceId,
         tabId,
         requestId: request.requestId,
-        ...remoteAnswerOf(given, request),
+        ...remoteAnswerOf(given, request, planModeOptions),
       }),
     );
   // /resume's list above the composer, with the words it was given, as a chat here shows it.
@@ -1333,6 +1338,7 @@ function RemoteControls({
               workspaceId={peerWorkspaceId(deviceId, workspaceId)}
               cwd={target.cwd ?? target.path}
               rootPath={target.path}
+              planModeOptions={planModeOptions}
               onAnswer={answer}
             />
           )}
