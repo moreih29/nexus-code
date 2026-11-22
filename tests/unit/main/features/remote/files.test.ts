@@ -6,6 +6,7 @@ import path from "node:path";
 import { MAX_LIST_ENTRIES } from "../../../../../packages/remote-protocol/src";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import {
+  folderIn,
   listFiles,
   placeOf,
   type RemoteFiles,
@@ -451,6 +452,57 @@ describe("a Windows workspace's files", () => {
     await expect(
       listFiles(files(tree, null, opts), win, { workspaceId: ws, path: "out\\" }),
     ).rejects.toMatchObject({ code: 1002 });
+  });
+
+  test("refuse a stream, a device, or a name Windows trims, before the agent opens it", async () => {
+    const named = {
+      ...tree,
+      "ads.txt": text("main"),
+      "ads.txt:secret": text("hidden stream"),
+      "ads.txt::$DATA": text("main"),
+      CON: text("device"),
+      "foo.": text("trimmed"),
+      "src:x": { type: "dir" as const },
+    };
+    const untracked = untrackedReader(
+      async () => fakeFs(named),
+      () => win,
+    );
+    for (const path of ["ads.txt:secret", "ads.txt::$DATA", "CON", "foo.", "src/nul.txt"]) {
+      await expect(
+        readFile(files(named, null, opts), win, { workspaceId: ws, path }),
+      ).rejects.toMatchObject({ code: 1002, message: "that path contains an invalid name" });
+      await expect(untracked(ws, [win, path].join("\\"), 100)).rejects.toMatchObject({
+        code: 1002,
+      });
+    }
+    for (const path of ["src:x", "foo."]) {
+      await expect(folderIn(fakeFs(named), win, path)).rejects.toMatchObject({ code: 1002 });
+    }
+    expect(await folderIn(fakeFs(named), win, "src")).toBe(String.raw`C:\Users\me\app\src`);
+  });
+});
+
+describe("a POSIX workspace's names", () => {
+  test("a colon, a trailing dot, or CON is a name like any other there", async () => {
+    const tree: Record<string, Node> = {
+      "a:b.txt": text("colon"),
+      "foo.": text("dot"),
+      CON: text("con"),
+      "c:d": { type: "dir" },
+    };
+    for (const [path, body] of [
+      ["a:b.txt", "colon"],
+      ["foo.", "dot"],
+      ["CON", "con"],
+    ]) {
+      expect(await readFile(files(tree), root, { workspaceId: ws, path })).toMatchObject({
+        kind: "text",
+        path: `${root}/${path}`,
+        text: body,
+      });
+    }
+    expect(await folderIn(fakeFs(tree), root, "c:d")).toBe(`${root}/c:d`);
   });
 });
 
