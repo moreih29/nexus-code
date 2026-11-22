@@ -1505,6 +1505,7 @@ describe("the agent view's other computers", () => {
     ];
     const sessions = [
       session({ tabId: "a" }),
+      session({ tabId: "a-child", openedBy: { workspaceId: "w1", tabId: "a" } }),
       session({ tabId: "b", kind: "terminal", agent: "codex" }),
       session({ workspaceId: "task", tabId: "c", state: "running" }),
       session({ workspaceId: "task", tabId: "d", state: "running" }),
@@ -1572,6 +1573,9 @@ describe("the agent view's other computers", () => {
         if (!result || result.type !== "return") throw new Error(`no drag handlers for ${tabId}`);
         return result.value.dropProps;
       };
+      const childHook = hooks.mock.calls.find(([row]) => row.key === "a-child");
+      expect(childHook).toBeDefined();
+      expect(childHook?.[1]).toBeUndefined();
       const row = nativeDrag();
       sessionDrop.startSessionDrag(row.event, { key: "a", deviceId: group.id, workspaceId: "w1" });
       function Scope() {

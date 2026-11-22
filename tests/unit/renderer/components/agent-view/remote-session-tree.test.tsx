@@ -1,21 +1,31 @@
-import { expect, spyOn, test } from "bun:test";
-import type { MouseEvent } from "react";
+import { expect, mock, spyOn, test } from "bun:test";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
-import { StatusGroups } from "../../../../../src/renderer/components/agent-view/agent-sidebar";
+import { SessionRelations } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
+import {
+  fromSearch,
+  StatusGroups,
+  stepRows,
+} from "../../../../../src/renderer/components/agent-view/agent-sidebar";
 import {
   PeerGroup,
   RemoteSessions,
+  workspaceGroups,
 } from "../../../../../src/renderer/components/agent-view/remote-sessions";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
+import * as iconButtons from "../../../../../src/renderer/components/ui/icon-button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
+import { treeSessions } from "../../../../../src/renderer/services/agent-sessions/session-tree";
 import {
   activeKey,
   emptyLayout,
   remoteSessionKey,
 } from "../../../../../src/renderer/services/agent-view/layout";
 import { RemoteResults } from "../../../../../src/renderer/services/agent-view/remote-results";
+import { remoteSessionTree } from "../../../../../src/renderer/services/agent-view/remote-session-tree";
 import * as account from "../../../../../src/renderer/services/remote/account";
+import { remoteDisplayName } from "../../../../../src/renderer/services/remote/display-name";
 import * as room from "../../../../../src/renderer/services/remote/room";
 import * as view from "../../../../../src/renderer/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "../../../../../src/renderer/state/stores/mounted-workspaces";
@@ -155,7 +165,7 @@ test("a local opener uses the account device ID, current title and actual worksp
   const renderButton = spyOn(buttons, "Button");
   try {
     const html = renderToStaticMarkup(<RemoteSessions query="" />);
-    expect(html).toContain("↳ This computer · Current local plan");
+    expect(html).toContain("↳ <bdi>This computer</bdi> · <bdi>Current local plan</bdi>");
     const click = renderButton.mock.calls.find(([props]) =>
       props.title?.includes("Current local plan"),
     )?.[0].onClick;
@@ -187,13 +197,13 @@ test("an external opener's label is plain text and opens only while its device i
       name: "<img>Pa\u2067rent",
     },
   });
-  const render = (online: boolean) =>
+  const render = (online: boolean, connected = true) =>
     renderToStaticMarkup(
       <PeerGroup
         peer={host}
         sessions={{ status: "ready", list: { workspaces: [workspace], sessions: [parent, child] } }}
         query=""
-        navigation={{ connected: true, peers: new Map([[source.id, { ...source, online }]]) }}
+        navigation={{ connected, peers: new Map([[source.id, { ...source, online }]]) }}
       />,
     );
   const viewBefore = view.useAgentViewStore.getState();
@@ -205,14 +215,14 @@ test("an external opener's label is plain text and opens only while its device i
     value: { workspaces: [task], sessions: [current] },
   });
   try {
-    const offline = render(false);
-    expect(offline).toContain(
-      'data-testid="remote-session-parent">↳ Studio&lt;em&gt; · &lt;img&gt;Parent</span>',
-    );
+    const label = "↳ <bdi>Studio&lt;em&gt;</bdi> · <bdi>&lt;img&gt;Parent</bdi>";
+    for (const inactive of [render(false), render(true, false)]) {
+      expect(inactive).toContain(`data-testid="remote-session-parent">${label}</span>`);
+    }
     const html = render(true);
-    expect(html).toContain("↳ Studio&lt;em&gt; · &lt;img&gt;Parent");
-    expect(html).toContain("&lt;a&gt;Review&lt;/a&gt;");
-    expect(html).not.toMatch(/[\p{Cf}]/u);
+    expect(html).toContain(label);
+    expect(html).toContain("&lt;a&gt;Re\u200Cview&lt;/a&gt;");
+    expect(html).not.toMatch(/[\u202E\u2067\u200B]/u);
     expect(html).not.toContain('data-testid="remote-session-fold-family"');
     const click = renderButton.mock.calls.find(([props]) =>
       props.title?.includes("Studio<em>"),
@@ -233,4 +243,278 @@ test("an external opener's label is plain text and opens only while its device i
     view.useAgentViewStore.setState(viewBefore);
     useRemoteViewStore.setState({ targets });
   }
+});
+
+function remoteWithOpener(opener: NonNullable<RemoteSession["openedBy"]>, selfId?: string) {
+  return renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{
+        status: "ready",
+        list: { workspaces: [workspace], sessions: [row("child", { openedBy: opener })] },
+      }}
+      query=""
+      navigation={{ selfId, connected: true, peers: new Map() }}
+    />,
+  );
+}
+
+test.each([
+  [workspace.id, "constructor"],
+  [workspace.id, "toString"],
+  [workspace.id, "hasOwnProperty"],
+  [workspace.id, "__proto__"],
+  ["__proto__", "constructor"],
+])("a parent lookup treats workspace %s and tab %s as IDs", (workspaceId, tabId) => {
+  const state = tabs.useTabsStore.getInitialState();
+  const read = spyOn(tabs, "useTabsStore").mockImplementation((select) =>
+    select({ ...state, byWorkspace: { [workspace.id]: {} } }),
+  );
+  try {
+    const opener = {
+      workspaceId,
+      tabId,
+      name: "Saved title",
+      device: { id: "self", name: "Stored device" },
+    };
+    const html = remoteWithOpener(opener, "self");
+    expect(html).toContain(
+      'data-testid="remote-session-parent">↳ <bdi>This computer</bdi> · <bdi>Saved title</bdi> · closed</span>',
+    );
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("a closed local opener is dimmed and an unknown account device keeps the original device label", () => {
+  const opener = {
+    workspaceId: workspace.id,
+    tabId: "closed-tab",
+    name: "Saved",
+    device: { id: "self", name: "Stored device" },
+  };
+  const closed = remoteWithOpener(opener, "self");
+  expect(closed).toContain(
+    'data-testid="remote-session-parent">↳ <bdi>This computer</bdi> · <bdi>Saved</bdi> · closed</span>',
+  );
+  expect(closed).toContain("opacity-70");
+  const unknown = remoteWithOpener(opener);
+  expect(unknown).toContain(
+    'data-testid="remote-session-parent">↳ <bdi>Stored device</bdi> · <bdi>Saved</bdi></span>',
+  );
+});
+
+test("local workspace rows keep a saved parent closed when the ID has no own tab record", () => {
+  const state = tabs.useTabsStore.getInitialState();
+  const read = spyOn(tabs, "useTabsStore").mockImplementation((select) =>
+    select({
+      ...state,
+      // Reject both inherited keys and an own value that is missing tab metadata.
+      byWorkspace: {
+        [workspace.id]: { bogus: { id: "bogus", title: "Invalid" } },
+      } as typeof state.byWorkspace,
+    }),
+  );
+  try {
+    const base = remoteSessionTree(host.id, [row("child")], "").roots[0]!;
+    for (const tabId of ["constructor", "bogus"]) {
+      const node = {
+        ...base,
+        parentClosed: true as const,
+        parentName: "Saved",
+        session: {
+          ...base.session,
+          parent: { kind: "tab" as const, workspaceId: workspace.id, tabId },
+        },
+      };
+      const html = renderToStaticMarkup(<SessionRelations node={node} collapsed={false} />);
+      expect(html).toContain("↳ Saved · closed");
+      expect(html).toContain("opacity-70");
+    }
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("remote labels preserve shaping characters and replace separators with spaces", () => {
+  const family = "👨‍👩‍👧";
+  const flag = "🏴\u{E0067}\u{E0062}\u{E007F}";
+  const shaped = "می‌خواهم";
+  const controls = "\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F\u061C\u200B";
+  expect(
+    remoteDisplayName(`${family}\n${flag}\r\n${shaped}\rA\u0085B\u2028C\u2029D${controls}`),
+  ).toBe(`${family} ${flag} ${shaped} A B C D`);
+  expect(remoteDisplayName(undefined)).toBe("");
+  expect(remoteDisplayName({ name: "nested" })).toBe("");
+  const bidi = remoteWithOpener({
+    workspaceId: workspace.id,
+    tabId: "other",
+    name: "جلسة",
+    device: { id: "away", name: "حاسوب" },
+  });
+  expect(bidi).toContain("↳ <bdi>حاسوب</bdi> · <bdi>جلسة</bdi>");
+});
+
+test("ambiguous remote IDs show a parent name without claiming closure, and cycles stay flat", () => {
+  const ref = (tabId: string, name?: string) => ({ workspaceId: workspace.id, tabId, name });
+  const rows = [
+    row("duplicate"),
+    row("duplicate", { workspaceId: task.id }),
+    row("ambiguous", { openedBy: ref("duplicate", "Saved ambiguous parent") }),
+    row("loop-a", { openedBy: ref("loop-b") }),
+    row("loop-b", { openedBy: ref("loop-a") }),
+    row("self-loop", { openedBy: ref("self-loop") }),
+  ];
+  const { roots } = remoteSessionTree(host.id, rows, "");
+  expect(roots).toHaveLength(rows.length);
+  expect([...treeSessions(roots)].map((session) => session.title)).toEqual(
+    rows.map((row) => row.title),
+  );
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      query=""
+      sessions={{ status: "ready", list: { workspaces: [workspace, task], sessions: rows } }}
+    />,
+  );
+  expect(html).toContain(">↳ Saved ambiguous parent</span>");
+  expect(html).not.toContain("Saved ambiguous parent · closed");
+});
+
+test("a listed parent kept out of the tree still provides its current title", () => {
+  const shell = row("shell", { kind: "terminal", title: "Current terminal title" });
+  const child = row("child", { openedBy: { workspaceId: workspace.id, tabId: shell.tabId } });
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      query=""
+      sessions={{ status: "ready", list: { workspaces: [workspace], sessions: [shell, child] } }}
+    />,
+  );
+  expect(html).toContain(">↳ Current terminal title</span>");
+  expect(html).not.toContain("Current terminal title · closed");
+});
+
+test("cross-workspace children use the workspace name for a standalone workspace even when it has a Git branch", () => {
+  const other = { ...task, parentId: undefined };
+  const list = { workspaces: [workspace, other], sessions: [parent, activeChild] };
+  for (const html of [
+    renderToStaticMarkup(<PeerGroup peer={host} query="" sessions={{ status: "ready", list }} />),
+    renderToStaticMarkup(
+      <StatusGroups
+        agents={emptyAgents}
+        activity={new Map()}
+        remote={[{ peer: host, list }]}
+        query=""
+        results={new RemoteResults()}
+      />,
+    ),
+  ]) {
+    expect(html).toContain('title="Defaults"');
+    expect(html).not.toContain('title="ship"');
+  }
+});
+
+test("a folded remote workspace counts quiet families including their children", () => {
+  const quiet = { ...parent, state: "idle" as const };
+  const { groups, hiddenCounts } = workspaceGroups(
+    { workspaces: [workspace], sessions: [quiet, idleChild] },
+    {
+      deviceId: host.id,
+      query: "",
+      opens: false,
+      inPanel: () => false,
+      worktreesIn: new Set(),
+      folds: new Set([workspace.id]),
+    },
+  );
+  expect(groups).toEqual([[workspace.id, []]]);
+  expect(hiddenCounts.get(workspace.id)).toBe(2);
+});
+
+test("mark all read includes new results in a folded remote family", () => {
+  const quiet = { ...parent, state: "idle" as const };
+  const done = { ...activeChild, state: "new-result" as const };
+  const resultFeed = new RemoteResults();
+  const buttons = spyOn(iconButtons, "IconButton");
+  const state = view.useAgentViewStore.getInitialState();
+  const fold = `family:${remoteSessionKey({ deviceId: host.id, ...parent })}`;
+  const store = spyOn(view, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, folded: new Set([fold]) }),
+  );
+  try {
+    const html = renderToStaticMarkup(
+      <StatusGroups
+        agents={emptyAgents}
+        activity={new Map()}
+        remote={[{ peer: host, list: { workspaces: [workspace, task], sessions: [quiet, done] } }]}
+        query=""
+        results={resultFeed}
+      />,
+    );
+    expect(html).not.toContain(done.title);
+    const props = buttons.mock.calls.find(
+      ([props]) =>
+        (props as { "data-testid"?: string })["data-testid"] === "agent-sidebar-mark-read",
+    )?.[0];
+    if (!props?.onClick) throw new Error("missing mark-all button");
+    props.onClick({} as MouseEvent<HTMLButtonElement>);
+    expect(resultFeed.session(host.id, done, true, false).state).toBe("idle");
+  } finally {
+    store.mockRestore();
+    buttons.mockRestore();
+  }
+});
+
+test("visible remote rows take arrow and edge keys, and Enter opens the first search result", () => {
+  const list = { workspaces: [workspace, task], sessions: [parent, activeChild] };
+  const html = renderToStaticMarkup(
+    <StatusGroups
+      agents={emptyAgents}
+      activity={new Map()}
+      remote={[{ peer: host, list }]}
+      query="release"
+      results={new RemoteResults()}
+    />,
+  );
+  const rows = Array.from(
+    html.matchAll(/<button[^>]*data-agent-row=""[^>]*title="([^"]+)"/g),
+    ([, title]) => ({
+      title,
+      matches: (selector: string) => selector === "[data-agent-row]",
+      focus: mock(() => {}),
+      click: mock(() => {}),
+    }),
+  );
+  expect(rows.map((row) => row.title)).toEqual([parent.title, activeChild.title]);
+  const listNode = {
+    querySelectorAll: (selector: string) => rows.filter((row) => row.matches(selector)),
+    querySelector: (selector: string) => rows.find((row) => row.matches(selector)),
+  };
+  const keydown = (key: string, index: number) =>
+    stepRows(
+      {
+        key,
+        target: rows[index],
+        currentTarget: listNode,
+        preventDefault() {},
+      } as unknown as KeyboardEvent<HTMLDivElement>,
+      null,
+    );
+  keydown("ArrowDown", 0);
+  keydown("End", 0);
+  keydown("ArrowUp", 1);
+  keydown("Home", 1);
+  expect(rows[0]?.focus).toHaveBeenCalledTimes(2);
+  expect(rows[1]?.focus).toHaveBeenCalledTimes(2);
+  fromSearch(
+    {
+      key: "Enter",
+      currentTarget: { value: "release" },
+      preventDefault() {},
+    } as unknown as KeyboardEvent<HTMLInputElement>,
+    listNode as unknown as HTMLElement,
+  );
+  expect(rows[0]?.click).toHaveBeenCalledTimes(1);
+  expect(rows[1]?.click).not.toHaveBeenCalled();
 });

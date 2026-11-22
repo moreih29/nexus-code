@@ -9,6 +9,7 @@ import { type IpcResult, ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import {
   AgentViewSnapshotSchema,
+  boundedPeerFoldKey,
   MAX_REMOTE_SEEN,
 } from "../../../../../src/shared/types/agent-view";
 
@@ -375,13 +376,15 @@ describe("agent view store", () => {
       i % 2 === 0 ? `peer:d${i}` : `peer-ws:d2:w${i}`,
     );
     const local = ["status:done", "workspace:local"];
+    const longKey = `family:remote:d2/${"workspace".repeat(25)}/session`;
+    const shortKey = boundedPeerFoldKey(longKey);
     const snapshot = AgentViewSnapshotSchema.parse({
       mode: "agents",
       root: leaf,
       activeLeafId: P1,
-      folded: [...local, ...keys, `peer:${"x".repeat(201)}`, 7],
+      folded: [...local, ...keys, longKey, 7],
     });
-    expect(snapshot.folded).toEqual([...local, ...keys.slice(-254)]);
+    expect(snapshot.folded).toEqual([...local, ...keys.slice(-253), shortKey]);
 
     const view = useAgentViewStore.getState();
     view.hydrate(snapshot, () => true);
@@ -390,6 +393,8 @@ describe("agent view store", () => {
     const saved = AgentViewSnapshotSchema.parse(
       (stored.at(-1) as { agentView: unknown }).agentView,
     );
-    expect(saved.folded).toEqual([...local, ...keys.slice(-253), "peer-ws:d2:new"]);
+    expect(saved.folded).toEqual([...local, ...keys.slice(-252), shortKey, "peer-ws:d2:new"]);
+    view.toggleFolded(longKey);
+    expect(useAgentViewStore.getState().folded.has(shortKey)).toBe(false);
   });
 });

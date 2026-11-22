@@ -227,7 +227,7 @@ export function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLEleme
  * The search box's keys for the list under it: ↓ goes to the first agent
  * it lists, and Enter, with a query, opens that agent.
  */
-function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
+export function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
   if (event.key !== "ArrowDown" && event.key !== "Enter") return;
   const first = list?.querySelector<HTMLElement>("[data-agent-row]");
   if (!first) return;
@@ -450,9 +450,7 @@ export function StatusGroups({
                     searching={searching}
                     groupIdle
                     navigation={row.navigation}
-                    workspaceLabel={(id) =>
-                      row.workspaces.get(id)?.git?.branch ?? row.workspaces.get(id)?.name
-                    }
+                    workspaceOf={(id) => row.workspaces.get(id)}
                     renderRow={(node) => {
                       const session = row.byKey.get(node.session.key);
                       if (!session) return null;

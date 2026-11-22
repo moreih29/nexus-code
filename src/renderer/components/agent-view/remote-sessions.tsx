@@ -41,6 +41,7 @@ import type {
 import type { AgentRun } from "../../../shared/claude/activity";
 import { type RemoteAccountState, SIGNUP_FAILURES } from "../../../shared/remote/account";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
+import { boundedPeerFoldKey } from "../../../shared/types/agent-view";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import {
@@ -127,7 +128,11 @@ import {
 } from "./session-drop";
 import { SidebarDropIndicator } from "./sidebar-drop";
 
-const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
+const PLATFORMS = new Map([
+  ["darwin", "macOS"],
+  ["win32", "Windows"],
+  ["linux", "Linux"],
+]);
 // Allow a watch that had already started reading to finish and read again.
 const ORDER_CONFIRM_MS = 18_000;
 const tabIdOf = (session: RemoteSession) => session.tabId;
@@ -233,7 +238,7 @@ export function statusGroups(
     const { peer, list } = source;
     const workspaces = new Map(list.workspaces.map((workspace) => [workspace.id, workspace]));
     const visible = list.sessions.filter(listedByDefault);
-    const { roots, byKey } = remoteSessionTree(peer.id, visible, query);
+    const { roots, byKey } = remoteSessionTree(peer.id, visible, query, list.sessions);
     for (const node of roots) {
       const session = byKey.get(node.session.key);
       if (!session) continue;
@@ -291,7 +296,12 @@ export function workspaceGroups(
   const searching = query.trim().length > 0;
   const sessions = list?.sessions ?? [];
   const { listed, plain } = listedSessions(sessions, "", inPanel);
-  const { roots, byKey } = remoteSessionTree(deviceId, listed.filter(listedByDefault), query);
+  const { roots, byKey } = remoteSessionTree(
+    deviceId,
+    listed.filter(listedByDefault),
+    query,
+    sessions,
+  );
   const keyOf = (session: RemoteSession) => remoteSessionKey({ deviceId, ...session });
   const branches = new Map(roots.map((node) => [node.session.key, node]));
   const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
@@ -490,9 +500,10 @@ function AccountRemoteSessions({
     online.map((peer) => peer.id),
     shown,
   );
+  const listingFor = (id: string) => (Object.hasOwn(lists, id) ? lists[id] : undefined);
   const results = useRemoteResults(online, shown, accountKey);
   const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
-    (peer) => connected || lists[peer.id]?.status === "ready",
+    (peer) => connected || listingFor(peer.id)?.status === "ready",
   );
   const displayList = (peer: RoomPeer, list: SessionsList): SessionsList => ({
     ...list,
@@ -508,7 +519,7 @@ function AccountRemoteSessions({
   const statusGroups = renderStatus?.(
     connected && accountKey !== null
       ? listedPeers.flatMap((peer) => {
-          const listing = lists[peer.id];
+          const listing = listingFor(peer.id);
           return listing?.status === "ready"
             ? [{ peer, list: displayList(peer, listing.list), navigation }]
             : [];
@@ -517,11 +528,11 @@ function AccountRemoteSessions({
     results,
   );
   const unavailable = renderStatus
-    ? listedPeers.filter((peer) => lists[peer.id]?.status === "unavailable")
+    ? listedPeers.filter((peer) => listingFor(peer.id)?.status === "unavailable")
     : [];
   const peers = searching
     ? listedPeers.filter((peer) => {
-        const sessions = lists[peer.id];
+        const sessions = listingFor(peer.id);
         return (
           sessions?.status === "ready" &&
           sessions.list.sessions.some((session) => matches(session, query))
@@ -630,7 +641,7 @@ function AccountRemoteSessions({
                   <PeerGroup
                     key={peer.id}
                     peer={peer}
-                    sessions={lists[peer.id]}
+                    sessions={listingFor(peer.id)}
                     results={results}
                     navigation={navigation}
                     query={query}
@@ -661,7 +672,7 @@ export function OfflinePeer({ peer }: { peer: RoomPeer }) {
       <Monitor aria-hidden className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate text-app-ui-sm">{remoteDisplayName(peer.name)}</span>
       <span className="min-w-0 truncate text-app-micro">
-        {PLATFORMS[peer.platform] ?? peer.platform}
+        {PLATFORMS.get(peer.platform) ?? remoteDisplayName(peer.platform)}
       </span>
       <span className="ml-auto shrink-0 text-app-micro whitespace-nowrap">
         {t("agentView.remote.offlineTag")}
@@ -687,8 +698,8 @@ export function PeerGroup({
 }) {
   const { t } = useTranslation();
   const folds = useAgentViewStore((s) => s.folded);
-  const peerFoldKey = `peer:${peer.id}`;
-  const workspaceFoldKey = (id: string) => `peer-ws:${peer.id}:${id}`;
+  const peerFoldKey = boundedPeerFoldKey(`peer:${peer.id}`);
+  const workspaceFoldKey = (id: string) => boundedPeerFoldKey(`peer-ws:${peer.id}:${id}`);
   const reorderingRow = useSessionReordering(peer.id);
   const searching = query.trim() !== "";
   // The workspaces whose terminals with only their shell are shown, each
@@ -857,7 +868,7 @@ export function PeerGroup({
           {remoteDisplayName(peer.name)}
         </span>
         <span className="min-w-0 truncate text-app-micro text-muted-foreground">
-          {PLATFORMS[peer.platform] ?? peer.platform}
+          {PLATFORMS.get(peer.platform) ?? remoteDisplayName(peer.platform)}
         </span>
         {folded && list && (
           <span className="ml-auto flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
@@ -1019,11 +1030,7 @@ export function PeerGroup({
                             folded={folds}
                             searching={searching}
                             navigation={navigation}
-                            workspaceLabel={(id) => {
-                              const worktree = workspaces.get(id);
-                              const name = worktree?.git?.branch ?? worktree?.name;
-                              return name;
-                            }}
+                            workspaceOf={(id) => workspaces.get(id)}
                             renderRow={(branch) => {
                               const row = byKey.get(branch.session.key);
                               return (

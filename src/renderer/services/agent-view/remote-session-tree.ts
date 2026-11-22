@@ -22,23 +22,31 @@ export function remoteSessionTree(
   deviceId: string,
   sessions: readonly RemoteSession[],
   query: string,
+  available: readonly RemoteSession[] = sessions,
 ) {
   const byKey = new Map(
     sessions.map((session) => [remoteSessionKey({ deviceId, ...session }), session]),
   );
-  const keysByTab = new Map<string, string | undefined>();
-  for (const [key, session] of byKey) {
-    keysByTab.set(session.tabId, keysByTab.has(session.tabId) ? undefined : key);
+  const rowsByTab = new Map<string, RemoteSession | undefined>();
+  for (const row of available) {
+    rowsByTab.set(row.tabId, rowsByTab.has(row.tabId) ? undefined : row);
   }
+  const unlinkedParents = new Set<string>();
 
-  function openerOf(opener: RemoteSession["openedBy"]): TerminalOpener | undefined {
+  function openerOf(key: string, opener: RemoteSession["openedBy"]): TerminalOpener | undefined {
     if (!opener) return undefined;
     const { kind = "tab", agent, device } = opener;
+    const parent = device ? undefined : rowsByTab.get(opener.tabId);
     const name =
-      remoteDisplayName(opener.name ?? "") || remoteDisplayName(opener.tabId.slice(0, 8));
+      remoteDisplayName(parent?.title) ||
+      remoteDisplayName(opener.name) ||
+      remoteDisplayName(opener.tabId.slice(0, 8));
     if (device)
       return { ...opener, kind, name, device: { ...device, name: remoteDisplayName(device.name) } };
-    const tabId = keysByTab.get(opener.tabId);
+    const parentKey = parent && remoteSessionKey({ deviceId, ...parent });
+    const tabId = parentKey && byKey.has(parentKey) ? parentKey : undefined;
+    // A hidden or ambiguous parent is in the listing, but cannot be a tree link.
+    if (!tabId && rowsByTab.has(opener.tabId)) unlinkedParents.add(key);
     return { kind, agent, name, tabId };
   }
 
@@ -47,7 +55,7 @@ export function remoteSessionTree(
     workspaceId: session.workspaceId,
     tabId: key,
     title: remoteDisplayName(session.title),
-    parent: openerOf(session.openedBy),
+    parent: openerOf(key, session.openedBy),
     kind: session.kind,
     agent: session.kind === "terminal" ? session.agent : session.kind,
     state: session.state === "ended" ? "exited" : session.state,
@@ -57,7 +65,8 @@ export function remoteSessionTree(
     message: session.last,
     prompt: undefined,
   }));
-  // A tab ID must identify a single session on the host. Ambiguous openers
-  // keep their label and cannot attach sessions to unrelated workspaces.
-  return { byKey, roots: searchSessionTree(sessionTree(rows), query) };
+  const roots = sessionTree(rows).map((node) =>
+    unlinkedParents.has(node.session.key) ? { ...node, parentClosed: undefined } : node,
+  );
+  return { byKey, roots: searchSessionTree(roots, query) };
 }

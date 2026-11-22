@@ -1,6 +1,7 @@
-import { GitBranch } from "lucide-react";
+import { Folder, GitBranch } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import { showTerminal } from "../../services/agent-sessions/actions";
 import type { SessionTreeNode } from "../../services/agent-sessions/session-tree";
@@ -29,7 +30,7 @@ export function RemoteSessionBranch({
   searching,
   groupIdle,
   navigation,
-  workspaceLabel,
+  workspaceOf,
   renderRow,
 }: {
   root: SessionTreeNode;
@@ -37,7 +38,7 @@ export function RemoteSessionBranch({
   searching: boolean;
   groupIdle?: boolean;
   navigation?: RemoteTreeNavigation;
-  workspaceLabel: (workspaceId: string) => string | undefined;
+  workspaceOf: (workspaceId: string) => RemoteWorkspace | undefined;
   renderRow: (node: SessionTreeNode) => ReactNode;
 }) {
   return (
@@ -54,9 +55,9 @@ export function RemoteSessionBranch({
             node={node}
             collapsed={collapsed}
             navigation={navigation}
-            branch={
+            workspace={
               node.session.workspaceId !== root.session.workspaceId
-                ? workspaceLabel(node.session.workspaceId)
+                ? workspaceOf(node.session.workspaceId)
                 : undefined
             }
           />
@@ -70,25 +71,32 @@ function RemoteSessionRelations({
   node,
   collapsed,
   navigation,
-  branch,
+  workspace,
 }: {
   node: SessionTreeNode;
   collapsed: boolean;
   navigation?: RemoteTreeNavigation;
-  branch?: string;
+  workspace?: RemoteWorkspace;
 }) {
-  const parentName = visibleParentName(node);
+  const parentName =
+    visibleParentName(node) ??
+    (node.depth === 0 && !node.session.parent?.tabId ? node.parentName : undefined);
+  const task = workspace?.parentId !== undefined;
+  const workspaceLabel = remoteDisplayName(
+    task ? (workspace?.git?.branch ?? workspace?.name) : workspace?.name,
+  );
+  const WorkspaceIcon = task ? GitBranch : Folder;
   const { count, counts, session, parentClosed } = node;
-  if (!parentName && !count && !branch) return null;
+  if (!parentName && !count && !workspaceLabel) return null;
   return (
     <div className="flex min-w-0 items-center gap-1.5 px-2 pb-1 text-app-micro">
-      {branch && (
+      {workspaceLabel && (
         <span
           className="flex max-w-[45%] min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-muted-foreground"
-          title={remoteDisplayName(branch)}
+          title={workspaceLabel}
         >
-          <GitBranch aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{remoteDisplayName(branch)}</span>
+          <WorkspaceIcon aria-hidden className="size-3 shrink-0" />
+          <span className="truncate">{workspaceLabel}</span>
         </span>
       )}
       {parentName && (
@@ -129,52 +137,65 @@ function RemoteParentChip({
   const peer = device ? navigation?.peers.get(device.id) : undefined;
   const { open } = useSessionParent(self && opener ? { ...opener, device: undefined } : undefined);
   const deviceName = self
-    ? t("systemStats.this_computer")
+    ? t("agentView.list.this_computer")
     : remoteDisplayName(peer?.name ?? device?.name ?? "") || remoteDisplayName(device?.id ?? "");
+  const parentName = remoteDisplayName(open?.title) || name;
+  const isClosed = closed || (self && !open);
   const label = useParentCaption(
-    (open && remoteDisplayName(open.title)) || name,
+    parentName,
     device ? { id: "", name: deviceName } : undefined,
-    closed,
+    isClosed,
   );
   if (!label) return null;
+  const closedSuffix = isClosed ? ` · ${t("agentView.list.parent_closed_state")}` : "";
+  const hint = device ? label.hint + closedSuffix : label.hint;
+  const content = device ? (
+    <>
+      ↳ <bdi>{deviceName}</bdi> · <bdi>{parentName}</bdi>
+      {closedSuffix}
+    </>
+  ) : (
+    label.label
+  );
   const { workspaceId, tabId } = opener ?? {};
   const canOpenPeer = !self && navigation?.connected && peer?.online && workspaceId && tabId;
-  const onClick = open
-    ? () => showTerminal(open)
-    : canOpenPeer
-      ? () =>
-          void showPeerSession({
-            device: { id: peer.id, name: deviceName },
-            workspaceId,
-            tabId,
-            kind:
-              opener?.kind === "terminal"
-                ? "terminal"
-                : opener?.agent === "codex"
-                  ? "codex"
-                  : "claude",
-            title: name,
-          })
-      : undefined;
+  const onClick =
+    navigation?.connected && open
+      ? () => showTerminal(open)
+      : canOpenPeer
+        ? () =>
+            void showPeerSession({
+              device: { id: peer.id, name: deviceName },
+              workspaceId,
+              tabId,
+              kind:
+                opener?.kind === "terminal"
+                  ? "terminal"
+                  : opener?.agent === "codex"
+                    ? "codex"
+                    : "claude",
+              title: name,
+            })
+        : undefined;
   const className = "min-w-0 truncate text-muted-foreground";
   return onClick ? (
     <Button
       type="button"
       variant="ghost"
-      title={label.hint}
+      title={hint}
       className={cn(className, "h-auto max-w-full px-1 py-0 text-app-micro font-normal")}
       data-testid="remote-session-parent"
       onClick={onClick}
     >
-      <span className="truncate">{label.label}</span>
+      <span className="truncate">{content}</span>
     </Button>
   ) : (
     <span
-      className={cn(className, (closed || device) && "opacity-70")}
-      title={label.hint}
+      className={cn(className, (isClosed || device) && "opacity-70")}
+      title={hint}
       data-testid="remote-session-parent"
     >
-      {label.label}
+      {content}
     </span>
   );
 }
