@@ -24,13 +24,14 @@ test("the sidebar and panes share a device's sessions watch and refresh", async 
   await Promise.resolve();
   const closePane = observePeerSessions("d2", 0, pane);
   try {
-    const initial = { status: "ready", list };
+    const initial = { status: "ready", list, requested: expect.any(Number) };
     expect(sidebar).toHaveBeenLastCalledWith(initial);
     expect(pane).toHaveBeenLastCalledWith(initial);
     expect(call.mock.calls).toEqual([["remote", "peerSessionsWatch", { deviceId: "d2" }]]);
 
     refreshPeerSessions("d2");
-    await Promise.resolve();
+    refreshPeerSessions("d2");
+    await Bun.sleep(0);
     expect(sidebar).toHaveBeenCalledTimes(2);
     expect(pane).toHaveBeenCalledTimes(2);
     expect(call.mock.calls[1]).toEqual(["remote", "peerSessions", { deviceId: "d2" }]);
@@ -65,7 +66,7 @@ test("switching between workspace and agent sidebars keeps one sessions watch", 
     agent = observePeerSessions("d2", 0, receive);
     await Promise.resolve();
     expect(call.mock.calls).toEqual([["remote", "peerSessionsWatch", { deviceId: "d2" }]]);
-    expect(receive).toHaveBeenCalledWith({ status: "ready", list });
+    expect(receive).toHaveBeenCalledWith({ status: "ready", list, requested: expect.any(Number) });
   } finally {
     workspace();
     agent?.();
@@ -95,7 +96,11 @@ test("releasing a watch twice leaves its replacement shared by new observers", a
     release();
     const additional = mock((_sessions: PeerSessions) => {});
     releaseAdditional = observePeerSessions("d2", 0, additional);
-    expect(additional).toHaveBeenCalledWith({ status: "ready", list });
+    expect(additional).toHaveBeenCalledWith({
+      status: "ready",
+      list,
+      requested: expect.any(Number),
+    });
     expect(call.mock.calls).toEqual([
       ["remote", "peerSessionsWatch", { deviceId: "d2" }],
       ["remote", "peerSessionsUnwatch", { deviceId: "d2", watchId: "watch-1" }],

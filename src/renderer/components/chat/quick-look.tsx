@@ -81,7 +81,8 @@ interface QuickLookProps {
   onClose: () => void;
   /** Opens the file as a tab of its own, at the line a link named in it; none for another computer's. */
   onOpenTab?: (path: string, at?: LineAt) => void;
-  onOpenBeside?: (path: string, options: FileLookOptions) => void;
+  onOpenBeside?: (path: string, options: FileLookOptions) => boolean;
+  openBesideInWorkspace?: boolean;
   /** The folder of a workspace on another computer. */
   peerRoot?: string;
   /** Whether the workspace is on this machine, where Finder can show a file. */
@@ -100,6 +101,7 @@ export function QuickLook({
   onClose,
   onOpenTab,
   onOpenBeside,
+  openBesideInWorkspace,
   peerRoot,
   local,
   onRevert,
@@ -295,21 +297,23 @@ export function QuickLook({
             <FolderOpen className="size-3.5" />
           </IconButton>
         )}
-        {(imageFile ?? (image ? "" : path)) && view === "agents" && onOpenBeside && (
-          <IconButton
-            label={t("chat.look.open_beside")}
-            onClick={() => {
-              restoreFocus.current = false;
-              onOpenBeside(
-                imageFile ?? path,
-                imageFile ? {} : { at: line, before, mode: fileView.mode, compare: showDiff },
-              );
-            }}
-            data-testid="chat-quick-look-open-beside"
-          >
-            <Columns2 className="size-3.5" />
-          </IconButton>
-        )}
+        {(imageFile ?? (image ? "" : path)) &&
+          (view === "agents" || openBesideInWorkspace) &&
+          onOpenBeside && (
+            <IconButton
+              label={t("chat.look.open_beside")}
+              onClick={() => {
+                const opened = onOpenBeside(
+                  imageFile ?? path,
+                  imageFile ? {} : { at: line, before, mode: fileView.mode, compare: showDiff },
+                );
+                if (opened !== false) restoreFocus.current = false;
+              }}
+              data-testid="chat-quick-look-open-beside"
+            >
+              <Columns2 className="size-3.5" />
+            </IconButton>
+          )}
         {(!image || imageFile) && onOpenTab && (
           <IconButton
             label={t("chat.look.open_tab")}

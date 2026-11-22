@@ -1,6 +1,7 @@
-import { Folder, GitBranch, Search } from "lucide-react";
+import { Bot, Folder, GitBranch, Search } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { RoomPeer } from "../../../shared/remote/room";
 import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
 import { Button } from "../ui/button";
@@ -9,9 +10,11 @@ import { KeptMounted } from "../ui/kept-mounted";
 import { PeerFileTree } from "./file-tree";
 import { PeerGitPanel } from "./git-panel";
 import { PeerSearchPanel } from "./search-panel";
+import { PeerSessionsPanel } from "./sessions-panel";
 
 export function PeerFilesPanel({
   target,
+  peer,
   missing,
   canRead,
   updateNeeded,
@@ -22,6 +25,7 @@ export function PeerFilesPanel({
   sessionHint,
 }: {
   target: PeerWorkspaceTarget;
+  peer?: RoomPeer;
   missing: boolean;
   canRead: boolean;
   updateNeeded: boolean;
@@ -32,7 +36,7 @@ export function PeerFilesPanel({
   sessionHint: number;
 }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"tree" | "search" | "git">("tree");
+  const [mode, setMode] = useState<"tree" | "search" | "git" | "agents">("tree");
   return (
     <>
       <div className="flex items-center gap-1 border-b border-border/50 px-2 py-2">
@@ -41,6 +45,7 @@ export function PeerFilesPanel({
             { value: "tree", label: t("files:panel.tab.tree"), Icon: Folder },
             { value: "search", label: t("files:panel.tab.search"), Icon: Search },
             { value: "git", label: t("files:git.panel.header.title"), Icon: GitBranch },
+            { value: "agents", label: t("files:panel.tab.agents"), Icon: Bot },
           ] as const
         ).map(({ value, label, Icon }) => (
           <Button
@@ -66,7 +71,9 @@ export function PeerFilesPanel({
       ) : (
         <>
           {updateNeeded ? (
-            mode !== "git" && <EmptyState title={t("peerWorkspace.updateNeeded")} tone="status" />
+            (mode === "tree" || mode === "search") && (
+              <EmptyState title={t("peerWorkspace.updateNeeded")} tone="status" />
+            )
           ) : (
             <>
               <KeptMounted shown={mode === "tree"}>
@@ -86,6 +93,7 @@ export function PeerFilesPanel({
               </KeptMounted>
             </>
           )}
+          {mode === "agents" && <PeerSessionsPanel target={target} peer={peer} />}
           <KeptMounted shown={mode === "git"}>
             <PeerGitPanel
               target={target}

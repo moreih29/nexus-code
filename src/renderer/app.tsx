@@ -343,6 +343,7 @@ export function App() {
                       activePeer.workspace.path,
                     ])}
                     target={activePeer}
+                    peer={peers.peer}
                     missing={peers.missing}
                     canRead={
                       !agentView && !filesPanelHidden && peers.reachable && peers.filesSupported
@@ -378,6 +379,7 @@ export function App() {
               <PeerWorkspacePanel
                 key={JSON.stringify([activePeer.accountKey, peerTargetId(activePeer)])}
                 target={activePeer}
+                peer={peers.peer}
                 shown={!agentView}
                 reach={peers.reach}
                 reachable={peers.reachable}

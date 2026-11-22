@@ -16,6 +16,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { applyUpdate, keepEarlier, watchMissedUpdate, withEarlier } from "./chat-model";
+import { watchPeerChat } from "./peer-chat-watch";
 import { forgetPeerSubmissions, observePeerEchoes } from "./peer-submissions";
 import type { PeerRead } from "./room";
 import { usePeerRejoins, useRemoteRoom } from "./room";
@@ -115,22 +116,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
     });
     const recovery = recoveryLimit.current;
     recoveryLimit.current = undefined;
-    void ipcCallResult("remote", "peerChatWatch", {
-      deviceId,
-      workspaceId,
-      tabId,
-      appends: true,
-      ...(recovery !== undefined ? { limit: recovery } : {}),
-    }).then((result) => {
-      if (!live) {
-        if (result.ok) {
-          void ipcCallResult("remote", "peerChatUnwatch", {
-            deviceId,
-            watchId: result.value.watchId,
-          });
-        }
-        return;
-      }
+    const stop = watchPeerChat(ref, recovery, (result) => {
       if (result.ok) {
         const { watchId, ...page } = result.value;
         watch.current = { id: watchId, rev: 0, start: page.start };
@@ -190,9 +176,8 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       off();
       clearTimeout(retry);
       clearInterval(alive);
-      const w = watch.current;
       watch.current = null;
-      if (w) void ipcCallResult("remote", "peerChatUnwatch", { deviceId, watchId: w.id });
+      stop();
     };
   }, [deviceId, workspaceId, tabId, shown, online, round, rejoins]);
 

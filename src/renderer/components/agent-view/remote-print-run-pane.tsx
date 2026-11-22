@@ -6,14 +6,16 @@
  * lets this one control its chats.
  */
 
+import { useContext } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
 import { usePeerRun } from "../../services/remote/peer-runs";
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { openRemoteSession, type RemoteTarget } from "../../state/stores/remote-view";
 import { PrintRunPane } from "../chat/print-run-pane";
 import { showToast } from "../ui/toast";
+import { RemoteSessionHostContext } from "./remote-session-host";
 
 export function RemotePrintRunPane({
   target,
@@ -29,6 +31,7 @@ export function RemotePrintRunPane({
   controls: boolean;
 }) {
   const { t } = useTranslation();
+  const open = useContext(RemoteSessionHostContext)?.openSession ?? openRemoteSession;
   const { deviceId, workspaceId, tabId } = target;
   const ref = { deviceId, workspaceId, tabId };
   const run = usePeerRun(ref, row, visible);
@@ -52,7 +55,7 @@ export function RemotePrintRunPane({
         return;
       }
       const { profile: _theirs, cwd: _its, ...rest } = target;
-      useRemoteViewStore.getState().open({
+      open({
         ...rest,
         kind: codex ? "codex" : "claude",
         tabId: result.value.tabId,

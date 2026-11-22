@@ -10,6 +10,7 @@ import { useMemo, useRef } from "react";
 import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
+import { remoteSessionKey } from "../../services/agent-view/layout";
 import type { ChatFiles } from "../../services/chat/chat-files";
 import {
   imageLook,
@@ -22,11 +23,13 @@ import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/lin
 import type { ChatModel } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
 import { readRemoteFileBefore } from "../../services/remote/file-comparison";
+import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import type { ChatLinks } from "../chat/chat-links";
 import type { QuickLookList } from "../chat/quick-look";
 import { showToast } from "../ui/toast";
+import type { OpenRemoteFileBeside } from "./remote-session-host";
 
 const t = (key: string, options?: Record<string, unknown>) => String(i18next.t(key, options));
 
@@ -46,13 +49,14 @@ export function useRemoteLinks(
   source: RemoteLinkSource,
   files: ChatFiles,
   setLook: (look: QuickLookList | null) => void,
-): ChatLinks {
-  const { deviceId, deviceName, tabId } = target;
+  placeFile?: OpenRemoteFileBeside,
+): ChatLinks & { openBeside: OpenRemoteFileBeside } {
+  const { deviceId, deviceName, tabId, path: workspaceRoot } = target;
   const peerWorkspace = target.workspaceId;
   const cwd = target.cwd ?? target.path;
   const latest = useRef(source);
   latest.current = source;
-  return useMemo<ChatLinks>(() => {
+  return useMemo<ChatLinks & { openBeside: OpenRemoteFileBeside }>(() => {
     const where = { deviceId, workspaceId: peerWorkspace };
     // Each look its own: one that comes after another was opened does not replace it.
     let opened = 0;
@@ -70,7 +74,7 @@ export function useRemoteLinks(
       const held = image.image ? latestReadFile(shown, image) : undefined;
       if (held) {
         opened++;
-        if (showHeldRemoteFile({ ...where, path: held })) {
+        if (!placeFile && showHeldRemoteFile({ ...where, path: held })) {
           setLook(null);
           return;
         }
@@ -83,7 +87,7 @@ export function useRemoteLinks(
     };
     const showFile = ({ path, line, column }: FileLink) => {
       opened++;
-      if (showHeldRemoteFile({ ...where, path }, { line, column })) {
+      if (!placeFile && showHeldRemoteFile({ ...where, path }, { line, column })) {
         setLook(null);
         return;
       }
@@ -106,6 +110,22 @@ export function useRemoteLinks(
     };
     return {
       openFile,
+      openBeside:
+        placeFile ??
+        ((path, { at, before, mode, compare }) => {
+          const key = remoteFileKey({ ...where, path });
+          useAgentViewStore.getState().placeRemoteFile(key, remoteSessionKey({ ...where, tabId }), {
+            deviceName,
+            workspaceRoot,
+            at: at?.line ? { line: at.line, column: at.column } : undefined,
+            before,
+            mode,
+            compare,
+            compareFrom: before !== undefined ? tabId : undefined,
+          });
+          requestTabFocus(key);
+          return true;
+        }),
       openImages(images, index) {
         const image = images[index];
         if (image) lookAt({ image }, () => imageLook(images, index));
@@ -115,7 +135,7 @@ export function useRemoteLinks(
         const file = { ...where, path };
         const { model } = latest.current;
         const known = changedFilesOf(model.tools).find((change) => change.path === path)?.before;
-        if (showHeldRemoteFile(file)) {
+        if (!placeFile && showHeldRemoteFile(file)) {
           const view = useAgentViewStore.getState();
           const key = remoteFileKey(file);
           const previous = view.remoteFiles.get(key);
@@ -151,7 +171,7 @@ export function useRemoteLinks(
         }
         if (isExternalSchemeAllowed(url)) window.open(url, "_blank", "noopener,noreferrer");
       },
-      urlsOneWay: true,
+      urlsOneWay: true as const,
     };
-  }, [deviceId, peerWorkspace, tabId, cwd, deviceName, files, setLook]);
+  }, [deviceId, peerWorkspace, tabId, workspaceRoot, cwd, deviceName, files, setLook, placeFile]);
 }

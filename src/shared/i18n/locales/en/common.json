@@ -2100,6 +2100,8 @@
     "gitPatchTruncated": "Partial patch",
     "gitOutsideWorkspace": "Outside workspace",
     "gitCommitMissing": "Commit unavailable",
-    "gitNoCommits": "No commits"
+    "gitNoCommits": "No commits",
+    "sessionGone": "Gone",
+    "noSessions": "No sessions"
   }
 }

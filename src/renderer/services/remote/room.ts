@@ -48,10 +48,10 @@ export function usePeerReach(deviceId: string): PeerReach {
  * chat.control, as the user there allowed it. Taken as yes until its hello
  * says otherwise.
  */
-export function usePeerControls(deviceId: string): boolean {
+export function usePeerControls(deviceId: string, assumeControl = true): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
-  return serves ? serves.includes("chat.control") : true;
+  return serves?.includes("chat.control") ?? assumeControl;
 }
 
 /**
@@ -229,7 +229,7 @@ export type SessionsList = RpcResult<"sessions.list">;
 
 export type PeerSessions =
   | { status: "loading" }
-  | { status: "ready"; list: SessionsList }
+  | { status: "ready"; list: SessionsList; requested?: number }
   | { status: "unavailable" };
 
 /** How often a shown device's sessions are asked again, where it cannot be watched. */
@@ -254,25 +254,49 @@ interface PeerSessionsWatch {
 }
 
 const sessionWatches = new Map<string, PeerSessionsWatch>();
+let sessionsReadSequence = 0;
 
-function watchPeerSessionList(deviceId: string, put: (list: SessionsList | null) => void) {
+/** Requests already in flight can predate a session that just opened. */
+export function peerSessionsReadSequence(): number {
+  return sessionsReadSequence;
+}
+
+function watchPeerSessionList(
+  deviceId: string,
+  put: (list: SessionsList | null, requested?: number) => void,
+) {
   let live = true;
   let watching: string | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let accepted = 0;
+  let refreshQueued = false;
   const off = ipcListen("remote", "peerSessionsUpdate", ({ deviceId: from, update }) => {
     if (from !== deviceId || watching !== update.watchId) return;
     const { watchId: _, ...list } = update;
     put(list);
   });
-  const ask = () =>
+  const read = (list: SessionsList | null, requested: number) => {
+    if (requested < accepted) return;
+    if (list) accepted = requested;
+    put(list, requested);
+  };
+  const ask = () => {
+    const requested = ++sessionsReadSequence;
     void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
-      if (live) put(result.ok ? result.value : null);
+      if (live) read(result.ok ? result.value : null, requested);
     });
+  };
   const offAgain = askAgain.subscribe((id) => {
-    if (id === deviceId) ask();
+    if (id !== deviceId || refreshQueued) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      if (live) ask();
+    });
   });
   const unwatch = (watchId: string) =>
     void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
+  const requested = ++sessionsReadSequence;
   void ipcCallResult("remote", "peerSessionsWatch", { deviceId }).then((result) => {
     if (!live) {
       if (result.ok) unwatch(result.value.watchId);
@@ -286,7 +310,7 @@ function watchPeerSessionList(deviceId: string, put: (list: SessionsList | null)
     }
     const { watchId, ...list } = result.value;
     watching = watchId;
-    put(list);
+    read(list, requested);
   });
   return () => {
     live = false;
@@ -309,9 +333,9 @@ export function observePeerSessions(
     const listeners = createListenerBus<PeerSessions>();
     const next: PeerSessionsWatch = {
       listeners,
-      stop: watchPeerSessionList(deviceId, (list) => {
+      stop: watchPeerSessionList(deviceId, (list, requested) => {
         if (!list && next.latest?.status === "ready") return;
-        next.latest = list ? { status: "ready", list } : { status: "unavailable" };
+        next.latest = list ? { status: "ready", list, requested } : { status: "unavailable" };
         // Held tabs take up changes even when the sidebar filters out their rows.
         if (list) useRemoteViewStore.getState().refresh(deviceId, list);
         listeners.notify(next.latest);

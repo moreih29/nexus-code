@@ -1,10 +1,12 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import { registerFileCommands } from "../../../../../src/renderer/commands/domains/file";
 import { registerPaletteCommands } from "../../../../../src/renderer/commands/domains/palette";
 import { registerTabCommands } from "../../../../../src/renderer/commands/domains/tab";
 import { registerTerminalCommands } from "../../../../../src/renderer/commands/domains/terminal";
 import { registerWorkspaceCommands } from "../../../../../src/renderer/commands/domains/workspace";
 import { executeCommand } from "../../../../../src/renderer/commands/registry";
+import { openPeerWorkspaceFileBeside } from "../../../../../src/renderer/components/peer-workspace/session-placement";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import {
   focusWorkspace,
@@ -190,4 +192,170 @@ test("a commit is one in-memory tab per hash in the selected peer workspace", ()
   expect(usePeerWorkspaceStore.getState().views[id].tabs).toHaveLength(2);
   store.closeTab(id, tabId);
   expect(usePeerWorkspaceStore.getState().views[id].activePath).toBe("/w/a.txt");
+});
+
+const listedChat: RemoteSession = {
+  kind: "claude",
+  workspaceId: target.workspaceId,
+  tabId: "chat",
+  title: "Review",
+  state: "idle",
+  cwd: "/w/chat",
+  profile: "Work",
+};
+const shell: RemoteSession = {
+  kind: "terminal",
+  workspaceId: target.workspaceId,
+  tabId: "shell",
+  title: "zsh",
+  state: "idle",
+};
+
+test("workspace sessions follow the listed order, keep local hides, and prune gone tabs on reopen", () => {
+  const store = usePeerWorkspaceStore.getState();
+  const view = () => usePeerWorkspaceStore.getState().views[id]!;
+  const keys = () => view().tabs.map(peerTabId);
+  const chatKey = JSON.stringify(["peer.session", "chat"]);
+  const shellKey = JSON.stringify(["peer.session", "shell"]);
+  const nextKey = JSON.stringify(["peer.session", "next"]);
+  const next = { ...listedChat, tabId: "next", title: "New" };
+  const elsewhere = { ...listedChat, tabId: "z", workspaceId: "elsewhere" };
+  const ipcCall = spyOn(ipc, "ipcCallResult");
+  try {
+    store.select(target, null);
+    store.syncSessions(target, [listedChat, elsewhere, shell], false);
+    expect(keys()).toEqual([chatKey, shellKey]);
+    expect(view().activePath).toBe(chatKey);
+    const shellTarget = view().tabs.find(
+      (tab) => tab.type === "peer.session" && tab.target.tabId === "shell",
+    );
+    if (shellTarget?.type !== "peer.session") throw new Error("Expected a terminal tab");
+
+    store.closeTab(id, shellKey);
+    store.openFile(id, "/w/notes.txt");
+    const renamed = { ...target, workspace: { ...target.workspace, name: "Renamed" } };
+    store.syncSessions(
+      renamed,
+      [next, shell, { ...listedChat, title: "Updated", cwd: undefined, profile: undefined }],
+      false,
+    );
+    expect(keys()).toEqual([chatKey, "/w/notes.txt", nextKey]);
+    expect(view().tabs[0]).toMatchObject({
+      target: { title: "Updated", profile: "Work", workspaceName: "Renamed" },
+    });
+    expect(view().tabs[0]).not.toHaveProperty("target.cwd");
+    expect(view().sessions?.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
+
+    store.openSession(id, shellTarget.target);
+    expect(keys()).toEqual([chatKey, "/w/notes.txt", nextKey, shellKey]);
+    expect(view().activePath).toBe(shellKey);
+    store.closeTab(id, shellKey);
+    store.syncSessions(target, [next], true);
+    expect(view().tabs[0]).not.toHaveProperty("gone");
+    expect(view().sessions?.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
+    store.syncSessions(target, [shell, next], false);
+    expect(view().tabs[0]).toMatchObject({ gone: true });
+    store.selectTab(id, chatKey);
+    store.clearSelection();
+    store.select(target, null);
+    expect(keys()).toEqual(["/w/notes.txt", nextKey]);
+    expect(view().activePath).toBe("/w/notes.txt");
+    store.syncSessions(target, [shell, next], false);
+    expect(keys()).toEqual(["/w/notes.txt", nextKey]);
+    expect(ipcCall).not.toHaveBeenCalled();
+  } finally {
+    ipcCall.mockRestore();
+  }
+});
+
+test("a newly created tab survives a stale list and tracks terminal requests once listed", () => {
+  const store = usePeerWorkspaceStore.getState();
+  const view = () => usePeerWorkspaceStore.getState().views[id]!;
+  store.select(target, null);
+  store.openSession(id, {
+    deviceId: target.deviceId,
+    deviceName: target.deviceName,
+    workspaceId: target.workspaceId,
+    workspaceName: target.workspace.name,
+    path: target.workspace.path,
+    tabId: shell.tabId,
+    kind: "terminal",
+    title: "Starting",
+  });
+  store.syncSessions(target, [], false);
+  expect(view().tabs[0]).toMatchObject({ pending: 0 });
+  store.syncSessions(
+    target,
+    [
+      {
+        ...shell,
+        waiting: {
+          kind: "permission",
+          text: "Run command",
+          requestId: "req",
+          always: true,
+          subagent: false,
+        },
+      },
+    ],
+    false,
+  );
+  expect(view().tabs[0]).not.toHaveProperty("pending");
+  expect(view().tabs[0]).toMatchObject({
+    target: {
+      title: "zsh",
+      ask: { requestId: "req", text: "Run command", always: true, subagent: false },
+    },
+  });
+  store.syncSessions(target, [shell], false);
+  expect(view().tabs[0]).not.toHaveProperty("target.ask");
+  store.syncSessions(target, [], false);
+  expect(view().tabs[0]).toMatchObject({ gone: true });
+});
+
+test("open beside selects a read-only peer file at the chat link's line", () => {
+  selectPeerWorkspace(target);
+  expect(openPeerWorkspaceFileBeside(target, "/w/docs/start.md", { line: 4, column: 3 })).toBe(
+    true,
+  );
+  expect(usePeerWorkspaceStore.getState().views[id]).toMatchObject({
+    tabs: [{ type: "peer.file", path: "/w/docs/start.md", at: { line: 4, column: 3 } }],
+    activePath: "/w/docs/start.md",
+  });
+  expect(useAgentViewStore.getState().mode).toBe("workspace");
+  expect(openPeerWorkspaceFileBeside({ ...target, accountKey: "other" }, "/w/docs/start.md")).toBe(
+    false,
+  );
+});
+
+test("a newer complete list marks a never-listed background session gone and excludes ended sessions", () => {
+  const store = usePeerWorkspaceStore.getState();
+  const view = () => usePeerWorkspaceStore.getState().views[id]!;
+  store.select(target, null);
+  expect(usePeerWorkspaceStore.getState().views[id]?.sessions).toBeUndefined();
+  const opened = {
+    deviceId: target.deviceId,
+    deviceName: target.deviceName,
+    workspaceId: target.workspaceId,
+    workspaceName: target.workspace.name,
+    path: target.workspace.path,
+    tabId: "new",
+    kind: "claude" as const,
+    title: "New",
+  };
+  store.openSession(id, opened, 10);
+  store.syncSessions(target, [shell, { ...listedChat, state: "ended" }], false, 10);
+  const shellKey = JSON.stringify(["peer.session", shell.tabId]);
+  store.selectTab(id, shellKey);
+  expect(view().tabs[0]).toMatchObject({ pending: 10 });
+  store.syncSessions(target, [shell], true, 11);
+  expect(view().tabs[0]).toMatchObject({ pending: 10 });
+  store.syncSessions(target, [shell], false, 12);
+  expect(view().tabs[0]).toMatchObject({ gone: true });
+  expect(view().tabs[0]).not.toHaveProperty("pending");
+  expect(view().activePath).toBe(shellKey);
+  store.syncSessions(target, [{ ...shell, state: "ended" }], false, 13);
+  expect(view().tabs).toHaveLength(1);
+  expect(view().sessions).toEqual([]);
+  expect(view().activePath).toBe(JSON.stringify(["peer.session", "new"]));
 });

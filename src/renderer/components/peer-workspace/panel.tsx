@@ -2,6 +2,7 @@ import { FileDiff, GitBranch, GitCommitHorizontal, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { RoomPeer } from "../../../shared/remote/room";
 import type { PeerReach } from "../../services/remote/room";
 import { returnFromPeerWorkspace } from "../../state/operations/workspace-selection";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
 import { workspacePathParts } from "../../utils/path";
+import { RemoteNewMenu } from "../agent-view/remote-new-menu";
 import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-look";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { EmptyState } from "../ui/empty-state";
@@ -22,10 +24,13 @@ import { PeerCommitTabBody } from "./commit-tab";
 import { PeerDiffTabBody } from "./diff-tab";
 import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
+import { showPeerWorkspaceSession } from "./session-placement";
+import { PeerSessionTabBody, peerSessionIcons } from "./session-tab";
 import { PeerDeviceIcon } from "./sidebar";
 
 export function PeerWorkspacePanel({
   target,
+  peer,
   shown,
   reach,
   reachable,
@@ -35,6 +40,7 @@ export function PeerWorkspacePanel({
   rejoin,
 }: {
   target: PeerWorkspaceTarget;
+  peer?: RoomPeer;
   shown: boolean;
   reach: PeerReach;
   reachable: boolean;
@@ -56,7 +62,7 @@ export function PeerWorkspacePanel({
         : null;
   const root = target.workspace.path;
   const names = view.tabs.map((tab) => {
-    if (tab.type === "peer.commit") return null;
+    if (tab.type === "peer.commit" || tab.type === "peer.session") return null;
     return tab.type === "peer.diff"
       ? peerGitDisplayPath(root, tab.path)
       : { ...workspacePathParts(tab.path, root), outsideWorkspace: false };
@@ -90,25 +96,44 @@ export function PeerWorkspacePanel({
                 {banner}
               </div>
             )}
-            {view.tabs.length === 0 ? (
-              <EmptyState
-                title={t(updateNeeded ? "peerWorkspace.updateNeeded" : "peerWorkspace.selectFile")}
-                tone="status"
-                className="flex-1"
-              />
-            ) : (
-              <Tabs.Root
-                value={view.activePath === null ? "" : encodeURIComponent(view.activePath)}
-                onValueChange={(value) => select(id, decodeURIComponent(value))}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <div className="app-scrollbar h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none]">
+            <Tabs.Root
+              value={view.activePath === null ? "" : encodeURIComponent(view.activePath)}
+              onValueChange={(value) => select(id, decodeURIComponent(value))}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <div className="flex h-9 shrink-0 items-center px-1.5">
+                <div className="app-scrollbar h-full min-w-0 overflow-x-auto [scrollbar-width:none]">
                   <Tabs.List
                     aria-label={t("tabBar.open_tabs")}
                     className="flex h-full w-max items-center"
                   >
                     {view.tabs.map((tab, index) => {
                       const key = peerTabId(tab);
+                      if (tab.type === "peer.session") {
+                        const Icon = peerSessionIcons[tab.target.kind];
+                        const { kind } = tab.target;
+                        const title =
+                          tab.target.title ||
+                          t(
+                            kind === "terminal"
+                              ? "terminal.default_title"
+                              : kind === "claude"
+                                ? "chat.tab_title"
+                                : "chat.codex.tab_title",
+                          );
+                        return (
+                          <TabItem
+                            key={key}
+                            readOnly
+                            value={encodeURIComponent(key)}
+                            label={
+                              tab.gone ? `${title} · ${t("peerWorkspace.sessionGone")}` : title
+                            }
+                            icon={<Icon className="size-3.5" aria-hidden="true" />}
+                            onClose={() => close(id, key)}
+                          />
+                        );
+                      }
                       if (tab.type === "peer.commit") {
                         return (
                           <TabItem
@@ -165,49 +190,76 @@ export function PeerWorkspacePanel({
                     })}
                   </Tabs.List>
                 </div>
-                {view.tabs.map((tab) => {
-                  const key = peerTabId(tab);
-                  const selected = key === view.activePath;
-                  if (tab.type === "peer.commit") {
-                    return (
-                      <PeerCommitTabBody
-                        key={key}
-                        target={target}
-                        tab={tab}
-                        selected={selected}
-                        canRead={canReadGit}
-                        updateNeeded={gitUpdateNeeded}
-                        rejoin={rejoin}
-                      />
-                    );
-                  }
-                  return tab.type === "peer.diff" ? (
-                    <PeerDiffTabBody
+                {reachable && peer && (
+                  <RemoteNewMenu
+                    peer={peer}
+                    workspace={target.workspace}
+                    onOpenSession={(session) => showPeerWorkspaceSession(target, session)}
+                  />
+                )}
+              </div>
+              {view.tabs.length === 0 && (
+                <EmptyState
+                  title={t(
+                    updateNeeded ? "peerWorkspace.updateNeeded" : "peerWorkspace.selectFile",
+                  )}
+                  tone="status"
+                  className="flex-1"
+                />
+              )}
+              {view.tabs.map((tab) => {
+                const key = peerTabId(tab);
+                const selected = key === view.activePath;
+                if (tab.type === "peer.session") {
+                  return (
+                    <PeerSessionTabBody
+                      key={key}
+                      workspace={target}
+                      tab={tab}
+                      selected={selected}
+                      shown={shown}
+                    />
+                  );
+                }
+                if (tab.type === "peer.commit") {
+                  return (
+                    <PeerCommitTabBody
                       key={key}
                       target={target}
                       tab={tab}
-                      latest={status?.files.find((file) => file.path === tab.path)}
                       selected={selected}
                       canRead={canReadGit}
                       updateNeeded={gitUpdateNeeded}
                       rejoin={rejoin}
                     />
-                  ) : (
-                    <PeerFileTabBody
-                      key={key}
-                      id={id}
-                      path={tab.path}
-                      root={root}
-                      at={tab.at}
-                      selected={selected}
-                      canRead={shown && reachable && !updateNeeded}
-                      updateNeeded={updateNeeded}
-                      rejoin={rejoin}
-                    />
                   );
-                })}
-              </Tabs.Root>
-            )}
+                }
+                return tab.type === "peer.diff" ? (
+                  <PeerDiffTabBody
+                    key={key}
+                    target={target}
+                    tab={tab}
+                    latest={status?.files.find((file) => file.path === tab.path)}
+                    selected={selected}
+                    canRead={canReadGit}
+                    updateNeeded={gitUpdateNeeded}
+                    rejoin={rejoin}
+                  />
+                ) : (
+                  <PeerFileTabBody
+                    key={key}
+                    id={id}
+                    path={tab.path}
+                    root={root}
+                    at={tab.at}
+                    selected={selected}
+                    canRead={shown && reachable && !updateNeeded}
+                    updateNeeded={updateNeeded}
+                    rejoin={rejoin}
+                  />
+                );
+              })}
+            </Tabs.Root>
           </>
         )}
       </div>

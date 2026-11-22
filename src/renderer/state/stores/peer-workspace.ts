@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
+import type { RemoteSession, RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import { type PeerWorkspace, peerWorkspaceId } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { LineAt } from "../../services/chat/links";
@@ -9,6 +9,7 @@ import type {
   PeerGitStatus,
 } from "../../services/remote/peer-git-status";
 import { peerPathKey } from "../../utils/peer-path";
+import { listedRemoteTarget, type RemoteTarget, refreshRemoteTarget } from "./remote-view";
 
 export interface PeerWorkspaceTarget extends PeerWorkspace {
   accountKey: string;
@@ -34,7 +35,15 @@ export interface PeerCommitTab {
   subject: string;
 }
 
-type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab;
+export interface PeerSessionTab {
+  type: "peer.session";
+  target: RemoteTarget;
+  gone?: true;
+  /** The latest list request when a control reply opened this tab. */
+  pending?: number;
+}
+
+type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab;
 
 export function peerTabId(tab: PeerWorkspaceTab): string {
   switch (tab.type) {
@@ -44,6 +53,8 @@ export function peerTabId(tab: PeerWorkspaceTab): string {
       return JSON.stringify([tab.type, tab.path, tab.side]);
     case "peer.commit":
       return JSON.stringify([tab.type, tab.hash]);
+    case "peer.session":
+      return JSON.stringify([tab.type, tab.target.tabId]);
   }
 }
 
@@ -55,8 +66,10 @@ export interface PeerFolder {
 
 interface PeerWorkspaceView {
   tabs: readonly PeerWorkspaceTab[];
-  /** File path or the Git tab ID. */
+  /** File path or structured tab ID. */
   activePath: string | null;
+  sessions?: readonly RemoteSession[];
+  hiddenSessions: ReadonlySet<string>;
   folders: Readonly<Record<string, PeerFolder>>;
   expanded: ReadonlySet<string>;
   gitStatus?: PeerGitStatus;
@@ -66,6 +79,7 @@ interface PeerWorkspaceView {
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
   tabs: [],
   activePath: null,
+  hiddenSessions: new Set(),
   folders: {},
   expanded: new Set(),
 };
@@ -88,6 +102,14 @@ interface PeerWorkspaceState {
   openFile: (id: string, path: string, at?: LineAt) => void;
   openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
   openCommit: (id: string, commit: Pick<PeerCommitTab, "hash" | "subject">) => void;
+  openSession: (id: string, target: RemoteTarget, requestedBefore?: number) => void;
+  syncSessions: (
+    target: PeerWorkspaceTarget,
+    sessions: readonly RemoteSession[],
+    incomplete: boolean,
+    requested?: number,
+  ) => void;
+  markSessionGone: (id: string, tabId: string) => void;
   selectTab: (id: string, tabId: string) => void;
   closeTab: (id: string, tabId: string) => void;
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
@@ -104,14 +126,30 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     if (view !== previous) set({ views: { ...state.views, [id]: view } });
   }
 
-  function openGitTab(id: string, tab: PeerDiffTab | PeerCommitTab) {
+  function openTab(
+    id: string,
+    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab,
+    requestedBefore = 0,
+  ) {
     updateView(id, (view) => {
       const activePath = peerTabId(tab);
       const index = view.tabs.findIndex((item) => peerTabId(item) === activePath);
       const tabs = [...view.tabs];
+      const previous = tabs[index];
+      let hiddenSessions = view.hiddenSessions;
+      if (tab.type === "peer.session") {
+        const { tabId } = tab.target;
+        if (previous?.type === "peer.session" && !previous.gone) tab = previous;
+        else if (!view.sessions?.some((session) => session.tabId === tabId)) {
+          tab = { ...tab, pending: requestedBefore };
+        }
+        if (hiddenSessions.has(tabId)) {
+          hiddenSessions = new Set([...hiddenSessions].filter((id) => id !== tabId));
+        }
+      }
       if (index < 0) tabs.push(tab);
       else tabs[index] = tab;
-      return { ...view, tabs, activePath };
+      return { ...view, tabs, activePath, hiddenSessions };
     });
   }
 
@@ -122,13 +160,29 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     accountKey: null,
     views: {},
     select: (active, localId) =>
-      set((state) => ({
-        active,
-        lastLocalId: state.active ? state.lastLocalId : localId,
-        missing: false,
-        accountKey: active.accountKey,
-        views: state.accountKey === active.accountKey ? state.views : {},
-      })),
+      set((state) => {
+        const id = peerTargetId(active);
+        let views = state.accountKey === active.accountKey ? state.views : {};
+        const view = views[id];
+        if (view) {
+          const tabs = view.tabs.filter((tab) => tab.type !== "peer.session" || !tab.gone);
+          if (tabs.length !== view.tabs.length) {
+            const activePath = tabs.some((tab) => peerTabId(tab) === view.activePath)
+              ? view.activePath
+              : tabs[0]
+                ? peerTabId(tabs[0])
+                : null;
+            views = { ...views, [id]: { ...view, tabs, activePath } };
+          }
+        }
+        return {
+          active,
+          lastLocalId: state.active ? state.lastLocalId : localId,
+          missing: false,
+          accountKey: active.accountKey,
+          views,
+        };
+      }),
     updateTarget: (active) =>
       set((state) =>
         state.active?.accountKey === active.accountKey &&
@@ -162,8 +216,83 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
           activePath: existing.path,
         };
       }),
-    openDiff: (id, change, side) => openGitTab(id, { ...change, type: "peer.diff", side }),
-    openCommit: (id, { hash, subject }) => openGitTab(id, { type: "peer.commit", hash, subject }),
+    openDiff: (id, change, side) => openTab(id, { ...change, type: "peer.diff", side }),
+    openCommit: (id, { hash, subject }) => openTab(id, { type: "peer.commit", hash, subject }),
+    openSession: (id, target, requestedBefore) => {
+      if (target.state !== "ended" && peerTargetId(target) === id) {
+        openTab(id, { type: "peer.session", target }, requestedBefore);
+      }
+    },
+    syncSessions: (target, listed, incomplete, requested) => {
+      if (get().active?.accountKey !== target.accountKey) return;
+      updateView(peerTargetId(target), (view) => {
+        const { deviceId, deviceName, workspace, workspaceId } = target;
+        const byTab = new Map(
+          listed
+            .filter((session) => session.workspaceId === workspaceId)
+            .map((session) => [session.tabId, session]),
+        );
+        const sessions = [...byTab.values()].filter((session) => session.state !== "ended");
+        const visible = view.tabs.filter(
+          (tab) => tab.type !== "peer.session" || byTab.get(tab.target.tabId)?.state !== "ended",
+        );
+        const existing = new Set<string>();
+        const tabs = visible.map((tab) => {
+          if (tab.type !== "peer.session") return tab;
+          existing.add(tab.target.tabId);
+          const session = byTab.get(tab.target.tabId);
+          const named =
+            tab.target.deviceName === deviceName ? tab.target : { ...tab.target, deviceName };
+          const updated = refreshRemoteTarget(named, workspace, session);
+          if (!session) {
+            const awaitingNewer = tab.pending !== undefined && (requested ?? 0) <= tab.pending;
+            if (incomplete || awaitingNewer || tab.gone) {
+              return updated === tab.target ? tab : { ...tab, target: updated };
+            }
+            return { type: "peer.session" as const, target: updated, gone: true as const };
+          }
+          if (updated === tab.target && !tab.gone && tab.pending === undefined) return tab;
+          return { type: "peer.session" as const, target: updated };
+        });
+        for (const session of sessions) {
+          if (existing.has(session.tabId) || view.hiddenSessions.has(session.tabId)) continue;
+          tabs.push({
+            type: "peer.session",
+            target: listedRemoteTarget({ id: deviceId, name: deviceName }, workspace, session),
+          });
+        }
+        if (incomplete) {
+          sessions.push(...(view.sessions ?? []).filter((session) => !byTab.has(session.tabId)));
+        }
+        return {
+          ...view,
+          tabs,
+          sessions:
+            incomplete && sessions.length === 0 && view.sessions === undefined
+              ? undefined
+              : sessions,
+          activePath: tabs.some((tab) => peerTabId(tab) === view.activePath)
+            ? view.activePath
+            : tabs[0]
+              ? peerTabId(tabs[0])
+              : null,
+        };
+      });
+    },
+    markSessionGone: (id, tabId) =>
+      updateView(id, (view) => {
+        const tab = view.tabs.find(
+          (tab) => tab.type === "peer.session" && tab.target.tabId === tabId && !tab.gone,
+        );
+        if (tab?.type !== "peer.session") return view;
+        return {
+          ...view,
+          tabs: view.tabs.map((current) =>
+            current === tab ? { type: tab.type, target: tab.target, gone: true } : current,
+          ),
+          sessions: view.sessions?.filter((session) => session.tabId !== tabId),
+        };
+      }),
     selectTab: (id, tabId) =>
       updateView(id, (view) =>
         view.tabs.some((tab) => peerTabId(tab) === tabId) ? { ...view, activePath: tabId } : view,
@@ -174,9 +303,14 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
         if (index === -1) return view;
         const tabs = view.tabs.filter((_, i) => i !== index);
         const next = tabs[index] ?? tabs[index - 1];
+        const closed = view.tabs[index];
         return {
           ...view,
           tabs,
+          hiddenSessions:
+            closed?.type === "peer.session"
+              ? new Set([...view.hiddenSessions, closed.target.tabId])
+              : view.hiddenSessions,
           activePath: view.activePath === tabId ? (next ? peerTabId(next) : null) : view.activePath,
         };
       }),

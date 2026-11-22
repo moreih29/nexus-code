@@ -2100,6 +2100,8 @@
     "gitPatchTruncated": "바뀐 부분 일부만",
     "gitOutsideWorkspace": "워크스페이스 밖",
     "gitCommitMissing": "커밋 없음",
-    "gitNoCommits": "커밋 기록 없음"
+    "gitNoCommits": "커밋 기록 없음",
+    "sessionGone": "없어짐",
+    "noSessions": "세션 없음"
   }
 }

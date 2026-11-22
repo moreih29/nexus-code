@@ -69,7 +69,12 @@ import {
   useShownRoom,
 } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
-import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import {
+  listedRemoteTarget,
+  type OpenRemoteSession,
+  openRemoteSession,
+  type RemoteTarget,
+} from "../../state/stores/remote-view";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
@@ -933,6 +938,7 @@ export function OpenRemoteSessionRow({
   reorder,
   resultFeed,
   showContext,
+  onOpenSession,
   ...buttonProps
 }: {
   session: RemoteSession;
@@ -941,9 +947,12 @@ export function OpenRemoteSessionRow({
   reorder?: SessionReorder;
   resultFeed?: RemoteResults;
   showContext?: boolean;
+  onOpenSession?: OpenRemoteSession;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const where = useAgentViewStore((s) =>
-    panelPlaceOf(s.root, remoteSessionKey({ deviceId: peer.id, ...session })),
+    onOpenSession
+      ? undefined
+      : panelPlaceOf(s.root, remoteSessionKey({ deviceId: peer.id, ...session })),
   );
   return (
     <RemoteSessionRow
@@ -958,21 +967,7 @@ export function OpenRemoteSessionRow({
           : undefined
       }
       onOpen={() => {
-        const ask = askOf(session);
-        useRemoteViewStore.getState().open({
-          deviceId: peer.id,
-          deviceName: peer.name,
-          workspaceId: session.workspaceId,
-          workspaceName: workspace?.name ?? session.workspaceId,
-          path: workspace?.path ?? "",
-          tabId: session.tabId,
-          kind: session.kind,
-          title: session.title,
-          state: session.state,
-          ...(session.profile ? { profile: session.profile } : {}),
-          ...(session.cwd ? { cwd: session.cwd } : {}),
-          ...(ask ? { ask } : {}),
-        });
+        (onOpenSession ?? openRemoteSession)(listedRemoteTarget(peer, workspace, session));
         resultFeed?.markSeen([
           { deviceId: peer.id, session, hostReceipts: peerServes(peer, "sessions.markSeen") },
         ]);
@@ -1238,6 +1233,7 @@ export function RemoteSessionRow({
   const duration = useDurationLabel(session.since);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
+  const selected = where === "shown" || rest["aria-current"] === true;
   const state = t(`agentView.remote.state.${session.state}`);
   const message =
     session.waiting?.text ??
@@ -1259,10 +1255,10 @@ export function RemoteSessionRow({
         onDragEnd: endSessionDrag,
       })}
       onClick={onOpen}
-      aria-current={where === "shown" || undefined}
+      aria-current={selected || rest["aria-current"]}
       className={cn(
         "relative flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
-        where === "shown" ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
+        selected ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
         // Its right-click menu open.
         "data-[state=open]:bg-[var(--state-hover-bg)]",
         className,
