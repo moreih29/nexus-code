@@ -104,12 +104,13 @@ export function PeerDiffTabBody({
         </div>
         <PeerReadOnlyBadge />
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           disabled={!show || (view?.kind === "error" && view.error === "unsupported")}
           onClick={() => setRevision((before) => before + 1)}
         >
-          {t("files:fileTree.header.refresh")}
+          {t("editor.reload")}
         </Button>
       </div>
       {error ? (

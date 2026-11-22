@@ -56,7 +56,7 @@ export function PeerGitPanel({
           · {t("peerWorkspace.gitNoStageCommit")}
         </span>
         <IconButton
-          label={t("files:fileTree.header.refresh")}
+          label={t("files:git.panel.header.refresh")}
           size="sm"
           disabled={!canRead || upgrade}
           onClick={refresh}

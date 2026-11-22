@@ -4,6 +4,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PeerDiffView } from "../../../../../src/renderer/components/peer-workspace/diff-model";
 import { PeerDiffTabBody } from "../../../../../src/renderer/components/peer-workspace/diff-tab";
+import { PeerGitPanel } from "../../../../../src/renderer/components/peer-workspace/git-panel";
 import {
   type PeerDiffTab,
   type PeerWorkspaceTarget,
@@ -51,7 +52,17 @@ test("the working diff tab shows when the server cut the patch", () => {
       </Tabs.Root>,
     );
     expect(markup).toContain("Partial patch");
+    expect(markup).toContain(">Reload</button>");
+    expect(markup).not.toContain("Refresh Explorer");
   } finally {
     loaded.mockRestore();
   }
+});
+
+test("the peer Git panel uses the source control refresh label", () => {
+  const markup = renderToStaticMarkup(
+    <PeerGitPanel target={target} canRead updateNeeded={false} refresh={() => {}} />,
+  );
+  expect(markup).toContain('aria-label="Refresh source control"');
+  expect(markup).not.toContain("Refresh Explorer");
 });
