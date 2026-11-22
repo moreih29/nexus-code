@@ -85,8 +85,9 @@ export function NoteTaskControls({
     assigning.current = true;
     setBusy(true);
     try {
-      const queued = await assignNoteTask(editor, pos, note, title, flush, destination);
-      if (queued) showToast({ kind: "info", message: t("agent.sentQueued") });
+      const outcome = await assignNoteTask(editor, pos, note, title, flush, destination);
+      if (!outcome.linked) showToast({ kind: "info", message: t("tasks.sentWithoutLink") });
+      if (outcome.queued) showToast({ kind: "info", message: t("agent.sentQueued") });
     } catch {
       showToast({ kind: "error", message: t("tasks.assignError") });
     } finally {

@@ -38,9 +38,10 @@ export function noteTaskPrompt(
   title: string,
   heading: string,
   noteId: string,
+  includeReport = true,
 ): string {
   const t = i18next.getFixedT(null, "notes");
-  const interpolation = { escapeValue: false };
+  const interpolation = { escapeValue: false, skipOnVariables: true };
   const section = heading.trim()
     ? t("tasks.promptSection", { heading: noteLabel(heading), interpolation })
     : "";
@@ -52,7 +53,7 @@ export function noteTaskPrompt(
       id: noteId,
       interpolation,
     }),
-    t("tasks.promptReport"),
+    ...(includeReport ? [t("tasks.promptReport")] : []),
   ].join("\n");
 }
 
@@ -110,7 +111,7 @@ export async function assignNoteTask(
   title: () => string,
   flush: () => Promise<boolean>,
   destination: Destination,
-): Promise<boolean> {
+): Promise<{ queued: boolean; linked: boolean }> {
   const node = editor.state.doc.nodeAt(pos);
   if (node?.type.name !== "taskItem" || !node.firstChild) throw new Error("missing to-do");
   const text = node.firstChild.textBetween(0, node.firstChild.content.size, " ", " ").trim();
@@ -145,12 +146,22 @@ export async function assignNoteTask(
       });
     }
   };
+  const rollback = async () => {
+    if (!linked) return;
+    const { id } = linked;
+    linked = undefined;
+    const removed = notesApi.removeLink(note.workspaceId, note.noteId, id);
+    const restored = anchor.set(node.attrs.nexusLink, id) ? flush() : Promise.resolve(true);
+    await Promise.allSettled([removed, restored]);
+  };
   try {
     if (!(await flush())) throw new Error("could not save the note");
-    const prompt = noteTaskPrompt(text, title(), heading, note.noteId);
+    const noteTitle = title();
+    const prompt = noteTaskPrompt(text, noteTitle, heading, note.noteId);
     if ("tabId" in destination) {
       await attach(destination.workspaceId, destination.tabId);
-      return await sendToConversation(destination.workspaceId, destination.tabId, prompt);
+      const queued = await sendToConversation(destination.workspaceId, destination.tabId, prompt);
+      return { queued, linked: true };
     }
 
     const workspace = useWorkspacesStore
@@ -158,6 +169,7 @@ export async function assignNoteTask(
       .workspaces.find(({ id }) => id === note.workspaceId);
     if (!workspace) throw new Error("missing workspace");
     const { agent } = destination;
+    const fallbackPrompt = noteTaskPrompt(text, noteTitle, heading, note.noteId, false);
     const parent = noteTaskParent(workspace);
     if (destination.worktree) {
       const started = await startTask(
@@ -168,15 +180,23 @@ export async function assignNoteTask(
         undefined,
         undefined,
         undefined,
-        async (task, tabId) => {
-          if (!task.task) throw new Error("missing task worktree");
-          await attach(task.id, tabId, { workspaceId: task.id, branch: task.task.branch });
+        {
+          fallbackPrompt,
+          async beforeAgentStart(task, tabId) {
+            try {
+              if (!task.task) throw new Error("missing task worktree");
+              await attach(task.id, tabId, { workspaceId: task.id, branch: task.task.branch });
+            } catch (error) {
+              await rollback();
+              throw error;
+            }
+          },
         },
       );
       if ("task" in started) {
         if (started.tabId)
           revealInWorkspace({ workspaceId: started.task.id, tabId: started.tabId });
-        return false;
+        return { queued: false, linked: !started.preparationFailed };
       }
       if (started.kind !== "not-a-repo" && started.kind !== "not-connected")
         throw new Error(started.message);
@@ -191,17 +211,17 @@ export async function assignNoteTask(
       { type: agent, props },
       { background: true, besideTabId: note.tabId },
     );
-    await attach(workspaceId, tabId);
-    startAgentTab(workspaceId, tabId, prompt);
-    return false;
-  } catch (error) {
-    if (linked) {
-      const removed = notesApi.removeLink(note.workspaceId, note.noteId, linked.id);
-      const restored = anchor.set(node.attrs.nexusLink, linked.id)
-        ? flush()
-        : Promise.resolve(true);
-      await Promise.allSettled([removed, restored]);
+    try {
+      await attach(workspaceId, tabId);
+    } catch {
+      await rollback();
+      startAgentTab(workspaceId, tabId, fallbackPrompt);
+      return { queued: false, linked: false };
     }
+    startAgentTab(workspaceId, tabId, prompt);
+    return { queued: false, linked: true };
+  } catch (error) {
+    await rollback();
     throw error;
   } finally {
     anchor.stop();

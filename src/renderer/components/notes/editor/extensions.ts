@@ -51,6 +51,33 @@ export const NoteSummaryAttributes = Extension.create({
   ],
 });
 
+// TaskItem's NodeView reads HTMLAttributes directly, bypassing renderHTML's data-type.
+export const NoteTaskItem = TaskItem.extend({
+  addKeyboardShortcuts() {
+    return {
+      ...this.parent?.(),
+      Enter: () => {
+        const origin = this.editor.state.selection.$from.parent.attrs.nexusOrigin;
+        if (typeof origin !== "string" || !origin.startsWith("report:")) {
+          return this.editor.commands.splitListItem(this.name);
+        }
+        return this.editor.commands.command(({ commands, tr }) => {
+          if (!commands.splitListItem(this.name)) return false;
+          const { $from } = tr.selection;
+          // Splitting mid-paragraph copies the inner node's attrs even with keepOnSplit disabled.
+          if ($from.parent.attrs.nexusOrigin === origin) {
+            tr.setNodeAttribute($from.before(), "nexusOrigin", null);
+          }
+          return true;
+        });
+      },
+    };
+  },
+}).configure({
+  nested: true,
+  HTMLAttributes: { "data-type": "taskItem" },
+});
+
 export function noteExtensions(
   host: NoteHost,
   options: SlashMenuOptions & { placeholder: string },
@@ -67,7 +94,7 @@ export function noteExtensions(
       heading: { levels: [1, 2, 3] },
     }),
     TaskList,
-    TaskItem.configure({ nested: true }),
+    NoteTaskItem,
     NoteSummaryAttributes,
     NoteSummaryDivider,
     NoteTaskWidgets,

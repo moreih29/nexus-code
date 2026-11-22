@@ -334,6 +334,7 @@
     "promptItem": "To-do: {{text}}",
     "promptNote": "Note {{title}}{{section}} · Read the full note with `nexus note read {{id}}`.",
     "promptSection": " · Under {{heading}}",
-    "promptReport": "When finished, use `nexus note report --done \"one-line summary\" --pr <PR URL>` to report to this to-do. If blocked, use `--failed`."
+    "promptReport": "When finished, use `nexus note report --done \"one-line summary\" --pr <PR URL>` to report to this to-do. If blocked, use `--failed`.",
+    "sentWithoutLink": "Message sent · To-do link failed"
   }
 }

@@ -57,6 +57,8 @@ export interface StartedTask {
   readonly task: WorkspaceMeta;
   readonly tabId: string | null;
   readonly start: TaskStart;
+  /** The agent started with its fallback prompt after preparation failed. */
+  readonly preparationFailed?: true;
 }
 
 /**
@@ -77,7 +79,10 @@ export async function startTask(
   createdBy?: WorkspaceTask["createdBy"],
   from?: RelaySender,
   openedBy?: TerminalOpener,
-  beforeAgentStart?: (task: WorkspaceMeta, tabId: string) => Promise<void>,
+  preparation?: {
+    beforeAgentStart: (task: WorkspaceMeta, tabId: string) => Promise<void>;
+    fallbackPrompt: string;
+  },
 ): Promise<StartedTask | TaskFailure> {
   const result = await ipcCallResult("task", "create", {
     parentId,
@@ -97,13 +102,18 @@ export async function startTask(
       task.id,
       start.agent,
       task.rootPath,
-      beforeAgentStart ? "" : prompt,
+      preparation ? "" : prompt,
       undefined,
       from,
       openedBy,
     );
-    if (beforeAgentStart) {
-      await beforeAgentStart(task, tabId);
+    if (preparation) {
+      try {
+        await preparation.beforeAgentStart(task, tabId);
+      } catch {
+        startAgentTab(task.id, tabId, preparation.fallbackPrompt, from);
+        return { task, tabId, start, preparationFailed: true };
+      }
       startAgentTab(task.id, tabId, prompt, from);
     }
     return { task, tabId, start };

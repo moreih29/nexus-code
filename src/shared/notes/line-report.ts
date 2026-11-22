@@ -97,5 +97,7 @@ export function noteLabel(value: string, fallback = "", max = 120): string {
   const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
   return JSON.stringify(Array.from(clean).slice(0, max).join("") || fallback)
     .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e");
+    .replaceAll(">", "\\u003e")
+    .replaceAll("{", "\\u007b")
+    .replaceAll("}", "\\u007d");
 }

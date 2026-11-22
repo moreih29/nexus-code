@@ -1,10 +1,16 @@
 import { expect, spyOn, test } from "bun:test";
-import { createNodeFromContent, type Editor, getSchema } from "@tiptap/core";
+import { readFileSync } from "node:fs";
+import { createWindow } from "@mixmark-io/domino";
+import { createNodeFromContent, Editor, getSchema } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
+import { DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
-import { NoteSummaryAttributes } from "../../../../../src/renderer/components/notes/editor/extensions";
+import {
+  NoteSummaryAttributes,
+  NoteTaskItem,
+} from "../../../../../src/renderer/components/notes/editor/extensions";
 import { applyLineReport } from "../../../../../src/renderer/components/notes/editor/line-report";
 import {
   type LineReport,
@@ -117,4 +123,112 @@ test("lineReported merges in the open editor and preserves unsaved text and sele
   ).toBe(true);
   expect(linkedTask(state.doc.toJSON(), linkId)?.content).toHaveLength(2);
   expect(applyLineReport(editor, { ...report, linkId: "l0000000" })).toBe(false);
+});
+
+function taskEditor(content: DocNode) {
+  return new Editor({
+    element: null,
+    extensions: [StarterKit, TaskList, NoteTaskItem, NoteSummaryAttributes],
+    content,
+  });
+}
+
+test("the checked and hover CSS selectors match the editable TaskItem NodeView", () => {
+  const page = createWindow('<div class="note-doc"><ul data-type="taskList"></ul></div>');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  // Domino implements the DOM selectors. Bridge the NodeView's dataset write to its attribute.
+  Object.defineProperty(page.HTMLElement.prototype, "dataset", {
+    get(this: HTMLElement) {
+      const element = this;
+      return {
+        set checked(value: boolean) {
+          element.setAttribute("data-checked", String(value));
+        },
+      };
+    },
+  });
+  Object.defineProperty(page.Element.prototype, "append", {
+    value(this: Element, ...children: Node[]) {
+      for (const child of children) this.appendChild(child);
+    },
+  });
+  const editor = taskEditor(
+    withLineReport(doc, {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Done", at: 1 },
+    }),
+  );
+  try {
+    Object.defineProperty(globalThis, "document", { configurable: true, value: page.document });
+    const node = editor.state.doc.child(1).child(0);
+    const nodeView = editor.extensionManager.nodeViews.taskItem(
+      node,
+      editor.view,
+      () => editor.state.doc.firstChild!.nodeSize + 1,
+      [],
+      DecorationSet.empty,
+    );
+    const content = nodeView.contentDOM!;
+    content.innerHTML =
+      '<p>Add tests <button class="note-task-action">To a task</button></p><p class="note-task-report">Done</p>';
+    page.document.querySelector("ul")!.appendChild(nodeView.dom);
+    const styles = readFileSync(
+      new URL("../../../../../src/renderer/styles/globals.css", import.meta.url),
+      "utf8",
+    );
+    const checked =
+      /([^{}]+)\{\s*color: var\(--editor-text-muted\);\s*text-decoration: line-through;/
+        .exec(styles)?.[1]
+        ?.trim()
+        .replace(/\s+/g, " ");
+    const hover = Array.from(styles.matchAll(/([^{}]+)\{\s*opacity: 1;/g))
+      .map(([, selectors]) => selectors.split(",")[0]?.trim())
+      .find((selector) => selector?.includes(".note-task-action"));
+    expect(checked).toBeDefined();
+    expect(hover).toContain(":hover");
+    // DOM query engines expose structural matching without a mouse pointer.
+    const hoverTarget = hover!.replace(/:not\(:has\([^)]*\)\)|:hover/g, "").replace(/\s+/g, " ");
+    expect(page.document.querySelector(checked!)).toBe(content.firstElementChild);
+    expect(page.document.querySelector(hoverTarget)).toBe(content.querySelector("button"));
+    const unchecked = node.type.create({ ...node.attrs, checked: false }, node.content);
+    expect(nodeView.update?.(unchecked, [], DecorationSet.empty)).toBe(true);
+    expect(page.document.querySelectorAll(checked!)).toHaveLength(0);
+    expect(page.document.querySelector(hoverTarget)).toBe(content.querySelector("button"));
+  } finally {
+    editor.destroy();
+    if (previous) Object.defineProperty(globalThis, "document", previous);
+    else Reflect.deleteProperty(globalThis, "document");
+  }
+});
+
+test("Enter midway through a result leaves the new task paragraph without report origin", () => {
+  const editor = taskEditor(
+    withLineReport(doc, {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Before after", at: 1 },
+    }),
+  );
+  try {
+    let position = 0;
+    editor.state.doc.descendants((node, at) => {
+      if (node.attrs.nexusOrigin === `report:${linkId}`) position = at + 1;
+    });
+    expect(editor.commands.setTextSelection(position + "Before ".length)).toBe(true);
+    const enter = { key: "Enter" } as KeyboardEvent;
+    expect(
+      editor.extensionManager.plugins.some((plugin) =>
+        plugin.props.handleKeyDown?.call(plugin, editor.view, enter),
+      ),
+    ).toBe(true);
+    const list = editor.state.doc.child(1);
+    expect(list.child(0).child(1).attrs.nexusOrigin).toBe(`report:${linkId}`);
+    expect(list.child(0).child(1).textContent).toBe("Before ");
+    expect(list.child(1).attrs.nexusLink).toBeNull();
+    expect(list.child(1).firstChild?.attrs.nexusOrigin).toBeNull();
+    expect(list.child(1).textContent).toBe("after");
+  } finally {
+    editor.destroy();
+  }
 });
