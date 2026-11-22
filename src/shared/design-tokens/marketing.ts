@@ -1,14 +1,12 @@
 // Marketing/landing surface type scale (Warp scale, 18 roles).
 //
-// Synced with .nexus/context/design.md. NOT used by the application chrome
-// directly — the codeUi / codeBody entries below are the only roles the
-// app currently consumes (Monaco / xterm). Every role is still emitted
-// to Tailwind via `scripts/generate-theme-css.ts` so marketing surfaces
-// (landing pages, docs) can use `text-display-hero` etc.
+// The app currently consumes only the codeUi / codeBody roles (Monaco / xterm).
+// Every role is emitted to Tailwind via `scripts/generate-theme-css.ts` so
+// marketing surfaces (landing pages, docs) can use `text-display-hero` etc.
 //
 // Kept in its own module so design-tokens.ts stays focused on the in-app
 // chrome tokens (color palette, semantic CSS vars, spacing, radius, app
-// type scale). Updates to design.md only touch this file.
+// type scale).
 
 import { fontFamily } from "./fonts";
 

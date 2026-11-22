@@ -110,7 +110,7 @@
 
 `release.yml` 의 5-job 파이프라인이 자동 실행된다:
 - **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립). Node runtime tarball 은 Actions 캐시(`node-runtime-<버전>`, main 의 CI 가 채움)에서 먼저 찾고, 없을 때만 nodejs.org 에서 받는다. 어느 쪽이든 nodejs.org 의 `SHASUMS256.txt` 와 SHA-256 이 맞아야 쓴다.
-- **package** (`macos-15`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build) 의 self-build 절차를 따른다.
+- **package** (`macos-15`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](../../docs/INSTALL.md#self-build) 의 self-build 절차를 따른다.
 - **package-linux** (`ubuntu-24.04` x64, `ubuntu-24.04-arm` arm64): 아키텍처마다 AppImage / deb 를 만들어 같은 방식으로 첨부한다. Linux 는 서명하지 않는다 — 앱 안 업데이트는 피드 파일(`latest-linux*.yml`)의 sha512 로만 검증한다.
 - **package-windows** (`windows-latest` x64): Microsoft Store 에 낼 AppX 를 만든다. 서명은 Store 가 하므로 서명하지 않은 AppX 라, Release 자산이 아니라 워크플로 아티팩트 `msstore-appx-vX.Y.Z` 로 30일 남긴다.
 - **submit-store** (`windows-latest`, 정식 릴리스만): 그 AppX 를 Store 에 제출한다 (5단계).
@@ -181,3 +181,48 @@ Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Stor
 - **NEXUS_REMOTE_AGENT_ROOT 변경**: escape hatch 경로 로직이 바뀐 경우.
 - **첫 SSH 부팅 재업로드 필요**: 원격 에이전트 바이너리가 업데이트되어 기존 SSH 워크스페이스에서 재업로드가 필요한 경우.
 - **prune / 캐시 정책 변경**: `~/.nexus-code/` 또는 `~/.nexus-code-beta/` 내 파일 구조가 변경된 경우.
+
+---
+
+## 배포 빌드와 업데이트 채널
+
+### Windows 에서 빌드
+
+| 도구 | 버전 |
+|---|---|
+| Bun | 1.x 이상 |
+| Node.js · npm | 20.x (에이전트 빌드가 LSP 번들을 npm 으로 설치한다) |
+| Go | 1.22 이상 |
+| C/C++ 빌드 도구 | Visual Studio 2022 Build Tools 의 "C++를 사용한 데스크톱 개발" 워크로드와 개별 구성 요소 "MSVC Spectre 완화 라이브러리", Python 3 |
+
+node-pty 는 Spectre 완화를 켜고 빌드하므로, 이 구성 요소가 없으면 native rebuild 가 `MSB8040` 으로 실패한다.
+
+```powershell
+bun install
+bun run package:win
+```
+
+Microsoft Store 에 제출할 x64 AppX 를 만든다. 서명은 Store 가 제출받을 때 하므로 서명 없이 나오고, 이대로는 설치되지 않는다.
+
+```
+dist/
+  NexusCode-X.Y.Z-x64.appx
+```
+
+electron-builder 가 처음 받아 푸는 Windows 도구 묶음(winCodeSign)에는 symlink 가 들어 있어, 개발자 모드가 꺼진 일반 셸에서는 풀다가 실패한다. 개발자 모드를 켜거나 관리자 셸에서 한 번 빌드하면 캐시에 남아 그다음부터는 괜찮다.
+
+### 채널 (Stable / Beta)
+
+| 채널 | 설명 |
+|---|---|
+| **Stable** | 기본값. 정식 릴리스만 수신. |
+| **Beta** | 선택 사항. 프리릴리스 빌드를 포함. 불안정할 수 있음. |
+
+앱에는 아직 채널을 바꾸는 설정이 없어, 모든 설치가 Stable 을 받는다.
+
+Beta 채널 빌드는 SSH 원격 호스트에 `~/.nexus-code-beta/` 아래에 에이전트·런타임·LSP 번들을 설치하며, Stable 채널(`~/.nexus-code/`)과 디렉터리가 분리된다 — 한 원격을 두 채널이 공유해도 충돌하지 않는다. 빌드 시점에 `NEXUS_CHANNEL=beta` 환경변수로 결정된다.
+디버깅 시 `NEXUS_REMOTE_AGENT_ROOT` 환경변수로 원격 설치 경로를 직접 지정할 수도 있다 (escape hatch).
+
+### macOS 교차 빌드
+
+> 단일 머신에서 `--arm64 --x64` 를 함께 빌드하면 node-pty / better-sqlite3 의 native rebuild 가 한쪽 아키텍처만 정확히 잡힌다 — Cross-arch 빌드는 GitHub Actions 의 매트릭스 같은 별도 native 러너 분리 환경에서만 안전하다.
