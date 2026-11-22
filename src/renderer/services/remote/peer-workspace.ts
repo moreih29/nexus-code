@@ -238,6 +238,7 @@ export async function readPeerWorkspaceText(
   peer: PeerWorkspace,
   path: string,
   signal?: AbortSignal,
+  { fullOnly = false }: { fullOnly?: boolean } = {},
 ): Promise<PeerTextRead> {
   const size = await readSpanResult(peer, path, 0, 1, undefined, signal);
   if (!size.ok) return { text: { kind: "failed", reason: size.kind } };
@@ -257,6 +258,7 @@ export async function readPeerWorkspaceText(
     }
   }
 
+  if (fullOnly) return { text: { kind: "too_large" } };
   const prefix = await ipcCallResult(
     "remote",
     "peerFilesRead",

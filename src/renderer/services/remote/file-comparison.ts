@@ -15,7 +15,7 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
     // A hunk that adds nothing starts after its line; any other, at it.
     const from = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
     if (from < at || from > lines.length) return null;
-    out.push(...lines.slice(at, from));
+    for (; at < from; at++) out.push(lines[at]);
     at = from;
     for (const line of hunk.lines) {
       const mark = line[0];
@@ -33,7 +33,7 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
       // "\ No newline at end of file" tells nothing of the lines.
     }
   }
-  out.push(...lines.slice(at));
+  for (; at < lines.length; at++) out.push(lines[at]);
   return out.join("\n");
 }
 
