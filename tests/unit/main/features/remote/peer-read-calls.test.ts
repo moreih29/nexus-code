@@ -50,9 +50,17 @@ test("peerGitStatus sends only the workspace ID to git.status", async () => {
   const c = ipcContract.remote.call.peerGitStatus;
   const params = { workspaceId: "w1" };
   const payload = { ...params, deviceId: "d2", unexpected: true };
-  const result = { branch: "main", upstream: "origin/main", ahead: 1, behind: 2, files: [] };
+  const result = {
+    branch: "main",
+    upstream: "origin/main",
+    ahead: 1,
+    behind: 2,
+    files: [],
+    topLevel: "/repo",
+  };
   expect(c.args.parse(payload)).toEqual({ ...params, deviceId: "d2" });
   expect(c.result).toBe(RPC_METHODS["git.status"].result);
+  expect(c.result.parse(result)).toEqual(result);
   expect(c.args.safeParse(params).success).toBe(false);
 
   const request = mock(async () => result);

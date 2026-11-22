@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   type DiffHunk,
   MAX_READ_BYTES,
+  RPC_METHODS,
   RpcErrorCode,
   type RpcParams,
   type RpcResult,
@@ -101,11 +102,13 @@ export async function gitStatus(
 ): Promise<RpcResult<"git.status">> {
   const repository = await repositoryOf(git, workspaceId);
   const status = await repository.status().catch(failed);
+  const topLevel = RPC_METHODS["git.status"].result.shape.topLevel.safeParse(repository.topLevel);
   const result: RpcResult<"git.status"> = {
     branch: status.branch?.current ?? null,
     ...(status.branch?.upstream ? { upstream: status.branch.upstream } : {}),
     ahead: status.branch?.ahead ?? 0,
     behind: status.branch?.behind ?? 0,
+    ...(topLevel.success && { topLevel: topLevel.data }),
     files: filesOf(status),
   };
   if (fits(result)) return result;
