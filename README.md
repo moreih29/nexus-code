@@ -1,36 +1,138 @@
+<a id="top" name="top"></a>
+
 <div align="center">
-
-# NexusCode
-
-**여러 워크스페이스의 편집기, 터미널, Claude Code와 Codex를 한 창에서 쓰는 데스크톱 앱입니다.**
-
-다른 컴퓨터에서 작업을 이어 가고, 노트에 자료를 모으거나 음성으로 메시지를 입력할 수 있습니다.
-
-[![Release](https://img.shields.io/github/v/release/moreih29/nexus-code?label=release)](https://github.com/moreih29/nexus-code/releases)
-[![Downloads](https://img.shields.io/github/downloads/moreih29/nexus-code/total?label=downloads)](https://github.com/moreih29/nexus-code/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)
-![Platform](https://img.shields.io/badge/Windows-11%20x64-black?logo=windows)
-![Platform](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-black?logo=linux)
-
-**[설치](#설치) · [주요 기능](#주요-기능) · [단축키](#단축키)**
-
-<img src="docs/images/hero.png" width="820" alt="파일 트리, 편집기, 터미널, Claude Code 탭을 한 워크스페이스에 함께 연 NexusCode 화면" />
-
+  <img src="build/icon.png" width="96" height="96" alt="NexusCode 앱 아이콘" />
+  <h1>NexusCode</h1>
+  <p><strong>Claude Code와 Codex로 여러 프로젝트를 동시에 진행하는 데스크톱 앱입니다.</strong></p>
+  <p>
+    <a href="#설치">다운로드</a> ·
+    <a href="docs/">문서</a> ·
+    <a href="#단축키">단축키</a>
+  </p>
+  <p>
+    <a href="https://github.com/moreih29/nexus-code/releases"><img src="https://img.shields.io/github/v/release/moreih29/nexus-code?label=release" alt="최신 릴리스 버전" /></a>
+    <a href="https://github.com/moreih29/nexus-code/releases"><img src="https://img.shields.io/github/downloads/moreih29/nexus-code/total?label=downloads" alt="릴리스 누적 다운로드 수" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT 라이선스" /></a>
+    <a href="#설치"><img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-24292f" alt="지원 운영체제 macOS, Windows, Linux" /></a>
+  </p>
+  <a href="docs/images/hero-loop.mp4">
+    <img src="docs/images/hero-loop.gif" width="820" alt="에이전트 뷰에서 세 세션이 동시에 일하고, 파일 수정 요청을 허용한 뒤 Git 변경 사항을 확인하는 NexusCode 시연 영상" />
+  </a>
 </div>
+
+## 왜 NexusCode인가
+
+Claude Code와 Codex를 프로젝트마다 터미널 탭에서 실행하면 진행 상태를 보거나 권한 요청에 답할 때마다 탭을 오가야 합니다. NexusCode에서는 여러 워크스페이스의 에이전트 세션을 한 화면에서 보고, 권한 요청에도 그 자리에서 답합니다. 에이전트가 고친 코드와 실행 결과는 같은 창의 편집기, 터미널, Git, 브라우저에서 확인합니다.
+
+## 주요 기능
+
+<table>
+  <tr>
+    <td width="50%">🧩 <a href="#에이전트-뷰와-작업"><strong>여러 에이전트를 한 화면에</strong></a><br />세션을 나란히 보고, 작업마다 Git 워크트리를 따로 만듭니다.</td>
+    <td width="50%">🌐 <a href="#원격과-휴대폰"><strong>다른 컴퓨터에서 이어서</strong></a><br />같은 계정으로 연결한 컴퓨터의 대화와 터미널을 이 창에서 봅니다.</td>
+  </tr>
+  <tr>
+    <td>🖥️ <a href="#편집기터미널git브라우저"><strong>편집기·터미널·Git·브라우저를 한 창에</strong></a><br />코드를 고치고 변경 사항과 실행 결과를 확인합니다.</td>
+    <td>🎙️ <a href="#노트와-음성"><strong>노트와 음성</strong></a><br />워크스페이스별로 자료를 모으고, 회의를 받아쓰고, 메시지를 말로 입력합니다.</td>
+  </tr>
+</table>
+
+### 에이전트 뷰와 작업
+
+**에이전트 뷰에서 여러 워크스페이스의 세션을 나란히 봅니다.** 목록을 상태별로 묶으면 응답이 필요한 세션이 맨 위에 오고, 권한 요청에는 그 세션의 패널에서 바로 답합니다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/agents.png" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/agents-light.png" />
+  <img src="docs/images/agents.png" width="820" alt="에이전트 뷰에서 세션 세 개를 분할 패널에 열고 파일 수정 권한 요청을 띄운 화면" />
+</picture>
+
+**작업마다 브랜치와 Git 워크트리를 만듭니다.** **새 작업**에서 에이전트와 이름을 정하면 그 이름으로 브랜치와 워크트리를 만들고, 그 안에서 Claude나 Codex 탭을 엽니다. 첫 프롬프트를 적으면 탭을 열면서 함께 보냅니다. 작업마다 워크트리가 따로 있어 여러 에이전트가 서로의 변경과 섞이지 않고 동시에 일합니다.
+
+<img src="docs/images/tasks.png" width="820" alt="새 작업 창에서 에이전트, 이름, 첫 프롬프트를 정해 브랜치와 워크트리를 만드는 화면" />
+
+**설정 → 에이전트**에서 **한도가 풀리면 자동으로 이어하기**를 켜면, 구독 사용량 한도에 걸려 멈춘 대화를 한도가 풀린 뒤 자동으로 이어 갑니다.
+
+<a href="#top">맨 위로</a>
+
+### 원격과 휴대폰
+
+**다른 컴퓨터의 세션도 이 창에서 봅니다.** **설정 → 원격**에서 같은 NexusCode 계정으로 로그인한 컴퓨터는 에이전트 뷰의 **다른 컴퓨터** 목록에 나타나고, 그 컴퓨터의 대화, 터미널, 파일을 볼 수 있습니다.
+
+조작은 그 컴퓨터에서 허용한 만큼 할 수 있습니다. **채팅 조작 허용**을 켜 두면 메시지를 보내고 요청에 답하며, **터미널 조작 허용**을 켜 두면 터미널에도 입력합니다.
+
+<img src="docs/images/remote.png" width="820" alt="에이전트 뷰의 다른 컴퓨터 목록에서 연결한 컴퓨터의 세션을 연 화면" />
+
+**iOS 앱은 준비 중입니다.** 출시되면 휴대폰에서 대화와 터미널을 실시간으로 보고, 권한 요청에 답하고, 파일과 Git 변경 사항을 확인할 수 있습니다.
+
+<!-- phone screenshots -->
+
+<a href="#top">맨 위로</a>
+
+### 편집기·터미널·Git·브라우저
+
+**워크스페이스마다 Monaco 편집기, 터미널, 에이전트 탭을 한 화면에 엽니다.** 로컬 폴더나 SSH 호스트의 폴더를 워크스페이스로 열고, 단축키로 워크스페이스를 오갑니다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero.png" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hero-light.png" />
+  <img src="docs/images/hero.png" width="820" alt="파일 트리, 편집기, 터미널, 에이전트 탭을 한 워크스페이스에 연 화면" />
+</picture>
+
+**같은 창에서 변경 사항과 실행 결과를 확인합니다.** 소스 제어에서 파일의 수정 전후를 나란히 비교하고, 개발 서버 페이지를 내장 브라우저 탭에서 엽니다.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/diff.png" width="400" alt="소스 제어에서 파일의 수정 전후를 나란히 비교하는 화면" /></td>
+    <td width="50%"><img src="docs/images/browser.png" width="400" alt="내장 브라우저 탭에 개발 서버 페이지를 연 화면" /></td>
+  </tr>
+</table>
+
+<a href="#top">맨 위로</a>
+
+### 노트와 음성
+
+**워크스페이스마다 노트를 둡니다.** 메모, 할 일, 파일, 그림을 모으고, **에이전트에게**를 눌러 노트를 새 Claude나 Codex 대화로 보냅니다.
+
+**회의를 녹음하면 말한 사람별로 받아씁니다.** 받아쓴 글은 시각, 화자와 함께 노트 옆에 표시합니다.
+
+**말로 에이전트 메시지를 씁니다.** 한국어와 영어가 섞인 말도 실시간으로 받아쓰고, 자주 쓰는 이름과 용어는 **음성 인식 단어**에 등록할 수 있습니다.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/notes-transcript.png" width="400" alt="노트 옆에 받아쓴 회의 내용을 시각과 화자별로 표시한 화면" /></td>
+    <td width="50%"><img src="docs/images/voice.png" width="400" alt="말한 내용을 에이전트 메시지 입력창에 받아쓰는 화면" /></td>
+  </tr>
+</table>
+
+<a href="#top">맨 위로</a>
+
+### 에이전트 CLI
+
+**앱 안의 터미널에는 `nexus` 명령이 있습니다.** 에이전트나 사용자가 이 명령으로 다른 세션을 읽고, 새 Claude·Codex 탭을 열고, 파일을 화면에 엽니다.
+
+```bash
+nexus session list
+nexus chat new --prompt "README를 요약해 주세요"
+nexus open README.md
+```
+
+다른 워크스페이스를 바꾸는 명령은 **설정 → 에이전트**의 **다른 워크스페이스 변경**에 따라 묻거나 허용하거나 거절합니다.
+
+[전체 CLI 명령](docs/CLI.md) · [워크스페이스 변경 권한](docs/CLI.md#다른-워크스페이스-바꾸기)
+
+<a href="#top">맨 위로</a>
 
 ## 설치
 
-| 운영체제 | 요구사항 | 설치 |
-|---|---|---|
-| macOS | macOS 14 (Sonoma) 이상, Apple Silicon | [GitHub Releases](https://github.com/moreih29/nexus-code/releases/latest)에서 `NexusCode-X.Y.Z-arm64.dmg`를 받아 엽니다. NexusCode를 `/Applications`에 옮기세요. |
-| Windows | Windows 11 이상, x64 (ARM PC에서는 x64 에뮬레이션) | [Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD)에서 설치하세요. 소스 제어에는 [Git for Windows](https://git-scm.com/downloads/win)가 필요합니다. |
-| Linux | x64 또는 arm64, Ubuntu 24.04에서 확인 | [GitHub Releases](https://github.com/moreih29/nexus-code/releases/latest)에서 `.deb` 또는 `.AppImage`를 받으세요. |
+- **macOS** (14 이상, Apple Silicon): `NexusCode-X.Y.Z-arm64.dmg`를 열고 앱을 `/Applications`로 옮기세요. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
+- **Windows** (11 이상, x64): Microsoft Store에서 설치하세요. ARM PC에서는 x64 에뮬레이션으로 실행합니다. 소스 제어에는 Git for Windows가 필요합니다. [Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD) · [Git for Windows](https://git-scm.com/downloads/win)
+- **Linux** (x64, arm64): `.deb`나 `.AppImage`를 받으세요. Ubuntu 24.04에서 확인했습니다. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
 
 <details>
 <summary>macOS 첫 실행 보안 해제 (Gatekeeper)</summary>
 
-현재 macOS 릴리스는 자체 서명 인증서를 사용하며 Apple Developer ID 서명과 공증 없이 배포됩니다. macOS가 앱을 차단하거나 ‘손상된 앱’으로 표시할 수 있습니다. 앱을 `/Applications`에 옮긴 뒤 터미널에서 아래 명령을 실행하고 앱을 여세요.
+macOS 릴리스는 자체 서명 인증서를 사용하며 Apple Developer ID 서명과 공증 없이 배포합니다. macOS가 앱을 차단하거나 ‘손상된 앱’으로 표시하면, 앱을 `/Applications`로 옮긴 뒤 터미널에서 아래 명령을 실행하고 앱을 여세요.
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
@@ -54,65 +156,32 @@ Debian·Ubuntu에서는 내려받은 폴더에서 `.deb`를 설치하세요.
 sudo apt install ./NexusCode-X.Y.Z-*.deb
 ```
 
-AppImage는 실행 권한을 주고 바로 열 수 있습니다.
+AppImage는 실행 권한을 준 뒤 여세요.
 
 ```bash
 chmod +x NexusCode-X.Y.Z-*.AppImage
 ./NexusCode-X.Y.Z-*.AppImage
 ```
 
-Ubuntu 23.10 이상에서 AppImage를 실행하려면 [AppArmor 프로필 등록](docs/INSTALL.md#ubuntu-2310-이상에서-appimage-가-바로-종료될-때)이 필요합니다.
+Ubuntu 23.10 이상에서는 AppImage를 처음 실행하기 전에 AppArmor 프로필을 한 번 등록하세요. [AppArmor 프로필 등록 방법](docs/INSTALL.md#ubuntu-2310-이상에서-appimage-가-바로-종료될-때)
 
 </details>
 
-Intel Mac에서는 [소스에서 직접 빌드](docs/INSTALL.md#self-build)할 수 있습니다.
+Intel Mac에서는 소스에서 직접 빌드할 수 있습니다. [자체 빌드 가이드](docs/INSTALL.md#self-build)
 
-## 주요 기능
-
-### 워크스페이스와 편집기
-
-- **여러 워크스페이스를 한 창에서.** 프로젝트마다 파일 트리, 탭, 터미널을 따로 두고 단축키로 오갑니다. 로컬 폴더를 열거나 **SSH로 연결…**에서 원격 호스트의 폴더를 엽니다.
-- **Monaco 편집기와 통합 터미널.** 화면을 좌우나 상하로 나눠 코드와 터미널을 함께 봅니다. **설정 → 언어 서버**에서 자동 완성, 정의로 이동, 오류 표시를 켤 수 있습니다.
-
-### AI 에이전트
-
-- **Claude Code·Codex 탭.** 워크스페이스가 실행되는 컴퓨터에 설치한 에이전트와 전용 탭에서 대화합니다. **설정 → Claude / Codex**에서 계정, API 키, 호환 게이트웨이용 프로필을 설정합니다.
-- **에이전트 뷰.** 여러 워크스페이스의 세션을 분할 패널에 나란히 놓고 작업 상태를 보거나 권한 요청에 답합니다.
-- **작업.** **새 작업…**으로 브랜치와 Git 워크트리를 만들고, 에이전트마다 별도 작업에서 동시에 맡은 일을 진행하게 할 수 있습니다.
-- **사용량 한도 이어하기.** 구독 요금제의 사용량 한도에 걸려 멈춘 대화는 한도가 풀리면 자동으로 이어서 진행합니다.
-
-<div align="center">
-  <img src="docs/images/agents.png" width="760" alt="여러 워크스페이스의 에이전트 세션을 나란히 놓고 권한 요청에 답하는 에이전트 뷰" />
-</div>
-
-### 원격과 모바일
-
-- **다른 컴퓨터에서 이어서 작업.** **설정 → 원격**에서 Google 또는 GitHub로 로그인하면 같은 계정으로 연결한 컴퓨터의 채팅, 터미널, 파일을 볼 수 있습니다. 조작을 허용하면 메시지를 보내고 권한 요청에 답하거나 터미널에 입력할 수 있습니다.
-- **iOS 앱 준비 중.** 출시되면 휴대폰에서 채팅과 터미널을 실시간으로 보고, 권한 요청에 답하거나 파일과 Git 변경 내용을 확인할 수 있습니다.
-
-### 노트와 음성
-
-- **노트.** 워크스페이스별로 글, 할 일, 파일, 그림을 모으고 필요한 내용을 에이전트에 보냅니다.
-- **음성 입력.** 한국어와 영어가 섞인 말도 실시간으로 받아써 메시지를 작성합니다. 자주 쓰는 이름이나 용어는 **음성 인식 단어**에 등록할 수 있습니다.
-- **노트 녹음.** 컴퓨터에서 회의를 녹음하며 말을 글로 옮기고 화자별로 나눕니다. 여러 사람이 말한 녹음은 끝난 뒤 한 번 더 받아써 정확도를 높입니다.
-
-<div align="center">
-  <img src="docs/images/notes.png" width="520" alt="할 일과 메모를 적은 노트" />
-</div>
-
-원격, 음성 입력, 노트 녹음, 모바일 앱에는 **NexusCode 계정** 로그인이 필요합니다. 나머지 기능은 NexusCode 계정 없이 쓸 수 있습니다.
-
-계정 기능은 NexusCode가 운영하는 서버를 거치며, 서버를 직접 운영하는 자체 호스팅은 지원하지 않습니다. 지금은 무료로 제공하지만, 서버와 음성 인식에 계정마다 비용이 들어 나중에 유료 요금제가 생길 수 있습니다.
-
-### 에이전트 CLI
-
-앱 안 터미널에서 `nexus` 명령으로 다른 세션을 확인하거나, 파일과 변경 내용을 화면에 열고, 내장 브라우저를 조작할 수 있습니다. 다른 워크스페이스를 바꾸는 권한은 **설정 → 에이전트 → 다른 워크스페이스 변경**에서 정합니다. [CLI 사용 가이드](docs/CLI.md)
+<a href="#top">맨 위로</a>
 
 ## 개인정보와 보안
 
-기기 사이에 오가는 채팅, 터미널, 파일, 세션 목록은 **종단 간 암호화**됩니다. 중계 서버는 암호문과 전달에 필요한 정보만 보고, 대화 기록을 저장하지 않습니다.
+기기 사이에 오가는 에이전트 세션, 터미널 화면, 파일은 **종단 간 암호화**합니다. 서버는 어느 기기에서 어느 기기로 가는지와 크기, 시각만 알 수 있고, 내용을 열거나 저장하지 않습니다.
 
-음성 입력과 노트 녹음은 종단 간 암호화 대상에서 제외됩니다. 오디오는 서버를 거쳐 음성 인식 서비스 Soniox에 전달되고, 받아쓴 글도 서버를 거쳐 앱으로 돌아옵니다. [개인정보처리방침](docs/PRIVACY.md)
+음성 입력과 노트 녹음은 종단 간 암호화하지 않습니다. 소리는 서버를 거쳐 음성 인식 서비스 Soniox로 가고, 받아쓴 글도 서버를 거쳐 앱으로 돌아옵니다. 자세한 내용은 [개인정보처리방침](docs/PRIVACY.md)에 있습니다.
+
+원격, 음성 입력, 노트 녹음과 출시 예정인 iOS 앱에는 **NexusCode 계정**이 필요합니다. 나머지 기능은 계정 없이 사용할 수 있습니다.
+
+계정 기능은 NexusCode가 운영하는 서버를 거치며, 자체 호스팅은 지원하지 않습니다. 지금은 무료이지만 서버와 음성 인식에 계정마다 비용이 들어 나중에 유료 요금제가 생길 수 있습니다.
+
+<a href="#top">맨 위로</a>
 
 ## 단축키
 
@@ -127,7 +196,7 @@ Intel Mac에서는 [소스에서 직접 빌드](docs/INSTALL.md#self-build)할 �
 
 ## 업데이트
 
-macOS와 Linux는 앱에서 업데이트합니다. **설정 → 정보**에서 새 버전을 확인하고 릴리스 노트를 볼 수 있습니다. Windows는 Microsoft Store에서 업데이트합니다. [업데이트 안내](docs/INSTALL.md#업데이트)
+macOS와 Linux 앱은 새 버전을 스스로 확인하고, 알림에서 업데이트합니다. 릴리스 노트는 **설정 → 정보**에서 볼 수 있습니다. Windows는 Microsoft Store가 업데이트합니다. [업데이트 안내](docs/INSTALL.md#업데이트)
 
 ## 자체 빌드
 
