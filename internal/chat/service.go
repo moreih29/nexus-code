@@ -27,11 +27,12 @@ import (
 
 // Service owns the tabs' programs and their logs.
 type Service struct {
-	mu         sync.Mutex
-	sink       *connectionSink
-	sessions   map[tabKey]*session
-	closedTabs map[closedTabGeneration]struct{}
-	runs       map[string]context.CancelFunc
+	mu              sync.Mutex
+	sink            *connectionSink
+	sessions        map[tabKey]*session
+	closedTabs      map[closedTabGeneration]struct{}
+	runs            map[runKey]*activeRun
+	earlyRunCancels map[runKey]time.Time
 	// closedOrder lets expiry and capacity discard the oldest closes first.
 	closedOrder     list.List
 	closed          bool
@@ -168,8 +169,10 @@ func (s *Service) SetConnectionSink(ctx context.Context, sink EventSink) {
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
-	for _, cancel := range s.runs {
-		cancel()
+	runs := make([]<-chan struct{}, 0, len(s.runs))
+	for _, active := range s.runs {
+		active.cancel()
+		runs = append(runs, active.done)
 	}
 	sessions := make([]*session, 0, len(s.sessions))
 	for key, sess := range s.sessions {
@@ -177,6 +180,8 @@ func (s *Service) Close() {
 		delete(s.sessions, key)
 	}
 	s.mu.Unlock()
+	deadline := time.NewTimer(runCloseGrace)
+	defer deadline.Stop()
 	for _, sess := range sessions {
 		sess.mu.Lock()
 		sess.closed = true
@@ -184,6 +189,13 @@ func (s *Service) Close() {
 		sess.mu.Unlock()
 		if p != nil {
 			p.kill()
+		}
+	}
+	for _, done := range runs {
+		select {
+		case <-done:
+		case <-deadline.C:
+			return
 		}
 	}
 }

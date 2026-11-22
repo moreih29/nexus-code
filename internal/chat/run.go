@@ -17,10 +17,26 @@ const (
 	RunCapability = "chat.run"
 	runTimeout    = 15 * time.Minute
 	runOutputCap  = 4 * 1024 * 1024
+	runCloseGrace = 2500 * time.Millisecond
+	// A cancel may dispatch ahead of its run. Keep these IDs briefly and bound
+	// their count even when a caller sends cancellations for nonexistent runs.
+	earlyCancelTTL  = 30 * time.Second
+	maxEarlyCancels = 256
 )
 
 type runID struct {
 	RunID string `json:"runId"`
+}
+
+// Dispatch passes the same host context to every request on one connection.
+type runKey struct {
+	connection <-chan struct{}
+	id         string
+}
+
+type activeRun struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 type runParams struct {
@@ -55,19 +71,29 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	runCtx, cancel := context.WithCancelCause(deadline)
 	defer cancel(nil)
 
+	key := runKey{connection: ctx.Done(), id: p.RunID}
 	s.mu.Lock()
-	if s.closed || s.runs[p.RunID] != nil {
+	if s.closed || s.runs[key] != nil {
 		s.mu.Unlock()
 		return nil, protocolError("chat.run ID is already running or the service is closed")
 	}
-	if s.runs == nil {
-		s.runs = make(map[string]context.CancelFunc)
+	if expires, ok := s.earlyRunCancels[key]; ok {
+		delete(s.earlyRunCancels, key)
+		if time.Now().Before(expires) {
+			s.mu.Unlock()
+			return runResult{ExecResult: ExecResult{Code: -1}, Canceled: true}, nil
+		}
 	}
-	s.runs[p.RunID] = func() { cancel(nil) }
+	if s.runs == nil {
+		s.runs = make(map[runKey]*activeRun)
+	}
+	active := &activeRun{cancel: func() { cancel(nil) }, done: make(chan struct{})}
+	s.runs[key] = active
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		delete(s.runs, p.RunID)
+		delete(s.runs, key)
+		close(active.done)
 		s.mu.Unlock()
 	}()
 
@@ -101,7 +127,7 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 		result.OutputLimit, result.Code = true, -1
 	default:
 		switch {
-		case err == nil:
+		case err == nil, errors.Is(err, exec.ErrWaitDelay):
 		case errors.As(err, &exitErr):
 			result.Code = exitErr.ExitCode()
 		default:
@@ -115,7 +141,7 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 }
 
 // CancelRun acknowledges whether this ID was still registered.
-func (s *Service) CancelRun(_ context.Context, raw json.RawMessage) (any, error) {
+func (s *Service) CancelRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p runID
 	if err := decodeParams(raw, &p, "chat.cancelRun params must include runId"); err != nil {
 		return nil, err
@@ -125,11 +151,30 @@ func (s *Service) CancelRun(_ context.Context, raw json.RawMessage) (any, error)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cancel := s.runs[p.RunID]
-	if cancel != nil {
-		cancel()
+	key := runKey{connection: ctx.Done(), id: p.RunID}
+	if active := s.runs[key]; active != nil {
+		active.cancel()
+		return true, nil
 	}
-	return cancel != nil, nil
+	if !s.closed && ctx.Err() == nil {
+		s.rememberRunCancel(key, time.Now())
+	}
+	return false, nil
+}
+
+// The service lock is held by the caller.
+func (s *Service) rememberRunCancel(key runKey, now time.Time) {
+	if s.earlyRunCancels == nil {
+		s.earlyRunCancels = make(map[runKey]time.Time)
+	}
+	for candidate, expires := range s.earlyRunCancels {
+		if !now.Before(expires) {
+			delete(s.earlyRunCancels, candidate)
+		}
+	}
+	if len(s.earlyRunCancels) < maxEarlyCancels {
+		s.earlyRunCancels[key] = now.Add(earlyCancelTTL)
+	}
 }
 
 func validRunID(id string) bool {

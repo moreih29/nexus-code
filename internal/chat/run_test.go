@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,17 @@ func runFixture(mode string) int {
 	case "flood":
 		_, _ = io.WriteString(os.Stdout, strings.Repeat("a", runOutputCap/2))
 		_, _ = io.WriteString(os.Stderr, strings.Repeat("b", runOutputCap/2+1))
+	case "leave-pipe-open":
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), "CHAT_RUN_FIXTURE=hold-pipe")
+		cmd.Stdout = os.Stdout
+		if err := cmd.Start(); err != nil {
+			return 1
+		}
+		_ = cmd.Process.Release()
+		_, _ = io.WriteString(os.Stdout, "complete result")
+	case "hold-pipe":
+		time.Sleep(1500 * time.Millisecond)
 	}
 	return 0
 }
@@ -66,6 +79,61 @@ func TestCancelRunByID(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	done := startWaitingRun(t, svc, ctx, dir)
+	other, cancelOther := context.WithCancel(context.Background())
+	defer cancelOther()
+	for _, call := range []struct {
+		ctx  context.Context
+		id   string
+		want bool
+	}{
+		{other, "fixture", false},
+		{ctx, "other", false},
+		{ctx, "fixture", true},
+	} {
+		got, err := svc.CancelRun(call.ctx, json.RawMessage(`{"runId":"`+call.id+`"}`))
+		if err != nil || got != call.want {
+			t.Fatalf("CancelRun(%q) = %v, %v; want %v", call.id, got, err, call.want)
+		}
+	}
+	assertCanceled(t, ctx, done)
+}
+
+func TestCancelBeforeRunRegisters(t *testing.T) {
+	svc := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got, err := svc.CancelRun(ctx, json.RawMessage(`{"runId":"fixture"}`))
+	if err != nil || got != false {
+		t.Fatalf("CancelRun = %v, %v", got, err)
+	}
+	dir := t.TempDir()
+	value, err := svc.Run(ctx, runRequest(t, dir, "wait", 100))
+	if err != nil || !value.(runResult).Canceled {
+		t.Fatalf("late Run = %#v, %v", value, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "started")); !os.IsNotExist(err) {
+		t.Fatalf("canceled run started a process: %v", err)
+	}
+}
+
+func TestCloseCancelsAndWaitsForRun(t *testing.T) {
+	svc := New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := startWaitingRun(t, svc, ctx, t.TempDir())
+	svc.Close()
+	svc.mu.Lock()
+	active := len(svc.runs)
+	svc.mu.Unlock()
+	if active != 0 {
+		t.Fatal("Close returned before the running process was reaped")
+	}
+	assertCanceled(t, ctx, done)
+}
+
+func startWaitingRun(t *testing.T, svc *Service, ctx context.Context, dir string) <-chan any {
+	t.Helper()
 	raw := runRequest(t, dir, "wait", 0)
 	done := make(chan any, 1)
 	go func() {
@@ -77,8 +145,8 @@ func TestCancelRunByID(t *testing.T) {
 		done <- value
 	}()
 	for {
-		if _, err := os.Stat(dir + "/started"); err == nil {
-			break
+		if _, err := os.Stat(filepath.Join(dir, "started")); err == nil {
+			return done
 		}
 		select {
 		case <-time.After(10 * time.Millisecond):
@@ -86,12 +154,10 @@ func TestCancelRunByID(t *testing.T) {
 			t.Fatal("run did not start")
 		}
 	}
-	for id, want := range map[string]bool{"other": false, "fixture": true} {
-		got, err := svc.CancelRun(ctx, json.RawMessage(`{"runId":"`+id+`"}`))
-		if err != nil || got != want {
-			t.Fatalf("CancelRun(%q) = %v, %v", id, got, err)
-		}
-	}
+}
+
+func assertCanceled(t *testing.T, ctx context.Context, done <-chan any) {
+	t.Helper()
 	select {
 	case value := <-done:
 		if got, ok := value.(runResult); !ok || !got.Canceled || got.TimedOut {
@@ -99,6 +165,13 @@ func TestCancelRunByID(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("run did not end after cancellation")
+	}
+}
+
+func TestRunKeepsResultWhenChildHoldsOutputPipe(t *testing.T) {
+	value, err := New().Run(context.Background(), runRequest(t, t.TempDir(), "leave-pipe-open", 5_000))
+	if want := (runResult{ExecResult: ExecResult{Stdout: "complete result"}}); err != nil || value != want {
+		t.Fatalf("Run = %#v, %v; want %#v", value, err, want)
 	}
 }
 
