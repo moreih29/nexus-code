@@ -7,6 +7,7 @@
 
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { z } from "zod";
 import { resources, type SupportedLanguage } from "../../../shared/i18n";
 import {
   APPROVED_ONLY_FAILURES,
@@ -33,12 +34,25 @@ export type CallbackFailure = Extract<
 >;
 
 /** A not_invited refusal's `access`: where the account's signup request stands. */
-const SIGNUP_ACCESS = new Map<string, CallbackFailure>([
-  ["pending", "pending_approval"],
-  ["rejected", "rejected"],
-  ["suspended", "suspended"],
-  ["closed", "closed"],
-]);
+const SignupAccessSchema = z.enum(["pending", "rejected", "suspended", "closed"]);
+
+const SIGNUP_ACCESS: Record<z.infer<typeof SignupAccessSchema>, CallbackFailure> = {
+  pending: "pending_approval",
+  rejected: "rejected",
+  suspended: "suspended",
+  closed: "closed",
+};
+
+/**
+ * Why a not_invited refusal turned the account away, by its `access`, from
+ * the callback or a refused code: none is not_invited, and one the app does
+ * not know (the server may add some) a plain failure.
+ */
+export function notInvitedFailure(access: unknown): CallbackFailure {
+  if (access === undefined || access === null) return "not_invited";
+  const known = SignupAccessSchema.safeParse(access);
+  return known.success ? SIGNUP_ACCESS[known.data] : "failed";
+}
 
 /** The errors besides not_invited the server sends the browser back with. */
 const CALLBACK_ERRORS = ["access_denied", "unverified_email", "server_error"] as const;
@@ -51,10 +65,7 @@ const CALLBACK_ERRORS = ["access_denied", "unverified_email", "server_error"] as
 export function callbackFailure(query: URLSearchParams): CallbackFailure | undefined {
   const error = query.get("error");
   if (error === null) return query.get("code") ? undefined : "failed";
-  if (error === "not_invited") {
-    const access = query.get("access");
-    return access === null ? "not_invited" : (SIGNUP_ACCESS.get(access) ?? "failed");
-  }
+  if (error === "not_invited") return notInvitedFailure(query.get("access"));
   return CALLBACK_ERRORS.find((e) => e === error) ?? "failed";
 }
 

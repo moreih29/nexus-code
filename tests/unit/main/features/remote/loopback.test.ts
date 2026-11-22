@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import {
   callbackFailure,
   listenForCallback,
+  notInvitedFailure,
   PAGE_HEADERS,
   type PageOutcome,
   page,
@@ -45,6 +46,21 @@ describe("what a callback says", () => {
     ["error=something_new", "failed"],
   ] as const)("%s is %s", (query, failure) => {
     expect(callbackFailure(new URLSearchParams(query))).toBe(failure);
+  });
+});
+
+describe("why a not_invited refusal turned the account away", () => {
+  test.each([
+    [undefined, "not_invited"],
+    [null, "not_invited"],
+    ["suspended", "suspended"],
+    ["pending", "pending_approval"],
+    ["Suspended", "failed"],
+    ["toString", "failed"],
+    [5, "failed"],
+    [{ access: "suspended" }, "failed"],
+  ] as const)("access %p is %s", (access, failure) => {
+    expect(notInvitedFailure(access)).toBe(failure);
   });
 });
 

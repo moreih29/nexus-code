@@ -33,6 +33,9 @@ function fakeServer(
   options: {
     tokenStatus?: number;
     tokenError?: string;
+    tokenAccess?: string;
+    /** The refusal's body as sent, in place of its JSON. */
+    tokenBody?: string;
     devicesStatus?: number;
     devicesError?: string;
     devicesAccess?: string;
@@ -60,8 +63,8 @@ function fakeServer(
       const body =
         status === 200
           ? { token: "tok", expiresAt: Date.now() + 30 * 86_400_000, user, device }
-          : { error: options.tokenError ?? "invalid_grant" };
-      return new Response(JSON.stringify(body), { status });
+          : { error: options.tokenError ?? "invalid_grant", access: options.tokenAccess };
+      return new Response(options.tokenBody ?? JSON.stringify(body), { status });
     }
     if (url.pathname === "/devices") {
       const status = options.devicesStatus ?? 200;
@@ -369,6 +372,25 @@ describe("the account", () => {
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "conflict" }, "failed"],
       [{ code: "c1" }, { tokenStatus: 429, tokenError: "rate_limited" }, "rate_limited"],
+      // A code refused for the account says why as the callback does, suspended or not invited.
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "suspended" },
+        "suspended",
+      ],
+      [{ code: "c1" }, { tokenStatus: 403, tokenError: "not_invited" }, "not_invited"],
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "future-status" },
+        "failed",
+      ],
+      // The signup states come with the callback alone.
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "pending" },
+        "failed",
+      ],
+      [{ code: "c1" }, { tokenStatus: 403, tokenBody: "<h1>Forbidden</h1>" }, "failed"],
     ] as const;
     for (const [back, serverOptions, failure] of cases) {
       const store = memoryStore();

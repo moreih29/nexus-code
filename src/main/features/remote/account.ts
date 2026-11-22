@@ -25,7 +25,7 @@ import {
 } from "../../../shared/remote/account";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
-import { type LoopbackListener, listenForCallback } from "./loopback";
+import { type LoopbackListener, listenForCallback, notInvitedFailure } from "./loopback";
 import { makePkce, makeState } from "./pkce";
 import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
@@ -437,7 +437,7 @@ export class RemoteAccount {
         }
         throw new SignedOutError();
       }
-      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter);
+      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter, refusal?.access);
     }
     return answer ?? {};
   }
@@ -459,6 +459,12 @@ function failureOf(error: unknown): SignInFailure {
     if (error.code === "invalid_grant") return "invalid_grant";
     if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
     if (error.status === 429) return "rate_limited";
+    // A code refused for the account: suspended, or not invited. The signup states
+    // (pending, rejected, closed) come with the callback, not here.
+    if (error.status === 403 && error.code === "not_invited") {
+      const failure = notInvitedFailure(error.access);
+      return failure === "suspended" || failure === "not_invited" ? failure : "failed";
+    }
     return "failed";
   }
   if (error instanceof UnreachableError) return "unreachable";
