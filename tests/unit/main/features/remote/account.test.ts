@@ -31,6 +31,7 @@ function fakeServer(
     tokenError?: string;
     devicesStatus?: number;
     devicesError?: string;
+    devicesAccess?: string;
   } = {},
 ) {
   const requests: {
@@ -63,7 +64,7 @@ function fakeServer(
       const body =
         status === 200
           ? { devices: [{ ...device, current: true }] }
-          : { error: options.devicesError ?? "unauthorized" };
+          : { error: options.devicesError ?? "unauthorized", access: options.devicesAccess };
       return new Response(JSON.stringify(body), { status });
     }
     return new Response(null, { status: 204 });
@@ -348,10 +349,10 @@ describe("the account", () => {
 
   test("a sign-in that does not finish says why", async () => {
     const cases = [
-      [{ code: "c1", state: "forged" }, {}, "mismatch"],
+      [{ error: "not_invited", access: "pending", state: "forged" }, {}, "mismatch"],
       [{ error: "access_denied" }, {}, "access_denied"],
+      [{ error: "access_denied", access: "pending" }, {}, "access_denied"],
       [{ error: "unverified_email" }, {}, "unverified_email"],
-      [{ error: "not_invited" }, {}, "not_invited"],
       [{ error: "something_new" }, {}, "failed"],
       [{ code: "c1" }, { tokenStatus: 400 }, "invalid_grant"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
@@ -372,6 +373,57 @@ describe("the account", () => {
       expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
       expect(store.value).toBeNull();
     }
+  });
+
+  test.each([
+    ["pending", "pending_approval"],
+    ["rejected", "rejected"],
+    ["suspended", "suspended"],
+    ["closed", "closed"],
+    [undefined, "not_invited"],
+    ["future-status", "not_invited"],
+  ] as const)("reports a not_invited callback with access %s as %s", async (access, failure) => {
+    const store = memoryStore();
+    const server = fakeServer();
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: browser((start) => ({
+        state: start.searchParams.get("state") ?? "",
+        error: "not_invited",
+        ...(access === undefined ? {} : { access }),
+      })).openExternal,
+      fetch: server.fetchFn,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
+    expect(store.value).toBeNull();
+    expect(server.requests).toEqual([]);
+  });
+
+  test("checks signup approval with the same provider and opens one browser for concurrent clicks", async () => {
+    let approved = false;
+    const { opened, openExternal } = browser((start) => {
+      const state = start.searchParams.get("state") ?? "";
+      if (approved) return { state, code: "c1" };
+      return { state, error: "not_invited", access: "pending" };
+    });
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal,
+      fetch: fakeServer().fetchFn,
+    });
+    accounts.push(account);
+    const pending = { status: "signed-out", server: SERVER, failure: "pending_approval" };
+    expect(await account.signIn("github")).toEqual(pending);
+    expect(await account.signIn()).toEqual(pending);
+
+    approved = true;
+    const checkAgain = account.signIn();
+    await account.signIn();
+    expect(await checkAgain).toEqual({ status: "signed-in", server: SERVER, user, device });
+    expect(opened.map((url) => url.pathname)).toEqual(Array(3).fill("/auth/github/start"));
   });
 
   test("a cancelled sign-in, and one whose server is down", async () => {
@@ -463,14 +515,22 @@ describe("the account", () => {
     expect(paths).toEqual(["/me"]);
   });
 
-  test("a 403 not_invited signs it out and says why; another 403 does not", async () => {
+  test.each([
+    [undefined, "not_invited"],
+    ["suspended", "suspended"],
+    ["future-status", "not_invited"],
+  ] as const)("a 403 not_invited with access %s clears the account and reports %s", async (access, failure) => {
     const saved = { server: SERVER, token: "tok", user, device };
     const store = memoryStore(saved);
     const dropped = new RemoteAccount({
       server: SERVER,
       store,
       openExternal: async () => {},
-      fetch: fakeServer({ devicesStatus: 403, devicesError: "not_invited" }).fetchFn,
+      fetch: fakeServer({
+        devicesStatus: 403,
+        devicesError: "not_invited",
+        devicesAccess: access,
+      }).fetchFn,
     });
     accounts.push(dropped);
     await dropped.restore();
@@ -478,16 +538,22 @@ describe("the account", () => {
     expect(dropped.state()).toEqual({
       status: "signed-out",
       server: SERVER,
-      failure: "not_invited",
+      failure,
     });
     expect(store.value).toBeNull();
+  });
 
-    const kept = memoryStore(saved);
+  test("a different 403 leaves the account signed in", async () => {
+    const kept = memoryStore({ server: SERVER, token: "tok", user, device });
     const forbidden = new RemoteAccount({
       server: SERVER,
       store: kept,
       openExternal: async () => {},
-      fetch: fakeServer({ devicesStatus: 403, devicesError: "forbidden" }).fetchFn,
+      fetch: fakeServer({
+        devicesStatus: 403,
+        devicesError: "forbidden",
+        devicesAccess: "suspended",
+      }).fetchFn,
     });
     accounts.push(forbidden);
     await forbidden.restore();
@@ -497,9 +563,10 @@ describe("the account", () => {
   });
 
   test.each([
-    ["a 401", { status: 401, error: "unauthorized" }],
-    ["a 403 not_invited", { status: 403, error: "not_invited" }],
-  ] as const)("%s for a request sent before signing out and in again leaves the new sign-in", async (_, refusal) => {
+    ["a 401", 401, { error: "unauthorized" }],
+    ["a 403 not_invited", 403, { error: "not_invited" }],
+    ["a 403 suspended", 403, { error: "not_invited", access: "suspended" }],
+  ] as const)("%s for a request sent before signing out and in again leaves the new sign-in", async (_, status, body) => {
     const store = memoryStore({ server: SERVER, token: "old", user, device });
     const server = fakeServer();
     const answer = Promise.withResolvers<Response>();
@@ -527,7 +594,7 @@ describe("the account", () => {
     expect(store.value?.token).toBe("tok");
 
     // The old token's refusal comes back only now.
-    answer.resolve(new Response(JSON.stringify({ error: refusal.error }), refusal));
+    answer.resolve(Response.json(body, { status }));
     expect(await upload).toBeInstanceOf(SignedOutError);
     expect(account.state()).toEqual({ status: "signed-in", server: SERVER, user, device });
     expect(store.value?.token).toBe("tok");

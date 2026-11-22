@@ -40,6 +40,7 @@ import type {
   SessionState,
 } from "../../../../packages/remote-protocol/src/rpc";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { type RemoteAccountState, SIGNUP_FAILURES } from "../../../shared/remote/account";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import type { AgentSession } from "../../services/agent-sessions/model";
@@ -342,7 +343,7 @@ export function RemoteSessions({
     <AccountRemoteSessions
       key={accountKey}
       accountKey={accountKey}
-      signedOut={account?.status === "signed-out"}
+      signedOut={account?.status === "signed-out" ? account : undefined}
       query={query}
       shown={shown}
       renderStatus={renderStatus}
@@ -358,20 +359,21 @@ function AccountRemoteSessions({
   renderStatus,
 }: {
   accountKey: string | null;
-  signedOut: boolean;
+  signedOut: Extract<RemoteAccountState, { status: "signed-out" }> | undefined;
   query: string;
   shown: boolean;
   renderStatus?: RenderStatus;
 }) {
-  const { t } = useTranslation();
+  const { t } = useTranslation(["common", "settings"]);
   const room = useRemoteRoom();
   // Keep brief relay and peer drops off the screen while watching the real room.
   const seen = useShownRoom(room);
   const roomStatus = seen?.status;
   const outdated = roomStatus === "outdated";
+  const signInFailure = SIGNUP_FAILURES.find((failure) => failure === signedOut?.failure);
   const signInNotice = useBannerDismissal(
     ["remote-sessions-sign-in"],
-    signedOut ? [true] : undefined,
+    signedOut ? [signInFailure ?? true] : undefined,
     true,
   );
   const outdatedNotice = useBannerDismissal(
@@ -498,7 +500,9 @@ function AccountRemoteSessions({
         {signedOut ? (
           <div className="flex items-center gap-1.5 px-2 py-1">
             <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
-              {t("agentView.remote.needsSignIn")}
+              {signInFailure
+                ? t(`settings:remote.account.failure.${signInFailure}`)
+                : t("agentView.remote.needsSignIn")}
             </span>
             <Button
               type="button"

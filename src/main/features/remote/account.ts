@@ -64,7 +64,6 @@ const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema
 const CALLBACK_ERRORS: readonly SignInFailure[] = [
   "access_denied",
   "unverified_email",
-  "not_invited",
   "server_error",
 ];
 
@@ -104,10 +103,14 @@ export interface RemoteAccountDeps {
 
 export class RemoteAccount {
   private saved: SavedAccount | null = null;
+  /** Blocks another sign-in while the callback listener is starting. */
+  private startingSignIn = false;
   private signingIn: LoopbackListener | null = null;
   private recheckingToken: string | undefined;
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
+  /** The provider to use when checking a pending signup again. */
+  private pendingProvider: SignInProvider | undefined;
   private readonly fetch: typeof fetch;
   /** How requests reach the server; the relay's and voice input's sockets go by it too. */
   readonly route: ServerRoute;
@@ -142,26 +145,30 @@ export class RemoteAccount {
   }
 
   /**
-   * Opens the server's sign-in (Google's unless told) in the browser and
-   * waits for it to come back; then trades its code for this device's
-   * token. A sign-in that does not finish leaves the app signed out, with
-   * why in the state.
+   * Opens the server's sign-in in the browser, then trades its callback code
+   * for this device's token. Without a provider, it retries a pending signup
+   * or uses the default. A failed sign-in leaves the reason in the state.
    */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
-    if (this.signingIn || this.saved) return this.state();
-    const listener = await (this.deps.listen ?? listenForCallback)(
-      this.deps.timeoutMs ?? SIGN_IN_TIMEOUT_MS,
-    );
-    this.signingIn = listener;
+    if (this.startingSignIn || this.signingIn || this.saved) return this.state();
+    const choice = provider ?? this.pendingProvider ?? this.deps.provider ?? "google";
+    this.startingSignIn = true;
+    let listener: LoopbackListener;
+    try {
+      listener = await (this.deps.listen ?? listenForCallback)(
+        this.deps.timeoutMs ?? SIGN_IN_TIMEOUT_MS,
+      );
+      this.signingIn = listener;
+    } finally {
+      this.startingSignIn = false;
+    }
     this.failure = undefined;
+    this.pendingProvider = undefined;
     this.changed();
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
-      const start = new URL(
-        `/auth/${provider ?? this.deps.provider ?? "google"}/start`,
-        this.deps.server,
-      );
+      const start = new URL(`/auth/${choice}/start`, this.deps.server);
       start.search = new URLSearchParams({
         redirect_uri: listener.redirectUri,
         state,
@@ -172,6 +179,11 @@ export class RemoteAccount {
       await this.deps.openExternal(start.toString());
       const back = await listener.result;
       if (back.state !== state) throw new SignInError("mismatch");
+      if (back.error === "not_invited") {
+        const failure =
+          back.access === "pending" ? "pending_approval" : (back.access ?? "not_invited");
+        throw new SignInError(failure, back.error);
+      }
       if (back.error) {
         const failure = CALLBACK_ERRORS.find((e) => e === back.error);
         throw new SignInError(failure ?? "failed", back.error);
@@ -192,6 +204,7 @@ export class RemoteAccount {
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
+      if (this.failure === "pending_approval") this.pendingProvider = choice;
       log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       listener.close();
@@ -414,12 +427,12 @@ export class RemoteAccount {
     signal?.throwIfAborted();
     const answer = parseJson(text);
     if (!res.ok) {
-      const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;
-      // An account taken off an invite-only server's list: signed out as by a
-      // 401, saying why.
+      const refusal = isRecord(answer) ? answer : undefined;
+      const code = typeof refusal?.error === "string" ? refusal.error : undefined;
+      // The server revoked access. Sign out as with a 401 and keep the reason.
       if (res.status === 403 && code === "not_invited" && options.signedIn !== false) {
         if (signedInAsSent()) {
-          this.failure = "not_invited";
+          this.failure = refusal?.access === "suspended" ? "suspended" : "not_invited";
           this.forget();
         }
         throw new SignedOutError();

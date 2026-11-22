@@ -1094,6 +1094,10 @@
         "access_denied": "Sign-in was declined.",
         "unverified_email": "That account's email isn't verified.",
         "not_invited": "This server is open only to invited accounts for now.",
+        "pending_approval": "Awaiting approval · Sign in the same way after approval",
+        "rejected": "Signup request denied · New request after 30 days",
+        "suspended": "Account suspended",
+        "closed": "Signup requests closed · Try again later",
         "server_error": "The server couldn't sign you in. Try again later.",
         "invalid_grant": "Sign-in expired. Try again.",
         "too_many_devices": "This account has too many devices signed in. Remove one you no longer use in Settings › Remote on another device, then sign in again.",
@@ -1102,7 +1106,9 @@
         "failed": "Sign-in didn't finish. Try again."
       },
       "localOnly": "Local server only",
-      "retry": "Try again"
+      "retry": "Try again",
+      "checkAgain": "Check Again",
+      "openSupportPage": "Open Support Page"
     },
     "devices": {
       "title": "Devices",

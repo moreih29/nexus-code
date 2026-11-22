@@ -44,14 +44,18 @@ export function deviceLabel(device: { name: string; alias?: string | null }): st
   return device.alias || device.name;
 }
 
+export const SIGNUP_FAILURES = ["pending_approval", "rejected", "suspended", "closed"] as const;
+
 /**
  * Why a sign-in did not finish:
  * - cancelled, timed-out: the app stopped waiting for the browser;
- * - access_denied, unverified_email, not_invited, server_error: what the
- *   server sent the browser back with (the user declined; the provider has
- *   not verified the email; the server takes only invited accounts, and this
- *   is not one; the server failed). not_invited also signs out an account
- *   taken off the list, whose requests the server refuses with a 403;
+ * - access_denied, unverified_email, server_error: the user declined, the
+ *   provider has not verified the email, or the server failed;
+ * - not_invited: the server refused access without giving a signup status;
+ * - pending_approval, rejected, suspended, closed: the signup request awaits
+ *   approval, was denied, the account was suspended, or signup is closed;
+ *   an authenticated 403 not_invited also signs the account out, with
+ *   suspended when the server gives that status;
  * - invalid_grant: the server would not trade the code (expired, or used);
  * - too_many_devices: the account has as many devices signed in as it may,
  *   so one is to be removed from another device before signing in again;
@@ -65,6 +69,7 @@ export const SIGN_IN_FAILURES = [
   "access_denied",
   "unverified_email",
   "not_invited",
+  ...SIGNUP_FAILURES,
   "server_error",
   "invalid_grant",
   "too_many_devices",

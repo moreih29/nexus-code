@@ -1,6 +1,10 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import * as button from "../../../../../src/renderer/components/ui/button";
+import * as ipc from "../../../../../src/renderer/ipc/client";
 import * as theme from "../../../../../src/renderer/state/stores/theme";
+import { ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import { SERVER } from "../../../../../src/shared/remote/server";
 
@@ -18,6 +22,32 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Sign in with Google");
     expect(html).toContain("email isn&#x27;t verified.");
     expect(html).toContain(`Server: ${server}`);
+  });
+
+  test("offers to check approval again alongside the provider buttons", () => {
+    const state = { status: "signed-out", server, failure: "pending_approval" } as const;
+    const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk(state));
+    const renderButton = spyOn(button, "Button");
+    try {
+      const html = render(state, ["google", "github"]);
+      expect(html).toContain("Awaiting approval · Sign in the same way after approval");
+      expect(html).toContain("Sign in with Google");
+      expect(html).toContain("Sign in with GitHub");
+      const action = renderButton.mock.calls.find(([props]) => props.children === "Check Again");
+      action?.[0].onClick?.({} as MouseEvent<HTMLButtonElement>);
+      expect(call).toHaveBeenCalledWith("remote", "signIn", undefined);
+    } finally {
+      renderButton.mockRestore();
+      call.mockRestore();
+    }
+  });
+
+  test("links to the Store-listed support page for a suspended account", () => {
+    const html = render({ status: "signed-out", server, failure: "suspended" });
+    expect(html).toContain("Account suspended");
+    expect(html).toContain('href="https://github.com/moreih29/nexus-code/issues"');
+    expect(html).toContain("Open Support Page");
+    expect(html).not.toContain("Check Again");
   });
 
   test("offers the sign-ins the server has", () => {

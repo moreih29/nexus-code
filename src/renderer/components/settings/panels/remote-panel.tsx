@@ -53,6 +53,9 @@ const iconButtonClass = cn(
 const tagClass =
   "shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground";
 
+/** The support contact listed for the app in the Store. */
+const SUPPORT_PAGE_URL = "https://github.com/moreih29/nexus-code/issues";
+
 const PLATFORMS: Record<string, string> = {
   darwin: "macOS",
   win32: "Windows",
@@ -133,7 +136,8 @@ export function AccountGroup({
 }) {
   const { t } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
-  const signIn = (provider: SignInProvider) => void ipcCallResult("remote", "signIn", { provider });
+  const signIn = (provider?: SignInProvider) =>
+    void ipcCallResult("remote", "signIn", provider ? { provider } : undefined);
   const cancel = () => void ipcCallResult("remote", "cancelSignIn", undefined);
   const signOut = () => void ipcCallResult("remote", "signOut", undefined);
   const offered = SIGN_IN_PROVIDERS.filter((provider) => signIns.includes(provider));
@@ -166,12 +170,25 @@ export function AccountGroup({
         <SettingsSection
           label={t("remote.account.signedOut")}
           action={
-            unreachable &&
-            onRetry && (
-              <Button variant="outline" size="sm" onClick={onRetry}>
-                {t("remote.account.retry")}
-              </Button>
-            )
+            <div className="flex flex-wrap justify-end gap-2 empty:hidden">
+              {failure === "pending_approval" && (
+                <Button variant="outline" size="sm" onClick={() => signIn()}>
+                  {t("remote.account.checkAgain")}
+                </Button>
+              )}
+              {failure === "suspended" && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={SUPPORT_PAGE_URL} target="_blank" rel="noopener noreferrer">
+                    {t("remote.account.openSupportPage")}
+                  </a>
+                </Button>
+              )}
+              {unreachable && onRetry && (
+                <Button variant="outline" size="sm" onClick={onRetry}>
+                  {t("remote.account.retry")}
+                </Button>
+              )}
+            </div>
           }
           description={
             failure && (
