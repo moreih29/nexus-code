@@ -648,3 +648,57 @@ test("answer saves reject oversized text and remove new notes when the card writ
     await rm(userData, { recursive: true, force: true });
   }
 });
+
+test("adding a live card publishes its block and turns only update live links", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-live-card-"));
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  try {
+    const ipc = createIpcPair().window.ipc;
+    const location = notes.locationOf(id);
+    const note = await notes.store.create(location, "Note");
+    const source = {
+      workspaceId: id,
+      agent: "codex",
+      tabId: "tab",
+      session: "thread",
+      cwd: "/workspace",
+      title: "Conversation",
+    } as const;
+    await notes.store.addLink(location, note.id, { ...source, kind: "mention" });
+    const request = { workspaceId: id, noteId: note.id, source };
+    expect(await ipc.call("notes", "saveLiveCard", request)).toMatchObject({
+      ok: true,
+      value: true,
+    });
+    expect(await ipc.call("notes", "saveLiveCard", request)).toMatchObject({
+      ok: true,
+      value: false,
+    });
+    const blocks = broadcast.mock.calls.filter(([, event]) => event === "blocksAdded");
+    expect(blocks).toHaveLength(1);
+
+    expect(
+      await ipc.call("notes", "updateLiveAnswer", {
+        tab: source,
+        lastAnswer: { at: 100, text: "The \u202elatest\u202c answer", files: 1 },
+      }),
+    ).toMatchObject({ ok: true });
+    const [mention, live] = await notes.store.links(location, note.id);
+    expect(mention.link.lastAnswer).toBeUndefined();
+    expect(live.link.lastAnswer).toEqual({ text: "The latest answer", at: 100, files: 1 });
+    expect(broadcast).toHaveBeenCalledWith("notes", "linksChanged", {
+      locationKey: location.key,
+      noteId: note.id,
+    });
+  } finally {
+    notes.dispose();
+    broadcast.mockRestore();
+    await rm(userData, { recursive: true, force: true });
+  }
+});

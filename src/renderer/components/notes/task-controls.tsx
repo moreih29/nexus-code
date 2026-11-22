@@ -10,7 +10,15 @@ import {
   DEFAULT_TASK_AGENT,
 } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { assignNoteTask, canMakeTask, taskRepoKind } from "../../services/notes/task";
+import {
+  assignNoteTask,
+  assignNoteTaskBatch,
+  canMakeTask,
+  checklistTasks,
+  NOTE_TASK_BATCH_LIMIT,
+  type NoteTaskBatchOutcome,
+  taskRepoKind,
+} from "../../services/notes/task";
 import { useGitStore } from "../../state/stores/git";
 import { useTerminalStore } from "../../state/stores/terminal";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "../../state/stores/workspaces";
@@ -24,13 +32,27 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
 import { ConversationChip, type NotePlace, useNoteConversations } from "./conversation-chips";
-import { type TaskWidget, taskWidgets } from "./editor/task-widgets";
+import { checklistWidgets, type TaskWidget, taskWidgets } from "./editor/task-widgets";
 import { ConversationDestinations, useDestinations } from "./send-to-agent";
 import type { TranscriptJump } from "./transcript-rows";
 
 const NO_WIDGETS: TaskWidget[] = [];
+type ChecklistWidget = ReturnType<typeof checklistWidgets>[number];
+type ChecklistRow = { widget: ChecklistWidget; count: number };
+type TaskFailure = Exclude<NoteTaskBatchOutcome, "linked">;
+
+function createdWithoutLink(failures: ReadonlyMap<TaskWidget, TaskFailure>): Set<number> {
+  const positions = new Set<number>();
+  for (const [widget, failure] of failures) {
+    if (failure !== "link-failed") continue;
+    const pos = widget.taskPos();
+    if (pos !== undefined) positions.add(pos);
+  }
+  return positions;
+}
 
 export function NoteTaskControls({
   editor,
@@ -38,15 +60,19 @@ export function NoteTaskControls({
   title,
   flush,
   onTranscript,
+  canCreateTasks,
 }: {
   editor: Editor;
   note: NotePlace;
   title: () => string;
   flush: () => Promise<boolean>;
   onTranscript: (jump: TranscriptJump) => void;
+  canCreateTasks: boolean;
 }) {
   const { t } = useTranslation("notes");
   const [widgets, setWidgets] = useState(NO_WIDGETS);
+  const [checklists, setChecklists] = useState<ChecklistRow[]>([]);
+  const [failures, setFailures] = useState(() => new Map<TaskWidget, TaskFailure>());
   useLayoutEffect(() => {
     const sync = () => {
       if (editor.isDestroyed) return;
@@ -56,13 +82,28 @@ export function NoteTaskControls({
           ? before
           : next,
       );
+      if (!canCreateTasks) return;
+      const excluded = createdWithoutLink(failures);
+      const lists = checklistWidgets(editor.view).map((widget) => {
+        const pos = widget.listPos();
+        return {
+          widget,
+          count: pos === undefined ? 0 : checklistTasks(editor.state.doc, pos, excluded).length,
+        };
+      });
+      setChecklists((before) =>
+        before.length === lists.length &&
+        before.every((row, i) => row.widget === lists[i].widget && row.count === lists[i].count)
+          ? before
+          : lists,
+      );
     };
     sync();
     editor.on("transaction", sync);
     return () => {
       editor.off("transaction", sync);
     };
-  }, [editor]);
+  }, [editor, canCreateTasks, failures]);
 
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const workspace = workspaces.find((w) => w.id === note.workspaceId);
@@ -76,14 +117,25 @@ export function NoteTaskControls({
   const online = connection === "connected" || connection === "unstable";
   const preferred = useTerminalStore((s) => chatAgentOf(s.taskAgent ?? DEFAULT_TASK_AGENT));
   const [picker, setPicker] = useState<TaskWidget>();
+  const [batch, setBatch] = useState<ChecklistWidget>();
   const [busy, setBusy] = useState(false);
   const assigning = useRef(false);
+  const recordOutcome = (widget: TaskWidget, outcome: NoteTaskBatchOutcome) =>
+    setFailures((previous) => {
+      const failure = outcome === "linked" ? undefined : outcome;
+      if (previous.get(widget) === failure) return previous;
+      const next = new Map(previous);
+      if (failure) next.set(widget, failure);
+      else next.delete(widget);
+      return next;
+    });
   const run = async (widget: TaskWidget, destination: Parameters<typeof assignNoteTask>[5]) => {
     const pos = widget.taskPos();
     if (pos === undefined || assigning.current || editor.isDestroyed) return;
     if (!editor.state.doc.nodeAt(pos)?.firstChild?.textContent.trim()) return;
     assigning.current = true;
     setBusy(true);
+    recordOutcome(widget, "linked");
     try {
       const outcome = await assignNoteTask(editor, pos, note, title, flush, destination);
       if (!outcome.linked) showToast({ kind: "info", message: t("tasks.sentWithoutLink") });
@@ -96,10 +148,53 @@ export function NoteTaskControls({
     }
   };
 
+  const runBatch = async (widget: ChecklistWidget, agent: ChatAgent, worktree: boolean) => {
+    const pos = widget.listPos();
+    if (pos === undefined || assigning.current || editor.isDestroyed) return;
+    assigning.current = true;
+    setBusy(true);
+    try {
+      await assignNoteTaskBatch(
+        editor,
+        checklistTasks(editor.state.doc, pos, createdWithoutLink(failures)),
+        (at) => assignNoteTask(editor, at, note, title, flush, { agent, worktree }, false),
+        (at, outcome) => {
+          const row = taskWidgets(editor.view).find((widget) => widget.taskPos() === at);
+          if (row) recordOutcome(row, outcome);
+        },
+      );
+    } finally {
+      assigning.current = false;
+      setBusy(false);
+    }
+  };
+  const pending = canCreateTasks && checklists.find(({ widget }) => widget === batch);
+
   return (
     <>
+      {canCreateTasks &&
+        parent &&
+        checklists.map(({ widget, count }) =>
+          count > 0
+            ? createPortal(
+                <button
+                  type="button"
+                  className="note-task-chip text-muted-foreground"
+                  disabled={busy}
+                  onClick={() => setBatch(widget)}
+                  data-testid="note-checklist-to-tasks"
+                >
+                  <Bot className="size-3" aria-hidden="true" />
+                  {t("tasks.assignAll")}
+                </button>,
+                widget.dom,
+                widget.dom.dataset.noteChecklist,
+              )
+            : null,
+        )}
       {widgets.map((widget) => {
         const chip = widget.linkId ? chips.get(widget.linkId) : undefined;
+        const failure = failures.get(widget);
         const at = widget.at;
         const label = [widget.speaker, at === undefined ? "" : clockOf(at)]
           .filter(Boolean)
@@ -124,7 +219,8 @@ export function NoteTaskControls({
             {chip ? (
               <ConversationChip {...chip} line />
             ) : (
-              parent && (
+              parent &&
+              failure !== "link-failed" && (
                 <TaskMenu
                   parent={parent}
                   repo={repo}
@@ -136,11 +232,35 @@ export function NoteTaskControls({
                 />
               )
             )}
+            {!widget.linkId && failure && (
+              <span
+                className="note-task-chip text-(--state-error-fg)"
+                data-testid={
+                  failure === "link-failed" ? "note-task-link-failed" : "note-task-failed"
+                }
+              >
+                {failure === "link-failed" ? t("tasks.linkFailed") : t("conversations.failed")}
+              </span>
+            )}
           </>,
           widget.dom,
           widget.dom.dataset.noteTaskWidget,
         );
       })}
+      {parent && pending && pending.count > 0 && (
+        <TaskBatchDialog
+          count={pending.count}
+          parent={parent}
+          preferred={preferred}
+          repo={repo}
+          online={online}
+          onClose={() => setBatch(undefined)}
+          onConfirm={(agent, worktree) => {
+            setBatch(undefined);
+            void runBatch(pending.widget, agent, worktree);
+          }}
+        />
+      )}
       {picker && (
         <TaskConversationPicker
           note={note}
@@ -153,6 +273,94 @@ export function NoteTaskControls({
       )}
     </>
   );
+}
+
+function TaskBatchDialog({
+  count,
+  parent,
+  preferred,
+  repo,
+  online,
+  onClose,
+  onConfirm,
+}: {
+  count: number;
+  parent: WorkspaceMeta;
+  preferred: ChatAgent;
+  repo?: string;
+  online: boolean;
+  onClose: () => void;
+  onConfirm: (agent: ChatAgent, worktree: boolean) => void;
+}) {
+  const { t } = useTranslation("notes");
+  const [agent, setAgent] = useState(preferred);
+  const { worktree, probe } = useTaskDestination(parent, repo, online, true);
+  const limit = Math.min(count, NOTE_TASK_BATCH_LIMIT);
+  const description = t(worktree ? "tasks.assignAllTasks" : "tasks.assignAllConversations", {
+    count,
+    limit,
+  });
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogHeader title={t("tasks.assignAll")} description={description} />
+      <div className="mt-3 flex flex-col gap-3">
+        {count > limit && (
+          <p className="text-app-ui-sm text-muted-foreground">
+            {t("tasks.assignAllLimit", { limit })}
+          </p>
+        )}
+        <Select
+          value={agent}
+          onValueChange={(value) => setAgent(value === "codex" ? "codex" : "claude")}
+        >
+          <SelectTrigger ariaLabel={t("tasks.taskAgent")} className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="claude">{t("common:task.agents.claude")}</SelectItem>
+            <SelectItem value="codex">{t("common:task.agents.codex")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            {t("common:action.cancel")}
+          </Button>
+          <Button size="sm" disabled={probe} onClick={() => onConfirm(agent, worktree)}>
+            {t("tasks.createAll")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function useTaskDestination(
+  parent: WorkspaceMeta,
+  repo: string | undefined,
+  online: boolean,
+  open: boolean,
+) {
+  const [detected, setDetected] = useState<string>();
+  const worktree = canMakeTask(parent, repo && repo !== "detecting" ? repo : detected, online);
+  const probe = worktree && (!repo || repo === "detecting") && detected === undefined;
+  useEffect(() => {
+    if (!open || !probe) return;
+    let active = true;
+    void taskRepoKind(parent.id)
+      .catch(() => undefined)
+      .then((kind) => {
+        if (active) setDetected(kind ?? "detecting");
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, parent.id, probe]);
+  return { worktree, probe };
 }
 
 function TaskMenu({
@@ -174,21 +382,7 @@ function TaskMenu({
 }) {
   const { t } = useTranslation("notes");
   const [open, setOpen] = useState(false);
-  const [detected, setDetected] = useState<string>();
-  const worktree = canMakeTask(parent, repo && repo !== "detecting" ? repo : detected, online);
-  const probe = worktree && (!repo || repo === "detecting") && detected === undefined;
-  useEffect(() => {
-    if (!open || !probe) return;
-    let active = true;
-    void taskRepoKind(parent.id)
-      .catch(() => undefined)
-      .then((kind) => {
-        if (active) setDetected(kind ?? "detecting");
-      });
-    return () => {
-      active = false;
-    };
-  }, [open, parent.id, probe]);
+  const { worktree, probe } = useTaskDestination(parent, repo, online, open);
   const agents: ChatAgent[] = preferred === "claude" ? ["claude", "codex"] : ["codex", "claude"];
 
   return (

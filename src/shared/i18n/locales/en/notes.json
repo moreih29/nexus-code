@@ -335,7 +335,16 @@
     "promptNote": "Note {{title}}{{section}} · Read the full note with `nexus note read {{id}}`.",
     "promptSection": " · Under {{heading}}",
     "promptReport": "When finished, use `nexus note report --done \"one-line summary\" --pr <PR URL>` to report to this to-do. If blocked, use `--failed`.",
-    "sentWithoutLink": "Message sent · To-do link failed"
+    "sentWithoutLink": "Message sent · To-do link failed",
+    "assignAll": "Create tasks from checklist",
+    "assignAllTasks_one": "{{count}} to-do · Create {{limit}} task",
+    "assignAllTasks_other": "{{count}} to-dos · Create {{limit}} tasks",
+    "assignAllConversations_one": "{{count}} to-do · Create {{limit}} conversation",
+    "assignAllConversations_other": "{{count}} to-dos · Create {{limit}} conversations",
+    "assignAllLimit": "First {{limit}} only",
+    "taskAgent": "Task agent",
+    "createAll": "Create",
+    "linkFailed": "To-do link failed"
   },
   "connections": {
     "linkedNote": "This conversation’s notes",
@@ -357,6 +366,12 @@
     "read": "Note ‘{{title}}’: read it with `nexus note read {{id}}`.",
     "saveAnswerError": "Couldn't save to note",
     "alreadySaved": "Already saved",
-    "answerTooLong": "Answer too long"
+    "answerTooLong": "Answer too long",
+    "insertLiveCard": "Add card to note",
+    "conversationActions": "Conversation menu",
+    "liveAlreadyExists": "Already in note",
+    "liveQuestion": "1 question · Answer in conversation",
+    "liveFiles_one": "{{count}} file",
+    "liveFiles_other": "{{count}} files"
   }
 }

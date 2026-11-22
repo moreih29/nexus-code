@@ -335,7 +335,16 @@
     "promptNote": "노트 {{title}}{{section}} · `nexus note read {{id}}`로 전체를 읽어 주세요.",
     "promptSection": " · {{heading}} 아래",
     "promptReport": "끝나면 `nexus note report --done \"한 줄 요약\" --pr <PR 주소>`로 이 줄에 결과를 남겨 주세요. 막히면 `--failed`.",
-    "sentWithoutLink": "메시지 보냄 · 할 일 연결 실패"
+    "sentWithoutLink": "메시지 보냄 · 할 일 연결 실패",
+    "assignAll": "모두 작업으로",
+    "assignAllLimit": "앞 {{limit}}개만 만들기",
+    "taskAgent": "작업 에이전트",
+    "createAll": "만들기",
+    "assignAllTasks_one": "할 일 {{count}}개 · 작업 {{limit}}개 만들기",
+    "assignAllTasks_other": "할 일 {{count}}개 · 작업 {{limit}}개 만들기",
+    "assignAllConversations_one": "할 일 {{count}}개 · 대화 {{limit}}개 만들기",
+    "assignAllConversations_other": "할 일 {{count}}개 · 대화 {{limit}}개 만들기",
+    "linkFailed": "할 일 연결 실패"
   },
   "connections": {
     "linkedNote": "이 대화의 노트",
@@ -357,6 +366,12 @@
     "read": "노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다.",
     "saveAnswerError": "노트에 저장 실패",
     "alreadySaved": "이미 저장됨",
-    "answerTooLong": "답변이 너무 김"
+    "answerTooLong": "답변이 너무 김",
+    "insertLiveCard": "노트에 카드 넣기",
+    "conversationActions": "대화 메뉴",
+    "liveAlreadyExists": "이미 있음",
+    "liveQuestion": "질문 1 · 대화에서 답하기",
+    "liveFiles_one": "파일 {{count}}개",
+    "liveFiles_other": "파일 {{count}}개"
   }
 }

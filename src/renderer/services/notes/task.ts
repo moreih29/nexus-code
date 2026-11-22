@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import i18next from "i18next";
 import { noteLabel } from "../../../shared/notes/line-report";
 import type { NoteLinkEntry } from "../../../shared/notes/links";
@@ -24,6 +25,69 @@ interface TaskNote {
 }
 
 type Destination = { agent: ChatAgent; worktree: boolean } | { workspaceId: string; tabId: string };
+
+export const NOTE_TASK_BATCH_LIMIT = 10;
+export type NoteTaskBatchOutcome = "linked" | "link-failed" | "creation-failed";
+
+function unassignedTask(node: ProseMirrorNode | null): boolean {
+  return (
+    node?.type.name === "taskItem" &&
+    !node.attrs.nexusLink &&
+    !node.attrs.checked &&
+    Boolean(node.firstChild?.textContent.trim())
+  );
+}
+
+export function checklistTasks(
+  doc: ProseMirrorNode,
+  pos: number,
+  excluded?: ReadonlySet<number>,
+): number[] {
+  const list = doc.nodeAt(pos);
+  const positions: number[] = [];
+  if (list?.type.name === "taskList") {
+    list.forEach((node, offset) => {
+      const at = pos + 1 + offset;
+      if (!excluded?.has(at) && unassignedTask(node)) positions.push(at);
+    });
+  }
+  return positions;
+}
+
+/** Tracks rows through editor transactions while tasks are started in checklist order. */
+export async function assignNoteTaskBatch(
+  editor: Editor,
+  positions: readonly number[],
+  assign: (pos: number) => Promise<{ linked: boolean }>,
+  outcome: (pos: number, result: NoteTaskBatchOutcome) => void,
+) {
+  // Track inside each row so changing its markup does not delete the anchor.
+  const anchors = positions.slice(0, NOTE_TASK_BATCH_LIMIT).map((pos) => ({ at: pos + 1 }));
+  const map = ({ transaction }: { transaction: Editor["state"]["tr"] }) => {
+    for (const anchor of anchors) {
+      if (anchor.at < 0) continue;
+      const mapped = transaction.mapping.mapResult(anchor.at, 1);
+      anchor.at = mapped.deletedAcross ? -1 : mapped.pos;
+    }
+  };
+  editor.on("transaction", map);
+  try {
+    for (const anchor of anchors) {
+      if (editor.isDestroyed) return;
+      const pos = anchor.at - 1;
+      if (pos < 0 || !unassignedTask(editor.state.doc.nodeAt(pos))) continue;
+      let result: NoteTaskBatchOutcome;
+      try {
+        result = (await assign(pos)).linked ? "linked" : "link-failed";
+      } catch {
+        result = "creation-failed";
+      }
+      if (anchor.at > 0 && !editor.isDestroyed) outcome(anchor.at - 1, result);
+    }
+  } finally {
+    editor.off("transaction", map);
+  }
+}
 
 export function taskName(text: string): string {
   const name = text.replace(/[\s\p{Cc}\p{Cf}]+/gu, " ").trim();
@@ -111,6 +175,7 @@ export async function assignNoteTask(
   title: () => string,
   flush: () => Promise<boolean>,
   destination: Destination,
+  reveal = true,
 ): Promise<{ queued: boolean; linked: boolean }> {
   const node = editor.state.doc.nodeAt(pos);
   if (node?.type.name !== "taskItem" || !node.firstChild) throw new Error("missing to-do");
@@ -194,7 +259,7 @@ export async function assignNoteTask(
         },
       );
       if ("task" in started) {
-        if (started.tabId)
+        if (reveal && started.tabId)
           revealInWorkspace({ workspaceId: started.task.id, tabId: started.tabId });
         return { queued: false, linked: !started.preparationFailed };
       }

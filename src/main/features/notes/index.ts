@@ -33,6 +33,8 @@ const NOTE_WRITE_CALLS: readonly string[] = [
   "save",
   "addLink",
   "saveAnswer",
+  "saveLiveCard",
+  "updateLiveAnswer",
   "updateLink",
   "removeLink",
   "summarize",
@@ -206,6 +208,13 @@ export function registerNotesChannel(opts: {
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
   const linksChanged = (locationKey: string, noteId: string) =>
     broadcast("notes", "linksChanged", { locationKey, noteId });
+  const cardAdded = (locationKey: string, noteId: string, card: object, updatedAt: number) =>
+    broadcast("notes", "blocksAdded", {
+      locationKey,
+      noteId,
+      blocks: [card as Record<string, unknown>],
+      updatedAt,
+    });
   // Beside the main bundle (electron.vite.config.ts).
   const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
   const visibleNotes = new Map<number, Map<string, string>>();
@@ -447,12 +456,7 @@ export function registerNotesChannel(opts: {
             blocks,
             (card, updatedAt) => {
               written = true;
-              broadcast("notes", "blocksAdded", {
-                locationKey: location.key,
-                noteId,
-                blocks: [card as unknown as Record<string, unknown>],
-                updatedAt,
-              });
+              cardAdded(location.key, noteId, card, updatedAt);
             },
           );
         } catch (error) {
@@ -469,6 +473,31 @@ export function registerNotesChannel(opts: {
           }
         }
         return ipcOk({ noteId, saved: written });
+      },
+      saveLiveCard: async (args: unknown) => {
+        const { workspaceId, noteId, source, lastAnswer } = validateArgs(c.saveLiveCard.args, args);
+        const location = locationOf(workspaceId);
+        let written = false;
+        try {
+          await store.saveLiveCard(location, noteId, source, lastAnswer, (card, updatedAt) => {
+            written = true;
+            cardAdded(location.key, noteId, card, updatedAt);
+          });
+        } finally {
+          if (written) {
+            linksChanged(location.key, noteId);
+            changed({ locationKey: location.key, noteId, change: "saved" });
+          }
+        }
+        return ipcOk(written);
+      },
+      updateLiveAnswer: async (args: unknown) => {
+        const { tab, lastAnswer } = validateArgs(c.updateLiveAnswer.args, args);
+        const location = locationOf(tab.workspaceId);
+        await store.updateLiveAnswer(location, tab, lastAnswer, (noteId) =>
+          linksChanged(location.key, noteId),
+        );
+        return ipcOk(undefined);
       },
       updateLink: async (args: unknown) => {
         const update = validateArgs(c.updateLink.args, args);

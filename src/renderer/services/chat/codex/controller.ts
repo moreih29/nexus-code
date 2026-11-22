@@ -195,6 +195,7 @@ export interface CodexTabHooks {
    * takes it; none once one has.
    */
   onChosen?: (chosen: ChatChosen) => void;
+  onTurnEnd?: (model: CodexModel) => void;
 }
 
 /** The turn a message went into, as turn/start and turn/steer answer. */
@@ -916,24 +917,37 @@ export class CodexController {
   }
 
   /** Checks exact saved threads in one app-server without resuming any of them. */
-  static async savedThreadsWithTurns(
+  static async savedThreadTurns(
     target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">,
     threadIds: readonly string[],
-  ): Promise<string[]> {
+  ): Promise<Map<string, unknown[]>> {
     const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
+    const found = new Map<string, unknown[]>();
     try {
-      if (!(await controller.start({}, true))) return [];
+      if (!(await controller.start({}, true))) return found;
       if (!codexHistoryAvailable(codexServerVersion(controller.model, controller.state.version)))
-        return [];
-      const found: string[] = [];
+        return found;
       for (const threadId of threadIds) {
         try {
-          const reply = await controller.request("thread/turns/list", {
+          const summary = await controller
+            .request("thread/turns/list", {
+              threadId,
+              itemsView: "summary",
+              limit: 1,
+            })
+            .catch(() => undefined);
+          if (summary) {
+            if (Array.isArray(summary.data) && summary.data.length > 0)
+              found.set(threadId, summary.data);
+            continue;
+          }
+          // Preserve the completion chip on servers that only support the existence check.
+          const turns = await controller.request("thread/turns/list", {
             threadId,
             itemsView: "notLoaded",
             limit: 1,
           });
-          if (Array.isArray(reply.data) && reply.data.length > 0) found.push(threadId);
+          if (Array.isArray(turns.data) && turns.data.length > 0) found.set(threadId, []);
         } catch {
           // An empty thread may have no rollout yet. Keep checking the other threads.
         }
@@ -2358,7 +2372,8 @@ export class CodexController {
     this.inspectLine(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
-    if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
+    if (this.hooks.onTurnEnd && liveCodexResultThread(line)) this.flushNow();
+    else if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
   /** Settles pending replies on replay and handles live server notifications. */
@@ -2462,6 +2477,12 @@ export class CodexController {
       this.confirmTurnPicks(pendingPick.clientId);
     }
     if (model.threadId) this.rememberThread(model.threadId);
+    if (
+      model.lastResult !== before.lastResult &&
+      model.threadId &&
+      lines.some((line) => liveCodexResultThread(line) === model.threadId)
+    )
+      this.hooks.onTurnEnd?.(model);
     if (model.threadId && model.threadId !== before.threadId) {
       this.dirtyAgents.clear();
       this.readAgentAt.clear();
@@ -2662,6 +2683,12 @@ export function answerOf(
     case "deny-stop":
       return { decision: "cancel" };
   }
+}
+
+function liveCodexResultThread(line: ChatLine): string | undefined {
+  if (line.replay || line.dir !== "out") return;
+  const message = line.message as { method?: string; params?: { threadId?: string } };
+  if (message?.method === "turn/completed") return message.params?.threadId;
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: CodexModel): ChatTabState["phase"] {

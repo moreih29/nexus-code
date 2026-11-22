@@ -20,7 +20,7 @@ import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
-import { answerCard, withAnswerCard } from "../../../shared/notes/answer-card";
+import { answerCard, hasAnswerCard, withAnswerCard } from "../../../shared/notes/answer-card";
 import { withBlocks } from "../../../shared/notes/insert";
 import {
   isTaskLink,
@@ -30,11 +30,14 @@ import {
   withLineReport,
 } from "../../../shared/notes/line-report";
 import {
+  LIVE_ANSWER_CLOCK_TOLERANCE_MS,
+  liveAnswerTime,
   MAX_EARLIER_SESSIONS,
   MAX_NOTE_LINK_BYTES,
   MAX_NOTE_LINKS,
   type NewNoteLink,
   type NoteConversation,
+  type NoteLastAnswer,
   type NoteLink,
   type NoteLinkEntry,
   NoteLinkIdSchema,
@@ -113,6 +116,10 @@ function indexNote(index: LinkIndex, noteId: string, links: readonly NoteLink[])
     keys.add(tabLinkKey(link));
     if (link.session) keys.add(`session:${link.session}`);
     for (const session of link.sessions ?? []) keys.add(`session:${session}`);
+    if (link.kind === "live") {
+      keys.add(`live:${tabLinkKey(link)}`);
+      if (link.session) keys.add(`live:session:${link.session}`);
+    }
   }
   for (const key of index.byNote.get(noteId) ?? []) {
     if (keys.has(key)) continue;
@@ -144,6 +151,33 @@ function sameSession(link: NoteLink, tab: NoteConversation): boolean {
     tab.session !== undefined &&
     (link.session === tab.session || link.sessions?.includes(tab.session) === true)
   );
+}
+
+function sameLiveConversation(link: NoteLink, target: NoteConversation & { profileId?: string }) {
+  return (
+    link.kind === "live" &&
+    (sameTab(link, target) ||
+      (link.agent === target.agent &&
+        target.session !== undefined &&
+        link.session === target.session &&
+        link.profileId === target.profileId))
+  );
+}
+
+function newerLiveAnswer(
+  previous: NoteLastAnswer | undefined,
+  incoming: NoteLastAnswer,
+  now: number,
+): NoteLastAnswer {
+  const at = liveAnswerTime(incoming.at, now);
+  if (previous) {
+    const keep =
+      previous.at > now + LIVE_ANSWER_CLOCK_TOLERANCE_MS
+        ? previous.text === incoming.text
+        : previous.at > at;
+    if (keep) return previous;
+  }
+  return { ...incoming, at };
 }
 
 /** How long a file the note does not use is kept: one just written may be about to be. */
@@ -530,19 +564,68 @@ export class NotesStore {
     blocks: DocNode[],
     documentWritten: (block: DocNode, updatedAt: number) => void,
   ): Promise<void> {
-    await this.editLinks(location, noteId, async (file, dir) => {
-      const alreadySaved = Object.values(file.conversations).some(
-        (link) => link.kind === "card" && link.messageId === source.messageId,
-      );
-      if (alreadySaved) return;
+    await this.saveCard(location, noteId, { ...source, kind: "card" }, blocks, documentWritten);
+  }
 
-      const { id } = newLinkEntry(file, { ...source, kind: "card" });
-      const card = answerCard(id, blocks);
-      await writeLinks(dir, file);
-      let written = false;
-      try {
-        await this.queueWrite(this.documentTurns, dir, async () => {
-          const note = await readNote(dir);
+  async saveLiveCard(
+    location: NoteLocation,
+    noteId: string,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent">,
+    lastAnswer: NoteLastAnswer | undefined,
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    const title = source.title
+      .replace(/\p{Cs}/gu, "")
+      .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ")
+      .trim();
+    if (!title) throw new NoteError("bad-request", "Empty conversation title");
+    await this.saveCard(
+      location,
+      noteId,
+      { ...source, title, kind: "live", lastAnswer },
+      [{ type: "paragraph", content: [{ type: "text", text: title }] }],
+      documentWritten,
+    );
+  }
+
+  private async saveCard(
+    location: NoteLocation,
+    noteId: string,
+    source: NewNoteLink & { lastAnswer?: NoteLastAnswer },
+    blocks: DocNode[],
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    await this.editLinks(location, noteId, async (file, dir) => {
+      await this.queueWrite(this.documentTurns, dir, async () => {
+        const note = await readNote(dir);
+        const existing = Object.entries(file.conversations).find(([, link]) =>
+          source.kind === "live"
+            ? sameLiveConversation(link, source)
+            : link.kind === "card" && link.messageId === source.messageId,
+        );
+        if (existing && (source.kind === "card" || hasAnswerCard(note.doc, existing[0]))) return;
+
+        const previous = existing?.[1];
+        const now = Date.now();
+        const next = source.lastAnswer
+          ? { ...source, lastAnswer: newerLiveAnswer(previous?.lastAnswer, source.lastAnswer, now) }
+          : source;
+        const id = existing?.[0] ?? newLinkEntry(file, next).id;
+        const card = answerCard(id, blocks);
+        if (previous) {
+          file.conversations[id] = {
+            ...previous,
+            ...next,
+            session: source.session,
+            profileId: source.profileId,
+            sessions: earlierSessions(previous, source.session),
+            lastAnswer: next.lastAnswer ?? previous.lastAnswer,
+            updatedAt: Math.max(now, previous.updatedAt + 1),
+          };
+        }
+        await writeLinks(dir, file);
+        let written = false;
+        try {
           const doc = withAnswerCard(note.doc, card);
           await this.saveNote(location, noteId, dir, { doc }, (updatedAt) => {
             written = true;
@@ -551,15 +634,58 @@ export class NotesStore {
             this.savedCards.set(dir, cards);
             documentWritten(card, updatedAt);
           });
-        });
-      } catch (error) {
-        if (!written) {
-          delete file.conversations[id];
-          await writeLinks(dir, file);
-        } else {
-          this.refreshLinkIndex(location.key, noteId, file);
+        } catch (error) {
+          if (!written) {
+            if (previous) file.conversations[id] = previous;
+            else delete file.conversations[id];
+            await writeLinks(dir, file);
+          } else {
+            this.refreshLinkIndex(location.key, noteId, file);
+          }
+          throw error;
         }
-        throw error;
+      });
+    });
+  }
+
+  async updateLiveAnswer(
+    location: NoteLocation,
+    tab: NoteConversation & { profileId?: string },
+    lastAnswer: NoteLastAnswer,
+    changed: (noteId: string) => void,
+  ): Promise<void> {
+    await this.queueWrite(this.linkTurns, location.key, async () => {
+      const { byConversation } = await this.linkIndex(location);
+      const noteIds = new Set(byConversation.get(`live:${tabLinkKey(tab)}`));
+      if (tab.session) {
+        for (const noteId of byConversation.get(`live:session:${tab.session}`) ?? [])
+          noteIds.add(noteId);
+      }
+      for (const noteId of noteIds) {
+        const dir = this.noteDir(location, noteId);
+        const file = await readLinks(dir);
+        const updates: NoteLinkEntry[] = [];
+        const now = Date.now();
+        for (const [id, link] of Object.entries(file.conversations)) {
+          if (!sameLiveConversation(link, tab)) continue;
+          const next = newerLiveAnswer(link.lastAnswer, lastAnswer, now);
+          if (!isDeepStrictEqual(link.lastAnswer, next))
+            updates.push({ id, link: { ...link, lastAnswer: next } });
+        }
+        if (!updates.length) continue;
+        try {
+          const written = await this.queueWrite(this.documentTurns, dir, async () => {
+            const { doc } = await readNote(dir);
+            const present = updates.filter(({ id }) => hasAnswerCard(doc, id));
+            if (!present.length) return false;
+            for (const { id, link } of present) file.conversations[id] = link;
+            await writeLinks(dir, file);
+            return true;
+          });
+          if (written) changed(noteId);
+        } catch (error) {
+          log.warn(`Could not update live answer for note ${noteId}: ${String(error)}`);
+        }
       }
     });
   }
@@ -1080,6 +1206,14 @@ function newLinkEntry(file: LinksFile, link: NewNoteLink): NoteLinkEntry {
   return { id, link: entry };
 }
 
+function earlierSessions(link: NoteLink, session: string | undefined): string[] | undefined {
+  if (session === link.session) return link.sessions;
+  const previous = link.session ? [link.session, ...(link.sessions ?? [])] : link.sessions;
+  return (
+    previous && [...new Set(previous)].filter((id) => id !== session).slice(0, MAX_EARLIER_SESSIONS)
+  );
+}
+
 function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
   if (!Object.hasOwn(file.conversations, id)) return false;
   const current = file.conversations[id];
@@ -1089,14 +1223,8 @@ function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
   else if (profileId !== undefined) next.profileId = profileId;
   if (session !== undefined && session !== current.session) {
     next.session = session;
-    const previous = current.session
-      ? [current.session, ...(current.sessions ?? [])]
-      : current.sessions;
-    if (previous) {
-      next.sessions = [...new Set(previous)]
-        .filter((id) => id !== session)
-        .slice(0, MAX_EARLIER_SESSIONS);
-    }
+    const previous = earlierSessions(current, session);
+    if (previous) next.sessions = previous;
   }
   if (isDeepStrictEqual(next, current)) return false;
   file.conversations[id] = { ...next, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };

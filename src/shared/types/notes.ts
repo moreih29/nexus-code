@@ -7,6 +7,7 @@ import {
 import {
   NewNoteLinkSchema,
   NoteConversationSchema,
+  NoteLastAnswerSchema,
   NoteLinkIdSchema,
   NoteLinkPatchSchema,
   NoteLinkResultSchema,
@@ -137,6 +138,15 @@ export const NotesArgs = {
     }).extend({ messageId: NewNoteLinkSchema.shape.messageId.unwrap() }),
     markdown: z.string().min(1).refine(answerFitsInNote),
     imageAlt: z.string().trim().min(1).max(100),
+  }),
+  saveLiveCard: z.object({
+    ...note,
+    source: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }),
+    lastAnswer: NoteLastAnswerSchema.optional(),
+  }),
+  updateLiveAnswer: z.object({
+    tab: NoteConversationSchema.extend({ profileId: NoteLinkTargetSchema.shape.profileId }),
+    lastAnswer: NoteLastAnswerSchema,
   }),
   updateLink: z.union([
     z.object({ ...note, linkId: NoteLinkIdSchema, patch: NoteLinkPatchSchema }),

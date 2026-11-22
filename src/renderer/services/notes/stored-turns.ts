@@ -1,18 +1,24 @@
 import { useEffect, useState } from "react";
+import type { NoteLastAnswer } from "../../../shared/notes/links";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import type { AgentSession } from "../agent-sessions/model";
 import { historyModel } from "../chat/claude/history";
 import { TranscriptPages } from "../chat/claude/transcript-pages";
 import { CodexController } from "../chat/codex/controller";
 import { type ConversationResolution, tabLinkTarget } from "./conversation";
+import { codexStoredAnswer, historicalAnswerOf } from "./live-answer";
 
-type StoredTurnTarget = readonly [
+export type StoredTurnTarget = readonly [
   agent: "claude" | "codex",
   workspaceId: string,
   cwd: string,
   profileId: string | null,
   sessionId: string,
 ];
+
+interface StoredTurns {
+  lastAnswer?: NoteLastAnswer;
+}
 
 export function storedTurnTarget(
   target: ConversationResolution,
@@ -31,34 +37,43 @@ export function storedTurnTarget(
   if (sessionId) return [target.tab.type, workspaceId, cwd, profileId ?? null, sessionId];
 }
 
-async function claudeHasStoredTurns([, workspaceId, , profile, sessionId]: StoredTurnTarget) {
+async function claudeStoredTurns(
+  [, workspaceId, , profile, sessionId]: StoredTurnTarget,
+  findAnswer = false,
+): Promise<StoredTurns | undefined> {
   const args = { workspaceId, sessionId, profileId: profile ?? undefined };
   const first = unwrapIpcResult(await ipcCallResult("chat", "transcriptPage", args));
-  const hasMessage = (history: ReturnType<typeof historyModel>) =>
-    history.items.some((item) => item.kind === "user" || item.kind === "assistant");
-  if (!first.found) return false;
-  if (!first.snapshot) return hasMessage(historyModel(first.lines));
+  const turnsOf = (history: ReturnType<typeof historyModel>) =>
+    history.items.some((item) => item.kind === "user" || item.kind === "assistant")
+      ? { lastAnswer: historicalAnswerOf(history) }
+      : undefined;
+  if (!first.found) return;
+  if (!first.snapshot) return turnsOf(historyModel(first.lines));
   const pages = new TranscriptPages(first, first.snapshot);
+  let turns: StoredTurns | undefined;
   while (true) {
-    if (!pages.hasPartialRow && hasMessage(pages.project())) return true;
+    if (!pages.hasPartialRow) turns = turnsOf(pages.project());
+    if (turns && (!findAnswer || turns.lastAnswer)) return turns;
     const cursor = pages.cursor;
-    if (!cursor) return false;
+    if (!cursor) return turns;
     pages.prepend(
       unwrapIpcResult(await ipcCallResult("chat", "transcriptPage", { ...args, cursor })),
     );
   }
 }
 
-async function probeStoredTurns(targets: readonly StoredTurnTarget[]): Promise<Set<string>> {
-  const found = new Set<string>();
+async function probeStoredTurns(
+  targets: readonly StoredTurnTarget[],
+): Promise<Map<string, StoredTurns>> {
+  const found = new Map<string, StoredTurns>();
   const codex = new Map<string, StoredTurnTarget[]>();
   const reads: Promise<void>[] = [];
   for (const target of targets) {
     const [agent, workspaceId, cwd, profileId] = target;
     if (agent === "claude") {
       reads.push(
-        claudeHasStoredTurns(target).then((hasTurns) => {
-          if (hasTurns) found.add(JSON.stringify(target));
+        claudeStoredTurns(target).then((turns) => {
+          if (turns) found.set(sessionKey(target), turns);
         }),
       );
     } else {
@@ -71,13 +86,13 @@ async function probeStoredTurns(targets: readonly StoredTurnTarget[]): Promise<S
   for (const group of codex.values()) {
     const [, workspaceId, cwd, profileId] = group[0];
     reads.push(
-      CodexController.savedThreadsWithTurns(
+      CodexController.savedThreadTurns(
         { workspaceId, cwd, profileId: profileId ?? undefined },
         group.map((target) => target[4]),
       ).then((threads) => {
-        const ids = new Set(threads);
         for (const target of group) {
-          if (ids.has(target[4])) found.add(JSON.stringify(target));
+          const turns = threads.get(target[4]);
+          if (turns) found.set(sessionKey(target), { lastAnswer: codexStoredAnswer(turns) });
         }
       }),
     );
@@ -87,7 +102,10 @@ async function probeStoredTurns(targets: readonly StoredTurnTarget[]): Promise<S
 }
 
 const MISSING_TURNS_TTL = 30_000;
-const storedTurns = new Map<string, { result: Promise<boolean>; expiresAt: number }>();
+const storedTurns = new Map<
+  string,
+  { result: Promise<StoredTurns | undefined>; expiresAt: number; answerChecked?: boolean }
+>();
 
 function sessionKey([agent, , , profileId, sessionId]: StoredTurnTarget) {
   return JSON.stringify([agent, sessionId, profileId]);
@@ -104,13 +122,13 @@ export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Pro
   }
   if (missing.size) {
     const probe = probeStoredTurns([...missing.values()]);
-    for (const [key, target] of missing) {
+    for (const key of missing.keys()) {
       const entry = {
         expiresAt: Infinity,
         result: probe.then((found) => {
-          const hasTurns = found.has(JSON.stringify(target));
-          if (!hasTurns) entry.expiresAt = Date.now() + MISSING_TURNS_TTL;
-          return hasTurns;
+          const turns = found.get(key);
+          if (!turns) entry.expiresAt = Date.now() + MISSING_TURNS_TTL;
+          return turns;
         }),
       };
       storedTurns.set(key, entry);
@@ -124,6 +142,32 @@ export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Pro
     }),
   );
   return found;
+}
+
+/** Reuses a cold Codex probe without starting another app-server. */
+export async function readStoredAnswer(
+  target: StoredTurnTarget,
+): Promise<NoteLastAnswer | undefined> {
+  const key = sessionKey(target);
+  const cached = storedTurns.get(key);
+  let known: StoredTurns | undefined;
+  if (cached && cached.expiresAt > Date.now()) {
+    known = await cached.result;
+    if (!known || known.lastAnswer || cached.answerChecked || target[0] === "codex")
+      return known?.lastAnswer;
+    const newer = storedTurns.get(key);
+    if (newer && newer !== cached) return (await newer.result)?.lastAnswer;
+  }
+  if (target[0] === "codex") return;
+  const result = claudeStoredTurns(target, true).then(
+    (turns) => turns ?? known,
+    () => known,
+  );
+  const entry = { result, expiresAt: Infinity, answerChecked: true };
+  storedTurns.set(key, entry);
+  const turns = await result;
+  if (!turns) entry.expiresAt = Date.now() + MISSING_TURNS_TTL;
+  return turns?.lastAnswer;
 }
 
 export function useStoredTurns(targets: readonly StoredTurnTarget[], visible: boolean) {

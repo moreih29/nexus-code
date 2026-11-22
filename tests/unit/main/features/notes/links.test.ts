@@ -279,3 +279,206 @@ test("the conversation header receives one note for its task and card links", as
     expected,
   );
 });
+
+test("live cards append once and reload their latest plain-text snapshot without changing note Markdown", async () => {
+  const source = { ...base, profileId: "profile", session: "thread", title: "Review [logs]\u202e" };
+  const writes: string[] = [];
+  await Promise.all([
+    store.saveLiveCard(location, note.id, source, { text: "Earlier", at: 10 }, () =>
+      writes.push("first"),
+    ),
+    store.saveLiveCard(location, note.id, { ...source, tabId: "reopened" }, undefined, () =>
+      writes.push("duplicate"),
+    ),
+  ]);
+  expect(writes).toEqual(["first"]);
+  const saved = await store.read(location, note.id);
+  const [{ id, link }] = await store.links(location, note.id);
+  expect(link).toMatchObject({
+    kind: "live",
+    title: "Review [logs]",
+    lastAnswer: { text: "Earlier", at: 10 },
+  });
+  expect(link.messageId).toBeUndefined();
+  expect(saved.doc.content).toEqual([
+    {
+      type: "blockquote",
+      attrs: { nexusLink: id },
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Review [logs]" }] }],
+    },
+  ]);
+
+  const notify: string[] = [];
+  const reopened = new NotesStore(root);
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened", profileId: "other" },
+    { text: "Other profile", at: 30 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened" },
+    { text: "Newest <b>answer</b>", at: 20, files: 2 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(location, source, { text: "Late arrival", at: 11 }, (id) =>
+    notify.push(id),
+  );
+  expect(notify).toEqual([note.id]);
+  expect((await new NotesStore(root).links(location, note.id))[0].link.lastAnswer).toEqual({
+    text: "Newest <b>answer</b>",
+    at: 20,
+    files: 2,
+  });
+  expect((await reopened.read(location, note.id)).updatedAt).toBe(saved.updatedAt);
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe(
+    "# Note\n\n> Review \\[logs\\]\n",
+  );
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: { [id]: { ...link, lastAnswer: { text: "Bad timestamp", at: 9e16 } } },
+    }),
+  );
+  expect((await reopened.links(location, note.id))[0].link).toMatchObject({
+    kind: "live",
+    lastAnswer: undefined,
+  });
+});
+
+test("reinserting a deleted live card refreshes the reused link and leaves the old note alone until then", async () => {
+  const source = { ...base, session: "older-thread" };
+  await store.saveLiveCard(location, note.id, source, { text: "Former", at: 10 }, () => {});
+  const [{ id }] = await store.links(location, note.id);
+  await store.save(location, note.id, { doc: { type: "doc", content: [{ type: "paragraph" }] } });
+  const linksBefore = await readFile(file, "utf8");
+  const notify = spyOn(fs, "rename");
+  const changes: string[] = [];
+  try {
+    await store.updateLiveAnswer(location, source, { text: "Without a card", at: 20 }, (id) => {
+      changes.push(id);
+    });
+    expect(notify).not.toHaveBeenCalled();
+    expect(changes).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(linksBefore);
+  } finally {
+    notify.mockRestore();
+  }
+  await store.saveLiveCard(
+    location,
+    note.id,
+    { ...source, session: "new-thread" },
+    { text: "Current", at: 30 },
+    () => {},
+  );
+  await store.save(location, note.id, { doc: { type: "doc", content: [{ type: "paragraph" }] } });
+  // A restored tab may have a new ID for the same session.
+  await store.saveLiveCard(
+    location,
+    note.id,
+    { ...source, tabId: "restored", session: "new-thread" },
+    { text: "Current again", at: 40 },
+    () => {},
+  );
+  const links = await store.links(location, note.id);
+  expect(links).toEqual([
+    {
+      id,
+      link: expect.objectContaining({
+        tabId: "restored",
+        session: "new-thread",
+        sessions: ["older-thread"],
+        lastAnswer: { text: "Current again", at: 40 },
+      }),
+    },
+  ]);
+  const current = await store.read(location, note.id);
+  expect(current.doc.content?.[0]).toMatchObject({ type: "blockquote", attrs: { nexusLink: id } });
+  await store.updateLiveAnswer(
+    location,
+    { ...source, tabId: "restored", session: "new-thread" },
+    { text: "Next", at: 50 },
+    () => {},
+  );
+  expect((await store.links(location, note.id))[0].link.lastAnswer?.text).toBe("Next");
+});
+
+test("a failed reinsert restores the previous live link", async () => {
+  const source = { ...base, session: "previous" };
+  await store.saveLiveCard(location, note.id, source, { text: "Previous", at: 10 }, () => {});
+  await store.save(location, note.id, { doc: { type: "doc", content: [] } });
+  const before = await readFile(file, "utf8");
+  const rename = fs.rename;
+  const blockWrite = spyOn(fs, "rename").mockImplementation(async (from, to) => {
+    if (path.basename(String(to)) === "note.json") throw new Error("Card write failed");
+    await rename(from, to);
+  });
+  try {
+    await expect(
+      store.saveLiveCard(
+        location,
+        note.id,
+        { ...source, session: "new-thread" },
+        {
+          text: "Current",
+          at: 20,
+        },
+        () => {},
+      ),
+    ).rejects.toThrow("Card write failed");
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(JSON.parse(before));
+  } finally {
+    blockWrite.mockRestore();
+  }
+});
+
+test("live answers repair future clock skew without accepting an ordinary older answer", async () => {
+  const source = { ...base, session: "thread" };
+  const now = Date.now();
+  const farFuture = now + 48 * 60 * 60 * 1000;
+  await store.saveLiveCard(
+    location,
+    note.id,
+    source,
+    { text: "Clock skew", at: farFuture },
+    () => {},
+  );
+  const [{ id, link }] = await store.links(location, note.id);
+  expect(link.lastAnswer?.at).toBeLessThan(farFuture);
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: { [id]: { ...link, lastAnswer: { text: "Clock skew", at: farFuture } } },
+    }),
+  );
+  const changed: string[] = [];
+  const keep = (id: string) => {
+    changed.push(id);
+  };
+  await store.updateLiveAnswer(location, source, { text: "Clock skew", at: now }, keep);
+  expect(changed).toEqual([]);
+  await store.updateLiveAnswer(location, source, { text: "Recovered", at: now }, keep);
+  await store.updateLiveAnswer(location, source, { text: "Older", at: now - 1 }, keep);
+  expect(changed).toEqual([note.id]);
+  expect((await store.links(location, note.id))[0].link.lastAnswer).toEqual({
+    text: "Recovered",
+    at: now,
+  });
+  await store.updateLiveAnswer(location, source, { text: "New and skewed", at: farFuture }, keep);
+  const updated = (await store.links(location, note.id))[0].link.lastAnswer;
+  expect(updated?.text).toBe("New and skewed");
+  expect(updated?.at).toBeGreaterThanOrEqual(now);
+  expect(updated?.at).toBeLessThan(farFuture);
+});
+
+test("a live fallback title drops lone surrogates while preserving paired characters", async () => {
+  const source = { ...base, title: "Title\uD800 😀\uDC00\u202E" };
+  await store.saveLiveCard(location, note.id, source, undefined, () => {});
+  expect((await store.links(location, note.id))[0].link.title).toBe("Title 😀");
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe("# Note\n\n> Title 😀\n");
+});

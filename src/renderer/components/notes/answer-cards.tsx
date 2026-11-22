@@ -2,10 +2,17 @@ import type { Editor } from "@tiptap/core";
 import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ConversationChip, useNoteConversations } from "./conversation-chips";
+import { setLiveCardLinks } from "./editor/answer-card";
 
 export function NoteAnswerCards({ editor }: { editor: Editor }) {
   const rows = useNoteConversations();
   const [widgets, setWidgets] = useState<HTMLElement[]>([]);
+  useLayoutEffect(() => {
+    setLiveCardLinks(
+      editor,
+      new Set(rows.filter(({ entry }) => entry.link.kind === "live").map(({ entry }) => entry.id)),
+    );
+  }, [editor, rows]);
   useLayoutEffect(() => {
     const sync = () => {
       if (editor.isDestroyed) return;
@@ -23,7 +30,9 @@ export function NoteAnswerCards({ editor }: { editor: Editor }) {
     };
   }, [editor]);
   const cards = new Map(
-    rows.filter(({ entry }) => entry.link.kind === "card").map((row) => [row.entry.id, row]),
+    rows
+      .filter(({ entry }) => entry.link.kind === "card" || entry.link.kind === "live")
+      .map((row) => [row.entry.id, row]),
   );
   return widgets.map((widget) => {
     const id = widget.dataset.noteAnswerCard;

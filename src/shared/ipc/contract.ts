@@ -677,6 +677,8 @@ const notesContracts = {
       dismiss: call(NotesArgs.dismiss, z.boolean()),
       addLink: call(NotesArgs.addLink, NoteLinkEntrySchema),
       saveAnswer: call(NotesArgs.saveAnswer, NoteAnswerResultSchema),
+      saveLiveCard: call(NotesArgs.saveLiveCard, z.boolean()),
+      updateLiveAnswer: call(NotesArgs.updateLiveAnswer, z.void()),
       updateLink: call(NotesArgs.updateLink, z.void()),
       removeLink: call(NotesArgs.removeLink, z.void()),
       save: call(NotesArgs.save, NoteSummarySchema),
