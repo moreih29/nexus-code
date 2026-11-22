@@ -283,12 +283,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
+      relay = relaySenderOf(by, device);
       expectedMode = await watches.agents.check(s, {
         device,
         method,
         params: params as AgentRequest["params"],
       });
-      relay = relaySenderOf(by, device);
     }
     const checkCurrent = () => {
       if (request.isCurrent?.() === false) {

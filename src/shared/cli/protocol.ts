@@ -5,6 +5,9 @@
  */
 import { z } from "zod";
 
+/** A caller's workspace and tab IDs also fit in the saved relay sender. */
+export const CLI_CALLER_ID_MAX = 64;
+
 /** What one run of the nexus command asks. Matches `request` in internal/cliclient. */
 export const CliInvocationSchema = z.object({
   argv: z.array(z.string()),
@@ -22,11 +25,15 @@ export const CliInvocationSchema = z.object({
 });
 export type CliInvocation = z.infer<typeof CliInvocationSchema>;
 
-/** The "cli.request" event. Matches CLIEventPayload in internal/hookserver. */
-export const CliRequestSchema = z.object({
+/** The part of a CLI event needed to address its response or cancellation. */
+export const CliRequestRefSchema = z.object({
   requestId: z.string().min(1),
-  workspaceId: z.string().min(1),
-  tabId: z.string().min(1),
+  workspaceId: z.string().min(1).max(CLI_CALLER_ID_MAX),
+});
+
+/** The "cli.request" event. Matches CLIEventPayload in internal/hookserver. */
+export const CliRequestSchema = CliRequestRefSchema.extend({
+  tabId: z.string().min(1).max(CLI_CALLER_ID_MAX),
   request: CliInvocationSchema,
   /**
    * Whether it came with its tab's own token, so it is that tab's (true),
@@ -42,10 +49,7 @@ export type CliRequest = z.infer<typeof CliRequestSchema>;
  * The "cli.cancel" event: the request's client went before the answer, as
  * one stopped with Ctrl-C. Matches CLICancelPayload in internal/hookserver.
  */
-export const CliCancelSchema = z.object({
-  requestId: z.string().min(1),
-  workspaceId: z.string().min(1),
-});
+export const CliCancelSchema = CliRequestRefSchema;
 
 /** A file the command writes on its own host, such as a screenshot. */
 export interface CliFile {
