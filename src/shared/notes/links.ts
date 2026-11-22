@@ -48,6 +48,8 @@ export function liveAnswerText(text: string): string {
   return excerpt.trimEnd();
 }
 
+const MAX_PREVIEW_PASSES = 8;
+
 export function liveAnswerPreview(text: string): string {
   const options = { listSeparator: " · ", keepHtml: true, keepAutolinks: true };
   let source = text
@@ -56,11 +58,13 @@ export function liveAnswerPreview(text: string): string {
     .replace(/[\p{Zl}\p{Zp}]/gu, "\n");
   // Escapes, entities and code can leave text that still looks like Markdown.
   // Normalize the excerpt too, so rendering a saved snapshot gives the same text.
-  while (true) {
+  // Each pass usually shrinks the text; the cap keeps a pathological input from looping.
+  for (let pass = 0; pass < MAX_PREVIEW_PASSES; pass++) {
     const preview = liveAnswerText(markdownText(source, options).replace(/\s+/gu, " "));
     if (preview === source) return preview;
     source = preview;
   }
+  return source;
 }
 
 export const NoteLastAnswerSchema = z.object({

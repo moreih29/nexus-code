@@ -290,3 +290,10 @@ test("a loaded tab can seed from history or the preceding answer while a turn ru
     }),
   ).toEqual({ text: "Preceding answer", at: 200 });
 });
+
+test("live answer previews stop on deeply nested escapes", () => {
+  const nested = `${"\\".repeat(40)}*${"&amp;".repeat(20)}*`;
+  const preview = liveAnswerPreview(nested);
+  expect(preview.length).toBeLessThanOrEqual(500);
+  expect(liveAnswerPreview("**a** `b` [c](https://x.test)")).toBe("a b c");
+});
