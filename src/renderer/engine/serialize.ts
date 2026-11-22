@@ -3,7 +3,11 @@ import { removeLeaf } from "./tree";
 import type { SerializedNode, SplitLeaf, SplitNode } from "./types";
 
 export function serialize(tree: SplitNode): SerializedNode {
-  return tree;
+  if (tree.kind === "leaf") {
+    const { kind, id, tabIds, activeTabId } = tree;
+    return { kind, id, tabIds, activeTabId };
+  }
+  return { ...tree, first: serialize(tree.first), second: serialize(tree.second) };
 }
 
 export function deserialize(

@@ -14,6 +14,7 @@ import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
+import { serialize } from "../engine";
 import { ipcCallResult, ipcListen } from "../ipc/client";
 import { flushPendingNoteSaves } from "../services/notes/save";
 import { normalizeWorkspaceTabOrder } from "./operations/tab-order";
@@ -45,7 +46,7 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
     (t) => t.type !== "untitled",
   ) as LayoutSnapshot["tabs"];
   return {
-    root: layout.root,
+    root: serialize(layout.root),
     activeGroupId: layout.activeGroupId,
     tabs,
   };

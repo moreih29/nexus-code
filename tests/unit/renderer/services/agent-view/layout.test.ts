@@ -7,14 +7,20 @@ import { describe, expect, it } from "bun:test";
 import { Grid, type SplitNode } from "../../../../../src/renderer/engine";
 import {
   type AgentLayout,
+  activeKey,
+  cycleTab,
+  emptyLayout,
   isRemoteKey,
+  moveKey,
   openKey,
   parseSessionKey,
   pruneKeys,
   remoteSessionKey,
+  removeKey,
   sanitizeLayout,
   selectHeldKey,
   showBeside,
+  splitLeaf,
 } from "../../../../../src/renderer/services/agent-view/layout";
 import { parseRemoteFileKey, remoteFileKey } from "../../../../../src/shared/fs/remote-file-key";
 
@@ -120,5 +126,63 @@ describe("sanitizeLayout", () => {
       { id: "p2", tabIds: [C], activeTabId: C },
     ]);
     expect(layout.activeLeafId).toBe("p1");
+  });
+});
+
+describe("panel tab activation history", () => {
+  const D = "ws-b:t4";
+
+  function openKeys(...keys: string[]): AgentLayout {
+    return keys.reduce(
+      (layout, key) => openKey(layout, key),
+      emptyLayout(() => "p1"),
+    );
+  }
+
+  it("returns from C to B to A as the active tabs close", () => {
+    const next = removeKey(openKeys(A, B, C), C);
+    expect(activeKey(next)).toBe(B);
+    expect(activeKey(removeKey(next, B))).toBe(A);
+  });
+
+  it("uses activation order after keyboard cycling, regardless of tab position", () => {
+    const next = cycleTab(openKeys(A, B, C, D), 1);
+    expect(activeKey(next)).toBe(A);
+    expect(activeKey(removeKey(next, A))).toBe(D);
+  });
+
+  it("forgets a background tab without changing the active tab", () => {
+    const next = removeKey(openKeys(A, B, C), B);
+    expect(activeKey(next)).toBe(C);
+    expect(activeKey(removeKey(next, C))).toBe(A);
+  });
+
+  it("restores the source tab and activates the moved tab in the destination", () => {
+    const E = "ws-b:t5";
+    const source = openKey(openKeys(A, B, C), A);
+    const split = splitLeaf(source, "p1", "right", D);
+    const destination = split.activeLeafId;
+    const prepared = openKey(openKey(split, E), D);
+    const moved = moveKey(prepared, A, destination);
+    expect(Grid.findLeaf(moved.root, "p1")?.activeTabId).toBe(C);
+    expect(activeKey(moved)).toBe(A);
+
+    const closedSource = removeKey(moved, C);
+    expect(Grid.findLeaf(closedSource.root, "p1")?.activeTabId).toBe(B);
+    expect(activeKey(removeKey(closedSource, A))).toBe(D);
+  });
+
+  it("ends a prune on the most recently active survivor", () => {
+    let layout = openKeys(A, B, C, D);
+    for (const key of [A, B, D]) layout = openKey(layout, key);
+    const pruned = pruneKeys(layout, (key) => key !== B && key !== D);
+    expect(leaves(pruned)[0]).toEqual({ id: "p1", tabIds: [A, C], activeTabId: A });
+  });
+
+  it("uses the right neighbor until the restored panel has new activation history", () => {
+    const { root, activeLeafId } = openKey(openKeys(A, B, C, D), B);
+    const restored = sanitizeLayout(root, activeLeafId);
+    expect(activeKey(removeKey(restored, B))).toBe(C);
+    expect(activeKey(removeKey(openKey(restored, D), D))).toBe(B);
   });
 });
