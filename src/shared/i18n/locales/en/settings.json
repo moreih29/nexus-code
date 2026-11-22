@@ -388,6 +388,9 @@
       "label": "Automatically check for updates",
       "description": "Every few hours while the app runs"
     },
+    "updates": {
+      "title": "Updates"
+    },
     "checkNow": "Check for Updates",
     "checking": "Checking…",
     "storeManaged": "Updates come from the Microsoft Store.",
@@ -403,6 +406,7 @@
     "downloadProgress": "Update download progress",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
     "links": {
+      "title": "Links",
       "website": "Website",
       "support": "Support",
       "privacy": "Privacy Policy"

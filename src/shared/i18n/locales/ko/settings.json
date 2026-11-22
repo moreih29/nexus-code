@@ -388,6 +388,9 @@
       "label": "자동으로 업데이트 확인",
       "description": "켜져 있는 동안 몇 시간마다 확인"
     },
+    "updates": {
+      "title": "업데이트"
+    },
     "checkNow": "업데이트 확인",
     "checking": "확인 중…",
     "storeManaged": "업데이트는 Microsoft Store에서 받습니다.",
@@ -403,6 +406,7 @@
     "downloadProgress": "업데이트 다운로드 진행률",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
     "links": {
+      "title": "링크",
       "website": "웹사이트",
       "support": "지원",
       "privacy": "개인정보처리방침"
