@@ -1,5 +1,5 @@
 /** The renderer's side of the nexus CLI: one listener, so each request is carried out once. */
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 
 type Listener = (args: unknown) => void;
 /** The cli:uiRequest listeners; other modules listen to other events on import. */
@@ -32,7 +32,7 @@ afterAll(() => {
   globals.document = originalDocument;
 });
 
-const { listTabs, startCliUiListener } = await import(
+const { listTabs, READ_ONLY_OPS, startCliUiListener } = await import(
   "../../../../../src/renderer/services/cli/ui-requests"
 );
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
@@ -46,6 +46,9 @@ const { useSessionSeenStore } = await import(
   "../../../../../src/renderer/state/stores/session-seen"
 );
 const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { startAgentViewPruning } = await import(
   "../../../../../src/renderer/services/agent-view/show"
 );
@@ -431,7 +434,26 @@ test("a terminal's view that does not mount in time gives up", async () => {
   expect(await whenTerminalController("never", 10)).toBeUndefined();
 });
 
-test("a request that only reads schedules no focus checks; one that may move tabs does", async () => {
+test("only the reviewed read operations skip focus restoration", () => {
+  expect([...READ_ONLY_OPS].sort()).toEqual([
+    "agentView.get",
+    "chat.page",
+    "chat.read",
+    "chat.state",
+    "events.read",
+    "layout.get",
+    "panels.get",
+    "problems.list",
+    "sessions.results",
+    "sessions.snapshot",
+    "tab.sandboxSession",
+    "tabs.list",
+    "terminal.read",
+    "terminal.shells",
+  ]);
+});
+
+test("read requests schedule no focus checks even when mounting a terminal or opening a chat", async () => {
   const doc = globals.document as { activeElement: unknown; body: unknown };
   const before = doc.activeElement;
   const frames: unknown[] = [];
@@ -442,16 +464,45 @@ test("a request that only reads schedules no focus checks; one that may move tab
   };
   // The composer the user types in holds the keyboard.
   doc.activeElement = { isConnected: true, focus: () => {}, closest: () => null };
+  const workspaceId = "ws-focus-read";
+  const { byWorkspace } = useTabsStore.getState();
+  const chat = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "claude", props: { cwd: "/" } });
+  const terminal = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "terminal", props: { cwd: "/" } });
+  const open = spyOn(ChatController.prototype, "openToRead").mockResolvedValue(undefined);
   const stop = startCliUiListener(Promise.resolve());
+  let unregister = () => {};
   try {
     await answerTo("r-read-tabs", "tabs.list", { workspaceId: "ws-none" });
     await answerTo("r-read-events", "events.read", { limit: 1 });
     await answerTo("r-read-chat", "chat.state", { workspaceId: "ws-none", tabId: "t", peek: true });
+    expect(
+      await answerTo("r-read-cold-chat", "chat.read", { workspaceId, tabId: chat.id }),
+    ).toMatchObject({ ok: true });
+    expect(open).toHaveBeenCalledWith(true);
+    const read = answerTo("r-read-cold-terminal", "terminal.read", {
+      workspaceId,
+      tabId: terminal.id,
+      lines: 5,
+    });
+    await Promise.resolve();
+    expect(useMountedWorkspacesStore.getState().ids.has(workspaceId)).toBe(true);
+    unregister = registerTerminalController(terminal.id, {
+      readText: () => "new terminal",
+      whenReady: () => Promise.resolve(true),
+    } as unknown as Parameters<typeof registerTerminalController>[1]);
+    expect(await read).toMatchObject({ ok: true, value: { text: "new terminal" } });
     expect(frames).toHaveLength(0);
     await answerTo("r-rename", "tab.rename", { workspaceId: "ws-none", tabId: "t", title: "x" });
     expect(frames).toHaveLength(1);
   } finally {
+    unregister();
+    open.mockRestore();
     stop();
+    useTabsStore.setState({ byWorkspace });
     doc.activeElement = before;
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = raf;
   }

@@ -242,7 +242,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
  * where it is without the frames of checks restoreFocus schedules. The
  * remote sessions' list reads some of them every second.
  */
-const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
+export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
   "tabs.list",
   "terminal.read",
   "terminal.shells",
