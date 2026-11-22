@@ -36,6 +36,7 @@ import {
   completionAt,
   fileMention,
   followTyped,
+  isCommandMessage,
   isFolder,
   matchCommands,
   type TypedToken,
@@ -723,7 +724,12 @@ export const Composer = memo(function Composer({
             {waiting.map((item) => (
               <QueueRow
                 key={item.key}
-                label={t("chat.queue.label")}
+                label={
+                  // A command waits for the turn's end, a message only for the tool's.
+                  isCommandMessage(item.text, item.images.length, cliCommands)
+                    ? t("chat.queue.after_turn")
+                    : t("chat.queue.label")
+                }
                 item={item}
                 onEdit={canWithdraw ? () => void takeBackWaiting(item, "after") : undefined}
                 onRemove={canWithdraw ? () => void takeBackWaiting(item, "nowhere") : undefined}

@@ -105,6 +105,25 @@ export function matchCommands(commands: CommandInfo[], query: string): CommandIn
   return [...builtinFirst(starts), ...builtinFirst(contains)];
 }
 
+/**
+ * Whether a message is one of the program's commands (`/compact`, a skill's),
+ * by the list it gave: Claude Code holds one written during a turn till the
+ * turn ends (2.1.325), where a message is read at the next tool's end. A
+ * message with images, or a path at its start, is a message.
+ */
+export function isCommandMessage(
+  text: string,
+  images: number,
+  commands: readonly CommandInfo[] | undefined,
+): boolean {
+  const typed = /^\/(\S+)/.exec(text.trim())?.[1]?.toLowerCase();
+  if (images > 0 || !typed || !commands) return false;
+  return commands.some(
+    (c) =>
+      c.name.toLowerCase() === typed || c.aliases?.some((alias) => alias.toLowerCase() === typed),
+  );
+}
+
 /** A file as the CLI reads a mention of it: quoted when it has a space. */
 export function fileMention(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
