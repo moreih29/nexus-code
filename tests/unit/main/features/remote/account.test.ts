@@ -381,7 +381,8 @@ describe("the account", () => {
     ["suspended", "suspended"],
     ["closed", "closed"],
     [undefined, "not_invited"],
-    ["future-status", "not_invited"],
+    // The server may add statuses: one the app does not know is a plain failure.
+    ["future-status", "failed"],
   ] as const)("reports a not_invited callback with access %s as %s", async (access, failure) => {
     const store = memoryStore();
     const server = fakeServer();
@@ -399,6 +400,43 @@ describe("the account", () => {
     expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
     expect(store.value).toBeNull();
     expect(server.requests).toEqual([]);
+  });
+
+  test.each([
+    ["a code", { code: "c1" }],
+    ["a refusal", { error: "not_invited", access: "pending" }],
+  ] as const)("brings the app to the front once the browser is back with %s", async (_, back) => {
+    let told = 0;
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal: browser((start) => ({ state: start.searchParams.get("state") ?? "", ...back }))
+        .openExternal,
+      fetch: fakeServer().fetchFn,
+      onBrowserBack: () => told++,
+    });
+    accounts.push(account);
+    await account.signIn();
+    expect(told).toBe(1);
+  });
+
+  test("leaves the app where it is when the browser never comes back", async () => {
+    let told = 0;
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal: async () => {},
+      fetch: fakeServer().fetchFn,
+      timeoutMs: 20,
+      onBrowserBack: () => told++,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toEqual({
+      status: "signed-out",
+      server: SERVER,
+      failure: "timed-out",
+    });
+    expect(told).toBe(0);
   });
 
   test("checks signup approval with the same provider and opens one browser for concurrent clicks", async () => {

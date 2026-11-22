@@ -6,16 +6,62 @@
 
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { z } from "zod";
+import { resources, type SupportedLanguage } from "../../../shared/i18n";
+import {
+  APPROVED_ONLY_FAILURES,
+  type SignInFailure,
+  signInFailureTone,
+} from "../../../shared/remote/account";
+import { mainLanguage } from "../../i18n";
 import { SignInError } from "./errors";
 
-const SignupAccessSchema = z.enum(["pending", "rejected", "suspended", "closed"]);
+/** The failures a callback alone can tell. */
+export type CallbackFailure = Extract<
+  SignInFailure,
+  | "not_invited"
+  | "pending_approval"
+  | "rejected"
+  | "suspended"
+  | "closed"
+  | "access_denied"
+  | "unverified_email"
+  | "server_error"
+  | "failed"
+>;
+
+/** A not_invited refusal's `access`: where the account's signup request stands. */
+const SIGNUP_ACCESS = new Map<string, CallbackFailure>([
+  ["pending", "pending_approval"],
+  ["rejected", "rejected"],
+  ["suspended", "suspended"],
+  ["closed", "closed"],
+]);
+
+/** The errors besides not_invited the server sends the browser back with. */
+const CALLBACK_ERRORS = ["access_denied", "unverified_email", "server_error"] as const;
+
+/**
+ * Why the callback says the sign-in failed; undefined when it brought a code.
+ * An error or access the app does not know (the server may add some) is a
+ * plain failure.
+ */
+export function callbackFailure(query: URLSearchParams): CallbackFailure | undefined {
+  const error = query.get("error");
+  if (error === null) return query.get("code") ? undefined : "failed";
+  if (error === "not_invited") {
+    const access = query.get("access");
+    return access === null ? "not_invited" : (SIGNUP_ACCESS.get(access) ?? "failed");
+  }
+  return CALLBACK_ERRORS.find((e) => e === error) ?? "failed";
+}
 
 /** What the server sent the browser back with. */
 export interface Callback {
   code?: string;
+  /** Why the sign-in failed, as the callback tells; none when it brought a code. */
+  failure?: CallbackFailure;
+  /** The server's error as it came, for the log alone. */
   error?: string;
-  access?: z.infer<typeof SignupAccessSchema>;
   state: string | null;
 }
 
@@ -31,15 +77,110 @@ export interface LoopbackListener {
   close(): void;
 }
 
-/** The page the browser shows once it is back: the sign-in went on in the app. */
-function page(ok: boolean): string {
-  const text = ok
-    ? "Signed in. You can close this tab and go back to NexusCode."
-    : "The sign-in did not finish. Go back to NexusCode to try again.";
-  return `<!doctype html><meta charset="utf-8"><title>NexusCode</title><body style="font:16px system-ui;padding:48px">${text}</body>`;
+/** What the page tells: the sign-in goes on in the app, or why it did not. */
+export type PageOutcome = "signed-in" | CallbackFailure;
+
+/**
+ * The page's headers: nothing kept or passed on, and nothing loaded or run
+ * but its own styles.
+ */
+export const PAGE_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+  "referrer-policy": "no-referrer",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+} as const;
+
+const STYLE = `
+:root{color-scheme:light dark;--bg:#f5f5f7;--card:#fff;--fg:#1d1d1f;--muted:#6e6e73;--border:#dcdce0;
+--success:#1f8a4c;--info:#0b62c4;--warning:#9a5b00;--error:#c42b2b}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--card:#1f1f22;--fg:#f2f2f4;--muted:#a1a1a8;
+--border:#36363b;--success:#4cc38a;--info:#62a8ff;--warning:#f0b44c;--error:#ff6b6b}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;
+background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:anywhere;
+font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+main{width:100%;max-width:420px}
+.brand{display:flex;align-items:center;gap:8px;margin:0 0 14px 2px;font-size:14px;font-weight:600;color:var(--muted)}
+.brand svg{width:22px;height:22px;flex:none}
+.card{padding:28px 28px 26px;border:1px solid var(--border);border-radius:14px;background:var(--card)}
+.icon{display:flex;align-items:center;justify-content:center;width:38px;height:38px;margin:0 0 16px;border-radius:50%;
+color:var(--tone);background:color-mix(in srgb,var(--tone) 14%,transparent)}
+.icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.success{--tone:var(--success)}.info{--tone:var(--info)}.warning{--tone:var(--warning)}.error{--tone:var(--error)}
+h1{margin:0 0 6px;font-size:20px;line-height:1.35;font-weight:650}
+p{margin:0}
+.lead{margin:0 0 4px;font-weight:550}
+.body{color:var(--muted)}
+.foot{margin:16px 0 0;text-align:center;font-size:13px;color:var(--muted)}
+`;
+
+/** The app's mark: two cards on a dark tile. */
+const LOGO =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5" fill="#1c1c1e" stroke="#fff" stroke-opacity=".16"/>' +
+  '<rect x="4.5" y="8.5" width="11" height="8.5" rx="2" fill="#77777d" transform="rotate(-14 10 12.75)"/>' +
+  '<rect x="8.5" y="6.5" width="11" height="8.5" rx="2" fill="#e4e4e8" transform="rotate(-14 14 10.75)"/></svg>';
+
+const ICONS = {
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V13M12 16.4v.1"/>',
+} as const;
+
+const ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
-export async function listenForCallback(timeoutMs: number): Promise<LoopbackListener> {
+/**
+ * The page the browser shows once it is back, in the app's language. Its
+ * words are the app's own, picked by the outcome: nothing the server or the
+ * query sent is put in it.
+ */
+export function page(outcome: PageOutcome, language: SupportedLanguage): string {
+  const words = resources[language].settings.remote.account;
+  const { title, body } = outcome === "signed-in" ? words.browser.signedIn : words.failure[outcome];
+  const lead =
+    outcome !== "signed-in" && APPROVED_ONLY_FAILURES.includes(outcome)
+      ? `<p class="lead">${escapeHtml(words.approvedOnly)}</p>`
+      : "";
+  const tone = outcome === "signed-in" ? "success" : signInFailureTone(outcome);
+  const icon =
+    outcome === "signed-in"
+      ? ICONS.check
+      : outcome === "pending_approval"
+        ? ICONS.clock
+        : tone === "info"
+          ? ICONS.info
+          : ICONS.alert;
+  return [
+    `<!doctype html><html lang="${language}"><head><meta charset="utf-8">`,
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    `<title>${escapeHtml(title)} · NexusCode</title><style>${STYLE}</style></head>`,
+    `<body><main><div class="brand">${LOGO}<span>NexusCode</span></div>`,
+    `<section class="card ${tone}"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>`,
+    `<h1>${escapeHtml(title)}</h1>${lead}<p class="body">${escapeHtml(body)}</p></section>`,
+    `<p class="foot">${escapeHtml(words.browser.closeTab)}</p></main></body></html>`,
+  ].join("");
+}
+
+/**
+ * Listens for the browser to come back. `language` is read as it does, for
+ * the page it is shown.
+ */
+export async function listenForCallback(
+  timeoutMs: number,
+  language: () => SupportedLanguage = mainLanguage,
+): Promise<LoopbackListener> {
   let settle: { resolve(c: Callback): void; reject(e: Error): void } | null = null;
   const result = new Promise<Callback>((resolve, reject) => {
     settle = { resolve, reject };
@@ -54,13 +195,13 @@ export async function listenForCallback(timeoutMs: number): Promise<LoopbackList
     }
     const code = url.searchParams.get("code") ?? undefined;
     const error = url.searchParams.get("error") ?? undefined;
-    const access = SignupAccessSchema.safeParse(url.searchParams.get("access")).data;
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(!!code && !error));
+    const failure = callbackFailure(url.searchParams);
+    res.writeHead(200, PAGE_HEADERS).end(page(failure ?? "signed-in", language()));
     finish(() =>
       settle?.resolve({
         code,
+        ...(failure ? { failure } : {}),
         error,
-        ...(access ? { access } : {}),
         state: url.searchParams.get("state"),
       }),
     );

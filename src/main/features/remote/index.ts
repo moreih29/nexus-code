@@ -20,6 +20,7 @@ import { broadcast, type CallContext, register, validateArgs } from "../../infra
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
+import { showAppWindow } from "../window/app-windows";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
@@ -289,6 +290,11 @@ export async function registerRemoteChannel(options: {
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
+    // The browser is in front; the sign-in ends, or says why it did not, in the app.
+    onBrowserBack: () => {
+      if (process.platform === "darwin") app.focus({ steal: true });
+      showAppWindow();
+    },
     onChange: (state) => {
       push.accountChanged();
       broadcast("remote", "accountChanged", state);

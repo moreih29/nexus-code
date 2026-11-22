@@ -1148,6 +1148,13 @@
           "body": "Sign in again."
         }
       },
+      "browser": {
+        "signedIn": {
+          "title": "Signed in",
+          "body": "Go back to the NexusCode app."
+        },
+        "closeTab": "You can close this tab"
+      },
       "localOnly": "Local server only",
       "retry": "Try again",
       "checkAgain": "Check Again",

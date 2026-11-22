@@ -60,13 +60,6 @@ const TokenResponseSchema = z.object({
 
 const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema) });
 
-/** What the server sends the browser back with, besides a code. */
-const CALLBACK_ERRORS: readonly SignInFailure[] = [
-  "access_denied",
-  "unverified_email",
-  "server_error",
-];
-
 /** This device as the server should name it: up to 100 characters, a lowercase platform. */
 export function thisDevice(): { name: string; platform: string } {
   const name =
@@ -94,6 +87,11 @@ export interface RemoteAccountDeps {
   /** This install's id, sent with a sign-in so the server gives the same device back. */
   installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
+  /**
+   * Told when the browser comes back from the sign-in, whatever it brought:
+   * the rest of it, or why it failed, shows in the app.
+   */
+  onBrowserBack?(): void;
   timeoutMs?: number;
   /** The sign-in used when none is asked for. */
   provider?: SignInProvider;
@@ -178,16 +176,9 @@ export class RemoteAccount {
       }).toString();
       await this.deps.openExternal(start.toString());
       const back = await listener.result;
+      this.deps.onBrowserBack?.();
       if (back.state !== state) throw new SignInError("mismatch");
-      if (back.error === "not_invited") {
-        const failure =
-          back.access === "pending" ? "pending_approval" : (back.access ?? "not_invited");
-        throw new SignInError(failure, back.error);
-      }
-      if (back.error) {
-        const failure = CALLBACK_ERRORS.find((e) => e === back.error);
-        throw new SignInError(failure ?? "failed", back.error);
-      }
+      if (back.failure) throw new SignInError(back.failure, back.error);
       if (!back.code) throw new SignInError("failed", "no code");
       const installId = await this.deps.installId?.().catch(() => undefined);
       const answer = await this.call("POST", "/auth/token", {
