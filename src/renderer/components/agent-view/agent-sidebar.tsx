@@ -732,7 +732,7 @@ const AgentItem = memo(function AgentItem({
           {/* Its state at a glance, the glyph its filter has (running, waiting
               on the user, done, or idle), and for how long. */}
           <span className="flex shrink-0 items-center gap-1">
-            {!placed && (
+            {!placed && session.state !== "error" && (
               <span
                 role="img"
                 aria-label={stateLabel(session)}
@@ -748,7 +748,7 @@ const AgentItem = memo(function AgentItem({
               <span
                 className={cn(
                   "text-app-micro whitespace-nowrap tabular-nums",
-                  session.phase === "attention"
+                  session.phase === "attention" && session.state !== "error"
                     ? "text-(--state-warning-fg)"
                     : "text-muted-foreground",
                 )}

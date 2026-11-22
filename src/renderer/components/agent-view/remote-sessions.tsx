@@ -60,6 +60,7 @@ import {
   offlinePeers,
   type PeerSessions,
   peerServes,
+  peerSpeaks,
   type SessionsList,
   servingPeers,
   usePeerSessions,
@@ -129,6 +130,12 @@ export const GROUP_OF: Record<SessionState, RowGroup> = {
   ended: "idle",
 };
 
+function remoteGroupOf(session: RemoteSession): RowGroup {
+  return session.failed && session.state !== "ended" ? "attention" : GROUP_OF[session.state];
+}
+
+const FAILURE_SCHEMA = "0.22.0";
+
 /**
  * Whether the list shows a session without being asked: a chat, or a
  * terminal running an agent. A computer of an older protocol names no
@@ -139,6 +146,7 @@ export function listedByDefault(session: RemoteSession): boolean {
   if (session.state === "ended") return false;
   if (session.kind !== "terminal") return true;
   return (
+    session.failed === true ||
     session.agent !== undefined ||
     session.waiting !== undefined ||
     session.state !== "idle" ||
@@ -209,7 +217,7 @@ export function statusGroups(
       (session) => listedByDefault(session) && matches(session, query),
     );
     for (const session of found) {
-      byGroup.get(GROUP_OF[session.state])?.push({
+      byGroup.get(remoteGroupOf(session))?.push({
         kind: "remote",
         session,
         peer,
@@ -271,9 +279,7 @@ export function workspaceGroups(
     [...byWorkspace.keys()].filter((id) => !searching && !expanded.has(id) && folds?.has(id)),
   );
   const keepsWorktreeVisible = (s: RemoteSession) =>
-    s.state === "running" ||
-    s.state === "needs-you" ||
-    s.state === "new-result" ||
+    remoteGroupOf(s) !== "idle" ||
     s.limitWait !== undefined ||
     s.waiting !== undefined ||
     s.agents?.some((a) => a.state === "running" || a.state === "permissionPending") ||
@@ -293,12 +299,12 @@ export function workspaceGroups(
     const parentFolded = rootParent && foldedWorkspaces.has(rootParent.id);
     const ownFolded = foldedWorkspaces.has(id);
     if (parentFolded || ownFolded) {
-      const visible = rows.filter((session) => GROUP_OF[session.state] !== "idle");
+      const visible = rows.filter((session) => remoteGroupOf(session) !== "idle");
       byWorkspace.set(id, visible);
       plainShown.delete(id);
       const owner = parentFolded ? rootParent.id : id;
       const count = rows.filter(
-        (session) => GROUP_OF[session.state] === "idle" && listedByDefault(session),
+        (session) => remoteGroupOf(session) === "idle" && listedByDefault(session),
       ).length;
       hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
       if (parentFolded && visible.length === 0) hidden.add(id);
@@ -404,7 +410,9 @@ function AccountRemoteSessions({
   );
   const displayList = (peer: RoomPeer, list: SessionsList): SessionsList => ({
     ...list,
-    sessions: list.sessions.map((session) => results.session(peer.id, session)),
+    sessions: list.sessions.map((session) =>
+      results.session(peer.id, session, peerSpeaks(peer, FAILURE_SCHEMA)),
+    ),
   });
   const statusGroups = renderStatus?.(
     connected && accountKey !== null
@@ -610,7 +618,9 @@ export function PeerGroup({
     rawList && results
       ? {
           ...rawList,
-          sessions: rawList.sessions.map((session) => results.session(peer.id, session)),
+          sessions: rawList.sessions.map((session) =>
+            results.session(peer.id, session, peerSpeaks(peer, FAILURE_SCHEMA)),
+          ),
         }
       : rawList;
   const root = useAgentViewStore((s) => s.root);
@@ -637,7 +647,8 @@ export function PeerGroup({
   const counts = [
     [
       "attention",
-      (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length,
+      (list?.sessions.filter((s) => remoteGroupOf(s) === "attention").length ?? 0) +
+        consents.length,
     ],
     ["running", list?.sessions.filter((s) => s.state === "running").length ?? 0],
   ] as const;
@@ -1203,7 +1214,7 @@ export function RemoteSessionRow({
   context?: { device: string; workspace: string };
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t, i18n } = useTranslation();
-  const group = GROUP_OF[session.state];
+  const group = remoteGroupOf(session);
   const duration = useDurationLabel(session.since);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
@@ -1244,7 +1255,9 @@ export function RemoteSessionRow({
         <PanelMark where={where} className="top-1 bottom-1" testId="remote-session-panel" />
       )}
       <span className="flex min-w-0 items-center gap-1.5">
-        {!context && <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />}
+        {!context && !session.failed && (
+          <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
+        )}
         {!session.failed && <span className="sr-only">{state}</span>}
         <Icon aria-hidden className="size-3 shrink-0" />
         <span className="min-w-0 truncate text-app-ui-sm text-foreground">{session.title}</span>
@@ -1271,7 +1284,12 @@ export function RemoteSessionRow({
           )}
           {message && (
             <span
-              className={cn("min-w-0 truncate", session.waiting && "text-(--state-warning-fg)")}
+              className={cn(
+                "min-w-0 truncate",
+                session.failed
+                  ? "text-(--state-error-fg)"
+                  : session.waiting && "text-(--state-warning-fg)",
+              )}
             >
               {message}
             </span>

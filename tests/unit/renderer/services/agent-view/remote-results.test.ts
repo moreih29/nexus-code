@@ -176,7 +176,7 @@ describe("remote results", () => {
       more: false,
     });
     expect(results.session("mac", chat)).toMatchObject({
-      state: "new-result",
+      state: "idle",
       since: 20,
       failed: true,
     });
@@ -187,6 +187,8 @@ describe("remote results", () => {
       cursor: 3,
       more: false,
     });
+    expect(results.session("mac", chat).failed).toBe(true);
+    results.observe("mac", [running], 26);
     expect(results.session("mac", chat)).toBe(chat);
   });
 
@@ -207,13 +209,28 @@ describe("remote results", () => {
     expect(results.session("mac", terminal)).toMatchObject({ state: "new-result", since: 25 });
   });
 
-  test("keeps the failure label after the new result is read", () => {
+  test("keeps failures outside the unread results, including legacy terminal errors", () => {
     const results = new RemoteResults();
     const failed: RemoteSession = { ...chat, failed: true, since: 10 };
     const row = results.session("mac", failed);
-    expect(row.state).toBe("new-result");
-    results.markSeen([{ deviceId: "mac", session: row }]);
+    expect(row).toBe(failed);
+    results.markSeen([{ deviceId: "mac", session: { ...row, state: "new-result" } }]);
     expect(results.session("mac", failed)).toBe(failed);
     expect(results.session("mac", chat)).toBe(chat);
+    const terminal: RemoteSession = { ...chat, kind: "terminal" };
+    const error = {
+      ...complete,
+      kind: "terminal" as const,
+      to: "error",
+      message: "Failed in hook",
+    };
+    results.applyPage("pc", { events: [error], cursor: 1, more: false });
+    expect(results.session("pc", terminal)).toMatchObject({ failed: true, last: "Failed in hook" });
+    expect(results.session("pc", terminal, true)).toBe(terminal);
+    const success: RemoteSession = { ...terminal, state: "new-result", since: 20 };
+    expect(results.session("pc", success)).toBe(success);
+    const working: RemoteSession = { ...terminal, state: "running" };
+    results.observe("pc", [working], 21);
+    expect(results.session("pc", terminal)).toBe(terminal);
   });
 });

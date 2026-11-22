@@ -358,6 +358,29 @@ describe("status grouping across computers", () => {
     }),
   ];
 
+  test("failed remote rows count as attention and stay visible in a folded workspace", () => {
+    const failed = session({ failed: true, last: "Turn failed in the agent", since: 10 });
+    const ready = list([failed, session({ tabId: "quiet", title: "Quiet" })]);
+    const groups = statusGroups([], [{ peer, list: ready }], "", () => true).groups;
+    expect(
+      groups.find(({ group }) => group === "attention")?.rows.map(({ session }) => session),
+    ).toEqual([failed]);
+    expect(groups.find(({ group }) => group === "done")?.rows).toEqual([]);
+    const folded = workspaceGroups(ready, {
+      query: "",
+      opens: false,
+      inPanel: () => false,
+      worktreesIn: new Set(),
+      folds: new Set(["w1"]),
+    });
+    expect(folded.groups).toEqual([["w1", [failed]]]);
+    expect(folded.hiddenCounts.get("w1")).toBe(1);
+    const html = renderToStaticMarkup(<RemoteSessionRow session={failed} />);
+    expect(html).toContain('text-(--state-error-fg)">Failed</span>');
+    expect(html).toContain('text-(--state-error-fg)">Turn failed in the agent</span>');
+    expect(html).not.toContain("lucide-circle-alert");
+  });
+
   test("shows the workspace hint only when there are no local workspaces or remote rows", () => {
     const render = (remote: typeof sources, query = "") =>
       renderToStaticMarkup(
@@ -434,7 +457,7 @@ describe("local workspace grouping", () => {
     const root = localWorkspace("local", "Local project");
     const task = localWorkspace("task", "Review task");
     const local = [
-      localSession({ title: "Local failed", state: "error" }),
+      localSession({ title: "Local failed", state: "error", message: "Local error details" }),
       localSession({ key: "local:idle", title: "Local idle", state: "idle", phase: "idle" }),
     ];
     const working = localSession({
@@ -482,6 +505,13 @@ describe("local workspace grouping", () => {
       expect(workingHtml).toContain(">2 hidden<");
       expect(workingHtml).toContain("Task working");
       expect(workingHtml).toContain('text-(--state-error-fg)">Failed</span>');
+      const failedRow = workingHtml.slice(
+        workingHtml.indexOf('aria-label="Local failed"'),
+        workingHtml.indexOf("Task working"),
+      );
+      expect(failedRow).not.toContain('data-testid="agent-sidebar-state"');
+      expect(failedRow).toContain("Local error details");
+      expect(failedRow).toContain("lucide-triangle-alert");
       expect(workingHtml).not.toContain("Local idle");
       expect(workingHtml).not.toContain("Task idle");
       taskRows[0] = { ...working, state: "completed", phase: "done" };

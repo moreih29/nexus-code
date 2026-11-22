@@ -7,7 +7,7 @@ import { observePeerSessions } from "../remote/room";
 import { remoteSessionKey } from "./layout";
 
 type EventPage = RpcResult<"events.read">;
-type ResultState = { at: number; outcome?: "completed" | "error" };
+type ResultState = { at: number; outcome?: "completed" | "error"; message?: string };
 type PendingResult = { at: number; seen?: true };
 
 const PAGE_SIZE = 200;
@@ -53,15 +53,15 @@ export class RemoteResults {
     let changed = false;
     for (const session of sessions) {
       const key = remoteSessionKey({ deviceId, ...session });
-      if (session.since === undefined && (session.state === "new-result" || session.failed))
+      if (session.since === undefined && session.state === "new-result")
         next.set(key, before?.get(key) ?? at);
-      if (session.kind === "terminal") continue;
       if (session.state === "running") {
         running.add(key);
         if (!wasRunning?.has(key))
           changed = (this.history.get(deviceId)?.delete(key) ?? false) || changed;
         continue;
       }
+      if (session.kind === "terminal") continue;
       const finishedWorking = wasRunning?.has(key) === true;
       urgent ||= supportsEvents && finishedWorking;
       if (!supportsEvents || session.state !== "idle" || session.limitWait || session.failed)
@@ -110,18 +110,24 @@ export class RemoteResults {
     this.history.set(deviceId, history);
     let changed = reset && !!previous?.size;
     for (const event of events) {
-      // Terminal outcomes are already reported by the live listing.
-      if (event.kind === "terminal" || event.from === event.to) continue;
+      if (event.from === event.to) continue;
       const key = remoteSessionKey({ deviceId, ...event });
       if (event.to === "closed" || event.to === "exited") {
         changed = history.delete(key) || changed;
         this.seen.delete(key);
         continue;
       }
-      const outcome = event.to === "completed" || event.to === "error" ? event.to : undefined;
+      // Terminal success already comes from the live listing. Keep legacy errors until a new turn.
+      const outcome =
+        event.to === "error" || (event.kind !== "terminal" && event.to === "completed")
+          ? event.to
+          : undefined;
       const entry = history.get(key);
-      if (entry?.at === event.at && entry.outcome === outcome) continue;
-      history.set(key, { at: event.at, outcome });
+      if ((event.to === "idle" || event.to === "quiet") && entry?.outcome === "error") continue;
+      const message = outcome === "error" ? event.message : undefined;
+      if (entry?.at === event.at && entry.outcome === outcome && entry.message === message)
+        continue;
+      history.set(key, { at: event.at, outcome, message });
       changed = true;
     }
     if (changed) this.changed();
@@ -138,31 +144,33 @@ export class RemoteResults {
   }
 
   /** Use the live state first. Older listings report quiet chats as idle even after a result. */
-  session(deviceId: string, row: RemoteSession): RemoteSession {
+  session(deviceId: string, row: RemoteSession, reportsFailure = false): RemoteSession {
     if (
       row.state === "running" ||
       row.state === "needs-you" ||
       row.state === "ended" ||
-      row.limitWait
+      row.limitWait ||
+      row.failed
     )
       return row;
     const key = remoteSessionKey({ deviceId, ...row });
     const latestEvent = this.history.get(deviceId)?.get(key);
     const pending = this.pending.get(deviceId)?.get(key);
-    const failed = row.failed || latestEvent?.outcome === "error";
+    if (!reportsFailure && row.state === "idle" && latestEvent?.outcome === "error") {
+      return { ...row, failed: true, since: latestEvent.at, last: latestEvent.message ?? row.last };
+    }
     const at =
-      row.state === "new-result" || row.failed
+      row.state === "new-result"
         ? (row.since ?? this.undated.get(deviceId)?.get(key) ?? 0)
-        : latestEvent?.outcome
+        : latestEvent?.outcome === "completed"
           ? latestEvent.at
           : pending?.at;
     const unread = at !== undefined && !pending?.seen && at > (this.seen.get(key) ?? -Infinity);
     const state = unread ? "new-result" : "idle";
-    if (state === row.state && failed === !!row.failed && (!unread || at === row.since)) return row;
+    if (state === row.state && (!unread || at === row.since)) return row;
     return {
       ...row,
       state,
-      ...(failed ? { failed: true } : {}),
       ...(unread ? { since: at } : {}),
     };
   }
@@ -176,7 +184,7 @@ export class RemoteResults {
   markSeen(rows: readonly { deviceId: string; session: RemoteSession }[]) {
     let changed = false;
     for (const { deviceId, session } of rows) {
-      if (session.state !== "new-result") continue;
+      if (session.state !== "new-result" || session.failed) continue;
       const key = remoteSessionKey({ deviceId, ...session });
       const waiting = this.pending.get(deviceId)?.get(key);
       if (waiting && !this.history.get(deviceId)?.get(key)?.outcome) {
