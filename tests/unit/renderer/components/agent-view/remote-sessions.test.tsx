@@ -133,7 +133,13 @@ describe("Other computers connection guidance", () => {
     });
     const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
       d2: { status: "ready", list: list([session({ last: "Review the audit" })]) },
-      d3: { status: "ready", list: list([session({ title: "Write docs" })]) },
+      d3: {
+        status: "ready",
+        list: list([
+          session({ title: "Write docs" }),
+          session({ kind: "terminal", state: "ended", title: "Audit from an exited terminal" }),
+        ]),
+      },
     });
     try {
       const found = renderToStaticMarkup(<RemoteSessions query=" Audit " />);
@@ -141,7 +147,7 @@ describe("Other computers connection guidance", () => {
       expect(found).toContain("Review the audit");
       expect(found).not.toContain("Laptop");
       expect(found).not.toContain("No conversation matches");
-      const empty = renderToStaticMarkup(<RemoteSessions query="Unrelated" />);
+      const empty = renderToStaticMarkup(<RemoteSessions query="exited terminal" />);
       expect(empty.match(/No conversation matches/g)).toHaveLength(1);
       expect(empty).not.toContain("Work PC");
       expect(empty).not.toContain("Laptop");
@@ -442,7 +448,7 @@ describe("the agent view's other computers", () => {
     expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
       true,
     );
-    // One that ended is a terminal again, as an agent here whose terminal ended.
+    // The local agent list also leaves out agents whose terminal ended.
     expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
   });
 
@@ -466,6 +472,25 @@ describe("the agent view's other computers", () => {
     });
     expect(listedSessions(all, "server", none)).toEqual({
       listed: [plain],
+      plain: new Map(),
+    });
+  });
+
+  test("ended terminals are excluded from the list, search and shell chip even if held", () => {
+    const ended = session({
+      kind: "terminal",
+      title: "Exited Codex",
+      agent: "codex",
+      state: "ended",
+    });
+    const inPanel = () => true;
+    expect(listedSessions([ended], "", inPanel)).toEqual({ listed: [], plain: new Map() });
+    expect(listedSessions([ended], "Exited", inPanel)).toEqual({
+      listed: [],
+      plain: new Map(),
+    });
+    expect(listedSessions([ended], "", () => false)).toEqual({
+      listed: [],
       plain: new Map(),
     });
   });
@@ -1111,5 +1136,10 @@ describe("the agent view's other computers", () => {
       <RemoteTabLabel target={{ ...target, state: "needs-you" }} />,
     );
     expect(waiting).toContain('aria-label="Needs you"');
+    const ended = renderToStaticMarkup(
+      <RemoteTabLabel target={{ ...target, kind: "terminal", state: "ended" }} />,
+    );
+    expect(ended).toContain('aria-label="Ended"');
+    expect(ended).toContain("lucide-circle-x");
   });
 });

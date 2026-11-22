@@ -1449,9 +1449,8 @@ function RemoteTerminal({
   const controls = usePeerControls(deviceId);
   // The request answered here, kept out of sight until the list no longer says it waits.
   const [answered, setAnswered] = useState<string | null>(null);
-  // What its Claude Code asks, as the computer lists it: watched here as well, for the agent
-  // view's list may be hidden; the list's last word (target.ask) until it comes.
-  const listed = usePeerSessions([deviceId], visible && controls)[deviceId];
+  // Its state and Claude Code's requests keep updating while the sidebar is hidden.
+  const listed = usePeerSessions([deviceId], visible)[deviceId];
   const ask =
     listed?.status === "ready"
       ? (() => {

@@ -8,6 +8,7 @@ import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { useRemoteViewStore } from "../../state/stores/remote-view";
 import { compareVersions } from "../chat/versions";
 
 /** The room, kept up as it changes; null until main answered. */
@@ -311,6 +312,8 @@ export function observePeerSessions(
       stop: watchPeerSessionList(deviceId, (list) => {
         if (!list && next.latest?.status === "ready") return;
         next.latest = list ? { status: "ready", list } : { status: "unavailable" };
+        // Held tabs take up changes even when the sidebar filters out their rows.
+        if (list) useRemoteViewStore.getState().refresh(deviceId, list);
         listeners.notify(next.latest);
       }),
     };

@@ -1,10 +1,15 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import * as ipc from "../../../../../src/renderer/ipc/client";
+import { remoteSessionKey } from "../../../../../src/renderer/services/agent-view/layout";
 import {
   observePeerSessions,
   type PeerSessions,
   refreshPeerSessions,
 } from "../../../../../src/renderer/services/remote/room";
+import {
+  type RemoteTarget,
+  useRemoteViewStore,
+} from "../../../../../src/renderer/state/stores/remote-view";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
 
 test("the sidebar and panes share a device's sessions watch and refresh", async () => {
@@ -41,5 +46,49 @@ test("the sidebar and panes share a device's sessions watch and refresh", async 
     ]);
     call.mockRestore();
     listen.mockRestore();
+  }
+});
+
+test("a watched list marks an already open terminal as ended without a sidebar row", async () => {
+  const target: RemoteTarget = {
+    deviceId: "d2",
+    deviceName: "Work PC",
+    workspaceId: "w1",
+    workspaceName: "api",
+    path: "/src/api",
+    tabId: "t1",
+    kind: "terminal",
+    title: "Claude",
+    state: "needs-you",
+    ask: { requestId: "ask", text: "Bash" },
+  };
+  const key = remoteSessionKey(target);
+  const { targets } = useRemoteViewStore.getState();
+  useRemoteViewStore.setState({ targets: new Map([[key, target]]) });
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(async (_, method) =>
+    ipcOk(
+      method === "peerSessionsWatch"
+        ? {
+            watchId: "watch",
+            sessions: [
+              { workspaceId: "w1", tabId: "t1", kind: "terminal", title: "Claude", state: "ended" },
+            ],
+            workspaces: [],
+          }
+        : {},
+    ),
+  );
+  const listen = spyOn(ipc, "ipcListen").mockReturnValue(() => {});
+  const stop = observePeerSessions(target.deviceId, 0, () => {});
+  try {
+    await Promise.resolve();
+    const updated = useRemoteViewStore.getState().targets.get(key);
+    expect(updated?.state).toBe("ended");
+    expect(updated).not.toHaveProperty("ask");
+  } finally {
+    stop();
+    call.mockRestore();
+    listen.mockRestore();
+    useRemoteViewStore.setState({ targets });
   }
 });

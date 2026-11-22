@@ -130,6 +130,10 @@ export function listedByDefault(session: RemoteSession): boolean {
   );
 }
 
+function isEndedTerminal({ kind, state }: Pick<RemoteSession, "kind" | "state">): boolean {
+  return kind === "terminal" && state === "ended";
+}
+
 /**
  * The sessions the list shows: those it shows unasked, a terminal in a
  * panel too, and those a search finds; and by workspace, its terminals with
@@ -144,6 +148,7 @@ export function listedSessions(
   const listed: RemoteSession[] = [];
   const plain = new Map<string, RemoteSession[]>();
   for (const s of sessions) {
+    if (isEndedTerminal(s)) continue;
     if (listedByDefault(s) || inPanel(s)) listed.push(s);
     else plain.set(s.workspaceId, [...(plain.get(s.workspaceId) ?? []), s]);
   }
@@ -151,6 +156,7 @@ export function listedSessions(
 }
 
 function matches(session: RemoteSession, query: string): boolean {
+  if (isEndedTerminal(session)) return false;
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return session.title.toLowerCase().includes(q) || (session.last ?? "").toLowerCase().includes(q);
@@ -455,10 +461,6 @@ export function PeerGroup({
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
   const open = useRemoteViewStore((s) => s.open);
-  // The tabs of this computer's sessions take up their new titles.
-  useEffect(() => {
-    if (list) useRemoteViewStore.getState().refresh(peer.id, list);
-  }, [peer.id, list]);
   useEffect(() => {
     if (!list) return;
     setPendingOrders((pending) => {
@@ -1009,7 +1011,7 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
 /**
  * A tab's face for another computer's session: the computer (unless the
  * panel shows it once for all), the kind of session, its title, and its
- * state while it is not idle.
+ * state while it is active or its terminal has ended.
  */
 export function RemoteTabLabel({
   target,
@@ -1021,19 +1023,21 @@ export function RemoteTabLabel({
   const { t } = useTranslation();
   const Icon =
     target.kind === "claude" ? ClaudeIcon : target.kind === "codex" ? CodexIcon : SquareTerminal;
-  const group = target.state ? GROUP_OF[target.state] : "idle";
+  const { state } = target;
+  const group = state ? GROUP_OF[state] : "idle";
+  const ended = target.kind === "terminal" && state === "ended";
   return (
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{target.title}</span>
-      {target.state && group !== "idle" && (
+      {state && (ended || group !== "idle") && (
         <span
           role="img"
-          aria-label={t(`agentView.remote.state.${target.state}`)}
+          aria-label={t(`agentView.remote.state.${state}`)}
           className="inline-flex shrink-0"
         >
-          <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
+          <StateGlyph state={ended ? "exited" : GROUP_STATE[group]} className={GROUP_TINT[group]} />
         </span>
       )}
     </>
