@@ -1,4 +1,4 @@
-import type { RpcMethod } from "../../../../../packages/remote-protocol/src";
+import type { RpcMethod, RpcRequest } from "../../../../../packages/remote-protocol/src";
 import type { AgentGate } from "../agent-gate";
 import type { Attachments } from "../attachments";
 import type { ChatWatches } from "../chat-watches";
@@ -48,6 +48,8 @@ export interface RemoteServeOptions {
 /** The method, parameters and lifetime of a request from another device. */
 export interface RemoteServeRequest {
   from: string;
+  /** The ID that the room includes in its reply. */
+  id?: RpcRequest["id"];
   method: RpcMethod;
   params: unknown;
   isCurrent?: () => boolean;

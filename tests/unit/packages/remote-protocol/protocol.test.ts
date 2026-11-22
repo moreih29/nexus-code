@@ -531,6 +531,8 @@ describe("the methods", () => {
       expect(sessions[0]).toMatchObject(row);
       expect(sessions[0]?.openedBy).toBeUndefined();
     }
+    const reference = { workspaceId: "p", tabId: "opener", device: { id: "d" } };
+    expect(RemoteSessionSchema.parse({ ...row, openedBy: reference }).openedBy).toEqual(reference);
     const result = RemoteSessionSchema.parse({
       ...row,
       openedBy: { ...openedBy, kind: "unknown", agent: "unknown" },

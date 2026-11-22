@@ -256,6 +256,7 @@ export interface RemoteRoomDeps {
   /** Answers another device's request; a RpcFailure for an error it should see. */
   serve(request: {
     from: string;
+    id: RpcRequest["id"];
     method: RpcMethod;
     params: unknown;
     isCurrent?: () => boolean;
@@ -1072,7 +1073,7 @@ export class RemoteRoom {
             this.rejectReply(from, epoch, message, "the relay send buffer is busy");
             return;
           }
-          const answer = await this.answer(from, message.method, message.params, current);
+          const answer = await this.answer(from, message, current);
           if (current()) await this.reply(from, epoch, message, answer, current);
         } finally {
           budget.release();
@@ -1080,7 +1081,7 @@ export class RemoteRoom {
         return;
       }
       if (!current()) return;
-      const answer = await this.answer(from, message.method, message.params, current);
+      const answer = await this.answer(from, message, current);
       if (current()) await this.reply(from, epoch, message, answer, current);
       return;
     }
@@ -1219,8 +1220,7 @@ export class RemoteRoom {
 
   private async answer(
     from: string,
-    method: string,
-    params: unknown,
+    { id, method, params }: RpcRequest,
     isCurrent?: () => boolean,
   ): Promise<{ result: unknown } | { error: RpcError }> {
     if (!isRpcMethod(method)) {
@@ -1297,6 +1297,7 @@ export class RemoteRoom {
       return {
         result: await this.deps.serve({
           from,
+          id,
           method,
           params: parsed.data,
           ...(isCurrent ? { isCurrent } : {}),

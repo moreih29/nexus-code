@@ -7,6 +7,7 @@ import {
   type RemoteWorkspace,
   RpcErrorCode,
   type RpcParams,
+  type RpcRequest,
   type RpcResult,
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
@@ -24,6 +25,7 @@ import type { CliServices, SessionsRenderer, SessionsRevision } from "../../cli/
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
 import { RpcFailure } from "../room";
+import { fitSessionReply } from "../session-list-size";
 import { SESSIONS_POLL_MS } from "../session-watches";
 import { oneLine, unavailable, workspaceOf } from "./common";
 import { RENDERER_READ_MAX_MS, ReadBudget } from "./read-budget";
@@ -453,9 +455,11 @@ export async function serveSessionsList(
   notes: RemoteNotes | undefined,
   from: string,
   controls: ConsentControls,
+  id: RpcRequest["id"] = 0,
 ): Promise<RpcResult<"sessions.list">> {
   const snapshot = await snapshotSessions(services, git, notes, "sessions.list", from);
-  return snapshot.forDevice(controls);
+  const list = await snapshot.forDevice(controls);
+  return fitSessionReply(list, id)?.list ?? list;
 }
 
 export async function reorderSessions(

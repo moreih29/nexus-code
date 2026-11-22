@@ -306,7 +306,8 @@ export const RemoteSessionSchema = z.object({
   agents: readableList(RemoteSessionAgentSchema, MAX_SESSION_AGENTS).optional(),
   /**
    * The agent that opened this session. Its IDs are on the serving device
-   * unless device names the Room ID of another computer. Since 0.25.0.
+   * unless device names the Room ID of another computer. Names and the
+   * whole opener may be left out to fit a listing in one frame. Since 0.25.0.
    */
   openedBy: z
     .object({
@@ -316,7 +317,10 @@ export const RemoteSessionSchema = z.object({
       agent: z.enum(["claude", "codex"]).optional().catch(undefined),
       name: z.string().max(MAX_SESSION_OPENER_NAME).optional(),
       device: z
-        .object({ id: z.string().max(64), name: z.string().max(MAX_SESSION_OPENER_NAME) })
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(MAX_SESSION_OPENER_NAME).optional(),
+        })
         .optional(),
     })
     .optional()

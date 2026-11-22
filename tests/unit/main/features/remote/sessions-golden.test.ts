@@ -4,13 +4,18 @@
  * may not.
  */
 import { afterEach, expect, test } from "bun:test";
-import { RPC_METHODS, type SessionsUpdate } from "../../../../../packages/remote-protocol/src";
+import {
+  RPC_METHODS,
+  RPC_NOTIFICATIONS,
+  type SessionsUpdate,
+} from "../../../../../packages/remote-protocol/src";
 import type {
   CliServices,
   PendingConsent,
   SessionsRenderer,
 } from "../../../../../src/main/features/cli/context";
-import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
+import { fitsInFrame, MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
+import { serveWith } from "../../../../../src/main/features/remote/serve";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import {
@@ -304,13 +309,13 @@ function steady<T>(value: T): T {
 let watches: SessionWatches | undefined;
 afterEach(() => watches?.dropAll());
 
-async function fullWatch(titleLength: number, opener?: "same-list" | "other-device") {
+function fullServices(titleLength: number, opener?: "same-list" | "other-device", count = 500) {
   const parentId = "parent".padEnd(64, "t");
   const many: SessionsSnapshotReaders = {
     ...readers,
     listTabs(workspaceId) {
       if (workspaceId !== "w-root") return [];
-      return Array.from({ length: 500 }, (_, i) => ({
+      return Array.from({ length: count }, (_, i) => ({
         id: i === 0 ? parentId : `session-${i}`.padEnd(64, "t"),
         type: "codex",
         title: "界".repeat(titleLength),
@@ -339,8 +344,11 @@ async function fullWatch(titleLength: number, opener?: "same-list" | "other-devi
       cwd: "/src/root/release",
     }),
   };
-  const service = services(async (args) => sessionsSnapshot(args, many));
-  const { list } = await snapshotSessions(service, undefined, undefined, "sessions.watch");
+  return services(async (args) => sessionsSnapshot(args, many));
+}
+
+async function fullWatch(titleLength: number, opener?: "same-list" | "other-device") {
+  const { list } = await snapshotSessions(fullServices(titleLength, opener), undefined);
   return RPC_METHODS["sessions.watch"].result.parse({ ...list, watchId: "watch" });
 }
 
@@ -357,17 +365,98 @@ test("500 sessions with long CJK titles and results fit when their opener is in 
   expect(replyBytes(result)).toBeLessThan(MAX_MESSAGE_BYTES);
 });
 
-test("session replies retain the existing frame limit for unusually large list combinations", async () => {
-  const [sameList, otherDevice, largeTitles] = await Promise.all([
-    fullWatch(120, "same-list"),
+test("sessions.list retains names in small replies and falls back to references or no opener only as needed", async () => {
+  const id = "목록";
+  const request = { from: "phone", method: "sessions.list", params: {}, id } as const;
+  const read = async (titleLength: number, count = 500) => {
+    const service = fullServices(titleLength, "other-device", count);
+    const result = await serveWith(() => service)(request);
+    expect(fitsInFrame({ jsonrpc: "2.0", id, result })).toBe(true);
+    return RPC_METHODS["sessions.list"].result.parse(result);
+  };
+  const small = await read(120, 3);
+  expect(small.sessions[1]?.openedBy?.name).toHaveLength(120);
+  expect(small.sessions[1]?.openedBy?.device?.name).toHaveLength(120);
+
+  const original = await fullWatch(120, "other-device");
+  expect(replyBytes(original)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+  const references = await read(120);
+  expect(references.sessions).toHaveLength(500);
+  expect(references.sessions[1]?.openedBy).toEqual({
+    workspaceId: "p".repeat(64),
+    tabId: "parent".padEnd(64, "t"),
+    kind: "tab",
+    agent: "codex",
+    device: { id: "d".repeat(64) },
+  });
+  expect(references.sessions.map(({ openedBy: _opener, ...row }) => row)).toEqual(
+    original.sessions.map(({ openedBy: _opener, ...row }) => row),
+  );
+
+  const removed = await read(180);
+  expect(removed.sessions).toHaveLength(500);
+  expect(removed.sessions.every((row) => row.openedBy === undefined)).toBe(true);
+});
+
+test("a watch starts compact, compares what it sent, and keeps its reduction through updates", async () => {
+  const [original, longer] = await Promise.all([
     fullWatch(120, "other-device"),
-    fullWatch(500),
+    fullWatch(180, "other-device"),
   ]);
-  expect(otherDevice.sessions[1]?.openedBy?.device?.name).toHaveLength(120);
-  expect(replyBytes(sameList)).toBeLessThan(MAX_MESSAGE_BYTES);
-  expect(replyBytes(otherDevice)).toBeGreaterThan(MAX_MESSAGE_BYTES);
-  // Persisted tab titles can have 500 UTF-16 units, even without opener metadata.
-  expect(replyBytes(largeTitles)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+  let { watchId: _id, ...list } = original;
+  const sent: SessionsUpdate[] = [];
+  let accept = true;
+  watches = new SessionWatches({
+    snapshot: async () => ({ list, incompleteWorkspaces: new Set(), forDevice: async () => list }),
+    notify: async (_to, params) => {
+      expect(fitsInFrame({ jsonrpc: "2.0", method: "sessions.update", params })).toBe(true);
+      sent.push(RPC_NOTIFICATIONS["sessions.update"].parse(params));
+      return accept;
+    },
+    pollMs: 60_000,
+  });
+  const serve = serveWith(() => fullServices(120), { sessions: watches });
+  const id = "감시";
+  const result = await serve({ from: "phone", method: "sessions.watch", params: {}, id });
+  expect(fitsInFrame({ jsonrpc: "2.0", id, result })).toBe(true);
+  const first = RPC_METHODS["sessions.watch"].result.parse(result);
+  expect(first.sessions).toHaveLength(500);
+  expect(first.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+  expect(first.sessions[1]?.openedBy?.name).toBeUndefined();
+  await watches.poll();
+  expect(sent).toHaveLength(0);
+
+  list = { ...list, sessions: original.sessions.slice(0, 3) };
+  await watches.poll();
+  expect(sent[0]?.watchId).toBe(first.watchId);
+  expect(sent[0]?.sessions).toHaveLength(3);
+  expect(sent[0]?.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+
+  accept = false;
+  list = longer;
+  await watches.poll();
+  expect(sent[1]?.sessions).toHaveLength(500);
+  expect(sent[1]?.sessions[1]?.openedBy).toBeUndefined();
+  // A rejected update did not commit a stronger reduction.
+  list = { ...list, sessions: original.sessions.slice(0, 4) };
+  accept = true;
+  await watches.poll();
+  expect(sent[2]?.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+
+  list = longer;
+  await watches.poll();
+  list = { ...list, sessions: original.sessions.slice(0, 2) };
+  await watches.poll();
+  expect(sent[4]?.sessions).toHaveLength(2);
+  expect(sent[4]?.sessions[1]?.openedBy).toBeUndefined();
+});
+
+test("a 500-session reply that was already oversized without any opener is still oversized", async () => {
+  const service = fullServices(500);
+  const read = serveWith(() => service);
+  const result = await read({ from: "phone", method: "sessions.list", params: {}, id: 1 });
+  expect(fitsInFrame({ jsonrpc: "2.0", id: 1, result })).toBe(false);
+  expect(RPC_METHODS["sessions.list"].result.parse(result).sessions).toHaveLength(500);
 });
 
 test("only opener references with both IDs are sent and unlisted parents keep their saved names", async () => {
@@ -418,6 +507,13 @@ test("the sessions' list, its consents and its waiting requests stay as they wer
   const s = services();
   const plain = await snapshotSessions(s, GIT, NOTES, "sessions.list", "phone");
   const waiting = await snapshotSessions(s, GIT, NOTES, "sessions.watch", undefined, true);
+  const served = await serveWith(() => s, { git: GIT, notes: NOTES, controls: () => CONTROLS })({
+    from: "phone",
+    method: "sessions.list",
+    params: {},
+    id: 1,
+  });
+  expect(steady(served)).toEqual(EXPECTED.list);
   expect(steady(plain.list)).toEqual(steady(waiting.list));
   expect(
     steady({

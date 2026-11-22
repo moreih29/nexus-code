@@ -228,7 +228,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const { from, method } = request;
     let { params } = request;
     let s = services;
-    if (sessions && method === "sessions.watch") return sessions.watch(from);
+    if (sessions && method === "sessions.watch") return sessions.watch(from, request.id);
     if (sessions && method === "sessions.unwatch") {
       return sessions.unwatch(from, params as RpcParams<"sessions.unwatch">);
     }
@@ -313,7 +313,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const openedBy = openerOf(relay);
     switch (request.method) {
       case "sessions.list":
-        return serveSessionsList(s, git, watches.notes, from, controls);
+        return serveSessionsList(s, git, watches.notes, from, controls, request.id);
       case "sessions.reorder":
         checkCurrent();
         return reorderSessions(s, params as RpcParams<"sessions.reorder">);
