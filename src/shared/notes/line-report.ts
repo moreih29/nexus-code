@@ -92,7 +92,11 @@ export function taskText(node: DocNode | undefined): string {
   return first ? text(first) : "";
 }
 
-/** Quotes user-authored labels in startup instructions and note task prompts. */
+/**
+ * Quotes user-authored labels in startup instructions and note task prompts.
+ * What the agent reads: a JSON string with the characters of tags and
+ * templates escaped. People see it through shownNoteText.
+ */
 export function noteLabel(value: string, fallback = "", max = 120): string {
   const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
   return JSON.stringify(Array.from(clean).slice(0, max).join("") || fallback)
@@ -100,4 +104,25 @@ export function noteLabel(value: string, fallback = "", max = 120): string {
     .replaceAll(">", "\\u003e")
     .replaceAll("{", "\\u007b")
     .replaceAll("}", "\\u007d");
+}
+
+/** A prompt the app wrote from a note: it names the note to read. */
+const NOTE_PROMPT = /`nexus note read [^`\s]+`/;
+const QUOTED = /"(?:[^"\\\n]|\\.)*"/g;
+
+/**
+ * A note prompt as people see it (a message bubble, a tab's title): the
+ * labels noteLabel quoted, with their own characters in place of escapes.
+ * The agent is still sent the prompt as written. Other text is left as is.
+ */
+export function shownNoteText(text: string): string {
+  if (!NOTE_PROMPT.test(text)) return text;
+  return text.replace(QUOTED, (quoted) => {
+    try {
+      const value: unknown = JSON.parse(quoted);
+      return typeof value === "string" ? `"${value}"` : quoted;
+    } catch {
+      return quoted;
+    }
+  });
 }

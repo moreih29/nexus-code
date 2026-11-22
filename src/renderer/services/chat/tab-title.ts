@@ -1,3 +1,5 @@
+import { shownNoteText } from "../../../shared/notes/line-report";
+
 // A chat tab's title: the first sentence of its first message, kept short,
 // until the agent names the conversation.
 
@@ -9,7 +11,7 @@ const SENTENCE_END = /[.!?。！？]+(?=\s|$)/;
 
 /** A tab's title from a message: its first line's first sentence, cut to length. */
 export function titleOf(text: string): string {
-  const line = text.trim().split("\n")[0].trim();
+  const line = shownNoteText(text).trim().split("\n")[0].trim();
   const end = SENTENCE_END.exec(line);
   if (!end) return clipTitle(line);
   // A full stop is left out; a question, or an ellipsis, keeps its marks.

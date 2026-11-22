@@ -34,6 +34,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
+import { shownNoteText } from "../../../shared/notes/line-report";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
@@ -944,7 +945,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const taken = item.uuid !== undefined;
   const optimistic = item.optimistic;
   const parts = splitAttachments(item.text);
-  const text = optimistic ? item.text : parts.text;
+  const text = shownNoteText(optimistic ? item.text : parts.text);
   const files = optimistic?.fileNames ?? parts.files;
   const status = optimistic?.status;
   const submittedAt = optimistic?.submittedAt;
