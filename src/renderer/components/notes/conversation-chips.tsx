@@ -244,6 +244,8 @@ interface ConversationChipProps {
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
   result?: NoteLinkEntry["link"]["result"];
+  /** The links of this conversation the chip stands for; only its own entry when absent. */
+  linkIds?: readonly string[];
   line?: boolean;
   card?: boolean;
   header?: boolean;
@@ -358,6 +360,7 @@ export function ConversationChip(props: ConversationChipProps) {
     note,
     onUnavailable,
     result = link.result,
+    linkIds = [id],
     line = false,
     card = false,
     header = false,
@@ -516,7 +519,11 @@ export function ConversationChip(props: ConversationChipProps) {
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
-          onSelect={() => void notesApi.removeLink(note.workspaceId, note.noteId, id).catch(failed)}
+          onSelect={() =>
+            void Promise.all(
+              linkIds.map((linkId) => notesApi.removeLink(note.workspaceId, note.noteId, linkId)),
+            ).catch(failed)
+          }
         >
           {t("conversations.unlink")}
         </DropdownMenuItem>

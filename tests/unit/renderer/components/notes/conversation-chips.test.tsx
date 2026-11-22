@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { act, type ComponentProps } from "react";
+import { act, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ConversationChip,
@@ -74,6 +74,47 @@ test("a task and card show one note header chip while both widget links remain a
     expect(markup).toContain('data-link="l1234568"');
   } finally {
     links.mockRestore();
+  }
+});
+
+test("removing a missing conversation's header chip removes each link it stands for", async () => {
+  const links = spyOn(noteLinks, "useNoteLinks").mockReturnValue([
+    { id: "l1234567", link: { ...link, kind: "line" } },
+    { id: "l1234568", link: { ...link, kind: "live", result: undefined, updatedAt: 4 } },
+  ]);
+  const pass = ({ children }: { children?: ReactNode }) => <>{children}</>;
+  const spies = [
+    spyOn(dropdown, "DropdownMenuRoot").mockImplementation(pass),
+    spyOn(dropdown, "DropdownMenuTrigger").mockImplementation(pass),
+    spyOn(dropdown, "DropdownMenuContent").mockImplementation(pass),
+    spyOn(dropdown, "DropdownMenuItem").mockImplementation(({ children, onSelect }) => (
+      <button type="button" data-item onClick={() => onSelect?.(new Event("select"))}>
+        {children}
+      </button>
+    )),
+  ];
+  const remove = spyOn(notesApi, "removeLink").mockResolvedValue(undefined);
+  try {
+    await withTestDom(async (host, root) => {
+      await act(async () =>
+        root.render(
+          <NoteConversationLinks
+            note={{ workspaceId: "workspace", noteId: "n1234567", tabId: "note-tab" }}
+            isVisible={false}
+          >
+            <ConversationChips />
+          </NoteConversationLinks>,
+        ),
+      );
+      expect(host.querySelectorAll('[data-testid="note-conversation-chip"]')).toHaveLength(1);
+      const unlink = Array.from(host.querySelectorAll<HTMLButtonElement>("[data-item]")).find(
+        ({ textContent }) => textContent === "Remove link",
+      );
+      await act(async () => unlink?.click());
+      expect(remove.mock.calls.map(([, , id]) => id).sort()).toEqual(["l1234567", "l1234568"]);
+    });
+  } finally {
+    for (const spy of [links, remove, ...spies]) spy.mockRestore();
   }
 });
 
