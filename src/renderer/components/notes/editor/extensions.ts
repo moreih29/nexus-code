@@ -8,6 +8,13 @@ import type { NoteHost } from "./host";
 import { Sketch } from "./sketch-node";
 import { SlashMenu, type SlashMenuOptions } from "./slash-menu";
 
+const summaryAttribute = {
+  default: null,
+  keepOnSplit: false,
+  rendered: false,
+  parseHTML: () => null,
+};
+
 const NoteSummaryAttributes = Extension.create({
   name: "noteSummaryAttributes",
   addGlobalAttributes: () => [
@@ -23,14 +30,14 @@ const NoteSummaryAttributes = Extension.create({
         "blockquote",
       ],
       attributes: {
-        nexusOrigin: { default: null, keepOnSplit: false },
+        nexusOrigin: summaryAttribute,
       },
     },
     {
       types: ["taskItem"],
       attributes: {
-        nexusSpeaker: { default: null, keepOnSplit: false },
-        nexusAt: { default: null, keepOnSplit: false },
+        nexusSpeaker: summaryAttribute,
+        nexusAt: summaryAttribute,
       },
     },
   ],

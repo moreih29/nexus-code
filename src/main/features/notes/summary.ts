@@ -81,11 +81,11 @@ export class NotesSummary {
     let removed = 0;
     const origin = summaryOrigin(target.recordingId);
     try {
-      next = await this.edit(target, async (current) => {
+      next = await this.edit(target, async (current, inHistory) => {
         if (
           this.closed ||
           current?.state === "running" ||
-          (mode === "auto" && current) ||
+          (mode === "auto" && (current || inHistory)) ||
           (mode === "retry" && current?.state !== "failed")
         )
           return;
@@ -178,7 +178,7 @@ export class NotesSummary {
 
   private async edit(
     target: SummaryTarget,
-    fn: (current: RecordingSummary | undefined) => Promise<Change | undefined>,
+    fn: (current: RecordingSummary | undefined, inHistory: boolean) => Promise<Change | undefined>,
   ) {
     await this.ready;
     const { location, noteId, recordingId } = target;

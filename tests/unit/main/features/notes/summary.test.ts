@@ -227,3 +227,44 @@ test("the automatic path is opt-in and short recordings do not reach Claude", as
   expect(await summaries.summarize(target, "auto")).toBeNull();
   expect(runClaude).not.toHaveBeenCalled();
 });
+
+test("summary retention keeps active and undoable entries and still deduplicates old recordings", async () => {
+  const runClaude = mock<NotesSummaryOptions["runClaude"]>(async () => ({ output }));
+  const { summaries, store, target } = await setup({ runClaude });
+  const { noteId, recordingId } = target;
+  await summaries.states(location, noteId);
+  const run = () => ({ agent: "claude" as const, runId: randomUUID(), startedAt: 1, seen: false });
+  const running = "r000000001a";
+  const undoable = "r000000001b";
+  await store.editSummary(location, noteId, running, async () => ({
+    next: { ...run(), state: "running" },
+  }));
+  await store.editSummary(location, noteId, undoable, async () => ({
+    next: { ...run(), state: "done", endedAt: 2, todos: 1 },
+  }));
+  await store.editSummary(location, noteId, recordingId, async () => ({
+    next: { ...run(), state: "skipped", endedAt: 3 },
+  }));
+  const failedId = (index: number) => `r${index.toString(36).padStart(6, "0")}012c`;
+  for (let index = 0; index < 52; index++) {
+    await store.editSummary(location, noteId, failedId(index), async () => ({
+      next: {
+        ...run(),
+        state: "failed",
+        endedAt: 10 + index,
+        error: { kind: "failed", message: "Bearer credential" },
+      },
+    }));
+  }
+  const states = await summaries.states(location, noteId);
+  expect(Object.keys(states)).toHaveLength(52);
+  expect(states).toMatchObject({
+    [running]: { state: "running" },
+    [undoable]: { state: "done" },
+    [failedId(51)]: { state: "failed", error: { message: "Bearer [redacted]" } },
+  });
+  expect(states[failedId(0)]).toBeUndefined();
+  expect(states[recordingId]).toBeUndefined();
+  expect(await summaries.summarize(target, "auto")).toBeNull();
+  expect(runClaude).not.toHaveBeenCalled();
+});

@@ -279,6 +279,26 @@ test("an SSH note summarizes and undoes locally while its conversation index sta
   }
 });
 
+test("summary IPC rejects malformed note and recording IDs", async () => {
+  const notes = await setupNotes();
+  try {
+    const ipc = createIpcPair().window.ipc;
+    for (const method of ["summarize", "cancel", "undo", "dismiss"]) {
+      for (const args of [
+        { workspaceId: id, noteId: "../note", recordingId: "r000000abcd" },
+        { workspaceId: id, noteId, recordingId: "../recording" },
+      ]) {
+        expect(await ipc.call("notes", method, args)).toMatchObject({
+          ok: false,
+          kind: "invalid-args",
+        });
+      }
+    }
+  } finally {
+    notes.dispose();
+  }
+});
+
 test.each([
   "stopped",
   "closed",
