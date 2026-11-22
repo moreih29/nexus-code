@@ -23,7 +23,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
@@ -39,17 +39,26 @@ import {
 } from "../../services/agent-sessions/model";
 import { plainPreview } from "../../services/agent-sessions/preview";
 import {
+  compareStatusTime,
   ROW_GROUPS,
   type RowFacts,
   type RowGroup,
-  sessionsIn,
 } from "../../services/agent-sessions/rows";
+import {
+  type SessionTreeNode,
+  searchSessionTree,
+  sessionTree,
+  treeSessions,
+} from "../../services/agent-sessions/session-tree";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { markRead } from "../../services/agent-sessions/use-inbox";
 import { useFirstPermission, useRowFacts } from "../../services/agent-sessions/use-row-facts";
+import { orderSessions } from "../../services/agent-view/order";
+import { statusTrees } from "../../services/agent-view/sidebar-tree";
 import { existingChatController } from "../../services/chat/claude/controller";
 import { existingCodexController } from "../../services/chat/codex/controller";
 import { resumeTimeText } from "../../services/chat/limit-resume";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
@@ -59,22 +68,16 @@ import { showToast } from "../ui/toast";
 import { AgentRows } from "./agent-rows";
 import { type AgentListSelection, isSessionSelected } from "./selection";
 import { SessionProfileMark } from "./session-profile";
-import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
+import {
+  GROUP_STATE,
+  GROUP_TINT,
+  StateGlyph,
+  stateLabel,
+  useDurationLabel,
+} from "./session-status";
+import { SessionRelations, SessionTreeBranch } from "./session-tree-rows";
 
-/** The state whose glyph stands for a group. */
-export const GROUP_STATE: Record<RowGroup, string> = {
-  attention: "permissionPending",
-  running: "running",
-  done: "completed",
-  idle: "idle",
-};
-
-export const GROUP_TINT: Record<RowGroup, string> = {
-  attention: "text-(--state-warning-fg)",
-  running: "text-emerald-500",
-  done: "text-(--tab-claude-attention-fg)",
-  idle: "text-muted-foreground",
-};
+export { GROUP_STATE, GROUP_TINT } from "./session-status";
 
 interface StatusViewProps {
   family: SessionFamily;
@@ -97,14 +100,22 @@ export function StatusView({
   const { t } = useTranslation();
   // Every group is open until the user folds it; the folds are kept across restarts.
   const folds = useUIStore((s) => s.agentListFoldedGroups);
-  const sessions = allSessions(family);
+  const familyFolds = useAgentViewStore((s) => s.folded);
+  const order = useAgentViewStore((s) => s.order);
+  const tree = useMemo(() => sessionTree(allSessions(family)), [family]);
+  const byStatus = useMemo(() => statusTrees(searchSessionTree(tree, query)), [tree, query]);
   const worktreeOf = (session: AgentSession) =>
     family.worktrees.find((w) => w.workspace.id === session.workspaceId);
   const searching = query.trim() !== "";
 
   const groups = ROW_GROUPS.map((group) => ({
     group,
-    rows: sessionsIn(sessions, group, query),
+    rows: orderSessions(
+      byStatus[group]
+        .map((node) => ({ key: node.session.key, node }))
+        .sort((a, b) => compareStatusTime(group, a.node.since, b.node.since)),
+      order[`status:${group}`],
+    ).map(({ node }) => node),
   }));
   if (groups.every(({ rows }) => rows.length === 0)) {
     return (
@@ -155,12 +166,12 @@ export function StatusView({
                   <ChevronDown aria-hidden className="size-3.5" />
                 )}
               </button>
-              {group === "done" && rows.length > 1 && (
+              {group === "done" && (
                 <IconButton
                   label={t("inbox.mark_read")}
                   onClick={() =>
                     markRead(
-                      rows.flatMap((session) => {
+                      [...treeSessions(rows)].flatMap((session) => {
                         const workspace = worktreeOf(session)?.workspace;
                         return workspace ? [{ workspace, session }] : [];
                       }),
@@ -173,27 +184,38 @@ export function StatusView({
               )}
             </div>
             {!folded &&
-              rows.map((session) => {
-                const worktree = worktreeOf(session);
-                return (
-                  <SessionRow
-                    key={session.key}
-                    session={session}
-                    group={group}
-                    workspace={worktree?.workspace}
-                    branch={worktree?.branch ?? changes.get(session.workspaceId)?.branch}
-                    changed={changes.get(session.workspaceId)?.files.length ?? 0}
-                    activity={activity.get(session.key)}
-                    selected={isSessionSelected(selection, session.key)}
-                    selectedAgentId={
-                      selection?.kind === "agent" && selection.key === session.key
-                        ? selection.agentId
-                        : undefined
-                    }
-                    onSelect={onSelect}
-                  />
-                );
-              })}
+              rows.map((root) => (
+                <SessionTreeBranch
+                  key={root.session.key}
+                  node={root}
+                  folded={familyFolds}
+                  searching={searching}
+                  groupIdle
+                  testPrefix="agent-list"
+                  renderRow={(node, collapsed) => {
+                    const { session } = node;
+                    const worktree = worktreeOf(session);
+                    return (
+                      <SessionRow
+                        node={node}
+                        collapsed={collapsed}
+                        sectionGroup={group}
+                        workspace={worktree?.workspace}
+                        branch={worktree?.branch ?? changes.get(session.workspaceId)?.branch}
+                        changed={changes.get(session.workspaceId)?.files.length ?? 0}
+                        activity={activity.get(session.key)}
+                        selected={isSessionSelected(selection, session.key)}
+                        selectedAgentId={
+                          selection?.kind === "agent" && selection.key === session.key
+                            ? selection.agentId
+                            : undefined
+                        }
+                        onSelect={onSelect}
+                      />
+                    );
+                  }}
+                />
+              ))}
           </section>
         );
       })}
@@ -207,8 +229,9 @@ export function StatusView({
  * nothing it says, does not render it.
  */
 const SessionRow = memo(function SessionRow({
-  session,
-  group,
+  node,
+  collapsed,
+  sectionGroup,
   workspace,
   branch,
   changed,
@@ -217,8 +240,9 @@ const SessionRow = memo(function SessionRow({
   selectedAgentId,
   onSelect: select,
 }: {
-  session: AgentSession;
-  group: RowGroup;
+  node: SessionTreeNode;
+  collapsed: boolean;
+  sectionGroup: RowGroup;
   workspace: WorkspaceMeta | undefined;
   branch: string | undefined;
   changed: number;
@@ -229,6 +253,8 @@ const SessionRow = memo(function SessionRow({
   /** The list's: the row picked, or one of its agents. */
   onSelect: StatusViewProps["onSelect"];
 }) {
+  const { session, count } = node;
+  const group = session.phase;
   const facts = useRowFacts(session, activity);
   const onSelect = (from: HTMLElement) => select({ kind: "session", key: session.key }, from);
   const onSelectAgent = (agentId: string, from: HTMLElement) =>
@@ -254,6 +280,7 @@ const SessionRow = memo(function SessionRow({
             : "border-transparent hover:bg-[var(--state-hover-bg)]",
       )}
       data-testid="agent-list-row"
+      data-session-key={session.key}
     >
       {/* The row as one button behind its content, so the row's own buttons stay buttons. */}
       <button
@@ -277,6 +304,16 @@ const SessionRow = memo(function SessionRow({
           </span>
           {/* Narrow, the profile is its dot, and the time is in the row's title. */}
           <SessionProfileMark session={session} nameClassName="@max-xs/agents:hidden" />
+          {group !== sectionGroup && (
+            <span
+              role="img"
+              aria-label={stateLabel(session)}
+              className="inline-flex shrink-0"
+              title={stateLabel(session)}
+            >
+              <StateGlyph state={session.state} />
+            </span>
+          )}
           {duration && (
             <span
               className={cn(
@@ -290,7 +327,7 @@ const SessionRow = memo(function SessionRow({
           )}
         </div>
         {!compact && <RowLine session={session} facts={facts} />}
-        {!compact && (
+        {(!compact || branch) && (
           <RowFooter
             session={session}
             group={group}
@@ -301,6 +338,7 @@ const SessionRow = memo(function SessionRow({
             activity={activity}
           />
         )}
+        {(count > 0 || node.parentName) && <SessionRelations node={node} collapsed={collapsed} />}
       </div>
       {/* Above the row's own button, as the row's other buttons are. */}
       <AgentRows

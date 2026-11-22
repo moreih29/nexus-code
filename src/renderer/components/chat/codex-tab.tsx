@@ -91,6 +91,7 @@ import { ChatPhaseBanner, ChatSignedOutBanner } from "./chat-state-banner";
 import { CodexDefaultsDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
+import { ConversationChildren, ConversationParentChip } from "./conversation-tree";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { LimitResumeBanner } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
@@ -570,6 +571,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       }
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
       testId="codex-side-panel"
+      conversations={isVisible ? <ConversationChildren tabId={tabId} /> : undefined}
     />
   );
 
@@ -645,6 +647,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         onSignIn={signIn}
         onCheck={() => void controller.refreshAccount()}
       />
+      {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
       <ConversationNoteChip
         workspaceId={workspaceId}
         tabId={tabId}

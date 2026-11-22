@@ -20,7 +20,7 @@ import {
   Shield,
   SquareTerminal,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
@@ -43,14 +43,14 @@ import {
   chatRowFacts,
   groupOf,
   hookRowFacts,
-  listed,
-  matchesQuery,
   type RowFacts,
-  sessionsByGroup,
   waitedOn,
 } from "../../services/agent-sessions/rows";
+import { searchSessionTree, sessionTree } from "../../services/agent-sessions/session-tree";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
+import { workspaceTrees } from "../../services/agent-view/sidebar-tree";
 import { chatKey, useChatStore } from "../../services/chat/store";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useUIStore } from "../../state/stores/ui";
 import { Button } from "../ui/button";
 import {
@@ -62,6 +62,7 @@ import {
 import { AgentRows } from "./agent-rows";
 import type { AgentListSelection } from "./selection";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
+import { SessionRelations, SessionTreeBranch } from "./session-tree-rows";
 import { AgentMark, ToolIcon } from "./status-view";
 import { TaskInfo } from "./task-info";
 
@@ -89,13 +90,20 @@ export function TaskView({
   // The worktrees whose facts are unfolded, kept by the app as the status
   // view's folded groups are: folded until the user opens one.
   const unfolded = useUIStore((s) => s.agentListUnfoldedTasks);
-  const sessions = allSessions(family);
-  // A task is compared with its workspace's branch.
+  const folded = useAgentViewStore((s) => s.folded);
+  const order = useAgentViewStore((s) => s.order);
+  const sessions = useMemo(() => allSessions(family), [family]);
+  const tree = useMemo(() => sessionTree(sessions), [sessions]);
+  const roots = useMemo(() => searchSessionTree(tree, query), [tree, query]);
+  const needle = query.trim().toLowerCase();
+  const searching = needle !== "";
+  // Empty worktrees still have actions and can be found by name.
+  const groups =
+    workspaceTrees([family], roots, order, searching, (worktree) =>
+      worktreeName(worktree, undefined).toLowerCase().includes(needle),
+    )[0]?.worktrees ?? [];
   const base = changes.get(family.root.id)?.branch;
-  const groups = family.worktrees
-    .map((worktree) => ({ worktree, rows: sessionsByGroup(worktree.sessions, query) }))
-    // A search keeps the worktrees with a conversation it found, or whose name it is.
-    .filter(({ worktree }) => worktreeMatches(worktree, query));
+  const branchOf = new Map(family.worktrees.map(({ workspace, branch }) => [workspace.id, branch]));
   if (groups.length === 0) {
     return (
       <p className="p-4 text-app-ui-sm text-muted-foreground">{t("agentList.list.no_match")}</p>
@@ -103,7 +111,7 @@ export function TaskView({
   }
   return (
     <div className="flex flex-col gap-3 p-2" data-testid="agent-list-task-view">
-      {groups.map(({ worktree, rows }) => {
+      {groups.map(({ worktree, roots, moved }) => {
         const id = worktree.workspace.id;
         const createdBy = worktree.workspace.task?.createdBy;
         const creator = createdBy
@@ -133,37 +141,62 @@ export function TaskView({
                 changes={changes.get(id)}
               />
             )}
-            {rows.length === 0 ? (
+            {moved.map(({ key, title, count }) => (
+              <p
+                key={key}
+                className="truncate border-t border-border px-3 py-1.5 text-app-micro text-muted-foreground"
+                title={t("agentView.list.moved_family", { name: title, count })}
+                data-testid="agent-list-moved"
+              >
+                {t("agentView.list.moved_family", { name: title, count })}
+              </p>
+            ))}
+            {roots.length === 0 && moved.length === 0 && (
               <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
                 {t("agentList.task.no_conversations")}
               </p>
-            ) : (
-              <ul>
-                {rows.map((session) => (
-                  <li key={session.key} className="border-t border-border">
-                    <TaskRow
-                      session={session}
-                      activity={activity}
-                      waitingOn={waitedOn(session, waits, sessions)}
-                      selected={selection?.key === session.key}
-                      onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
-                    />
-                    <AgentRows
-                      agents={activity.get(session.key)?.agents ?? []}
-                      selectedId={
-                        selection?.kind === "agent" && selection.key === session.key
-                          ? selection.agentId
-                          : undefined
-                      }
-                      onSelect={(agentId, from) =>
-                        onSelect({ kind: "agent", key: session.key, agentId }, from)
-                      }
-                      className="pr-2 pb-1 pl-6"
-                    />
-                  </li>
-                ))}
-              </ul>
             )}
+            {roots.map((root) => (
+              <SessionTreeBranch
+                key={root.session.key}
+                node={root}
+                folded={folded}
+                searching={searching}
+                testPrefix="agent-list"
+                renderRow={(node, collapsed) => {
+                  const { session } = node;
+                  return (
+                    <div className="border-t border-border">
+                      <TaskRow
+                        session={session}
+                        activity={activity}
+                        waitingOn={waitedOn(session, waits, sessions)}
+                        branch={
+                          session.workspaceId === id ? undefined : branchOf.get(session.workspaceId)
+                        }
+                        selected={selection?.key === session.key}
+                        onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
+                      />
+                      <div className="px-3">
+                        <SessionRelations node={node} collapsed={collapsed} />
+                      </div>
+                      <AgentRows
+                        agents={activity.get(session.key)?.agents ?? []}
+                        selectedId={
+                          selection?.kind === "agent" && selection.key === session.key
+                            ? selection.agentId
+                            : undefined
+                        }
+                        onSelect={(agentId, from) =>
+                          onSelect({ kind: "agent", key: session.key, agentId }, from)
+                        }
+                        className="pr-2 pb-1 pl-6"
+                      />
+                    </div>
+                  );
+                }}
+              />
+            ))}
           </section>
         );
       })}
@@ -365,6 +398,7 @@ export function TaskRow({
   session,
   activity,
   waitingOn,
+  branch,
   selected,
   onSelect,
 }: {
@@ -372,6 +406,7 @@ export function TaskRow({
   activity: ActivityByKey;
   /** The conversation its terminal waits to end. */
   waitingOn: AgentSession | undefined;
+  branch?: string;
   selected: boolean;
   /** Picked, with its row. */
   onSelect: (from: HTMLElement) => void;
@@ -397,6 +432,7 @@ export function TaskRow({
         selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",
       )}
       data-testid="agent-list-task-row"
+      data-session-key={session.key}
     >
       <span className="flex w-3.5 shrink-0 justify-center" title={stateLabel(session)}>
         <StateGlyph state={session.state} />
@@ -413,6 +449,15 @@ export function TaskRow({
       >
         {session.title}
       </span>
+      {branch && (
+        <span
+          title={branch}
+          className="flex min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-app-micro text-muted-foreground"
+        >
+          <GitBranch aria-hidden className="size-3 shrink-0" />
+          <span className="truncate">{branch}</span>
+        </span>
+      )}
       {waitingOn && (
         <span
           className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground"
@@ -462,13 +507,4 @@ function RowSign({ session, facts }: { session: AgentSession; facts: RowFacts })
     );
   }
   return null;
-}
-
-/** Whether the worktree or one of its conversations matches `query`. */
-function worktreeMatches(worktree: WorktreeEntry, query: string): boolean {
-  return (
-    query.trim() === "" ||
-    worktree.sessions.some((session) => listed(session) && matchesQuery(session, query)) ||
-    worktreeName(worktree, undefined).toLowerCase().includes(query.trim().toLowerCase())
-  );
 }

@@ -1,6 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
 import type { KeyboardEvent, MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { StatusView } from "../../../../../src/renderer/components/agent-list/status-view";
+import { TaskView } from "../../../../../src/renderer/components/agent-list/task-view";
 import {
   StatusGroups,
   stepRows,
@@ -40,6 +42,7 @@ const task = workspace("task", {
   parentId: home.id,
   branch: "feature/test",
   worktreePath: "/task",
+  createdBy: { workspaceId: home.id, tabId: "plan" },
 });
 const states = { attention: "needsInput", running: "running", done: "completed", idle: "idle" };
 
@@ -304,4 +307,49 @@ test("old layouts keep flat status order and row appearance", () => {
   expect(html).not.toContain('data-testid="agent-sidebar-fold-family"');
   expect(html).not.toContain('data-testid="agent-sidebar-state"');
   expect(html).not.toContain('data-testid="agent-sidebar-tree-line"');
+});
+
+function workspaceList(view: "status" | "task", query = "") {
+  const common = {
+    family: agents().families[0]!,
+    changes: new Map(),
+    activity: new Map(),
+    selection: null,
+    onSelect: () => {},
+    query,
+  };
+  return view === "status" ? <StatusView {...common} /> : <TaskView {...common} waits={[]} />;
+}
+
+function sessionKeys(html: string): string[] {
+  return [...html.matchAll(/data-session-key="([^"]+)"/g)].map(([, key]) => key!);
+}
+
+test("workspace status uses the agent view's family grouping, idle disclosure and saved family folds", () => {
+  const html = render(workspaceList("status"));
+  expect(sections(html).map(sessionKeys)).toEqual(sections(render(status())).map(sessionKeys));
+  expect(sections(html)[0]).toContain('class="tabular-nums">1</span>');
+  expect(html).toContain('data-testid="agent-list-idle"');
+  expect(html).toContain("↳ Test report");
+  const folded = render(workspaceList("status"), [`family:${plan.key}`]);
+  expect(sessionKeys(sections(folded)[0] ?? "")).toEqual([plan.key]);
+  expect(sections(folded)[0]?.match(/data-testid="agent-list-summary"/g)).toHaveLength(3);
+  const match = render(workspaceList("status", "quiet"), [`family:${plan.key}`]);
+  expect(sessionKeys(match)).toEqual([plan.key, quiet.key]);
+});
+
+test("workspace tasks show moved conversations once under their parent and keep creator and task rows", () => {
+  const views = <WorkspaceGroups agents={agents()} activity={new Map()} query="" />;
+  const html = render(workspaceList("task"));
+  expect(sessionKeys(html)).toEqual(sessionKeys(render(views)));
+  expect(html).toContain("↳ 1 under Release plan");
+  expect(html).toContain("↳ 1 under Billing results");
+  expect(html).toContain('title="feature/test"');
+  expect(html).toContain('title="Made by the conversation Release plan"');
+  expect(html).not.toContain('data-testid="agent-list-idle"');
+  expect(sessionKeys(render(workspaceList("task", "Review tests")))).toEqual([
+    plan.key,
+    question.key,
+  ]);
+  expect(render(workspaceList("task", "feature/test"))).toContain('aria-label="feature/test"');
 });

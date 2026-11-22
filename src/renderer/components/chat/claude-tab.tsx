@@ -99,6 +99,7 @@ import { ChatPhaseBanner } from "./chat-state-banner";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
+import { ConversationParentChip } from "./conversation-tree";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { LimitResumeBanner, showsLimitResume } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
@@ -632,6 +633,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   });
   const panel = (
     <SidePanel
+      conversationTabId={isVisible ? tabId : undefined}
       controller={controller}
       state={steady}
       workspaceId={workspaceId}
@@ -699,6 +701,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         onRetry={() => void controller.open()}
         className="shrink-0 pt-1"
       />
+      {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
       <ConversationNoteChip
         workspaceId={workspaceId}
         tabId={tabId}

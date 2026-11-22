@@ -1,3 +1,4 @@
+import type { RowGroup } from "../../services/agent-sessions/rows";
 // Agent list — a session's state as a glyph and words, its agent as a
 // badge, and how long it has been in that state.
 //
@@ -163,3 +164,18 @@ export function AgentBadge({ agent }: { agent: string | undefined }) {
     </span>
   );
 }
+
+/** The state whose glyph stands for a group. */
+export const GROUP_STATE: Record<RowGroup, string> = {
+  attention: "permissionPending",
+  running: "running",
+  done: "completed",
+  idle: "idle",
+};
+
+export const GROUP_TINT: Record<RowGroup, string> = {
+  attention: "text-(--state-warning-fg)",
+  running: "text-emerald-500",
+  done: "text-(--tab-claude-attention-fg)",
+  idle: "text-muted-foreground",
+};

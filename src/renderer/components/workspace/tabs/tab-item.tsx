@@ -42,6 +42,7 @@ import type { ClaudeStatus } from "../../../../shared/claude/status";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { useChatTabStatus } from "../../../services/agent-sessions/use-codex-status";
 import { useEstimatedTabGlyph } from "../../../services/agent-sessions/use-estimated";
+import { useSessionParent } from "../../../services/agent-sessions/use-session-parent";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
@@ -399,6 +400,18 @@ const LocalTabItem = memo(function LocalTabItem({
     [workspaceId, tab.id, leafId],
   );
 
+  const opener =
+    tab.type === "claude" || tab.type === "codex" || tab.type === "terminal"
+      ? tab.props.openedBy
+      : undefined;
+  const { name: parentName } = useSessionParent(opener);
+  const parent =
+    parentName && opener?.device
+      ? `${opener.device.name || opener.device.id} · ${parentName}`
+      : parentName;
+  const title = parent
+    ? `${displayTitle} · ${t("agentView.list.parent_hint", { name: parent })}`
+    : displayTitle;
   const dirty = useTabDirty(tab);
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
@@ -624,7 +637,7 @@ const LocalTabItem = memo(function LocalTabItem({
           <span
             // A long title (a chat's first message, a page's title) is cut
             // to a tab's width; the whole of it shows on hover.
-            title={displayTitle}
+            title={title}
             className={cn(
               "min-w-0 max-w-64 truncate",
               tab.isPreview && "italic",

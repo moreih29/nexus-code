@@ -9,8 +9,8 @@
 // the agent list's does. The grouping and the folded groups are kept across
 // restarts.
 
-import { CheckCheck, ChevronDown, ChevronRight, GitBranch, ListTree, Plus } from "lucide-react";
-import { type KeyboardEvent, memo, type ReactNode, useMemo, useRef, useState } from "react";
+import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
+import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStableHandlers } from "@/hooks/use-stable-handlers";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
@@ -18,12 +18,9 @@ import type { InboxItem } from "@/services/agent-sessions/inbox";
 import type { AgentSession, SessionFamily } from "@/services/agent-sessions/model";
 import { compareStatusTime, type RowGroup } from "@/services/agent-sessions/rows";
 import {
-  familyFoldKey,
-  MAX_SESSION_INDENT,
   type SessionCounts,
   type SessionTreeNode,
   searchSessionTree,
-  sessionChildren,
   sessionTree,
   treeSessions,
 } from "@/services/agent-sessions/session-tree";
@@ -58,6 +55,14 @@ import {
   stateLabel,
   useDurationLabel,
 } from "../agent-list/session-status";
+import {
+  FamilyFold,
+  FoldChevron,
+  SessionTreeBranch,
+  StateSummary,
+  useParentCaption,
+  visibleParentName,
+} from "../agent-list/session-tree-rows";
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
@@ -95,9 +100,6 @@ import {
 import { SidebarDropIndicator } from "./sidebar-drop";
 
 const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
-
-/** The groups a workspace's header counts: the ones that ask for a look. */
-const SUMMED: readonly RowGroup[] = ["attention", "running", "done"];
 
 // Memo: kept while hidden, it would render again with each of the app's.
 export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boolean }) {
@@ -429,7 +431,6 @@ export function StatusGroups({
                   <SessionBranch
                     key={row.key}
                     node={row.node}
-                    last
                     rootWorkspaceId={row.node.session.workspaceId}
                     agents={agents}
                     activity={activity}
@@ -542,33 +543,6 @@ export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
       />
     );
   });
-}
-
-/** How many of a workspace's agents wait on the user, run, or have a new result, the ones there are. */
-function StateSummary({ counts, compact = false }: { counts: SessionCounts; compact?: boolean }) {
-  const { t } = useTranslation();
-  const shown = SUMMED.filter((group) => counts[group] > 0);
-  if (shown.length === 0) return null;
-  return (
-    <span
-      className={cn(
-        "flex shrink-0 items-center text-app-micro whitespace-nowrap tabular-nums",
-        compact ? "gap-1" : "gap-2",
-      )}
-    >
-      {shown.map((group) => (
-        <span
-          key={group}
-          className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-          title={`${t(`agentList.group.${group}`)} ${counts[group]}`}
-          data-testid="agent-sidebar-summary"
-        >
-          <StateGlyph state={GROUP_STATE[group]} />
-          {counts[group]}
-        </span>
-      ))}
-    </span>
-  );
 }
 
 function FamilyGroup({
@@ -718,7 +692,6 @@ function FamilyGroup({
               <SessionBranch
                 key={node.session.key}
                 node={node}
-                last
                 rootWorkspaceId={worktree.workspace.id}
                 agents={agents}
                 activity={activity}
@@ -741,13 +714,11 @@ function FamilyGroup({
 
 interface SessionBranchProps {
   node: SessionTreeNode;
-  last: boolean;
   rootWorkspaceId: string;
   agents: Agents;
   activity: ActivityByKey;
   folded: ReadonlySet<string>;
   searching: boolean;
-  showIdleSubtree?: boolean;
   group?: RowGroup;
   dragScope?: string;
   onReorder?: SessionReorder;
@@ -755,133 +726,56 @@ interface SessionBranchProps {
 
 function SessionBranch({
   node,
-  last,
   rootWorkspaceId,
   agents,
   activity,
   folded,
   searching,
-  showIdleSubtree,
   group,
   dragScope,
   onReorder,
 }: SessionBranchProps) {
-  const { t } = useTranslation();
-  const [idleOpen, setIdleOpen] = useState(false);
-  const { session, depth, count } = node;
-  const placed = agents.byKey.get(session.key);
-  const isRoot = depth === 0;
-  const reorder = isRoot ? onReorder : undefined;
+  const { session } = node;
   const scope = dragScope ?? session.workspaceId;
-  const { edge, dropProps } = useSessionDrop({ key: session.key, workspaceId: scope }, reorder);
-  const collapsed = !searching && folded.has(familyFoldKey(session));
-  const { rows: visible, idle } = sessionChildren(node, {
-    folded: collapsed,
-    groupIdle: group !== undefined && !searching && !showIdleSubtree,
-    showIdle: idleOpen,
-  });
+  const { edge, dropProps } = useSessionDrop({ key: session.key, workspaceId: scope }, onReorder);
   const content = (
-    <>
-      <AgentItem
-        session={session}
-        run={activity.get(session.key)}
-        where={group !== undefined ? placed : undefined}
-        group={group}
-        dragScope={scope}
-        draggable={isRoot}
-        branch={
-          session.workspaceId !== rootWorkspaceId ? placed?.workspace.task?.branch : undefined
-        }
-        parentName={
-          session.parent?.device || node.parentClosed || depth > MAX_SESSION_INDENT
-            ? node.parentName
-            : undefined
-        }
-        parentClosed={node.parentClosed}
-        familyCount={count}
-        collapsed={collapsed}
-        counts={collapsed ? node.counts : undefined}
-      />
-      {visible.map((child, index) => (
-        <SessionBranch
-          key={child.session.key}
-          node={child}
-          last={index === visible.length - 1 && idle === 0}
-          rootWorkspaceId={rootWorkspaceId}
-          agents={agents}
-          activity={activity}
-          folded={folded}
-          searching={searching}
-          showIdleSubtree={showIdleSubtree || (idleOpen && child.group === "idle")}
-          group={group}
-        />
-      ))}
-      {idle > 0 && (
-        <TreeLine indent={depth < MAX_SESSION_INDENT} last>
-          <button
-            type="button"
-            aria-expanded={idleOpen}
-            onClick={() => setIdleOpen(!idleOpen)}
-            className="flex h-6 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring"
-            data-testid="agent-sidebar-idle"
-          >
-            <StateGlyph state="idle" />
-            {t("agentView.list.idle_children", { count: idle })}
-            <FoldChevron folded={!idleOpen} />
-          </button>
-        </TreeLine>
-      )}
-    </>
+    <SessionTreeBranch
+      node={node}
+      folded={folded}
+      searching={searching}
+      groupIdle={group !== undefined}
+      testPrefix="agent-sidebar"
+      renderRow={(branchNode, collapsed) => {
+        const current = branchNode.session;
+        const placed = agents.byKey.get(current.key);
+        return (
+          <AgentItem
+            session={current}
+            run={activity.get(current.key)}
+            where={group !== undefined ? placed : undefined}
+            group={group}
+            dragScope={branchNode.depth === 0 ? scope : current.workspaceId}
+            draggable={branchNode.depth === 0}
+            branch={
+              current.workspaceId !== rootWorkspaceId ? placed?.workspace.task?.branch : undefined
+            }
+            parentName={visibleParentName(branchNode)}
+            parentClosed={branchNode.parentClosed}
+            familyCount={branchNode.count}
+            collapsed={collapsed}
+            counts={collapsed ? branchNode.counts : undefined}
+          />
+        );
+      }}
+    />
   );
-  if (reorder) {
-    return (
-      <div className="relative" {...dropProps}>
-        <SidebarDropIndicator edge={edge} />
-        {content}
-      </div>
-    );
-  }
-  if (isRoot || depth > MAX_SESSION_INDENT) return content;
+  if (!onReorder) return content;
   return (
-    <TreeLine indent last={last}>
+    <div className="relative" {...dropProps}>
+      <SidebarDropIndicator edge={edge} />
       {content}
-    </TreeLine>
-  );
-}
-
-function TreeLine({
-  indent,
-  last,
-  children,
-}: {
-  indent: boolean;
-  last: boolean;
-  children: ReactNode;
-}) {
-  if (!indent) return children;
-  return (
-    <div className="relative pl-4" data-testid="agent-sidebar-tree-line">
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute top-0 left-1.5 border-border border-l",
-          last ? "h-4 w-2.5 rounded-bl-sm border-b" : "bottom-0",
-        )}
-      />
-      {!last && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute top-4 left-1.5 w-2.5 border-border border-t"
-        />
-      )}
-      {children}
     </div>
   );
-}
-
-function FoldChevron({ folded }: { folded: boolean }) {
-  const Icon = folded ? ChevronRight : ChevronDown;
-  return <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
 /** Where a remote workspace runs, with how its connection stands. */
@@ -977,21 +871,13 @@ const AgentItem = memo(function AgentItem({
   collapsed: boolean;
   counts?: SessionCounts;
 }) {
-  const { t } = useTranslation();
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
   const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
-  const device = session.parent?.device;
-  const parentLabel = !parentName
-    ? undefined
-    : device
-      ? t("agentView.list.remote_parent", { device: device.name || device.id, name: parentName })
-      : parentClosed
-        ? t("agentView.list.closed_parent", { name: parentName })
-        : t("agentView.list.parent", { name: parentName });
+  const parent = useParentCaption(parentName, session.parent?.device, parentClosed);
   const preview = <RowLine session={session} facts={facts} />;
   return (
     <div
@@ -1075,25 +961,21 @@ const AgentItem = memo(function AgentItem({
               <WorkspaceTag
                 workspace={placed.workspace}
                 root={placed.root}
-                compact={familyCount > 0 || parentLabel !== undefined}
+                compact={familyCount > 0 || parent !== undefined}
               />
             )
           )}
-          {parentLabel ? (
+          {parent ? (
             <div className="flex min-w-0 grow basis-1/2 items-center gap-1.5 overflow-hidden">
               <span
                 className={cn(
                   "max-w-[60%] shrink-0 truncate text-muted-foreground",
                   parentClosed && "opacity-70",
                 )}
-                title={
-                  parentClosed || device
-                    ? parentLabel
-                    : t("agentView.list.parent_hint", { name: parentName })
-                }
+                title={parent.hint}
                 data-testid="agent-sidebar-parent"
               >
-                {parentLabel}
+                {parent.label}
               </span>
               {preview}
             </div>
@@ -1101,18 +983,12 @@ const AgentItem = memo(function AgentItem({
             preview
           )}
           {familyCount > 0 && (
-            <button
-              type="button"
-              className="pointer-events-auto ml-auto inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border border-border px-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-              aria-expanded={!collapsed}
-              title={t("agentView.list.toggle_children")}
-              onClick={() => useAgentViewStore.getState().toggleFolded(familyFoldKey(session))}
-              data-testid="agent-sidebar-fold-family"
-            >
-              <ListTree aria-hidden className="size-3" />
-              {t("agentView.list.children", { count: familyCount })}
-              <FoldChevron folded={collapsed} />
-            </button>
+            <FamilyFold
+              session={session}
+              count={familyCount}
+              collapsed={collapsed}
+              testPrefix="agent-sidebar"
+            />
           )}
           {counts && <StateSummary counts={counts} compact />}
         </div>

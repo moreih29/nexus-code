@@ -1271,6 +1271,7 @@
         "no_text": "아직 출력이 없습니다",
         "open_run": "실행 보기"
       },
+      "conversations_it_made": "하위 대화",
       "jobs": {
         "title": "작업",
         "live": "실시간",
