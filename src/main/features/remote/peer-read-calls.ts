@@ -12,6 +12,8 @@ export const PEER_READ_METHODS = {
   peerFilesRead: "files.read",
   peerGitStatus: "git.status",
   peerGitDiff: "git.diff",
+  peerGitLog: "git.log",
+  peerGitShow: "git.show",
 } as const;
 
 const c = ipcContract.remote.call;
@@ -56,6 +58,18 @@ export function peerReadCalls(
       const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
       return askPeer(() =>
         inRoom().request(deviceId, PEER_READ_METHODS.peerGitDiff, params, undefined, ctx?.signal),
+      );
+    },
+    peerGitLog: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerGitLog.args, args);
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerGitLog, params, undefined, ctx?.signal),
+      );
+    },
+    peerGitShow: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerGitShow.args, args);
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerGitShow, params, undefined, ctx?.signal),
       );
     },
   };
