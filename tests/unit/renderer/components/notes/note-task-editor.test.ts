@@ -5,10 +5,14 @@ import { createNodeFromContent, Editor, getSchema } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { history, undo } from "@tiptap/pm/history";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
+import { EditorState, NodeSelection, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
-import { applyAnswerCard } from "../../../../../src/renderer/components/notes/editor/answer-card";
+import {
+  applyAnswerCard,
+  NoteAnswerWidgets,
+  setLiveCardLinks,
+} from "../../../../../src/renderer/components/notes/editor/answer-card";
 import {
   NoteSummaryAttributes,
   NoteTaskItem,
@@ -357,4 +361,61 @@ test("an old editor reads a live card as an ordinary one-line title quote", () =
   expect(old.firstChild?.attrs.nexusLink).toBeUndefined();
   expect(old.textContent).toBe("Review [logs]");
   expect(docToMarkdown(stored.toJSON())).toBe("> Review \\[logs\\]\n");
+});
+
+test("the editor skips hidden live titles in both directions and selects a lone card as a block", () => {
+  const holder = new Editor({
+    element: null,
+    extensions: [
+      StarterKit.configure({ trailingNode: false }),
+      NoteSummaryAttributes,
+      NoteAnswerWidgets,
+    ],
+    content: { type: "doc", content: [paragraph("Initial")] },
+  });
+  const make = (content: DocNode[], initial?: number) => {
+    const doc = holder.schema.nodeFromJSON({ type: "doc", content });
+    const positions: number[] = [];
+    doc.forEach((_node, offset) => {
+      positions.push(offset);
+    });
+    let state = EditorState.create({
+      doc,
+      plugins: holder.extensionManager.plugins,
+      ...(initial === undefined ? {} : { selection: TextSelection.create(doc, initial) }),
+    });
+    const dispatch = (tr: Transaction) => {
+      state = state.apply(tr);
+    };
+    const editor = {
+      get state() {
+        return state;
+      },
+      view: { dispatch },
+      isDestroyed: false,
+    } as unknown as Editor;
+    return { positions, editor, dispatch };
+  };
+  try {
+    const title = answerCard(linkId, [paragraph("Hidden title")]);
+    const second = answerCard("l1234568", [paragraph("Another hidden title")]);
+    const saved = answerCard("l1234569", [paragraph("Saved answer text")]);
+    const { positions, editor, dispatch } = make([paragraph("Before"), title, second, saved]);
+    setLiveCardLinks(editor, new Set([linkId, "l1234568"]));
+    dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, positions[1] + 2)),
+    );
+    expect(editor.state.selection.$head.parent.textContent).toBe("Saved answer text");
+    dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, positions[2] + 2)),
+    );
+    expect(editor.state.selection.$head.parent.textContent).toBe("Before");
+
+    const only = make([title], 2);
+    setLiveCardLinks(only.editor, new Set([linkId]));
+    expect(only.editor.state.selection).toBeInstanceOf(NodeSelection);
+    expect(only.editor.state.selection.from).toBe(0);
+  } finally {
+    holder.destroy();
+  }
 });

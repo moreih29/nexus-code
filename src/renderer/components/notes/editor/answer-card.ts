@@ -1,6 +1,6 @@
 import { type Editor, Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Node as ProseMirrorNode, ResolvedPos } from "@tiptap/pm/model";
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { hasAnswerCard } from "../../../../shared/notes/answer-card";
 import { isEmptyDoc } from "../../../../shared/notes/insert";
@@ -45,7 +45,52 @@ function decorations(doc: ProseMirrorNode): DecorationSet {
   return DecorationSet.create(doc, widgets);
 }
 
-const key = new PluginKey<DecorationSet>("noteAnswerCards");
+interface AnswerWidgetState {
+  widgets: DecorationSet;
+  liveLinks: ReadonlySet<string>;
+}
+
+const key = new PluginKey<AnswerWidgetState>("noteAnswerCards");
+
+export function setLiveCardLinks(editor: Editor, liveLinks: ReadonlySet<string>) {
+  if (editor.isDestroyed) return;
+  const current = key.getState(editor.state);
+  if (
+    !current ||
+    (current.liveLinks.size === liveLinks.size &&
+      [...liveLinks].every((id) => current.liveLinks.has(id)))
+  )
+    return;
+  editor.view.dispatch(editor.state.tr.setMeta(key, liveLinks).setMeta("addToHistory", false));
+}
+
+function inLiveTitle(pos: ResolvedPos, liveLinks: ReadonlySet<string>): boolean {
+  if (pos.depth < 2 || pos.parent.type.name !== "paragraph" || pos.index(-1) !== 0) return false;
+  const quote = pos.node(-1);
+  return quote.type.name === "blockquote" && liveLinks.has(quote.attrs.nexusLink);
+}
+
+/** Skip the hidden title of each live card crossed by the caret. */
+function selectionOutsideLiveTitle(
+  selection: Selection,
+  liveLinks: ReadonlySet<string>,
+  direction: -1 | 1,
+): Selection | null {
+  if (
+    !(selection instanceof TextSelection) ||
+    !selection.empty ||
+    !inLiveTitle(selection.$head, liveLinks)
+  )
+    return null;
+  const doc = selection.$head.doc;
+  const cardPos = selection.$head.before(-1);
+  let candidate: Selection | null = selection;
+  while (candidate && inLiveTitle(candidate.$head, liveLinks)) {
+    const boundary = direction === 1 ? candidate.$head.after() : candidate.$head.before(-1);
+    candidate = Selection.findFrom(doc.resolve(boundary), direction, true);
+  }
+  return candidate ?? NodeSelection.create(doc, cardPos);
+}
 
 export const NoteAnswerWidgets = Extension.create({
   name: "noteAnswerWidgets",
@@ -53,10 +98,24 @@ export const NoteAnswerWidgets = Extension.create({
     new Plugin({
       key,
       state: {
-        init: (_, state) => decorations(state.doc),
-        apply: (tr, previous) => (tr.docChanged ? decorations(tr.doc) : previous),
+        init: (_, state) => ({ widgets: decorations(state.doc), liveLinks: new Set() }),
+        apply: (tr, previous) => {
+          const liveLinks = tr.getMeta(key) as ReadonlySet<string> | undefined;
+          if (!tr.docChanged && !liveLinks) return previous;
+          return {
+            widgets: tr.docChanged ? decorations(tr.doc) : previous.widgets,
+            liveLinks: liveLinks ?? previous.liveLinks,
+          };
+        },
       },
-      props: { decorations: (state) => key.getState(state) },
+      props: { decorations: (state) => key.getState(state)?.widgets },
+      appendTransaction: (_transactions, before, after) => {
+        const links = key.getState(after)?.liveLinks;
+        if (!links?.size) return;
+        const direction = after.selection.head < before.selection.head ? -1 : 1;
+        const selection = selectionOutsideLiveTitle(after.selection, links, direction);
+        if (selection) return after.tr.setSelection(selection).setMeta("addToHistory", false);
+      },
     }),
   ],
 });

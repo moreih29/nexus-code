@@ -1142,7 +1142,7 @@ button.note-task-chip:hover {
   border-left: 0;
   padding-left: 0;
 }
-.note-doc blockquote:has(> [data-note-answer-card] > [data-note-live-card]) > p:first-of-type {
+.note-doc blockquote > [data-note-answer-card]:has(> [data-note-live-card]) + p {
   display: none;
 }
 .note-doc code {
