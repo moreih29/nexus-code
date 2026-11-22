@@ -113,7 +113,7 @@ describe("Other computers connection guidance", () => {
     const html = renderToStaticMarkup(<RemoteSessions query="" />);
     expect(html).toContain("Other computers");
     expect(html).toContain(message);
-    expect(html).not.toContain("No sessions");
+    expect(html).not.toContain("No conversations");
   });
 
   test("shows only the connection guidance before a list has been received", () => {
@@ -145,7 +145,7 @@ describe("Other computers connection guidance", () => {
       expect(empty.match(/No conversation matches/g)).toHaveLength(1);
       expect(empty).not.toContain("Work PC");
       expect(empty).not.toContain("Laptop");
-      expect(empty).not.toContain("No sessions");
+      expect(empty).not.toContain("No conversations");
     } finally {
       readLists.mockRestore();
     }
@@ -619,7 +619,7 @@ describe("the agent view's other computers", () => {
     const headers = html.split('data-testid="remote-workspace"').slice(1);
     const api = headers[0]?.split("</div>")[0];
     const web = headers[2]?.split("</div>")[0];
-    expect(api).toContain('aria-label="Show 1 worktree in api"');
+    expect(api).toContain('aria-label="Show 1 task in api"');
     expect(api).toContain('data-testid="remote-worktrees-toggle" data-workspace="w1"');
     expect(api).toContain('aria-expanded="false"');
     expect(api).toContain("lucide-git-branch");
@@ -627,7 +627,7 @@ describe("the agent view's other computers", () => {
     expect(api?.indexOf("remote-worktrees-toggle")).toBeLessThan(
       api?.indexOf("remote-terminals-toggle") ?? -1,
     );
-    expect(web).toContain('aria-label="Show 3 worktrees in web"');
+    expect(web).toContain('aria-label="Show 3 tasks in web"');
     expect(html.match(/data-testid="remote-worktrees-toggle"/g)).toHaveLength(2);
     expect(html).toContain("Fix login");
     expect(html).toContain("Approve refactor");
@@ -808,7 +808,7 @@ describe("the agent view's other computers", () => {
       renderToStaticMarkup(<PeerGroup peer={peer} query="" sessions={sessions} />);
     expect(render(undefined)).toContain("Loading…");
     expect(render({ status: "unavailable" })).toContain("No remote response");
-    expect(render({ status: "ready", list: list([]) })).toContain("No sessions");
+    expect(render({ status: "ready", list: list([]) })).toContain("No conversations");
   });
 
   test("a session waiting on the user says what for", () => {

@@ -1179,7 +1179,7 @@
       "more_files_other": "and {{count}} more",
       "no_files": "No file changes to undo.",
       "conversation": "Rewind the conversation",
-      "conversation_and_files": "Rewind the conversation and code",
+      "conversation_and_files": "Rewind the conversation and files",
       "message_unavailable": "This message is no longer in the current conversation.",
       "files_restored_only": "The files were restored. The conversation could not be rewound. {{error}}",
       "failed": "Couldn't rewind: {{error}}"
@@ -1955,7 +1955,7 @@
       "noComputers": "No connected computers · Open the app on another device signed in to the same account",
       "loading": "Loading…",
       "unavailable": "No remote response",
-      "empty": "No sessions",
+      "empty": "No conversations",
       "state": {
         "needs-you": "Needs you",
         "running": "Running",
@@ -1963,10 +1963,10 @@
         "idle": "Idle",
         "ended": "Ended"
       },
-      "worktreesShow_one": "Show 1 worktree in {{workspace}}",
-      "worktreesShow_other": "Show {{count}} worktrees in {{workspace}}",
-      "worktreesHide_one": "Hide 1 worktree in {{workspace}}",
-      "worktreesHide_other": "Hide {{count}} worktrees in {{workspace}}",
+      "worktreesShow_one": "Show 1 task in {{workspace}}",
+      "worktreesShow_other": "Show {{count}} tasks in {{workspace}}",
+      "worktreesHide_one": "Hide 1 task in {{workspace}}",
+      "worktreesHide_other": "Hide {{count}} tasks in {{workspace}}",
       "terminalsShow_one": "Show 1 terminal",
       "terminalsShow_other": "Show {{count}} terminals",
       "terminalsHide": "Hide terminals",
