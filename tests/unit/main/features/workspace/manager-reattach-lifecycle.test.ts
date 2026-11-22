@@ -36,7 +36,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { createAgentReconnectError } = await import(
   "../../../../../src/main/infra/agent/channel/reconnecting-process-channel"
@@ -101,7 +101,7 @@ function makeManager(overrides?: {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-reattach-lc-${Date.now()}-${Math.random()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(
+  const stateService = openTestState(
     path.join(os.tmpdir(), `nexus-reattach-lc-state-${Date.now()}-${Math.random()}.json`),
   );
   const broadcasts: Array<{ channelName: string; event: string; args: unknown }> = [];

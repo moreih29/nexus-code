@@ -45,7 +45,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { loginShell } = await import("../../../../../src/main/infra/platform");
 
@@ -87,7 +87,7 @@ function makeManager() {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-wrapper-getter-test-${Date.now()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(
+  const stateService = openTestState(
     path.join(os.tmpdir(), `nexus-getter-state-${Date.now()}.json`),
   );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});

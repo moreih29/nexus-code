@@ -32,7 +32,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { ChatHost } = await import("../../../../../src/main/features/chat/host");
 const { startAgentPtyHost } = await import("../../../../../src/main/features/pty/agent-host");
@@ -105,7 +105,7 @@ function makeHarness() {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-lc-degraded-${Date.now()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(
+  const stateService = openTestState(
     path.join(os.tmpdir(), `nexus-lc-degraded-state-${Date.now()}.json`),
   );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});

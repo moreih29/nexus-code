@@ -1,11 +1,22 @@
 import { setImmediate } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
-import { PREPARING } from "./state-file";
+import { CANCELLED, PREPARING } from "./state-file";
 import type { Layouts, StateWriteMessage, StateWriteResult } from "./state-writer.worker";
 
+const WORKER_WRITE_TIMEOUT_MS = 5_000;
+
+export class StateWorkerError extends Error {
+  constructor(
+    message: string,
+    readonly startup: boolean,
+  ) {
+    super(message);
+  }
+}
+
 export class StateWriter {
-  private worker?: Worker;
+  private worker?: { thread: Worker; ready: boolean };
 
   constructor(
     private readonly filePath: string,
@@ -15,37 +26,52 @@ export class StateWriter {
   /** One call at a time. Partition the clone of a large layout across main turns. */
   async write(snapshot: AppState, gate: Int32Array): Promise<boolean> {
     this.worker ??= this.startWorker();
-    const worker = this.worker;
+    const current = this.worker;
+    const worker = current.thread;
     const layoutByWorkspace = snapshot.layoutByWorkspace;
     const state = { ...snapshot, layoutByWorkspace: undefined };
     const send = (message: StateWriteMessage) => worker.postMessage(message);
     worker.ref();
-    let failure: Error | undefined;
     return new Promise<boolean>((resolve, reject) => {
+      let failure: StateWorkerError | undefined;
       const onError = (error: Error) => {
-        failure = error;
+        failure ??= new StateWorkerError(String(error), !current.ready);
       };
       const onExit = (code: number) => {
+        failure ??= new StateWorkerError(`App state writer exited (${code})`, !current.ready);
         cleanUp();
-        reject(failure ?? new Error(`App state writer exited (${code})`));
+        reject(failure);
       };
       const onMessage = (result: StateWriteResult) => {
+        if ("ready" in result) {
+          current.ready = true;
+          return;
+        }
+        if (failure) return;
         cleanUp();
         if ("error" in result) reject(new Error(result.error));
         else resolve(result.written);
       };
       const cleanUp = () => {
+        clearTimeout(watchdog);
         worker.off("error", onError);
         worker.off("exit", onExit);
         worker.off("message", onMessage);
         worker.unref();
       };
+      const watchdog = setTimeout(() => {
+        failure ??= new StateWorkerError("App state worker write timed out", !current.ready);
+        Atomics.compareExchange(gate, 0, PREPARING, CANCELLED);
+        // An old rename can only be ruled out after the worker has exited.
+        void worker.terminate().catch(onError);
+      }, WORKER_WRITE_TIMEOUT_MS);
       worker.on("error", onError);
       worker.once("exit", onExit);
-      worker.once("message", onMessage);
+      worker.on("message", onMessage);
       void this.sendLayouts(layoutByWorkspace, gate, send)
         .then(() => send({ kind: "write", state, hasLayouts: !!layoutByWorkspace, gate }))
         .catch((error: unknown) => {
+          if (failure) return;
           cleanUp();
           reject(error);
         });
@@ -65,13 +91,18 @@ export class StateWriter {
     }
   }
 
-  private startWorker(): Worker {
-    const worker = new Worker(this.workerPath, { workerData: this.filePath });
+  private startWorker(): NonNullable<StateWriter["worker"]> {
+    let worker: Worker;
+    try {
+      worker = new Worker(this.workerPath, { workerData: this.filePath });
+    } catch (error) {
+      throw new StateWorkerError(`Could not start app state worker: ${String(error)}`, true);
+    }
     // An idle worker can exit too. Keep an error listener until exit.
     worker.on("error", () => {});
     worker.once("exit", () => {
       this.worker = undefined;
     });
-    return worker;
+    return { thread: worker, ready: false };
   }
 }

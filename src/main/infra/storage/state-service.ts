@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -10,11 +9,14 @@ import {
 } from "../../../shared/types/app-state";
 import { migrateAppState } from "./app-state-migrations";
 import { CANCELLED, PREPARING, RENAMING, writeStateFile } from "./state-file";
-import { StateWriter } from "./state-writer";
+import { StateWorkerError, StateWriter } from "./state-writer";
 
 const log = createLogger("storage");
 const WRITE_DELAY_MS = 25;
 const RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 8_000;
+const RENAME_WAIT_MS = 1_000;
+const MAX_WORKER_FAILURES = 3;
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
@@ -29,10 +31,13 @@ export class StateService {
   private writtenRevision = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private writing?: Int32Array;
+  private retryDelay = RETRY_DELAY_MS;
+  private workerFailures = 0;
+  private useSyncWriter = false;
 
   constructor(
     private readonly filePath: string,
-    workerPath = path.join(__dirname, "state-writer.worker.ts"),
+    workerPath: string,
   ) {
     this.state = this.load();
     this.writer = new StateWriter(filePath, workerPath);
@@ -131,7 +136,7 @@ export class StateService {
       const phase = Atomics.compareExchange(writing, 0, PREPARING, CANCELLED);
       if (
         phase === RENAMING &&
-        Atomics.wait(writing, 0, RENAMING, RETRY_DELAY_MS) === "timed-out"
+        Atomics.wait(writing, 0, RENAMING, RENAME_WAIT_MS) === "timed-out"
       ) {
         throw new Error("Timed out waiting for the earlier app state rename");
       }
@@ -139,6 +144,7 @@ export class StateService {
     writeStateFile(this.filePath, `${this.filePath}.vsctmp.sync`, state);
     clearTimeout(this.timer);
     this.timer = undefined;
+    this.retryDelay = RETRY_DELAY_MS;
   }
 
   private scheduleWrite(delay: number): void {
@@ -152,16 +158,33 @@ export class StateService {
 
   private async write(): Promise<void> {
     const revision = this.revision;
-    const gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-    this.writing = gate;
     let delay = WRITE_DELAY_MS;
     try {
-      if (await this.writer.write(this.state, gate)) {
-        this.writtenRevision = Math.max(this.writtenRevision, revision);
+      if (this.useSyncWriter) {
+        this.writeNow(this.state);
+        this.writtenRevision = revision;
+      } else {
+        const gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+        this.writing = gate;
+        const written = await this.writer.write(this.state, gate);
+        this.workerFailures = 0;
+        if (written) this.writtenRevision = Math.max(this.writtenRevision, revision);
       }
+      this.retryDelay = RETRY_DELAY_MS;
     } catch (error) {
+      if (error instanceof StateWorkerError) {
+        this.workerFailures++;
+        if (error.startup || this.workerFailures >= MAX_WORKER_FAILURES) {
+          this.useSyncWriter = true;
+          log.warn(`App state worker unavailable; using synchronous writes: ${String(error)}`);
+          return;
+        }
+      } else {
+        this.workerFailures = 0;
+      }
       log.warn(`Could not save app state; retrying: ${String(error)}`);
-      delay = RETRY_DELAY_MS;
+      delay = this.retryDelay;
+      this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_DELAY_MS);
     } finally {
       this.writing = undefined;
       this.scheduleWrite(delay);

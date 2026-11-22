@@ -3,15 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
-import {
-  type AppState,
-  AppStateSchema,
-  StateService,
-} from "../../../../../src/main/infra/storage/state-service";
+import { Worker } from "node:worker_threads";
+import { type AppState, AppStateSchema } from "../../../../../src/main/infra/storage/state-service";
 import { StateWriter } from "../../../../../src/main/infra/storage/state-writer";
 import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
 import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voice-names";
+import { openTestState } from "../../../../helpers/test-state";
 import { mainWarnMock } from "../../../../log-test-spies";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +21,7 @@ function makeTmpDir(): string {
 }
 
 async function waitFor(description: string, done: () => boolean): Promise<void> {
-  const deadline = performance.now() + 4_000;
+  const deadline = performance.now() + 8_000;
   while (!done()) {
     if (performance.now() >= deadline) throw new Error(`Timed out waiting for ${description}`);
     await setTimeout(10);
@@ -68,7 +66,7 @@ describe("StateService", () => {
   it("atomically replaces an existing file from the worker", async () => {
     const filePath = path.join(tmpDir, "state.json");
     const tmpPath = `${filePath}.vsctmp`;
-    const svc = new StateService(filePath);
+    const svc = openTestState(filePath);
     svc.setState({ lastActiveWorkspaceId: "ws-1" });
     svc.flushNow();
     svc.setState({ lastActiveWorkspaceId: "ws-2" });
@@ -91,7 +89,7 @@ describe("StateService", () => {
     "rename",
   ] as const)("preserves the committed file after a synchronous %s failure", (stage) => {
     const filePath = path.join(tmpDir, "state.json");
-    const service = new StateService(filePath);
+    const service = openTestState(filePath);
     service.setState({ lastActiveWorkspaceId: "old" });
     service.flushNow();
     const original = fs.readFileSync(filePath);
@@ -122,7 +120,7 @@ describe("StateService", () => {
 
   it("keeps pending updates but rejects a coordinated change if its commit fails", () => {
     const filePath = path.join(tmpDir, "state.json");
-    const service = new StateService(filePath);
+    const service = openTestState(filePath);
     service.commitState({ sidebarWidth: 200, density: "default" });
     service.setState({ sidebarWidth: 250 });
     const rename = spyOn(fs, "renameSync").mockImplementationOnce(() => {
@@ -140,7 +138,7 @@ describe("StateService", () => {
   });
 
   it("coalesces ten updates into two writes when the first write is in flight", async () => {
-    const service = new StateService(path.join(tmpDir, "state.json"));
+    const service = openTestState(path.join(tmpDir, "state.json"));
     const started = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const saved = Promise.withResolvers<void>();
@@ -176,6 +174,65 @@ describe("StateService", () => {
     }
   });
 
+  it("saves subsequent changes synchronously after a worker load failure", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const write = spyOn(StateWriter.prototype, "write");
+    mainWarnMock.mockClear();
+    try {
+      const service = openTestState(filePath, path.join(tmpDir, "missing.js"));
+      service.setState({ sidebarWidth: 250 });
+      await waitFor("the synchronous fallback", () => fs.existsSync(filePath));
+      expect(readState(filePath).sidebarWidth).toBe(250);
+      service.setState({ sidebarWidth: 270 });
+      await waitFor("another fallback write", () => readState(filePath).sidebarWidth === 270);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(
+        mainWarnMock.mock.calls.filter(([message]) => message.includes("using synchronous writes")),
+      ).toHaveLength(1);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("restarts a worker that exits during a write", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const sync = fs.fsyncSync;
+fs.fsyncSync = (fd) => {
+  if (!fs.existsSync(statePath + ".crashed")) {
+    fs.writeFileSync(statePath + ".crashed", "");
+    process.exit(7);
+  }
+  sync(fd);
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    await waitFor("the first worker to exit", () => fs.existsSync(`${filePath}.crashed`));
+    service.setState({ sidebarWidth: 270 });
+    await waitFor("the restarted worker's write", () => fs.existsSync(filePath));
+    expect(readState(filePath).sidebarWidth).toBe(270);
+  });
+
+  it("falls back after three workers fail in a row", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+fs.fsyncSync = () => {
+  fs.appendFileSync(statePath + ".crashes", "x");
+  process.exit(7);
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 270 });
+    await waitFor("the fallback after repeated worker exits", () => fs.existsSync(filePath));
+    expect(readState(filePath).sidebarWidth).toBe(270);
+    expect(fs.readFileSync(`${filePath}.crashes`, "utf8")).toBe("xxx");
+  }, 10_000);
+
   it.each([
     "EBUSY",
     "EPERM",
@@ -190,7 +247,7 @@ fs.renameSync = (...args) => {
   throw Object.assign(new Error("${code}: destination locked"), { code: "${code}" });
 };`,
     );
-    const service = new StateService(filePath, workerPath);
+    const service = openTestState(filePath, workerPath);
     service.setState({ sidebarWidth: 250 });
     service.flushNow();
     mainWarnMock.mockClear();
@@ -216,13 +273,80 @@ fs.renameSync = (...args) => {
   rename(...args);
 };`,
     );
-    const service = new StateService(filePath, workerPath);
+    const service = openTestState(filePath, workerPath);
     service.setState({ sidebarWidth: 255 });
     await waitFor("the worker's rename to start", () => fs.existsSync(`${filePath}.renaming`));
     service.setState({ sidebarWidth: 288 });
     service.flushNow();
     expect(readState(filePath).sidebarWidth).toBe(288);
     expect(fs.existsSync(`${filePath}.vsctmp`)).toBe(false);
+  });
+
+  it("times out a stalled rename, retires the worker and saves the latest state", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const rename = fs.renameSync;
+fs.renameSync = (...args) => {
+  if (!fs.existsSync(statePath + ".stalled")) {
+    fs.writeFileSync(statePath + ".stalled", "");
+    const deadline = performance.now() + 8_000;
+    while (performance.now() < deadline) {}
+    fs.writeFileSync(statePath + ".escaped", "");
+  }
+  rename(...args);
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    service.flushNow();
+    service.setState({ sidebarWidth: 260 });
+    await waitFor("the rename to stall", () => fs.existsSync(`${filePath}.stalled`));
+    service.setState({ sidebarWidth: 270 });
+    expect(() => service.flushNow()).toThrow("Timed out waiting for the earlier app state rename");
+    expect(readState(filePath).sidebarWidth).toBe(250);
+    await waitFor(
+      "the write by the replacement worker",
+      () => readState(filePath).sidebarWidth === 270,
+    );
+    expect(fs.existsSync(`${filePath}.escaped`)).toBe(false);
+  }, 12_000);
+
+  it("cancels a partial transfer of workspace layouts before the next write", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const service = openTestState(filePath);
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    const rootId = crypto.randomUUID();
+    const layout = {
+      root: { kind: "leaf" as const, id: rootId, tabIds: [], activeTabId: null },
+      activeGroupId: rootId,
+      tabs: [],
+    };
+    const sent = Promise.withResolvers<void>();
+    const post = Worker.prototype.postMessage;
+    const send = spyOn(Worker.prototype, "postMessage").mockImplementation(function (
+      this: Worker,
+      ...args: Parameters<Worker["postMessage"]>
+    ) {
+      const [message] = args;
+      if (message.kind === "layout" && message.id === first) sent.resolve();
+      post.apply(this, args);
+    });
+    try {
+      service.setState({ layoutByWorkspace: { [first]: layout, [second]: layout } });
+      await sent.promise;
+      // The writer yields after sending the first layout.
+      service.setState({ layoutByWorkspace: { [second]: layout } });
+      service.flushNow();
+      service.setState({ sidebarWidth: 270 });
+      await waitFor("the next background write", () => readState(filePath).sidebarWidth === 270);
+      expect(Object.keys(readState(filePath).layoutByWorkspace ?? {})).toEqual([second]);
+      expect(send.mock.calls.filter(([message]) => message.id === second)).toHaveLength(1);
+    } finally {
+      send.mockRestore();
+    }
   });
 
   it("flushNow cancels an older worker write still preparing its file", async () => {
@@ -241,7 +365,7 @@ fs.fsyncSync = (fd) => {
   }
 };`,
     );
-    const service = new StateService(filePath, workerPath);
+    const service = openTestState(filePath, workerPath);
     service.setState({ sidebarWidth: 255 });
     await waitFor("the worker's prepared file", () => fs.existsSync(`${filePath}.ready`));
     try {
@@ -257,7 +381,7 @@ fs.fsyncSync = (fd) => {
 
   it("keeps the last committed JSON when the process is killed mid-write", async () => {
     const filePath = path.join(tmpDir, "state.json");
-    const service = new StateService(filePath);
+    const service = openTestState(filePath);
     service.setState({ sidebarWidth: 255 });
     service.flushNow();
 
@@ -292,13 +416,13 @@ await Bun.sleep(10_000);`,
       child.kill("SIGKILL");
       await child.exited;
     }
-    expect(new StateService(filePath).getState().sidebarWidth).toBe(255);
+    expect(openTestState(filePath).getState().sidebarWidth).toBe(255);
     expect(fs.existsSync(`${filePath}.invalid`)).toBe(false);
   });
 
   it("mergeState merges without overwriting unrelated fields", () => {
     const filePath = path.join(tmpDir, "state.json");
-    const svc = new StateService(filePath);
+    const svc = openTestState(filePath);
     svc.setState({
       lastActiveWorkspaceId: "ws-1",
       windowBounds: { x: 0, y: 0, width: 1280, height: 800 },
@@ -320,7 +444,7 @@ await Bun.sleep(10_000);`,
     });
     fs.writeFileSync(filePath, original, "utf8");
 
-    const state = new StateService(filePath).getState();
+    const state = openTestState(filePath).getState();
 
     expect(state.lastActiveWorkspaceId).toBe("ws-kept");
     expect(state.sidebarWidth).toBe(280);
@@ -339,7 +463,7 @@ await Bun.sleep(10_000);`,
       "utf8",
     );
 
-    const state = new StateService(filePath).getState();
+    const state = openTestState(filePath).getState();
 
     expect(state.lspLanguages).toEqual({ typescript: { lowMemory: true } });
   });
@@ -353,7 +477,7 @@ await Bun.sleep(10_000);`,
     };
     fs.writeFileSync(filePath, JSON.stringify(original), "utf8");
 
-    expect(new StateService(filePath).getState()).toMatchObject(original);
+    expect(openTestState(filePath).getState()).toMatchObject(original);
     expect(fs.existsSync(`${filePath}.invalid`)).toBe(false);
   });
 
@@ -369,7 +493,7 @@ await Bun.sleep(10_000);`,
 
   it("loads usage-limit resume defaults and persists independent setting changes", () => {
     const filePath = path.join(tmpDir, "state.json");
-    const service = new StateService(filePath);
+    const service = openTestState(filePath);
     expect(service.getState()).toMatchObject({
       chatLimitResume: true,
       chatLimitResumeDelayMinutes: 1,
@@ -383,7 +507,7 @@ await Bun.sleep(10_000);`,
       patch.parse({ chatLimitResumeDeadlineHours: 168, chatLimitResumeMessage: "Continue" }),
     );
     service.flushNow();
-    expect(new StateService(filePath).getState()).toMatchObject({
+    expect(openTestState(filePath).getState()).toMatchObject({
       chatLimitResume: true,
       chatLimitResumeDelayMinutes: 0,
       chatLimitResumeMaxTries: 10,
@@ -393,7 +517,7 @@ await Bun.sleep(10_000);`,
   });
 
   it("rejects the same invalid patches as validating the whole state", () => {
-    const service = new StateService(path.join(tmpDir, "state.json"));
+    const service = openTestState(path.join(tmpDir, "state.json"));
     const original = service.getState();
     for (const input of [
       { autoCheckForUpdates: false, sidebarWidth: -1 },
@@ -433,7 +557,7 @@ await Bun.sleep(10_000);`,
         chatLimitResumeMaxTries: 7,
       }),
     );
-    expect(new StateService(filePath).getState()).toMatchObject({
+    expect(openTestState(filePath).getState()).toMatchObject({
       chatLimitResume: false,
       chatLimitResumeDelayMinutes: 1,
       chatLimitResumeMaxTries: 7,
@@ -444,7 +568,7 @@ await Bun.sleep(10_000);`,
     const filePath = path.join(tmpDir, "state.json");
     fs.writeFileSync(filePath, "{ truncated", "utf8");
 
-    const state = new StateService(filePath).getState();
+    const state = openTestState(filePath).getState();
 
     expect(state.updateChannel).toBe("stable");
     expect(fs.readFileSync(`${filePath}.invalid`, "utf8")).toBe("{ truncated");

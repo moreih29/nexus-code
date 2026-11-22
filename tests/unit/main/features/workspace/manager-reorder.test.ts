@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { WorkspaceManager } from "../../../../../src/main/features/workspace/manager";
 import { GlobalStorage } from "../../../../../src/main/infra/storage/global-storage";
-import { StateService } from "../../../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../../../src/main/infra/storage/workspace-storage";
 import { WorkspaceReorderedEventSchema } from "../../../../../src/shared/ipc/contract";
+import { openTestState } from "../../../../helpers/test-state";
 
 test.each([
   false,
@@ -19,7 +19,7 @@ test.each([
   const manager = new WorkspaceManager(
     storage,
     new WorkspaceStorage(path.join(dir, "workspace"), () => new Database(":memory:")),
-    new StateService(path.join(dir, "state.json")),
+    openTestState(path.join(dir, "state.json")),
     broadcast,
   );
   try {

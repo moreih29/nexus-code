@@ -9,9 +9,9 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { chatProfilesAdd } from "../../../../src/main/features/cli/commands/chat-profiles";
 import { type CliCommand, runCli } from "../../../../src/main/features/cli/registry";
 import { keptInMemory } from "../../../../src/main/features/remote/sealed-file";
-import { StateService } from "../../../../src/main/infra/storage/state-service";
 import { connectionKeyTarget } from "../../../../src/shared/agent-profiles/connection";
 import { SHARED_BY_DEFAULT } from "../../../../src/shared/agent-profiles/profiles";
+import { openTestState } from "../../../helpers/test-state";
 import { mainDebugMock, mainErrorMock, mainInfoMock, mainWarnMock } from "../../../log-test-spies";
 import { APP, contextFor, fakeApp, SHELL_TAB } from "./fake-services";
 
@@ -26,7 +26,7 @@ afterEach(async () => {
 function fixture({ windows }: { windows?: boolean } = {}) {
   const app = fakeApp();
   const statePath = join(dir, "app-state.json");
-  const state = new StateService(statePath);
+  const state = openTestState(statePath);
   const storage = keptInMemory<Record<string, { target: string; key: string }>>();
   const keys = new ConnectionKeys(storage, true);
   const changes: (string | undefined)[] = [];
@@ -101,7 +101,7 @@ test("adds an account profile and directs the user to sign in from Settings", as
     shared: SHARED_BY_DEFAULT.claude,
   });
   expect(expandHome(saved?.dir ?? "")).toBe(join(dir, "personal"));
-  expect(new StateService(statePath).getState().agentProfiles?.profiles).toEqual([saved]);
+  expect(openTestState(statePath).getState().agentProfiles?.profiles).toEqual([saved]);
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("WORKSPACE DEFAULT");
   expect(result.stdout).toContain(saved?.id as string);

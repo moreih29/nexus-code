@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { registerAppStateChannel } from "../../../../../../src/main/features/app-state";
 import { ClosePersistence } from "../../../../../../src/main/features/window/close-persistence";
 import { setupRouter } from "../../../../../../src/main/infra/ipc-router";
-import { StateService } from "../../../../../../src/main/infra/storage/state-service";
+import type { StateService } from "../../../../../../src/main/infra/storage/state-service";
 import { type AppState, AppStateSchema } from "../../../../../../src/shared/types/app-state";
 import type { WorkspaceLayoutSnapshot } from "../../../../../../src/shared/types/layout";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 import type { TimerScheduler } from "../../../../../../src/shared/util/timer-scheduler";
+import { openTestState } from "../../../../../helpers/test-state";
 
 type Invoke = (
   event: { sender?: { id: number } },
@@ -271,7 +272,7 @@ test("closing flushes queued tab, split and browser URL changes after an older s
       return finishWrite.promise;
     },
   });
-  const state = new StateService(stateFile);
+  const state = openTestState(stateFile);
   state.setState({ layoutByWorkspace: { [otherWorkspace.id]: otherSnapshot } });
   registerAppStateChannel(state, { listWorkspaces: () => [workspace, otherWorkspace] });
   const close = new ClosePersistence((warning) => warnings.push(warning), fakeTimer());
@@ -341,7 +342,7 @@ test("closing flushes queued tab, split and browser URL changes after an older s
 
     unregisterStatePersistence();
     state.flushNow();
-    registerAppStateChannel(new StateService(stateFile), {
+    registerAppStateChannel(openTestState(stateFile), {
       listWorkspaces: () => [workspace, otherWorkspace],
     });
     await restore();

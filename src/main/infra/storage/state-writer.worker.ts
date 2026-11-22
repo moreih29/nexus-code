@@ -14,7 +14,7 @@ export type StateWriteMessage =
       gate: Int32Array;
     };
 
-export type StateWriteResult = { written: boolean } | { error: string };
+export type StateWriteResult = { ready: true } | { written: boolean } | { error: string };
 
 const port = parentPort;
 if (!port) throw new Error("App state writer requires a worker port");
@@ -49,3 +49,4 @@ port.on("message", (message: StateWriteMessage) => {
   }
   port.postMessage(result);
 });
+port.postMessage({ ready: true } satisfies StateWriteResult);

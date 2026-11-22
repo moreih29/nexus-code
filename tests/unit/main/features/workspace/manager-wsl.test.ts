@@ -18,7 +18,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 
 class StubChannel {
@@ -63,7 +63,7 @@ function makeManager() {
   const manager = new WorkspaceManager(
     new GlobalStorage(globalDb),
     new WorkspaceStorage(tmp, () => new Database(":memory:")),
-    new StateService(`${tmp}-state.json`),
+    openTestState(`${tmp}-state.json`),
     broadcast,
     undefined as never,
     undefined as never,
