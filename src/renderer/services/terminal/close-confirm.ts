@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ipcCallResult } from "@/ipc/client";
 import { useTabsStore } from "@/state/stores/tabs";
-import { isLoginShell } from "./controller";
+import { isLoginShell } from "../../../shared/pty/login-shell";
 import { closeTerminal } from "./open-terminal";
 
 /** How long to wait for the agent's answer before closing without asking. */

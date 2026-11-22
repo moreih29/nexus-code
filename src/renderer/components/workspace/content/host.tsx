@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
@@ -30,8 +30,11 @@ import { PdfEditorView } from "./pdf-editor-view";
 import { PptxEditorView } from "./pptx-editor-view";
 import { AGENT_VIEW_SLOTS, useSlotElement } from "./slot-registry";
 import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
-import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
+
+const TerminalView = lazy(() =>
+  import("./terminal-view").then(({ TerminalView }) => ({ default: TerminalView })),
+);
 
 interface ContentHostProps {
   workspaceId: string;
@@ -205,14 +208,16 @@ export const ContentHost = memo(function ContentHost({
     return (
       <div className="absolute inset-0">
         {tab.type === "terminal" ? (
-          <TerminalView
-            workspaceId={workspaceId}
-            tabId={tab.id}
-            cwd={tab.props.cwd}
-            ownerLeafId={leafId}
-            parentEl={parentEl}
-            isVisible={isVisible}
-          />
+          <Suspense fallback={null}>
+            <TerminalView
+              workspaceId={workspaceId}
+              tabId={tab.id}
+              cwd={tab.props.cwd}
+              ownerLeafId={leafId}
+              parentEl={parentEl}
+              isVisible={isVisible}
+            />
+          </Suspense>
         ) : tab.type === "editor" ? (
           // key on filePath: the preview-slot reuse path swaps props.filePath on
           // the same Tab id, so without a key the EditorView would keep the same

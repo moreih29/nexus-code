@@ -1,5 +1,4 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
 import i18next from "i18next";
@@ -149,7 +148,7 @@ interface TerminalLike {
   focus: () => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
-type LigaturesAddonLike = Pick<LigaturesAddon, "dispose">;
+type CreateLigaturesAddon = () => Disposable;
 type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
 
 export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
@@ -341,7 +340,7 @@ export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
   createFitAddon: () => FitAddonLike;
-  createLigaturesAddon: () => LigaturesAddonLike;
+  loadLigaturesAddon: () => Promise<CreateLigaturesAddon>;
   createPtyClient: (options: PtyClientOptions) => PtyClient;
   createResizeObserver: (callback: ResizeObserverCallback) => ResizeObserverLike;
   requestAnimationFrame: (callback: FrameRequestCallback) => number;
@@ -350,7 +349,9 @@ export interface TerminalControllerDeps {
 
 async function waitForTerminalFonts(fontSize: number): Promise<void> {
   try {
-    await Promise.all([
+    // xterm measures cells at open. Wait for the fallback too, even when
+    // the primary face only covers part of a terminal's output.
+    await Promise.allSettled([
       document.fonts.load(`${fontSize}px "JetBrains Mono Nerd Font"`),
       document.fonts.load(`${fontSize}px "Sarasa Term K"`),
       document.fonts.load(`${fontSize}px "D2CodingLigature Nerd Font"`),
@@ -364,7 +365,10 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
   waitForTerminalFonts,
   createTerminal: (options) => new Terminal(options) as unknown as TerminalLike,
   createFitAddon: () => new FitAddon(),
-  createLigaturesAddon: () => new LigaturesAddon(),
+  loadLigaturesAddon: async () => {
+    const { LigaturesAddon } = await import("@xterm/addon-ligatures");
+    return () => new LigaturesAddon();
+  },
   createPtyClient,
   createResizeObserver: (callback) => new ResizeObserver(callback),
   requestAnimationFrame: (callback) => requestAnimationFrame(callback),
@@ -387,7 +391,7 @@ class XtermTerminalController implements TerminalController {
   private shellTakesHomeEnd = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
-  private ligaturesAddon: LigaturesAddonLike | null = null;
+  private ligaturesAddon: Disposable | null = null;
   private dataDisposable: Disposable | null = null;
   private selectionDisposable: Disposable | null = null;
   private titleDisposable: Disposable | null = null;
@@ -723,14 +727,24 @@ class XtermTerminalController implements TerminalController {
     // ligatures addon to recompute font features against the (possibly
     // changed) font family.
     this.disposeLigatures();
-    this.applyLigatures(term);
+    if (resolvedTerminalFontLigatures()) {
+      void this.loadLigaturesAddon().then((create) => this.applyLigatures(term, create));
+    }
     // Re-fit after font size / family change so column/row counts stay accurate.
     this.runFit();
   }
 
   private async initialize(): Promise<void> {
-    const fontSize = resolvedTerminalFontSize();
-    await this.deps.waitForTerminalFonts(fontSize);
+    const fontsReady = this.deps.waitForTerminalFonts(resolvedTerminalFontSize());
+    let createLigatures: CreateLigaturesAddon | undefined;
+    if (resolvedTerminalFontLigatures()) {
+      [, createLigatures] = await Promise.all([fontsReady, this.loadLigaturesAddon()]);
+    } else {
+      await fontsReady;
+      if (!this.disposed && resolvedTerminalFontLigatures()) {
+        createLigatures = await this.loadLigaturesAddon();
+      }
+    }
     if (this.disposed) return;
 
     const initialThemeId = this.resolveCurrentThemeId();
@@ -746,7 +760,7 @@ class XtermTerminalController implements TerminalController {
       // silently never render.
       allowProposedApi: true,
       fontFamily: resolvedTerminalFontFamily(),
-      fontSize,
+      fontSize: resolvedTerminalFontSize(),
       cursorStyle: resolvedTerminalCursorStyle(),
       theme: TERMINAL_PALETTES[initialThemeId],
     });
@@ -779,7 +793,7 @@ class XtermTerminalController implements TerminalController {
     }
     // Ligatures must be applied AFTER open() — the addon hooks the active
     // (DOM) renderer, which only exists once the terminal is attached.
-    this.applyLigatures(term);
+    this.applyLigatures(term, createLigatures);
 
     const initialDimensions = this.fitToContainer() ?? { cols: 80, rows: 24 };
     this.lastDims = initialDimensions;
@@ -1502,22 +1516,25 @@ class XtermTerminalController implements TerminalController {
   // Trade-off: the DOM renderer is less performant than Canvas/WebGL on
   // very high-throughput output, accepted for ligatures + translucency.
 
-  /**
-   * Load the ligatures addon when the user has ligatures enabled. No-op when
-   * disabled or already loaded. Must be called after term.open().
-   */
-  private applyLigatures(term: TerminalLike): void {
-    if (this.ligaturesAddon) return;
-    if (!resolvedTerminalFontLigatures()) return;
+  private async loadLigaturesAddon(): Promise<CreateLigaturesAddon | undefined> {
     try {
-      const addon = this.deps.createLigaturesAddon();
-      term.loadAddon(addon as unknown as Disposable);
+      return await this.deps.loadLigaturesAddon();
+    } catch (error) {
+      log.warn(`ligatures addon failed to load: ${errorReason(error)}`);
+    }
+  }
+
+  /** Activate after term.open() and recheck settings after the import. */
+  private applyLigatures(term: TerminalLike, create: CreateLigaturesAddon | undefined): void {
+    if (!create || this.disposed || this.ligaturesAddon || !resolvedTerminalFontLigatures()) return;
+    try {
+      const addon = create();
+      term.loadAddon(addon);
       this.ligaturesAddon = addon;
     } catch (e) {
       // Don't swallow silently — a failed activate (e.g. missing proposed-API
       // flag) is otherwise invisible and looks like "ligatures just don't work".
-      log.warn(`ligatures addon failed to load: ${(e as Error).message}`);
-      this.ligaturesAddon = null;
+      log.warn(`ligatures addon failed to activate: ${errorReason(e)}`);
     }
   }
 

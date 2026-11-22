@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
 import { ipcListen } from "@/ipc/client";
 import { registerTabFocusTarget, requestTabFocus } from "@/services/tab-focus";
-import { createTerminalController } from "@/services/terminal";
+import { createTerminalController } from "@/services/terminal/controller";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
 import { registerTerminalController } from "@/services/terminal/terminal-registry";
 import type { TerminalController } from "@/services/terminal/types";

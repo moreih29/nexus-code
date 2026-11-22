@@ -36,6 +36,7 @@
   src: url("../assets/fonts/JetBrainsMono/JetBrainsMonoNerdFont-Regular.ttf") format("truetype");
 }
 
+/* Loaded before xterm measures its cells, or by CSS when a visible glyph uses this face. */
 @font-face {
   font-family: "Sarasa Term K";
   font-weight: 400;
