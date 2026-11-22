@@ -46,6 +46,7 @@ export function workspaceTrees(
   roots: readonly SessionTreeNode[],
   order: AgentOrder,
   searching: boolean,
+  includeEmpty: (worktree: WorktreeEntry) => boolean = (worktree) => worktree.isRoot && !searching,
 ): readonly { family: SessionFamily; worktrees: readonly SidebarWorktree[] }[] {
   const byWorkspace = new Map<string, SessionTreeNode[]>();
   const moved = new Map<string, SidebarWorktree["moved"][number][]>();
@@ -71,7 +72,7 @@ export function workspaceTrees(
       const id = worktree.workspace.id;
       const rows = byWorkspace.get(id) ?? [];
       const notes = worktree.isRoot ? [] : (moved.get(id) ?? []);
-      if (!rows.length && !notes.length && (!worktree.isRoot || searching)) return [];
+      if (!rows.length && !notes.length && !includeEmpty(worktree)) return [];
       const ordered = orderSessions(
         rows.map((node) => ({ key: node.session.key, node })),
         order[id],
