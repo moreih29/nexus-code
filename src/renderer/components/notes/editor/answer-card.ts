@@ -95,7 +95,7 @@ function selectionOutsideLiveTitle(
 export const NoteAnswerWidgets = Extension.create({
   name: "noteAnswerWidgets",
   addProseMirrorPlugins: () => [
-    new Plugin({
+    new Plugin<AnswerWidgetState>({
       key,
       state: {
         init: (_, state) => ({ widgets: decorations(state.doc), liveLinks: new Set() }),
