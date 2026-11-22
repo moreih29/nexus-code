@@ -10,7 +10,7 @@
 import { ipcCallResult } from "@/ipc/client";
 import { BUSY_WINDOW_MS, type TabActivity } from "../../../shared/sessions/agent-state";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
-import { useTabActivityStore } from "../../state/stores/tab-activity";
+import { subscribeTabActivity, useTabActivityStore } from "../../state/stores/tab-activity";
 import { SESSION_STORES } from "../agent-sessions/use-inbox";
 import { onTerminalControllersChanged } from "../terminal/terminal-registry";
 
@@ -22,6 +22,7 @@ import { onTerminalControllersChanged } from "../terminal/terminal-registry";
 let revision = Date.now();
 /** Whether main was told of a change since its last read. */
 let told = false;
+let pendingNotice: object | undefined;
 
 /** The revision now. */
 export function sessionsRevision(): number {
@@ -31,6 +32,7 @@ export function sessionsRevision(): number {
 /** A read of the sessions now: the revision it reads at; the next change is news to main. */
 export function readSessionsRevision(): number {
   told = false;
+  pendingNotice = undefined;
   return revision;
 }
 
@@ -38,9 +40,20 @@ function changed(): void {
   revision++;
   if (told) return;
   told = true;
+  const notice = {};
+  pendingNotice = notice;
   // After the changes made in the same task, which need no telling each.
-  queueMicrotask(() => {
-    void ipcCallResult("cli", "sessionsChanged", { revision }).catch(() => {});
+  queueMicrotask(async () => {
+    if (pendingNotice !== notice) return;
+    try {
+      if ((await ipcCallResult("cli", "sessionsChanged", { revision })).ok) return;
+    } catch {
+      // The next change can tell main again.
+    }
+    if (pendingNotice === notice) {
+      pendingNotice = undefined;
+      told = false;
+    }
   });
 }
 
@@ -91,7 +104,7 @@ export function startSessionsRevision(): () => void {
     }, left + 50);
   };
   const stops = [
-    ...SESSION_STORES.filter((store) => store !== useTabActivityStore).map((store) =>
+    ...SESSION_STORES.filter((store) => store.subscribe !== subscribeTabActivity).map((store) =>
       store.subscribe(changed),
     ),
     useAgentProfilesStore.subscribe(changed),

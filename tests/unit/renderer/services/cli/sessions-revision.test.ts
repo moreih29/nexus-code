@@ -1,14 +1,21 @@
 /** The renderer's count of changes to the sessions, and when main is told of one. */
 import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
+import { ipcErr } from "../../../../../src/shared/ipc/result";
 
 const told: number[] = [];
+let nextNotice: Promise<unknown> | undefined;
 const globals = globalThis as { window?: unknown };
 const originalWindow = globals.window;
 globals.window = {
   ...(originalWindow as object),
   ipc: {
     call: (channel: string, method: string, args: { revision: number }) => {
-      if (channel === "cli" && method === "sessionsChanged") told.push(args.revision);
+      if (channel === "cli" && method === "sessionsChanged") {
+        told.push(args.revision);
+        const response = nextNotice;
+        nextNotice = undefined;
+        if (response) return response;
+      }
       return Promise.resolve(null);
     },
     listen: () => () => {},
@@ -22,7 +29,7 @@ afterAll(() => {
 const { readSessionsRevision, sameActivity, sessionsRevision, startSessionsRevision } =
   await import("../../../../../src/renderer/services/cli/sessions-revision");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
-const { useTabActivityStore } = await import(
+const { publishTabActivity, useTabActivityStore } = await import(
   "../../../../../src/renderer/state/stores/tab-activity"
 );
 const { useAgentProfilesStore } = await import(
@@ -66,21 +73,48 @@ test("main is told the first change after each read, with the count at the end o
   useTabsStore.setState({ byWorkspace: {} });
 });
 
+test.each([
+  "rejection",
+  "error result",
+])("a failed notice (%s) is retried on the next change", async (failure) => {
+  const notice = Promise.withResolvers<unknown>();
+  nextNotice = notice.promise;
+  const at = sessionsRevision();
+  useAgentProfilesStore.setState({});
+  await settle();
+  if (failure === "rejection") notice.reject(new Error("IPC disconnected"));
+  else notice.resolve(ipcErr("notice", "IPC failed"));
+  for (let i = 0; i < 5; i++) await settle();
+  useAgentProfilesStore.setState({});
+  await settle();
+  expect(told).toEqual([at + 1, at + 2]);
+});
+
+test("a failed notice from before a read leaves its newer notice in place", async () => {
+  const old = Promise.withResolvers<unknown>();
+  nextNotice = old.promise;
+  const at = sessionsRevision();
+  useAgentProfilesStore.setState({});
+  await settle();
+  readSessionsRevision();
+  useAgentProfilesStore.setState({});
+  await settle();
+  old.reject(new Error("old notice failed"));
+  for (let i = 0; i < 5; i++) await settle();
+  useAgentProfilesStore.setState({});
+  await settle();
+  expect(told).toEqual([at + 1, at + 2]);
+});
+
 test("an activity read that tells the same is no change; a terminal starting is", async () => {
   const activity = new Map([["w:t", { lastOutputAt: 1_000, program: "codex" }]]);
-  useTabActivityStore.setState({ activity, readAt: 1 });
+  publishTabActivity(activity, 1);
   await settle();
   readSessionsRevision();
   const at = sessionsRevision();
-  useTabActivityStore.setState({
-    activity: new Map([["w:t", { lastOutputAt: 1_000, program: "codex" }]]),
-    readAt: 2,
-  });
+  publishTabActivity(new Map([["w:t", { lastOutputAt: 1_000, program: "codex" }]]), 2);
   expect(sessionsRevision()).toBe(at);
-  useTabActivityStore.setState({
-    activity: new Map([["w:t", { lastOutputAt: 1_000, program: "claude" }]]),
-    readAt: 3,
-  });
+  publishTabActivity(new Map([["w:t", { lastOutputAt: 1_000, program: "claude" }]]), 3);
   expect(sessionsRevision()).toBe(at + 1);
   const unregister = registerTerminalController(
     "t-rev",
