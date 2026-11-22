@@ -121,16 +121,17 @@
 11. **자산 확인**
    GitHub Release 에 아래가 모두 첨부됐는지 확인한다:
    ```
-   NexusCode-X.Y.Z-arm64.dmg
+   NexusCode-arm64.dmg
    NexusCode-X.Y.Z-arm64.zip
    latest-mac.yml
-   NexusCode-X.Y.Z-x86_64.AppImage
-   NexusCode-X.Y.Z-amd64.deb
+   NexusCode-x86_64.AppImage
+   NexusCode-amd64.deb
    latest-linux.yml
-   NexusCode-X.Y.Z-arm64.AppImage
-   NexusCode-X.Y.Z-arm64.deb
+   NexusCode-arm64.AppImage
+   NexusCode-arm64.deb
    latest-linux-arm64.yml
    ```
+   DMG · AppImage · deb 는 파일명에 버전이 없다 — README 와 사이트가 `releases/latest/download/<파일명>` 으로 바로 받게 하므로 이름을 바꾸지 않는다. 앱 안 업데이트가 쓰는 ZIP 은 버전이 든 이름 그대로다 (`electron-builder.yml`).
 
 12. **설치 확인**
     arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다. Linux 머신이 있으면 deb 설치와 AppImage 실행도 확인한다.
