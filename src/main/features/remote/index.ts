@@ -610,6 +610,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerSessionsReorder.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.reorder", params));
       },
+      peerSessionsMarkSeen: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerSessionsMarkSeen.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.markSeen", params));
+      },
       peerSessionEvents: (args: unknown) => {
         const { deviceId, since, limit } = validateArgs(c.peerSessionEvents.args, args);
         return askPeer(() => inRoom().request(deviceId, "events.read", { since, limit }));

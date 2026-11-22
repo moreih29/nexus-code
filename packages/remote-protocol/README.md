@@ -35,6 +35,10 @@ Schema 0.21.0 adds the `sessions.reorder` capability and RPC. Devices serve it a
 
 Schema 0.22.0 adds optional `failed: true` to session listings when the last turn ended in error. The session's `state` stays compatible with older readers.
 
+Schema 0.23.0 adds the `sessions.markSeen` capability and RPC. Devices serve it alongside `sessions` for requests from people. Their lists report unread chat and terminal results as `new-result`. Send the result's `since` back as `upTo` with `{ workspaceId, tabId }`, up to 500 entries in a request. Failed turns stay visible. The RPC returns `{ marked }`.
+
+Session listings can include `incompleteWorkspaces` when a workspace's rows are partial or come from an earlier watch snapshot. Clients can wait for a complete listing before reconciling saved read receipts there.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.

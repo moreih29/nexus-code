@@ -7,6 +7,7 @@ import { fitsInFrame, RpcFailure } from "../room";
 export const SERVES: readonly Capability[] = [
   "sessions",
   "sessions.reorder",
+  "sessions.markSeen",
   "chat.read",
   "chat.control",
   "terminal.read",

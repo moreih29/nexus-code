@@ -33,13 +33,20 @@ export function markSessions(
     for (const session of sessionsOf(input, workspace)) {
       const chat = session.kind === "terminal" ? undefined : input.chats?.[session.key];
       const goal = chat ? shownGoalOf(chat) : null;
+      const seen = input.seenByWorkspace?.[workspace.id]?.[session.tabId];
+      const hasResult =
+        session.state === "completed" ||
+        (session.state === "quiet" &&
+          input.activity.get(session.key)?.lastNotice?.at === session.since);
+      const seenResult =
+        hasResult && seen !== undefined && session.since !== undefined && session.since <= seen;
       marks.set(session.key, {
         workspaceId: session.workspaceId,
         tabId: session.tabId,
         title: session.title,
         kind: session.kind,
         agent: session.agent,
-        state: session.state,
+        state: seenResult ? "idle" : session.state,
         phase: session.phase,
         message: session.message,
         ...(goal ? { goal: { objective: goal.objective, status: goal.status } } : {}),

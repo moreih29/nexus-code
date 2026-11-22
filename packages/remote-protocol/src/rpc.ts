@@ -247,7 +247,11 @@ export const RemoteSessionSchema = z.object({
   state: SessionStateSchema,
   /** The last turn ended in error. Keep state as before for older readers. Since 0.22.0. */
   failed: z.literal(true).optional(),
-  /** When it came to that state, in Unix milliseconds. */
+  /**
+   * When it came to that state, in Unix milliseconds. Hosts serving sessions.markSeen
+   * report unread chat and terminal results as new-result, with their result time here.
+   * Return that time as upTo to mark the result seen. Failures keep their prior state.
+   */
   since: NumberSchema.optional(),
   /** The last thing it said, a line. */
   last: z.string().optional(),
@@ -413,6 +417,8 @@ const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
   /** Since 0.12.1, a session this version cannot read (a kind or state it does not know) is left out. */
   sessions: readableList(RemoteSessionSchema),
+  /** Workspaces whose rows may be partial or retained from the last good watch snapshot. */
+  incompleteWorkspaces: z.array(z.string()).optional(),
   /**
    * The consent prompts waiting on the user, in the order they are asked;
    * absent before 0.3.0. Since 0.12.1, one this version cannot read is left out.
@@ -912,6 +918,9 @@ const TaskStartSchema = z.union([
   z.object({ command: z.string().max(10000) }),
 ]);
 
+/** Most sessions one sessions.markSeen request can name. */
+export const MAX_MARK_SEEN = 500;
+
 export const RPC_METHODS = {
   "sessions.list": {
     capability: "sessions",
@@ -934,6 +943,20 @@ export const RPC_METHODS = {
     capability: "sessions.reorder",
     params: z.object({ workspaceId: z.string(), tabIds: z.array(z.string()).max(500) }),
     result: Ok,
+  },
+  /**
+   * For the user only. Marks currently unread results whose since is at most upTo,
+   * using the host's listing time. Returns the number marked. Since 0.23.0.
+   */
+  "sessions.markSeen": {
+    capability: "sessions.markSeen",
+    params: z.object({
+      seen: z
+        .array(z.object({ ...TabRef, upTo: z.number() }))
+        .min(1)
+        .max(MAX_MARK_SEEN),
+    }),
+    result: z.object({ marked: NonnegativeIntegerSchema }),
   },
   /**
    * The session state changes after `since` (the first `limit`, `more` when

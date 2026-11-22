@@ -10,7 +10,7 @@ import {
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../../shared/claude/activity";
-import type { CliChatState, CliTabInfo } from "../../../../shared/cli/ui";
+import type { CliChatState, CliTabInfo, CliUiOps } from "../../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
@@ -87,6 +87,22 @@ function agentsField(
 }
 
 const MAX_CONCURRENT_UI_READS = 8;
+const UNREAD_RESULTS_MAX_AGE_MS = 30_000;
+
+type UnreadResults = CliUiOps["sessions.results"]["result"]["unread"];
+const lastUnreadResults = new WeakMap<CliServices, { startedAt: number; unread: UnreadResults }>();
+
+async function readUnreadResults(services: CliServices, budget: ReadBudget) {
+  const startedAt = performance.now();
+  const result = await budget.ui("sessions.results", {}).catch(() => undefined);
+  const last = lastUnreadResults.get(services);
+  if (result?.unread && (!last || startedAt >= last.startedAt)) {
+    lastUnreadResults.set(services, { startedAt, unread: result.unread });
+    return result.unread;
+  }
+  if (last && performance.now() - last.startedAt < UNREAD_RESULTS_MAX_AGE_MS) return last.unread;
+  lastUnreadResults.delete(services);
+}
 
 /** Keeps renderer requests bounded and puts their results back in input order. */
 async function gather<T, R>(
@@ -249,6 +265,7 @@ export async function snapshotSessions(
     };
   });
   const now = Date.now();
+  const results = readUnreadResults(services, budget);
   const tabs = await gather(workspaces, budget, ({ id: workspaceId }) =>
     budget.ui("tabs.list", { workspaceId, agentOrder: true }).catch(() => undefined),
   );
@@ -282,10 +299,26 @@ export async function snapshotSessions(
   for (const { index, workspaceId } of chats) {
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
+  const unread = await results;
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
-    sessions: sessions.filter((row) => row !== undefined),
+    sessions: sessions
+      .filter((row) => row !== undefined)
+      .map((row) => {
+        if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
+        const since = unread[row.workspaceId]?.[row.tabId];
+        if (
+          !row.failed &&
+          !row.limitWait &&
+          !row.waiting &&
+          since !== undefined &&
+          Number.isFinite(since)
+        )
+          return { ...row, state: "new-result", since };
+        return row.state === "new-result" ? { ...row, state: "idle" } : row;
+      }),
+    ...(incompleteWorkspaces.size > 0 ? { incompleteWorkspaces: [...incompleteWorkspaces] } : {}),
     ...(recording ? { recording } : {}),
   };
   const waitingRequests = includeWaitingIds

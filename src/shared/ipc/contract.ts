@@ -2277,7 +2277,16 @@ const coreIpcContract = {
        * If that tab was in the completed state, it transitions to idle.
        * The renderer calls it together with setActiveContext.
        */
-      markSeen: call(z.object({ workspaceId: z.string(), tabId: z.string() }), z.void()),
+      markSeen: call(
+        z.object({
+          workspaceId: z.string(),
+          tabId: z.string(),
+          completedAt: z.number().optional(),
+          /** When the acknowledged chat result reached the stream, which can differ from completedAt. */
+          resultAt: z.number().optional(),
+        }),
+        z.void(),
+      ),
       /**
        * Resets the Claude session status of every (workspaceId, tabId) of a workspace.
        * Called when the user chooses "Clear notifications" in the sidebar context menu.
@@ -2716,6 +2725,11 @@ const remoteContracts = {
       peerSessionsReorder: call(
         RPC_METHODS["sessions.reorder"].params.extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.reorder"].result,
+      ),
+      /** Acknowledges the listed results the user saw on this device. */
+      peerSessionsMarkSeen: call(
+        RPC_METHODS["sessions.markSeen"].params.extend({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.markSeen"].result,
       ),
       /** A page of another device's session state changes. */
       peerSessionEvents: call(

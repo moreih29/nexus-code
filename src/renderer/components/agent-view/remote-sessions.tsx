@@ -410,7 +410,12 @@ function AccountRemoteSessions({
   const displayList = (peer: RoomPeer, list: SessionsList): SessionsList => ({
     ...list,
     sessions: list.sessions.map((session) =>
-      results.session(peer.id, session, peerSpeaks(peer, FAILURE_SCHEMA)),
+      results.session(
+        peer.id,
+        session,
+        peerSpeaks(peer, FAILURE_SCHEMA),
+        peerServes(peer, "sessions.markSeen"),
+      ),
     ),
   });
   const statusGroups = renderStatus?.(
@@ -612,7 +617,12 @@ export function PeerGroup({
       ? {
           ...rawList,
           sessions: rawList.sessions.map((session) =>
-            results.session(peer.id, session, peerSpeaks(peer, FAILURE_SCHEMA)),
+            results.session(
+              peer.id,
+              session,
+              peerSpeaks(peer, FAILURE_SCHEMA),
+              peerServes(peer, "sessions.markSeen"),
+            ),
           ),
         }
       : rawList;
@@ -959,7 +969,9 @@ export function OpenRemoteSessionRow({
           ...(session.cwd ? { cwd: session.cwd } : {}),
           ...(ask ? { ask } : {}),
         });
-        resultFeed?.markSeen([{ deviceId: peer.id, session }]);
+        resultFeed?.markSeen([
+          { deviceId: peer.id, session, hostReceipts: peerServes(peer, "sessions.markSeen") },
+        ]);
       }}
     />
   );

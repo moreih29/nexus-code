@@ -145,6 +145,8 @@ export const actionHandlers: {
     | "terminal.watch"
     | "terminal.unwatch"
     | "events.read"
+    | "sessions.results"
+    | "sessions.markSeen"
     | "settings.instructions"
     | "settings.instructions.set"
     | "settings.keys"
