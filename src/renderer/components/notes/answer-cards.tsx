@@ -23,7 +23,9 @@ export function NoteAnswerCards({ editor }: { editor: Editor }) {
     };
   }, [editor]);
   const cards = new Map(
-    rows.filter(({ entry }) => entry.link.kind === "card").map((row) => [row.entry.id, row]),
+    rows
+      .filter(({ entry }) => entry.link.kind === "card" || entry.link.kind === "live")
+      .map((row) => [row.entry.id, row]),
   );
   return widgets.map((widget) => {
     const id = widget.dataset.noteAnswerCard;

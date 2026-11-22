@@ -348,3 +348,13 @@ test("an unapplied card or line report keeps the disk merge base in place", () =
   );
   expect(reportRevision.updatedAt).toBe(2);
 });
+
+test("an old editor reads a live card as an ordinary one-line title quote", () => {
+  const card = answerCard(linkId, [paragraph("Review [logs]")]);
+  const stored = current.nodeFromJSON({ type: "doc", content: [card] });
+  const old = legacy.nodeFromJSON(stored.toJSON());
+  old.check();
+  expect(old.firstChild?.attrs.nexusLink).toBeUndefined();
+  expect(old.textContent).toBe("Review [logs]");
+  expect(docToMarkdown(stored.toJSON())).toBe("> Review \\[logs\\]\n");
+});

@@ -1,4 +1,4 @@
-import { Loader } from "lucide-react";
+import { FileText, Loader, MessageCircle, MoreHorizontal } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -10,6 +10,7 @@ import { type AgentSession, allSessions } from "../../services/agent-sessions/mo
 import { useSessionFamily } from "../../services/agent-sessions/use-family";
 import { activateTarget, revealTabById } from "../../services/chat/open-beside";
 import type { ListedSession } from "../../services/chat/sessions";
+import { chatKey, useChatStore } from "../../services/chat/store";
 import { groupOf } from "../../services/cli/placement";
 import { notesApi } from "../../services/notes/api";
 import {
@@ -27,6 +28,7 @@ import {
   conversationHistoryKey,
   readConversationHistory,
 } from "../../services/notes/conversation-history";
+import { liveAnswerOf } from "../../services/notes/live-answer";
 import { storedTurnTarget, useStoredTurns } from "../../services/notes/stored-turns";
 import { useNoteLinks } from "../../services/notes/use-links";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
@@ -41,6 +43,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
 
 export interface NotePlace {
@@ -90,7 +93,7 @@ export function ConversationChips() {
         {t("conversations.title")}
       </span>
       {rows.map(({ key, ...props }) => (
-        <ConversationChip key={key} {...props} />
+        <ConversationChip key={key} {...props} header />
       ))}
     </fieldset>
   );
@@ -191,6 +194,7 @@ export function ConversationChip({
   result = link.result,
   line = false,
   card = false,
+  header = false,
 }: {
   entry: NoteLinkEntry;
   target: ConversationResolution;
@@ -202,9 +206,11 @@ export function ConversationChip({
   result?: NoteLinkEntry["link"]["result"];
   line?: boolean;
   card?: boolean;
+  header?: boolean;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
+  const [inserting, setInserting] = useState(false);
   const status = conversationStatus(target, session, result, { checking, hasStoredTurns, line });
   const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
   const branch =
@@ -245,8 +251,37 @@ export function ConversationChip({
     }
   };
 
+  const insertCard = async () => {
+    setInserting(true);
+    try {
+      const open = target.kind === "open" || target.kind === "moved" ? target : undefined;
+      const source = open ? tabLinkTarget(open.workspace.id, open.tab) : link;
+      const model =
+        open && useChatStore.getState().tabs[chatKey(open.workspace.id, open.tab.id)]?.model;
+      const saved = await notesApi.saveLiveCard(
+        note.workspaceId,
+        note.noteId,
+        { ...source, agent: link.agent, title: source.title || title },
+        model ? liveAnswerOf(model) : undefined,
+      );
+      if (!saved) showToast({ kind: "info", message: t("connections.liveAlreadyExists") });
+    } catch {
+      showToast({ kind: "error", message: t("connections.saveAnswerError") });
+    } finally {
+      setInserting(false);
+    }
+  };
+
   if (card) {
-    return (
+    const live = link.kind === "live";
+    const snapshot = link.lastAnswer;
+    const displayTime = live
+      ? new Intl.DateTimeFormat(i18n.language || undefined, {
+          dateStyle: "short",
+          timeStyle: "short",
+        }).format(snapshot?.at ?? link.createdAt)
+      : "";
+    const heading = (
       <div
         className="flex min-w-0 items-center gap-1.5 pb-1 text-app-micro text-muted-foreground"
         data-testid="note-answer-card-header"
@@ -258,6 +293,7 @@ export function ConversationChip({
         <span aria-hidden="true">·</span>
         {statusIcon}
         <span className="truncate">{label}</span>
+        {displayTime && <span className="shrink-0">· {displayTime}</span>}
         <button
           type="button"
           className="ml-auto shrink-0 rounded-(--radius-control) px-1.5 py-0.5 hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-50"
@@ -266,6 +302,38 @@ export function ConversationChip({
         >
           {t("connections.openConversation")}
         </button>
+      </div>
+    );
+    if (!live) return heading;
+    return (
+      <div
+        className="my-2 rounded-(--radius-control) border border-border bg-popover px-3 py-2"
+        data-note-live-card
+        data-testid="note-live-card"
+      >
+        {heading}
+        {snapshot?.text && (
+          <p className="my-1 line-clamp-3 break-words text-app-ui-sm text-foreground">
+            {snapshot.text}
+          </p>
+        )}
+        {snapshot?.files !== undefined && (
+          <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
+            <FileText className="size-3 shrink-0" aria-hidden="true" />
+            {t("connections.liveFiles", { count: snapshot.files })}
+          </div>
+        )}
+        {session?.state === "needsInput" && (
+          <button
+            type="button"
+            className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground hover:text-foreground"
+            disabled={opening}
+            onClick={() => void openConversation()}
+          >
+            <MessageCircle className="size-3 shrink-0" aria-hidden="true" />
+            {t("connections.liveQuestion")}
+          </button>
+        )}
       </div>
     );
   }
@@ -318,11 +386,32 @@ export function ConversationChip({
     </button>
   );
 
-  if (target.kind !== "missing") return chip;
+  const insertItem = header && (
+    <DropdownMenuItem disabled={inserting} onSelect={() => void insertCard()}>
+      {t("connections.insertLiveCard")}
+    </DropdownMenuItem>
+  );
+  if (target.kind !== "missing") {
+    if (!header) return chip;
+    return (
+      <span className="inline-flex min-w-0 items-center gap-0.5">
+        {chip}
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger>
+            <IconButton label={t("connections.conversationActions")} size="xs">
+              <MoreHorizontal className="size-3.5" aria-hidden="true" />
+            </IconButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">{insertItem}</DropdownMenuContent>
+        </DropdownMenuRoot>
+      </span>
+    );
+  }
   return (
     <DropdownMenuRoot>
       <DropdownMenuTrigger>{chip}</DropdownMenuTrigger>
       <DropdownMenuContent align="start">
+        {insertItem}
         {pr && (
           <DropdownMenuItem
             onSelect={() => {

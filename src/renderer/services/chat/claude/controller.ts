@@ -210,6 +210,7 @@ export interface ChatTabHooks {
   /** The model or effort the user picked, for the tab to keep. */
   onChosen?: (chosen: ChatChosen) => void;
   onPeerWritten?: (id: string) => void;
+  onTurnEnd?: (model: ChatModel) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -2569,7 +2570,8 @@ export class ChatController {
     if (!line.replay) this.inspectLive(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
-    if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
+    if (this.hooks.onTurnEnd && liveClaudeResult(line)) this.flushNow();
+    else if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
   /** What a live line asks of the controller, beyond the model. */
@@ -2639,6 +2641,8 @@ export class ChatController {
       phase: phaseAfter(prev.phase, model),
     }));
     this.afterModel(before, model);
+    if (model.lastResult !== before.lastResult && lines.some(liveClaudeResult))
+      this.hooks.onTurnEnd?.(model);
   }
 
   private afterModel(before: ChatModel, model: ChatModel): void {
@@ -2722,6 +2726,14 @@ export class ChatController {
 
 function savedProfileConnection(profileId: string | undefined): ProfileConnection | undefined {
   return profileOf(useAgentProfilesStore.getState().config, "claude", profileId).connection;
+}
+
+function liveClaudeResult(line: ChatLine): boolean {
+  return (
+    !line.replay &&
+    line.dir === "out" &&
+    (line.message as { type?: string } | undefined)?.type === "result"
+  );
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabState["phase"] {

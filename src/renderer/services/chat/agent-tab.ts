@@ -28,8 +28,10 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { notesApi } from "../notes/api";
 import { tabLinkTarget } from "../notes/conversation";
+import { liveAnswerOf } from "../notes/live-answer";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
+import type { ChatModel } from "./model";
 import { clipTitle, titleOf } from "./tab-title";
 import { sendFirstMessage } from "./transport/submission";
 
@@ -41,6 +43,17 @@ function syncNoteLinks(workspaceId: string, tabId: string): void {
   void notesApi
     .updateLinksForTab({ ...tabLinkTarget(workspaceId, tab), agent: tab.type })
     .catch((error) => log.warn(`Linked conversation not updated: ${String(error)}`));
+}
+
+function saveLiveAnswer(workspaceId: string, tabId: string, model: ChatModel): void {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") return;
+  const snapshot = liveAnswerOf(model);
+  if (!snapshot) return;
+  const { session, profileId } = tabLinkTarget(workspaceId, tab);
+  void notesApi
+    .updateLiveAnswer({ workspaceId, tabId, profileId, session, agent: tab.type }, snapshot)
+    .catch((error) => log.warn(`Live note card not updated: ${String(error)}`));
 }
 
 /** What a Claude tab keeps: the session to go on with, and its title. */
@@ -85,6 +98,7 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
         tabs().addChatPeerSubmission(workspaceId, tabId, id, { ...submission, written: true });
     },
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
+    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
   };
 }
 
@@ -112,6 +126,7 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
+    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
   };
 }
 

@@ -5,6 +5,7 @@
 import type {
   NewNoteLink,
   NoteConversation,
+  NoteLastAnswer,
   NoteLink,
   NoteLinkPatch,
   NoteLinkTarget,
@@ -77,6 +78,14 @@ export const notesApi = {
     imageAlt: string,
   ) =>
     call(ipcCallResult("notes", "saveAnswer", { workspaceId, noteId, source, markdown, imageAlt })),
+  saveLiveCard: (
+    workspaceId: string,
+    noteId: string,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent">,
+    lastAnswer?: NoteLastAnswer,
+  ) => call(ipcCallResult("notes", "saveLiveCard", { workspaceId, noteId, source, lastAnswer })),
+  updateLiveAnswer: (tab: NoteConversation & { profileId?: string }, lastAnswer: NoteLastAnswer) =>
+    call(ipcCallResult("notes", "updateLiveAnswer", { tab, lastAnswer })),
   updateLink: (workspaceId: string, noteId: string, linkId: string, patch: NoteLinkPatch) =>
     call(ipcCallResult("notes", "updateLink", { workspaceId, noteId, linkId, patch })),
   updateLinksForTab: (tab: NoteLinkTarget & Pick<NoteLink, "agent">) =>

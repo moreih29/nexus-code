@@ -357,6 +357,12 @@
     "read": "노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다.",
     "saveAnswerError": "노트에 저장 실패",
     "alreadySaved": "이미 저장됨",
-    "answerTooLong": "답변이 너무 김"
+    "answerTooLong": "답변이 너무 김",
+    "insertLiveCard": "노트에 카드 넣기",
+    "conversationActions": "대화 메뉴",
+    "liveAlreadyExists": "이미 있음",
+    "liveQuestion": "질문 1 · 대화에서 답하기",
+    "liveFiles_one": "파일 {{count}}개",
+    "liveFiles_other": "파일 {{count}}개"
   }
 }

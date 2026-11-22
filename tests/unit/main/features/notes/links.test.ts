@@ -279,3 +279,72 @@ test("the conversation header receives one note for its task and card links", as
     expected,
   );
 });
+
+test("live cards append once and reload their latest plain-text snapshot without changing note Markdown", async () => {
+  const source = { ...base, profileId: "profile", session: "thread", title: "Review [logs]\u202e" };
+  const writes: string[] = [];
+  await Promise.all([
+    store.saveLiveCard(location, note.id, source, { text: "Earlier", at: 10 }, () =>
+      writes.push("first"),
+    ),
+    store.saveLiveCard(location, note.id, { ...source, tabId: "reopened" }, undefined, () =>
+      writes.push("duplicate"),
+    ),
+  ]);
+  expect(writes).toEqual(["first"]);
+  const saved = await store.read(location, note.id);
+  const [{ id, link }] = await store.links(location, note.id);
+  expect(link).toMatchObject({
+    kind: "live",
+    title: "Review [logs]",
+    lastAnswer: { text: "Earlier", at: 10 },
+  });
+  expect(link.messageId).toBeUndefined();
+  expect(saved.doc.content).toEqual([
+    {
+      type: "blockquote",
+      attrs: { nexusLink: id },
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Review [logs]" }] }],
+    },
+  ]);
+
+  const notify: string[] = [];
+  const reopened = new NotesStore(root);
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened", profileId: "other" },
+    { text: "Other profile", at: 30 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened" },
+    { text: "Newest <b>answer</b>", at: 20, files: 2 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(location, source, { text: "Late arrival", at: 11 }, (id) =>
+    notify.push(id),
+  );
+  expect(notify).toEqual([note.id]);
+  expect((await new NotesStore(root).links(location, note.id))[0].link.lastAnswer).toEqual({
+    text: "Newest <b>answer</b>",
+    at: 20,
+    files: 2,
+  });
+  expect((await reopened.read(location, note.id)).updatedAt).toBe(saved.updatedAt);
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe(
+    "# Note\n\n> Review \\[logs\\]\n",
+  );
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: { [id]: { ...link, lastAnswer: { text: "Bad timestamp", at: 9e16 } } },
+    }),
+  );
+  expect((await reopened.links(location, note.id))[0].link).toMatchObject({
+    kind: "live",
+    lastAnswer: undefined,
+  });
+});

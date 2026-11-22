@@ -195,6 +195,7 @@ export interface CodexTabHooks {
    * takes it; none once one has.
    */
   onChosen?: (chosen: ChatChosen) => void;
+  onTurnEnd?: (model: CodexModel) => void;
 }
 
 /** The turn a message went into, as turn/start and turn/steer answer. */
@@ -2358,7 +2359,8 @@ export class CodexController {
     this.inspectLine(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
-    if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
+    if (this.hooks.onTurnEnd && liveCodexResultThread(line)) this.flushNow();
+    else if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
   /** Settles pending replies on replay and handles live server notifications. */
@@ -2462,6 +2464,12 @@ export class CodexController {
       this.confirmTurnPicks(pendingPick.clientId);
     }
     if (model.threadId) this.rememberThread(model.threadId);
+    if (
+      model.lastResult !== before.lastResult &&
+      model.threadId &&
+      lines.some((line) => liveCodexResultThread(line) === model.threadId)
+    )
+      this.hooks.onTurnEnd?.(model);
     if (model.threadId && model.threadId !== before.threadId) {
       this.dirtyAgents.clear();
       this.readAgentAt.clear();
@@ -2662,6 +2670,12 @@ export function answerOf(
     case "deny-stop":
       return { decision: "cancel" };
   }
+}
+
+function liveCodexResultThread(line: ChatLine): string | undefined {
+  if (line.replay || line.dir !== "out") return;
+  const message = line.message as { method?: string; params?: { threadId?: string } };
+  if (message?.method === "turn/completed") return message.params?.threadId;
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: CodexModel): ChatTabState["phase"] {

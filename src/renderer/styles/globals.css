@@ -1138,6 +1138,13 @@ button.note-task-chip:hover {
   color: var(--editor-text-muted);
   padding-left: 0.9em;
 }
+.note-doc blockquote:has(> [data-note-answer-card] > [data-note-live-card]) {
+  border-left: 0;
+  padding-left: 0;
+}
+.note-doc blockquote:has(> [data-note-answer-card] > [data-note-live-card]) > p:first-of-type {
+  display: none;
+}
 .note-doc code {
   font-family: var(
     --font-mono-body,

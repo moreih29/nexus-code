@@ -82,3 +82,49 @@ test("a restored open tab gives the note header quiet completion and the task ch
   const line = renderToStaticMarkup(<ConversationChip {...props} line />);
   expect(line).toContain("Done · PR #1");
 });
+
+test("live cards show saved answers as text and offer to answer an active question", () => {
+  const props: ComponentProps<typeof ConversationChip> = {
+    entry: {
+      id: "l1234567",
+      link: {
+        ...link,
+        kind: "live",
+        result: undefined,
+        lastAnswer: { text: '<img src="bad"> [link](javascript:bad)', at: 1700000000000, files: 2 },
+      },
+    },
+    target: { kind: "missing" },
+    note: { workspaceId: link.workspaceId, tabId: "note-tab", noteId: "n1234567" },
+    session: undefined,
+    checking: false,
+    onUnavailable: () => {},
+  };
+  const restored = renderToStaticMarkup(<ConversationChip {...props} card />);
+  expect(restored).toContain("&lt;img");
+  expect(restored).not.toContain("<img");
+  expect(restored).not.toContain("<a ");
+  expect(restored).toContain("2 files");
+  expect(restored).not.toContain("Answer in conversation");
+  const waiting = renderToStaticMarkup(
+    <ConversationChip
+      {...props}
+      card
+      target={{
+        kind: "open",
+        workspace: { id: link.workspaceId } as never,
+        tab: {
+          id: link.tabId,
+          type: "codex",
+          title: link.title,
+          defaultTitle: "Codex",
+          isPinned: false,
+          isPreview: false,
+          props: { cwd: link.cwd, threadId: link.session },
+        },
+      }}
+      session={{ state: "needsInput" } as NonNullable<typeof props.session>}
+    />,
+  );
+  expect(waiting).toContain("1 question · Answer in conversation");
+});

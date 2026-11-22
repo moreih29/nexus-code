@@ -357,6 +357,12 @@
     "read": "Note ‘{{title}}’: read it with `nexus note read {{id}}`.",
     "saveAnswerError": "Couldn't save to note",
     "alreadySaved": "Already saved",
-    "answerTooLong": "Answer too long"
+    "answerTooLong": "Answer too long",
+    "insertLiveCard": "Add card to note",
+    "conversationActions": "Conversation menu",
+    "liveAlreadyExists": "Already in note",
+    "liveQuestion": "1 question · Answer in conversation",
+    "liveFiles_one": "{{count}} file",
+    "liveFiles_other": "{{count}} files"
   }
 }
