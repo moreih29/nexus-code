@@ -125,7 +125,7 @@ describe("Other computers connection guidance", () => {
     expect(html).not.toContain("Loading…");
   });
 
-  test("search shows only computers with a matching session and one empty line otherwise", () => {
+  test("search shows only matching computers and hides the section when none match", () => {
     readAccount.mockReturnValue(signedIn);
     readRoom.mockReturnValue({
       status: "online",
@@ -143,18 +143,22 @@ describe("Other computers connection guidance", () => {
     });
     try {
       const found = renderToStaticMarkup(<RemoteSessions query=" Audit " />);
+      expect(found).toContain("Other computers");
       expect(found).toContain("Work PC");
       expect(found).toContain("Review the audit");
       expect(found).not.toContain("Laptop");
       expect(found).not.toContain("No conversation matches");
-      const empty = renderToStaticMarkup(<RemoteSessions query="exited terminal" />);
-      expect(empty.match(/No conversation matches/g)).toHaveLength(1);
-      expect(empty).not.toContain("Work PC");
-      expect(empty).not.toContain("Laptop");
-      expect(empty).not.toContain("No conversations");
+      expect(renderToStaticMarkup(<RemoteSessions query="exited terminal" />)).toBe("");
     } finally {
       readLists.mockRestore();
     }
+  });
+
+  test("search hides the heading and connection guidance with no remote results", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status: "waiting", peers: [] });
+    expect(renderToStaticMarkup(<RemoteSessions query="audit" />)).toBe("");
+    expect(renderToStaticMarkup(<RemoteSessions query="" />)).toContain("Other computers");
   });
 });
 

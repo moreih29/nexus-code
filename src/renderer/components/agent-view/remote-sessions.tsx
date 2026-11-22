@@ -297,12 +297,12 @@ function AccountRemoteSessions({
         );
       })
     : listedPeers;
-  const noMatch = searching && peers.length === 0 && (connected || listedPeers.length > 0);
   const canReorder =
     !searching && accountKey !== null && accountKey === peerOrderAccount && online.length > 1;
   useEffect(() => {
     if (!canReorder) setDrag(null);
   }, [canReorder]);
+  if (searching && peers.length === 0) return null;
   if (signedOut && (searching || signInNotice.dismissed)) return null;
   if (!signedOut && outdated && outdatedNotice.dismissed) return null;
   if (!signedOut && !outdated && accountKey === null) return null;
@@ -310,7 +310,7 @@ function AccountRemoteSessions({
     ? room?.status === "waiting" || lastOnline.current
       ? t("agentView.remote.reconnecting")
       : t("agentView.remote.connecting")
-    : peers.length === 0 && away.length === 0 && !searching
+    : peers.length === 0 && away.length === 0
       ? t("agentView.remote.noComputers")
       : null;
   const ids = canReorder ? orderPeers(online, peerOrder).map((peer) => peer.id) : [];
@@ -366,11 +366,6 @@ function AccountRemoteSessions({
           {status && (
             <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
               {status}
-            </p>
-          )}
-          {noMatch && (
-            <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground">
-              {t("agentList.list.no_match")}
             </p>
           )}
           <div
