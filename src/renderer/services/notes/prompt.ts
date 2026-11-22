@@ -1,28 +1,33 @@
 import i18next from "i18next";
-import { noteLabel } from "../../../shared/notes/line-report";
-import { escapeText } from "../../../shared/notes/markdown";
 import { NOTE_ID_RE } from "../../../shared/notes/types";
+
+const MAX_SELECTION_LENGTH = 16_000;
 
 export interface NoteReference {
   noteId: string;
   title: string;
 }
 
-function referenceValues({ noteId, title }: NoteReference) {
+function noteReferenceText(
+  key: "mention" | "selectionQuote" | "read",
+  { noteId, title }: NoteReference,
+) {
   if (!NOTE_ID_RE.test(noteId)) throw new Error("Invalid note ID");
-  const label = noteLabel(title, i18next.t("notes:panel.untitled")).slice(1, -1);
-  return {
-    title: label.replace(
-      /['‘’“”`*_[\]]/g,
-      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-    ),
+  const titleText = title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
+  const values = {
+    title: (titleText || i18next.t("notes:panel.untitled"))
+      .replaceAll("‘", "‹")
+      .replaceAll("’", "›")
+      .replaceAll("`", "ˋ"),
     id: noteId,
-    interpolation: { escapeValue: false, skipOnVariables: true },
   };
+  return i18next
+    .t(`notes:connections.${key}`, { skipInterpolation: true })
+    .replace(/\{\{(title|id)\}\}/g, (_, name: keyof typeof values) => values[name]);
 }
 
 export function mentionLine(note: NoteReference): string {
-  return i18next.t("notes:connections.mention", referenceValues(note));
+  return noteReferenceText("mention", note);
 }
 
 export function withNoteMentions(message: string, notes: readonly NoteReference[]): string {
@@ -31,15 +36,18 @@ export function withNoteMentions(message: string, notes: readonly NoteReference[
 }
 
 export function selectionPrompt(note: NoteReference, selection: string, message?: string): string {
-  const values = referenceValues(note);
-  const quote = selection
-    .replace(/\r\n?/g, "\n")
+  const normalized = selection.replace(/\r\n?|\u2028|\u2029/g, "\n").replace(/\p{Cf}/gu, "");
+  let excerpt = normalized.slice(0, MAX_SELECTION_LENGTH);
+  if (excerpt.length < normalized.length) {
+    excerpt = `${excerpt.replace(/[\uD800-\uDBFF]$/u, "")}…`;
+  }
+  const quote = excerpt
     .split("\n")
-    .map((line) => `> ${escapeText(line.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " "))}`)
+    .map((line) => `> ${line}`)
     .join("\n");
   return [
     message?.trim() || i18next.t("notes:connections.selectionDefault"),
-    `${i18next.t("notes:connections.selectionQuote", values)}\n${quote}`,
-    i18next.t("notes:connections.read", values),
+    `${noteReferenceText("selectionQuote", note)}\n${quote}`,
+    noteReferenceText("read", note),
   ].join("\n\n");
 }

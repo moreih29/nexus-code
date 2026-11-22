@@ -10,13 +10,14 @@ export function noteChoices(
   untitled = "",
 ): NoteChoice[] {
   const ids = new Set(linked.map(({ noteId }) => noteId));
+  const term = query.trim().normalize().toLowerCase();
+  const matches = (title: string) => (title || untitled).normalize().toLowerCase().includes(term);
   const recent = workspace
-    .filter(({ id }) => !ids.has(id))
+    .filter(({ id, title }) => !ids.has(id) && matches(title))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 5);
-  const term = query.trim().normalize().toLowerCase();
   return [
-    ...linked.map((note) => ({ ...note, linked: true })),
+    ...linked.filter(({ title }) => matches(title)).map((note) => ({ ...note, linked: true })),
     ...recent.map(({ id, title }) => ({ noteId: id, title, linked: false })),
-  ].filter(({ title }) => (title || untitled).normalize().toLowerCase().includes(term));
+  ];
 }

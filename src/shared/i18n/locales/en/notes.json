@@ -340,7 +340,7 @@
   "connections": {
     "linkedNote": "This conversation’s notes",
     "mentions": "Notes and files",
-    "removeMention": "Remove note",
+    "removeMention": "Remove mention",
     "mention": "Note ‘{{title}}’: `nexus note read {{id}}`",
     "saveAnswer": "Save to note",
     "savedAnswer": "Answer saved to note",
@@ -350,7 +350,7 @@
     "italic": "Italic",
     "link": "Link",
     "linkUrl": "Link URL",
-    "linkInvalid": "Enter an HTTP or HTTPS URL",
+    "linkInvalid": "HTTP or HTTPS URL",
     "sendSelection": "Send selected text",
     "selectionDefault": "Take a look at this part.",
     "selectionQuote": "Selected text from the note ‘{{title}}’:",

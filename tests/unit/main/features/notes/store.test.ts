@@ -9,10 +9,20 @@ import {
   locationDirName,
   NoteError,
   NotesStore,
+  noteMarkdown,
   PRUNE_AFTER_MS,
   safeName,
 } from "../../../../../src/main/features/notes/store";
 import type { NoteLocation } from "../../../../../src/shared/notes/types";
+
+test("the Markdown heading escapes title markup without changing normal punctuation", () => {
+  expect(
+    noteMarkdown({
+      title: 'Today\'s "Q3"\r\n[WIP] release_notes `draft\u202e`',
+      doc: { type: "doc", content: [] },
+    }),
+  ).toStartWith('# Today\'s "Q3" \\[WIP\\] release\\_notes \\`draft \\`\n');
+});
 
 let root: string;
 let store: NotesStore;

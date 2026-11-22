@@ -1,4 +1,4 @@
-import { TextSelection } from "@tiptap/pm/state";
+import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { BubbleMenu, type BubbleMenuProps } from "@tiptap/react/menus";
 import { Bold, Bot, ChevronDown, Italic, Link } from "lucide-react";
@@ -31,7 +31,8 @@ const MENU_OPTIONS: BubbleMenuProps["options"] = {
 
 function textSelected(editor: Editor): string {
   const { doc, selection } = editor.state;
-  if (!(selection instanceof TextSelection) || selection.empty) return "";
+  if (!(selection instanceof TextSelection || selection instanceof AllSelection) || selection.empty)
+    return "";
   const text = doc.textBetween(selection.from, selection.to, "\n", (node) =>
     node.type.name === "hardBreak" ? "\n" : "",
   );
