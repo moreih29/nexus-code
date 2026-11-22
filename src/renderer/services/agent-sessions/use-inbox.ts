@@ -59,7 +59,9 @@ export const SESSION_STORES: readonly { subscribe(listener: () => void): () => v
 ];
 
 /** The inbox of every workspace as the stores and `activity` tell it now. */
-function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
+export function inboxNow(
+  activity: ReadonlyMap<string, TabActivity> = useTabActivityStore.getState().activity,
+): Inbox {
   return buildInbox(sessionsInputNow(activity));
 }
 
@@ -108,16 +110,26 @@ export async function goToNextWaiting(): Promise<void> {
 
 /** Marks the done sessions of `items` read; those waiting on the user stay. */
 export function markRead(items: readonly InboxItem[]): void {
-  const seen = useSessionSeenStore.getState();
   for (const { session } of items) {
     if (session.phase !== "done") continue;
-    seen.markSeen(session.workspaceId, session.tabId);
-    // Claude's own completed state, which its tab and the sidebar show.
-    if (!session.estimated && session.kind !== "codex") {
-      void ipcCallResult("claude", "markSeen", {
-        workspaceId: session.workspaceId,
-        tabId: session.tabId,
-      });
-    }
+    markSessionRead(session);
+  }
+}
+
+export function markSessionRead(session: AgentSession, at?: number): void {
+  const { workspaceId, tabId, kind, estimated } = session;
+  useSessionSeenStore.getState().markSeen(workspaceId, tabId, at);
+  const broker = useClaudeStatusStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (
+    !estimated &&
+    (kind === "terminal" ||
+      (kind === "claude" &&
+        (at === undefined || (broker?.status === "completed" && broker.since === at))))
+  ) {
+    void ipcCallResult("claude", "markSeen", {
+      workspaceId,
+      tabId,
+      ...(at === undefined ? {} : { completedAt: at }),
+    });
   }
 }

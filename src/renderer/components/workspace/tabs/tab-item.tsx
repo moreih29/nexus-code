@@ -40,7 +40,7 @@ import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
-import { useCodexTabStatus } from "../../../services/agent-sessions/use-codex-status";
+import { useChatTabStatus } from "../../../services/agent-sessions/use-codex-status";
 import { useEstimatedTabGlyph } from "../../../services/agent-sessions/use-estimated";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
@@ -344,15 +344,21 @@ export const TabItem = memo(function TabItem({
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
   // Subscribe to the Claude session status — extract only the status string primitive
-  const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore(
+  const brokerStatus = useClaudeStatusStore(
     (state) => selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
+  const chatStatus = useChatTabStatus(workspaceId, tab);
+  // A Claude chat's streamed completion and its hook can have different timestamps.
+  const claudeStatus =
+    tab.type === "claude" && brokerStatus === "completed"
+      ? (chatStatus ?? brokerStatus)
+      : brokerStatus;
 
   // Agent terminals with no Claude status (Codex etc.) show a status inferred from output.
   const estimatedStatus = useEstimatedTabGlyph(workspaceId, tab, claudeStatus === undefined);
 
   // Codex tabs show the status read from the conversation.
-  const codexStatus = useCodexTabStatus(workspaceId, tab);
+  const codexStatus = tab.type === "codex" && chatStatus !== "idle" ? chatStatus : undefined;
 
   // permissionPending background tint — a 6% warning color overlay on the tab background.
   const isPermissionPending =

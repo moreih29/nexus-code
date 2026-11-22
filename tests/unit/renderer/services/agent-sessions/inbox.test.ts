@@ -3,13 +3,18 @@
  * user, permissions first, longest waiting first, then the ones done and
  * not looked at since; and stepping through them.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
+  acknowledgedResults,
   buildInbox,
   type InboxInput,
   isUnread,
 } from "../../../../../src/renderer/services/agent-sessions/inbox";
 import { sessionKey } from "../../../../../src/renderer/services/agent-sessions/model";
+import {
+  markSessions,
+  sessionChanges,
+} from "../../../../../src/renderer/services/agent-sessions/session-changes";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
 import type { TabActivity } from "../../../../../src/shared/sessions/agent-state";
@@ -95,6 +100,38 @@ function tabsOf(inputOverrides: Partial<InboxInput> = {}): string[] {
 }
 
 describe("buildInbox", () => {
+  test.each([
+    [APP, "a3", 2_000, 1],
+    [APP, "a3", 2_001, 1],
+    [APP, "a3", 1_999, 0],
+    [APP, "a1", NOW, 0],
+    [APP, "a2", NOW, 0],
+    [APP, "a4", NOW, 0],
+    [TASK, "t1", NOW, 0],
+    [TASK, "t2", 5_000, 1],
+    [APP, "gone", NOW, 0],
+  ] as const)("selects %s/%s through %d once", (workspaceId, tabId, upTo, count) => {
+    const receipt = { workspaceId, tabId, upTo };
+    const results = acknowledgedResults(buildInbox(input()), [receipt, receipt]);
+    expect(results).toHaveLength(count);
+    if (count) expect(results[0]?.session.tabId).toBe(tabId);
+  });
+
+  test.each([
+    [APP, "a3", 2_000],
+    [TASK, "t2", 5_000],
+  ] as const)("publishes an acknowledgement for %s/%s as completed to idle", (workspaceId, tabId, upTo) => {
+    const before = input();
+    const after = input({ seenByWorkspace: { [workspaceId]: { [tabId]: upTo } } });
+    const events = sessionChanges(
+      markSessions(workspaces, before),
+      markSessions(workspaces, after),
+      NOW,
+      1,
+    );
+    expect(events).toMatchObject([{ workspaceId, tabId, from: "completed", to: "idle" }]);
+  });
+
   it("drops a done session once its terminal was looked at after it finished", () => {
     expect(tabsOf({ seenByWorkspace: { [APP]: { a3: 2_500 }, [TASK]: { t2: 6_000 } } })).toEqual([
       "a1",

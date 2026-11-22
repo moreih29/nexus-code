@@ -12,8 +12,10 @@ import { useLayoutStore } from "@/state/stores/layout/store";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
+import { acknowledgedResults, unreadResults } from "../agent-sessions/inbox";
 import { listed } from "../agent-sessions/rows";
-import { readSessionEvents } from "../agent-sessions/session-events";
+import { readSessionEvents, recordSessionEvents } from "../agent-sessions/session-events";
+import { inboxNow, markSessionRead } from "../agent-sessions/use-inbox";
 import { orderedSidebarSessions } from "../agent-view/session-order";
 import { existingChatController } from "../chat/claude/controller";
 import { existingCodexController } from "../chat/codex/controller";
@@ -127,6 +129,24 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
+  "sessions.results": async () => {
+    const unread: Record<string, Record<string, number>> = Object.create(null);
+    for (const { session, since } of unreadResults(inboxNow())) {
+      unread[session.workspaceId] ??= Object.create(null);
+      const tabs = unread[session.workspaceId];
+      tabs[session.tabId] = since;
+    }
+    return { unread };
+  },
+  "sessions.markSeen": async ({ seen }) => {
+    const results = acknowledgedResults(inboxNow(), seen);
+    // A receipt can follow a listing before the session log's debounce has recorded completion.
+    if (results.length === 0) return { marked: 0 };
+    recordSessionEvents();
+    for (const { session, since } of results) markSessionRead(session, since);
+    recordSessionEvents();
+    return { marked: results.length };
+  },
   ...actionHandlers,
   ...appHandlers,
   ...chatHandlers,

@@ -6,8 +6,9 @@
  * as the agent list.
  */
 
+import type { RpcParams } from "../../../../packages/remote-protocol/src/rpc";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { type AgentSession, type SessionsInput, sessionsOf } from "./model";
+import { type AgentSession, type SessionsInput, sessionKey, sessionsOf } from "./model";
 
 export interface InboxInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
@@ -75,6 +76,30 @@ export function buildInbox(input: InboxInput): Inbox {
     attention: attention.length,
     unread: done.length,
   };
+}
+
+/** Only an unread result with a host timestamp can be acknowledged remotely. */
+export function unreadResults(inbox: Inbox) {
+  return inbox.items.flatMap(({ session }) => {
+    const { since } = session;
+    return session.phase === "done" &&
+      !session.limitWait &&
+      since !== undefined &&
+      Number.isFinite(since)
+      ? [{ session, since }]
+      : [];
+  });
+}
+
+export function acknowledgedResults(inbox: Inbox, seen: RpcParams<"sessions.markSeen">["seen"]) {
+  const unread = new Map(unreadResults(inbox).map((result) => [result.session.key, result]));
+  return seen.flatMap(({ workspaceId, tabId, upTo }) => {
+    const key = sessionKey(workspaceId, tabId);
+    const result = unread.get(key);
+    if (!result || result.since > upTo || result.session.workspaceId !== workspaceId) return [];
+    unread.delete(key);
+    return [result];
+  });
 }
 
 /**

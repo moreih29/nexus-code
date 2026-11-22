@@ -45,7 +45,7 @@ export function registerClaudeChannel(
         return ipcOk(undefined);
       },
       markSeen: async (args: unknown) => {
-        const { workspaceId, tabId } = validateArgs(c.markSeen.args, args);
+        const { workspaceId, tabId, completedAt } = validateArgs(c.markSeen.args, args);
         // Only states whose notification meaning is lost once the user has seen the tab
         // move to idle:
         //  - completed: marks that the response finished → once seen, it is done.
@@ -54,7 +54,11 @@ export function registerClaudeChannel(
         // permissionPending/error/running are kept — the visual mark must stay valid until the user takes explicit action or
         // the system responds.
         const entry = broker.get(workspaceId, tabId);
-        if (entry?.status === "completed" || entry?.status === "needsInput") {
+        // A remote receipt names one result. The terminal may have moved on since the renderer read it.
+        const completed =
+          entry?.status === "completed" &&
+          (completedAt === undefined || entry.since === completedAt);
+        if (completed || (completedAt === undefined && entry?.status === "needsInput")) {
           broker.set(workspaceId, tabId, "idle");
         }
         return ipcOk(undefined);

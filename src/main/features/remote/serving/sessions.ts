@@ -282,10 +282,25 @@ export async function snapshotSessions(
   for (const { index, workspaceId } of chats) {
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
+  const unread = (await budget.ui("sessions.results", {}).catch(() => undefined))?.unread;
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
-    sessions: sessions.filter((row) => row !== undefined),
+    sessions: sessions
+      .filter((row) => row !== undefined)
+      .map((row) => {
+        if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
+        const since = unread[row.workspaceId]?.[row.tabId];
+        if (
+          !row.failed &&
+          !row.limitWait &&
+          !row.waiting &&
+          since !== undefined &&
+          Number.isFinite(since)
+        )
+          return { ...row, state: "new-result", since };
+        return row.state === "new-result" ? { ...row, state: "idle" } : row;
+      }),
     ...(recording ? { recording } : {}),
   };
   const waitingRequests = includeWaitingIds

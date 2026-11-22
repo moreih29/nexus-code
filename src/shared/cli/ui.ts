@@ -1227,6 +1227,14 @@ export interface CliUiOps {
     args: { since?: number; limit: number };
     result: { events: CliSessionEvent[]; cursor: number; more: boolean };
   };
+  "sessions.results": {
+    args: Record<string, never>;
+    result: { unread: Record<string, Record<string, number>> };
+  };
+  "sessions.markSeen": {
+    args: RpcParams<"sessions.markSeen">;
+    result: RpcResult<"sessions.markSeen">;
+  };
   /**
    * Sends a Claude or Codex tab a message, as its composer does: during a
    * turn, the agent reads it after the tool it runs.

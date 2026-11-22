@@ -20,7 +20,7 @@ let marks: Map<string, SessionMark> | null = null;
 const listeners = new Set<(events: readonly CliSessionEvent[]) => void>();
 
 /** Reads the sessions now and logs what changed since the last read. */
-function record(): void {
+export function recordSessionEvents(): void {
   const input = sessionsInputNow(useTabActivityStore.getState().activity);
   const next = markSessions(input.workspaces, input);
   // The first read is where the log starts from, not a change.
@@ -40,11 +40,11 @@ export function startSessionEvents(): () => void {
     if (timer !== null) return;
     timer = setTimeout(() => {
       timer = null;
-      record();
+      recordSessionEvents();
     }, SETTLE_MS);
   };
   const stops = SESSION_STORES.map((store) => store.subscribe(schedule));
-  record();
+  recordSessionEvents();
   return () => {
     if (timer !== null) clearTimeout(timer);
     for (const stop of stops) stop();
@@ -62,7 +62,7 @@ export function readSessionEvents(
   limit: number,
 ): { events: CliSessionEvent[]; cursor: number; more: boolean } {
   // Pending changes count: a read right after one sees it.
-  record();
+  recordSessionEvents();
   if (since === undefined) {
     return { events: log.slice(Math.max(0, log.length - limit)), cursor: lastSeq, more: false };
   }
