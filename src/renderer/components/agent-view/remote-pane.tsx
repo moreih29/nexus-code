@@ -18,6 +18,7 @@ import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
+import { forgetRemoteResult, useRemotePaneSeen } from "../../services/agent-view/remote-results";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude/config";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
@@ -527,6 +528,8 @@ function RemoteChatView({
   const { deviceId, workspaceId, tabId } = target;
   const listed = usePeerSessions([deviceId], visible && reach === "online")[deviceId];
   const list = listed?.status === "ready" ? listed.list : undefined;
+  const session = list?.sessions.find((s) => s.workspaceId === workspaceId && s.tabId === tabId);
+  useRemotePaneSeen(deviceId, session, visible && reach === "online");
   const consents = usePeerConsents(deviceId, list?.consents).filter((consent) =>
     consentFromChat(consent, target),
   );
@@ -1445,6 +1448,9 @@ function RemoteTerminal({
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
+  useEffect(() => {
+    if (visible && read.status === "gone") forgetRemoteResult({ deviceId, workspaceId, tabId });
+  }, [deviceId, read.status, tabId, visible, workspaceId]);
   const types = usePeerTypes(deviceId);
   // Its Claude Code's request is answered as a chat's is: where the computer lets this one control.
   const controls = usePeerControls(deviceId);
@@ -1452,15 +1458,12 @@ function RemoteTerminal({
   const [answered, setAnswered] = useState<string | null>(null);
   // Its state and Claude Code's requests keep updating while the sidebar is hidden.
   const listed = usePeerSessions([deviceId], visible)[deviceId];
-  const ask =
+  const session =
     listed?.status === "ready"
-      ? (() => {
-          const session = listed.list.sessions.find(
-            (s) => s.workspaceId === workspaceId && s.tabId === tabId,
-          );
-          return session ? askOf(session) : undefined;
-        })()
-      : target.ask;
+      ? listed.list.sessions.find((s) => s.workspaceId === workspaceId && s.tabId === tabId)
+      : undefined;
+  useRemotePaneSeen(deviceId, session, visible && reach === "online");
+  const ask = listed?.status === "ready" ? (session ? askOf(session) : undefined) : target.ask;
   const [typing, setTyping] = useState<TerminalTyping | null>(null);
   useLayoutEffect(() => {
     setTyping(null);

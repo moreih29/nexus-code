@@ -11,6 +11,7 @@ import i18next from "i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey, removeKey } from "../../services/agent-view/layout";
+import { forgetRemoteResult } from "../../services/agent-view/remote-results";
 import { forgetPeerSubmissions } from "../../services/remote/peer-submissions";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
@@ -196,7 +197,8 @@ export async function closePeerSession(session: PeerSessionRef): Promise<boolean
     failed(result.message);
     return false;
   }
-  if (!terminal) forgetPeerSubmissions(ref);
+  if (terminal) forgetRemoteResult(ref);
+  else forgetPeerSubmissions(ref);
   const key = remoteSessionKey(session);
   useAgentViewStore.getState().update((layout) => removeKey(layout, key));
   refreshPeerSessions(session.deviceId);

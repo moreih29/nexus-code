@@ -9,10 +9,12 @@
 import { create } from "zustand";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { createLogger } from "../../../shared/log/renderer";
-import type {
-  AgentViewMode,
-  AgentViewSnapshot,
-  RemoteFileSnapshot,
+import {
+  type AgentViewMode,
+  type AgentViewSnapshot,
+  MAX_REMOTE_SEEN,
+  type RemoteFileSnapshot,
+  type RemoteSeenResult,
 } from "../../../shared/types/agent-view";
 import { ipcCallResult } from "../../ipc/client";
 import {
@@ -57,6 +59,7 @@ const PERSIST_DELAY_MS = 300;
 
 type RemoteFile = RemoteFileSnapshot & { before?: string | null };
 type PeerOrder = { readonly accountKey: string; readonly ids: readonly string[] };
+type RemoteSeen = { accountKey: string; entries: ReadonlyMap<string, RemoteSeenResult> };
 const NO_REMOTE_FILES: ReadonlyMap<string, RemoteFile> = new Map();
 
 interface AgentViewState extends AgentLayout {
@@ -76,6 +79,8 @@ interface AgentViewState extends AgentLayout {
   grouping: AgentListGrouping;
   /** The list's folded groups, keyed by status, workspace, peer or peer-ws. */
   folded: ReadonlySet<string>;
+  remoteSeen: RemoteSeen | undefined;
+  updateRemoteSeen(accountKey: string, changes: ReadonlyMap<string, RemoteSeenResult | null>): void;
   /** Restores what was stored, keeping only the agents `alive` knows. */
   hydrate(snapshot: AgentViewSnapshot | undefined, alive: (key: string) => boolean): void;
   setMode(mode: AgentViewMode): void;
@@ -118,8 +123,18 @@ function schedulePersist(): void {
 async function writeAgentView(): Promise<boolean> {
   pending = false;
   try {
-    const { mode, root, activeLeafId, ended, remoteFiles, order, peerOrder, grouping, folded } =
-      useAgentViewStore.getState();
+    const {
+      mode,
+      root,
+      activeLeafId,
+      ended,
+      remoteFiles,
+      order,
+      peerOrder,
+      grouping,
+      folded,
+      remoteSeen,
+    } = useAgentViewStore.getState();
     const agentView = {
       mode,
       root,
@@ -138,6 +153,9 @@ async function writeAgentView(): Promise<boolean> {
         : {}),
       ...(grouping !== AGENT_LIST_GROUPING_DEFAULT ? { grouping } : {}),
       ...(folded.size > 0 ? { folded: [...folded] } : {}),
+      ...(remoteSeen
+        ? { remoteSeen: { accountKey: remoteSeen.accountKey, entries: [...remoteSeen.entries] } }
+        : {}),
     };
     const result = await ipcCallResult("appState", "set", { agentView });
     if (result.ok) return true;
@@ -173,9 +191,11 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   peerOrderAccount: null,
   grouping: AGENT_LIST_GROUPING_DEFAULT,
   folded: NO_FOLDS,
+  remoteSeen: undefined,
 
   hydrate(snapshot, alive) {
     if (snapshot) {
+      const remoteSeen = snapshot.remoteSeen;
       const remoteFiles = new Map(Object.entries(snapshot.remoteFiles ?? {}));
       const layout = pruneKeys(sanitizeLayout(snapshot.root, snapshot.activeLeafId), (key) => {
         if (isRemoteFileKey(key)) return remoteFiles.has(key);
@@ -192,6 +212,10 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         peerOrder: snapshot.peerOrder,
         grouping: groupingFromStore(snapshot.grouping),
         folded: new Set(snapshot.folded ?? []),
+        remoteSeen: remoteSeen && {
+          accountKey: remoteSeen.accountKey,
+          entries: new Map(remoteSeen.entries),
+        },
       });
     }
     hydrated = true;
@@ -294,6 +318,43 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     set({ folded: next });
     schedulePersist();
   },
+
+  updateRemoteSeen(accountKey, changes) {
+    const view = get();
+    if (view.peerOrderAccount !== null && view.peerOrderAccount !== accountKey) return;
+    const saved = view.remoteSeen?.accountKey === accountKey ? view.remoteSeen.entries : undefined;
+    const entries = new Map(saved);
+    let changed = false;
+    for (const [key, value] of changes) {
+      if (!isRemoteKey(key) || key.length > 200) continue;
+      if (value === null) {
+        changed = entries.delete(key) || changed;
+        continue;
+      }
+      if (
+        !Number.isFinite(value.at) ||
+        (value.listedAt != null && !Number.isFinite(value.listedAt))
+      )
+        continue;
+      const before = entries.get(key);
+      if (
+        before?.at === value.at &&
+        before.undated === value.undated &&
+        before.listedAt === value.listedAt
+      )
+        continue;
+      entries.delete(key);
+      entries.set(key, value);
+      changed = true;
+    }
+    if (!changed) return;
+    for (const key of entries.keys()) {
+      if (entries.size <= MAX_REMOTE_SEEN) break;
+      entries.delete(key);
+    }
+    set({ remoteSeen: entries.size > 0 ? { accountKey, entries } : undefined });
+    schedulePersist();
+  },
 }));
 
 /** Whether the window shows the agent view. */
@@ -324,5 +385,6 @@ export function __resetAgentViewForTests(): void {
     peerOrderAccount: null,
     grouping: AGENT_LIST_GROUPING_DEFAULT,
     folded: NO_FOLDS,
+    remoteSeen: undefined,
   });
 }

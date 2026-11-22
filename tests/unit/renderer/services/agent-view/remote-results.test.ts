@@ -5,11 +5,14 @@ import type {
   SessionEvent,
 } from "../../../../../packages/remote-protocol/src/rpc";
 import * as ipc from "../../../../../src/renderer/ipc/client";
+import { remoteSessionKey } from "../../../../../src/renderer/services/agent-view/layout";
 import {
+  markVisibleRemoteResult,
   RemoteResults,
   watchResults,
 } from "../../../../../src/renderer/services/agent-view/remote-results";
 import * as room from "../../../../../src/renderer/services/remote/room";
+import { useAgentViewStore } from "../../../../../src/renderer/state/stores/agent-view";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
 const chat: RemoteSession = {
@@ -233,4 +236,119 @@ describe("remote results", () => {
     results.observe("pc", [working], 21);
     expect(results.session("pc", terminal)).toBe(terminal);
   });
+});
+
+test("pausing the sidebar stops scheduled reads and resuming reads before any listing", async () => {
+  const results = new RemoteResults();
+  const observed = spyOn(room, "observePeerSessions").mockReturnValue(() => {});
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(
+    ipcOk({ events: [], cursor: 12, more: false }),
+  );
+  jest.useFakeTimers();
+  let stop = watchResults(results, "mac", 0);
+  const flush = async () => {
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+  };
+  try {
+    stop();
+    jest.advanceTimersByTime(10_000);
+    expect(call).not.toHaveBeenCalled();
+    stop = watchResults(results, "mac", 0);
+    await flush();
+    expect(call).toHaveBeenLastCalledWith("remote", "peerSessionEvents", {
+      deviceId: "mac",
+      since: 0,
+      limit: 200,
+    });
+    stop();
+    stop = watchResults(results, "mac", 0);
+    await flush();
+    expect(call).toHaveBeenLastCalledWith("remote", "peerSessionEvents", {
+      deviceId: "mac",
+      since: 12,
+      limit: 200,
+    });
+    expect(call).toHaveBeenCalledTimes(2);
+  } finally {
+    stop();
+    call.mockRestore();
+    observed.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test("a visible focused pane marks a result and the next turn can be unread again", () => {
+  const view = useAgentViewStore.getState();
+  const accountKey = "visible-account";
+  const results = new RemoteResults(accountKey);
+  const quiet = { ...chat, since: 3 };
+  useAgentViewStore.setState({ remoteSeen: undefined, peerOrderAccount: accountKey });
+  try {
+    results.applyPage("mac", { events: [complete], cursor: 1, more: false });
+    markVisibleRemoteResult(accountKey, "mac", quiet, false, true);
+    markVisibleRemoteResult(accountKey, "mac", quiet, true, false);
+    expect(results.session("mac", quiet).state).toBe("new-result");
+    markVisibleRemoteResult(accountKey, "mac", quiet, true, true);
+    expect(results.session("mac", quiet)).toBe(quiet);
+    const anotherAccount = new RemoteResults("another-account");
+    anotherAccount.applyPage("mac", { events: [complete], cursor: 1, more: false });
+    expect(anotherAccount.session("mac", quiet).state).toBe("new-result");
+
+    results.observe("mac", [{ ...chat, state: "running" }], 20);
+    results.applyPage("mac", { events: [{ ...complete, seq: 2, at: 30 }], cursor: 2, more: false });
+    expect(results.session("mac", quiet)).toMatchObject({ state: "new-result", since: 30 });
+  } finally {
+    useAgentViewStore.setState({
+      remoteSeen: view.remoteSeen,
+      peerOrderAccount: view.peerOrderAccount,
+    });
+  }
+});
+
+test("a saved undated terminal result stays read until another turn or close", () => {
+  const view = useAgentViewStore.getState();
+  const accountKey = "terminal-account";
+  const row: RemoteSession = { ...chat, kind: "terminal", state: "new-result" };
+  const key = remoteSessionKey({ deviceId: "mac", ...row });
+  useAgentViewStore.setState({ remoteSeen: undefined, peerOrderAccount: accountKey });
+  try {
+    markVisibleRemoteResult(accountKey, "mac", row, true, true);
+    const reopened = new RemoteResults(accountKey);
+    reopened.observe("mac", [row], 10);
+    expect(reopened.session("mac", row).state).toBe("idle");
+    reopened.observe("mac", [], 20);
+    expect(useAgentViewStore.getState().remoteSeen?.entries.has(key)).toBeFalsy();
+    reopened.observe("mac", [row], 30);
+    expect(reopened.session("mac", row).state).toBe("new-result");
+    reopened.markSeen([{ deviceId: "mac", session: reopened.session("mac", row) }]);
+    reopened.applyPage("mac", {
+      events: [{ ...complete, kind: "terminal", to: "closed" }],
+      cursor: 1,
+      more: false,
+    });
+    expect(useAgentViewStore.getState().remoteSeen?.entries.has(key)).toBeFalsy();
+  } finally {
+    useAgentViewStore.setState({
+      remoteSeen: view.remoteSeen,
+      peerOrderAccount: view.peerOrderAccount,
+    });
+  }
+});
+
+test("a late running snapshot preserves the completed event from the same turn", () => {
+  const results = new RemoteResults();
+  results.applyPage("mac", { events: [complete], cursor: 1, more: false });
+  const running = { ...chat, state: "running" as const, since: 5 };
+  const quiet = { ...chat, since: 30 };
+  results.observe("mac", [running], 30);
+  expect(results.session("mac", running)).toBe(running);
+  results.observe("mac", [quiet], 31);
+  results.settleAfterRead("mac")();
+  expect(results.session("mac", quiet)).toMatchObject({ state: "new-result", since: 10 });
+
+  results.observe("mac", [{ ...running, since: 32 }], 32);
+  results.observe("mac", [quiet], 33);
+  results.settleAfterRead("mac")();
+  expect(results.session("mac", quiet)).toBe(quiet);
 });

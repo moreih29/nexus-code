@@ -404,7 +404,7 @@ function AccountRemoteSessions({
     online.map((peer) => peer.id),
     shown,
   );
-  const results = useRemoteResults(online, shown);
+  const results = useRemoteResults(online, shown, accountKey);
   const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
     (peer) => connected || lists[peer.id]?.status === "ready",
   );

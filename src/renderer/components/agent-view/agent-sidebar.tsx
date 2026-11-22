@@ -79,7 +79,7 @@ const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
 const SUMMED: readonly RowGroup[] = ["attention", "running", "done"];
 
 // Memo: kept while hidden, it would render again with each of the app's.
-export const AgentSidebar = memo(function AgentSidebar() {
+export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boolean }) {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
@@ -155,6 +155,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
             ))}
           <RemoteSessions
             query={query}
+            shown={shown}
             renderStatus={
               grouping === "status"
                 ? (remote, results) => (

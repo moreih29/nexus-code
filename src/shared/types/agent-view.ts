@@ -91,6 +91,15 @@ export const EndedAgentSnapshotSchema = z.object({
 });
 export type EndedAgentSnapshot = z.infer<typeof EndedAgentSnapshotSchema>;
 
+export const MAX_REMOTE_SEEN = 500;
+const RemoteSeenResultSchema = z.object({
+  at: z.number(),
+  undated: z.literal(true).optional(),
+  /** The quiet chat's listing timestamp when its open pane saw it. */
+  listedAt: z.number().nullable().optional(),
+});
+export type RemoteSeenResult = z.infer<typeof RemoteSeenResultSchema>;
+
 export const AgentViewSnapshotSchema = z.object({
   mode: AgentViewModeSchema,
   root: AgentViewNodeSchema,
@@ -111,5 +120,14 @@ export const AgentViewSnapshotSchema = z.object({
   grouping: z.string().max(32).optional().catch(undefined),
   // The list's folded groups, keyed by status, workspace, peer or peer-ws.
   folded: z.array(z.string().max(200)).max(256).optional().catch(undefined),
+  remoteSeen: z
+    .object({
+      accountKey: z.string(),
+      entries: z
+        .array(z.tuple([z.string().startsWith("remote:").max(200), RemoteSeenResultSchema]))
+        .max(MAX_REMOTE_SEEN),
+    })
+    .optional()
+    .catch(undefined),
 });
 export type AgentViewSnapshot = z.infer<typeof AgentViewSnapshotSchema>;
