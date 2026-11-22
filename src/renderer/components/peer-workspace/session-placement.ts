@@ -1,4 +1,5 @@
 import type { LineAt } from "../../services/chat/links";
+import { peerSessionsReadSequence, refreshPeerSessions } from "../../services/remote/room";
 import { requestTabFocus } from "../../services/tab-focus";
 import { isAgentViewShown } from "../../state/stores/agent-view";
 import {
@@ -25,8 +26,18 @@ function stillSelected(workspace: PeerWorkspaceTarget): boolean {
 
 export function showPeerWorkspaceSession(workspace: PeerWorkspaceTarget, target: RemoteTarget) {
   if (!stillSelected(workspace) || peerTargetId(workspace) !== peerTargetId(target)) return;
+  if (target.state === "ended") return;
   const store = usePeerWorkspaceStore.getState();
-  store.openSession(peerTargetId(workspace), target);
+  const id = peerTargetId(workspace);
+  store.openSession(id, target, peerSessionsReadSequence());
+  const active = usePeerWorkspaceStore
+    .getState()
+    .views[id]?.tabs.find(
+      (tab) => tab.type === "peer.session" && tab.target.tabId === target.tabId,
+    );
+  if (active?.type === "peer.session" && active.pending !== undefined) {
+    refreshPeerSessions(target.deviceId);
+  }
   if (target.kind !== "terminal" && !isAgentViewShown()) {
     requestTabFocus(peerSessionFocusKey(workspace, target.tabId));
   }

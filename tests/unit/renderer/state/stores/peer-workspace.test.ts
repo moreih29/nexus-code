@@ -244,7 +244,7 @@ test("workspace sessions follow the listed order, keep local hides, and prune go
       target: { title: "Updated", profile: "Work", workspaceName: "Renamed" },
     });
     expect(view().tabs[0]).not.toHaveProperty("target.cwd");
-    expect(view().sessions.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
+    expect(view().sessions?.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
 
     store.openSession(id, shellTarget.target);
     expect(keys()).toEqual([chatKey, "/w/notes.txt", nextKey, shellKey]);
@@ -252,7 +252,7 @@ test("workspace sessions follow the listed order, keep local hides, and prune go
     store.closeTab(id, shellKey);
     store.syncSessions(target, [next], true);
     expect(view().tabs[0]).not.toHaveProperty("gone");
-    expect(view().sessions.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
+    expect(view().sessions?.map((session) => session.tabId)).toEqual(["next", "shell", "chat"]);
     store.syncSessions(target, [shell, next], false);
     expect(view().tabs[0]).toMatchObject({ gone: true });
     store.selectTab(id, chatKey);
@@ -283,7 +283,7 @@ test("a newly created tab survives a stale list and tracks terminal requests onc
     title: "Starting",
   });
   store.syncSessions(target, [], false);
-  expect(view().tabs[0]).toMatchObject({ pending: true });
+  expect(view().tabs[0]).toMatchObject({ pending: 0 });
   store.syncSessions(
     target,
     [
@@ -326,4 +326,36 @@ test("open beside selects a read-only peer file at the chat link's line", () => 
   expect(openPeerWorkspaceFileBeside({ ...target, accountKey: "other" }, "/w/docs/start.md")).toBe(
     false,
   );
+});
+
+test("a newer complete list marks a never-listed background session gone and excludes ended sessions", () => {
+  const store = usePeerWorkspaceStore.getState();
+  const view = () => usePeerWorkspaceStore.getState().views[id]!;
+  store.select(target, null);
+  expect(usePeerWorkspaceStore.getState().views[id]?.sessions).toBeUndefined();
+  const opened = {
+    deviceId: target.deviceId,
+    deviceName: target.deviceName,
+    workspaceId: target.workspaceId,
+    workspaceName: target.workspace.name,
+    path: target.workspace.path,
+    tabId: "new",
+    kind: "claude" as const,
+    title: "New",
+  };
+  store.openSession(id, opened, 10);
+  store.syncSessions(target, [shell, { ...listedChat, state: "ended" }], false, 10);
+  const shellKey = JSON.stringify(["peer.session", shell.tabId]);
+  store.selectTab(id, shellKey);
+  expect(view().tabs[0]).toMatchObject({ pending: 10 });
+  store.syncSessions(target, [shell], true, 11);
+  expect(view().tabs[0]).toMatchObject({ pending: 10 });
+  store.syncSessions(target, [shell], false, 12);
+  expect(view().tabs[0]).toMatchObject({ gone: true });
+  expect(view().tabs[0]).not.toHaveProperty("pending");
+  expect(view().activePath).toBe(shellKey);
+  store.syncSessions(target, [{ ...shell, state: "ended" }], false, 13);
+  expect(view().tabs).toHaveLength(1);
+  expect(view().sessions).toEqual([]);
+  expect(view().activePath).toBe(JSON.stringify(["peer.session", "new"]));
 });

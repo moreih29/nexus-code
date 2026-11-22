@@ -26,12 +26,46 @@ const peerReads = new Set([
   "peerGitShow",
   "peerGitStatus",
 ]);
-const sessionImports = new Map<string, string>([
-  ["components/agent-view/remote-new-menu", "panel.tsx"],
-  ["components/agent-view/remote-pane", "session-tab.tsx"],
-  ["components/agent-view/remote-session-host", "session-tab.tsx"],
-  ["components/agent-view/remote-sessions", "sessions-panel.tsx"],
-]);
+const agentView = "components/agent-view";
+const remote = "services/remote";
+const restricted = [agentView, remote];
+const allowedImports: readonly [file: string, module: string, ...names: string[]][] = [
+  ["panel.tsx", `${agentView}/remote-new-menu`, "RemoteNewMenu"],
+  ["session-tab.tsx", `${agentView}/remote-pane`, "RemoteSessionPane"],
+  ["session-tab.tsx", `${agentView}/remote-session-host`, "RemoteSessionHost"],
+  ["sessions-panel.tsx", `${agentView}/remote-sessions`, "OpenRemoteSessionRow"],
+  ["diff-model.ts", `${remote}/file-comparison`, "beforeOfHunks"],
+  ["diff-model.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitFile", "PeerGitSide"],
+  ["diff-model.ts", `${remote}/peer-workspace`, "PeerText", "readPeerWorkspaceText"],
+  ["diff-tab.tsx", `${remote}/peer-git-status`, "PeerGitFile"],
+  ["file-tree.tsx", `${remote}/room`, "refreshPeerSessions"],
+  ["git-panel.tsx", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitSide"],
+  ["git-tree.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitStatus"],
+  ["panel.tsx", `${remote}/room`, "PeerReach"],
+  ["quick-open.tsx", `${remote}/peer-quick-open`, "subscribePeerQuickOpen"],
+  ["quick-open.tsx", `${remote}/room`, "PeerReach"],
+  ["room.ts", `${remote}/account`, "remoteAccountKey", "useRemoteAccount"],
+  ["room.ts", `${remote}/peer-git-status`, "watchPeerGitStatus"],
+  [
+    "room.ts",
+    `${remote}/room`,
+    "observePeerSessions",
+    "offlinePeers",
+    "PeerReach",
+    "refreshPeerSessions",
+    "servingPeers",
+    "usePeerSessions",
+    "useRemoteRoom",
+    "useShownRoom",
+  ],
+  ["search-model.ts", `${remote}/room`, "refreshPeerSessions"],
+  ["session-placement.ts", `${remote}/room`, "peerSessionsReadSequence", "refreshPeerSessions"],
+  ["sidebar.tsx", `${remote}/room`, "PeerSessions"],
+];
+
+function within(path: string | undefined, directory: string): boolean {
+  return path === directory || path?.startsWith(`${directory}/`) === true;
+}
 
 function modulePath(file: string, path: string): string | undefined {
   const resolved = path.startsWith("@/")
@@ -64,23 +98,39 @@ function peerReadViolations(file: string, source: string): string[] {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest);
   const violations: string[] = [];
   const ipcAliases = new Set<string>();
-  function checkImport(specifier: ts.Node | undefined) {
+  const filename = relative(workbench, file).replaceAll("\\", "/");
+  function checkImport(specifier: ts.Node | undefined, clause?: ts.ImportClause) {
     const path = literal(specifier);
     if (path === undefined) return;
     const normalized = modulePath(file, path);
-    if (forbidden.some((entry) => normalized === entry || normalized?.startsWith(`${entry}/`))) {
+    if (forbidden.some((entry) => within(normalized, entry))) {
       violations.push(`imports ${path}`);
+      return;
     }
+    if (!restricted.some((entry) => within(normalized, entry))) return;
+    const allowed = allowedImports.find(
+      ([from, module]) => from === filename && module === normalized,
+    );
+    const bindings = clause?.namedBindings;
     if (
-      normalized?.startsWith("components/agent-view/remote-") &&
-      sessionImports.get(normalized) !== relative(workbench, file)
+      !allowed ||
+      clause?.name ||
+      !bindings ||
+      !ts.isNamedImports(bindings) ||
+      !bindings.elements.length ||
+      bindings.elements.some(
+        ({ name, propertyName }) => !allowed.slice(2).includes((propertyName ?? name).text),
+      )
     ) {
       violations.push(`imports ${path}`);
     }
   }
   visit(ast, (node) => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      checkImport(node.moduleSpecifier);
+    if (ts.isImportDeclaration(node)) checkImport(node.moduleSpecifier, node.importClause);
+    if (ts.isExportDeclaration(node)) checkImport(node.moduleSpecifier);
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      checkImport(node.moduleReference.expression);
+    }
     if (!ts.isImportDeclaration(node)) return;
     const bindings = node.importClause?.namedBindings;
     if (!bindings || !ts.isNamedImports(bindings)) return;
@@ -177,4 +227,44 @@ test("only the designated peer workspace files can host the existing session con
     'calls ipcCallResult("remote", "peerChatAnswer")',
     'calls ipcCallResult("remote", "peerTerminalOpen")',
   ]);
+});
+
+test.each([
+  [
+    "session-tab.tsx",
+    'import { usePeerComposer } from "../../services/remote/peer-composer"',
+    "../../services/remote/peer-composer",
+  ],
+  [
+    "panel.tsx",
+    'import { AgentSidebar } from "../agent-view/agent-sidebar"',
+    "../agent-view/agent-sidebar",
+  ],
+  [
+    "sessions-panel.tsx",
+    'import { OpenRemoteSessionRow, RemoteSessions as Sessions } from "../agent-view/remote-sessions"',
+    "../agent-view/remote-sessions",
+  ],
+  [
+    "session-tab.tsx",
+    'import { runInPeerTerminal } from "../agent-view/remote-pane"',
+    "../agent-view/remote-pane",
+  ],
+  [
+    "sessions-panel.tsx",
+    'import * as remote from "../agent-view/remote-sessions"',
+    "../agent-view/remote-sessions",
+  ],
+  [
+    "sessions-panel.tsx",
+    'export * from "../agent-view/remote-sessions"',
+    "../agent-view/remote-sessions",
+  ],
+  [
+    "session-tab.tsx",
+    'import { watchPeerTerminalTyping } from "@/services/remote/peer-terminal"',
+    "@/services/remote/peer-terminal",
+  ],
+])("%s cannot bypass the named remote gateway with %s", (file, source, path) => {
+  expect(peerReadViolations(resolve(workbench, file), source)).toEqual([`imports ${path}`]);
 });

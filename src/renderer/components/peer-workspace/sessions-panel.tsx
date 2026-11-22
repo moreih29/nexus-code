@@ -32,6 +32,18 @@ export function PeerSessionsPanel({
     online: false,
   };
 
+  if (!sessions) {
+    return (
+      <EmptyState
+        title={
+          device.online
+            ? t("agentView.remote.loading")
+            : t("agentView.remote.offline", { device: device.name })
+        }
+        tone="status"
+      />
+    );
+  }
   if (sessions.length === 0) {
     return <EmptyState title={t("peerWorkspace.noSessions")} tone="status" />;
   }

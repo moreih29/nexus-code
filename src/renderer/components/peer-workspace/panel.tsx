@@ -111,7 +111,16 @@ export function PeerWorkspacePanel({
                       const key = peerTabId(tab);
                       if (tab.type === "peer.session") {
                         const Icon = peerSessionIcons[tab.target.kind];
-                        const title = tab.target.title || t("terminal.default_title");
+                        const { kind } = tab.target;
+                        const title =
+                          tab.target.title ||
+                          t(
+                            kind === "terminal"
+                              ? "terminal.default_title"
+                              : kind === "claude"
+                                ? "chat.tab_title"
+                                : "chat.codex.tab_title",
+                          );
                         return (
                           <TabItem
                             key={key}

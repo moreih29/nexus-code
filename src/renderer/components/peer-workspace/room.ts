@@ -7,6 +7,7 @@ import {
   observePeerSessions,
   offlinePeers,
   type PeerReach,
+  refreshPeerSessions,
   servingPeers,
   usePeerSessions,
   useRemoteRoom,
@@ -105,9 +106,19 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
           { ...target, workspace, deviceName: deviceName ?? target.deviceName },
           listed,
           incomplete,
+          sessions.requested,
         );
       }
     });
+    if (
+      usePeerWorkspaceStore
+        .getState()
+        .views[gitTarget]?.tabs.some(
+          (tab) => tab.type === "peer.session" && tab.pending !== undefined,
+        )
+    ) {
+      refreshPeerSessions(deviceId);
+    }
     return () => {
       refresh.current = null;
       off();

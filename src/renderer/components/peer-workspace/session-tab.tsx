@@ -60,7 +60,7 @@ export function PeerSessionTabBody({
       className={cn("relative min-h-0 flex-1", !selected && "hidden")}
     >
       {gone ? (
-        <EmptyState title={t("agentView.remote.gone")} tone="status" className="h-full" />
+        <EmptyState title={t("peerWorkspace.sessionGone")} tone="status" className="h-full" />
       ) : (
         (visible || visited) && <RemoteSessionPane target={target} host={host} visible={visible} />
       )}

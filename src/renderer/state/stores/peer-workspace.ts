@@ -39,8 +39,8 @@ export interface PeerSessionTab {
   type: "peer.session";
   target: RemoteTarget;
   gone?: true;
-  /** Opened by a control reply and awaiting its first listing. */
-  pending?: true;
+  /** The latest list request when a control reply opened this tab. */
+  pending?: number;
 }
 
 type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab;
@@ -68,7 +68,7 @@ interface PeerWorkspaceView {
   tabs: readonly PeerWorkspaceTab[];
   /** File path or structured tab ID. */
   activePath: string | null;
-  sessions: readonly RemoteSession[];
+  sessions?: readonly RemoteSession[];
   hiddenSessions: ReadonlySet<string>;
   folders: Readonly<Record<string, PeerFolder>>;
   expanded: ReadonlySet<string>;
@@ -79,7 +79,6 @@ interface PeerWorkspaceView {
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
   tabs: [],
   activePath: null,
-  sessions: [],
   hiddenSessions: new Set(),
   folders: {},
   expanded: new Set(),
@@ -103,11 +102,12 @@ interface PeerWorkspaceState {
   openFile: (id: string, path: string, at?: LineAt) => void;
   openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
   openCommit: (id: string, commit: Pick<PeerCommitTab, "hash" | "subject">) => void;
-  openSession: (id: string, target: RemoteTarget) => void;
+  openSession: (id: string, target: RemoteTarget, requestedBefore?: number) => void;
   syncSessions: (
     target: PeerWorkspaceTarget,
     sessions: readonly RemoteSession[],
     incomplete: boolean,
+    requested?: number,
   ) => void;
   markSessionGone: (id: string, tabId: string) => void;
   selectTab: (id: string, tabId: string) => void;
@@ -126,7 +126,11 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     if (view !== previous) set({ views: { ...state.views, [id]: view } });
   }
 
-  function openTab(id: string, tab: PeerDiffTab | PeerCommitTab | PeerSessionTab) {
+  function openTab(
+    id: string,
+    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab,
+    requestedBefore = 0,
+  ) {
     updateView(id, (view) => {
       const activePath = peerTabId(tab);
       const index = view.tabs.findIndex((item) => peerTabId(item) === activePath);
@@ -136,8 +140,8 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       if (tab.type === "peer.session") {
         const { tabId } = tab.target;
         if (previous?.type === "peer.session" && !previous.gone) tab = previous;
-        else if (!view.sessions.some((session) => session.tabId === tabId)) {
-          tab = { ...tab, pending: true };
+        else if (!view.sessions?.some((session) => session.tabId === tabId)) {
+          tab = { ...tab, pending: requestedBefore };
         }
         if (hiddenSessions.has(tabId)) {
           hiddenSessions = new Set([...hiddenSessions].filter((id) => id !== tabId));
@@ -214,17 +218,26 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       }),
     openDiff: (id, change, side) => openTab(id, { ...change, type: "peer.diff", side }),
     openCommit: (id, { hash, subject }) => openTab(id, { type: "peer.commit", hash, subject }),
-    openSession: (id, target) => {
-      if (peerTargetId(target) === id) openTab(id, { type: "peer.session", target });
+    openSession: (id, target, requestedBefore) => {
+      if (target.state !== "ended" && peerTargetId(target) === id) {
+        openTab(id, { type: "peer.session", target }, requestedBefore);
+      }
     },
-    syncSessions: (target, listed, incomplete) => {
+    syncSessions: (target, listed, incomplete, requested) => {
       if (get().active?.accountKey !== target.accountKey) return;
       updateView(peerTargetId(target), (view) => {
         const { deviceId, deviceName, workspace, workspaceId } = target;
-        const sessions = listed.filter((session) => session.workspaceId === workspaceId);
-        const byTab = new Map(sessions.map((session) => [session.tabId, session]));
+        const byTab = new Map(
+          listed
+            .filter((session) => session.workspaceId === workspaceId)
+            .map((session) => [session.tabId, session]),
+        );
+        const sessions = [...byTab.values()].filter((session) => session.state !== "ended");
+        const visible = view.tabs.filter(
+          (tab) => tab.type !== "peer.session" || byTab.get(tab.target.tabId)?.state !== "ended",
+        );
         const existing = new Set<string>();
-        const tabs = view.tabs.map((tab) => {
+        const tabs = visible.map((tab) => {
           if (tab.type !== "peer.session") return tab;
           existing.add(tab.target.tabId);
           const session = byTab.get(tab.target.tabId);
@@ -232,12 +245,13 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
             tab.target.deviceName === deviceName ? tab.target : { ...tab.target, deviceName };
           const updated = refreshRemoteTarget(named, workspace, session);
           if (!session) {
-            if (incomplete || tab.pending || tab.gone) {
+            const awaitingNewer = tab.pending !== undefined && (requested ?? 0) <= tab.pending;
+            if (incomplete || awaitingNewer || tab.gone) {
               return updated === tab.target ? tab : { ...tab, target: updated };
             }
-            return { ...tab, target: updated, gone: true as const };
+            return { type: "peer.session" as const, target: updated, gone: true as const };
           }
-          if (updated === tab.target && !tab.gone && !tab.pending) return tab;
+          if (updated === tab.target && !tab.gone && tab.pending === undefined) return tab;
           return { type: "peer.session" as const, target: updated };
         });
         for (const session of sessions) {
@@ -248,13 +262,20 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
           });
         }
         if (incomplete) {
-          sessions.push(...view.sessions.filter((session) => !byTab.has(session.tabId)));
+          sessions.push(...(view.sessions ?? []).filter((session) => !byTab.has(session.tabId)));
         }
         return {
           ...view,
           tabs,
-          sessions,
-          activePath: view.activePath ?? (tabs[0] ? peerTabId(tabs[0]) : null),
+          sessions:
+            incomplete && sessions.length === 0 && view.sessions === undefined
+              ? undefined
+              : sessions,
+          activePath: tabs.some((tab) => peerTabId(tab) === view.activePath)
+            ? view.activePath
+            : tabs[0]
+              ? peerTabId(tabs[0])
+              : null,
         };
       });
     },
@@ -269,7 +290,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
           tabs: view.tabs.map((current) =>
             current === tab ? { type: tab.type, target: tab.target, gone: true } : current,
           ),
-          sessions: view.sessions.filter((session) => session.tabId !== tabId),
+          sessions: view.sessions?.filter((session) => session.tabId !== tabId),
         };
       }),
     selectTab: (id, tabId) =>

@@ -7,8 +7,23 @@ import type { ChatRef } from "./peer-chat";
 const log = createLogger("peer-chat-watch");
 type WatchResult = IpcResult<CallReturn<"remote", "peerChatWatch">>;
 const watching = new Map<string, Promise<void>>();
+export const PEER_CHAT_HANDOFF_MS = 2_000;
 
-/** Wait for the old remote watch to finish closing when a chat changes views. */
+async function waitForPrevious(previous: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      previous,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PEER_CHAT_HANDOFF_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Give the previous watch time to close before a new view reads the same chat. */
 export function watchPeerChat(
   ref: ChatRef,
   limit: number | undefined,
@@ -18,8 +33,9 @@ export function watchPeerChat(
   const key = JSON.stringify([deviceId, workspaceId, tabId]);
   const released = Promise.withResolvers<void>();
   let live = true;
-  const previous = watching.get(key) ?? Promise.resolve();
-  const task = previous
+  const previous = watching.get(key);
+  const handoff = previous ? waitForPrevious(previous) : Promise.resolve();
+  const task = handoff
     .then(async () => {
       if (!live) return;
       let result: WatchResult;
