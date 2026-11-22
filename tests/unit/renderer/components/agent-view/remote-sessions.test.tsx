@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
+import { peerOrderMenu } from "../../../../../src/renderer/components/agent-view/remote-peer-header";
 import * as button from "../../../../../src/renderer/components/ui/button";
 import * as account from "../../../../../src/renderer/services/remote/account";
 import * as room from "../../../../../src/renderer/services/remote/room";
+import * as agentView from "../../../../../src/renderer/state/stores/agent-view";
 import { useSettingsUIStore } from "../../../../../src/renderer/state/stores/settings-ui";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
@@ -136,6 +138,61 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
+  test("uses the saved order within the online and offline groups", () => {
+    const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({
+      status: "online",
+      peers: [
+        { ...peer, id: "desk", name: "Desk PC" },
+        { ...peer, id: "home", name: "Home PC", online: false },
+        { ...peer, id: "laptop", name: "Laptop" },
+        { ...peer, id: "office", name: "Office PC", online: false },
+        { ...peer, id: "new", name: "New PC" },
+      ],
+    });
+    const state = agentView.useAgentViewStore.getInitialState();
+    const readView = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+      select({ ...state, peerOrder: ["office", "laptop", "home", "removed", "desk"] }),
+    );
+    try {
+      const html = renderToStaticMarkup(<RemoteSessions query="" />);
+      const headers = [...html.matchAll(/<button[^>]*draggable="true"[^>]*>.*?<\/button>/g)];
+      expect(headers).toHaveLength(5);
+      for (const [index, name] of [
+        "Laptop",
+        "Desk PC",
+        "New PC",
+        "Office PC",
+        "Home PC",
+      ].entries()) {
+        expect(headers[index]?.[0]).toContain(name);
+      }
+      expect(renderToStaticMarkup(<RemoteSessions query="session" />)).not.toContain("Office PC");
+    } finally {
+      readView.mockRestore();
+      readRoom.mockRestore();
+    }
+  });
+
+  test("the computer's menu moves up or down and disables actions at the group's ends", () => {
+    const moves: unknown[] = [];
+    const ids = ["laptop", "pc", "mac"];
+    const menu = (id: string) =>
+      peerOrderMenu(id, { ids, move: (...args) => moves.push(args) }).filter(
+        (item) => item.kind === "item",
+      );
+
+    expect(menu("pc").map((item) => item.label)).toEqual(["Move up", "Move down"]);
+    expect(menu("laptop").map((item) => item.disabled)).toEqual([true, false]);
+    expect(menu("mac").map((item) => item.disabled)).toEqual([false, true]);
+    menu("laptop")[0]?.onSelect();
+    menu("mac")[1]?.onSelect();
+    for (const item of menu("pc")) item.onSelect();
+    expect(moves).toEqual([
+      ["pc", "laptop", "before"],
+      ["pc", "mac", "after"],
+    ]);
+  });
+
   test("lists only the devices in the room that serve their sessions", () => {
     const peers: RoomPeer[] = [
       peer,

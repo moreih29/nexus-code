@@ -1,7 +1,7 @@
 /**
  * The agent view: whether the window shows it rather than the workspaces,
- * its panels, the ended agents they show, the order its list's agents were
- * dragged into, and how its list groups them and which groups are folded.
+ * its panels, the ended agents they show, the order of its agents and other
+ * computers, and how its list groups agents and which groups are folded.
  * All persist in AppState, the panels a moment after they settle, so
  * dragging a divider writes once.
  */
@@ -51,6 +51,7 @@ function groupingFromStore(value: string | undefined): AgentListGrouping {
 }
 
 const NO_FOLDS: ReadonlySet<string> = new Set();
+const NO_PEER_ORDER: readonly string[] = [];
 
 const PERSIST_DELAY_MS = 300;
 
@@ -66,6 +67,8 @@ interface AgentViewState extends AgentLayout {
   remoteFiles: ReadonlyMap<string, RemoteFile>;
   /** The order the list's agents were dragged into (services/agent-view/order). */
   order: AgentOrder;
+  /** The order shared by online and offline computers in the list. */
+  peerOrder: readonly string[];
   /** How the list groups its agents. */
   grouping: AgentListGrouping;
   /** The list's groups the user folded ("status:<group>", "workspace:<id>"); the others are open. */
@@ -82,6 +85,7 @@ interface AgentViewState extends AgentLayout {
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
   /** The order of a workspace's (or task's) agents in the list, every one of them. */
   setOrder(workspaceId: string, keys: readonly string[]): void;
+  setPeerOrder(ids: readonly string[]): void;
   setGrouping(grouping: AgentListGrouping): void;
   /** Folds one of the list's groups, or opens it again. */
   toggleFolded(group: string): void;
@@ -109,7 +113,7 @@ function schedulePersist(): void {
 async function writeAgentView(): Promise<boolean> {
   pending = false;
   try {
-    const { mode, root, activeLeafId, ended, remoteFiles, order, grouping, folded } =
+    const { mode, root, activeLeafId, ended, remoteFiles, order, peerOrder, grouping, folded } =
       useAgentViewStore.getState();
     const agentView = {
       mode,
@@ -124,6 +128,7 @@ async function writeAgentView(): Promise<boolean> {
           }
         : {}),
       ...(Object.keys(order).length > 0 ? { order: orderToStore(order) } : {}),
+      ...(peerOrder.length > 0 ? { peerOrder: [...peerOrder] } : {}),
       ...(grouping !== AGENT_LIST_GROUPING_DEFAULT ? { grouping } : {}),
       ...(folded.size > 0 ? { folded: [...folded] } : {}),
     };
@@ -157,6 +162,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   ended: NO_ENDED,
   remoteFiles: NO_REMOTE_FILES,
   order: NO_ORDER,
+  peerOrder: NO_PEER_ORDER,
   grouping: AGENT_LIST_GROUPING_DEFAULT,
   folded: NO_FOLDS,
 
@@ -175,6 +181,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         ended: endedFromStore(snapshot.ended, held),
         remoteFiles: new Map([...remoteFiles].filter(([key]) => held.has(key))),
         order: orderFromStore(snapshot.order, alive),
+        peerOrder: snapshot.peerOrder ?? NO_PEER_ORDER,
         grouping: groupingFromStore(snapshot.grouping),
         folded: new Set(snapshot.folded ?? []),
       });
@@ -242,6 +249,13 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     schedulePersist();
   },
 
+  setPeerOrder(ids) {
+    const was = get().peerOrder;
+    if (was.length === ids.length && was.every((id, i) => id === ids[i])) return;
+    set({ peerOrder: [...ids] });
+    schedulePersist();
+  },
+
   setGrouping(grouping) {
     if (get().grouping === grouping) return;
     set({ grouping });
@@ -274,6 +288,7 @@ export function __resetAgentViewForTests(): void {
     ended: NO_ENDED,
     remoteFiles: NO_REMOTE_FILES,
     order: NO_ORDER,
+    peerOrder: NO_PEER_ORDER,
     grouping: AGENT_LIST_GROUPING_DEFAULT,
     folded: NO_FOLDS,
   });

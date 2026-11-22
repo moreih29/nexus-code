@@ -28,7 +28,7 @@ import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey } from "@/services/agent-view/layout";
-import { moveKey, orderSessions } from "@/services/agent-view/order";
+import { type DropEdge, moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
@@ -58,8 +58,7 @@ import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-r
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { RemoteSessions } from "./remote-sessions";
-
-type DropEdge = "before" | "after";
+import { SidebarDropIndicator, sidebarDropEdge } from "./sidebar-drop";
 
 /** Moves the agent `moved` to just before or after `target`, among its workspace's. */
 type Reorder = (moved: string, target: string, edge: DropEdge) => void;
@@ -576,8 +575,7 @@ function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge 
   const moved = listDrag();
   if (!moved || moved === session.key) return null;
   if (parseSessionKey(moved)?.workspaceId !== session.workspaceId) return null;
-  const rect = e.currentTarget.getBoundingClientRect();
-  return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  return sidebarDropEdge(e);
 }
 
 /**
@@ -642,16 +640,7 @@ const AgentItem = memo(function AgentItem({
       data-testid="agent-sidebar-item"
       data-session-key={key}
     >
-      {dropEdge && (
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-[var(--state-selected-indicator)]",
-            dropEdge === "before" ? "-top-px" : "-bottom-px",
-          )}
-          data-testid="agent-sidebar-drop"
-        />
-      )}
+      {dropEdge && <SidebarDropIndicator edge={dropEdge} />}
       {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button

@@ -1947,6 +1947,8 @@
     },
     "remote": {
       "title": "Other computers",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
       "needsSignIn": "Sign in to see your other computers here",
       "loading": "Loading…",
       "unavailable": "No remote response",

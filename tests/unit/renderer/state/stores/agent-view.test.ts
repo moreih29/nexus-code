@@ -175,6 +175,29 @@ describe("agent view store", () => {
     });
   });
 
+  it("reads older snapshots and round-trips the computer order independently of session keys", async () => {
+    const older = AgentViewSnapshotSchema.parse({
+      mode: "agents",
+      root: { kind: "leaf", id: P1, tabIds: [], activeTabId: null },
+      activeLeafId: P1,
+    });
+    const view = useAgentViewStore.getState();
+    view.hydrate(older, () => false);
+    expect(useAgentViewStore.getState().peerOrder).toEqual([]);
+
+    view.setPeerOrder(["pc", "mac"]);
+    expect(await flushAgentViewPersistence()).toBe(true);
+    const saved = AgentViewSnapshotSchema.parse((stored[0] as { agentView: unknown }).agentView);
+    expect(saved.peerOrder).toEqual(["pc", "mac"]);
+
+    __resetAgentViewForTests();
+    view.hydrate(saved, () => false);
+    expect(useAgentViewStore.getState().peerOrder).toEqual(["pc", "mac"]);
+    view.setPeerOrder(["pc", "mac"]);
+    expect(await flushAgentViewPersistence()).toBe(true);
+    expect(stored).toHaveLength(1);
+  });
+
   it("lists by state until the user picks the workspaces, and stores only a pick that is not that", async () => {
     const leaf = { kind: "leaf" as const, id: P1, tabIds: [], activeTabId: null };
     useAgentViewStore

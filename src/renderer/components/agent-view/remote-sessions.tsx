@@ -46,6 +46,7 @@ import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
+import { movePeer, orderPeers } from "../../services/agent-view/order";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { useRemoteAccount } from "../../services/remote/account";
 import {
@@ -82,6 +83,7 @@ import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
 import { RemoteConsentCard } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
+import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
 import { closePeerSession, type PeerSessionRef, renamePeerSession } from "./remote-session-actions";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
@@ -216,12 +218,14 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
     outdated ? [true] : undefined,
     true,
   );
+  const peerOrder = useAgentViewStore((s) => s.peerOrder);
+  const [drag, setDrag] = useState<PeerDrag | null>(null);
   // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
   const seen = useShownRoom(room);
-  const peers = servingPeers(seen);
+  const peers = orderPeers(servingPeers(seen), peerOrder);
   // Searching, an offline computer has no sessions to find.
   const searching = query.trim() !== "";
-  const away = searching ? [] : offlinePeers(seen);
+  const away = searching ? [] : orderPeers(offlinePeers(seen), peerOrder);
   const lists = usePeerSessions(
     servingPeers(room).map((p) => p.id),
     shown,
@@ -229,6 +233,21 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
   if (signedOut && (searching || signInNotice.dismissed)) return null;
   if (!signedOut && outdated && outdatedNotice.dismissed) return null;
   if (!signedOut && !outdated && peers.length === 0 && away.length === 0) return null;
+  const reorder = (group: readonly RoomPeer[]): PeerReorder => {
+    const ids = group.map((peer) => peer.id);
+    return {
+      ids,
+      drag,
+      setDrag,
+      move(moved, target, edge) {
+        const view = useAgentViewStore.getState();
+        const next = movePeer(room?.peers ?? [], view.peerOrder, ids, moved, target, edge);
+        view.setPeerOrder(next);
+      },
+    };
+  };
+  const onlineOrder = reorder(peers);
+  const offlineOrder = reorder(away);
   return (
     // A line apart from this computer's, and between the computers: a space
     // only between workspaces, a line between the larger groups.
@@ -260,10 +279,16 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
       ) : (
         <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           {peers.map((peer) => (
-            <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
+            <PeerGroup
+              key={peer.id}
+              peer={peer}
+              sessions={lists[peer.id]}
+              query={query}
+              reorder={onlineOrder}
+            />
           ))}
           {away.map((peer) => (
-            <OfflinePeer key={peer.id} peer={peer} />
+            <OfflinePeer key={peer.id} peer={peer} reorder={offlineOrder} />
           ))}
         </div>
       )}
@@ -272,12 +297,14 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
 }
 
 /** A computer of the account out of the room: greyed, its sessions out of reach until it is back. */
-export function OfflinePeer({ peer }: { peer: RoomPeer }) {
+export function OfflinePeer({ peer, reorder }: { peer: RoomPeer; reorder?: PeerReorder }) {
   const { t } = useTranslation();
   return (
-    <div
-      className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-muted-foreground"
-      data-testid="remote-peer-offline"
+    <RemotePeerHeader
+      id={peer.id}
+      reorder={reorder}
+      className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-muted-foreground hover:bg-[var(--state-hover-bg)]"
+      testId="remote-peer-offline"
     >
       <ChevronRight aria-hidden className="size-3 shrink-0 opacity-40" />
       <Monitor aria-hidden className="size-3.5 shrink-0" />
@@ -288,7 +315,7 @@ export function OfflinePeer({ peer }: { peer: RoomPeer }) {
       <span className="ml-auto shrink-0 text-app-micro whitespace-nowrap">
         {t("agentView.remote.offlineTag")}
       </span>
-    </div>
+    </RemotePeerHeader>
   );
 }
 
@@ -296,10 +323,12 @@ export function PeerGroup({
   peer,
   sessions,
   query,
+  reorder,
 }: {
   peer: RoomPeer;
   sessions: PeerSessions | undefined;
   query: string;
+  reorder?: PeerReorder;
 }) {
   const { t } = useTranslation();
   const [folded, setFolded] = useState(false);
@@ -396,11 +425,13 @@ export function PeerGroup({
 
   return (
     <div className="flex flex-col" data-testid="remote-peer">
-      <button
-        type="button"
-        aria-expanded={!folded}
-        onClick={() => setFolded((f) => !f)}
-        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-left hover:bg-[var(--state-hover-bg)]"
+      <RemotePeerHeader
+        id={peer.id}
+        reorder={reorder}
+        expanded={!folded}
+        onToggle={() => setFolded((f) => !f)}
+        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 hover:bg-[var(--state-hover-bg)]"
+        testId="remote-peer-header"
       >
         <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
         <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
@@ -420,7 +451,7 @@ export function PeerGroup({
             {list.sessions.filter(listedByDefault).length}
           </span>
         )}
-      </button>
+      </RemotePeerHeader>
       {!folded && (
         <div className="flex flex-col pl-3">
           {!sessions || sessions.status === "loading" ? (
