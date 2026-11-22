@@ -22,7 +22,7 @@
 # Squirrel.Mac accepts an update that meets the running app's designated
 # requirement. Set vars.NEXUS_MAC_TEAM_ID for the self-signed bridge release,
 # then add all five Developer ID secrets once users have had time to install it.
-# See docs/MAC_RELEASE_SIGNING.md for the rollout.
+# See .github/release/MAC_RELEASE_SIGNING.md for the rollout.
 #
 # Self-signed and bridge secrets:
 #   MAC_SIGNING_CERT_P12              base64 of the original certificate's .p12
@@ -381,7 +381,7 @@ jobs:
   # build/store-release-notes.json; once it passes, the Store updates its
   # installs. A pre-release builds the beta channel, which the Store doesn't
   # carry. The Store CLI signs in as a Microsoft Entra application with the
-  # Manager role in Partner Center (docs/RELEASING.md):
+  # Manager role in Partner Center (.github/release/RELEASING.md):
   #   secrets.MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET
   #   secrets.MSSTORE_SELLER_ID
   # Don't re-run this job once it has submitted: it would replace the
