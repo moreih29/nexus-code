@@ -39,6 +39,13 @@ const { useTabsStore } = await import("../../../../../src/renderer/state/stores/
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout/store");
 const { useAgentViewStore } = await import("../../../../../src/renderer/state/stores/agent-view");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useClaudeStatusStore } = await import(
+  "../../../../../src/renderer/state/stores/claude-status"
+);
+const { useSessionSeenStore } = await import(
+  "../../../../../src/renderer/state/stores/session-seen"
+);
+const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 const { startAgentViewPruning } = await import(
   "../../../../../src/renderer/services/agent-view/show"
 );
@@ -67,6 +74,72 @@ async function answerTo(requestId: string, op: string, args: unknown): Promise<u
   throw new Error(`no answer to ${requestId}`);
 }
 
+test.each([
+  "claude",
+  "codex",
+] as const)("a remote receipt marks the finished %s chat", async (kind) => {
+  const workspace = WorkspaceMetaSchema.parse({
+    id: "21111111-1111-4111-8111-111111111111",
+    name: "Project",
+    rootPath: "/project",
+    pinned: false,
+    tabs: [],
+  });
+  const workspaceId = workspace.id;
+  const tabId = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: kind, props: { cwd: "/project" } }).id;
+  const key = chatKey(workspaceId, tabId);
+  const stop = startCliUiListener(Promise.resolve());
+  const { workspaces } = useWorkspacesStore.getState();
+  const since = Date.now();
+  const completedAt = since + 10;
+  try {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useChatStore.getState().update(key, (chat) => ({
+      ...chat,
+      model: {
+        ...chat.model,
+        lastResult: {
+          subtype: "success",
+          isError: false,
+          at: since,
+          ...(kind === "claude" ? { outcome: "success" as const } : {}),
+        },
+      },
+    }));
+    if (kind === "claude")
+      useClaudeStatusStore
+        .getState()
+        .set({ workspaceId, tabId, status: "completed", since: completedAt });
+    const ack = (upTo: number) =>
+      answerTo(`r-seen-${kind}-${upTo}`, "sessions.markSeen", {
+        seen: [{ workspaceId, tabId, upTo }],
+      });
+    expect(await ack(since - 1)).toMatchObject({ ok: true, value: { marked: 0 } });
+    expect(await ack(since + 1)).toMatchObject({ ok: true, value: { marked: 1 } });
+    expect(useSessionSeenStore.getState().byWorkspace[workspaceId]?.[tabId]).toBe(since);
+    const receipt = calls.filter(
+      ([channel, method, args]) =>
+        channel === "claude" &&
+        method === "markSeen" &&
+        (args as { tabId: string }).tabId === tabId,
+    );
+    expect(receipt).toEqual(
+      kind === "claude"
+        ? [["claude", "markSeen", { workspaceId, tabId, completedAt, resultAt: since }]]
+        : [],
+    );
+  } finally {
+    stop();
+    useWorkspacesStore.setState({ workspaces });
+    useTabsStore.getState().removeTab(workspaceId, tabId);
+    useChatStore.getState().remove(key);
+    useClaudeStatusStore.getState().clearWorkspace(workspaceId);
+    useSessionSeenStore.getState().clearWorkspace(workspaceId);
+  }
+});
+
 test("a request is carried out once, however often the app boots", async () => {
   startCliUiListener(Promise.resolve());
   startCliUiListener(Promise.resolve());
@@ -75,7 +148,12 @@ test("a request is carried out once, however often the app boots", async () => {
 
   for (const listener of listeners) listener({ requestId: "r1", op: "no.such.op", args: {} });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const answers = calls.filter(([channel, method]) => channel === "cli" && method === "uiRespond");
+  const answers = calls.filter(
+    ([channel, method, args]) =>
+      channel === "cli" &&
+      method === "uiRespond" &&
+      (args as { requestId: string }).requestId === "r1",
+  );
   expect(answers).toHaveLength(1);
   expect(answers[0]?.[2]).toMatchObject({ requestId: "r1", ok: false });
 

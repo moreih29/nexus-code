@@ -119,17 +119,19 @@ export function markRead(items: readonly InboxItem[]): void {
 export function markSessionRead(session: AgentSession, at?: number): void {
   const { workspaceId, tabId, kind, estimated } = session;
   useSessionSeenStore.getState().markSeen(workspaceId, tabId, at);
-  const broker = useClaudeStatusStore.getState().byWorkspace[workspaceId]?.[tabId];
-  if (
-    !estimated &&
-    (kind === "terminal" ||
-      (kind === "claude" &&
-        (at === undefined || (broker?.status === "completed" && broker.since === at))))
-  ) {
-    void ipcCallResult("claude", "markSeen", {
-      workspaceId,
-      tabId,
-      ...(at === undefined ? {} : { completedAt: at }),
-    });
+  if (estimated || kind === "codex") return;
+  let completedAt = at;
+  let resultAt: number | undefined;
+  if (kind === "claude" && at !== undefined) {
+    const broker = useClaudeStatusStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (broker?.status !== "completed" || session.since === undefined || session.since > at) return;
+    completedAt = broker.since;
+    resultAt = session.since;
   }
+  void ipcCallResult("claude", "markSeen", {
+    workspaceId,
+    tabId,
+    ...(completedAt === undefined ? {} : { completedAt }),
+    ...(resultAt === undefined ? {} : { resultAt }),
+  });
 }

@@ -2282,6 +2282,8 @@ const coreIpcContract = {
           workspaceId: z.string(),
           tabId: z.string(),
           completedAt: z.number().optional(),
+          /** When the acknowledged chat result reached the stream, which can differ from completedAt. */
+          resultAt: z.number().optional(),
         }),
         z.void(),
       ),
