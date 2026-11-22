@@ -2099,6 +2099,7 @@
     "gitPatchOnly": "Full comparison unavailable · Changed sections only",
     "gitPatchTruncated": "Partial patch",
     "gitOutsideWorkspace": "Outside workspace",
-    "gitCommitMissing": "Commit unavailable"
+    "gitCommitMissing": "Commit unavailable",
+    "gitNoCommits": "No commits"
   }
 }

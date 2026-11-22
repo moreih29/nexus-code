@@ -83,7 +83,7 @@ export function PeerGitHistory({
             </p>
           )}
           {commits.length === 0 && (
-            <EmptyState title={t("files:git.history.list.noCommitsYet")} tone="status" />
+            <EmptyState title={t("peerWorkspace.gitNoCommits")} tone="status" />
           )}
           <ul aria-label={t("files:git.history.list.ariaLabel")} aria-busy={pending}>
             {commits.map((commit) => {

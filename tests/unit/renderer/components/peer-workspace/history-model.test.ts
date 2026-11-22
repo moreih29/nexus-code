@@ -125,3 +125,29 @@ test("history keeps the last page while offline and retries an unsupported read 
     call.mockRestore();
   }
 });
+
+test("when HEAD advances between pages, overlap is deduplicated and refresh picks up the new HEAD", async () => {
+  const base = Array.from({ length: 54 }, (_, i) => commit(54 - i));
+  const advanced = [commit(56), commit(55), ...base];
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(ipcOk({ commits: base.slice(0, 50) }))
+    .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(50, 100) }))
+    .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(56) }))
+    .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(0, 50) }));
+  const history = createPeerHistory(peer);
+  try {
+    await history.resume(0);
+    await history.more();
+    expect(history.getSnapshot()).toMatchObject({ commits: base, nextSkip: 56 });
+    await history.more();
+    expect(history.getSnapshot()).toMatchObject({ commits: base, nextSkip: null });
+    await history.refresh();
+    expect(history.getSnapshot()).toMatchObject({ commits: advanced.slice(0, 50), nextSkip: 50 });
+    expect(call.mock.calls.map(([, , args]) => args)).toEqual(
+      [0, 50, 56, 0].map((skip) => ({ ...peer, limit: 50, skip })),
+    );
+  } finally {
+    history.pause();
+    call.mockRestore();
+  }
+});
