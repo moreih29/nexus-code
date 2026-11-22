@@ -508,33 +508,22 @@ registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
-/**
- * The restart that installs an update may end the app before its will-quit
- * cleanup runs, which would leave the run marker behind and read as a crash at
- * the next start. So the quit line is written, and the marker removed, first.
- */
-function withQuitNote<T extends { quitAndInstall(): void }>(backend: T): T {
-  return {
-    ...backend,
-    quitAndInstall() {
-      currentRun?.quit(logger, "restart to install an update");
-      backend.quitAndInstall();
-    },
-  };
-}
-
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  prepareRestart: isMac() ? () => closePersistence.prepareUpdaterClose(getAppWindows()) : undefined,
+  prepareRestart: () => closePersistence.prepareUpdaterClose(getAppWindows()),
   // A packaged macOS app, Linux AppImage or deb updates itself in place; any
   // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
-      ? withQuitNote(createElectronUpdateBackend(createLogger("updates")))
+      ? createElectronUpdateBackend(createLogger("updates"), () => {
+          // The native updater can end the process before will-quit.
+          stateService.flushNow();
+          currentRun?.quit(logger, "restart to install an update");
+        })
       : undefined,
 });
 
@@ -1098,8 +1087,24 @@ app.on("window-all-closed", () => {
 // agents, terminals and storage already torn down. will-quit fires only
 // once every window has closed.
 let quitReady = false;
+let quitRetry: ReturnType<typeof setTimeout> | undefined;
 app.on("will-quit", (event) => {
-  if (quitReady) return;
+  if (quitReady) {
+    try {
+      stateService.flushNow();
+    } catch (error) {
+      event.preventDefault();
+      logger.warn(`Could not save app state before quit; retrying: ${String(error)}`);
+      quitRetry ??= setTimeout(() => {
+        quitRetry = undefined;
+        app.quit();
+      }, 1_000);
+      return;
+    }
+    clearTimeout(quitRetry);
+    currentRun?.quit(logger);
+    return;
+  }
   event.preventDefault();
   if (quitStarted) return;
   quitStarted = true;
@@ -1107,7 +1112,6 @@ app.on("will-quit", (event) => {
     .catch((error) => logger.error("App shutdown failed", error))
     .finally(() => {
       stopLoopMonitor?.();
-      currentRun?.quit(logger);
       quitReady = true;
       app.quit();
     });

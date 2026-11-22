@@ -53,7 +53,7 @@ export interface UpdateBackend {
    * resolved — Squirrel.Mac checks the signature once the file is handed over.
    */
   onError(listener: (error: Error) => void): void;
-  quitAndInstall(): void;
+  quitAndInstall(): void | Promise<void>;
 }
 
 export type InstallStatus =
@@ -161,7 +161,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       preparingRestart = true;
       try {
         if (prepareRestart) await prepareRestart();
-        if (state === readyUpdate) backend.quitAndInstall();
+        if (state === readyUpdate) await backend.quitAndInstall();
       } catch (error) {
         if (state === readyUpdate) fail(readyUpdate.version, error);
       } finally {

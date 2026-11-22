@@ -53,7 +53,10 @@ function isDebInstall(): boolean {
   }
 }
 
-export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
+export function createElectronUpdateBackend(
+  logger: Logger,
+  beforeInstall: () => void,
+): UpdateBackend {
   const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
   const errorListeners: ((error: Error) => void)[] = [];
@@ -127,22 +130,22 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
     onError(listener) {
       errorListeners.push(listener);
     },
-    quitAndInstall() {
-      void load().then((updater) => {
-        if (!deb) {
-          updater.quitAndInstall();
-          return;
-        }
-        // One apt command installs the deb and any dependency it adds. The
-        // default dpkg -i runs a second elevated apt-get when it fails, so a
-        // cancelled password prompt would open another.
-        process.env[PACKAGE_MANAGER_ENV] = "apt";
-        try {
-          updater.quitAndInstall();
-        } finally {
-          delete process.env[PACKAGE_MANAGER_ENV];
-        }
-      });
+    async quitAndInstall() {
+      const updater = await load();
+      beforeInstall();
+      if (!deb) {
+        updater.quitAndInstall();
+        return;
+      }
+      // One apt command installs the deb and any dependency it adds. The
+      // default dpkg -i runs a second elevated apt-get when it fails, so a
+      // cancelled password prompt would open another.
+      process.env[PACKAGE_MANAGER_ENV] = "apt";
+      try {
+        updater.quitAndInstall();
+      } finally {
+        delete process.env[PACKAGE_MANAGER_ENV];
+      }
     },
   };
 }
