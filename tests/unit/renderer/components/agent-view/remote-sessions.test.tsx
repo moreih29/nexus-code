@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import i18next from "i18next";
 import type { ComponentProps, DragEvent, MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import {
   type PeerReorder,
@@ -205,6 +207,17 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
+  test("a Korean row waiting for a reply uses the local attention label", async () => {
+    const ko = i18next.cloneInstance({ lng: "ko" });
+    await ko.changeLanguage("ko");
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={ko}>
+        <RemoteSessionRow session={session({ state: "needs-you" })} />
+      </I18nextProvider>,
+    );
+    expect(html).toContain(`class="sr-only">${ko.t("agentList.group.attention")}</span>`);
+  });
+
   test("orders both groups and only offers reordering with multiple online computers outside search", () => {
     const signedIn = {
       status: "signed-in" as const,

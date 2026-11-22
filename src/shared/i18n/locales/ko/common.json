@@ -1957,7 +1957,7 @@
       "unavailable": "원격 응답 없음",
       "empty": "세션 없음",
       "state": {
-        "needs-you": "확인 필요",
+        "needs-you": "응답 필요",
         "running": "실행 중",
         "new-result": "새 결과",
         "idle": "대기",
