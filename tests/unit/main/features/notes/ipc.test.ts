@@ -185,6 +185,120 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
   }
 });
 
+test("an SSH note summarizes and undoes locally while its conversation index stays current", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-summary-ipc-"));
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const releaseSummary = Promise.withResolvers<void>();
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [
+        { id, name: "SSH", location: { kind: "ssh", host: "fixture", remotePath: "/project" } },
+      ] as never,
+    summary: {
+      settings: () => ({ enabled: true, agent: "claude" }),
+      language: () => "en",
+      profile: (id) => ({ id, agent: "claude", dir: "", name: "", color: "" }),
+      runClaude: async ({ stdin }) => {
+        expect(stdin).toContain("[0:20 | 20000] S1: Confirmed");
+        await releaseSummary.promise;
+        return { output: { summary: ["Confirmed"], todos: [] } };
+      },
+    },
+  });
+  try {
+    const location = notes.locationOf(id);
+    const note = await notes.store.create(location, "Review");
+    const tab = {
+      agent: "claude" as const,
+      workspaceId: id,
+      tabId: "chat",
+      cwd: "/project",
+      title: "Linked chat",
+    };
+    await notes.store.addLink(location, note.id, { ...tab, kind: "note" });
+    const recordingId = "r000000abcd";
+    await notes.store.saveTranscript(location, note.id, {
+      version: 1,
+      recordings: [
+        {
+          id: recordingId,
+          startedAt: 1,
+          language: "en",
+          takes: [],
+          speakers: {},
+          lines: [0, 10_000, 20_000].map((startMs) => ({
+            speaker: "1",
+            text: "Confirmed",
+            startMs,
+            endMs: startMs + 10_000,
+          })),
+        },
+      ],
+    });
+    const args = { workspaceId: id, noteId: note.id, recordingId };
+    const ipc = createIpcPair().window.ipc;
+    const linked = { ok: true, value: [{ noteId: note.id, title: "Review" }] };
+    expect(await ipc.call("notes", "linksOfConversation", tab)).toMatchObject(linked);
+    expect(await ipc.call("notes", "summarize", args)).toMatchObject({
+      ok: true,
+      value: { state: "running" },
+    });
+    const session = "summary-linked-session";
+    expect(await ipc.call("notes", "updateLink", { tab: { ...tab, session } })).toMatchObject({
+      ok: true,
+    });
+    releaseSummary.resolve();
+    await notes.waitForWrites();
+    expect(
+      await ipc.call("notes", "summaries", { workspaceId: id, noteId: note.id }),
+    ).toMatchObject({
+      ok: true,
+      value: { [recordingId]: { state: "done" } },
+    });
+    const reopened = { ...tab, tabId: "reopened", session };
+    expect(await ipc.call("notes", "linksOfConversation", reopened)).toMatchObject(linked);
+    expect(await ipc.call("notes", "undo", args)).toMatchObject({ ok: true, value: 3 });
+    expect(await ipc.call("notes", "linksOfConversation", reopened)).toMatchObject(linked);
+    expect(broadcast.mock.calls.map(([, event]) => event)).toEqual([
+      "summaryChanged",
+      "linksChanged",
+      "blocksAdded",
+      "changed",
+      "summaryChanged",
+      "summaryChanged",
+      "blocksRemoved",
+      "changed",
+    ]);
+  } finally {
+    releaseSummary.resolve();
+    broadcast.mockRestore();
+    notes.dispose();
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
+test("summary IPC rejects malformed note and recording IDs", async () => {
+  const notes = await setupNotes();
+  try {
+    const ipc = createIpcPair().window.ipc;
+    for (const method of ["summarize", "cancel", "undo", "dismiss"]) {
+      for (const args of [
+        { workspaceId: id, noteId: "../note", recordingId: "r000000abcd" },
+        { workspaceId: id, noteId, recordingId: "../recording" },
+      ]) {
+        expect(await ipc.call("notes", method, args)).toMatchObject({
+          ok: false,
+          kind: "invalid-args",
+        });
+      }
+    }
+  } finally {
+    notes.dispose();
+  }
+});
+
 test.each([
   "stopped",
   "closed",

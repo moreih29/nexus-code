@@ -10,13 +10,16 @@ import type {
   NoteLinkTarget,
 } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
+import type { SummaryMode } from "../../../shared/notes/summary";
 import type { TranscriptEdit, TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type {
   NoteBlocksAdded,
+  NoteBlocksRemoved,
   NoteChanged,
   NoteLinksChanged,
   NotePhotoAdded,
+  NoteSummaryChanged,
 } from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
@@ -36,6 +39,20 @@ export const notesApi = {
     call(ipcCallResult("notes", "links", { workspaceId, noteId })),
   linksOfConversation: (tab: NoteConversation) =>
     call(ipcCallResult("notes", "linksOfConversation", tab)),
+  summaries: (workspaceId: string, noteId: string) =>
+    call(ipcCallResult("notes", "summaries", { workspaceId, noteId })),
+  summarize: (workspaceId: string, noteId: string, recordingId: string, mode?: SummaryMode) =>
+    call(ipcCallResult("notes", "summarize", { workspaceId, noteId, recordingId, mode })),
+  cancelSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "cancel", { workspaceId, noteId, recordingId })),
+  undoSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "undo", { workspaceId, noteId, recordingId })),
+  dismissSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "dismiss", { workspaceId, noteId, recordingId })),
+  onSummaryChanged: (cb: (event: NoteSummaryChanged) => void): (() => void) =>
+    ipcListen("notes", "summaryChanged", cb),
+  onBlocksRemoved: (cb: (event: NoteBlocksRemoved) => void): (() => void) =>
+    ipcListen("notes", "blocksRemoved", cb),
   addLink: (
     workspaceId: string,
     noteId: string,

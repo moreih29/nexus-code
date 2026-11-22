@@ -36,6 +36,12 @@ import {
 } from "../../../shared/notes/links";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
+  failedSummary,
+  RecordingIdSchema,
+  type RecordingSummary,
+  RecordingSummarySchema,
+} from "../../../shared/notes/summary";
+import {
   EMPTY_TRANSCRIPT,
   numberSpeakers,
   peopleIn,
@@ -68,16 +74,19 @@ const log = createLogger("notes");
 
 const EMPTY_DOC: DocNode = { type: "doc", content: [{ type: "paragraph" }] };
 const LINKS_JSON = "links.json";
+const RECENT_SUMMARIES = 50;
 const LinksFileSchema = z.object({
   version: z.literal(1),
   conversations: z.record(z.string(), z.unknown()),
   summaries: z.record(z.string(), z.unknown()).catch({}),
+  summaryHistory: z.array(RecordingIdSchema).optional().catch(undefined),
 });
 
 interface LinksFile {
   version: 1;
   conversations: Record<string, NoteLink>;
   summaries: Record<string, unknown>;
+  summaryHistory?: string[];
 }
 
 interface LinkIndex {
@@ -296,6 +305,87 @@ export class NotesStore {
     return index;
   }
 
+  async summaries(location: NoteLocation, id: string): Promise<Record<string, RecordingSummary>> {
+    return summariesOf(await readLinks(this.noteDir(location, id)));
+  }
+
+  async editSummary(
+    location: NoteLocation,
+    id: string,
+    recordingId: string,
+    edit: (
+      current: RecordingSummary | undefined,
+      inHistory: boolean,
+    ) => Promise<
+      | {
+          next: RecordingSummary;
+          updateDocument?: () => Promise<void>;
+        }
+      | undefined
+    >,
+  ): Promise<RecordingSummary | undefined> {
+    return this.editLinks(location, id, async (file, dir) => {
+      const current = RecordingSummarySchema.safeParse(file.summaries[recordingId]).data;
+      const change = await edit(current, file.summaryHistory?.includes(recordingId) ?? false);
+      if (!change) return undefined;
+      const next = RecordingSummarySchema.parse(change.next);
+      file.summaries[recordingId] = next;
+      compactSummaries(file);
+      const data = encodeLinks(file);
+      await change.updateDocument?.();
+      await writeAtomic(path.join(dir, LINKS_JSON), data);
+      return next;
+    });
+  }
+
+  /** A fresh main process has no live runs, including for notes in closed workspaces. */
+  async recoverSummaries(
+    recovered: (
+      locationKey: string,
+      noteId: string,
+      recordingId: string,
+      state: RecordingSummary,
+    ) => void,
+  ): Promise<void> {
+    for (const dirName of await readdirSafe(this.root)) {
+      if (!/^[a-f0-9]{16}$/.test(dirName)) continue;
+      const locationDir = path.join(this.root, dirName);
+      const location = await readJson<NoteLocation>(path.join(locationDir, "location.json")).catch(
+        () => null,
+      );
+      if (typeof location?.key !== "string" || locationDirName(location.key) !== dirName) continue;
+      for (const noteId of await readdirSafe(locationDir)) {
+        if (!NOTE_ID_RE.test(noteId)) continue;
+        const dir = path.join(locationDir, noteId);
+        await this.queueWrite(this.linkTurns, location.key, async () => {
+          const file = await readLinks(dir);
+          const previous = file.summaries;
+          const history = file.summaryHistory;
+          const interrupted: [string, RecordingSummary][] = [];
+          const summaries = summariesOf(file);
+          for (const [recordingId, state] of Object.entries(summaries)) {
+            if (state.state !== "running") continue;
+            const next = failedSummary(state, { kind: "interrupted" });
+            summaries[recordingId] = next;
+            interrupted.push([recordingId, next]);
+          }
+          compactSummaries(file, summaries);
+          if (
+            isDeepStrictEqual(file.summaries, previous) &&
+            isDeepStrictEqual(file.summaryHistory, history)
+          )
+            return;
+          await writeLinks(dir, file);
+          this.refreshLinkIndex(location.key, noteId, file);
+          for (const [recordingId, state] of interrupted) {
+            if (Object.hasOwn(file.summaries, recordingId))
+              recovered(location.key, noteId, recordingId, state);
+          }
+        }).catch((error) => log.warn(`Could not recover note summary: ${String(error)}`));
+      }
+    }
+  }
+
   async addLink(
     location: NoteLocation,
     id: string,
@@ -388,10 +478,14 @@ export class NotesStore {
       });
       const file = await readLinks(dir);
       const result = await edit(file, dir);
-      const index = this.linkIndexes.get(location.key);
-      if (index) indexNote(index, id, Object.values(file.conversations));
+      this.refreshLinkIndex(location.key, id, file);
       return result;
     });
+  }
+
+  private refreshLinkIndex(locationKey: string, noteId: string, file: LinksFile): void {
+    const index = this.linkIndexes.get(locationKey);
+    if (index) indexNote(index, noteId, Object.values(file.conversations));
   }
 
   /** Copies a file into the note's materials/, under a name not taken yet. */
@@ -463,6 +557,23 @@ export class NotesStore {
       const doc = withBlocks(note.doc, blocks, under);
       if (!doc) throw new NoteError("bad-request", `no heading "${under}" in the note`);
       await this.saveNote(location, id, dir, { doc });
+    });
+  }
+
+  /** Removes only the top-level blocks that still carry this origin. */
+  async removeBlocksByOrigin(location: NoteLocation, id: string, origin: string): Promise<number> {
+    const dir = this.noteDir(location, id);
+    return this.queueWrite(this.documentTurns, dir, async () => {
+      const { doc } = await this.read(location, id);
+      const previous = doc.content ?? [];
+      const content = previous.filter((block) => block.attrs?.nexusOrigin !== origin);
+      const removed = previous.length - content.length;
+      if (removed) {
+        await this.saveNote(location, id, dir, {
+          doc: content.length ? { ...doc, content } : EMPTY_DOC,
+        });
+      }
+      return removed;
     });
   }
 
@@ -742,6 +853,7 @@ async function readLinks(dir: string): Promise<LinksFile> {
       const file = LinksFileSchema.safeParse(JSON.parse(bytes.toString("utf8")));
       if (!file.success) return empty;
       empty.summaries = file.data.summaries;
+      if (file.data.summaryHistory) empty.summaryHistory = file.data.summaryHistory;
       let count = 0;
       for (const [id, value] of Object.entries(file.data.conversations)) {
         if (!NoteLinkIdSchema.safeParse(id).success) continue;
@@ -762,10 +874,49 @@ async function readLinks(dir: string): Promise<LinksFile> {
 }
 
 async function writeLinks(dir: string, file: LinksFile): Promise<void> {
+  await writeAtomic(path.join(dir, LINKS_JSON), encodeLinks(file));
+}
+
+function encodeLinks(file: LinksFile): string {
   const data = `${JSON.stringify(file)}\n`;
   if (Buffer.byteLength(data) > MAX_NOTE_LINK_BYTES)
     throw new NoteError("bad-request", "The note's linked conversations exceed 256 KB");
-  await writeAtomic(path.join(dir, LINKS_JSON), data);
+  return data;
+}
+
+function summariesOf(file: LinksFile): Record<string, RecordingSummary> {
+  const entries: [string, RecordingSummary][] = [];
+  for (const [id, value] of Object.entries(file.summaries)) {
+    if (!RECORDING_ID_RE.test(id)) continue;
+    const state = RecordingSummarySchema.safeParse(value);
+    if (state.success) entries.push([id, state.data]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function compactSummaries(file: LinksFile, summaries = summariesOf(file)): void {
+  const entries = Object.entries(summaries).sort(
+    ([, a], [, b]) =>
+      ("endedAt" in b ? b.endedAt : b.startedAt) - ("endedAt" in a ? a.endedAt : a.startedAt),
+  );
+  const history = new Set(file.summaryHistory);
+  const keep: typeof entries = [];
+  for (const entry of entries) {
+    const [id, state] = entry;
+    if (
+      keep.length < RECENT_SUMMARIES ||
+      state.state === "running" ||
+      (state.state === "done" && !state.seen)
+    ) {
+      keep.push(entry);
+      history.delete(id);
+    } else {
+      // A compact marker still prevents automatic retries of an evicted summary.
+      history.add(id);
+    }
+  }
+  file.summaries = Object.fromEntries(keep);
+  file.summaryHistory = history.size ? [...history] : undefined;
 }
 
 function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {

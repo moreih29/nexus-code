@@ -5,6 +5,7 @@
  * agents and anything else that reads text. Assets stay relative to the
  * note's folder (sketches/, materials/, screens/).
  */
+import { clockOf } from "./transcript";
 
 /** A node of the editor's document, as TipTap's getJSON() gives it. */
 export interface DocNode {
@@ -49,7 +50,12 @@ function block(node: DocNode, indent: string): string {
       return list(node, indent, (i) => `${start + i}. `);
     }
     case "taskList":
-      return list(node, indent, (_i, item) => (item.attrs?.checked ? "- [x] " : "- [ ] "));
+      return list(
+        node,
+        indent,
+        (_i, item) => (item.attrs?.checked ? "- [x] " : "- [ ] "),
+        taskSource,
+      );
     case "blockquote":
       return prefixLines(blocks(node.content ?? [], ""), `${indent}> `);
     case "codeBlock": {
@@ -73,16 +79,30 @@ function block(node: DocNode, indent: string): string {
   }
 }
 
-function list(node: DocNode, indent: string, marker: (i: number, item: DocNode) => string): string {
+function taskSource(item: DocNode): string {
+  const speaker = str(item.attrs?.nexusSpeaker).replace(/\s+/g, " ").trim();
+  const at = item.attrs?.nexusAt;
+  const time = typeof at === "number" && Number.isFinite(at) && at >= 0 ? clockOf(at) : "";
+  const source = [escapeText(speaker), time].filter(Boolean).join(" ");
+  return source ? ` — ${source}` : "";
+}
+
+function list(
+  node: DocNode,
+  indent: string,
+  marker: (i: number, item: DocNode) => string,
+  suffix?: (item: DocNode) => string,
+): string {
   return (node.content ?? [])
     .map((item, i) => {
       const m = marker(i, item);
       const inner = (item.content ?? []).map((c) => block(c, "")).join("\n");
       const [first = "", ...rest] = inner.split("\n");
       const pad = " ".repeat(m.length);
-      return [`${indent}${m}${first}`, ...rest.map((l) => (l ? `${indent}${pad}${l}` : ""))].join(
-        "\n",
-      );
+      return [
+        `${indent}${m}${first}${suffix?.(item) ?? ""}`,
+        ...rest.map((l) => (l ? `${indent}${pad}${l}` : "")),
+      ].join("\n");
     })
     .join("\n");
 }

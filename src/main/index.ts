@@ -76,6 +76,7 @@ import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { type NotesFeature, registerNotesChannel } from "./features/notes";
 import { registerRememberedVoices } from "./features/notes/remembered-voices";
+import { localClaudeSummary } from "./features/notes/summary-claude";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { PortForwards } from "./features/pty/forwards";
@@ -823,6 +824,15 @@ app.whenReady().then(async () => {
   notesFeature = registerNotesChannel({
     userData: app.getPath("userData"),
     workspaces: () => workspaceManager.list(),
+    summary: {
+      settings: () => stateService.getState().noteSummary,
+      language: () => stateService.getState().language ?? lang,
+      profile: (id) => findProfile(stateService, id),
+      runClaude: localClaudeSummary({
+        userData: app.getPath("userData"),
+        connectionKey: async (id, target) => profileConnectionKeys?.get(id, target),
+      }),
+    },
   });
 
   rememberedVoices = registerRememberedVoices(app.getPath("userData"), stateService);

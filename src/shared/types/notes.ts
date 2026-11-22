@@ -11,6 +11,7 @@ import {
   NoteLinkPatchSchema,
   NoteLinkTargetSchema,
 } from "../notes/links";
+import { RecordingIdSchema, RecordingSummarySchema, SummaryModeSchema } from "../notes/summary";
 import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptEditSchema } from "../notes/transcript";
 import { NOTE_ID_RE, SKETCH_ID_RE } from "../notes/types";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -90,6 +91,7 @@ export const NoteStorageEntrySchema = z.object({
 
 const ws = { workspaceId: WorkspaceIdSchema };
 const note = { ...ws, noteId: NoteIdSchema };
+const recording = { ...note, recordingId: RecordingIdSchema };
 const asset = { ...note, src: z.string().min(1).max(1024) };
 
 export const NotesArgs = {
@@ -98,6 +100,11 @@ export const NotesArgs = {
   read: z.object(note),
   links: z.object(note),
   linksOfConversation: NoteConversationSchema,
+  summaries: z.object(note),
+  summarize: z.object({ ...recording, mode: SummaryModeSchema.optional() }),
+  cancel: z.object(recording),
+  undo: z.object(recording),
+  dismiss: z.object(recording),
   addLink: z.object({
     ...note,
     link: NewNoteLinkSchema,
@@ -215,3 +222,18 @@ export const NoteBlocksAddedSchema = z.object({
   under: z.string().optional(),
 });
 export type NoteBlocksAdded = z.infer<typeof NoteBlocksAddedSchema>;
+
+export const NoteBlocksRemovedSchema = z.object({
+  locationKey: z.string(),
+  noteId: NoteIdSchema,
+  origin: z.string(),
+});
+export type NoteBlocksRemoved = z.infer<typeof NoteBlocksRemovedSchema>;
+
+export const NoteSummaryChangedSchema = z.object({
+  locationKey: z.string(),
+  noteId: NoteIdSchema,
+  recordingId: RecordingIdSchema,
+  summary: RecordingSummarySchema,
+});
+export type NoteSummaryChanged = z.infer<typeof NoteSummaryChangedSchema>;

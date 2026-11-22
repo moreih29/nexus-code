@@ -1,5 +1,5 @@
 /** The note editor's TipTap extensions. */
-import type { AnyExtension } from "@tiptap/core";
+import { type AnyExtension, Extension } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extensions";
 import StarterKit from "@tiptap/starter-kit";
@@ -7,6 +7,41 @@ import { NoteFile, NoteImage } from "./asset-nodes";
 import type { NoteHost } from "./host";
 import { Sketch } from "./sketch-node";
 import { SlashMenu, type SlashMenuOptions } from "./slash-menu";
+
+const summaryAttribute = {
+  default: null,
+  keepOnSplit: false,
+  rendered: false,
+  parseHTML: () => null,
+};
+
+const NoteSummaryAttributes = Extension.create({
+  name: "noteSummaryAttributes",
+  addGlobalAttributes: () => [
+    {
+      types: [
+        "paragraph",
+        "heading",
+        "bulletList",
+        "taskList",
+        "orderedList",
+        "listItem",
+        "taskItem",
+        "blockquote",
+      ],
+      attributes: {
+        nexusOrigin: summaryAttribute,
+      },
+    },
+    {
+      types: ["taskItem"],
+      attributes: {
+        nexusSpeaker: summaryAttribute,
+        nexusAt: summaryAttribute,
+      },
+    },
+  ],
+});
 
 export function noteExtensions(
   host: NoteHost,
@@ -25,6 +60,7 @@ export function noteExtensions(
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    NoteSummaryAttributes,
     Placeholder.configure({ placeholder: options.placeholder }),
     Sketch.configure({ host }),
     NoteImage.configure({ host }),
