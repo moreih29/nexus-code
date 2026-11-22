@@ -8,12 +8,14 @@
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
 import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
 import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
+import type { NoteLineReported } from "../../../shared/types/notes";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
+import { noteLocation } from "../../services/notes/conversation";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
 import {
   createNoteAutoSave,
@@ -41,14 +43,17 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
-import { ConversationChips } from "./conversation-chips";
+import { ConversationChips, NoteConversationLinks } from "./conversation-chips";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
+import { applyLineReport } from "./editor/line-report";
 import { RecordControls } from "./record-controls";
 import { SendToAgent } from "./send-to-agent";
 import { NoteSummaryBanners } from "./summary-banner";
 import { sameSummaryTaskTimes, summaryTaskTimes } from "./summary-task-times";
+import { NoteTaskControls } from "./task-controls";
 import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
+import type { TranscriptJump } from "./transcript-rows";
 
 /** How long after the last key typed in the title the tab takes its name. */
 const TAB_TITLE_DELAY_MS = 150;
@@ -68,6 +73,28 @@ export function NoteEditor({
   const [note, setNote] = useState<NoteContent | null>(null);
   const [missing, setMissing] = useState(false);
 
+  const reports = useRef<NoteLineReported[]>([]);
+  const reportHandler = useRef<((event: NoteLineReported) => void) | undefined>(undefined);
+  const location = useWorkspacesStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId);
+    return workspace && noteLocation(workspace, s.workspaces);
+  });
+  useLayoutEffect(() => {
+    if (!location) return;
+    return notesApi.onLineReported((event) => {
+      if (event.noteId !== noteId || event.locationKey !== location) return;
+      if (reportHandler.current) reportHandler.current(event);
+      else reports.current.push(event);
+    });
+  }, [location, noteId]);
+
+  const receiveReport = useCallback((apply: (event: NoteLineReported) => void) => {
+    reportHandler.current = apply;
+    for (const event of reports.current.splice(0)) apply(event);
+    return () => {
+      reportHandler.current = undefined;
+    };
+  }, []);
   useEffect(() => {
     let alive = true;
     notesApi.read(workspaceId, noteId).then(
@@ -98,7 +125,17 @@ export function NoteEditor({
         {t("editor.loading")}
       </div>
     );
-  return <LoadedNote workspaceId={workspaceId} tabId={tabId} note={note} isVisible={isVisible} />;
+  return (
+    <NoteConversationLinks note={{ workspaceId, noteId, tabId }} isVisible={isVisible}>
+      <LoadedNote
+        workspaceId={workspaceId}
+        tabId={tabId}
+        note={note}
+        isVisible={isVisible}
+        receiveReport={receiveReport}
+      />
+    </NoteConversationLinks>
+  );
 }
 
 function LoadedNote({
@@ -106,11 +143,13 @@ function LoadedNote({
   tabId,
   note,
   isVisible,
+  receiveReport,
 }: {
   workspaceId: string;
   tabId: string;
   note: NoteContent;
   isVisible: boolean;
+  receiveReport: (apply: (event: NoteLineReported) => void) => () => void;
 }) {
   const { t } = useTranslation("notes");
   // The title as typed. The input keeps it itself: a key typed there draws
@@ -133,6 +172,11 @@ function LoadedNote({
   useEffect(() => {
     void loadTranscript(workspaceId, note.id);
   }, [workspaceId, note.id]);
+  const [transcriptJump, setTranscriptJump] = useState<TranscriptJump>();
+  const jumpToTranscript = useCallback((jump: TranscriptJump) => {
+    setTranscriptJump(jump);
+    setTranscriptOpen(true);
+  }, []);
   const showTranscript = transcriptOpen ?? (recordings > 0 || recordingHere);
 
   // A new note starts at its title (and the "New note" button loses focus,
@@ -326,7 +370,9 @@ function LoadedNote({
         },
         handleClick: (_view, _pos, event) => {
           const a = (event.target as HTMLElement | null)?.closest?.("a");
-          if (!a || !(event.metaKey || event.ctrlKey)) return false;
+          if (!a || !(event.metaKey || event.ctrlKey || a.closest(".note-task-report")))
+            return false;
+          event.preventDefault();
           const href = a.getAttribute("href") ?? "";
           if (href.startsWith("workspace:"))
             host.openWorkspaceFile(href.slice("workspace:".length));
@@ -338,6 +384,14 @@ function LoadedNote({
     [note.id],
   );
   editorRef.current = editor;
+
+  useLayoutEffect(() => {
+    if (!editor) return;
+    return receiveReport((event) => {
+      if (editor.isDestroyed) return;
+      applyLineReport(editor, event);
+    });
+  }, [editor, receiveReport]);
 
   // A photo from the user's phone: written at the end of the note already;
   // put in this copy too (once), which saves it with what is typed here.
@@ -452,8 +506,12 @@ function LoadedNote({
     },
     [editor],
   );
-  const hideTranscript = useCallback(() => setTranscriptOpen(false), []);
+  const hideTranscript = useCallback(() => {
+    setTranscriptOpen(false);
+    setTranscriptJump(undefined);
+  }, []);
 
+  const place = { workspaceId, noteId: note.id, tabId };
   return (
     <div
       className="@container/note flex h-full min-h-0 flex-col bg-[var(--surface-island-bg,transparent)]"
@@ -555,12 +613,7 @@ function LoadedNote({
           </DropdownMenuRoot>
         </div>
       </div>
-      <ConversationChips
-        workspaceId={workspaceId}
-        noteId={note.id}
-        tabId={tabId}
-        isVisible={isVisible}
-      />
+      <ConversationChips />
       <NoteSummaryBanners
         workspaceId={workspaceId}
         noteId={note.id}
@@ -584,6 +637,15 @@ function LoadedNote({
           }}
         >
           <EditorContent editor={editor} className="h-full" />
+          {editor && (
+            <NoteTaskControls
+              editor={editor}
+              note={place}
+              title={titleNow}
+              flush={flush}
+              onTranscript={jumpToTranscript}
+            />
+          )}
         </div>
         {showTranscript && (
           <TranscriptPanel
@@ -592,6 +654,7 @@ function LoadedNote({
             summaries={summaries}
             taskTimes={taskTimes}
             flushNote={flush}
+            jump={transcriptJump}
             onQuote={quote}
             onClose={hideTranscript}
           />

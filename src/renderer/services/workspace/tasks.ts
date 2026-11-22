@@ -10,7 +10,7 @@ import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspa
 import { ipcCallResult } from "../../ipc/client";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { openAgentTab } from "../chat/agent-tab";
+import { openAgentTab, startAgentTab } from "../chat/agent-tab";
 import { openTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { quoteShellArgument } from "../terminal/shell-quote";
@@ -77,6 +77,7 @@ export async function startTask(
   createdBy?: WorkspaceTask["createdBy"],
   from?: RelaySender,
   openedBy?: TerminalOpener,
+  beforeAgentStart?: (task: WorkspaceMeta, tabId: string) => Promise<void>,
 ): Promise<StartedTask | TaskFailure> {
   const result = await ipcCallResult("task", "create", {
     parentId,
@@ -96,11 +97,15 @@ export async function startTask(
       task.id,
       start.agent,
       task.rootPath,
-      prompt,
+      beforeAgentStart ? "" : prompt,
       undefined,
       from,
       openedBy,
     );
+    if (beforeAgentStart) {
+      await beforeAgentStart(task, tabId);
+      startAgentTab(task.id, tabId, prompt, from);
+    }
     return { task, tabId, start };
   }
   const command = start.command.trim();

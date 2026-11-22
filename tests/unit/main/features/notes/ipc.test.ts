@@ -128,7 +128,7 @@ test("a missing note or workspace is a recoverable IPC result", async () => {
   }
 });
 
-test("a task's linked chat updates the parent's note and broadcasts link changes", async () => {
+test("a task's linked chat reports into the parent's note and broadcasts link changes", async () => {
   const userData = await mkdtemp(path.join(tmpdir(), "note-links-ipc-"));
   const taskId = "123e4567-e89b-12d3-a456-426614174001";
   const router = await setupInMemoryRouter();
@@ -155,7 +155,7 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
     const result = await ipc.call("notes", "addLink", {
       workspaceId: taskId,
       noteId,
-      link: { ...tab, kind: "note" },
+      link: { ...tab, kind: "task" },
     });
     expect(result).toMatchObject({ ok: true });
     const [{ id: linkId }] = await notes.store.links(parent, noteId);
@@ -166,6 +166,29 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
       ok: true,
       value: [{ id: linkId, link: { workspaceId: taskId, session: "thread" } }],
     });
+    await notes.store.save(parent, noteId, {
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "taskList",
+            content: [
+              {
+                type: "taskItem",
+                attrs: { nexusLink: linkId, checked: false },
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Add tests" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const report = {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Passed", at: 1 },
+    } as const;
+    expect(await notes.reportLine({ ...tab, agent: "codex" }, noteId, report)).toBe(true);
     expect(
       await other.call("notes", "removeLink", { workspaceId: id, noteId, linkId }),
     ).toMatchObject({ ok: true });
@@ -173,13 +196,15 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
       ok: true,
       value: [],
     });
-    expect(broadcast.mock.calls).toEqual(
-      Array.from({ length: 3 }, () => [
-        "notes",
-        "linksChanged",
-        { locationKey: parent.key, noteId },
-      ]),
-    );
+    const place = { locationKey: parent.key, noteId };
+    expect(broadcast.mock.calls).toEqual([
+      ["notes", "linksChanged", place],
+      ["notes", "linksChanged", place],
+      ["notes", "linksChanged", place],
+      ["notes", "lineReported", { ...place, ...report }],
+      ["notes", "changed", { ...place, change: "saved" }],
+      ["notes", "linksChanged", place],
+    ]);
   } finally {
     broadcast.mockRestore();
     notes.dispose();

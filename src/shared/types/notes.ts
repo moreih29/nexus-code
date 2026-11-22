@@ -9,6 +9,7 @@ import {
   NoteConversationSchema,
   NoteLinkIdSchema,
   NoteLinkPatchSchema,
+  NoteLinkResultSchema,
   NoteLinkTargetSchema,
 } from "../notes/links";
 import { RecordingIdSchema, RecordingSummarySchema, SummaryModeSchema } from "../notes/summary";
@@ -56,6 +57,7 @@ export const LinkedNoteSchema = z.object({
   noteId: NoteIdSchema,
   title: z.string(),
   updatedAt: NonnegativeNumberSchema,
+  line: z.string().optional(),
 });
 export type LinkedNote = z.infer<typeof LinkedNoteSchema>;
 
@@ -246,3 +248,10 @@ export const NoteSummaryCompletedSchema = z.object({
   todos: z.number().int().nonnegative(),
 });
 export type NoteSummaryCompleted = z.infer<typeof NoteSummaryCompletedSchema>;
+
+export const NoteLineReportedSchema = NoteLinksChangedSchema.extend({
+  linkId: NoteLinkIdSchema,
+  check: z.boolean(),
+  result: NoteLinkResultSchema,
+});
+export type NoteLineReported = z.infer<typeof NoteLineReportedSchema>;

@@ -3,6 +3,7 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import { noteLabel } from "../../../../shared/notes/line-report";
 import type { NoteConversation } from "../../../../shared/notes/links";
 import { NOTE_ID_RE } from "../../../../shared/notes/types";
 import { instructionSessionId } from "../../chat/instructions";
@@ -82,12 +83,13 @@ export interface ChatAgentContext {
 }
 
 export async function linkedNoteGuidance(notes: CliNotes, tab: NoteConversation): Promise<string> {
-  const [note] = await notes.linksOfConversation(tab).catch(() => []);
+  const linked = await notes.linksOfConversation(tab).catch(() => []);
+  const note = linked.find(({ line }) => line) ?? linked[0];
   if (!note || !NOTE_ID_RE.test(note.noteId)) return "";
-  const cleanTitle = note.title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
-  const title = JSON.stringify(Array.from(cleanTitle).slice(0, 120).join("") || "Untitled note")
-    .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e");
+  const title = noteLabel(note.title, "Untitled note");
+  if (note.line) {
+    return `This conversation started from the to-do ${noteLabel(note.line)} in the note ${title} · nexus note read ${note.noteId} · when finished, use nexus note report`;
+  }
   return `This conversation is linked to the note ${title} · nexus note read ${note.noteId}`;
 }
 
@@ -175,6 +177,7 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "Use view open-file PATH for files and nexus problems for language server diagnostics.",
     "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
+    "Use nexus note report for a result on a to-do linked to this conversation.",
     "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
     "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
     "Use settings instructions show --profile PROFILE for a profile's layers and",

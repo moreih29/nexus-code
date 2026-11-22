@@ -36,6 +36,7 @@ import {
   resolveDevice,
 } from "../remote";
 import { WORKSPACE_FLAG } from "./flags";
+import { noteReport } from "./note-report";
 
 /** When a note was last written: how long ago within two days, else its date. */
 function when(at: number, now: number): string {
@@ -894,6 +895,7 @@ export const noteCommands: CliCommand[] = [
   noteStorage,
   noteShow,
   noteWrite,
+  noteReport,
   noteAdd,
   noteRecord,
 ];

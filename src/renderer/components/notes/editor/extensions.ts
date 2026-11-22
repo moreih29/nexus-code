@@ -8,6 +8,7 @@ import type { NoteHost } from "./host";
 import { Sketch } from "./sketch-node";
 import { SlashMenu, type SlashMenuOptions } from "./slash-menu";
 import { NoteSummaryDivider } from "./summary-divider";
+import { NoteTaskWidgets } from "./task-widgets";
 
 const summaryAttribute = {
   default: null,
@@ -16,7 +17,7 @@ const summaryAttribute = {
   parseHTML: () => null,
 };
 
-const NoteSummaryAttributes = Extension.create({
+export const NoteSummaryAttributes = Extension.create({
   name: "noteSummaryAttributes",
   addGlobalAttributes: () => [
     {
@@ -41,6 +42,12 @@ const NoteSummaryAttributes = Extension.create({
         nexusAt: summaryAttribute,
       },
     },
+    {
+      types: ["paragraph", "heading", "taskItem", "listItem", "blockquote"],
+      attributes: {
+        nexusLink: summaryAttribute,
+      },
+    },
   ],
 });
 
@@ -63,6 +70,7 @@ export function noteExtensions(
     TaskItem.configure({ nested: true }),
     NoteSummaryAttributes,
     NoteSummaryDivider,
+    NoteTaskWidgets,
     Placeholder.configure({ placeholder: options.placeholder }),
     Sketch.configure({ host }),
     NoteImage.configure({ host }),

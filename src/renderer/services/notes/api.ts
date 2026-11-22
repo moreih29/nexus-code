@@ -17,6 +17,7 @@ import type {
   NoteBlocksAdded,
   NoteBlocksRemoved,
   NoteChanged,
+  NoteLineReported,
   NoteLinksChanged,
   NotePhotoAdded,
   NoteSummaryChanged,
@@ -72,6 +73,8 @@ export const notesApi = {
     call(ipcCallResult("notes", "removeLink", { workspaceId, noteId, linkId })),
   onLinksChanged: (cb: (event: NoteLinksChanged) => void): (() => void) =>
     ipcListen("notes", "linksChanged", cb),
+  onLineReported: (cb: (event: NoteLineReported) => void): (() => void) =>
+    ipcListen("notes", "lineReported", cb),
   save: (
     workspaceId: string,
     noteId: string,

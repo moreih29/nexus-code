@@ -323,5 +323,17 @@
     "task": "할 일",
     "rerun": "다시 요약",
     "rerunConfirm": "기존 요약 교체 · 선택한 Claude 프로필로 녹취 전송"
+  },
+  "tasks": {
+    "action": "작업으로",
+    "newTask": "새 작업 · {{agent}}",
+    "newConversation": "새 대화 · {{agent}}",
+    "existing": "기존 대화…",
+    "assignError": "할 일 연결 실패",
+    "showTranscript": "녹취에서 보기",
+    "promptItem": "할 일: {{text}}",
+    "promptNote": "노트 {{title}}{{section}} · `nexus note read {{id}}`로 전체를 읽어 주세요.",
+    "promptSection": " · {{heading}} 아래",
+    "promptReport": "끝나면 `nexus note report --done \"한 줄 요약\" --pr <PR 주소>`로 이 줄에 결과를 남겨 주세요. 막히면 `--failed`."
   }
 }

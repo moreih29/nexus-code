@@ -892,6 +892,14 @@ app.whenReady().then(async () => {
       linksOfConversation: async (tab) =>
         notesFeature?.store.linksOfConversation(notesFeature.locationOf(tab.workspaceId), tab) ??
         [],
+      reportTargets: (tab) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.reportTargets(notesFeature.locationOf(tab.workspaceId), tab);
+      },
+      reportLine: (tab, noteId, report) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.reportLine(tab, noteId, report);
+      },
       list: (workspaceId) => {
         if (!notesFeature) throw new Error("notes are not ready");
         return notesFeature.store.list(notesFeature.locationOf(workspaceId));

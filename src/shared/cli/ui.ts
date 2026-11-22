@@ -75,6 +75,8 @@ export interface CliTabInfo {
   readonly groupId: string;
   /** Whether it is the tab its group shows. */
   readonly shown: boolean;
+  /** The current Claude or Codex session, on an internal lookup. */
+  readonly session?: string;
   /** A terminal's starting directory. */
   readonly cwd?: string;
   /** An editor's file. */
@@ -513,7 +515,7 @@ export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: s
 export interface CliUiOps {
   /** The tabs of a workspace in layout order, or with sidebar sessions first in their order. */
   "tabs.list": {
-    args: { workspaceId: string; agentOrder?: true };
+    args: { workspaceId: string; agentOrder?: true; includeSession?: true };
     result: { tabs: CliTabInfo[] };
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */

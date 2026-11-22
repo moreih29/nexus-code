@@ -1,7 +1,8 @@
 import { Loader } from "lucide-react";
-import { useEffect, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { prLabel } from "../../../shared/notes/line-report";
 import type { NoteLinkEntry } from "../../../shared/notes/links";
 import { ipcCallResult } from "../../ipc/client";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
@@ -40,19 +41,40 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 
-interface NotePlace {
+export interface NotePlace {
   workspaceId: string;
   noteId: string;
   tabId: string;
 }
 
-export function ConversationChips({ isVisible, ...note }: NotePlace & { isVisible: boolean }) {
-  const { t } = useTranslation("notes");
+type ChipRows = ReturnType<typeof useConversationChips>;
+const NoteConversations = createContext<ChipRows>([]);
+
+export function useNoteConversations(): ChipRows {
+  return useContext(NoteConversations);
+}
+
+export function NoteConversationLinks({
+  note,
+  isVisible,
+  children,
+}: {
+  note: NotePlace;
+  isVisible: boolean;
+  children: ReactNode;
+}) {
   const { workspaceId, noteId } = note;
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const workspace = workspaces.find((w) => w.id === workspaceId);
   const links = useNoteLinks(workspaceId, noteId, workspace && noteLocation(workspace, workspaces));
-  if (!links.length) return null;
+  const rows = useConversationChips(note, links, isVisible && links.length > 0);
+  return <NoteConversations.Provider value={rows}>{children}</NoteConversations.Provider>;
+}
+
+export function ConversationChips() {
+  const { t } = useTranslation("notes");
+  const rows = useNoteConversations();
+  if (!rows.length) return null;
   return (
     <fieldset
       aria-label={t("conversations.title")}
@@ -61,20 +83,14 @@ export function ConversationChips({ isVisible, ...note }: NotePlace & { isVisibl
       <span className="mr-1 shrink-0 whitespace-nowrap text-app-micro text-muted-foreground @max-[240px]/note:hidden">
         {t("conversations.title")}
       </span>
-      <LinkedConversations note={note} links={links} isVisible={isVisible} />
+      {rows.map((props) => (
+        <ConversationChip key={props.entry.id} {...props} />
+      ))}
     </fieldset>
   );
 }
 
-function LinkedConversations({
-  note,
-  links,
-  isVisible,
-}: {
-  note: NotePlace;
-  links: NoteLinkEntry[];
-  isVisible: boolean;
-}) {
+function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible: boolean) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const tabsByWorkspace = useTabsStore((s) => s.byWorkspace);
   const config = useAgentProfilesStore((s) => s.config);
@@ -118,19 +134,16 @@ function LinkedConversations({
       target.kind === "open" || target.kind === "moved"
         ? sessions.get(`${target.workspace.id}:${target.tab.id}`)
         : undefined;
-    return (
-      <ConversationChip
-        key={entry.id}
-        entry={entry}
-        target={target}
-        session={session}
-        checking={Boolean(key && !history[key])}
-        note={note}
-        onUnavailable={(sessions) => {
-          if (key) setHistory((current) => ({ ...current, [key]: sessions }));
-        }}
-      />
-    );
+    return {
+      entry,
+      target,
+      session,
+      note,
+      checking: Boolean(key && !history[key]),
+      onUnavailable: (sessions: ListedSession[]) => {
+        if (key) setHistory((current) => ({ ...current, [key]: sessions }));
+      },
+    };
   });
 }
 
@@ -142,13 +155,23 @@ const DOT_COLORS: Partial<Record<ConversationStatus, string>> = {
   limitWait: "bg-(--state-warning-fg)",
 };
 
-function ConversationChip({
+const LINE_COLORS: Partial<Record<ConversationStatus, string>> = {
+  running: "text-(--state-info-fg)",
+  attention: "text-(--state-warning-fg)",
+  failed: "text-(--state-error-fg)",
+  completed: "text-(--state-success-fg)",
+  reported: "text-(--state-success-fg)",
+  limitWait: "text-(--state-warning-fg)",
+};
+
+export function ConversationChip({
   entry: { id, link },
   target,
   session,
   checking,
   note,
   onUnavailable,
+  line = false,
 }: {
   entry: NoteLinkEntry;
   target: ConversationResolution;
@@ -156,6 +179,7 @@ function ConversationChip({
   checking: boolean;
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
+  line?: boolean;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
@@ -173,7 +197,7 @@ function ConversationChip({
     : "";
   const label =
     status === "reported"
-      ? t("conversations.completed") + (pr ? ` · PR #${pr.number}` : "")
+      ? t("conversations.completed") + (pr ? ` · ${prLabel(pr)}` : "")
       : t(`conversations.${status}`, { time });
   const dotColor = DOT_COLORS[status];
   const statusIcon =
@@ -199,29 +223,51 @@ function ConversationChip({
     }
   };
 
+  const agent = t(`common:task.agents.${link.agent}`);
+  const lineState =
+    target.kind === "missing" && !link.result
+      ? "text-muted-foreground"
+      : (LINE_COLORS[status] ?? "text-muted-foreground");
   const chip = (
     <button
       type="button"
       className={cn(
-        "inline-flex min-w-0 max-w-[min(100%,20rem)] items-center rounded-full border border-border px-2 py-0.5 text-left text-app-micro hover:bg-[var(--state-hover-bg)] @max-[240px]/note:w-full @max-[240px]/note:px-1.5",
-        target.kind === "missing" ? "text-muted-foreground" : "text-foreground",
+        line
+          ? "note-task-chip gap-1"
+          : "inline-flex min-w-0 max-w-[min(100%,20rem)] items-center rounded-full border border-border px-2 py-0.5 text-left text-app-micro hover:bg-[var(--state-hover-bg)] @max-[240px]/note:w-full @max-[240px]/note:px-1.5",
+        line ? lineState : target.kind === "missing" ? "text-muted-foreground" : "text-foreground",
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
       onClick={target.kind === "missing" ? undefined : () => void openConversation()}
       disabled={opening || (checking && !link.result)}
-      data-testid="note-conversation-chip"
+      data-testid={line ? "note-task-conversation-chip" : "note-conversation-chip"}
     >
-      <Icon className="mr-1 size-3 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 truncate @max-[240px]/note:min-w-[4ch]">{title}</span>
-      <span
-        className={cn(
-          "shrink-0 text-muted-foreground @max-[240px]/note:max-w-[calc(100%-4ch-1rem)] @max-[240px]/note:wrap-anywhere @max-[240px]/note:whitespace-normal",
-          statusIcon ? "ml-1 flex items-center gap-1" : "whitespace-pre",
-        )}
-      >
-        {statusIcon}
-        {statusIcon ? label : ` · ${label}`}
-      </span>
+      {line ? (
+        <>
+          {statusIcon}
+          {label}
+          {status !== "reported" && status !== "missing" && status !== "checking" && (
+            <span className="inline-flex items-center gap-1">
+              · <Icon className="size-3 shrink-0" aria-hidden="true" />
+              {agent}
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <Icon className="mr-1 size-3 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 truncate @max-[240px]/note:min-w-[4ch]">{title}</span>
+          <span
+            className={cn(
+              "shrink-0 text-muted-foreground @max-[240px]/note:max-w-[calc(100%-4ch-1rem)] @max-[240px]/note:wrap-anywhere @max-[240px]/note:whitespace-normal",
+              statusIcon ? "ml-1 flex items-center gap-1" : "whitespace-pre",
+            )}
+          >
+            {statusIcon}
+            {statusIcon ? label : ` · ${label}`}
+          </span>
+        </>
+      )}
     </button>
   );
 
@@ -232,7 +278,10 @@ function ConversationChip({
       <DropdownMenuContent align="start">
         {pr && (
           <DropdownMenuItem
-            onSelect={() => void ipcCallResult("agentProfiles", "openUrl", { url: pr.url })}
+            onSelect={() => {
+              if (pr.url.startsWith("http:")) window.open(pr.url, "_blank");
+              else void ipcCallResult("agentProfiles", "openUrl", { url: pr.url });
+            }}
           >
             {t("conversations.openPr")}
           </DropdownMenuItem>

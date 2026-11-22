@@ -193,6 +193,7 @@ import {
   NoteBlocksRemovedSchema,
   NoteChangedSchema,
   NoteContentSchema,
+  NoteLineReportedSchema,
   NoteLinksChangedSchema,
   NotePhotoAddedSchema,
   NoteStorageEntrySchema,
@@ -725,6 +726,7 @@ const notesContracts = {
       /** An agent put blocks into a note: an editor open on it does too. */
       blocksAdded: listen(NoteBlocksAddedSchema),
       blocksRemoved: listen(NoteBlocksRemovedSchema),
+      lineReported: listen(NoteLineReportedSchema),
     },
   },
   /** Local desktop IPC only. Voice vectors are inputs and never part of its responses. */

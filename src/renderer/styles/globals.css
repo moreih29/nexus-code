@@ -1093,9 +1093,45 @@
   flex: 1;
   min-width: 0;
 }
-.note-doc ul[data-type="taskList"] li[data-checked="true"] > div {
+.note-doc
+  li[data-type="taskItem"][data-checked="true"]
+  > div
+  > p:first-child:not(.note-task-report) {
   color: var(--editor-text-muted);
   text-decoration: line-through;
+}
+.note-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: middle;
+  margin-inline-start: 0.4rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--surface-island-bg, transparent);
+  font-size: var(--text-app-micro);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+button.note-task-chip:hover {
+  background: var(--state-hover-bg);
+}
+.note-task-action {
+  opacity: 0;
+}
+.note-doc
+  li[data-type="taskItem"]:hover:not(:has(li[data-type="taskItem"]:hover))
+  > div
+  > p:first-child
+  .note-task-action,
+.note-task-action:focus-visible,
+.note-task-action[data-state="open"] {
+  opacity: 1;
+}
+.note-doc .note-task-report {
+  color: var(--editor-text-muted);
+  font-size: var(--text-app-ui-sm);
 }
 .note-doc blockquote {
   border-left: 3px solid var(--surface-island-border);

@@ -22,6 +22,13 @@ import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import { withBlocks } from "../../../shared/notes/insert";
 import {
+  isTaskLink,
+  type LineReport,
+  linkedTask,
+  taskText,
+  withLineReport,
+} from "../../../shared/notes/line-report";
+import {
   MAX_EARLIER_SESSIONS,
   MAX_NOTE_LINK_BYTES,
   MAX_NOTE_LINKS,
@@ -268,27 +275,81 @@ export class NotesStore {
   }
 
   async linksOfConversation(location: NoteLocation, tab: NoteConversation): Promise<LinkedNote[]> {
+    const matches = await this.conversationNotes(location, tab);
+    return matches
+      .map(({ note, links }) => {
+        const line = links
+          .filter(({ link }) => isTaskLink(link))
+          .map(({ id }) => taskText(linkedTask(note.doc, id)))
+          .find((text) => text.trim());
+        return {
+          noteId: note.id,
+          title: note.title,
+          updatedAt: links[0].link.updatedAt,
+          ...(line ? { line } : {}),
+        };
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt || b.noteId.localeCompare(a.noteId));
+  }
+
+  async reportTargets(location: NoteLocation, tab: NoteConversation) {
+    const matches = await this.conversationNotes(location, tab);
+    return matches.flatMap(({ note, links }) =>
+      links
+        .filter(({ link }) => isTaskLink(link))
+        .map(({ id }) => ({
+          noteId: note.id,
+          title: note.title,
+          linkId: id,
+        })),
+    );
+  }
+
+  private conversationNotes(location: NoteLocation, tab: NoteConversation) {
     return this.queueWrite(this.linkTurns, location.key, async () => {
       const { byConversation } = await this.linkIndex(location);
       const noteIds = new Set(byConversation.get(tabLinkKey(tab)));
       if (tab.session) {
         for (const id of byConversation.get(`session:${tab.session}`) ?? []) noteIds.add(id);
       }
-      const notes: LinkedNote[] = [];
+      const notes: { note: NoteFile; links: [NoteLinkEntry, ...NoteLinkEntry[]] }[] = [];
       for (const noteId of noteIds) {
         const dir = this.noteDir(location, noteId);
         const file = await readLinks(dir);
-        const matches = Object.values(file.conversations).filter(
-          (link) => sameTab(link, tab) || sameSession(link, tab),
-        );
-        if (!matches.length) continue;
+        const links = Object.entries(file.conversations)
+          .filter(([, link]) => sameTab(link, tab) || sameSession(link, tab))
+          .map(([id, link]) => ({ id, link }))
+          .sort((a, b) => b.link.updatedAt - a.link.updatedAt);
+        const [first, ...rest] = links;
+        if (!first) continue;
         const note = await readNote(dir).catch(() => null);
-        if (note) {
-          const updatedAt = Math.max(...matches.map((link) => link.updatedAt));
-          notes.push({ noteId, title: note.title, updatedAt });
-        }
+        if (note?.id === noteId) notes.push({ note, links: [first, ...rest] });
       }
-      return notes.sort((a, b) => b.updatedAt - a.updatedAt || b.noteId.localeCompare(a.noteId));
+      return notes;
+    });
+  }
+
+  /** Rechecks ownership in the link queue before writing either file. */
+  async reportLine(
+    location: NoteLocation,
+    tab: NoteConversation,
+    noteId: string,
+    report: LineReport,
+  ) {
+    return this.editLinks(location, noteId, async (file, dir) => {
+      const link = file.conversations[report.linkId];
+      if (!link || !isTaskLink(link) || !(sameTab(link, tab) || sameSession(link, tab))) {
+        throw new NoteError("not-found", "No linked to-do for this conversation");
+      }
+      file.conversations[report.linkId] = { ...link, result: report.result };
+      await writeLinks(dir, file);
+      return this.queueWrite(this.documentTurns, dir, async () => {
+        const note = await readNote(dir);
+        const doc = withLineReport(note.doc, report);
+        if (doc === note.doc) return false;
+        await this.saveNote(location, noteId, dir, { doc });
+        return true;
+      });
     });
   }
 
