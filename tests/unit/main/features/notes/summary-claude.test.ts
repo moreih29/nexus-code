@@ -66,19 +66,34 @@ test("Claude receives only stdin and runs the real executable in a fresh folder 
       NEXUS_HOOK_TOKEN: "token",
       NODE_OPTIONS: "--require /unsafe.js",
       ANTHROPIC_API_KEY: "fixture-key",
+      USER: "profile-user",
     },
   };
   const stdin = "private transcript";
-  expect(
-    await run({
-      runId: "run",
-      profile,
-      language: "ko",
-      model: "sonnet",
-      stdin,
-      signal: new AbortController().signal,
-    }),
-  ).toEqual({ output });
+  const hostAccount = {
+    USER: "host-user",
+    LOGNAME: "host-login",
+    ...(process.platform === "win32" ? { USERNAME: "host-windows-user" } : {}),
+  };
+  const originalAccount = Object.keys(hostAccount).map((key) => [key, process.env[key]] as const);
+  Object.assign(process.env, hostAccount);
+  try {
+    expect(
+      await run({
+        runId: "run",
+        profile,
+        language: "ko",
+        model: "sonnet",
+        stdin,
+        signal: new AbortController().signal,
+      }),
+    ).toEqual({ output });
+  } finally {
+    for (const [key, value] of originalAccount) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
   expect(call.mock.calls[0]).toEqual([
     "lsp.findBinary",
     {
@@ -128,7 +143,8 @@ test("Claude receives only stdin and runs the real executable in a fresh folder 
   `);
   expect(JSON.stringify(req.env)).not.toMatch(/NEXUS_|\/wrapper|NODE_OPTIONS/);
   expect(req.env).toMatchObject({
-    CLAUDE_CONFIG_DIR: "/qa",
+    ...hostAccount,
+    CLAUDE_CONFIG_DIR: path.resolve(profile.dir),
     ANTHROPIC_API_KEY: "fixture-key",
     ENABLE_CLAUDEAI_MCP_SERVERS: "false",
     PATH: "/real:/usr/bin",

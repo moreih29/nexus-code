@@ -21,6 +21,10 @@ const RUN_DIR_PREFIX = "summary-";
 const windows = process.platform === "win32";
 const hostEnvKeys = new Set([
   "HOME",
+  // Claude uses the host account name to look up its saved credentials.
+  "USER",
+  "LOGNAME",
+  ...(windows ? ["USERNAME"] : []),
   "USERPROFILE",
   "SYSTEMROOT",
   "WINDIR",
