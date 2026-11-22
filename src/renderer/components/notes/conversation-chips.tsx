@@ -1,4 +1,4 @@
-import { FileText, Loader, MessageCircle, MoreHorizontal } from "lucide-react";
+import { FileText, Loader, MessageCircle } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -43,12 +43,20 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import {
+  ContextMenuAction,
+  ContextMenuContent,
+  ContextMenuRoot,
+  ContextMenuTrigger,
+} from "../ui/context-menu";
+import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRoot,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
 
 export interface NotePlace {
@@ -101,6 +109,40 @@ export function ConversationChips() {
         <ConversationChip key={key} {...props} header />
       ))}
     </fieldset>
+  );
+}
+
+export function NoteCardInsertMenu() {
+  const { t } = useTranslation("notes");
+  const rows = useNoteConversationList();
+  if (!rows.length) return null;
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>{t("connections.insertCard")}</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {rows.map(({ key, ...props }) => (
+          <NoteCardInsertItem key={key} {...props} />
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function NoteCardInsertItem(props: ConversationChipProps) {
+  const { title, label, Icon } = useConversationDisplay(props);
+  const { insertCard, inserting } = useInsertLiveCard(props, title);
+  return (
+    <DropdownMenuItem
+      className="max-w-80 justify-start gap-1.5"
+      disabled={inserting}
+      onSelect={insertCard}
+    >
+      <Icon className="size-3 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate" title={title}>
+        {title}
+      </span>
+      <span className="shrink-0 text-muted-foreground">· {label}</span>
+    </DropdownMenuItem>
   );
 }
 
@@ -188,19 +230,7 @@ const LINE_COLORS: Partial<Record<ConversationStatus, string>> = {
   limitWait: "text-(--state-warning-fg)",
 };
 
-export function ConversationChip({
-  entry: { id, link },
-  target,
-  session,
-  checking,
-  hasStoredTurns,
-  note,
-  onUnavailable,
-  result = link.result,
-  line = false,
-  card = false,
-  header = false,
-}: {
+interface ConversationChipProps {
   entry: NoteLinkEntry;
   target: ConversationResolution;
   session: AgentSession | undefined;
@@ -212,14 +242,20 @@ export function ConversationChip({
   line?: boolean;
   card?: boolean;
   header?: boolean;
-}) {
+}
+
+function useConversationDisplay({
+  entry: { link },
+  target,
+  session,
+  checking,
+  hasStoredTurns,
+  result = link.result,
+  line = false,
+}: ConversationChipProps) {
   const { t, i18n } = useTranslation("notes");
-  const [opening, setOpening] = useState(false);
-  const [inserting, setInserting] = useState(false);
   const status = conversationStatus(target, session, result, { checking, hasStoredTurns, line });
   const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
-  const branch =
-    (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
   const pr = result?.pr;
   const Icon = link.agent === "claude" ? ClaudeIcon : CodexIcon;
   const time = session?.limitWait
@@ -232,30 +268,15 @@ export function ConversationChip({
     status === "reported"
       ? t("conversations.completed") + (pr ? ` · ${prLabel(pr)}` : "")
       : t(`conversations.${status}`, { time });
-  const dotColor = DOT_COLORS[status];
-  const statusIcon =
-    status === "running" ? (
-      <Loader
-        className="size-3 shrink-0 text-sky-500 motion-safe:animate-spin"
-        aria-hidden="true"
-      />
-    ) : dotColor ? (
-      <span className={cn("size-1.5 shrink-0 rounded-full", dotColor)} aria-hidden="true" />
-    ) : null;
-  const failed = () => showToast({ kind: "error", message: t("conversations.actionError") });
+  return { Icon, title, status, label };
+}
 
-  const openConversation = async () => {
-    setOpening(true);
-    try {
-      const missing = await showConversation(note, id, link);
-      if (missing) onUnavailable(missing);
-    } catch {
-      failed();
-    } finally {
-      setOpening(false);
-    }
-  };
-
+function useInsertLiveCard(
+  { entry: { link }, target, note }: Pick<ConversationChipProps, "entry" | "target" | "note">,
+  title: string,
+) {
+  const { t } = useTranslation("notes");
+  const [inserting, setInserting] = useState(false);
   const insertCard = async () => {
     setInserting(true);
     try {
@@ -295,6 +316,74 @@ export function ConversationChip({
       showToast({ kind: "error", message: t("connections.saveAnswerError") });
     } finally {
       setInserting(false);
+    }
+  };
+  return { insertCard: () => void insertCard(), inserting };
+}
+
+function ConversationChipContextMenu({
+  props,
+  title,
+  children,
+}: {
+  props: ConversationChipProps;
+  title: string;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation("notes");
+  const { insertCard, inserting } = useInsertLiveCard(props, title);
+  return (
+    <ContextMenuRoot>
+      <ContextMenuTrigger>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuAction disabled={inserting} onSelect={insertCard}>
+          {t("connections.insertLiveCard")}
+        </ContextMenuAction>
+      </ContextMenuContent>
+    </ContextMenuRoot>
+  );
+}
+
+export function ConversationChip(props: ConversationChipProps) {
+  const {
+    entry: { id, link },
+    target,
+    session,
+    checking,
+    note,
+    onUnavailable,
+    result = link.result,
+    line = false,
+    card = false,
+    header = false,
+  } = props;
+  const { t } = useTranslation("notes");
+  const [opening, setOpening] = useState(false);
+  const { Icon, title, status, label } = useConversationDisplay(props);
+  const branch =
+    (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
+  const pr = result?.pr;
+  const dotColor = DOT_COLORS[status];
+  const statusIcon =
+    status === "running" ? (
+      <Loader
+        className="size-3 shrink-0 text-sky-500 motion-safe:animate-spin"
+        aria-hidden="true"
+      />
+    ) : dotColor ? (
+      <span className={cn("size-1.5 shrink-0 rounded-full", dotColor)} aria-hidden="true" />
+    ) : null;
+  const failed = () => showToast({ kind: "error", message: t("conversations.actionError") });
+
+  const openConversation = async () => {
+    setOpening(true);
+    try {
+      const missing = await showConversation(note, id, link);
+      if (missing) onUnavailable(missing);
+    } catch {
+      failed();
+    } finally {
+      setOpening(false);
     }
   };
 
@@ -407,36 +496,10 @@ export function ConversationChip({
     </button>
   );
 
-  const insertItem = header && (
-    <DropdownMenuItem disabled={inserting} onSelect={() => void insertCard()}>
-      {t("connections.insertLiveCard")}
-    </DropdownMenuItem>
-  );
-  if (target.kind !== "missing") {
-    if (!header) return chip;
-    return (
-      <span className="group relative inline-flex min-w-0 items-center">
-        {chip}
-        <DropdownMenuRoot>
-          <DropdownMenuTrigger>
-            <IconButton
-              label={t("connections.conversationActions")}
-              size="xs"
-              className="pointer-events-none absolute end-0 top-1/2 -translate-y-1/2 rounded-full bg-background opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
-            >
-              <MoreHorizontal className="size-3.5" aria-hidden="true" />
-            </IconButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">{insertItem}</DropdownMenuContent>
-        </DropdownMenuRoot>
-      </span>
-    );
-  }
-  return (
+  const missingMenu = (
     <DropdownMenuRoot>
       <DropdownMenuTrigger>{chip}</DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {insertItem}
         {pr && (
           <DropdownMenuItem
             onSelect={() => {
@@ -454,6 +517,12 @@ export function ConversationChip({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenuRoot>
+  );
+  if (!header) return target.kind === "missing" ? missingMenu : chip;
+  return (
+    <ConversationChipContextMenu props={props} title={title}>
+      {target.kind === "missing" ? <span className="contents">{missingMenu}</span> : chip}
+    </ConversationChipContextMenu>
   );
 }
 

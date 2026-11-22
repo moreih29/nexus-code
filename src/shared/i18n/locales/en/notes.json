@@ -368,7 +368,7 @@
     "alreadySaved": "Already saved",
     "answerTooLong": "Answer too long",
     "insertLiveCard": "Add card to note",
-    "conversationActions": "Conversation menu",
+    "insertCard": "Add card",
     "liveAlreadyExists": "Already in note",
     "liveQuestion": "1 question · Answer in conversation",
     "liveFiles_one": "{{count}} file changed",
