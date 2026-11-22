@@ -12,6 +12,7 @@
  */
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
+import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
 import { AGENT_PROTOCOL_VERSION } from "../../../shared/agent/envelope";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { createLogger } from "../../../shared/log/main";
@@ -131,23 +132,19 @@ const AGENT_HEARTBEAT_EVENT = "agent.heartbeat";
 // hardcoded constant) keeps the two ends in lockstep if the limit ever changes.
 const KEEPALIVE_PING_SLOTS = 6;
 
-const ReadyFrameSchema = z
-  .object({
-    type: z.literal("ready"),
-    protocolVersion: z.string().optional(),
-    methods: z.array(z.string()).optional(),
-    heartbeatIntervalMs: z.number().optional(),
-    idleWatchdogMs: z.number().optional(),
-    // Reattach fields: present in protocol v2+ agents; absent in legacy agents.
-    agentEpoch: z.number().optional(),
-    capabilities: z.array(z.string()).optional(),
-  })
-  .passthrough();
-const ResponseResultFrameSchema = z.object({ id: z.string(), result: z.unknown() }).passthrough();
-const ResponseErrorFrameSchema = z.object({ id: z.string(), error: z.unknown() }).passthrough();
-const EventFrameSchema = z
-  .object({ event: z.string(), payload: z.unknown().optional() })
-  .passthrough();
+const ReadyFrameSchema = z.looseObject({
+  type: z.literal("ready"),
+  protocolVersion: z.string().optional(),
+  methods: z.array(z.string()).optional(),
+  heartbeatIntervalMs: NumberSchema.optional(),
+  idleWatchdogMs: NumberSchema.optional(),
+  // Reattach fields: present in protocol v2+ agents; absent in legacy agents.
+  agentEpoch: NumberSchema.optional(),
+  capabilities: z.array(z.string()).optional(),
+});
+const ResponseResultFrameSchema = z.looseObject({ id: z.string(), result: z.unknown().optional() });
+const ResponseErrorFrameSchema = z.looseObject({ id: z.string(), error: z.unknown().optional() });
+const EventFrameSchema = z.looseObject({ event: z.string(), payload: z.unknown().optional() });
 
 type ParsedFrame =
   | {

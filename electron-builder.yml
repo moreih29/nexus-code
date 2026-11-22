@@ -19,8 +19,8 @@ extraResources:
     to: agent
 
 # 패킹 대상 화이트리스트. 미지정 시 electron-builder 가 작업 디렉터리 전체를
-# 순회(bun 환경에서는 의존성 트리 프루닝이 제한적)하여 src/tests/docs/.nexus/
-# references 등 런타임에 불필요한 소스·문서까지 asar 에 포함된다. 런타임은
+# 순회(bun 환경에서는 의존성 트리 프루닝이 제한적)하여 src/, tests/, docs/,
+# references/ 등 런타임에 불필요한 소스·문서까지 asar 에 포함된다. 런타임은
 # 빌드 산출물(out/)과 package.json, 그리고 prod node_modules 만 필요하다.
 # (node_modules 의 prod 의존성은 files 와 무관하게 electron-builder 가 자동 포함한다.)
 files:
@@ -46,19 +46,25 @@ mac:
     - target: zip
       arch:
         - arm64
-  # Release builds are signed with a self-signed certificate by
-  # scripts/sign-mac.cjs. macOS does not trust it, so electron-builder finds no
-  # identity by this name and hands signing to that hook, which leaves a build
-  # without the certificate (a local one) unsigned.
+  # The default self-signed path delegates to scripts/sign-mac.cjs, which also
+  # signs the bridge release. CI selects build/electron-builder.developer-id.cjs
+  # when the Developer ID and notarization credentials are available.
   identity: "NexusCode Release Signing"
   sign: scripts/sign-mac.cjs
+  hardenedRuntime: false
   notarize: false
-  # Voice input captures the microphone; macOS shows this when it asks the user.
-  # scripts/sign-mac.cjs signs without the hardened runtime, so no entitlement
-  # is needed for it; signing with `--options runtime` would also need
-  # com.apple.security.device.audio-input in the entitlements.
+  # macOS shows these when the app or its terminal and agent programs request access.
   extendInfo:
     NSMicrophoneUsageDescription: "NexusCode uses the microphone for voice input: what you say is turned into text in the chat box."
+    NSCameraUsageDescription: "A program started from the NexusCode terminal or by an agent wants to use your camera."
+    NSAppleEventsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to control another app."
+    NSLocationUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your location."
+    NSContactsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your contacts."
+    NSCalendarsUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your calendars."
+    # EventKit on macOS 14 and later has separate full-access and write-only prompts.
+    NSCalendarsFullAccessUsageDescription: "A program started from the NexusCode terminal or by an agent wants to read and update your calendars."
+    NSCalendarsWriteOnlyAccessUsageDescription: "A program started from the NexusCode terminal or by an agent wants to add events to your calendar."
+    NSPhotoLibraryUsageDescription: "A program started from the NexusCode terminal or by an agent wants to access your photo library."
   # The voice print model quantized to 8 bits, which Apple silicon runs
   # fastest (src/main/features/voice-print).
   extraResources:
@@ -77,7 +83,7 @@ linux:
     - deb
   category: Development
   executableName: nexus-code
-  maintainer: "moreih29 <moreih29@gmail.com>"
+  maintainer: "moreih29 <support@gradiendo.com>"
   synopsis: "Multi-workspace editor with Monaco and a terminal in one window"
   # The voice print model at full precision, which x64 runs fastest;
   # scripts/voice-print-model.ts fetches it into dist/voice-print.

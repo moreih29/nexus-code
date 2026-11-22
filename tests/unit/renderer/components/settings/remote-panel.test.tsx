@@ -1,31 +1,235 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import i18next from "i18next";
+import type { MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
+import * as button from "../../../../../src/renderer/components/ui/button";
+import * as ipc from "../../../../../src/renderer/ipc/client";
+import * as theme from "../../../../../src/renderer/state/stores/theme";
+import { ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import { SERVER } from "../../../../../src/shared/remote/server";
+import { siteUrl } from "../../../../../src/shared/site";
 
 const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
   "../../../../../src/renderer/components/settings/panels/remote-panel"
 );
 
 const server = "http://localhost:8787";
-const render = (state: RemoteAccountState, signIns?: ("google" | "github" | "dev")[]) =>
+const render = (state: RemoteAccountState, signIns?: readonly string[]) =>
   renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
+
+/** Renders `node` with the app in `language`. */
+async function renderIn(language: string, node: ReactElement): Promise<string> {
+  const i18n = i18next.cloneInstance({ lng: language });
+  await i18n.changeLanguage(language);
+  return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
+}
+
+/** The link to `url` labelled `label` that opens in a new tab, or null. */
+function linkTo(html: string, url: string, label: string): string | null {
+  const escaped = url.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const tag = html.match(new RegExp(`<a [^>]*href="${escaped}"[^>]*>${label}</a>`))?.[0] ?? null;
+  if (tag === null) return null;
+  expect(tag).toContain('target="_blank"');
+  expect(tag).toContain('rel="noopener noreferrer"');
+  return tag;
+}
+
+const SIGN_IN_HELP_EN = "https://nexuscode.gradiendo.com/en/support/#sign-in";
+const SIGN_IN_HELP_KO = "https://nexuscode.gradiendo.com/support/#sign-in";
+
+describe("the website's addresses", () => {
+  test.each([
+    ["home", "https://nexuscode.gradiendo.com/", "https://nexuscode.gradiendo.com/en/"],
+    [
+      "support",
+      "https://nexuscode.gradiendo.com/support/",
+      "https://nexuscode.gradiendo.com/en/support/",
+    ],
+    ["signIn", SIGN_IN_HELP_KO, SIGN_IN_HELP_EN],
+    [
+      "privacy",
+      "https://nexuscode.gradiendo.com/privacy/",
+      "https://nexuscode.gradiendo.com/en/privacy/",
+    ],
+  ] as const)("%s: Korean's at the root, every other language's under /en/", (page, ko, en) => {
+    expect(siteUrl(page, "ko")).toBe(ko);
+    expect(siteUrl(page, "ko-KR")).toBe(ko);
+    expect(siteUrl(page, "en")).toBe(en);
+    expect(siteUrl(page, "fr")).toBe(en);
+  });
+});
 
 describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
     const html = render({ status: "signed-out", server, failure: "unverified_email" });
     expect(html).toContain("Sign in with Google");
-    expect(html).toContain("email isn&#x27;t verified.");
+    expect(html).toContain('data-failure="unverified_email"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Email not verified");
+    expect(html).toContain("Verify your email with the sign-in provider, then sign in again.");
+    // Only an approval the server waits on, or keeps closed, says it takes approved accounts.
+    expect(html).not.toContain("Approved accounts only");
     expect(html).toContain(`Server: ${server}`);
+  });
+
+  test("signed out, the group's description and the sign-in buttons say so", () => {
+    const html = render({ status: "signed-out", server: SERVER });
+    // No label of its own above the buttons: the description, then the buttons.
+    expect(html).not.toContain("Not signed in");
+    const description = html.indexOf("Sign in to see this computer&#x27;s sessions");
+    expect(description).toBeGreaterThan(-1);
+    expect(description).toBeLessThan(html.indexOf('data-testid="sign-in-buttons"'));
+    expect(html.indexOf('data-testid="sign-in-buttons"')).toBeLessThan(
+      html.indexOf("Sign in with Google"),
+    );
+  });
+
+  test("offers to check approval again alongside the provider buttons", () => {
+    const state = { status: "signed-out", server, failure: "pending_approval" } as const;
+    const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk(state));
+    const renderButton = spyOn(button, "Button");
+    try {
+      const html = render(state, ["google", "github"]);
+      expect(html).toContain(
+        'role="status" data-testid="sign-in-notice" data-failure="pending_approval"',
+      );
+      expect(html).toContain("Awaiting approval");
+      expect(html).toContain("Approved accounts only for now");
+      // Without the sign-in it is for (the app started anew), the body names none.
+      expect(html).toContain("Once approved, sign in again with the same account.");
+      // Under the group's description, the notice comes before the sign-in buttons.
+      expect(html.indexOf("Sign in to see")).toBeLessThan(html.indexOf("Awaiting approval"));
+      expect(html.indexOf("Awaiting approval")).toBeLessThan(
+        html.indexOf('data-testid="sign-in-buttons"'),
+      );
+      expect(html).toContain("Sign in with Google");
+      expect(html).toContain("Sign in with GitHub");
+      const action = renderButton.mock.calls.find(([props]) => props.children === "Check Again");
+      action?.[0].onClick?.({} as MouseEvent<HTMLButtonElement>);
+      expect(call).toHaveBeenCalledWith("remote", "signIn", undefined);
+    } finally {
+      renderButton.mockRestore();
+      call.mockRestore();
+    }
+  });
+
+  test.each([
+    ["google", "Once approved, sign in again with the same Google account."],
+    ["apple", "Once approved, sign in again with the same Apple account."],
+    ["dev", "Once approved, sign in again with the same account."],
+  ] as const)("names the sign-in a pending approval is for: %s", (provider, body) => {
+    const html = render({ status: "signed-out", server, failure: "pending_approval", provider });
+    expect(html).toContain(body);
+  });
+
+  test("says to try a rate-limited sign-in again later", () => {
+    const html = render({ status: "signed-out", server, failure: "rate_limited" });
+    expect(html).toContain('role="alert" data-testid="sign-in-notice" data-failure="rate_limited"');
+    expect(html).toContain("Too many sign-in attempts");
+    expect(html).toContain("Sign in again later.");
+    expect(html).not.toContain("Approved accounts only");
+  });
+
+  test.each([
+    ["closed", "Signups paused"],
+    ["not_invited", "Account not on the invite list"],
+  ] as const)("says the server takes approved accounts only when %s", (failure, title) => {
+    const html = render({ status: "signed-out", server, failure });
+    expect(html).toContain(`role="alert" data-testid="sign-in-notice" data-failure="${failure}"`);
+    expect(html).toContain(title);
+    expect(html).toContain("Approved accounts only for now");
+    expect(html).not.toContain("Check Again");
+  });
+
+  test("links a suspended account to support's sign-in section", () => {
+    const html = render({ status: "signed-out", server, failure: "suspended" });
+    expect(html).toContain('role="alert" data-testid="sign-in-notice" data-failure="suspended"');
+    expect(html).toContain("border-destructive/60");
+    expect(html).toContain("Account suspended");
+    expect(html).toContain("Contact us through the support page.");
+    expect(html).not.toContain("Approved accounts only");
+    expect(linkTo(html, SIGN_IN_HELP_EN, "Open Support Page")).not.toBeNull();
+    expect(html).not.toContain("Learn more");
+    expect(html).not.toContain("Check Again");
+  });
+
+  test.each([
+    "pending_approval",
+    "closed",
+    "not_invited",
+    "rejected",
+  ] as const)("links %s to support's sign-in section to learn more", (failure) => {
+    const html = render({ status: "signed-out", server, failure });
+    expect(linkTo(html, SIGN_IN_HELP_EN, "Learn more")).not.toBeNull();
+  });
+
+  test.each([
+    "unverified_email",
+    "rate_limited",
+    "too_many_devices",
+  ] as const)("has no more to learn for %s", (failure) => {
+    expect(render({ status: "signed-out", server, failure })).not.toContain("<a ");
+  });
+
+  test("links support's Korean pages when the app is in Korean", async () => {
+    const rejected = await renderIn(
+      "ko",
+      <AccountGroup state={{ status: "signed-out", server, failure: "rejected" }} />,
+    );
+    expect(linkTo(rejected, SIGN_IN_HELP_KO, "자세히")).not.toBeNull();
+    const suspended = await renderIn(
+      "ko",
+      <AccountGroup state={{ status: "signed-out", server, failure: "suspended" }} />,
+    );
+    expect(linkTo(suspended, SIGN_IN_HELP_KO, "지원 페이지 열기")).not.toBeNull();
+    expect(suspended).not.toContain("/en/");
   });
 
   test("offers the sign-ins the server has", () => {
     const html = render({ status: "signed-out", server }, ["dev"]);
     expect(html).toContain("Sign in (dev server)");
     expect(html).not.toContain("Sign in with Google");
-    const both = render({ status: "signed-out", server }, ["google", "github"]);
-    expect(both).toContain("Sign in with Google");
-    expect(both).toContain("Sign in with GitHub");
+    const olderServer = render({ status: "signed-out", server }, ["google", "github"]);
+    expect(olderServer).toContain("Sign in with Google");
+    expect(olderServer).toContain("Sign in with GitHub");
+    expect(olderServer).not.toContain("Sign in with Apple");
+  });
+
+  test("puts Apple first when advertised and skips unknown providers", () => {
+    const html = render({ status: "signed-out", server }, [
+      "github",
+      "future-provider",
+      "google",
+      "dev",
+      "apple",
+    ]);
+    const providers = Array.from(
+      html.matchAll(/data-provider="([^"]+)"/g),
+      ([, provider]) => provider,
+    );
+    expect(providers).toEqual(["apple", "google", "github", "dev"]);
+    expect(html).toContain("Sign in with Apple");
+  });
+
+  test.each([
+    ["github-light", "bg-black", "text-white"],
+    ["github-dark", "bg-white", "text-black"],
+  ] as const)("uses the Apple button colors in %s", (resolved, background, text) => {
+    const state = theme.useThemeStore.getInitialState();
+    const readTheme = spyOn(theme, "useThemeStore").mockImplementation((select) =>
+      select({ ...state, resolved }),
+    );
+    try {
+      const html = render({ status: "signed-out", server }, ["apple"]);
+      expect(html).toContain(` ${background} `);
+      expect(html).toContain(` ${text} `);
+      expect(html).toContain(" h-10 ");
+      expect(html).toContain('viewBox="17 14.5 22 22"');
+    } finally {
+      readTheme.mockRestore();
+    }
   });
 
   test("marks the dev sign-in as local only", () => {
@@ -37,7 +241,8 @@ describe("the remote panel's account", () => {
     const html = renderToStaticMarkup(
       <AccountGroup state={{ status: "signed-out", server }} unreachable onRetry={() => {}} />,
     );
-    expect(html).toContain("reach the server.");
+    expect(html).toContain('data-failure="unreachable"');
+    expect(html).toContain("Can&#x27;t reach the server");
     expect(html).toContain("Try again");
     // The sign-in stays: the server may answer it.
     expect(html).toContain("Sign in with Google");
@@ -48,7 +253,7 @@ describe("the remote panel's account", () => {
   test("says nothing of a sign-in the user cancelled", () => {
     const html = render({ status: "signed-out", server, failure: "cancelled" });
     expect(html).toContain("Sign in with Google");
-    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("sign-in-notice");
   });
 
   test("while the browser is out, offers to stop waiting", () => {
@@ -58,15 +263,16 @@ describe("the remote panel's account", () => {
     expect(html).not.toContain("Sign in with Google");
   });
 
-  test("once signed in, says as whom, and offers the sign-out", () => {
+  test("once signed in, shows a relay address and offers the sign-out", () => {
+    const email = "relay-user@privaterelay.appleid.com";
     const html = render({
       status: "signed-in",
       server,
-      user: { id: "u1", email: "me@example.com", name: "Me" },
+      user: { id: "u1", email, name: "Me" },
       device: { id: "d1", name: "Mac", platform: "darwin" },
     });
     expect(html).toContain("Me");
-    expect(html).toContain("me@example.com");
+    expect(html).toContain(email);
     expect(html).toContain("Sign out");
     // Signed in, the page does not explain signing in.
     expect(html).not.toContain("Sign in to see");

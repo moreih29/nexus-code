@@ -1,7 +1,6 @@
 /**
  * What this device serves the account's other devices: its sessions, with
- * the same services the nexus CLI uses, so the remote sees what `nexus
- * session list` would.
+ * the same services the nexus CLI uses.
  */
 
 import {
@@ -15,7 +14,9 @@ import {
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
+import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import type { CliServices } from "../cli/context";
+import { openerOf } from "../cli/sender";
 import { type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import { answerConsent } from "./consents";
@@ -81,7 +82,7 @@ import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common"
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
 import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
-import { serveSessionsList } from "./serving/sessions";
+import { holdReceipts, reorderSessions, serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
 import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
 import { createWorkspace } from "./serving/workspaces";
@@ -177,6 +178,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "chat.image",
   "history.list",
   "profiles.list",
+  "profiles.usage",
   "terminal.shells",
   "notes.list",
   "notes.read",
@@ -201,6 +203,7 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.image": 12_000,
   "history.list": 12_000,
   "profiles.list": 12_000,
+  "profiles.usage": 12_000,
   "terminal.shells": 12_000,
   "notes.list": 12_000,
   "notes.read": 12_000,
@@ -225,7 +228,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const { from, method } = request;
     let { params } = request;
     let s = services;
-    if (sessions && method === "sessions.watch") return sessions.watch(from);
+    if (sessions && method === "sessions.watch") return sessions.watch(from, request.id);
     if (sessions && method === "sessions.unwatch") {
       return sessions.unwatch(from, params as RpcParams<"sessions.unwatch">);
     }
@@ -244,6 +247,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // An agent's request: let through as the user set it, and shown as that agent's.
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
+    if ((method === "sessions.reorder" || method === "sessions.markSeen") && by !== undefined) {
+      throw new RpcFailure(RpcErrorCode.Forbidden, `${method} is not taken from agents`);
+    }
     let relay: RelaySender | undefined;
     let expectedMode: string | undefined;
     if (by && !watches.agents) {
@@ -253,6 +259,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const agentOnly =
       method === "settings.instructions" ||
       method === "settings.instructions.set" ||
+      method === "profiles.usage" ||
       method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
@@ -276,12 +283,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
+      relay = relaySenderOf(by, device);
       expectedMode = await watches.agents.check(s, {
         device,
         method,
         params: params as AgentRequest["params"],
       });
-      relay = relaySenderOf(by, device);
     }
     const checkCurrent = () => {
       if (request.isCurrent?.() === false) {
@@ -303,9 +310,27 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       };
     }
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
+    const openedBy = openerOf(relay);
     switch (request.method) {
       case "sessions.list":
-        return serveSessionsList(s, git, watches.notes, from, controls);
+        return serveSessionsList(s, git, watches.notes, from, controls, request.id);
+      case "sessions.reorder":
+        checkCurrent();
+        return reorderSessions(s, params as RpcParams<"sessions.reorder">);
+      case "sessions.markSeen": {
+        checkCurrent();
+        const receipt = params as RpcParams<"sessions.markSeen">;
+        // Lists made from here on leave these read, though the renderer is still taking them.
+        const held = holdReceipts(s, receipt.seen);
+        try {
+          const result = await s.ui("sessions.markSeen", receipt);
+          held.taken();
+          return result;
+        } catch (error) {
+          held.failed();
+          return unavailable(error);
+        }
+      }
       case "notes.read":
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
@@ -415,6 +440,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
               show,
               ...(start ? { start } : {}),
               ...(relay && prompt.trim() ? { from: relay } : {}),
+              ...(openedBy ? { openedBy } : {}),
             },
             5 * 60_000,
           )
@@ -605,6 +631,13 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return readEvents(s, request.params as RpcParams<"events.read">);
       case "profiles.list":
         return listProfiles(s, request.params as RpcParams<"profiles.list">);
+      case "profiles.usage": {
+        const { from: _, ...usage } = params as RpcParams<"profiles.usage">;
+        if (usage.workspaceId !== undefined && !workspaceOf(s, usage.workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        return s.ui("chat.usage", usage).catch(unavailable);
+      }
       case "chat.rename":
         return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":
@@ -626,7 +659,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.rewind":
         return rewindChat(s, request.params as RpcParams<"chat.rewind">);
       case "chat.fork":
-        return forkChat(s, request.params as RpcParams<"chat.fork">);
+        return forkChat(s, request.params as RpcParams<"chat.fork">, openedBy);
       case "chat.background":
         return backgroundChatTool(s, request.params as RpcParams<"chat.background">);
       case "chat.unqueue":
@@ -657,7 +690,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":
-        return resumeChat(s, request.params as RpcParams<"chat.resume">);
+        return resumeChat(s, request.params as RpcParams<"chat.resume">, openedBy);
       case "chat.close":
         return closeChat(s, request.params as RpcParams<"chat.close">);
       case "terminal.input":
@@ -665,7 +698,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "terminal.shells":
         return terminalShells(s, request.params as RpcParams<"terminal.shells">);
       case "terminal.open":
-        return openTerminal(s, request.params as RpcParams<"terminal.open">, watches.files?.fs);
+        return openTerminal(
+          s,
+          request.params as RpcParams<"terminal.open">,
+          watches.files?.fs,
+          openedBy,
+        );
       case "terminal.rename":
         return renameTerminal(s, request.params as RpcParams<"terminal.rename">);
       case "terminal.close":
@@ -680,7 +718,10 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
   return async (request: RemoteServeRequest) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-    const timeout = READ_DEADLINES[request.method];
+    const timeout =
+      request.method === "profiles.usage" && (request.params as RpcParams<"profiles.usage">).refresh
+        ? PROFILE_USAGE_REFRESH_TIMEOUT_MS
+        : READ_DEADLINES[request.method];
     if (timeout === undefined) return dispatch(s, request);
     const budget = new ReadBudget(s, request.method, request.from, timeout);
     const reader: CliServices = {

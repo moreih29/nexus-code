@@ -7,11 +7,8 @@
 // resistance, which is far more than needed for a single-user local set of
 // workspaces.
 //
-// macOS sun_path limit: UNIX_PATH_MAX is 104 bytes on macOS (vs 108 on Linux).
-// ~/.nexus-code/run/ is typically ~30 chars; "h-" prefix + 16-char hash + ".sock"
-// suffix = 22 chars; total ≈ 52 chars — well within the 104-byte limit.
-// (The hookserver hits the same constraint; see hookserver/server.go for the
-// parallel pattern with its own 12-char hash.)
+// If the home path is too long for a Unix socket, the socket and forwarded
+// agent link use a short private directory while lock and log stay in run.
 package agentrun
 
 import (
@@ -67,10 +64,20 @@ func For(rootPath, version string) (Paths, error) {
 		return Paths{}, fmt.Errorf("agentrun: %w", err)
 	}
 	id := WsID(rootPath, version)
+	socketDir := runSocketDir(runDir, id+".agent")
 	return Paths{
-		Sock:     filepath.Join(runDir, id+".sock"),
+		Sock:     filepath.Join(socketDir, id+".sock"),
 		Lock:     filepath.Join(runDir, id+".lock"),
 		Log:      filepath.Join(runDir, id+".log"),
-		AuthSock: filepath.Join(runDir, id+".agent"),
+		AuthSock: filepath.Join(socketDir, id+".agent"),
 	}, nil
+}
+
+// EnsureSocketDir prepares the directory for binding or dialing the socket.
+func (p Paths) EnsureSocketDir() error {
+	dir := filepath.Dir(p.Sock)
+	if dir == filepath.Dir(p.Lock) {
+		return agentpaths.EnsureDir(dir)
+	}
+	return ensurePrivateSocketDir(dir)
 }

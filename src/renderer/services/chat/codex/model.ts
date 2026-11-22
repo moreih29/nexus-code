@@ -12,6 +12,7 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
+import { codexErrorStatus, codexRetryCount, codexTurnFailure, retryReasonOf } from "../api-errors";
 import { fileMention } from "../composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "../goal";
 import {
@@ -99,6 +100,8 @@ interface LiveCommand {
 export interface CodexModel extends ChatModel {
   /** Keeps sequence-based item keys unique across the tab's agent logs. */
   logSeqOffset?: number;
+  /** The sandbox the program reports independently of its approval policy. */
+  sandboxMode?: CodexMode | null;
   /** The thread the program runs, once it started or resumed one. */
   threadId?: string;
   appServerVersion?: string;
@@ -278,6 +281,7 @@ export function applyCodexLine(
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
+      draft.next.sandboxMode = undefined;
       draft.next.blocks = {};
       draft.next.forkSource = undefined;
       draft.next.turnId = undefined;
@@ -403,12 +407,14 @@ function applyResponse(
       m.forkSource = undefined;
     }
     if (QUIET_REQUESTS.has(sent.subtype)) return;
-    if (sent.subtype === "turn/steer") {
-      // The turn ended first: the app sends the message as the next turn's.
+    if (sent.subtype === "turn/start" || sent.subtype === "turn/steer") {
       const clientId = str(sent.request.clientUserMessageId);
-      const index = m.items.findIndex((i) => i.kind === "user" && i.key === `u-${clientId}`);
-      if (clientId && index >= 0) draft.items().splice(index, 1);
-      return;
+      const index = m.items.findIndex(
+        (item) => item.kind === "user" && item.state === "sent" && item.key === `u-${clientId}`,
+      );
+      if (clientId && index >= 0) draft.removeItem(index);
+      // A refused steer can be held by the app for the next turn.
+      if (sent.subtype === "turn/steer") return;
     }
     if (sent.subtype === "thread/resume") {
       // The tab keeps its conversation when resuming it fails.
@@ -572,6 +578,7 @@ function applyResponse(
         if (turnId && m.running) enterTurn(m, turnId);
         if (sent.request.threadId === m.threadId) {
           if (sent.request.sandboxPolicy !== undefined) {
+            m.sandboxMode = modeOf(sent.request.sandboxPolicy) ?? null;
             m.confirmedPermissionMode = confirmedModeOf(
               sent.request.sandboxPolicy,
               sent.request.approvalPolicy,
@@ -804,6 +811,7 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
     effort: result.reasoningEffort,
     sandbox: result.sandbox,
   });
+  m.sandboxMode = result.sandbox === undefined ? undefined : (modeOf(result.sandbox) ?? null);
   m.confirmedPermissionMode = confirmedModeOf(result.sandbox, result.approvalPolicy);
   if (result.collaborationMode) applyCollaboration(m, result.collaborationMode);
   else if (m.collaborationMode === undefined) {
@@ -988,6 +996,8 @@ function applyNotification(
             : applyItem(draft, turnId, item, phase, tag, num(item.startedAtMs) ?? at);
         if (m.running && turnId === m.turnId) {
           noteTurnActivity(m, at);
+          // The model answered: a retry before it is over.
+          if (item.type !== "userMessage") clearRetry(m);
           if (completed && toolRan && m.permissions.length === 0) {
             m.toolCompletedSeq = seq;
           }
@@ -1001,7 +1011,10 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "text", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
-      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
+      if (!params.turnId || params.turnId === m.turnId) {
+        noteTurnActivity(m, at);
+        clearRetry(m);
+      }
       if (m.turn) {
         m.turn = { ...m.turn, outputTokens: m.turn.outputTokens + Math.ceil(delta.length / 4) };
       }
@@ -1013,7 +1026,10 @@ function applyNotification(
       const itemId = str(params.itemId);
       if (!delta || !itemId) return;
       appendText(draft, itemId, "thinking", delta, str(params.turnId) ?? m.turnId ?? "", tag, at);
-      if (!params.turnId || params.turnId === m.turnId) noteTurnActivity(m, at);
+      if (!params.turnId || params.turnId === m.turnId) {
+        noteTurnActivity(m, at);
+        clearRetry(m);
+      }
       if (m.turn) {
         const thinkingTokens = m.turn.thinkingTokens + Math.ceil(delta.length / 4);
         m.turn = { ...m.turn, thinkingTokens };
@@ -1111,6 +1127,7 @@ function applyNotification(
           sandbox: settings.sandboxPolicy,
         });
         if (settings.sandboxPolicy !== undefined) {
+          m.sandboxMode = modeOf(settings.sandboxPolicy) ?? null;
           m.confirmedPermissionMode = confirmedModeOf(
             settings.sandboxPolicy,
             settings.approvalPolicy,
@@ -1157,8 +1174,20 @@ function applyNotification(
       const error = rec(params.error);
       if (params.willRetry === true) {
         if (m.turn) {
-          const attempt = (m.turn.retry?.attempt ?? 0) + 1;
-          m.turn = { ...m.turn, retry: { attempt } };
+          // "Reconnecting... 2/5": Codex's own count, which starts again for
+          // each phase of its retries; without it, the app's.
+          const told = codexRetryCount(str(error?.message));
+          const status = codexErrorStatus(error?.codexErrorInfo);
+          m.turn = {
+            ...m.turn,
+            retry: {
+              attempt: told?.attempt ?? (m.turn.retry?.attempt ?? 0) + 1,
+              ...(told ? { maxRetries: told.max } : {}),
+              ...(at === undefined ? {} : { at }),
+              ...(status === undefined ? {} : { status }),
+              reason: retryReasonOf(status),
+            },
+          };
         }
         return;
       }
@@ -1185,7 +1214,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   if (status === "inProgress") return;
   const turnId = str(turn.id);
   if (turnId) {
-    // Some versions include the command's final item here even when its
+    // Some versions include a tool's final item here even when its
     // individual completion notification did not reach the tab.
     for (const raw of Array.isArray(turn.items) ? turn.items : []) {
       const item = rec(raw);
@@ -1197,6 +1226,11 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
         (item.status === "completed" || item.status === "failed" || item.status === "declined")
       ) {
         applyCommandEvent(draft, turnId, item, "completed", String(seq), at);
+      } else if (
+        item?.type === "fileChange" &&
+        (item.status === "completed" || item.status === "failed" || item.status === "declined")
+      ) {
+        applyItem(draft, turnId, item, "completed", `${seq}.${id}`, at);
       }
     }
     settleCommands(draft, at, turnId);
@@ -1216,11 +1250,14 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     m.permissions = m.permissions.filter((p) => !keys.has(p.requestId));
   }
   if (sawTurnStart) markHistoryBoundary(draft, turnId, status === "completed");
+  const apiFailure = status === "failed" ? codexTurnFailure(turn.error) : undefined;
   m.lastResult = {
     subtype: status,
     isError: status === "failed",
+    ...(turnId ? { turnId } : {}),
     durationMs: num(turn.durationMs),
     at,
+    ...(apiFailure ? { failure: apiFailure } : {}),
   };
   const failure = status === "failed" ? (str(rec(turn.error)?.message) ?? "failed") : undefined;
   finishSubmittedTurn(draft, turnId, failure);
@@ -1350,6 +1387,11 @@ function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: stri
 }
 
 /** An error, once: the turn's failure repeats the error it was told. */
+/** A retry is over once the model answers. */
+function clearRetry(m: CodexModel): void {
+  if (m.turn?.retry) m.turn = { ...m.turn, retry: undefined };
+}
+
 function pushError(draft: CodexDraft, detail: string, key: string, at: number | undefined) {
   const last = draft.next.items.at(-1);
   if (last?.kind === "notice" && last.code === "error" && last.detail === detail) return;
@@ -1442,7 +1484,7 @@ function applyItem(
       return;
   }
   if (discoverAgents) applyNativeAgentItem(m, item, at);
-  const tools = toolsOf(item, id, phase);
+  const tools = codexItemTools(item, id, phase);
   if (!tools) return;
   const ran =
     item.status !== "declined" && !tools.some((tool) => m.tools[tool.id]?.status === "denied");
@@ -1536,7 +1578,14 @@ function assistantIndex(draft: CodexDraft, turnId: string, tag: string, at: numb
   const items = draft.next.items;
   const last = items.at(-1);
   if (last?.kind === "assistant" && last.messageId === turnId) return items.length - 1;
-  draft.push({ kind: "assistant", key: `a${tag}`, messageId: turnId, blocks: [], at });
+  draft.push({
+    kind: "assistant",
+    key: `a${tag}`,
+    messageId: turnId,
+    ...(turnId ? { turnId } : {}),
+    blocks: [],
+    at,
+  });
   return draft.next.items.length - 1;
 }
 
@@ -1628,7 +1677,11 @@ function reasoningText(item: Rec): string {
 }
 
 /** The tool calls an item is: one for most, one for each file a patch changes. */
-function toolsOf(item: Rec, id: string, phase: "started" | "completed"): ToolCall[] | null {
+export function codexItemTools(
+  item: Rec,
+  id: string,
+  phase: "started" | "completed",
+): ToolCall[] | null {
   const base = { parentToolUseId: null, status: callStatus(item.status, phase) };
   switch (item.type) {
     case "commandExecution": {

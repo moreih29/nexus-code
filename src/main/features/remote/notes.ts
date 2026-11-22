@@ -82,23 +82,32 @@ export async function listNotes(
   };
 }
 
+/** The one item a selector names, as pick finds it; none, or several, is NotFound. */
+function picked<T>(
+  items: readonly T[],
+  selector: string,
+  id: (item: T) => string,
+  name: (item: T) => string,
+  what: string,
+): T {
+  try {
+    return pick(items, selector, id, name, what);
+  } catch (error) {
+    throw new RpcFailure(RpcErrorCode.NotFound, (error as Error).message);
+  }
+}
+
 export async function findNote(services: CliServices, workspaceId: string, selector: string) {
   if (!workspaceOf(services, workspaceId))
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   const notes = await services.notes.list(workspaceId).catch(failure);
-  let selected: (typeof notes)[number];
-  try {
-    selected = pick(
-      notes,
-      selector,
-      (n) => n.id,
-      (n) => n.title,
-      "note",
-    );
-  } catch (error) {
-    throw new RpcFailure(RpcErrorCode.NotFound, (error as Error).message);
-  }
-  const { id } = selected;
+  const { id } = picked(
+    notes,
+    selector,
+    (n) => n.id,
+    (n) => n.title,
+    "note",
+  );
   return services.notes.read(workspaceId, id).catch(failure);
 }
 
@@ -141,7 +150,7 @@ export async function noteTranscript(
     recording === undefined
       ? recordings
       : [
-          pick(
+          picked(
             recordings,
             recording,
             (r) => r.id,

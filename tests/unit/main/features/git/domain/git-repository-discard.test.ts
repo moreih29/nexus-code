@@ -52,6 +52,68 @@ describe("GitRepository discard source scoping", () => {
   });
 });
 
+describe("GitRepository selected paths", () => {
+  realGitTest("stage, unstage and discard affect only the literal bracketed filename", async () => {
+    const root = makeRepo();
+    try {
+      const selected = "[id].ts";
+      const other = "i.ts";
+      for (const file of [selected, other]) {
+        fs.writeFileSync(path.join(root, file), "base\n");
+      }
+      runGit(root, ["add", "."]);
+      runGit(root, ["commit", "-m", "routes"]);
+      for (const file of [selected, other]) {
+        fs.writeFileSync(path.join(root, file), "modified\n");
+      }
+      const repo = newLocalGitRepository("routes", root, path.join(root, ".git"), gitOnPath!);
+
+      await repo.stage([selected]);
+      expect(readIndexFile(root, selected)).toBe("modified\n");
+      expect(readIndexFile(root, other)).toBe("base\n");
+
+      await repo.stage([other]);
+      await repo.unstage([selected]);
+      expect(readIndexFile(root, selected)).toBe("base\n");
+      expect(readIndexFile(root, other)).toBe("modified\n");
+
+      await repo.unstage([other]);
+      await repo.discard([selected], { source: "working" });
+      expect(fs.readFileSync(path.join(root, selected), "utf8")).toBe("base\n");
+      expect(fs.readFileSync(path.join(root, other), "utf8")).toBe("modified\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  realGitTest("cleanup of an untracked bracketed filename preserves its sibling", async () => {
+    const root = makeRepo();
+    try {
+      fs.writeFileSync(path.join(root, "[id].ts"), "selected\n");
+      fs.writeFileSync(path.join(root, "i.ts"), "keep\n");
+      const repo = newLocalGitRepository("routes", root, path.join(root, ".git"), gitOnPath!);
+
+      await repo.discard(["[id].ts"], { source: "untracked" });
+
+      expect(fs.existsSync(path.join(root, "[id].ts"))).toBe(false);
+      expect(fs.readFileSync(path.join(root, "i.ts"), "utf8")).toBe("keep\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  realGitTest("check-ignore treats a leading colon as part of the requested filename", async () => {
+    const root = makeRepo();
+    try {
+      fs.writeFileSync(path.join(root, ".gitignore"), ":ignored\n");
+      const repo = newLocalGitRepository("ignored", root, path.join(root, ".git"), gitOnPath!);
+      expect(await repo.checkIgnore([":ignored", ":unignored"])).toEqual([":ignored"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 /** Creates a temp repository with one committed file. */
 function makeRepo(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-discard-"));

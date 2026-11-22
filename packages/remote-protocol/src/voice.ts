@@ -57,6 +57,7 @@
  *   anyway.
  */
 import { z } from "zod";
+import { NonnegativeNumberSchema, PositiveIntegerSchema } from "./validation.js";
 
 export const VOICE_VERSION = 1;
 
@@ -87,9 +88,9 @@ export const VoiceReadySchema = z.object({
   t: z.literal("ready"),
   format: z.literal("pcm_s16le"),
   /** The rate to send at; it may change with the provider, so it is not to be assumed. */
-  sampleRate: z.number().int().positive(),
+  sampleRate: PositiveIntegerSchema,
   /** The fewer of the session's limit and what is left of the month's quota. */
-  maxSeconds: z.number().nonnegative(),
+  maxSeconds: NonnegativeNumberSchema,
 });
 
 export const VoiceServerMessageSchema = z.discriminatedUnion("t", [
@@ -106,14 +107,14 @@ export const VoiceServerMessageSchema = z.discriminatedUnion("t", [
     /** A note's session: whose words they are. */
     speaker: SpeakerSchema.optional(),
     /** A note's session: where the words start in the session's audio, in ms. */
-    startMs: z.number().nonnegative().optional(),
+    startMs: NonnegativeNumberSchema.optional(),
     /** A note's session: where the words end in the session's audio, in ms. */
-    endMs: z.number().nonnegative().optional(),
+    endMs: NonnegativeNumberSchema.optional(),
   }),
   z.object({ t: z.literal("limit"), reason: z.enum(["session", "quota"]) }),
   z.object({
     t: z.literal("done"),
-    seconds: z.number().nonnegative(),
+    seconds: NonnegativeNumberSchema,
     /**
      * A note's session of 5 seconds or more: lets its recording go once to
      * POST /voice/transcriptions.
@@ -144,11 +145,11 @@ export const VoiceUsageSchema = z.object({
   /** The month, as YYYY-MM. */
   period: z.string(),
   /** Dictation's. */
-  usedSeconds: z.number().nonnegative(),
-  limitSeconds: z.number().nonnegative(),
+  usedSeconds: NonnegativeNumberSchema,
+  limitSeconds: NonnegativeNumberSchema,
   /** Notes' recordings', counted apart; missing from a server without them. */
   note: z
-    .object({ usedSeconds: z.number().nonnegative(), limitSeconds: z.number().nonnegative() })
+    .object({ usedSeconds: NonnegativeNumberSchema, limitSeconds: NonnegativeNumberSchema })
     .optional(),
 });
 export type VoiceUsage = z.infer<typeof VoiceUsageSchema>;
@@ -156,8 +157,8 @@ export type VoiceUsage = z.infer<typeof VoiceUsageSchema>;
 /** One speaker's stretch of a recording, as the second pass heard it. */
 export const TranscriptSegmentSchema = z.object({
   speaker: SpeakerSchema,
-  startMs: z.number().nonnegative(),
-  endMs: z.number().nonnegative(),
+  startMs: NonnegativeNumberSchema,
+  endMs: NonnegativeNumberSchema,
   text: z.string(),
 });
 export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
@@ -171,7 +172,7 @@ export const TranscriptionSchema = z.discriminatedUnion("status", [
     /** In order of their start; speakers labelled anew, not as the live session had them. */
     segments: z.array(TranscriptSegmentSchema),
     /** The recording's length. */
-    seconds: z.number().nonnegative(),
+    seconds: NonnegativeNumberSchema,
   }),
   z.object({ id: z.string(), status: z.literal("error"), message: z.string() }),
 ]);

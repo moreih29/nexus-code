@@ -14,7 +14,9 @@ import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
+import { serialize } from "../engine";
 import { ipcCallResult, ipcListen } from "../ipc/client";
+import { flushPendingNoteSaves } from "../services/notes/save";
 import { normalizeWorkspaceTabOrder } from "./operations/tab-order";
 import { flushAgentViewPersistence } from "./stores/agent-view";
 import { useLayoutStore } from "./stores/layout";
@@ -44,7 +46,7 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
     (t) => t.type !== "untitled",
   ) as LayoutSnapshot["tabs"];
   return {
-    root: layout.root,
+    root: serialize(layout.root),
     activeGroupId: layout.activeGroupId,
     tabs,
   };
@@ -186,16 +188,20 @@ export function flushStatePersistence(): Promise<boolean> {
   return persistence?.flush() ?? Promise.resolve(true);
 }
 
-/** Acknowledge a close attempt only after the latest dirty layouts were written. */
+/** Acknowledge a close attempt after flushing layout and pending note edits. */
 export function installLayoutClosePersistence(): () => void {
   return ipcListen("window", "prepareClose", ({ attempt }) => {
     void (async () => {
-      const results = await Promise.all([flushStatePersistence(), flushAgentViewPersistence()]);
+      const results = await Promise.all([
+        flushStatePersistence(),
+        flushAgentViewPersistence(),
+        flushPendingNoteSaves(),
+      ]);
       const saved = results.every(Boolean);
       const result = await ipcCallResult("window", "closePrepared", { attempt, saved });
-      if (!result.ok) log.warn(`Could not acknowledge layout flush: ${result.message}`);
+      if (!result.ok) log.warn(`Could not acknowledge window flush: ${result.message}`);
     })().catch((error: unknown) => {
-      log.warn(`Could not complete layout flush: ${String(error)}`);
+      log.warn(`Could not complete window flush: ${String(error)}`);
     });
   });
 }

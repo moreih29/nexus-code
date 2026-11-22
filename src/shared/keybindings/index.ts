@@ -184,6 +184,11 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
 
   // Workspace navigation
   { command: COMMANDS.workspaceSymbolSearch, primary: "CmdOrCtrl+Shift+O" },
+  {
+    command: COMMANDS.peerWorkspaceQuickOpen,
+    primary: "CmdOrCtrl+P",
+    when: `peerWorkspaceActive && (${UNLESS_TERMINAL})`,
+  },
   // Cmd+Ctrl is a literal two-modifier combo (see keybinding-parse.ts);
   // intentionally not CmdOrCtrl so Cmd alone (used heavily by Monaco)
   // doesn't accidentally trigger workspace switching.

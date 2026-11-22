@@ -310,7 +310,7 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 	args = append(args, "--")
 	args = append(args, unique...)
 
-	cmd, err := s.command(ctx, args, p.Cwd, nil, false)
+	cmd, err := s.command(ctx, args, p.Cwd, literalPathspecs, false)
 	if err != nil {
 		return nil, err
 	}

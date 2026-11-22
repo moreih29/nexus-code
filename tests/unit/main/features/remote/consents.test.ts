@@ -71,7 +71,7 @@ describe("the consent prompts another device is told", () => {
         change: { kind: "permissionAllow", detail: "Bash" },
       }),
     ]);
-    const listed = await remoteConsents(services, "phone", both, 31_000);
+    const listed = await remoteConsents(services, both, 31_000);
     expect(listed[0]).toEqual({
       id: "c1",
       at: 1000,
@@ -105,25 +105,42 @@ describe("the consent prompts another device is told", () => {
 
   test("a prompt run out says none left, not less than none", async () => {
     const { services } = setup([pendingOf("c1")]);
-    expect((await remoteConsents(services, "phone", both, 90_000))[0]?.expiresInMs).toBe(0);
+    expect((await remoteConsents(services, both, 90_000))[0]?.expiresInMs).toBe(0);
   });
 
-  test("answerable only with the controls it needs, and never by the device whose agent asks", async () => {
+  test("answerable with the controls it needs, the asking agent's device included", async () => {
     const { services } = setup([
       pendingOf("chat"),
       pendingOf("term", { change: { kind: "tabClose", detail: "zsh", terminal: true } }),
       pendingOf("own", { fromDevice: "MacBook", fromDeviceId: "mac" }),
+      pendingOf("own term", {
+        fromDevice: "MacBook",
+        fromDeviceId: "mac",
+        change: { kind: "terminalNew" },
+      }),
+      pendingOf("own long", {
+        fromDevice: "MacBook",
+        fromDeviceId: "mac",
+        change: { kind: "chatInput", body: "x".repeat(MAX_REMOTE_BODY_CHARS + 1) },
+      }),
     ]);
-    const answerable = async (device: string, controls: { chat: boolean; terminal: boolean }) =>
-      (await remoteConsents(services, device, controls)).map((c) => c.answerable);
-    expect(await answerable("phone", both)).toEqual([true, true, true]);
-    expect(await answerable("phone", { chat: true, terminal: false })).toEqual([true, false, true]);
-    expect(await answerable("phone", { chat: false, terminal: true })).toEqual([
+    const answerable = async (controls: { chat: boolean; terminal: boolean }) =>
+      (await remoteConsents(services, controls)).map((c) => c.answerable);
+    expect(await answerable(both)).toEqual([true, true, true, true, false]);
+    expect(await answerable({ chat: true, terminal: false })).toEqual([
+      true,
+      false,
+      true,
+      false,
+      false,
+    ]);
+    expect(await answerable({ chat: false, terminal: true })).toEqual([
+      false,
+      false,
       false,
       false,
       false,
     ]);
-    expect(await answerable("mac", both)).toEqual([true, true, false]);
   });
 
   test("a body too long to tell whole is cut short, and not answerable from there", async () => {
@@ -131,7 +148,7 @@ describe("the consent prompts another device is told", () => {
     const { services } = setup([
       pendingOf("c1", { change: { kind: "chatInput", detail: "Review", body: long } }),
     ]);
-    const [listed] = await remoteConsents(services, "phone", both);
+    const [listed] = await remoteConsents(services, both);
     expect(listed?.change.body).toBe(
       `${"x".repeat(MAX_REMOTE_BODY_CHARS)}\n… (5 more characters: see it whole at the computer)`,
     );
@@ -148,7 +165,7 @@ describe("the consent prompts another device is told", () => {
         throw new Error("asked");
       },
     } as unknown as CliServices;
-    expect(await remoteConsents(services, "phone", both)).toEqual([]);
+    expect(await remoteConsents(services, both)).toEqual([]);
   });
 });
 
@@ -159,6 +176,30 @@ describe("answering one from another device", () => {
     expect(answered).toEqual([{ id: "c1", answer: "session", by: "iPhone" }]);
   });
 
+  test("offers until restart for eligible sandbox prompts and accepts the remote answer", async () => {
+    const sandbox = { kind: "sandboxExecution", terminal: true } as const;
+    const { services, answered } = setup([
+      pendingOf("scope", { change: sandbox }),
+      pendingOf("once", { change: { ...sandbox, eachTime: true } }),
+    ]);
+    expect((await remoteConsents(services, both)).map((c) => c.eachTime)).toEqual([false, true]);
+    await expect(
+      answerConsent(
+        services,
+        phone,
+        { chat: true, terminal: false },
+        { id: "scope", answer: "session" },
+      ),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    await expect(
+      answerConsent(services, phone, both, { id: "once", answer: "session" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(await answerConsent(services, phone, both, { id: "scope", answer: "session" })).toEqual(
+      {},
+    );
+    expect(answered).toEqual([{ id: "scope", answer: "session", by: "iPhone" }]);
+  });
+
   test("one answered or run out since is not found", async () => {
     const { services } = setup([]);
     await expect(
@@ -166,11 +207,26 @@ describe("answering one from another device", () => {
     ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
   });
 
-  test("refused without the controls it needs, or by the asking agent's device", async () => {
+  test("the asking agent's device answers it as any other, the user at it", async () => {
+    const { services, answered } = setup([
+      pendingOf("own", { fromDevice: "MacBook", fromDeviceId: "mac" }),
+    ]);
+    const mac = { id: "mac", name: "MacBook" };
+    expect(await answerConsent(services, mac, both, { id: "own", answer: "once" })).toEqual({});
+    expect(answered).toEqual([{ id: "own", answer: "once", by: "MacBook" }]);
+  });
+
+  test("refused without the controls it needs, the asking agent's device too", async () => {
     const { services, answered } = setup([
       pendingOf("term", { change: { kind: "terminalNew" } }),
       pendingOf("own", { fromDevice: "MacBook", fromDeviceId: "mac" }),
+      pendingOf("own long", {
+        fromDevice: "MacBook",
+        fromDeviceId: "mac",
+        change: { kind: "chatInput", body: "x".repeat(MAX_REMOTE_BODY_CHARS + 1) },
+      }),
     ]);
+    const mac = { id: "mac", name: "MacBook" };
     await expect(
       answerConsent(
         services,
@@ -194,10 +250,16 @@ describe("answering one from another device", () => {
       message: expect.stringContaining("control of the terminals"),
     });
     await expect(
-      answerConsent(services, { id: "mac", name: "MacBook" }, both, { id: "own", answer: "deny" }),
+      answerConsent(services, mac, { chat: false, terminal: true }, { id: "own", answer: "deny" }),
     ).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
-      message: expect.stringContaining("own agent"),
+      message: expect.stringContaining("control of the chats"),
+    });
+    await expect(
+      answerConsent(services, mac, both, { id: "own long", answer: "once" }),
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: expect.stringContaining("too long"),
     });
     expect(answered).toEqual([]);
   });

@@ -8,19 +8,39 @@
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
 import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
 import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
+import { noteLocation } from "../../services/notes/conversation";
+import {
+  createNoteDocumentInbox,
+  createNoteDocumentRevision,
+  type NoteDocumentEvent,
+} from "../../services/notes/document-inbox";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
+import {
+  createNoteAutoSave,
+  type NoteSaveState,
+  registerNoteSave,
+} from "../../services/notes/save";
 import {
   dropTranscript,
   loadTranscript,
   transcriptKey,
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
+import { useNoteSummaries } from "../../services/notes/use-summaries";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -35,31 +55,59 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
+import { NoteAnswerCards } from "./answer-cards";
+import { ConversationChips, NoteCardInsertMenu, NoteConversationLinks } from "./conversation-chips";
+import { applyAnswerCard } from "./editor/answer-card";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
+import { applyLineReport } from "./editor/line-report";
 import { RecordControls } from "./record-controls";
+import { NoteSelectionMenu } from "./selection-menu";
 import { SendToAgent } from "./send-to-agent";
+import { NoteSummaryBanners } from "./summary-banner";
+import { sameSummaryTaskTimes, summaryTaskTimes } from "./summary-task-times";
+import { NoteTaskControls } from "./task-controls";
 import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
-
-const SAVE_DELAY_MS = 500;
+import type { TranscriptJump } from "./transcript-rows";
 
 /** How long after the last key typed in the title the tab takes its name. */
 const TAB_TITLE_DELAY_MS = 150;
-
-type SaveState = "saved" | "saving" | "error";
 
 export function NoteEditor({
   workspaceId,
   tabId,
   noteId,
+  isVisible,
+  loading,
 }: {
   workspaceId: string;
   tabId: string;
   noteId: string;
+  isVisible: boolean;
+  loading: ReactNode;
 }) {
   const { t } = useTranslation("notes");
   const [note, setNote] = useState<NoteContent | null>(null);
   const [missing, setMissing] = useState(false);
+
+  const location = useWorkspacesStore((s) => {
+    const workspace = s.workspaces.find((w) => w.id === workspaceId);
+    return workspace && noteLocation(workspace, s.workspaces);
+  });
+  const inbox = useMemo(
+    () => createNoteDocumentInbox<NoteDocumentEvent>(location, noteId),
+    [location, noteId],
+  );
+  useLayoutEffect(() => {
+    const stopReports = notesApi.onLineReported(inbox.receive);
+    const stopCards = notesApi.onBlocksAdded((event) => {
+      if (event.updatedAt !== undefined) inbox.receive({ ...event, updatedAt: event.updatedAt });
+    });
+    return () => {
+      stopCards();
+      stopReports();
+    };
+  }, [inbox]);
 
   useEffect(() => {
     let alive = true;
@@ -85,30 +133,41 @@ export function NoteEditor({
         </Button>
       </div>
     );
-  if (!note)
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-app-ui-sm text-muted-foreground">
-        {t("editor.loading")}
-      </div>
-    );
-  return <LoadedNote workspaceId={workspaceId} tabId={tabId} note={note} />;
+  if (!note) return loading;
+  return (
+    <NoteConversationLinks note={{ workspaceId, noteId, tabId }} isVisible={isVisible}>
+      <LoadedNote
+        workspaceId={workspaceId}
+        tabId={tabId}
+        note={note}
+        isVisible={isVisible}
+        receiveDocumentEvent={inbox.attach}
+      />
+    </NoteConversationLinks>
+  );
 }
 
 function LoadedNote({
   workspaceId,
   tabId,
   note,
+  isVisible,
+  receiveDocumentEvent,
 }: {
   workspaceId: string;
   tabId: string;
   note: NoteContent;
+  isVisible: boolean;
+  receiveDocumentEvent: (apply: (event: NoteDocumentEvent) => void) => () => void;
 }) {
   const { t } = useTranslation("notes");
   // The title as typed. The input keeps it itself: a key typed there draws
   // nothing else again, not the header, nor the transcript beside it.
   const title = useRef(note.title);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveState, setSaveState] = useState<NoteSaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
+  const summaries = useNoteSummaries(workspaceId, note.id, tabId, isVisible);
+  const [taskTimes, setTaskTimes] = useState(() => summaryTaskTimes(note.doc));
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
 
   // The transcript shows beside the text once the note has recordings, or records.
@@ -122,6 +181,11 @@ function LoadedNote({
   useEffect(() => {
     void loadTranscript(workspaceId, note.id);
   }, [workspaceId, note.id]);
+  const [transcriptJump, setTranscriptJump] = useState<TranscriptJump>();
+  const jumpToTranscript = useCallback((jump: TranscriptJump) => {
+    setTranscriptJump(jump);
+    setTranscriptOpen(true);
+  }, []);
   const showTranscript = transcriptOpen ?? (recordings > 0 || recordingHere);
 
   // A new note starts at its title (and the "New note" button loses focus,
@@ -147,33 +211,17 @@ function LoadedNote({
     };
   }, [nameTab]);
 
-  // Saving: the latest title and document, a moment after the last change.
-  const pending = useRef<{ title?: string; doc?: DocNode }>({});
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flush = useCallback(async () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    const change = pending.current;
-    pending.current = {};
-    if (change.title === undefined && change.doc === undefined) return;
-    setSaveState("saving");
-    try {
-      await notesApi.save(workspaceId, note.id, change);
-      setSaveState("saved");
-    } catch {
-      pending.current = { ...change, ...pending.current };
-      setSaveState("error");
-    }
-  }, [workspaceId, note.id]);
-  const schedule = useCallback(
-    (change: { title?: string; doc?: DocNode }) => {
-      pending.current = { ...pending.current, ...change };
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
-    },
-    [flush],
+  const [documentBase] = useState(() => createNoteDocumentRevision(note.updatedAt));
+  const { schedule, flush, discard } = useMemo(
+    () => createNoteAutoSave((change) => notesApi.save(workspaceId, note.id, change), setSaveState),
+    [workspaceId, note.id],
   );
-  useEffect(() => () => void flush(), [flush]);
+  useEffect(() => {
+    const unregister = registerNoteSave(flush);
+    return () => {
+      void flush().finally(unregister);
+    };
+  }, [flush]);
 
   const urls = useMemo(() => new NoteAssetUrls(workspaceId, note.id), [workspaceId, note.id]);
   useEffect(() => () => urls.dispose(), [urls]);
@@ -302,7 +350,12 @@ function LoadedNote({
       }),
       content: note.doc as never,
       immediatelyRender: true,
-      onUpdate: ({ editor: e }) => schedule({ doc: e.getJSON() as DocNode }),
+      onUpdate: ({ editor: e }) => {
+        const doc = e.getJSON() as DocNode;
+        schedule({ doc, baseUpdatedAt: documentBase.updatedAt });
+        const next = summaryTaskTimes(doc);
+        setTaskTimes((previous) => (sameSummaryTaskTimes(previous, next) ? previous : next));
+      },
       editorProps: {
         attributes: { class: "note-body", "data-testid": "note-body" },
         handlePaste: (_view, event) => {
@@ -327,7 +380,9 @@ function LoadedNote({
         },
         handleClick: (_view, _pos, event) => {
           const a = (event.target as HTMLElement | null)?.closest?.("a");
-          if (!a || !(event.metaKey || event.ctrlKey)) return false;
+          if (!a || !(event.metaKey || event.ctrlKey || a.closest(".note-task-report")))
+            return false;
+          event.preventDefault();
           const href = a.getAttribute("href") ?? "";
           if (href.startsWith("workspace:"))
             host.openWorkspaceFile(href.slice("workspace:".length));
@@ -339,6 +394,18 @@ function LoadedNote({
     [note.id],
   );
   editorRef.current = editor;
+
+  useLayoutEffect(() => {
+    if (!editor) return;
+    return receiveDocumentEvent((event) => {
+      if (editor.isDestroyed) return;
+      documentBase.apply(event.updatedAt, () =>
+        "blocks" in event
+          ? event.blocks.every((card) => applyAnswerCard(editor, card as unknown as DocNode))
+          : applyLineReport(editor, event),
+      );
+    });
+  }, [documentBase, editor, receiveDocumentEvent]);
 
   // A photo from the user's phone: written at the end of the note already;
   // put in this copy too (once), which saves it with what is typed here.
@@ -362,12 +429,17 @@ function LoadedNote({
   // them with what is typed here.
   useEffect(() => {
     return notesApi.onBlocksAdded((event) => {
+      if (event.updatedAt !== undefined) return;
       const e = editorRef.current;
       if (event.noteId !== note.id || !e || e.isDestroyed) return;
       const blocks = event.blocks as unknown as DocNode[];
       const doc = e.getJSON() as DocNode;
+      const origin = blocks[0]?.attrs?.nexusOrigin;
+      if (origin && doc.content?.some((block) => block.attrs?.nexusOrigin === origin)) return;
+      const chain = e.chain();
+      if (origin) chain.setMeta("preventAutolink", true);
       if (isEmptyDoc(doc) && event.under === undefined) {
-        e.chain()
+        chain
           .insertContentAt({ from: 0, to: e.state.doc.content.size }, blocks, {
             updateSelection: false,
           })
@@ -379,7 +451,24 @@ function LoadedNote({
       if (hasBlocksAt(doc, index, blocks)) return;
       let pos = 0;
       for (let i = 0; i < index; i++) pos += e.state.doc.child(i).nodeSize;
-      e.chain().insertContentAt(pos, blocks, { updateSelection: false }).run();
+      chain.insertContentAt(pos, blocks, { updateSelection: false }).run();
+    });
+  }, [note.id]);
+
+  useEffect(() => {
+    return notesApi.onBlocksRemoved((event) => {
+      const e = editorRef.current;
+      if (event.noteId !== note.id || !e || e.isDestroyed) return;
+      const ranges: Array<{ from: number; to: number }> = [];
+      e.state.doc.forEach((block, from) => {
+        if (block.attrs.nexusOrigin === event.origin) {
+          ranges.push({ from, to: from + block.nodeSize });
+        }
+      });
+      if (!ranges.length) return;
+      const tr = e.state.tr;
+      for (const { from, to } of ranges.reverse()) tr.delete(from, to);
+      e.view.dispatch(tr);
     });
   }, [note.id]);
 
@@ -399,8 +488,7 @@ function LoadedNote({
       variant: "destructive",
     });
     if (!ok) return;
-    if (timer.current) clearTimeout(timer.current);
-    pending.current = {};
+    discard();
     dropRecording(workspaceId, note.id);
     await notesApi.remove(workspaceId, note.id);
     dropTranscript(workspaceId, note.id);
@@ -433,8 +521,12 @@ function LoadedNote({
     },
     [editor],
   );
-  const hideTranscript = useCallback(() => setTranscriptOpen(false), []);
+  const hideTranscript = useCallback(() => {
+    setTranscriptOpen(false);
+    setTranscriptJump(undefined);
+  }, []);
 
+  const place = { workspaceId, noteId: note.id, tabId };
   return (
     <div
       className="@container/note flex h-full min-h-0 flex-col bg-[var(--surface-island-bg,transparent)]"
@@ -520,6 +612,7 @@ function LoadedNote({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <NoteCardInsertMenu />
               <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
                 <span className="flex items-center gap-2">
                   <FolderOpen className="size-3.5" aria-hidden="true" />
@@ -536,11 +629,18 @@ function LoadedNote({
           </DropdownMenuRoot>
         </div>
       </div>
+      <ConversationChips />
+      <NoteSummaryBanners
+        workspaceId={workspaceId}
+        noteId={note.id}
+        summaries={summaries}
+        flush={flush}
+      />
       {/* The transcript beside the text where the tab is wide, under it where it is narrow. */}
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
         <div
-          className="note-doc min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4"
+          className="note-doc relative min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4"
           {...{ [DND_FILE_SURFACE_ATTR]: "" }}
           onDragOver={(e) => {
             const types = e.dataTransfer.types;
@@ -553,11 +653,38 @@ function LoadedNote({
           }}
         >
           <EditorContent editor={editor} className="h-full" />
+          {editor && workspace && (
+            <>
+              <NoteAnswerCards editor={editor} />
+              <NoteSelectionMenu
+                editor={editor}
+                workspaceId={workspaceId}
+                cwd={workspace.rootPath}
+                noteId={note.id}
+                title={titleNow}
+                flush={flush}
+              />
+            </>
+          )}
+          {editor && (
+            <NoteTaskControls
+              editor={editor}
+              note={place}
+              title={titleNow}
+              flush={flush}
+              onTranscript={jumpToTranscript}
+              canCreateTasks={workspace !== undefined}
+            />
+          )}
         </div>
         {showTranscript && (
           <TranscriptPanel
             workspaceId={workspaceId}
             noteId={note.id}
+            summaries={summaries}
+            taskTimes={taskTimes}
+            flushNote={flush}
+            jump={transcriptJump}
             onQuote={quote}
             onClose={hideTranscript}
           />

@@ -35,7 +35,7 @@ import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentInstructionsStore } from "./state/stores/agent-instructions";
 import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
-import { useAgentViewStore } from "./state/stores/agent-view";
+import { startAgentViewPeerOrderSync, useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useChatFontStore } from "./state/stores/chat-font";
@@ -46,7 +46,9 @@ import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
+import { useNoteSummarySettings } from "./state/stores/note-summary";
 import { useNotificationsStore } from "./state/stores/notifications";
+import { usePeerWorkspaceStore } from "./state/stores/peer-workspace";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -54,6 +56,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { useWorkspaceSidebarFolds } from "./state/stores/workspace-sidebar-folds";
 import { restoredWorkspace, useWorkspacesStore } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
@@ -152,6 +155,7 @@ async function bootstrapAppState(): Promise<void> {
   initLspStatusSync();
   initPortsSync();
 
+  useWorkspaceSidebarFolds.getState().hydrate(state.workspaceSidebarFoldedPeers ?? []);
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,
@@ -239,6 +243,10 @@ async function bootstrapAppState(): Promise<void> {
 
   // The Claude and Codex profiles, and their rules; another window's edits too.
   useAgentProfilesStore.getState().hydrate(state.agentProfiles);
+  useNoteSummarySettings.setState(state.noteSummary, true);
+  ipcListen("appState", "noteSummaryChanged", (settings) =>
+    useNoteSummarySettings.setState(settings, true),
+  );
   void loadProfilesHome();
   ipcListen("appState", "agentProfilesChanged", ({ config, connectionChangedProfileId }) => {
     useAgentProfilesStore.getState().hydrate(config);
@@ -294,6 +302,7 @@ async function bootstrapAppState(): Promise<void> {
   // keeping those that still exist, and let go of each tab as it closes.
   useAgentViewStore.getState().hydrate(state.agentView, tabExists);
   startAgentViewPruning();
+  startAgentViewPeerOrderSync();
 
   registerStatePersistence();
 
@@ -335,6 +344,13 @@ export async function bootstrapWorkspaces(): Promise<void> {
   if (useActiveStore.getState().activeWorkspaceId !== null) return;
   const currentList = useWorkspacesStore.getState().workspaces;
   const selected = restoredWorkspace(currentList, active.ok ? active.value : null);
+  const peer = usePeerWorkspaceStore.getState();
+  if (peer.active) {
+    if (peer.lastLocalId === null && selected) {
+      usePeerWorkspaceStore.setState({ lastLocalId: selected.id });
+    }
+    return;
+  }
   if (selected) focusWorkspace(selected.id, "preserve");
 }
 

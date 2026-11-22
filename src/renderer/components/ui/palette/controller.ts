@@ -192,8 +192,10 @@ export class PaletteSearchController<TItem extends PaletteItem> {
       if (this.disposed || abortController.signal.aborted) return;
       this.emit({ status: "error", query, items: [], activeIndex: -1, error });
     } finally {
-      if (this.abortController === abortController) this.abortController = null;
-      this.inFlightPromise = null;
+      if (this.abortController === abortController) {
+        this.abortController = null;
+        this.inFlightPromise = null;
+      }
     }
   }
 
@@ -216,6 +218,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
   private abortInFlight(): void {
     this.abortController?.abort();
     this.abortController = null;
+    this.inFlightPromise = null;
   }
 }
 

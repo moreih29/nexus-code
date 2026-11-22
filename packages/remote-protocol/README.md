@@ -14,20 +14,43 @@ Beside them:
 
 - **The account key's bundle** (`account.ts`): the account key locked with the account password, as the server keeps it. See `ACCOUNT_KEYS.md`.
 - **The voice socket** (`voice.ts`): audio to the server, text back while the user speaks.
+- **Push notifications** (`push.ts`, since 0.18.0) let phones register for APNs and computers ask the server to notify them. `/info.push` lists the API version and APNs environments. A computer that sends notifications advertises `push` in its hello. The notification's `nx` data carries the version and kind.
 - **Codex client commands** (`commands.ts`): the slash commands a Codex client runs itself (`CODEX_COMMANDS`: name, aliases, argument hint) and the ones another device may run (`CODEX_REMOTE_COMMANDS`).
 
 Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing. What is sealed is an envelope (`SealedEnvelopeSchema`): the message, the sender's epoch and the receiver's. Each connection to the relay has a random epoch, which devices learn from each other's hellos in three steps. A device takes a message only when it names its epoch now, is addressed to it, and has a seq higher than the last it took from that sender's epoch, so the relay cannot send an old message again or pass one on to another device. `sealed.ts` has the rules. Protocol version 2 (0.7.0) brought these; devices of version 1 open nothing of version 2.
 
+Since schema 0.18.0 the envelope also carries `conn` (`SenderConnectionSchema`): `boot`, random and made once as the sender's room starts, and `n`, its connection count in that run, raised with each new epoch. A device takes nothing of a sender's epoch whose `conn` has the same `boot` as the one it heard last and an `n` no higher (`olderConnection()`). Otherwise a relay that held an older connection's messages and sent them after the newer's would turn the receiver back to the older epoch, and the receiver would drop the newer connection's messages until one of the two connected again. With another `boot` (the sender started again) or no `conn` on either side (a device before 0.18.0), the epochs alone decide, as before. The field is optional and devices before 0.18.0 leave it out when they parse, so the protocol version stays 2.
+
 Schema 0.16.0 adds the `settings.instructions` capability and RPC. An agent can read the ordered instruction layers and combined text for a new chat in a workspace on another device when that device accepts agent requests. The read accepts an optional `profileId`. The capability also advertises support for `layer: "profile"` with a `profileId` in `settings.instructions.set`. Profile writes require fresh approval on the receiving device.
+
+Schema 0.17.0 adds the `profiles.usage` capability and RPC. An agent can read the receiving device's profile names, usage windows, and observation times when that device accepts agent requests. The request can select a workspace host and refresh the snapshot through the provider's CLI.
+
+Schema 0.19.0 adds optional fields only, and no capability. A chat's panel can carry `limitResume`: when the plan's usage limit stopped a subscription's chat, whether and when the serving app goes on in it by itself. A session can carry `limitWait`, the time it goes on. A turn's `retry` can carry `at`, `status` (the HTTP status) and `reason` (rate_limit, overloaded, server, connection, auth or other). Each is left out, not the panel or session, when a device cannot read it.
+
+Schema 0.20.0 requires Zod 4 (`^4.6.6`) as a peer and keeps the 0.19.0 wire format.
+
+Schema 0.20.1 adds optional `status.phaseRevision` and `panel.limitResume.stopAt` fields so remote banner dismissals can distinguish different failures or usage-limit stops with identical copy.
+
+Schema 0.21.0 adds the `sessions.reorder` capability and RPC. Devices serve it alongside `sessions` for requests from people. Send `{ workspaceId, tabIds }` with up to 500 tab IDs. The host puts those tabs in the requested order in the slots they already occupy, skipping unknown and duplicate IDs, and returns `{}`. `sessions.list`, `sessions.watch` and `sessions.update` list each workspace's sessions in its agent sidebar order, followed by any remaining sessions in tab order.
+
+Schema 0.22.0 adds optional `failed: true` to session listings when the last turn ended in error. The session's `state` stays compatible with older readers.
+
+Schema 0.23.0 adds the `sessions.markSeen` capability and RPC. Devices serve it alongside `sessions` for requests from people. Their lists report unread chat and terminal results as `new-result`. Send the result's `since` back as `upTo` with `{ workspaceId, tabId }`, up to 500 entries in a request. Failed turns stay visible. The RPC returns `{ marked }`.
+
+Session listings can include `incompleteWorkspaces` when a workspace's rows are partial or come from an earlier watch snapshot. Clients can wait for a complete listing before reconciling saved read receipts there.
+
+Schema 0.24.0 adds optional `topLevel` to `git.status`, the absolute root from `git rev-parse --show-toplevel` (with forward slashes on Windows). Git file paths remain relative to that root. Readers can discard an invalid `topLevel` and keep the rest of the status.
+
+Schema 0.25.0 adds optional `openedBy` to session listings and watch updates. It identifies the opener by tab and workspace, with a device ID for an opener on another computer. Large lists can omit opener names or the entire opener to fit the message limit. Older readers ignore the field.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
-Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`. They need `zod` 3.25 or later.
+Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.
 
 ## Use and publish
 
 Published as `@nexus-code/remote-protocol`: ES modules with their type
-declarations in `dist`, and `zod` 3.25 or later as a peer. The desktop app
+declarations in `dist`. The desktop app
 imports `src` directly; `npm run build` (run by `prepublishOnly`) makes
 `dist`. Relative imports in `src` end in `.js`, as Node's ES modules need
 them.

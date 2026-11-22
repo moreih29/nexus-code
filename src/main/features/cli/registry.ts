@@ -152,6 +152,14 @@ function withNewline(text: string): string {
   return text === "" || text.endsWith("\n") ? text : `${text}\n`;
 }
 
+function stdoutOf(out: CliOutput, flags: ParsedArgs["flags"]): string {
+  if (flags.jsonl === true) return jsonLines(out);
+  if (flags.json === true) {
+    return `${out.utf8Json ? JSON.stringify(out.json, null, 2) : asciiJson(out.json, 2)}\n`;
+  }
+  return withNewline(out.text);
+}
+
 /** Runs one invocation of the nexus command. Never throws. */
 export async function runCli(commands: readonly CliCommand[], ctx: CliContext): Promise<CliResult> {
   const argv = ctx.invocation.argv;
@@ -174,29 +182,22 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
   }
 
   const { command, rest } = found;
+  let parsed: ParsedArgs | undefined;
   try {
-    const parsed = parseArgs(rest, command.flags ?? {});
+    parsed = parseArgs(rest, command.flags ?? {});
     if (parsed.flags.help === true) return result(commandHelp(command));
     const out = await command.run(ctx, parsed);
-    const stdout =
-      parsed.flags.jsonl === true
-        ? jsonLines(out)
-        : parsed.flags.json === true
-          ? `${out.utf8Json ? JSON.stringify(out.json, null, 2) : asciiJson(out.json, 2)}\n`
-          : withNewline(out.text);
-    return result(stdout, "", out.exitCode ?? 0, out.files);
+    return result(stdoutOf(out, parsed.flags), "", out.exitCode ?? 0, out.files);
   } catch (error) {
     if (error instanceof CliUsageError) {
       return result("", `nexus: ${error.message}\nusage: ${usageLine(command)}\n`, 2);
     }
     if (error instanceof CliError) {
-      const json =
-        error.json !== undefined && (rest.includes("--json") || rest.includes("--jsonl"));
-      return result(
-        json ? `${asciiJson(error.json, 2)}\n` : "",
-        `nexus: ${error.message}\n`,
-        error.exitCode,
-      );
+      const stdout =
+        parsed && error.json !== undefined
+          ? stdoutOf(output("", error.json, { records: [error.json] }), parsed.flags)
+          : "";
+      return result(stdout, `nexus: ${error.message}\n`, error.exitCode);
     }
     log.warn(
       `nexus ${command.path.join(" ")} failed: ${redactLogSecrets(error instanceof Error ? error.message : String(error))}`,

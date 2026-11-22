@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 
 // ---------------------------------------------------------------------------
 // Claude session status enum
@@ -47,7 +51,7 @@ export const StatusEntrySchema = z.object({
    * turn is seen, until the user's next prompt.
    */
   message: z.string().optional(),
-  since: z.number().int().positive(),
+  since: PositiveIntegerSchema,
   /** The last prompt the user submitted in this session (cut to PROMPT_MAX_CHARS). */
   prompt: z.string().optional(),
 });
@@ -85,7 +89,7 @@ export const HookRequestSchema = z.object({
   workspaceId: z.string().min(1),
   tabId: z.string().min(1),
   subcommand: z.string().min(1),
-  payload: z.unknown(),
+  payload: z.unknown().optional(),
   assistantText: z.string().optional(),
   /**
    * What the subagent of a hook's call (its agent_id) wrote so far, the
@@ -128,7 +132,7 @@ export const HookGoneSchema = z.object({
  */
 export const HookResponseSchema = z.object({
   stdout: z.string().optional(),
-  exitCode: z.number().int().optional(),
+  exitCode: IntegerSchema.optional(),
 });
 
 export type HookResponse = z.infer<typeof HookResponseSchema>;

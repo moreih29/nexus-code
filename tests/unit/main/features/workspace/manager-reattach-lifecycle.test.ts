@@ -36,7 +36,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { createAgentReconnectError } = await import(
   "../../../../../src/main/infra/agent/channel/reconnecting-process-channel"
@@ -101,7 +101,7 @@ function makeManager(overrides?: {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-reattach-lc-${Date.now()}-${Math.random()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(
+  const stateService = openTestState(
     path.join(os.tmpdir(), `nexus-reattach-lc-state-${Date.now()}-${Math.random()}.json`),
   );
   const broadcasts: Array<{ channelName: string; event: string; args: unknown }> = [];
@@ -158,6 +158,45 @@ function makeSshMeta(
     name: "test-ssh",
   });
 }
+
+test("first SSH bootstrap preserves metadata edited while connecting", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const platform = { os: "linux", arch: "amd64" } as const;
+  const channel = new StubChannel();
+  channel.resolveChannel();
+  const { manager, broadcasts } = makeManager({
+    sshBootstrap: async () => {
+      started.resolve();
+      await release.promise;
+      return {
+        remoteCommand: "exec agent",
+        remoteHome: "/home/user",
+        remoteBinDir: "/home/user/bin",
+        uploaded: false,
+        platform,
+      };
+    },
+    sshChannelFactory: () => channel as never,
+  });
+
+  try {
+    const meta = makeSshMeta(manager);
+    const connecting = manager.connect(meta.id);
+    await started.promise;
+    manager.update(meta.id, { name: "renamed", pinned: true });
+    release.resolve();
+    await connecting;
+
+    const expected = { name: "renamed", pinned: true, location: { remoteArch: platform } };
+    expect(manager.requireContext(meta.id).getMeta()).toMatchObject(expected);
+    expect(broadcasts.filter(({ event }) => event === "changed").at(-1)?.args).toMatchObject(
+      expected,
+    );
+  } finally {
+    manager.close();
+  }
+});
 
 test("a slow SSH connection cannot replace the most recently selected workspace", async () => {
   const slow = new StubChannel();

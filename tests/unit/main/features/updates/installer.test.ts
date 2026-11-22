@@ -10,7 +10,18 @@ import {
   type UpdateBackend,
 } from "../../../../../src/main/features/updates/installer";
 
-function setup(offered: string | null = "1.2.0", { installAsksForPassword = false } = {}) {
+function setup(
+  offered: string | null = "1.2.0",
+  {
+    installAsksForPassword = false,
+    prepareRestart,
+    quitAndInstall,
+  }: {
+    installAsksForPassword?: boolean;
+    prepareRestart?: () => Promise<void>;
+    quitAndInstall?: UpdateBackend["quitAndInstall"];
+  } = {},
+) {
   const statuses: InstallStatus[] = [];
   const progress: { version: string; progress: DownloadProgress }[] = [];
   let staged: () => void = () => {};
@@ -22,6 +33,7 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
 
   const backend: UpdateBackend = {
     installAsksForPassword,
+    ...(prepareRestart && { prepareRestart }),
     check: async () => {
       calls.check += 1;
       return offered;
@@ -44,6 +56,7 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
     },
     quitAndInstall: () => {
       calls.quitAndInstall += 1;
+      return quitAndInstall?.();
     },
   };
   const installer = createUpdateInstaller({
@@ -84,6 +97,38 @@ describe("createUpdateInstaller", () => {
 
     t.installer.restart();
     expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("waits for open windows to flush before handing off to the updater", async () => {
+    const prepared = Promise.withResolvers<void>();
+    const t = setup("1.2.0", { prepareRestart: () => prepared.promise });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+
+    const restarting = t.installer.restart();
+    await t.installer.restart();
+    expect(t.calls.quitAndInstall).toBe(0);
+    prepared.resolve();
+    await restarting;
+    expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("reports a state flush failure during the asynchronous updater handoff", async () => {
+    const t = setup("1.2.0", {
+      quitAndInstall: async () => {
+        throw new Error("Unable to save app state");
+      },
+    });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+    await t.installer.restart();
+    expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
   });
 
   it("reports the download's progress, then the check Squirrel.Mac runs on it", async () => {

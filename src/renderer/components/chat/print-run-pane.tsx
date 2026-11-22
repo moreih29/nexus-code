@@ -17,6 +17,7 @@ import {
   agentStateColor,
   agentStateLabel,
 } from "../agent-list/agent-status";
+import { BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
 
@@ -112,7 +113,12 @@ export function PrintRunPane({
         </div>
       </header>
       {stopFailed && (
-        <p className="text-app-ui-sm text-muted-foreground">{t("chat.run.stop_failed")}</p>
+        <div className="flex items-center gap-2 text-app-ui-sm text-muted-foreground">
+          <span className="flex-1">{t("chat.run.stop_failed")}</span>
+          <BannerDismissButton
+            dismiss={{ label: t("action.dismiss"), onDismiss: () => setStopFailed(false) }}
+          />
+        </div>
       )}
       <AgentFlow
         agent={run}

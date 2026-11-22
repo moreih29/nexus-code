@@ -71,7 +71,7 @@ func (s *Service) ConflictMarkResolved(ctx context.Context, raw json.RawMessage)
 
 	// Stage the resolved paths.
 	addArgs := append([]string{"add", "--"}, normalized...)
-	_, stderr, code, runErr := s.runWorkflowGit(ctx, p.Cwd, addArgs)
+	_, stderr, code, runErr := s.captureEnv(ctx, p.Cwd, addArgs, literalPathspecs, false)
 	if runErr != nil {
 		return nil, runErr
 	}

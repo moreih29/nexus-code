@@ -80,7 +80,7 @@ export function kindFromEntry(entry: GitStatusEntry): GitDecorationKind | null {
  * Translates one porcelain status letter to a decoration kind.
  * Returns null for space (no change on that side).
  */
-function letterToKind(letter: string): GitDecorationKind | null {
+export function letterToKind(letter: string): GitDecorationKind | null {
   switch (letter) {
     case "M":
     case "T": // type changed — symlink/file/exec bit

@@ -632,7 +632,7 @@
       "cancel": "Cancel",
       "message_placeholder": "What Claude should do instead (optional)",
       "terminal_too": "The terminal's permission prompt can answer it too.",
-      "failed": "Already answered in the terminal or expired."
+      "failed": "The answer could not be delivered. If the request is still open, try again."
     },
     "elapsed": {
       "seconds": "{{count}}s",
@@ -694,6 +694,8 @@
     "turnFailed": "Claude stopped on an error"
   },
   "saveConfirm": {
+    "replaceTitle": "Replace file",
+    "replaceDescription": "“{{path}}” already exists in this workspace. Replace it?",
     "title": "Save changes to “{{filename}}”?",
     "description": "Your changes will be lost if you don't save them.",
     "dont_save": "Don't Save"
@@ -813,22 +815,22 @@
   },
   "updates": {
     "checking": "Checking for updates…",
-    "available": "Version {{version}} is available.",
+    "available": "Version {{version}} available",
     "download": "Download",
     "skipVersion": "Skip this version",
     "install": "Update",
     "downloading": "Downloading version {{version}}…",
     "verifying": "Verifying version {{version}}…",
-    "ready": "Version {{version}} is ready. It installs when the app restarts.",
-    "readyAsksPassword": "Version {{version}} is ready. Restart now and enter your admin password to install it.",
+    "ready": "Version {{version}} ready · Installs when the app restarts",
+    "readyAsksPassword": "Version {{version}} ready · Restart and enter your admin password to install",
     "restart": "Restart Now",
-    "installFailed": "Couldn't install the update. You can download it from the release page.",
+    "installFailed": "Update install failed · Download it from the release page.",
     "openReleasePage": "Open Release Page",
-    "upToDate": "You're on the latest version.",
-    "failed": "Couldn't check for updates.",
-    "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
-    "failedNetwork": "Couldn't check for updates. Check your network connection.",
-    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment.",
+    "upToDate": "Up to date",
+    "failed": "Update check failed",
+    "failedHttp": "Update check failed · HTTP {{status}}",
+    "failedNetwork": "Update check failed · Check your network connection.",
+    "failedRateLimited": "Update check failed · GitHub is limiting requests · Try again in a moment.",
     "button": {
       "available": "Update to {{version}}",
       "downloading": "Downloading update",
@@ -860,6 +862,7 @@
       "from_terminal": "sent from {{agent}} in a terminal",
       "unknown": "Sent by an agent whose tab could not be told",
       "manager": "Sent by the manager",
+      "app": "Sent by NexusCode",
       "closed": "closed",
       "show_tab": "Go to the tab that sent it",
       "more": "Show all",
@@ -1037,6 +1040,16 @@
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "retry_reason": {
+        "rate_limit": "Rate limited",
+        "overloaded": "Server overloaded",
+        "server": "Server error",
+        "connection": "Connection lost",
+        "auth": "Authentication failed",
+        "other": "API error"
+      },
+      "retry_code": "{{reason}} ({{code}})",
+      "retry_in": "in {{seconds}}s",
       "tokens": "↓ {{count}} tokens",
       "agents_one": "{{count}} subagent running",
       "agents_other": "{{count}} subagents running"
@@ -1047,6 +1060,25 @@
       "rejected": "Usage limit reached",
       "rejected_until": "Usage limit reached · resets at {{time}}",
       "dismiss": "Close until the limit resets"
+    },
+    "failure": {
+      "transient": "The work stopped on a temporary API error · {{reason}}",
+      "auth": "The work stopped on a sign-in failure ({{code}}) · Check the sign-in or API key, then send again",
+      "auth_no_code": "The work stopped on a sign-in failure · Check the sign-in or API key, then send again",
+      "request": "The API refused the request ({{code}}) · The same request fails again · Fix the request or shorten the conversation with /compact, then send",
+      "retry": "Try again",
+      "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
+      "dismiss": "Close"
+    },
+    "limit_resume": {
+      "waiting": "Usage limit · Resumes at {{time}}",
+      "unknown": "Usage limit · Reset time unknown · Send a message once the limit resets to resume",
+      "cancelled": "Usage limit · Resets at {{time}} · Auto-resume cancelled",
+      "gave_up": "Usage limit · Checked {{tries}} times without a reset · Auto-resume stopped",
+      "cancel": "Cancel",
+      "now": "Resume now",
+      "prompt": "The usage limit has reset. Please continue from where you left off.",
+      "status": "Waiting for limit · {{time}}"
     },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
@@ -1147,7 +1179,9 @@
       "more_files_other": "and {{count}} more",
       "no_files": "No file changes to undo.",
       "conversation": "Rewind the conversation",
-      "conversation_and_files": "Rewind the conversation and code",
+      "conversation_and_files": "Rewind the conversation and files",
+      "message_unavailable": "This message is no longer in the current conversation.",
+      "files_restored_only": "The files were restored. The conversation could not be rewound. {{error}}",
       "failed": "Couldn't rewind: {{error}}"
     },
     "fork": {
@@ -1237,6 +1271,7 @@
         "no_text": "Nothing written yet",
         "open_run": "Show the run"
       },
+      "conversations_it_made": "Conversations it made",
       "jobs": {
         "title": "Tasks",
         "live": "Live",
@@ -1362,6 +1397,7 @@
       "title": "Earlier conversations",
       "open": "Open in a tab",
       "more": "Show {{count}} more",
+      "resume_queued": "Take back the queued messages before resuming another conversation.",
       "resume_failed": "Couldn’t resume the conversation. {{message}}",
       "show": "Resume a conversation · {{count}}",
       "all_profiles": "All",
@@ -1892,7 +1928,20 @@
       "worktree": "Worktree",
       "new_agent": "New agent in {{name}}",
       "shown": "Shown in a panel",
-      "held": "In a panel, behind another tab"
+      "held": "In a panel, behind another tab",
+      "failed": "Failed",
+      "hidden": "{{count}} hidden",
+      "children": "{{count}} under it",
+      "toggle_children": "Fold or unfold its conversations",
+      "idle_children": "{{count}} idle",
+      "parent": "↳ {{name}}",
+      "parent_hint": "Parent · {{name}}",
+      "closed_parent": "↳ {{name}} · closed",
+      "closed_conversation": "Closed conversation",
+      "remote_parent": "↳ {{device}} · {{name}}",
+      "this_computer": "This computer",
+      "parent_closed_state": "closed",
+      "moved_family": "↳ {{count}} under {{name}}"
     },
     "pane": {
       "close": "Close panel",
@@ -1907,13 +1956,20 @@
       "message": "{{agent}} session ended",
       "agent": "Agent",
       "resume": "Resume",
-      "resume_title": "Types {{line}} in the terminal"
+      "resume_title": "Types {{line}} in the terminal",
+      "resume_manual_title": "Run this command in the terminal to resume."
     },
     "remote": {
       "title": "Other computers",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "needsSignIn": "Sign in to see your other computers here",
+      "connecting": "Connecting…",
+      "reconnecting": "Disconnected · Reconnecting",
+      "noComputers": "No connected computers · Open the app on another device signed in to the same account",
       "loading": "Loading…",
       "unavailable": "No remote response",
-      "empty": "No sessions",
+      "empty": "No conversations",
       "state": {
         "needs-you": "Needs you",
         "running": "Running",
@@ -1921,10 +1977,10 @@
         "idle": "Idle",
         "ended": "Ended"
       },
-      "worktreesShow_one": "Show 1 worktree in {{workspace}}",
-      "worktreesShow_other": "Show {{count}} worktrees in {{workspace}}",
-      "worktreesHide_one": "Hide 1 worktree in {{workspace}}",
-      "worktreesHide_other": "Hide {{count}} worktrees in {{workspace}}",
+      "worktreesShow_one": "Show 1 task in {{workspace}}",
+      "worktreesShow_other": "Show {{count}} tasks in {{workspace}}",
+      "worktreesHide_one": "Hide 1 task in {{workspace}}",
+      "worktreesHide_other": "Hide {{count}} tasks in {{workspace}}",
       "terminalsShow_one": "Show 1 terminal",
       "terminalsShow_other": "Show {{count}} terminals",
       "terminalsHide": "Hide terminals",
@@ -2000,6 +2056,7 @@
       "unavailable": "No voice input on this server.",
       "quota": "This month's voice minutes are used up.",
       "busy": "Voice input is already on in two places. Stop one first.",
+      "rate-limited": "Too many voice requests. Try again in a moment.",
       "network": "Can't reach the server.",
       "outdated": "Update NexusCode to use voice input.",
       "failed": "Voice input didn't start.",
@@ -2013,5 +2070,50 @@
   },
   "remoteNotice": {
     "workspaceAdded": "Workspace added from {{device}}"
+  },
+  "peerWorkspace": {
+    "online": "Online",
+    "listUnavailable": "Workspaces unavailable",
+    "changes_one": "{{count}} change",
+    "changes_other": "{{count}} changes",
+    "readOnly": "Read-only",
+    "selectFile": "Open a file from the tree",
+    "returnLocal": "Return to this computer",
+    "offlineLast": "{{device}} offline · Last viewed content",
+    "disconnectedLast": "Disconnected · Last viewed content",
+    "missingWorkspace": "Workspace missing on that computer",
+    "missingFolder": "Folder not found",
+    "missingFile": "File not found",
+    "accessDenied": "Permission denied",
+    "updateNeeded": "App update needed on that computer",
+    "connectionUnavailable": "Disconnected on that computer",
+    "truncated": "First {{count, number}} entries",
+    "textPrefix": "Partial file · First {{size}} KB",
+    "textPrefixOutsideLine": "Partial file · Line outside the preview",
+    "searchFilters": "Search filters",
+    "searchInclude": "Include filenames or extensions",
+    "searchExclude": "Exclude filenames, extensions, or folders",
+    "searchInvalidFilters": "Invalid filters · Up to 32 comma-separated entries, 256 characters each",
+    "searchTruncated": "Partial results",
+    "quickOpen": "Quick Open on Other Computer",
+    "quickOpenPlaceholder": "File name or path",
+    "quickOpenPrompt": "File name or path on the other computer",
+    "quickOpenEmpty": "No matching files",
+    "gitNoStageCommit": "No staging or commits",
+    "gitUnstaged": "Unstaged Changes",
+    "gitDetached": "Detached HEAD",
+    "gitDivergence": "Ahead {{ahead}} · Behind {{behind}}",
+    "gitTruncated": "Partial file list",
+    "gitNotRepository": "Not a Git repository",
+    "gitChangeMissing": "Change no longer available",
+    "gitDiffLeft": "Left {{path}} ({{ref}})",
+    "gitDiffRight": "Right {{path}} ({{ref}})",
+    "gitPatchOnly": "Full comparison unavailable · Changed sections only",
+    "gitPatchTruncated": "Partial patch",
+    "gitOutsideWorkspace": "Outside workspace",
+    "gitCommitMissing": "Commit unavailable",
+    "gitNoCommits": "No commits",
+    "sessionGone": "Gone",
+    "noSessions": "No sessions"
   }
 }

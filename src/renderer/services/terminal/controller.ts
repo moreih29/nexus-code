@@ -1,5 +1,4 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
 import i18next from "i18next";
@@ -25,8 +24,10 @@ import {
   bufferAnsi,
   bufferScreen,
 } from "./buffer-ansi";
+import { installCursorBlink } from "./cursor-blink";
 import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
+import { requestTerminalReopen } from "./reopen-requests";
 import type {
   PtyClient,
   PtyClientOptions,
@@ -34,6 +35,7 @@ import type {
   TerminalController,
   TerminalControllerOptions,
   TerminalDimensions,
+  TerminalInputCheckpoint,
 } from "./types";
 
 const log = createLogger("terminal");
@@ -146,7 +148,7 @@ interface TerminalLike {
   focus: () => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
-type LigaturesAddonLike = Pick<LigaturesAddon, "dispose">;
+type CreateLigaturesAddon = () => Disposable;
 type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
 
 export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
@@ -338,7 +340,7 @@ export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
   createFitAddon: () => FitAddonLike;
-  createLigaturesAddon: () => LigaturesAddonLike;
+  loadLigaturesAddon: () => Promise<CreateLigaturesAddon>;
   createPtyClient: (options: PtyClientOptions) => PtyClient;
   createResizeObserver: (callback: ResizeObserverCallback) => ResizeObserverLike;
   requestAnimationFrame: (callback: FrameRequestCallback) => number;
@@ -347,7 +349,9 @@ export interface TerminalControllerDeps {
 
 async function waitForTerminalFonts(fontSize: number): Promise<void> {
   try {
-    await Promise.all([
+    // xterm measures cells at open. Wait for the fallback too, even when
+    // the primary face only covers part of a terminal's output.
+    await Promise.allSettled([
       document.fonts.load(`${fontSize}px "JetBrains Mono Nerd Font"`),
       document.fonts.load(`${fontSize}px "Sarasa Term K"`),
       document.fonts.load(`${fontSize}px "D2CodingLigature Nerd Font"`),
@@ -361,7 +365,10 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
   waitForTerminalFonts,
   createTerminal: (options) => new Terminal(options) as unknown as TerminalLike,
   createFitAddon: () => new FitAddon(),
-  createLigaturesAddon: () => new LigaturesAddon(),
+  loadLigaturesAddon: async () => {
+    const { LigaturesAddon } = await import("@xterm/addon-ligatures");
+    return () => new LigaturesAddon();
+  },
   createPtyClient,
   createResizeObserver: (callback) => new ResizeObserver(callback),
   requestAnimationFrame: (callback) => requestAnimationFrame(callback),
@@ -370,6 +377,9 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 
 class XtermTerminalController implements TerminalController {
   private disposed = false;
+  private sandboxSessionId = crypto.randomUUID();
+  /** A held Enter that began on an ended terminal must not type in the new shell. */
+  private reopenEnterHeld = false;
   /** The local shell main started, if it said; a remote terminal has none. */
   private shellPath: string | undefined;
   /** Whether the shell is PowerShell, whose PSReadLine pastes on ^V (see the key handler). */
@@ -381,7 +391,7 @@ class XtermTerminalController implements TerminalController {
   private shellTakesHomeEnd = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
-  private ligaturesAddon: LigaturesAddonLike | null = null;
+  private ligaturesAddon: Disposable | null = null;
   private dataDisposable: Disposable | null = null;
   private selectionDisposable: Disposable | null = null;
   private titleDisposable: Disposable | null = null;
@@ -393,6 +403,7 @@ class XtermTerminalController implements TerminalController {
   /** Whether the program hid the cursor (DECTCEM), as one drawing its own does. */
   private cursorHidden = false;
   private cursorDisposables: Disposable[] = [];
+  private cursorBlink: ReturnType<typeof installCursorBlink> | undefined;
   private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
@@ -413,6 +424,9 @@ class XtermTerminalController implements TerminalController {
   /** Who waits for the program's next output; see nextOutput. */
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
   private readonly outputListeners = new Set<(ended: boolean) => void>();
+  private inputCheckpoint: TerminalInputCheckpoint = { hasInput: false };
+  private readonly inputListeners = new Set<() => void>();
+  private removeInputListeners: (() => void) | undefined;
   /**
    * Its shell has started: printed its prompt and gone quiet, or printed
    * nothing for a while, or was already running; see whenReady.
@@ -514,10 +528,26 @@ class XtermTerminalController implements TerminalController {
     return () => this.outputListeners.delete(listener);
   }
 
+  getInputCheckpoint(): TerminalInputCheckpoint {
+    return this.inputCheckpoint;
+  }
+
+  onInput(listener: () => void): () => void {
+    this.inputListeners.add(listener);
+    return () => this.inputListeners.delete(listener);
+  }
+
+  private noteInput(): void {
+    this.cursorBlink?.reset();
+    this.inputCheckpoint = { hasInput: true };
+    for (const listener of this.inputListeners) listener();
+  }
+
   input(text: string, mode: "paste" | "keys"): boolean {
     const term = this.term;
     const ptyClient = this.ptyClient;
     if (this.disposed || !term || !ptyClient) return false;
+    if (text !== "") this.noteInput();
     if (mode === "paste") term.paste(text);
     else ptyClient.write(text);
     return true;
@@ -576,6 +606,8 @@ class XtermTerminalController implements TerminalController {
     for (const waiter of [...this.outputWaiters]) waiter(false);
     for (const listener of [...this.outputListeners]) listener(true);
     this.outputListeners.clear();
+    this.removeInputListeners?.();
+    this.inputListeners.clear();
 
     if (this.pendingRaf != null) {
       this.deps.cancelAnimationFrame(this.pendingRaf);
@@ -611,6 +643,8 @@ class XtermTerminalController implements TerminalController {
     this.focusReportDisposable = null;
     for (const d of this.cursorDisposables) d.dispose();
     this.cursorDisposables = [];
+    this.cursorBlink?.dispose();
+    this.cursorBlink = undefined;
     if (this.focusReportTimer !== null) {
       clearTimeout(this.focusReportTimer);
       this.focusReportTimer = null;
@@ -632,6 +666,10 @@ class XtermTerminalController implements TerminalController {
     this.term = null;
   }
 
+  get sandboxSession(): string | null {
+    return this.disposed ? null : this.sandboxSessionId;
+  }
+
   async reopen(): Promise<void> {
     if (this.disposed) throw new Error("terminal disposed");
     const term = this.term;
@@ -643,12 +681,14 @@ class XtermTerminalController implements TerminalController {
     // null means the session is already live — treat as a no-op so the caller
     // does not surface a spurious "Reopen failed." message to the user.
     if (result === null) return;
+    this.noteInput();
     this.noteSpawned(result);
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
 
   /** Takes in what main reports about the shell that started. */
   private noteSpawned(result: SpawnedSession): void {
+    this.sandboxSessionId = crypto.randomUUID();
     if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
       this.shellPath = result.shellPath;
@@ -687,19 +727,30 @@ class XtermTerminalController implements TerminalController {
     // ligatures addon to recompute font features against the (possibly
     // changed) font family.
     this.disposeLigatures();
-    this.applyLigatures(term);
+    if (resolvedTerminalFontLigatures()) {
+      void this.loadLigaturesAddon().then((create) => this.applyLigatures(term, create));
+    }
     // Re-fit after font size / family change so column/row counts stay accurate.
     this.runFit();
   }
 
   private async initialize(): Promise<void> {
-    const fontSize = resolvedTerminalFontSize();
-    await this.deps.waitForTerminalFonts(fontSize);
+    const fontsReady = this.deps.waitForTerminalFonts(resolvedTerminalFontSize());
+    let createLigatures: CreateLigaturesAddon | undefined;
+    if (resolvedTerminalFontLigatures()) {
+      [, createLigatures] = await Promise.all([fontsReady, this.loadLigaturesAddon()]);
+    } else {
+      await fontsReady;
+      if (!this.disposed && resolvedTerminalFontLigatures()) {
+        createLigatures = await this.loadLigaturesAddon();
+      }
+    }
     if (this.disposed) return;
 
     const initialThemeId = this.resolveCurrentThemeId();
 
     const term = this.deps.createTerminal({
+      // Keep xterm's blink marker, including when the PTY overrides it.
       cursorBlink: true,
       // allowTransparency lets the translucent theme `background` composite
       // over the macOS window vibrancy (whole-window translucency).
@@ -709,7 +760,7 @@ class XtermTerminalController implements TerminalController {
       // silently never render.
       allowProposedApi: true,
       fontFamily: resolvedTerminalFontFamily(),
-      fontSize,
+      fontSize: resolvedTerminalFontSize(),
       cursorStyle: resolvedTerminalCursorStyle(),
       theme: TERMINAL_PALETTES[initialThemeId],
     });
@@ -732,6 +783,9 @@ class XtermTerminalController implements TerminalController {
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
     term.open(this.options.container);
+    if (term.element && term.textarea) {
+      this.cursorBlink = installCursorBlink(term.element, term.textarea);
+    }
     if (this.focusOnOpen) {
       const wanted = this.focusOnOpen;
       this.focusOnOpen = null;
@@ -739,7 +793,7 @@ class XtermTerminalController implements TerminalController {
     }
     // Ligatures must be applied AFTER open() — the addon hooks the active
     // (DOM) renderer, which only exists once the terminal is attached.
-    this.applyLigatures(term);
+    this.applyLigatures(term, createLigatures);
 
     const initialDimensions = this.fitToContainer() ?? { cols: 80, rows: 24 };
     this.lastDims = initialDimensions;
@@ -779,7 +833,8 @@ class XtermTerminalController implements TerminalController {
     // External file drop → inject escaped path(s) as a paste. Lets CLIs that
     // accept file paths (Claude Code, image tools, etc.) receive dropped files
     // even though the rest of the app gates DnD to its own internal MIME types.
-    this.installFileDrop(term);
+    this.installInputTracking();
+    this.installFileDrop();
     this.installHeldPaste(term);
 
     // OSC 0/1/2 (window title) — xterm.js's internal parser receives the sequence and
@@ -1031,6 +1086,26 @@ class XtermTerminalController implements TerminalController {
       if (event.isComposing && event.keyCode === 91) return false;
       if (event.isComposing || event.keyCode === 229) return true;
 
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.defaultPrevented
+      ) {
+        const { workspaceId, tabId } = this.options;
+        const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+        const ended = tab?.type === "terminal" && Boolean(tab.props.dead);
+        if (!event.repeat) this.reopenEnterHeld = ended;
+        if (ended || this.reopenEnterHeld) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) requestTerminalReopen(workspaceId, tabId);
+          return false;
+        }
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
         const selection = term.getSelection();
         if (selection) {
@@ -1196,6 +1271,26 @@ class XtermTerminalController implements TerminalController {
     if (this.disposed) this.dispose();
   }
 
+  private installInputTracking(): void {
+    const container = this.options.container;
+    if (typeof container.addEventListener !== "function") return;
+    // Track browser input before xterm forwards it. xterm's onData also
+    // emits protocol replies to PTY output, which cannot change a shell draft.
+    const onInput = (): void => this.noteInput();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (["Alt", "AltGraph", "Control", "Meta", "Shift"].includes(event.key)) return;
+      onInput();
+    };
+    container.addEventListener("keydown", onKeyDown, true);
+    container.addEventListener("input", onInput, true);
+    container.addEventListener("paste", onInput, true);
+    this.removeInputListeners = () => {
+      container.removeEventListener("keydown", onKeyDown, true);
+      container.removeEventListener("input", onInput, true);
+      container.removeEventListener("paste", onInput, true);
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // External file drag-and-drop → PTY
   //
@@ -1216,7 +1311,7 @@ class XtermTerminalController implements TerminalController {
   // target (which would parse the Files MIME as our custom payload and fail)
   // and to the document-level guard.
   // ---------------------------------------------------------------------------
-  private installFileDrop(term: TerminalLike): void {
+  private installFileDrop(): void {
     const el = this.options.container;
     // Defensive: the container is always a real HTMLElement in production, but
     // unit tests pass a bare stub. Skip wiring when DOM event APIs are absent.
@@ -1249,7 +1344,7 @@ class XtermTerminalController implements TerminalController {
 
       // No trailing space — paste just the escaped path(s) so Claude Code's
       // image-path detection sees a clean paste unit (matches cmux).
-      term.paste(paths.join(" "));
+      this.input(paths.join(" "), "paste");
     };
 
     el.addEventListener("dragover", onDragOver);
@@ -1421,22 +1516,25 @@ class XtermTerminalController implements TerminalController {
   // Trade-off: the DOM renderer is less performant than Canvas/WebGL on
   // very high-throughput output, accepted for ligatures + translucency.
 
-  /**
-   * Load the ligatures addon when the user has ligatures enabled. No-op when
-   * disabled or already loaded. Must be called after term.open().
-   */
-  private applyLigatures(term: TerminalLike): void {
-    if (this.ligaturesAddon) return;
-    if (!resolvedTerminalFontLigatures()) return;
+  private async loadLigaturesAddon(): Promise<CreateLigaturesAddon | undefined> {
     try {
-      const addon = this.deps.createLigaturesAddon();
-      term.loadAddon(addon as unknown as Disposable);
+      return await this.deps.loadLigaturesAddon();
+    } catch (error) {
+      log.warn(`ligatures addon failed to load: ${errorReason(error)}`);
+    }
+  }
+
+  /** Activate after term.open() and recheck settings after the import. */
+  private applyLigatures(term: TerminalLike, create: CreateLigaturesAddon | undefined): void {
+    if (!create || this.disposed || this.ligaturesAddon || !resolvedTerminalFontLigatures()) return;
+    try {
+      const addon = create();
+      term.loadAddon(addon);
       this.ligaturesAddon = addon;
     } catch (e) {
       // Don't swallow silently — a failed activate (e.g. missing proposed-API
       // flag) is otherwise invisible and looks like "ligatures just don't work".
-      log.warn(`ligatures addon failed to load: ${(e as Error).message}`);
-      this.ligaturesAddon = null;
+      log.warn(`ligatures addon failed to activate: ${errorReason(e)}`);
     }
   }
 

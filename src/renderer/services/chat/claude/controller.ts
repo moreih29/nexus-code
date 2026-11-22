@@ -6,6 +6,7 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
+import i18next from "i18next";
 import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
 import {
   defaultProfileId,
@@ -20,6 +21,7 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import {
   type ChatLine,
@@ -43,13 +45,14 @@ import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
+  cancelQueuedMessage,
   clearObservedQueued,
   dispatchQueuedMessage,
   isChatWriteRejected,
   type QueuedMessage,
 } from "../transport/queue";
 import { addLineReceiver } from "../transport/receivers";
-import { backgroundIdOf } from "./command-data";
+import { backgroundIdOf, sandboxOn } from "./command-data";
 import {
   configUsageOf,
   LISTED_KEYS_STORAGE,
@@ -207,6 +210,7 @@ export interface ChatTabHooks {
   /** The model or effort the user picked, for the tab to keep. */
   onChosen?: (chosen: ChatChosen) => void;
   onPeerWritten?: (id: string) => void;
+  onTurnEnd?: (model: ChatModel) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -345,6 +349,7 @@ export class ChatController {
   /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
+  private sandboxSessionId = crypto.randomUUID();
   /**
    * A name the user gave the tab before its conversation began: the session
    * takes it once it has an id. Until then there is no session to name.
@@ -412,8 +417,28 @@ export class ChatController {
       usageKey: () => this.usageKey(),
       ready: () => this.lineCanAsk() && !this.initPending && this.supports("get_usage"),
       busy: () => this.state.model.running,
-      fetchUsage: () => this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS),
+      fetchUsage: () => this.readPlanUsage(),
     });
+  }
+
+  /** Reads a profile's limits through the stream protocol, without a conversation. */
+  static async probePlanUsage(target: Pick<ChatTabTarget, "workspaceId" | "cwd" | "profileId">) {
+    const tabId = crypto.randomUUID();
+    const controller = new ChatController({ ...target, tabId }, {}, { receiveAgentEvents: true });
+    try {
+      const result = await startChat({ ...target, tabId, usageOnly: true });
+      if (!result.ok) throw new Error(result.message);
+      controller.update((prev) => ({ ...prev, version: result.version }));
+      if (!controller.supports("get_usage")) throw new Error("get_usage needs a newer Claude Code");
+      await controller.request("initialize", { hooks: null });
+      return await controller.readPlanUsage();
+    } finally {
+      await controller.close();
+    }
+  }
+
+  private readPlanUsage(): Promise<Record<string, unknown>> {
+    return this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS);
   }
 
   /** The profile whose plan usage the tab shows: its agent, host and profile. */
@@ -1087,6 +1112,11 @@ export class ChatController {
     return this.sessionId;
   }
 
+  get sandboxSession(): string | null {
+    this.flushNow();
+    return this.disposed || this.changingSession ? null : this.sandboxSessionId;
+  }
+
   /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
   forkPoint(uuid: string, { before }: { before: boolean }): ForkPoint | null {
     const sessionId = this.sessionId ?? this.target.fork?.sessionId;
@@ -1110,8 +1140,21 @@ export class ChatController {
     }
   }
 
+  private rewindHistory(uuid: string): ChatModel {
+    this.flushNow();
+    const all = joinHistory(this.state.history, this.state.model);
+    if (
+      !all.items.some(
+        (item) => item.kind === "user" && item.state === "taken" && item.uuid === uuid,
+      )
+    )
+      throw new Error(i18next.t("chat.rewind.message_unavailable"));
+    return all;
+  }
+
   /** What rewinding the files to before a message would change. */
   async previewRewind(uuid: string): Promise<RewindPreview> {
+    this.rewindHistory(uuid);
     this.forkPoint(uuid, { before: true });
     if (!(await this.ensureRunning())) throw new Error("the program is not running");
     return rewindOf(await this.request("rewind_files", { user_message_id: uuid, dry_run: true }));
@@ -1129,35 +1172,75 @@ export class ChatController {
   ): Promise<void> {
     const uuid = item.uuid;
     if (!uuid) throw new Error("the message has no uuid yet");
-    if (this.state.model.running) throw new Error("a turn is running");
+    const all = this.rewindHistory(uuid);
+    const source = this.sessionId ?? this.target.fork?.sessionId;
+    const clears = this.state.model.clears;
+    const checkTarget = () => {
+      if (
+        (this.sessionId ?? this.target.fork?.sessionId) !== source ||
+        this.state.model.clears !== clears
+      )
+        throw new Error(i18next.t("chat.rewind.message_unavailable"));
+      if (this.state.model.running || this.writingUserMessage) throw new Error("a turn is running");
+    };
+    checkTarget();
     const fork = this.forkPoint(uuid, { before: true }) ?? undefined;
     const incomplete = this.earlierHistoryUnknown;
-    if (files) {
-      if (!(await this.ensureRunning())) throw new Error("the program is not running");
-      const result = rewindOf(await this.request("rewind_files", { user_message_id: uuid }));
-      if (!result.canRewind) throw new Error(result.error ?? "the files were not rewound");
+    if (files && !(await this.ensureRunning())) throw new Error("the program is not running");
+
+    let restoredFiles = false;
+    try {
+      await this.changeSession(
+        async () => {
+          this.sessionId = undefined;
+          this.target = { ...this.target, sessionId: undefined, fork };
+          const kept = modelBefore(all, uuid);
+          this.update((prev) => ({
+            ...prev,
+            history: kept.items.length > 0 ? kept : null,
+            // Keep the old program's final lines out of the replacement log.
+            model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+          }));
+          if (incomplete && fork)
+            await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
+          await this.startChangedSession(this.startArgs());
+          await this.rebuild();
+          if (this.disposed) throw new Error("the tab closed");
+        },
+        checkTarget,
+        files
+          ? async () => {
+              const result = rewindOf(
+                await this.request("rewind_files", { user_message_id: uuid }),
+              );
+              if (!result.canRewind) throw new Error(result.error ?? "the files were not rewound");
+              restoredFiles = true;
+            }
+          : undefined,
+      );
+    } catch (error) {
+      if (restoredFiles) {
+        throw new Error(
+          i18next.t("chat.rewind.files_restored_only", { error: (error as Error).message }),
+          {
+            cause: error,
+          },
+        );
+      }
+      throw error;
     }
-    const all = joinHistory(this.state.history, this.state.model);
-    const { workspaceId, tabId } = this.target;
-    if (this.state.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    const copy = this.target.fork;
+    this.hooks.onTarget?.(
+      copy ? { fork: copy } : this.sessionId ? { sessionId: this.sessionId } : {},
+    );
+    const name = this.pendingName ?? this.ownName;
+    if (this.sessionId && name) void this.renameSession(name).catch(() => {});
+    if (draft) {
+      this.update((prev) => ({
+        ...prev,
+        draft: { text: item.text, images: item.images, nonce: Date.now() },
+      }));
     }
-    this.flushNow();
-    this.resetTranscript();
-    this.sessionId = undefined;
-    this.target = { ...this.target, sessionId: undefined, fork };
-    this.hooks.onTarget?.(fork ? { fork } : {});
-    const kept = modelBefore(all, uuid);
-    this.update((prev) => ({
-      ...prev,
-      history: kept.items.length > 0 ? kept : null,
-      // The old program's last lines stay out of sight until the log starts over.
-      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-      ...(draft ? { draft: { text: item.text, images: item.images, nonce: Date.now() } } : {}),
-    }));
-    if (incomplete && fork)
-      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
-    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }
 
   /**
@@ -1167,23 +1250,26 @@ export class ChatController {
    * and left as it was there.
    */
   async resumeSession(sessionId: string, profileId?: string, emptyOnly = false): Promise<void> {
-    const checkTarget = emptyOnly
-      ? () => {
-          if (profileId !== undefined && !sameProfile(profileId, this.target.profileId))
-            throw new Error("use a tab with the conversation's profile, or resume in a new tab");
-          if (
-            this.target.sessionId ||
-            this.target.fork ||
-            this.state.model.items.some(
-              (item) => item.kind === "user" || item.kind === "assistant",
-            ) ||
-            this.state.queue.length > 0 ||
-            this.transcriptPages
-          )
-            throw new Error("resume --tab requires an empty tab");
-        }
-      : undefined;
-    if (this.state.model.running) throw new Error("a turn is running");
+    const checkTarget = () => {
+      if (this.state.model.running) throw new Error("a turn is running");
+      const same = profileId === undefined || sameProfile(profileId, this.target.profileId);
+      if (emptyOnly) {
+        if (!same)
+          throw new Error("use a tab with the conversation's profile, or resume in a new tab");
+        if (
+          this.target.sessionId ||
+          this.target.fork ||
+          this.state.model.items.some(
+            (item) => item.kind === "user" || item.kind === "assistant",
+          ) ||
+          this.state.queue.length > 0 ||
+          this.transcriptPages
+        )
+          throw new Error("resume --tab requires an empty tab");
+      } else if (this.state.queue.length > 0 && (this.sessionId !== sessionId || !same)) {
+        throw new Error(i18next.t("chat.sessions.resume_queued"));
+      }
+    };
     await this.changeSession(async () => {
       const from =
         profileId !== undefined && !sameProfile(profileId, this.target.profileId)
@@ -1245,6 +1331,7 @@ export class ChatController {
   private async changeSession(
     change: (shown: number) => Promise<void>,
     checkTarget?: () => void,
+    beforeStop?: () => Promise<void>,
   ): Promise<void> {
     if (
       this.disposed ||
@@ -1259,6 +1346,12 @@ export class ChatController {
     try {
       this.flushNow();
       checkTarget?.();
+      if (beforeStop) {
+        await beforeStop();
+        this.flushNow();
+        if (this.disposed) throw new Error("the tab closed");
+        checkTarget?.();
+      }
       const shown = this.state.model.items.length;
       if (this.state.model.process === "running") {
         await stopChatProgram(this.target.workspaceId, this.target.tabId);
@@ -1266,6 +1359,7 @@ export class ChatController {
       this.flushNow();
       if (this.disposed) throw new Error("the tab closed");
       checkTarget?.();
+      this.sandboxSessionId = crypto.randomUUID();
       const source = this.state;
       const transcriptSource = this.transcriptSource;
       const transcriptPages = this.transcriptPages;
@@ -1647,6 +1741,7 @@ export class ChatController {
     device?: string,
     id?: string,
   ): string | undefined {
+    if (this.changingSession) throw new Error("Claude is changing the conversation");
     const item: QueuedMessage = {
       id: id ?? nextRequestId(),
       text,
@@ -1662,7 +1757,7 @@ export class ChatController {
   removeQueued(id: string): QueuedMessage | undefined {
     const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
     if (!item) return undefined;
-    this.update((prev) => ({ ...prev, queue: prev.queue.filter((q) => q.id !== id) }));
+    this.update((prev) => cancelQueuedMessage(prev, id));
     return item;
   }
 
@@ -2047,6 +2142,13 @@ export class ChatController {
   private async settled(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     await this.initializing;
+  }
+
+  /** Reads the current sandbox without starting Claude. */
+  async cliSandbox() {
+    if (this.state.phase !== "ready" || this.state.model.process !== "running") return null;
+    const settings = await this.request("get_settings", {});
+    return { agent: "claude" as const, enabled: sandboxOn(settings) };
   }
 
   /** Asks the program now, starting it for the question. */
@@ -2468,7 +2570,8 @@ export class ChatController {
     if (!line.replay) this.inspectLive(line);
     if (this.live.holds(line)) return;
     this.buffered.push(line);
-    if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
+    if (this.hooks.onTurnEnd && liveClaudeResult(line)) this.flushNow();
+    else if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
   /** What a live line asks of the controller, beyond the model. */
@@ -2538,6 +2641,8 @@ export class ChatController {
       phase: phaseAfter(prev.phase, model),
     }));
     this.afterModel(before, model);
+    if (model.lastResult !== before.lastResult && lines.some(liveClaudeResult))
+      this.hooks.onTurnEnd?.(model);
   }
 
   private afterModel(before: ChatModel, model: ChatModel): void {
@@ -2562,6 +2667,7 @@ export class ChatController {
       // A name the user gave the tab before goes first; the tab's own
       // name names a new session after /clear or another profile.
       const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
+      if (this.sessionId && !this.changingSession) this.sandboxSessionId = crypto.randomUUID();
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       if (!this.changingSession) {
@@ -2571,6 +2677,7 @@ export class ChatController {
     }
     // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {
+      this.sandboxSessionId = crypto.randomUUID();
       this.resetTranscript();
       this.update((prev) =>
         prev.history || prev.card ? { ...prev, history: null, card: undefined } : prev,
@@ -2621,6 +2728,14 @@ function savedProfileConnection(profileId: string | undefined): ProfileConnectio
   return profileOf(useAgentProfilesStore.getState().config, "claude", profileId).connection;
 }
 
+function liveClaudeResult(line: ChatLine): boolean {
+  return (
+    !line.replay &&
+    line.dir === "out" &&
+    (line.message as { type?: string } | undefined)?.type === "result"
+  );
+}
+
 function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabState["phase"] {
   if (model.process === "exited" && (phase === "ready" || phase === "held")) return "ended";
   if (model.process === "running" && (phase === "ended" || phase === "held")) return "ready";
@@ -2639,6 +2754,7 @@ function startChat(
     cwd: string;
     profileId?: string;
     instructions?: string;
+    usageOnly?: boolean;
   },
 ) {
   return ipcCallResult("chat", "start", args).then(unwrapIpcResult);
@@ -2677,12 +2793,16 @@ registerWorkspaceCleanup((workspaceId) => pruned.delete(workspaceId));
 
 /**
  * Removes, once per workspace while the app runs, the attached files the
- * agent still keeps for Claude tabs that closed while the app was away.
+ * agent still keeps for chat tabs that closed while the app was away.
  */
-export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]): void {
+export function pruneAttachmentsOnce(workspaceId: string): void {
   if (pruned.has(workspaceId)) return;
   pruned.add(workspaceId);
-  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds: openTabIds }).catch(
+  const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const keepTabIds = Object.values(tabs)
+    .filter((tab) => tab.type === "claude" || tab.type === "codex")
+    .map((tab) => tab.id);
+  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds }).catch(
     (err: Error) => {
       pruned.delete(workspaceId);
       log.warn(`pruning attachments failed: ${err.message}`);

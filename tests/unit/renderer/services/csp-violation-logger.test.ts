@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import {
   type CspViolation,
   describeViolation,
@@ -32,6 +33,26 @@ function fakeTarget() {
   const fire = (v: CspViolation) => listener?.(v as unknown as Event);
   return { target, fire, listening: () => listener !== null };
 }
+
+test("the renderer enables Zod jitless mode before loading the app", async () => {
+  const entry = new URL("../../../../src/renderer/index.tsx", import.meta.url);
+  const imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(await Bun.file(entry).text());
+  expect(imports[0]?.path).toBe("./zod-config");
+
+  // Use a fresh process so the renderer's Zod config stays local to this test.
+  const result = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `import "./src/renderer/zod-config";
+       import { z } from "zod";
+       if (z.config().jitless !== true) throw new Error("Expected Zod jitless mode");`,
+    ],
+    { cwd: fileURLToPath(new URL("../../../../", import.meta.url)), stderr: "pipe" },
+  );
+  expect(result.stderr.toString()).toBe("");
+  expect(result.exitCode).toBe(0);
+});
 
 describe("describeViolation", () => {
   test("says what was blocked, by which directive, from where", () => {

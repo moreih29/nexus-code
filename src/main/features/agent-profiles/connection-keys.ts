@@ -7,7 +7,7 @@ import {
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import { electronSecretBox, type Kept, keptInMemory, SealedFile } from "../remote/sealed-file";
 
-const KeysSchema = z.record(z.object({ target: z.string(), key: z.string() }));
+const KeysSchema = z.record(z.string(), z.object({ target: z.string(), key: z.string() }));
 type Keys = z.infer<typeof KeysSchema>;
 
 export class ConnectionKeys {

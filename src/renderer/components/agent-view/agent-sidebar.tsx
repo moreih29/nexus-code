@@ -10,37 +10,61 @@
 // restarts.
 
 import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
-import { type DragEvent, type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useStableHandlers } from "@/hooks/use-stable-handlers";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
-import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
+import type { AgentSession, SessionFamily } from "@/services/agent-sessions/model";
+import { compareStatusTime, type RowGroup } from "@/services/agent-sessions/rows";
 import {
-  groupOf,
-  listed,
-  matchesQuery,
-  ROW_GROUPS,
-  type RowGroup,
-  sessionsIn,
-} from "@/services/agent-sessions/rows";
+  type SessionCounts,
+  type SessionTreeNode,
+  searchSessionTree,
+  sessionTree,
+  treeSessions,
+} from "@/services/agent-sessions/session-tree";
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
+import { useSessionParent } from "@/services/agent-sessions/use-session-parent";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey } from "@/services/agent-view/layout";
-import { moveKey, orderSessions } from "@/services/agent-view/order";
+import { orderSessions, reorderSubset } from "@/services/agent-view/order";
+import type { RemoteResults } from "@/services/agent-view/remote-results";
 import { showInAgentView } from "@/services/agent-view/show";
+import {
+  moveSessionRoot,
+  type SidebarWorktree,
+  statusTrees,
+  workspaceTrees,
+} from "@/services/agent-view/sidebar-tree";
 import { useAgents } from "@/services/agent-view/use-agents";
+import { remoteDisplayName } from "@/services/remote/display-name";
+import { peerServes } from "@/services/remote/room";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
-import { beginDragInFlight } from "@/utils/drag-in-flight";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
-import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-status";
+import {
+  FailureLabel,
+  HiddenSessionCount,
+  StateGlyph,
+  stateLabel,
+  useDurationLabel,
+} from "../agent-list/session-status";
+import {
+  FamilyFold,
+  FoldChevron,
+  SessionTreeBranch,
+  StateSummary,
+  useParentCaption,
+  visibleParentName,
+} from "../agent-list/session-tree-rows";
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
@@ -55,22 +79,33 @@ import { SystemStatsFooter } from "../workbench/system-stats";
 import { WorkspaceMenuContent } from "../workbench/workspace-menu";
 import { WorkspaceNameInput } from "../workbench/workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
-import { listDrag, setAgentDrag, setListDrag } from "./drag";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
-import { RemoteSessions } from "./remote-sessions";
-
-type DropEdge = "before" | "after";
-
-/** Moves the agent `moved` to just before or after `target`, among its workspace's. */
-type Reorder = (moved: string, target: string, edge: DropEdge) => void;
+import { PeerConsentCard, useConsentIsPending } from "./remote-consents";
+import { RemoteSessionBranch } from "./remote-session-branch";
+import {
+  agentRunsOf,
+  listedByDefault,
+  OpenRemoteSessionRow,
+  RemoteSessions,
+  type RemoteStatusSource,
+  type StatusRow,
+  statusGroups,
+} from "./remote-sessions";
+import {
+  endSessionDrag,
+  hoverWorkspaceReorder,
+  leaveWorkspaceReorder,
+  type SessionReorder,
+  startSessionDrag,
+  useSessionDrop,
+  useSessionReordering,
+} from "./session-drop";
+import { SidebarDropIndicator } from "./sidebar-drop";
 
 const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
 
-/** The groups a workspace's header counts: the ones that ask for a look. */
-const SUMMED: readonly RowGroup[] = ["attention", "running", "done"];
-
 // Memo: kept while hidden, it would render again with each of the app's.
-export const AgentSidebar = memo(function AgentSidebar() {
+export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boolean }) {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
@@ -138,16 +173,29 @@ export const AgentSidebar = memo(function AgentSidebar() {
           className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3"
           onKeyDown={(event) => stepRows(event, searchRef.current)}
         >
-          {agents.families.length === 0 ? (
-            <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
-              {t("sidebar.no_workspaces")}
-            </p>
-          ) : grouping === "status" ? (
-            <StatusGroups agents={agents} activity={activity} query={query} />
-          ) : (
-            <WorkspaceGroups agents={agents} activity={activity} query={query} />
-          )}
-          <RemoteSessions query={query} />
+          {grouping === "workspace" &&
+            (agents.families.length === 0 ? (
+              <NoWorkspaces />
+            ) : (
+              <WorkspaceGroups agents={agents} activity={activity} query={query} />
+            ))}
+          <RemoteSessions
+            query={query}
+            shown={shown}
+            renderStatus={
+              grouping === "status"
+                ? (remote, results) => (
+                    <StatusGroups
+                      agents={agents}
+                      activity={activity}
+                      query={query}
+                      remote={remote}
+                      results={results}
+                    />
+                  )
+                : undefined
+            }
+          />
         </div>
         <SystemStatsFooter />
       </div>
@@ -157,7 +205,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
 });
 
 /** Moves the focus from one agent's row to the next or previous one in the list, as shown. */
-function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
+export function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
   const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
   if (!keys.includes(event.key)) return;
   const here = event.target as HTMLElement;
@@ -180,7 +228,7 @@ function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | nu
  * The search box's keys for the list under it: ↓ goes to the first agent
  * it lists, and Enter, with a query, opens that agent.
  */
-function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
+export function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
   if (event.key !== "ArrowDown" && event.key !== "Enter") return;
   const first = list?.querySelector<HTMLElement>("[data-agent-row]");
   if (!first) return;
@@ -211,27 +259,92 @@ function NoMatch() {
   );
 }
 
+function NoWorkspaces() {
+  const { t } = useTranslation();
+  return (
+    <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
+      {t("sidebar.no_workspaces")}
+    </p>
+  );
+}
+
 /**
  * Every agent by its state, the agent list's groups in its order: those
  * waiting on the user longest first, the latest first in the others. A row
  * tells the workspace it runs in; one with none shows as a dim line, so the
  * groups keep their places.
  */
-function StatusGroups({ agents, activity, query }: GroupsProps) {
+export function StatusGroups({
+  agents,
+  activity,
+  query,
+  remote,
+  results,
+}: GroupsProps & { remote: readonly RemoteStatusSource[]; results: RemoteResults }) {
   const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
-  const sessions = useMemo(
-    () => [...agents.byKey.values()].map((entry) => entry.session),
+  const order = useAgentViewStore((s) => s.order);
+  const pending = useConsentIsPending();
+  const tree = useMemo(
+    () => sessionTree([...agents.byKey.values()].map((entry) => entry.session)),
     [agents],
   );
   const searching = query.trim() !== "";
-  const groups = ROW_GROUPS.map((group) => ({ group, rows: sessionsIn(sessions, group, query) }));
-  if (searching && groups.every(({ rows }) => rows.length === 0)) return <NoMatch />;
+  const local = useMemo(() => statusTrees(searchSessionTree(tree, query)), [tree, query]);
+  const { groups: remoteGroups, consents } = statusGroups([], remote, query, pending);
+  const groups = remoteGroups.map(({ group, rows: remoteRows }) => {
+    const key = `status:${group}`;
+    const rows: (LocalStatusTree | Extract<StatusRow, { kind: "remote" }>)[] = [
+      ...local[group].map(
+        (node): LocalStatusTree => ({ kind: "local", node, key: node.session.key }),
+      ),
+      ...remoteRows.filter((row) => row.kind === "remote"),
+    ];
+    const since = (row: (typeof rows)[number]) => row.node.since;
+    rows.sort((a, b) => compareStatusTime(group, since(a), since(b)));
+    const localRows = rows.filter((row) => row.kind === "local");
+    const ordered = orderSessions(localRows, order[key]);
+    return {
+      group,
+      key,
+      rows:
+        ordered === localRows
+          ? rows
+          : reorderSubset(
+              rows,
+              ordered.map((row) => row.key),
+              (row) => row.node.session.key,
+            ),
+    };
+  });
+  const { reorder } = useStableHandlers<{ reorder: SessionReorder }>({
+    reorder(moved, target, edge) {
+      const group = groups.find(({ rows }) =>
+        rows.some((row) => row.kind === "local" && row.key === target),
+      );
+      if (!group) return;
+      const keys = group.rows.filter((row) => row.kind === "local").map((row) => row.key);
+      useAgentViewStore
+        .getState()
+        .setOrder(group.key, moveSessionRoot(keys, keys, moved, target, edge));
+    },
+  });
+  if (
+    agents.families.length === 0 &&
+    tree.length === 0 &&
+    consents.length === 0 &&
+    !remote.some(({ list }) => list.sessions.some(listedByDefault))
+  )
+    return <NoWorkspaces />;
+  if (searching && !consents.length && groups.every(({ rows }) => rows.length === 0))
+    return <NoMatch />;
   return (
     <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
-      {groups.map(({ group, rows }) => {
+      {groups.map(({ group, key, rows }) => {
         const label = t(`agentList.group.${group}`);
-        if (rows.length === 0) {
+        const cards = group === "attention" ? consents : [];
+        const count = rows.length + cards.length;
+        if (count === 0) {
           // A search tells only what it found.
           if (searching) return null;
           return (
@@ -244,7 +357,6 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
             </section>
           );
         }
-        const key = `status:${group}`;
         // A search shows what it found, in folded groups too.
         const isFolded = !searching && folded.has(key);
         return (
@@ -266,7 +378,7 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
               >
                 <StateGlyph state={GROUP_STATE[group]} />
                 <span>{label}</span>
-                <span className="tabular-nums">{rows.length}</span>
+                <span className="tabular-nums">{count}</span>
                 {isFolded ? (
                   <ChevronRight aria-hidden className="size-3.5" />
                 ) : (
@@ -275,22 +387,95 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
               </button>
               {group === "done" && (
                 <MarkAllRead
-                  items={rows.flatMap((session) => {
-                    const entry = agents.byKey.get(session.key);
-                    return entry ? [{ workspace: entry.workspace, session }] : [];
-                  })}
+                  onMark={() => {
+                    const local: InboxItem[] = [];
+                    const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
+                    for (const row of rows) {
+                      if (row.kind === "remote") {
+                        for (const member of treeSessions([row.node])) {
+                          const session = row.byKey.get(member.key);
+                          if (session)
+                            remote.push({
+                              deviceId: row.peer.id,
+                              session,
+                              hostReceipts: peerServes(row.peer, "sessions.markSeen"),
+                            });
+                        }
+                      } else {
+                        for (const session of treeSessions([row.node])) {
+                          const entry = agents.byKey.get(session.key);
+                          if (entry) local.push({ workspace: entry.workspace, session });
+                        }
+                      }
+                    }
+                    markRead(local);
+                    results.markSeen(remote);
+                  }}
                 />
               )}
             </div>
+            {!isFolded && cards.length > 0 && (
+              <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
+                {cards.map(({ consent, source: { peer, list }, workspace }) => (
+                  <PeerConsentCard
+                    key={JSON.stringify([peer.id, consent.id])}
+                    consent={consent}
+                    deviceId={peer.id}
+                    device={remoteDisplayName(peer.name)}
+                    workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
+                    sessions={list.sessions}
+                  />
+                ))}
+              </div>
+            )}
             {!isFolded &&
-              rows.map((session) => (
-                <AgentItem
-                  key={session.key}
-                  session={session}
-                  run={activity.get(session.key)}
-                  where={agents.byKey.get(session.key)}
-                />
-              ))}
+              rows.map((row) => {
+                return row.kind === "local" ? (
+                  <SessionBranch
+                    key={row.key}
+                    node={row.node}
+                    rootWorkspaceId={row.node.session.workspaceId}
+                    agents={agents}
+                    activity={activity}
+                    folded={folded}
+                    searching={searching}
+                    group={group}
+                    dragScope={key}
+                    onReorder={!searching && local[group].length > 1 ? reorder : undefined}
+                  />
+                ) : (
+                  <RemoteSessionBranch
+                    key={row.node.session.key}
+                    root={row.node}
+                    folded={folded}
+                    searching={searching}
+                    groupIdle
+                    navigation={row.navigation}
+                    workspaceOf={(id) => row.workspaces.get(id)}
+                    renderRow={(node) => {
+                      const session = row.byKey.get(node.session.key);
+                      if (!session) return null;
+                      return (
+                        <>
+                          <OpenRemoteSessionRow
+                            session={session}
+                            peer={row.peer}
+                            workspace={row.workspaces.get(session.workspaceId)}
+                            resultFeed={results}
+                            sectionGroup={group}
+                            showContext
+                          />
+                          <AgentRows
+                            agents={agentRunsOf(session.agents)}
+                            selectedId={undefined}
+                            className="pl-4"
+                          />
+                        </>
+                      );
+                    }}
+                  />
+                );
+              })}
           </section>
         );
       })}
@@ -298,51 +483,62 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
   );
 }
 
+type LocalStatusTree = { kind: "local"; key: string; node: SessionTreeNode };
+
 /** Marks every new result of the group read, as the inbox's "Mark new results read" does. */
-function MarkAllRead({ items }: { items: readonly InboxItem[] }) {
+function MarkAllRead({ onMark }: { onMark: () => void }) {
   const { t } = useTranslation();
   return (
-    <IconButton
-      label={t("inbox.mark_read")}
-      onClick={() => markRead(items)}
-      data-testid="agent-sidebar-mark-read"
-    >
+    <IconButton label={t("inbox.mark_read")} onClick={onMark} data-testid="agent-sidebar-mark-read">
       <CheckCheck aria-hidden className="size-3.5" />
     </IconButton>
   );
 }
 
 /** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
-function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
+export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
-
-  const reorder: Reorder = (moved, target, edge) => {
-    const workspaceId = parseSessionKey(target)?.workspaceId;
-    const worktree = agents.families
-      .flatMap((family) => family.worktrees)
-      .find((each) => each.workspace.id === workspaceId);
-    if (!worktree || !workspaceId) return;
-    const keys = orderSessions(worktree.sessions, order[workspaceId]).map((each) => each.key);
-    useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
-  };
+  const reordering = useSessionReordering();
 
   const searching = query.trim() !== "";
-  const groups = agents.families
-    .map((family) => ({
-      family,
-      worktrees: family.worktrees
-        .map((worktree) => ({
-          worktree,
-          sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
-            (session) => listed(session) && matchesQuery(session, query),
-          ),
-        }))
-        // A task shows with agents to list; the workspace itself does, for its + to start
-        // one, unless a search found none of its agents.
-        .filter(({ worktree, sessions }) => sessions.length > 0 || (worktree.isRoot && !searching)),
-    }))
-    .filter(({ worktrees }) => worktrees.length > 0);
+  const tree = useMemo(
+    () =>
+      sessionTree(
+        agents.families.flatMap((family) =>
+          family.worktrees.flatMap((worktree) => worktree.sessions),
+        ),
+      ),
+    [agents.families],
+  );
+  const roots = useMemo(() => searchSessionTree(tree, query), [tree, query]);
+  const groups = useMemo(
+    () => workspaceTrees(agents.families, roots, order, searching),
+    [agents.families, roots, order, searching],
+  );
+  const { reorder } = useStableHandlers<{ reorder: SessionReorder }>({
+    reorder(moved, target, edge) {
+      const workspaceId = parseSessionKey(target)?.workspaceId;
+      const placed = groups
+        .flatMap(({ worktrees }) => worktrees)
+        .find(({ worktree }) => worktree.workspace.id === workspaceId);
+      if (!placed || !workspaceId) return;
+      const view = useAgentViewStore.getState();
+      const keys = orderSessions(placed.worktree.sessions, view.order[workspaceId]).map(
+        (each) => each.key,
+      );
+      view.setOrder(
+        workspaceId,
+        moveSessionRoot(
+          keys,
+          placed.roots.map(({ session }) => session.key),
+          moved,
+          target,
+          edge,
+        ),
+      );
+    },
+  });
   if (groups.length === 0) return <NoMatch />;
 
   return groups.map(({ family, worktrees }) => {
@@ -352,59 +548,54 @@ function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
         key={family.root.id}
         family={family}
         worktrees={worktrees}
-        // A search shows what it found, in folded workspaces too.
         folded={!searching && folded.has(key)}
+        folds={folded}
+        searching={searching}
+        agents={agents}
+        reordering={reordering?.workspaceId}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
-        onReorder={reorder}
+        onReorder={searching ? undefined : reorder}
       />
     );
   });
-}
-
-/** How many of a workspace's agents wait on the user, run, or have a new result, the ones there are. */
-function StateSummary({ sessions }: { sessions: readonly AgentSession[] }) {
-  const { t } = useTranslation();
-  const counts = SUMMED.map((group) => ({
-    group,
-    count: sessions.filter((session) => groupOf(session) === group).length,
-  })).filter(({ count }) => count > 0);
-  if (counts.length === 0) return null;
-  return (
-    <span className="flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
-      {counts.map(({ group, count }) => (
-        <span
-          key={group}
-          className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-          title={`${t(`agentList.group.${group}`)} ${count}`}
-          data-testid="agent-sidebar-summary"
-        >
-          <StateGlyph state={GROUP_STATE[group]} />
-          {count}
-        </span>
-      ))}
-    </span>
-  );
 }
 
 function FamilyGroup({
   family,
   worktrees,
   folded,
+  folds,
+  searching,
+  agents,
+  reordering,
   onToggle,
   activity,
   onReorder,
 }: {
   family: SessionFamily;
-  worktrees: readonly { worktree: WorktreeEntry; sessions: readonly AgentSession[] }[];
+  worktrees: readonly SidebarWorktree[];
   folded: boolean;
+  folds: ReadonlySet<string>;
+  searching: boolean;
+  agents: Agents;
+  reordering?: string;
   onToggle: () => void;
   activity: ActivityByKey;
-  onReorder: Reorder;
+  onReorder?: SessionReorder;
 }) {
   const { t } = useTranslation();
   const root = family.root;
-  const all = worktrees.flatMap(({ sessions }) => sessions);
+  const counts = { attention: 0, running: 0, done: 0, idle: 0 };
+  let hidden = 0;
+  for (const { worktree, roots } of worktrees) {
+    for (const node of roots) {
+      if (folded && worktree.workspace.id !== reordering && node.group === "idle")
+        hidden += node.count + 1;
+    }
+    for (const session of treeSessions(roots)) counts[session.phase]++;
+  }
+  const rootFolded = folded && root.id !== reordering;
   const update = useWorkspaceUpdate(root);
   const handoff = useContextMenuHandoff();
   const rename = useWorkspaceRename(root, update);
@@ -414,15 +605,20 @@ function FamilyGroup({
       // A space between workspaces, so each one's agents read as its own.
       className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
+      onDragLeave={(event) => leaveWorkspaceReorder(event)}
     >
       <ContextMenuRoot>
         <ContextMenuTrigger>
-          <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: hovering during a native row drag reveals its drop targets */}
+          <div
+            className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]"
+            onDragOver={onReorder ? (event) => hoverWorkspaceReorder(event, root.id) : undefined}
+          >
             {/* While renaming, the name is a field and the fold button gives way to a plain row,
                 so a click in the field never folds the group. */}
             {rename.renaming ? (
               <div className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch">
-                <FoldChevron folded={folded} />
+                <FoldChevron folded={rootFolded} />
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full"
@@ -436,11 +632,11 @@ function FamilyGroup({
             ) : (
               <button
                 type="button"
-                aria-expanded={!folded}
+                aria-expanded={!rootFolded}
                 onClick={onToggle}
                 className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <FoldChevron folded={folded} />
+                <FoldChevron folded={rootFolded} />
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full"
@@ -451,7 +647,8 @@ function FamilyGroup({
                 </span>
                 <WhereLabel workspace={root} />
                 <span className="flex-1" />
-                <StateSummary sessions={all} />
+                {hidden > 0 && <HiddenSessionCount count={hidden} />}
+                <StateSummary counts={counts} />
               </button>
             )}
             {!rename.renaming && <NewAgentMenu workspace={root} />}
@@ -465,14 +662,27 @@ function FamilyGroup({
           onColor={(color) => update({ color })}
         />
       </ContextMenuRoot>
-      {!folded &&
-        worktrees.map(({ worktree, sessions }) => (
+      {worktrees.map(({ worktree, roots, moved }) => {
+        const foldedHere = folded && reordering !== worktree.workspace.id;
+        const visible = foldedHere ? roots.filter((node) => node.group !== "idle") : roots;
+        if (foldedHere && visible.length === 0 && moved.length === 0) return null;
+        return (
+          // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
           <div
             key={worktree.workspace.id}
+            onDragLeave={(event) => leaveWorkspaceReorder(event, undefined, worktree.workspace.id)}
             className={cn("flex flex-col", !worktree.isRoot && "ml-3")}
           >
             {!worktree.isRoot && (
-              <div className="flex h-6 min-w-0 items-center gap-1.5 pr-1 pl-2 text-app-micro text-muted-foreground">
+              // biome-ignore lint/a11y/noStaticElementInteractions: hovering during a native row drag reveals its drop targets
+              <div
+                className="flex h-6 min-w-0 items-center gap-1.5 pr-1 pl-2 text-app-micro text-muted-foreground"
+                onDragOver={
+                  onReorder && roots.length > 1
+                    ? (event) => hoverWorkspaceReorder(event, worktree.workspace.id)
+                    : undefined
+                }
+              >
                 <GitBranch aria-hidden className="size-3 shrink-0" />
                 <span className="min-w-0 truncate">
                   {worktree.branch ?? worktree.workspace.name}
@@ -484,28 +694,104 @@ function FamilyGroup({
                 <NewAgentMenu workspace={worktree.workspace} />
               </div>
             )}
-            {sessions.map((session) => (
-              <AgentItem
-                key={session.key}
-                session={session}
-                run={activity.get(session.key)}
-                onReorder={onReorder}
+            {moved.map(({ key, title, count }) => (
+              <span
+                key={key}
+                className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
+                title={t("agentView.list.moved_family", { name: title, count })}
+                data-testid="agent-sidebar-moved"
+              >
+                {t("agentView.list.moved_family", { name: title, count })}
+              </span>
+            ))}
+            {visible.map((node) => (
+              <SessionBranch
+                key={node.session.key}
+                node={node}
+                rootWorkspaceId={worktree.workspace.id}
+                agents={agents}
+                activity={activity}
+                folded={folds}
+                searching={searching}
+                onReorder={roots.length > 1 ? onReorder : undefined}
               />
             ))}
-            {worktree.isRoot && sessions.length === 0 && (
+            {worktree.isRoot && roots.length === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
               </p>
             )}
           </div>
-        ))}
+        );
+      })}
     </section>
   );
 }
 
-function FoldChevron({ folded }: { folded: boolean }) {
-  const Icon = folded ? ChevronRight : ChevronDown;
-  return <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
+interface SessionBranchProps {
+  node: SessionTreeNode;
+  rootWorkspaceId: string;
+  agents: Agents;
+  activity: ActivityByKey;
+  folded: ReadonlySet<string>;
+  searching: boolean;
+  group?: RowGroup;
+  dragScope?: string;
+  onReorder?: SessionReorder;
+}
+
+function SessionBranch({
+  node,
+  rootWorkspaceId,
+  agents,
+  activity,
+  folded,
+  searching,
+  group,
+  dragScope,
+  onReorder,
+}: SessionBranchProps) {
+  const { session } = node;
+  const scope = dragScope ?? session.workspaceId;
+  const { edge, dropProps } = useSessionDrop({ key: session.key, workspaceId: scope }, onReorder);
+  const content = (
+    <SessionTreeBranch
+      node={node}
+      folded={folded}
+      searching={searching}
+      groupIdle={group !== undefined}
+      testPrefix="agent-sidebar"
+      renderRow={(branchNode, collapsed) => {
+        const current = branchNode.session;
+        const placed = agents.byKey.get(current.key);
+        return (
+          <AgentItem
+            session={current}
+            run={activity.get(current.key)}
+            where={group !== undefined ? placed : undefined}
+            group={group}
+            dragScope={branchNode.depth === 0 ? scope : current.workspaceId}
+            draggable={branchNode.depth === 0}
+            branch={
+              current.workspaceId !== rootWorkspaceId ? placed?.workspace.task?.branch : undefined
+            }
+            parentName={visibleParentName(branchNode)}
+            parentClosed={branchNode.parentClosed}
+            familyCount={branchNode.count}
+            collapsed={collapsed}
+            counts={collapsed ? branchNode.counts : undefined}
+          />
+        );
+      }}
+    />
+  );
+  if (!onReorder) return content;
+  return (
+    <div className="relative" {...dropProps}>
+      <SidebarDropIndicator edge={edge} />
+      {content}
+    </div>
+  );
 }
 
 /** Where a remote workspace runs, with how its connection stands. */
@@ -568,19 +854,6 @@ const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: Work
 });
 
 /**
- * Where a row takes an agent dragged over it: before or after it, by the
- * half the pointer is in; null for one it cannot take, of another
- * workspace or itself.
- */
-function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge | null {
-  const moved = listDrag();
-  if (!moved || moved === session.key) return null;
-  if (parseSessionKey(moved)?.workspaceId !== session.workspaceId) return null;
-  const rect = e.currentTarget.getBoundingClientRect();
-  return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-}
-
-/**
  * Memoized, and reads its own conversation's facts (use-row-facts): a
  * chunk of a reply streaming in, here or in another tab, renders no row
  * whose facts it leaves as they were.
@@ -588,16 +861,31 @@ function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge 
 const AgentItem = memo(function AgentItem({
   session,
   run,
-  onReorder,
   where: placed,
+  group,
+  dragScope,
+  draggable,
+  branch,
+  parentName,
+  parentClosed,
+  familyCount,
+  collapsed,
+  counts,
 }: {
   session: AgentSession;
   /** What its hooks report, when they do. */
   run: SessionActivity | undefined;
-  /** Its place among its workspace's agents, dragged; none where the list is by state. */
-  onReorder?: Reorder;
-  /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
+  /** The workspace shown in the status list. */
   where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
+  group?: RowGroup;
+  dragScope: string;
+  draggable: boolean;
+  branch?: string;
+  parentName?: string;
+  parentClosed?: true;
+  familyCount: number;
+  collapsed: boolean;
+  counts?: SessionCounts;
 }) {
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
@@ -605,9 +893,11 @@ const AgentItem = memo(function AgentItem({
   const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
-  const [dropEdge, setDropEdge] = useState<DropEdge | null>(null);
+  const { open } = useSessionParent(parentClosed ? session.parent : undefined);
+  const closed = parentClosed && !open;
+  const parent = useParentCaption(open?.title || parentName, session.parent?.device, closed);
+  const preview = <RowLine session={session} facts={facts} />;
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a drop target for the row's own drag; the keyboard reaches its button
     <div
       className={cn(
         "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
@@ -621,51 +911,21 @@ const AgentItem = memo(function AgentItem({
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
-      onDragOver={(e) => {
-        const edge = onReorder ? dropEdgeOf(e, session) : null;
-        if (!edge) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        if (edge !== dropEdge) setDropEdge(edge);
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropEdge(null);
-      }}
-      onDrop={(e) => {
-        const moved = listDrag();
-        const edge = onReorder ? dropEdgeOf(e, session) : null;
-        setDropEdge(null);
-        if (!moved || !edge || !onReorder) return;
-        e.preventDefault();
-        onReorder(moved, key, edge);
-      }}
       data-testid="agent-sidebar-item"
       data-session-key={key}
     >
-      {dropEdge && (
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-[var(--state-selected-indicator)]",
-            dropEdge === "before" ? "-top-px" : "-bottom-px",
-          )}
-          data-testid="agent-sidebar-drop"
-        />
-      )}
       {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
-        draggable
+        draggable={draggable}
         aria-label={session.title}
         onClick={show}
         data-agent-row=""
-        onDragStart={(e) => {
-          setAgentDrag(e.dataTransfer, key);
-          setListDrag(key);
-          beginDragInFlight();
-        }}
-        onDragEnd={() => setListDrag(null)}
+        onDragStart={
+          draggable ? (e) => startSessionDrag(e, { key, workspaceId: dragScope }) : undefined
+        }
+        onDragEnd={draggable ? endSessionDrag : undefined}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-0.5">
@@ -677,7 +937,7 @@ const AgentItem = memo(function AgentItem({
           {/* Its state at a glance, the glyph its filter has (running, waiting
               on the user, done, or idle), and for how long. */}
           <span className="flex shrink-0 items-center gap-1">
-            {!placed && (
+            {group !== session.phase && session.state !== "error" && (
               <span
                 role="img"
                 aria-label={stateLabel(session)}
@@ -688,11 +948,12 @@ const AgentItem = memo(function AgentItem({
                 <StateGlyph state={session.state} />
               </span>
             )}
+            {session.state === "error" && <FailureLabel />}
             {duration && (
               <span
                 className={cn(
                   "text-app-micro whitespace-nowrap tabular-nums",
-                  session.phase === "attention"
+                  session.phase === "attention" && session.state !== "error"
                     ? "text-(--state-warning-fg)"
                     : "text-muted-foreground",
                 )}
@@ -704,8 +965,50 @@ const AgentItem = memo(function AgentItem({
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
-          {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
-          <RowLine session={session} facts={facts} />
+          {branch ? (
+            <span
+              className="inline-flex max-w-[45%] min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-muted-foreground"
+              title={branch}
+              data-testid="agent-sidebar-branch"
+            >
+              <GitBranch aria-hidden className="size-3 shrink-0" />
+              <span className="truncate">{branch}</span>
+            </span>
+          ) : (
+            placed && (
+              <WorkspaceTag
+                workspace={placed.workspace}
+                root={placed.root}
+                compact={familyCount > 0 || parent !== undefined}
+              />
+            )
+          )}
+          {parent ? (
+            <div className="flex min-w-0 grow basis-1/2 items-center gap-1.5 overflow-hidden">
+              <span
+                className={cn(
+                  "max-w-[60%] shrink-0 truncate text-muted-foreground",
+                  closed && "opacity-70",
+                )}
+                title={parent.hint}
+                data-testid="agent-sidebar-parent"
+              >
+                {parent.label}
+              </span>
+              {preview}
+            </div>
+          ) : (
+            preview
+          )}
+          {familyCount > 0 && (
+            <FamilyFold
+              session={session}
+              count={familyCount}
+              collapsed={collapsed}
+              testPrefix="agent-sidebar"
+            />
+          )}
+          {counts && <StateSummary counts={counts} compact />}
         </div>
         {session.kind !== "terminal" && (
           <GoalRowLine workspaceId={session.workspaceId} tabId={session.tabId} />
@@ -722,10 +1025,21 @@ const AgentItem = memo(function AgentItem({
 });
 
 /** The workspace an agent runs in, by its color and name, where the list is by state. */
-function WorkspaceTag({ workspace, root }: { workspace: WorkspaceMeta; root: WorkspaceMeta }) {
+function WorkspaceTag({
+  workspace,
+  root,
+  compact = false,
+}: {
+  workspace: WorkspaceMeta;
+  root: WorkspaceMeta;
+  compact?: boolean;
+}) {
   return (
     <span
-      className="flex max-w-[45%] shrink-0 items-center gap-1 text-muted-foreground"
+      className={cn(
+        "flex max-w-[45%] items-center gap-1 text-muted-foreground",
+        compact ? "min-w-0" : "shrink-0",
+      )}
       title={workspace.id === root.id ? root.name : `${root.name} · ${workspace.name}`}
       data-testid="agent-sidebar-workspace"
     >

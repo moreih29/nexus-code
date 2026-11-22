@@ -9,6 +9,7 @@
 import type { TFunction } from "i18next";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { resources, SUPPORTED_LANGUAGES } from "../../../shared/i18n";
 import { useEditorFontStore } from "../../state/stores/editor-font";
 import { useIconThemeStore } from "../../state/stores/icon-theme";
 import { useInactivePanelDimStore } from "../../state/stores/inactive-panel-dim";
@@ -21,6 +22,24 @@ import { PROFILE_KEYWORDS, type SettingsNavItem } from "./types";
 /** The pages that show a dot when one of their values changed. */
 export type DirtyPage = "appearance" | "editor" | "terminal";
 
+type NavKey = keyof (typeof resources)["en"]["settings"]["nav"];
+
+/**
+ * A page's name in every language the app speaks, so a search finds the page
+ * by its Korean or English name whichever language the dialog shows.
+ */
+function names(key: NavKey): string[] {
+  return SUPPORTED_LANGUAGES.map((lng) => resources[lng].settings.nav[key]);
+}
+
+/** Whether a page's name or one of the words it is found by holds `q` (lower case). */
+export function navMatches(item: SettingsNavItem, q: string): boolean {
+  return (
+    item.label.toLowerCase().includes(q) ||
+    (item.keywords ?? []).some((k) => k.toLowerCase().includes(q))
+  );
+}
+
 /** Every page of the dialog, `dirty` telling which show the dot. */
 export function settingsNav(
   t: TFunction<"settings">,
@@ -30,13 +49,44 @@ export function settingsNav(
     {
       id: "appearance",
       label: t("nav.appearance"),
-      keywords: ["theme", "opacity", "language", "dim", "inactive", "panel", "언어", "흐림"],
+      keywords: [
+        ...names("appearance"),
+        "theme",
+        "opacity",
+        "language",
+        "dim",
+        "inactive",
+        "panel",
+        "icon",
+        "window",
+        "언어",
+        "흐림",
+        "테마",
+        "불투명도",
+        "투명",
+        "패널",
+        "아이콘",
+        "창",
+      ],
       dirty: dirty.appearance,
     },
     {
       id: "editor",
       label: t("nav.editor"),
-      keywords: ["font", "size", "family", "ligatures", "line height"],
+      keywords: [
+        ...names("editor"),
+        "font",
+        "size",
+        "family",
+        "ligatures",
+        "line height",
+        "preview",
+        "글꼴",
+        "크기",
+        "합자",
+        "줄 간격",
+        "미리보기",
+      ],
       dirty: dirty.editor,
     },
     {
@@ -44,6 +94,7 @@ export function settingsNav(
       label: t("nav.languageServers"),
       parent: "editor",
       keywords: [
+        ...names("languageServers"),
         "lsp",
         "language server",
         "completion",
@@ -62,33 +113,99 @@ export function settingsNav(
     {
       id: "terminal",
       label: t("nav.terminal"),
-      keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
+      keywords: [
+        ...names("terminal"),
+        "font",
+        "size",
+        "cursor",
+        "family",
+        "ligatures",
+        "shell",
+        "agent",
+        "셸",
+        "글꼴",
+        "크기",
+        "커서",
+        "합자",
+        "기본 에이전트",
+      ],
       dirty: dirty.terminal,
     },
     {
       id: "notifications",
       label: t("nav.notifications"),
-      keywords: ["alert", "desktop", "os", "notification", "claude"],
+      keywords: [
+        ...names("notifications"),
+        "alert",
+        "desktop",
+        "os",
+        "usage",
+        "limit",
+        "claude",
+        "데스크톱",
+        "사용량",
+        "한도",
+      ],
     },
     {
       id: "notes",
       label: t("nav.notes"),
-      keywords: ["notes", "storage", "disk", "노트", "저장 공간", "용량"],
+      keywords: [
+        ...names("notes"),
+        "storage",
+        "disk",
+        "recording",
+        "summary",
+        "summaries",
+        "voice",
+        "voiceprint",
+        "저장 공간",
+        "용량",
+        "녹음",
+        "요약",
+        "음성",
+        "목소리",
+      ],
     },
     {
       id: "browser-permissions",
       label: t("nav.browserPermissions"),
-      keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
+      keywords: [
+        ...names("browserPermissions"),
+        "browser",
+        "permission",
+        "camera",
+        "microphone",
+        "location",
+        "clipboard",
+        "screen share",
+        "브라우저",
+        "권한",
+        "카메라",
+        "마이크",
+        "위치",
+        "클립보드",
+        "화면 공유",
+      ],
     },
     {
       id: "keybindings",
       label: t("nav.keybindings"),
-      keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
+      keywords: [
+        ...names("keybindings"),
+        "keyboard",
+        "shortcut",
+        "keybinding",
+        "hotkey",
+        "단축키",
+        "키보드",
+      ],
     },
     {
       id: "agent",
       label: t("nav.agent"),
       keywords: [
+        ...names("agent"),
         "nexus",
         "cli",
         "agent",
@@ -97,47 +214,97 @@ export function settingsNav(
         "task",
         "chat",
         "font",
+        "usage",
+        "limit",
         "에이전트",
         "작업",
         "채팅",
         "글꼴",
+        "사용량",
+        "한도",
       ],
     },
-    { id: "claude", label: t("nav.claude"), parent: "agent", keywords: PROFILE_KEYWORDS },
-    { id: "codex", label: t("nav.codex"), parent: "agent", keywords: PROFILE_KEYWORDS },
+    {
+      id: "claude",
+      label: t("nav.claude"),
+      parent: "agent",
+      keywords: [...names("claude"), ...PROFILE_KEYWORDS],
+    },
+    {
+      id: "codex",
+      label: t("nav.codex"),
+      parent: "agent",
+      keywords: [...names("codex"), ...PROFILE_KEYWORDS],
+    },
     {
       id: "instructions",
       label: t("nav.instructions"),
       parent: "agent",
-      keywords: ["instructions", "prompt", "rules", "지시", "프롬프트", "규칙"],
+      keywords: [
+        ...names("instructions"),
+        "instructions",
+        "prompt",
+        "rules",
+        "지시",
+        "프롬프트",
+        "규칙",
+      ],
     },
     {
       id: "profile-rules",
       label: t("nav.profileRules"),
       parent: "agent",
-      keywords: [...PROFILE_KEYWORDS, "workspace", "ssh", "rule", "워크스페이스", "규칙"],
+      keywords: [
+        ...names("profileRules"),
+        ...PROFILE_KEYWORDS,
+        "workspace",
+        "ssh",
+        "rule",
+        "워크스페이스",
+        "규칙",
+      ],
     },
     {
       id: "remote",
       label: t("nav.remote"),
       keywords: [
+        ...names("remote"),
         "remote",
         "account",
         "google",
         "sign in",
         "device",
         "nexuscode",
+        "password",
+        "voice",
+        "dictation",
+        "control",
         "원격",
         "계정",
         "로그인",
         "기기",
+        "암호",
+        "음성",
+        "받아쓰기",
+        "조작",
       ],
     },
     {
       id: "about",
       label: t("nav.about"),
       footer: true,
-      keywords: ["version", "update", "info"],
+      keywords: [
+        ...names("about"),
+        "version",
+        "update",
+        "info",
+        "logs",
+        "release notes",
+        "버전",
+        "업데이트",
+        "로그",
+        "릴리스 노트",
+      ],
     },
   ];
 }

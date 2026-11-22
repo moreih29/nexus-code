@@ -16,6 +16,11 @@
  * Pure: no IO here.
  */
 import { z } from "zod";
+import {
+  NonnegativeNumberSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { nextVoiceKey, voicePerson } from "./voices";
 
 export const TRANSCRIPT_VERSION = 1;
@@ -29,7 +34,7 @@ export const TAKE_FILE_RE = /^recordings\/r[0-9a-z]{6,12}[0-9a-f]{4}-\d{1,3}\.(w
 export const ParticipantCountSchema = z.union([
   z.literal("auto"),
   z.literal("7+"),
-  z.number().int().positive(),
+  PositiveIntegerSchema,
 ]);
 export type ParticipantCount = z.infer<typeof ParticipantCountSchema>;
 
@@ -38,8 +43,8 @@ export const PARTICIPANT_OPTIONS = ["auto", 2, 3, 4, 5, 6, "7+"] as const;
 /** One stretch of one voice's words. Times are from the recording's start, in ms. */
 export const TranscriptLineSchema = z.object({
   speaker: z.string().min(1).max(40),
-  startMs: z.number().nonnegative(),
-  endMs: z.number().nonnegative(),
+  startMs: NonnegativeNumberSchema,
+  endMs: NonnegativeNumberSchema,
   text: z.string(),
   /** The user moved the line to its voice: it stays there. */
   pinned: z.boolean().optional(),
@@ -54,9 +59,9 @@ export const TranscriptTakeSchema = z.object({
   /** recordings/<recording id>-<n>.webm */
   file: z.string().regex(TAKE_FILE_RE),
   /** Where the take starts in the recording. */
-  offsetMs: z.number().nonnegative(),
+  offsetMs: NonnegativeNumberSchema,
   /** Its length, as the server counted it once it was done. */
-  seconds: z.number().nonnegative(),
+  seconds: NonnegativeNumberSchema,
   /** The session's `done` (or `error`) `transcribeToken`, until it is used. */
   token: z.string().optional(),
   /** The second pass on the server, while it is under way. */
@@ -68,7 +73,7 @@ export type TranscriptTake = z.infer<typeof TranscriptTakeSchema>;
 export const TranscriptRecordingSchema = z.object({
   id: z.string().regex(RECORDING_ID_RE),
   /** Epoch ms. */
-  startedAt: z.number(),
+  startedAt: NumberSchema,
   /** The language listened for. */
   language: z.string(),
   takes: z.array(TranscriptTakeSchema),
@@ -89,6 +94,14 @@ export const TranscriptRecordingSchema = z.object({
   speakerNumbers: z.record(z.string(), z.string()).optional(),
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
+
+/** One recording changed against the version the editor last read or saved. */
+export const TranscriptEditSchema = z.object({
+  id: z.string().regex(RECORDING_ID_RE),
+  before: TranscriptRecordingSchema.optional(),
+  after: TranscriptRecordingSchema.optional(),
+});
+export type TranscriptEdit = z.infer<typeof TranscriptEditSchema>;
 
 export const TranscriptFileSchema = z.object({
   version: z.literal(TRANSCRIPT_VERSION),
@@ -241,12 +254,14 @@ export function withSecondPass(
 ): TranscriptRecording {
   const t = recording.takes[take];
   if (!t) return recording;
+  const words = segments.filter((segment) => segment.text.trim());
+  if (!words.length) return recording;
   const until = recording.takes[take + 1]?.offsetMs ?? Number.POSITIVE_INFINITY;
   const inTake = (l: TranscriptLine) => l.startMs >= t.offsetMs && l.startMs < until;
   const old = recording.lines.filter(inTake);
   const rest = recording.lines.filter((l) => !inTake(l));
   if (recording.voicePrint) {
-    return numberSpeakers(withSecondPassByVoice(recording, t, old, rest, segments));
+    return numberSpeakers(withSecondPassByVoice(recording, t, old, rest, words));
   }
 
   const pinned = old.filter((l) => l.pinned);
@@ -256,7 +271,7 @@ export function withSecondPass(
     ...Object.keys(recording.speakers),
     ...recording.lines.map((l) => l.speaker),
   ]);
-  for (const s of segments) taken.add(speakerKey(take, s.speaker));
+  for (const s of words) taken.add(speakerKey(take, s.speaker));
   const byLabel = new Map<string, string>();
   const keyOfLabel = (label: string) => {
     const original = speakerKey(take, label);
@@ -268,20 +283,18 @@ export function withSecondPass(
     byLabel.set(label, key);
     return key;
   };
-  const fresh = segments
-    .filter((s) => s.text.trim())
-    .map((s): TranscriptLine => {
-      const startMs = t.offsetMs + s.startMs;
-      const endMs = t.offsetMs + s.endMs;
-      const manual = greatestOverlap(overlapBySpeaker(pinned, startMs, endMs));
-      return {
-        speaker: manual ?? keyOfLabel(s.speaker),
-        startMs,
-        endMs,
-        text: s.text.trim(),
-        ...(manual ? { pinned: true } : {}),
-      };
-    });
+  const fresh = words.map((s): TranscriptLine => {
+    const startMs = t.offsetMs + s.startMs;
+    const endMs = t.offsetMs + s.endMs;
+    const manual = pinnedSpeaker(overlapBySpeaker(pinned, startMs, endMs), endMs - startMs);
+    return {
+      speaker: manual ?? keyOfLabel(s.speaker),
+      startMs,
+      endMs,
+      text: s.text.trim(),
+      ...(manual ? { pinned: true } : {}),
+    };
+  });
   const carried = carryNames(
     old,
     recording.speakers,
@@ -331,34 +344,32 @@ function withSecondPassByVoice(
     }
     return key;
   };
-  const fresh = segments
-    .filter((s) => s.text.trim())
-    .map((s): TranscriptLine => {
-      const startMs = take.offsetMs + s.startMs;
-      const endMs = take.offsetMs + s.endMs;
-      const shared = new Map<string, number>();
-      const pinned = new Map<string, number>();
-      let near: TranscriptLine | null = null;
-      for (const l of old) {
-        const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
-        if (ms > 0) {
-          shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
-          if (l.pinned) pinned.set(l.speaker, (pinned.get(l.speaker) ?? 0) + ms);
-        }
-        const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
-        if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
-          near = l;
+  const fresh = segments.map((s): TranscriptLine => {
+    const startMs = take.offsetMs + s.startMs;
+    const endMs = take.offsetMs + s.endMs;
+    const shared = new Map<string, number>();
+    const pinned = new Map<string, number>();
+    let near: TranscriptLine | null = null;
+    for (const l of old) {
+      const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
+      if (ms > 0) {
+        shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
+        if (l.pinned) pinned.set(l.speaker, (pinned.get(l.speaker) ?? 0) + ms);
       }
-      const speaker =
-        greatestOverlap(pinned.size ? pinned : shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
-      return {
-        speaker,
-        startMs,
-        endMs,
-        text: s.text.trim(),
-        ...(pinned.size ? { pinned: true } : {}),
-      };
-    });
+      const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
+      if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
+        near = l;
+    }
+    const manual = pinnedSpeaker(pinned, endMs - startMs);
+    const speaker = manual ?? greatestOverlap(shared) ?? near?.speaker ?? keyOfLabel(s.speaker);
+    return {
+      speaker,
+      startMs,
+      endMs,
+      text: s.text.trim(),
+      ...(manual ? { pinned: true } : {}),
+    };
+  });
   return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
 }
 
@@ -373,6 +384,15 @@ function overlapBySpeaker(
     if (ms > 0) shared.set(line.speaker, (shared.get(line.speaker) ?? 0) + ms);
   }
   return shared;
+}
+
+/** Preserve manual assignments across shifted boundaries without pinning incidental overlap. */
+function pinnedSpeaker(
+  shared: ReadonlyMap<string, number>,
+  durationMs: number,
+): string | undefined {
+  const speaker = greatestOverlap(shared);
+  return speaker && (shared.get(speaker) ?? 0) >= durationMs / 4 ? speaker : undefined;
 }
 
 function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefined {

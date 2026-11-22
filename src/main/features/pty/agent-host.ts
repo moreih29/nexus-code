@@ -813,8 +813,9 @@ class AgentPtyHostHandle implements PtyHostHandle {
       // still, but no answer of it says so: one a tab reopens is attached
       // to, not killed.
       for (const tabId of held) {
-        if (this.sessions.has(sessionKey(workspaceId, tabId)))
-          this.emitExit(workspaceId, tabId, null);
+        if (!this.sessions.has(sessionKey(workspaceId, tabId))) continue;
+        this.emit("expired", { workspaceId, tabId });
+        this.emitExit(workspaceId, tabId, null);
       }
       return;
     }

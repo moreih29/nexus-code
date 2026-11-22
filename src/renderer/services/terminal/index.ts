@@ -1,5 +1,4 @@
 export { closeTerminalWithConfirm } from "./close-confirm";
-export { createTerminalController } from "./controller";
 export { closeTerminal, findTerminalTab, openTerminal } from "./open-terminal";
 export { queueStartupInput } from "./pty-client";
 export { requestTerminalReopen, subscribeTerminalReopenRequest } from "./reopen-requests";

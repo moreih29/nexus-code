@@ -25,12 +25,14 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/fs"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -185,12 +187,16 @@ func (h *Host) WriteFrame(frame any) error {
 	if err != nil {
 		return err
 	}
+	return h.writeLine(data)
+}
+
+func (h *Host) writeLine(data []byte) error {
 	h.outMu.Lock()
 	defer h.outMu.Unlock()
 	if h.outClosed {
 		return errOutputClosed
 	}
-	_, err = h.out.Write(data)
+	_, err := h.out.Write(data)
 	return err
 }
 
@@ -381,26 +387,34 @@ func dropCR(line []byte) []byte {
 	return line
 }
 
-// requestIDAtStart matches the id of a request line whose first key is "id",
-// which is how the client serializes every request ({id, method, params}).
-// Anchoring keeps an "id" inside params from being mistaken for it.
-var requestIDAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+// requestHead matches the leading id and optional method of the client
+// envelope ({id, method, params}). Anchoring excludes fields inside params.
+var requestHead = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"(?:\s*,\s*"method"\s*:\s*"((?:[^"\\]|\\.)*)")?`)
 
 // rejectOversizedLine answers a request line that exceeded maxLineBytes
 // with a protocol error when its id can be read from the line's head, so the
 // caller fails fast instead of waiting for its timeout; otherwise it is only
 // logged. The connection keeps serving either way.
 func (h *Host) rejectOversizedLine(head []byte) {
-	id := ""
-	if match := requestIDAtStart.FindSubmatch(head); match != nil {
-		if unquoted, err := strconv.Unquote(`"` + string(match[1]) + `"`); err == nil {
-			id = unquoted
-		}
+	var id, method string
+	if match := requestHead.FindSubmatch(head); match != nil {
+		id, _ = strconv.Unquote(`"` + string(match[1]) + `"`)
+		method = string(match[2])
 	}
 	h.logger.Warn("discarded inbound line over size limit", "limitBytes", maxLineBytes, "id", id)
 	if id != "" {
-		_ = h.WriteFrame(proto.ProtocolFailure(id, fmt.Sprintf("request exceeds the %d MiB line limit", maxLineBytes>>20)))
+		message := fmt.Sprintf("Request exceeds the %d MiB line limit.", maxLineBytes>>20)
+		if method == "fs.writeFile" {
+			_ = h.WriteFrame(oversizedFileFrame(id, message))
+		} else {
+			_ = h.WriteFrame(proto.ProtocolFailure(id, message))
+		}
 	}
+}
+
+func oversizedFileFrame(id, message string) proto.Response {
+	err := fs.FSError{Code: fs.CodeTransferTooLarge, Path: message}
+	return proto.Failure(id, err.Code, err.Error())
 }
 
 // StartHeartbeat 는 interval마다 "agent.heartbeat" 이벤트를 emit하는 goroutine을
@@ -555,7 +569,21 @@ func (h *Host) handleRequest(line []byte, req proto.Request, err error) {
 		return
 	}
 
-	_ = h.WriteFrame(h.dispatcher.Dispatch(h.ctx, req))
+	response := h.dispatcher.Dispatch(h.ctx, req)
+	data, err := proto.MarshalFrame(response)
+	if err != nil {
+		return
+	}
+	if len(data)-1 > maxLineBytes {
+		message := fmt.Sprintf("Response exceeds the %d MiB line limit.", maxLineBytes>>20)
+		if strings.HasPrefix(req.Method, "fs.") {
+			_ = h.WriteFrame(oversizedFileFrame(req.ID, message))
+		} else {
+			_ = h.WriteFrame(proto.Failure(req.ID, proto.CodeRequestFailed, message))
+		}
+		return
+	}
+	_ = h.writeLine(data)
 }
 
 // Dispatch admits four full desktop reconnect queues or two maximum frames.
@@ -597,7 +625,7 @@ func (h *Host) beginRequest(method string, size int) (release func(), accepting 
 	}
 	usage, countLimit, byteLimit := &h.regular, maxDispatchRequests, maxDispatchBytes
 	switch method {
-	case "pty.ack", "search.cancel", "git.cancel", "lsp.cancel", "chat.stop", "lsp.shutdown", "fs.upload.abort":
+	case "pty.ack", "search.cancel", "git.cancel", "lsp.cancel", "chat.stop", "chat.cancelRun", "lsp.shutdown", "fs.upload.abort":
 		usage, countLimit, byteLimit = &h.control, maxControlRequests, maxControlBytes
 	}
 	if usage.requests >= countLimit || size > byteLimit-usage.bytes {

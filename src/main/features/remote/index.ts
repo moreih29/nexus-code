@@ -15,11 +15,12 @@ import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
-import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
+import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
+import { showAppWindow } from "../window/app-windows";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
@@ -33,12 +34,16 @@ import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
+import { dropPeerHolds } from "./peer-holds";
+import { PEER_READ_METHODS, peerReadCalls } from "./peer-read-calls";
+import { PhonePush, type PhonePushActivity } from "./phone-push";
 import { RelayConnection } from "./relay-connection";
+import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { servesWith, serveWith } from "./serve";
-import { remoteProxy, remoteServer } from "./server";
+import { remoteServer, remoteWays } from "./server";
 import { snapshotSessions } from "./serving/sessions";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
@@ -171,6 +176,11 @@ export async function registerRemoteChannel(options: {
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
   /** Whether agents on the user's other computers may act here: ask (the default), allow or deny. */
   agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
+  phonePush: {
+    get(): PhonePushPolicy;
+    set(policy: PhonePushPolicy): void;
+    activity: PhonePushActivity;
+  };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
@@ -190,6 +200,7 @@ export async function registerRemoteChannel(options: {
   keys: AccountKeys;
   /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
+  consentsChanged(): void;
   /** Drops the removed workspace's cached Git facts. */
   forgetWorkspace(workspaceId: string): void;
   /** The user's other computers, for the nexus command's --device. */
@@ -215,7 +226,7 @@ export async function registerRemoteChannel(options: {
     return room;
   };
   const peerFiles = new PeerFileReads((deviceId, params, signal) =>
-    inRoom().request(deviceId, "files.read", params, undefined, signal),
+    inRoom().request(deviceId, PEER_READ_METHODS.peerFilesRead, params, undefined, signal),
   );
   // The chats other devices watch here, told through the room.
   const watches = new ChatWatches({
@@ -241,7 +252,7 @@ export async function registerRemoteChannel(options: {
       const snapshot = await snapshotSessions(services, git, options.notes, "sessions.watch", from);
       return {
         ...snapshot,
-        forDevice: (to) => snapshot.forDevice(to, controls()),
+        forDevice: () => snapshot.forDevice(controls()),
       };
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
@@ -255,6 +266,7 @@ export async function registerRemoteChannel(options: {
     peerFiles.updateRoom(state);
     // A device that left, or this one leaving, ends the watches it had.
     if (state.status !== "online") {
+      push.presenceLost();
       void watches.dropAll();
       sessionWatches.dropAll();
       void terminalWatches.dropAll();
@@ -273,16 +285,30 @@ export async function registerRemoteChannel(options: {
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
-    proxy: remoteProxy(process.env, app.isPackaged, server),
+    ...remoteWays(process.env, app.isPackaged, server),
     store,
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
+    // The browser is in front; the sign-in ends, or says why it did not, in the app.
+    onBrowserBack: () => {
+      if (process.platform === "darwin") app.focus({ steal: true });
+      showAppWindow();
+    },
     onChange: (state) => {
+      push.accountChanged();
       broadcast("remote", "accountChanged", state);
       void keys?.accountChanged(state).catch(() => {});
       syncRoom();
     },
+  });
+  const push = new PhonePush({
+    account,
+    services: options.services,
+    controls,
+    policy: options.phonePush.get,
+    activity: options.phonePush.activity,
+    onEnabledChanged: () => room?.announce(),
   });
   await account.restore();
   void account.syncDeviceName();
@@ -295,6 +321,7 @@ export async function registerRemoteChannel(options: {
     },
   });
   keys = accountKeys;
+  const socketRetryAfter = new SocketRetryAfter();
   // The names of the moment a voice session sends along, when the user turned them on.
   const voiceNames = new VoiceNames({
     enabled: () => options.voiceNames?.() ?? false,
@@ -310,6 +337,7 @@ export async function registerRemoteChannel(options: {
   const voice = new VoiceSessions({
     account,
     names,
+    retryAfter: socketRetryAfter,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   // A note's recording: its own session, so a dictation can go on beside it.
@@ -317,6 +345,7 @@ export async function registerRemoteChannel(options: {
     account,
     purpose: "note",
     names,
+    retryAfter: socketRetryAfter,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
@@ -364,11 +393,13 @@ export async function registerRemoteChannel(options: {
           options.allowControl.get(),
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
+          push.enabled(),
         ),
       connect: (handlers) => {
         relay = new RelayConnection({
           ...handlers,
           url: relayUrl,
+          retryAfter: socketRetryAfter,
           unreachable: (url) => void account.route.unreachable(url),
         });
         return relay;
@@ -401,7 +432,14 @@ export async function registerRemoteChannel(options: {
         controls,
       }),
       onChange: setRoomState,
-      onDisconnect: (peer) => void fileWrites.drop(peer),
+      onPresence: (peers) => push.presence(peers),
+      // Also a device back with a new connection the room never showed gone:
+      // the watches its old one opened end here, as setRoomState cannot see.
+      onDisconnect: (peer) =>
+        dropPeerHolds(
+          { chats: watches, sessions: sessionWatches, terminals: terminalWatches, fileWrites },
+          peer,
+        ),
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {
@@ -427,7 +465,7 @@ export async function registerRemoteChannel(options: {
       onAccountEvent: () => void keys?.refresh().catch(() => {}),
       onPairFrame: (frame) => pairing.onRoomFrame(frame),
       // The relay says the sign-in ended: the server's 401 then signs the app out.
-      onSignedOut: () => void account.request("GET", "/me").catch(() => {}),
+      onSignedOut: () => account.recheckSignIn(),
     });
     room.start();
   }
@@ -449,7 +487,8 @@ export async function registerRemoteChannel(options: {
             deviceName: (id) => roomState.peers.find((p) => p.id === id)?.name,
           }
         : null,
-    connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
+    connect: (handlers) =>
+      new RelayConnection({ ...handlers, url: relayUrl, retryAfter: socketRetryAfter }),
     qr: async (text) =>
       `data:image/svg+xml;base64,${Buffer.from(renderSVG(text, { border: 2 })).toString("base64")}`,
     onChange: (state) => broadcast("remote", "pairChanged", state),
@@ -465,7 +504,12 @@ export async function registerRemoteChannel(options: {
         const provider = validateArgs(c.signIn.args, args)?.provider;
         return ipcOk(await account.signIn(provider));
       },
-      serverInfo: () => ask(() => account.info()),
+      serverInfo: () =>
+        ask(async () => {
+          const info = await account.info();
+          push.serverInfo(info);
+          return info;
+        }),
       cancelSignIn: async () => {
         account.cancelSignIn();
         return ipcOk(undefined);
@@ -499,6 +543,7 @@ export async function registerRemoteChannel(options: {
           ask(async () => {
             await accountKeys.removeDevices([id], password, { keepKey });
             peerFiles.invalidateDevice(id);
+            push.deviceRemoved(id);
           }),
         ).then((result) => (result.ok ? result.value : result));
       },
@@ -507,6 +552,7 @@ export async function registerRemoteChannel(options: {
       setAllowControl: async (args: unknown) => {
         const { allowed } = validateArgs(c.setAllowControl.args, args);
         options.allowControl.set(allowed);
+        push.controlsChanged();
         // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
         // What they held for after a turn goes no more.
@@ -521,6 +567,7 @@ export async function registerRemoteChannel(options: {
       setAllowTerminal: async (args: unknown) => {
         const { allowed } = validateArgs(c.setAllowTerminal.args, args);
         options.allowTerminal.set(allowed);
+        push.controlsChanged();
         room?.announce();
         return ipcOk(allowed);
       },
@@ -537,6 +584,13 @@ export async function registerRemoteChannel(options: {
             ?.ui("chat.dropHeld", { agentsOnly: true })
             .catch(() => {});
         }
+        return ipcOk(policy);
+      },
+      phonePushPolicy: async () => ipcOk(options.phonePush.get()),
+      setPhonePushPolicy: async (args: unknown) => {
+        const { policy } = validateArgs(c.setPhonePushPolicy.args, args);
+        options.phonePush.set(policy);
+        push.policyChanged();
         return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {
@@ -558,6 +612,18 @@ export async function registerRemoteChannel(options: {
       peerSessionsUnwatch: (args: unknown) => {
         const { deviceId, watchId } = validateArgs(c.peerSessionsUnwatch.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.unwatch", { watchId }));
+      },
+      peerSessionsReorder: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerSessionsReorder.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.reorder", params));
+      },
+      peerSessionsMarkSeen: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerSessionsMarkSeen.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.markSeen", params));
+      },
+      peerSessionEvents: (args: unknown) => {
+        const { deviceId, since, limit } = validateArgs(c.peerSessionEvents.args, args);
+        return askPeer(() => inRoom().request(deviceId, "events.read", { since, limit }));
       },
       chatChanged: async (args: unknown) => {
         const { watchId, change } = validateArgs(c.chatChanged.args, args);
@@ -677,14 +743,7 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatImage.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.image", params));
       },
-      peerFilesList: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerFilesList.args, args);
-        return askPeer(() => inRoom().request(deviceId, "files.list", params));
-      },
-      peerFilesFind: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerFilesFind.args, args);
-        return askPeer(() => inRoom().request(deviceId, "files.find", params));
-      },
+      ...peerReadCalls(inRoom, askPeer),
       peerFilesRead: (args: unknown, ctx?: CallContext) => {
         const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(
           c.peerFilesRead.args,
@@ -715,10 +774,6 @@ export async function registerRemoteChannel(options: {
             ctx?.signal,
           ),
         );
-      },
-      peerGitDiff: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
-        return askPeer(() => inRoom().request(deviceId, "git.diff", params));
       },
       peerHistory: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerHistory.args, args);
@@ -927,6 +982,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    consentsChanged: () => push.consentsChanged(),
     forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {
       try {
@@ -982,6 +1038,7 @@ export async function registerRemoteChannel(options: {
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      push.dispose();
       proxyProbe.stop();
       pairing.stop();
       account.cancelSignIn();

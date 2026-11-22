@@ -13,6 +13,7 @@ import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { callerPath } from "../paths";
 import { type CliCommand, output } from "../registry";
+import { mayExecute } from "../sandbox";
 import { resolveBrowser, TAB_FLAG } from "./browser";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -421,7 +422,8 @@ const browserEval: CliCommand = {
   flags: PAGE_FLAGS,
   async run(ctx, { positionals, flags }) {
     const script = textOf(ctx, positionals, "script");
-    const { workspace, tab } = await pageOf(ctx, flags, true);
+    const { workspace, tab } = await pageOf(ctx, flags, false);
+    await mayExecute(ctx, workspace, { kind: "browserControl", detail: tab.title, body: script });
     const value = await ctx.services.browser.evaluate(tab.id, script);
     return output(printable(value), {
       tabId: tab.id,

@@ -15,8 +15,9 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
 // movePath now asks the user before overwriting (VSCode parity); the test
 // drives that decision via `confirmReply` per case.
 let confirmReply: boolean = true;
+const confirmReplace = mock(() => Promise.resolve(confirmReply));
 mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
-  showConfirmDialog: () => Promise.resolve(confirmReply),
+  showConfirmDialog: confirmReplace,
 }));
 
 type IpcCall = { channel: string; method: string; args: unknown };
@@ -113,6 +114,7 @@ describe("movePath", () => {
     rejectNext = null;
     readdirEntries = [];
     confirmReply = true;
+    confirmReplace.mockClear();
     installWindow();
     resetTree();
   });
@@ -217,6 +219,36 @@ describe("movePath", () => {
 
     expect(ok).toBe(false);
     expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
+    expect(toastCalls).toEqual([]);
+  });
+
+  it.each([
+    true,
+    false,
+  ])("asks before retrying a collision found by the destination filesystem (confirmed %s)", async (confirmed) => {
+    readdirEntries = [{ name: "NESTED.ts", type: "file" }];
+    rejectNext = new Error("ALREADY_EXISTS: /repo/other/nested.ts");
+    confirmReply = confirmed;
+
+    const ok = await movePath({
+      workspaceId: WS,
+      workspaceRootPath: ROOT,
+      srcAbsPath: `${ROOT}/dir/nested.ts`,
+      dstDirAbsPath: `${ROOT}/other`,
+    });
+
+    expect(ok).toBe(confirmed);
+    expect(confirmReplace).toHaveBeenCalledTimes(1);
+    const renames = ipcCalls.filter((call) => call.method === "rename");
+    expect(renames.map(({ args }) => args)).toEqual(
+      (confirmed ? [false, true] : [false]).map((overwrite) =>
+        expect.objectContaining({
+          fromRelPath: "dir/nested.ts",
+          toRelPath: "other/nested.ts",
+          overwrite,
+        }),
+      ),
+    );
     expect(toastCalls).toEqual([]);
   });
 

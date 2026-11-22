@@ -7,6 +7,7 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliCaller } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { senderOf } from "../../../../src/main/features/cli/sender";
+import { modeOf } from "../../../../src/renderer/services/chat/codex/model";
 import { INSTRUCTION_LIMIT } from "../../../../src/shared/chat/instructions";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
 import type { ChatAgent } from "../../../../src/shared/sessions/task-agent";
@@ -146,6 +147,44 @@ describe("chat wait", () => {
     expect(out.stdout).toContain("every tab was still working");
   });
 
+  test("a turn the usage limit stopped has ended: it says when the app goes on", async () => {
+    const at = Date.now() + 38 * 60_000;
+    const app = withChat({ state: "working" });
+    app.time.onTick = () => {
+      app.chats.set(CHAT_TAB, {
+        info: {
+          agent: "claude",
+          state: "error",
+          message: "You've hit your 5-hour limit",
+          failure: "usage_limit",
+          limitResume: { state: "waiting", at, resetsAt: at - 60_000 },
+        },
+        entries: [],
+      });
+    };
+    const text = await nexus(app, ["chat", "wait", "eeee"]);
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toContain("stopped on an error: You've hit your 5-hour limit");
+    expect(text.stdout).toContain("The app sends it a message to go on at");
+    expect(text.stdout).toMatch(/\d\d:\d\d \(in 3[78]m\)/);
+    const json = JSON.parse((await nexus(app, ["chat", "wait", "eeee", "--json"])).stdout);
+    expect(json).toMatchObject({
+      state: "error",
+      failure: "usage_limit",
+      limitResume: { state: "waiting", at },
+    });
+  });
+
+  test("a turn a failing API stopped says what may help", async () => {
+    const app = withChat({ state: "error", message: "API Error: 529", failure: "transient" });
+    const out = await nexus(app, ["chat", "wait", "eeee"]);
+    expect(out.stdout).toContain("outlasted its program's own retries");
+    const auth = withChat({ state: "error", message: "401", failure: "auth" });
+    expect((await nexus(auth, ["chat", "read", "eeee"])).stdout).toContain(
+      "Its sign-in or API key was refused",
+    );
+  });
+
   test("waits no more once its client has gone, as one stopped with Ctrl-C", async () => {
     const app = withChat({ state: "working" });
     const stop = new AbortController();
@@ -234,7 +273,7 @@ describe("chat set", () => {
     const result = await nexus(app, ["chat", "set", "eeee", "--mode", "acceptEdits"]);
     expect(result.exitCode).toBe(0);
     expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "chatMode", detail: '"Fix the login" (default → acceptEdits)' },
+      { kind: "chatMode", detail: '"Fix the login" (default → acceptEdits)', eachTime: true },
     ]);
     const denied = withChoices();
     expect((await nexus(denied, ["chat", "set", "eeee", "--mode", "auto"])).stderr).toBe(
@@ -284,6 +323,8 @@ describe("chat new with settings", () => {
     expect(app.asked[0]?.change).toEqual({
       kind: "chatMode",
       detail: '"Claude" (default → acceptEdits)',
+      body: "go",
+      eachTime: true,
     });
     expect(uiArgs(app, "chat.open")).toMatchObject({
       prompt: "go",
@@ -300,10 +341,42 @@ describe("chat new with settings", () => {
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
   });
+
+  test("reports a failed first prompt even when no settings were requested", async () => {
+    const app = withChoices();
+    app.uiAnswers.set("chat.open", { tabId: NEW_TAB, error: "Claude startup failed" });
+    const result = await nexus(app, ["chat", "new", "--prompt", "Review this", "--json"]);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      tabId: NEW_TAB,
+      error: "Claude startup failed",
+    });
+  });
+
+  test("does not open a chat after the client cancels during workspace approval", async () => {
+    const app = withChoices();
+    const controller = new AbortController();
+    const pending = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    app.services.allowChange = async (_request, signal) => {
+      expect(signal).toBe(controller.signal);
+      arrived.resolve();
+      await pending.promise;
+    };
+    const result = runCli(CLI_COMMANDS, {
+      ...contextFor(app, ["chat", "new", "--workspace", "api"]),
+      signal: controller.signal,
+    });
+    await arrived.promise;
+    controller.abort();
+    pending.resolve();
+    expect((await result).exitCode).toBe(1);
+    expect(uiArgs(app, "chat.open")).toBeUndefined();
+  });
 });
 
 describe("delegating a chat mode", () => {
-  type Outcome = "grant" | "ask" | "refuse" | "unchanged consent";
+  type Outcome = "grant" | "ask" | "refuse" | "unchanged consent" | "sandbox";
   const rows: [
     ChatAgent,
     string | undefined,
@@ -316,9 +389,9 @@ describe("delegating a chat mode", () => {
     // Caller, mode, target, requested mode, verified, chat new, chat set.
     ["claude", "auto", "claude", "acceptEdits", true, "grant", "grant"],
     ["claude", "acceptEdits", "claude", "auto", true, "ask", "ask"],
-    ["codex", "auto", "claude", "auto", true, "grant", "grant"],
+    ["codex", "auto", "claude", "auto", true, "sandbox", "sandbox"],
     ["claude", "acceptEdits", "codex", "auto", true, "unchanged consent", "grant"],
-    ["codex", "readOnly", "codex", "auto", true, "unchanged consent", "ask"],
+    ["codex", "readOnly", "codex", "auto", true, "sandbox", "sandbox"],
     ["claude", "bypassPermissions", "codex", "fullAccess", true, "grant", "grant"],
     ["codex", "fullAccess", "claude", "bypassPermissions", true, "grant", "grant"],
     ["claude", "bypassPermissions", "claude", "bypassPermissions", true, "grant", "grant"],
@@ -326,11 +399,11 @@ describe("delegating a chat mode", () => {
     ["codex", "auto", "codex", "fullAccess", true, "refuse", "refuse"],
     ["claude", "bypassPermissions", "claude", "bypassPermissions", false, "refuse", "refuse"],
     ["codex", "fullAccess", "codex", "fullAccess", undefined, "refuse", "refuse"],
-    ["claude", "auto", "claude", "acceptEdits", false, "ask", "ask"],
+    ["claude", "auto", "claude", "acceptEdits", false, "sandbox", "sandbox"],
     ["claude", "auto", "claude", "acceptEdits", undefined, "ask", "ask"],
-    ["codex", "future", "claude", "auto", true, "ask", "ask"],
+    ["codex", "future", "claude", "auto", true, "sandbox", "sandbox"],
     ["codex", undefined, "claude", "bypassPermissions", true, "refuse", "refuse"],
-    ["codex", undefined, "claude", "default", true, "unchanged consent", "grant"],
+    ["codex", undefined, "claude", "default", true, "sandbox", "sandbox"],
   ];
 
   test.each(
@@ -361,7 +434,7 @@ describe("delegating a chat mode", () => {
             Object.keys((c.args as { settings: object }).settings).length > 0),
       );
       expect(app.asked.map((ask) => ask.change.kind)).toEqual(
-        expected === "ask" ? ["chatMode"] : [],
+        expected === "ask" ? ["chatMode"] : expected === "sandbox" ? ["sandboxExecution"] : [],
       );
       if (expected === "refuse") {
         expect(result.exitCode).toBe(1);
@@ -454,17 +527,31 @@ describe("delegating a chat answer", () => {
         app.answers.push("once");
         const result = await nexus(app, ["chat", "answer", "eeee", decision], caller);
         expect(result.exitCode).toBe(0);
-        expect(app.asked.map((ask) => ask.change)).toEqual(
-          asks
-            ? [
-                {
-                  kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
-                  detail: "Bash (Fix the login)",
-                  body: request.input,
-                },
-              ]
-            : [],
-        );
+        const sandbox =
+          decision === "allow" &&
+          (verified === false || (agent === "codex" && mode !== "fullAccess"));
+        if (asks && sandbox) {
+          expect(app.asked.map((ask) => ask.change)).toMatchObject([
+            {
+              kind: "sandboxExecution",
+              eachTime: true,
+              body: expect.stringContaining(request.input),
+            },
+          ]);
+        } else {
+          expect(app.asked.map((ask) => ask.change)).toEqual(
+            asks
+              ? [
+                  {
+                    kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+                    detail: "Bash (Fix the login)",
+                    body: request.input,
+                    eachTime: true,
+                  },
+                ]
+              : [],
+          );
+        }
         expect(app.chatAnswered).toEqual([
           { workspaceId: APP, tabId: CHAT_TAB, decision, expect: request.id },
         ]);
@@ -550,7 +637,9 @@ describe("delegating a chat answer", () => {
       caller,
     );
     expect(result.exitCode).toBe(exitCode);
-    expect(app.asked.map((ask) => ask.change.kind)).toEqual(Array(prompts).fill("permissionAllow"));
+    expect(app.asked.map((ask) => ask.change.kind)).toEqual(
+      downgrade ? ["permissionAllow", "sandboxExecution"] : Array(prompts).fill("permissionAllow"),
+    );
     expect(app.chatAnswered).toHaveLength(exitCode === 0 ? 1 : 0);
   });
 });
@@ -592,6 +681,7 @@ describe("who sends a message", () => {
       groupId: "g1",
       shown: false,
     });
+    app.sandboxes.set(DOCS_TAB, { agent: "codex", current: "fullAccess" });
     const docs = { workspaceId: APP, tabId: DOCS_TAB };
     for (let i = 0; i < 12; i++) {
       const sent = await nexus(app, ["chat", "send", "eeee", `again ${i}`], docs);
@@ -642,12 +732,85 @@ describe("who sends a message", () => {
       from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
     });
     await nexus(app, ["chat", "new", "--prompt", "look at the docs"], claude);
-    expect(uiArgs(app, "chat.open")).toMatchObject({ from: { kind: "terminal" } });
+    expect(uiArgs(app, "chat.open")).toMatchObject({
+      from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
+      openedBy: { kind: "terminal", agent: "claude", workspaceId: APP, tabId: CLAUDE_TAB },
+    });
     // Whether it waits to read the answer is told only where it is known.
     expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
     expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
+  });
+
+  test("chat new records its opener even with no first prompt", async () => {
+    const app = withChat();
+    const caller = { workspaceId: APP, tabId: CHAT_TAB };
+    expect((await nexus(app, ["chat", "new", "--agent", "codex"], caller)).exitCode).toBe(0);
+    const asked = uiArgs(app, "chat.open");
+    expect(asked).toMatchObject({
+      prompt: "",
+      openedBy: { kind: "tab", agent: "claude", name: "Fix the login", ...caller },
+    });
+    expect(asked).not.toHaveProperty("from");
+
+    const user = withChat();
+    expect((await nexus(user, ["chat", "new", "--prompt", "Review the docs"])).exitCode).toBe(0);
+    expect(uiArgs(user, "chat.open")).not.toHaveProperty("openedBy");
+  });
+
+  test("a terminal an agent opened is that agent's, whatever runs in it; the user's own is theirs", async () => {
+    const app = withChat();
+    const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
+    const opener = {
+      kind: "terminal",
+      agent: "claude",
+      name: "✳ Claude Code",
+      workspaceId: APP,
+      tabId: CLAUDE_TAB,
+    };
+    const opened = await nexus(app, ["terminal", "new", "--command", "make test"], claude);
+    expect(opened.exitCode).toBe(0);
+    expect(uiArgs(app, "terminal.open")).toMatchObject({ command: "make test", openedBy: opener });
+    // The user opening one: theirs, as the tab keeps no opener.
+    const user = withChat();
+    await nexus(user, ["terminal", "new"]);
+    expect(uiArgs(user, "terminal.open")).not.toHaveProperty("openedBy");
+
+    // The terminal it opened runs a shell, or the command, which runs nexus.
+    app.tabs[APP]?.push({
+      id: NEW_TAB,
+      type: "terminal",
+      title: "zsh",
+      groupId: "g1",
+      shown: false,
+      openedBy: opener,
+    } as CliTabInfo);
+    app.foreground.set(NEW_TAB, "zsh");
+    const inIt = { workspaceId: APP, tabId: NEW_TAB };
+    expect(await senderOf(contextFor(app, [], inIt))).toEqual(opener);
+    await nexus(app, ["chat", "send", "eeee", "done"], inIt);
+    expect(app.uiCalls.findLast((c) => c.op === "chat.send")?.args).toMatchObject({
+      from: { ...opener, waits: false },
+    });
+    // A terminal opened from it is the same agent's.
+    app.uiCalls.length = 0;
+    await nexus(app, ["terminal", "new"], inIt);
+    expect(uiArgs(app, "terminal.open")).toMatchObject({ openedBy: opener });
+    // An agent started in it is that agent, as in any terminal.
+    app.foreground.set(NEW_TAB, "codex");
+    expect(await senderOf(contextFor(app, [], inIt))).toMatchObject({
+      kind: "terminal",
+      agent: "codex",
+      tabId: NEW_TAB,
+    });
+    // A request without its token could be any process's, as anywhere.
+    app.foreground.set(NEW_TAB, "zsh");
+    expect(await senderOf(contextFor(app, [], { ...inIt, verified: false }))).toEqual({
+      kind: "terminal",
+      workspaceId: APP,
+      tabId: NEW_TAB,
+    });
   });
 
   test("chat send tells the tab whether its sender waits to read the answer", async () => {
@@ -675,8 +838,8 @@ describe("chat set --profile", () => {
     const fresh = await nexus(app, ["chat", "set", "eeee", "--profile", "Work", "--new"]);
     expect(fresh.stdout).toContain('"Work", in a new conversation.');
     expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "chatProfile", detail: '"Fix the login" (default → Work)' },
-      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)' },
+      { kind: "chatProfile", detail: '"Fix the login" (default → Work)', eachTime: true },
+      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)', eachTime: true },
     ]);
     const calls = app.uiCalls.filter((c) => c.op === "chat.profile").map((c) => c.args);
     expect(calls).toEqual([
@@ -726,6 +889,23 @@ describe("a tab's profile and goal", () => {
     expect(row).toContain("claude-tab (Work)");
     expect(row).toContain("idle · goal met");
   });
+});
+
+test("session list JSON includes the opener of local chat and terminal sessions", async () => {
+  const app = withChat();
+  const openedBy = {
+    kind: "tab" as const,
+    agent: "codex" as const,
+    workspaceId: APP,
+    tabId: CALLER_TAB,
+  };
+  app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+    tab.id === CHAT_TAB || tab.id === CLAUDE_TAB ? { ...tab, openedBy } : tab,
+  );
+  const result = await nexus(app, ["session", "list", "--json"]);
+  const sessions = JSON.parse(result.stdout) as { id: string }[];
+  expect(sessions.find((row) => row.id === CHAT_TAB)).toHaveProperty("openedBy", openedBy);
+  expect(sessions.find((row) => row.id === CLAUDE_TAB)).toHaveProperty("openedBy", openedBy);
 });
 
 describe("chat instructions", () => {
@@ -795,5 +975,287 @@ describe("chat instructions", () => {
     } finally {
       delete READABLE[file];
     }
+  });
+});
+
+describe("sandbox execution approvals", () => {
+  test.each([
+    ["readOnly", undefined, true],
+    ["auto", undefined, true],
+    ["fullAccess", undefined, false],
+    [undefined, "read-only", true],
+    [undefined, "workspace-write", true],
+    [undefined, "danger-full-access", false],
+    [undefined, undefined, true],
+    ["future", undefined, true],
+  ] as const)("mode %s and profile sandbox %s require approval = %s", async (mode, config, guarded) => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", mode, true);
+    const current = mode ?? modeOf(config);
+    app.sandboxes.set(CALLER_TAB, { agent: "codex", current });
+    app.answers.push("deny");
+    const result = await nexus(app, ["terminal", "new", "--command", "make test"], caller);
+    expect(app.asked.length).toBe(guarded ? 1 : 0);
+    expect(result.exitCode).toBe(guarded ? 1 : 0);
+  });
+
+  test.each([
+    [["terminal", "new", "--command", "make test"], "terminal.open", "make test"],
+    [["terminal", "new"], "terminal.open", undefined],
+    [["terminal", "reopen", "zsh"], "terminal.reopen", undefined],
+    [["terminal", "send", "zsh", "-"], "terminal.input", "line one\nline two"],
+    [["terminal", "key", "zsh", "enter"], "terminal.input", "enter"],
+    [["worktree", "new", "feature", "--command", "make test"], "task.create", "make test"],
+    [
+      ["worktree", "new", "feature", "--prompt", "Check the tests"],
+      "task.create",
+      "Check the tests",
+    ],
+    [["worktree", "new", "feature", "--command="], "task.create", undefined],
+    [["chat", "new", "--prompt", "Check the tests"], "chat.open", "Check the tests"],
+    [["chat", "send", "eeee", "-"], "chat.send", "line one\nline two"],
+    [["chat", "edit", "eeee", "r1", "Check the tests"], "chat.editHeld", "Check the tests"],
+    [["chat", "instructions", "eeee", "--clear"], "chat.instructions", undefined],
+    [
+      ["settings", "instructions", "set", "workspace", "--clear"],
+      "settings.instructions.set",
+      undefined,
+    ],
+    [["chat", "usage", "--refresh"], "chat.usage", undefined],
+    [["browser", "eval", "-"], "evaluate", "line one\nline two"],
+  ] as const)("requires one approval before %j", async (command, op, body) => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const shell = app.tabs[APP]?.find((tab) => tab.id === SHELL_TAB);
+    if (command[1] === "reopen" && shell) {
+      app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+        tab.id === SHELL_TAB ? { ...tab, dead: true } : tab,
+      );
+    }
+    app.answers.push("deny");
+    const result = await nexus(app, [...command], caller, "line one\nline two");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe(
+      "nexus: The user denied running this command outside the sandbox.\n",
+    );
+    expect(app.asked[0]?.change).toMatchObject({ kind: "sandboxExecution" });
+    expect(app.asked[0]?.change.eachTime).toBeUndefined();
+    if (body) expect(app.asked[0]?.change.body).toContain(body);
+    expect(uiArgs(app, op)).toBeUndefined();
+    expect(app.browser.calls).toEqual([]);
+  });
+
+  test("shows a shell-style command line in the approval", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    await nexus(
+      app,
+      ["terminal", "new", "--title", "qa&prod", "--command", `echo "it's ready"`],
+      caller,
+    );
+    expect(app.asked[0]?.change.body?.split("\n", 1)[0]).toBe(
+      String.raw`nexus terminal new --title 'qa&prod' --command 'echo "it'\''s ready"'`,
+    );
+  });
+
+  test.each([
+    ["readOnly", "readOnly", "readOnly", false, false],
+    ["readOnly", "auto", "auto", false, true],
+    ["auto", "readOnly", "readOnly", false, false],
+    ["auto", "auto", "auto", false, false],
+    ["auto", "auto", "fullAccess", false, true],
+    ["auto", "fullAccess", "readOnly", true, true],
+    ["auto", "fullAccess", "readOnly", false, false],
+    ["auto", undefined, undefined, false, true],
+  ] as const)("%s sending to current %s and next %s, working %s, asks = %s", async (mode, current, next, running, guarded) => {
+    const app = withChat({ agent: "codex" });
+    const caller = addCaller(app, "codex", mode, true);
+    app.sandboxes.set(CHAT_TAB, { agent: "codex", current, next, running });
+    app.answers.push("once");
+    const result = await nexus(app, ["chat", "send", "eeee", "Check the tests"], caller);
+    expect(result.exitCode).toBe(0);
+    expect(app.asked.length).toBe(guarded ? 1 : 0);
+    expect(uiArgs(app, "chat.send")).toBeDefined();
+  });
+
+  test.each([
+    [{ agent: "claude", enabled: true }, true],
+    [{ agent: "claude", enabled: false }, false],
+  ] as const)("Claude with effective sandbox %j asks = %s", async (settings, guarded) => {
+    const app = withChat();
+    const caller = addCaller(app, "claude", "bypassPermissions", true);
+    app.sandboxes.set(CALLER_TAB, settings);
+    app.answers.push("once");
+    expect((await nexus(app, ["terminal", "new"], caller)).exitCode).toBe(0);
+    expect(app.asked.length).toBe(guarded ? 1 : 0);
+  });
+
+  test("requires approval for a foreground Codex, preserving read commands and ordinary shell use", async () => {
+    const app = withChat();
+    const terminal = { workspaceId: APP, tabId: SHELL_TAB, verified: true };
+    app.foreground.set(SHELL_TAB, "codex");
+    for (const command of [
+      ["session", "list"],
+      ["terminal", "read", "zsh"],
+      ["chat", "read", "eeee"],
+      ["chat", "instructions", "eeee", "--show"],
+    ]) {
+      expect((await nexus(app, command, terminal)).exitCode).toBe(0);
+    }
+    expect(app.asked).toEqual([]);
+    app.answers.push("session");
+    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
+    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
+    app.foreground.set(SHELL_TAB, "zsh");
+    expect((await nexus(app, ["terminal", "new"], terminal)).exitCode).toBe(0);
+    expect(app.asked).toHaveLength(1);
+  });
+
+  test("keeps an agent's identity in the terminal created with a worktree command", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    app.answers.push("once");
+    const result = await nexus(
+      app,
+      ["worktree", "new", "feature", "--command", "make test"],
+      caller,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(uiArgs(app, "task.create")).toMatchObject({
+      openedBy: { kind: "tab", agent: "codex", tabId: CALLER_TAB },
+    });
+    app.tabs[APP]?.push({
+      id: NEW_TAB,
+      type: "terminal",
+      title: "Shell",
+      groupId: "g1",
+      shown: false,
+      openedBy: { kind: "tab", agent: "codex", tabId: CALLER_TAB, workspaceId: APP },
+    });
+    expect((await nexus(app, ["terminal", "new"], { ...caller, tabId: NEW_TAB })).exitCode).toBe(1);
+    expect(app.asked).toHaveLength(2);
+  });
+
+  test("remembers approval for only the requesting tab and destination", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = (from = caller, workspace = "app") =>
+      nexus(app, ["terminal", "new", "--workspace", workspace], from);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    expect(app.asked).toHaveLength(1);
+
+    app.foreground.set(SHELL_TAB, "codex");
+    expect((await run({ ...caller, tabId: SHELL_TAB })).exitCode).toBe(1);
+    expect((await run(caller, "api")).exitCode).toBe(1);
+    expect(app.asked.map((r) => [r.fromTabId, r.toWorkspaceId])).toEqual([
+      [CALLER_TAB, APP],
+      [SHELL_TAB, APP],
+      [CALLER_TAB, API],
+    ]);
+  });
+
+  test("asks again after the calling tab changes conversation or closes", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    let session: string | null = "first-conversation";
+    app.uiAnswers.set("tab.sandboxSession", () => session);
+    const run = () => nexus(app, ["terminal", "new"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    session = "second-conversation";
+    expect((await run()).exitCode).toBe(1);
+    session = null;
+    app.tabs[APP] = app.tabs[APP]?.filter((tab) => tab.id !== caller.tabId) ?? [];
+    expect((await run()).exitCode).toBe(1);
+    expect(app.asked.map((r) => r.change.eachTime)).toEqual([undefined, undefined, true]);
+  });
+
+  test("requires a verified tab to use or remember an approval", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = (verified: boolean) => nexus(app, ["terminal", "new"], { ...caller, verified });
+    app.answers.push("session", "session");
+    expect((await run(true)).exitCode).toBe(0);
+    expect((await run(false)).exitCode).toBe(1);
+    expect((await run(true)).exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change.eachTime)).toEqual([undefined, true]);
+  });
+
+  test("still asks each time for permission answers, looser modes and profile changes", async () => {
+    const app = withChoices({
+      state: "asking",
+      message: "asks to run Bash",
+      request: { id: "req", tool: "Bash", input: "make" },
+    });
+    const caller = addCaller(app, "codex", "auto", true);
+    app.answers.push("session");
+    expect((await nexus(app, ["terminal", "new"], caller)).exitCode).toBe(0);
+    for (const command of [
+      ["chat", "answer", "eeee", "allow"],
+      ["chat", "set", "eeee", "--mode", "acceptEdits"],
+      ["chat", "set", "eeee", "--profile", "Work"],
+    ]) {
+      app.answers.push("session");
+      expect((await nexus(app, command, caller)).exitCode).toBe(1);
+      expect(app.asked.at(-1)?.change).toMatchObject({ kind: "sandboxExecution", eachTime: true });
+    }
+    expect(app.asked).toHaveLength(4);
+  });
+
+  test("stores the sandbox approval from a combined prompt without granting workspace changes", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    const run = () => nexus(app, ["terminal", "new", "--workspace", "api"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).stderr).toBe("nexus: the user did not allow it\n");
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    app.settings.crossWorkspace = "deny";
+    expect((await run()).stderr).toContain("changing other workspaces is turned off");
+    expect(app.asked.map((r) => r.change.kind)).toEqual([
+      "sandboxExecution",
+      "terminalNew",
+      "terminalNew",
+    ]);
+  });
+
+  test("workspace approval still requires sandbox consent and one-time approval expires", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    app.answers.push("session");
+    expect(
+      (await nexus(app, ["tab", "rename", "codex", "New", "--workspace", "api"], caller)).exitCode,
+    ).toBe(0);
+    const run = () =>
+      nexus(app, ["terminal", "new", "--command", "make test", "--workspace", "api"], caller);
+    app.answers.push("once", "timeout", "session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).stderr).toBe(
+      "nexus: The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.\n",
+    );
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    expect(app.asked.slice(1).map(({ change }) => [change.kind, change.eachTime])).toEqual([
+      ["sandboxExecution", undefined],
+      ["sandboxExecution", undefined],
+      ["sandboxExecution", undefined],
+    ]);
+    expect(app.uiCalls.filter(({ op }) => op === "terminal.open")).toHaveLength(3);
+  });
+
+  test("asks for sandbox approval with workspace policy allow", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "auto", true);
+    app.settings.crossWorkspace = "allow";
+    const run = () => nexus(app, ["terminal", "new", "--workspace", "api"], caller);
+    app.answers.push("session");
+    expect((await run()).exitCode).toBe(0);
+    expect((await run()).exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["sandboxExecution"]);
   });
 });

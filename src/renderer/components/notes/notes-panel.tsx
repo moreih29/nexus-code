@@ -8,10 +8,10 @@ import { NotebookPen, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { dateTimeFormat } from "@/utils/intl-format";
 import type { NoteSummary } from "../../../shared/notes/types";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { notesApi } from "../../services/notes/api";
+import { noteTime } from "../../services/notes/note-time";
 import { useRecorderStore } from "../../services/notes/recorder";
 import { openOrRevealNoteTab } from "../../state/operations";
 import { useLayoutStore } from "../../state/stores/layout";
@@ -218,18 +218,6 @@ export function noteChips(note: Pick<NoteSummary, "counts" | "recording">): stri
   if (files) chips.push(t("notes:chip.files", { count: files }));
   if (images) chips.push(t("notes:chip.images", { count: images }));
   return chips.length ? chips : [t("notes:chip.text")];
-}
-
-/** A note's time: the hour today, the day this year, else the date. */
-export function noteTime(at: number, now = Date.now()): string {
-  const locale = i18next.language || "en";
-  const d = new Date(at);
-  const n = new Date(now);
-  if (d.toDateString() === n.toDateString())
-    return dateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(d);
-  if (d.getFullYear() === n.getFullYear())
-    return dateTimeFormat(locale, { month: "numeric", day: "numeric" }).format(d);
-  return dateTimeFormat(locale, { year: "numeric", month: "numeric", day: "numeric" }).format(d);
 }
 
 /** The note the workspace's active tab shows, if it shows one. */

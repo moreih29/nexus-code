@@ -3,7 +3,7 @@
 // below. PDFs are not editable.
 
 import { Maximize2, Minus, Plus } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { type PdfControls, PdfPreview } from "../../editor/preview/pdf-preview";
@@ -14,9 +14,10 @@ import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 interface PdfEditorViewProps {
   filePath: string;
   workspaceId: string;
+  breadcrumbs?: ReactNode;
 }
 
-export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
+export function PdfEditorView({ filePath, workspaceId, breadcrumbs }: PdfEditorViewProps) {
   const workspaceRootAbsPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
@@ -25,7 +26,9 @@ export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
-        <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        {breadcrumbs ?? (
+          <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        )}
         {controls && <PdfToolbar controls={controls} />}
       </div>
       <PreviewFindScope className="flex-1 min-h-0">

@@ -9,8 +9,11 @@
 import { create } from "zustand";
 import type { SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import { openKey, remoteSessionKey } from "../../services/agent-view/layout";
+import { remoteDisplayName } from "../../services/remote/display-name";
 import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "./agent-view";
+
+export type OpenRemoteSession = (target: RemoteTarget) => void;
 
 /** A session of another computer, with the names to tell it by. */
 export interface RemoteTarget {
@@ -80,6 +83,68 @@ export interface ListedSessions {
   }[];
 }
 
+/** Takes up the metadata a computer last listed for an existing session tab. */
+export function refreshRemoteTarget(
+  target: RemoteTarget,
+  workspace?: ListedSessions["workspaces"][number],
+  session?: ListedSessions["sessions"][number],
+): RemoteTarget {
+  const { cwd: _cwd, ask: _ask, ...rest } = target;
+  // A chat listed tells its folder, or none for its workspace's.
+  const cwd = session ? session.cwd : target.cwd;
+  // A terminal listed tells the request its Claude Code holds, or none once it was answered.
+  const ask = session ? askOf(session) : target.ask;
+  const updated: RemoteTarget = {
+    ...rest,
+    ...(cwd ? { cwd } : {}),
+    ...(ask ? { ask } : {}),
+    title: remoteDisplayName(session?.title ?? target.title),
+    kind: session?.kind ?? target.kind,
+    state: session?.state ?? target.state,
+    ...((session?.profile ?? target.profile)
+      ? { profile: session?.profile ?? target.profile }
+      : {}),
+    workspaceName: workspace?.name ?? target.workspaceName,
+    path: workspace?.path || target.path,
+  };
+  if (
+    updated.title === target.title &&
+    updated.kind === target.kind &&
+    updated.state === target.state &&
+    updated.profile === target.profile &&
+    updated.cwd === target.cwd &&
+    updated.ask?.requestId === target.ask?.requestId &&
+    updated.ask?.text === target.ask?.text &&
+    updated.ask?.always === target.ask?.always &&
+    updated.ask?.subagent === target.ask?.subagent &&
+    updated.workspaceName === target.workspaceName &&
+    updated.path === target.path
+  )
+    return target;
+  return updated;
+}
+
+export function listedRemoteTarget(
+  peer: { id: string; name: string },
+  workspace: ListedSessions["workspaces"][number] | undefined,
+  session: ListedSessions["sessions"][number],
+): RemoteTarget {
+  return refreshRemoteTarget(
+    {
+      deviceId: peer.id,
+      deviceName: remoteDisplayName(peer.name),
+      workspaceId: session.workspaceId,
+      workspaceName: session.workspaceId,
+      path: "",
+      tabId: session.tabId,
+      kind: session.kind,
+      title: session.title,
+    },
+    workspace,
+    session,
+  );
+}
+
 interface RemoteViewState {
   targets: ReadonlyMap<string, RemoteTarget>;
   /**
@@ -102,7 +167,13 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
 
   open(target, leafId) {
     const key = remoteSessionKey(target);
-    set({ targets: new Map(get().targets).set(key, target) });
+    set({
+      targets: new Map(get().targets).set(key, {
+        ...target,
+        deviceName: remoteDisplayName(target.deviceName),
+        title: remoteDisplayName(target.title),
+      }),
+    });
     const view = useAgentViewStore.getState();
     view.setMode("agents");
     view.update((layout) => openKey(layout, key, leafId));
@@ -117,39 +188,8 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         (s) => s.workspaceId === target.workspaceId && s.tabId === target.tabId,
       );
       const workspace = listed.workspaces.find((w) => w.id === target.workspaceId);
-      const { cwd: _cwd, ask: _ask, ...rest } = target;
-      // A chat listed tells its folder, or none for its workspace's.
-      const cwd = session ? session.cwd : target.cwd;
-      // A terminal listed tells the request its Claude Code holds, or none once it was answered.
-      const ask = session ? askOf(session) : target.ask;
-      const updated: RemoteTarget = {
-        ...rest,
-        ...(cwd ? { cwd } : {}),
-        ...(ask ? { ask } : {}),
-        title: session?.title ?? target.title,
-        kind: session?.kind ?? target.kind,
-        state: session?.state ?? target.state,
-        ...((session?.profile ?? target.profile)
-          ? { profile: session?.profile ?? target.profile }
-          : {}),
-        workspaceName: workspace?.name ?? target.workspaceName,
-        path: workspace?.path || target.path,
-      };
-      if (
-        updated.title === target.title &&
-        updated.kind === target.kind &&
-        updated.state === target.state &&
-        updated.profile === target.profile &&
-        updated.cwd === target.cwd &&
-        updated.ask?.requestId === target.ask?.requestId &&
-        updated.ask?.text === target.ask?.text &&
-        updated.ask?.always === target.ask?.always &&
-        updated.ask?.subagent === target.ask?.subagent &&
-        updated.workspaceName === target.workspaceName &&
-        updated.path === target.path
-      ) {
-        continue;
-      }
+      const updated = refreshRemoteTarget(target, workspace, session);
+      if (updated === target) continue;
       next ??= new Map(get().targets);
       next.set(key, updated);
     }
@@ -162,6 +202,10 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
     set({ targets: new Map(get().targets).set(key, { ...target, profile }) });
   },
 }));
+
+export function openRemoteSession(target: RemoteTarget): void {
+  useRemoteViewStore.getState().open(target);
+}
 
 /** The tab's session a key names; undefined for one this run of the app did not open. */
 export function useRemoteTarget(key: string | null): RemoteTarget | undefined {

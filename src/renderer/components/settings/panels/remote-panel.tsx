@@ -1,8 +1,7 @@
 // src/renderer/components/settings/panels/remote-panel.tsx
 //
-// The NexusCode account the remote runs on: signing in with one of the
-// server's sign-ins, Google or GitHub (sign-in-buttons; in the system
-// browser, main waits for it to come back), who the app is signed in as,
+// The NexusCode account the remote runs on: signing in through the
+// system browser with a provider the server offers, who the app is signed in as,
 // the account password (remote-key-group), what other devices may do here,
 // and the account's devices, each of which can be renamed or removed.
 
@@ -10,38 +9,36 @@ import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { ServerInfo } from "../../../../../packages/remote-protocol/src/info";
+import { PUSH_VERSION } from "../../../../../packages/remote-protocol/src/push";
 import type { AccountKeyState } from "../../../../shared/remote/account";
 import {
   deviceLabel,
   MAX_DEVICE_ALIAS,
   type RemoteAccountState,
   type RemoteDeviceInfo,
+  SIGN_IN_HELP_FAILURES,
   SIGN_IN_PROVIDERS,
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
-import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
-import { ipcCallResult, ipcListen } from "../../../ipc/client";
+import { siteUrl } from "../../../../shared/site";
+import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../../shared/types/app-state";
+import { ipcCallResult } from "../../../ipc/client";
+import { useRemoteAccount } from "../../../services/remote/account";
 import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
-import {
-  SettingsGroup,
-  SettingsPage,
-  SettingsRow,
-  SettingsSection,
-  SettingsSwitch,
-} from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
 import { OutdatedGroup } from "./remote-outdated";
 import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
+import { SignInNotice } from "./sign-in-notice";
 
 const iconButtonClass = cn(
   "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center",
@@ -62,33 +59,13 @@ const PLATFORMS: Record<string, string> = {
   web: "Web",
 };
 
-/** The account's state from main, kept up as it changes. */
-function useRemoteAccount(): RemoteAccountState | null {
-  const [state, setState] = useState<RemoteAccountState | null>(null);
-  useEffect(() => {
-    let live = true;
-    const off = ipcListen("remote", "accountChanged", (next) => setState(next));
-    void ipcCallResult("remote", "account", undefined).then((result) => {
-      if (live && result.ok) setState((now) => now ?? result.value);
-    });
-    return () => {
-      live = false;
-      off();
-    };
-  }, []);
-  return state;
-}
-
-/**
- * The sign-ins the server offers, asked while signed out: Google's alone
- * until it answers, and whether it could not be reached, to ask again.
- */
+/** The sign-ins the server advertises while signed out, and whether to ask again. */
 function useSignIns(ask: boolean): {
-  providers: SignInProvider[];
+  providers: readonly string[];
   unreachable: boolean;
   retry: () => void;
 } {
-  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [providers, setProviders] = useState<readonly string[]>([]);
   const [unreachable, setUnreachable] = useState(false);
   const [round, setRound] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `round` asks again
@@ -98,15 +75,14 @@ function useSignIns(ask: boolean): {
     void ipcCallResult("remote", "serverInfo", undefined).then((result) => {
       if (!live) return;
       setUnreachable(!result.ok);
-      if (result.ok) setInfo(result.value);
+      if (result.ok) setProviders(result.value.signIn);
     });
     return () => {
       live = false;
     };
   }, [ask, round]);
-  const offered = SIGN_IN_PROVIDERS.filter((p) => info?.signIn.includes(p));
   return {
-    providers: offered.length > 0 ? offered : ["google"],
+    providers,
     unreachable,
     retry: () => setRound((r) => r + 1),
   };
@@ -141,28 +117,59 @@ export function RemotePanel() {
 
 export function AccountGroup({
   state,
-  signIns = ["google"],
+  signIns = [],
   unreachable = false,
   onRetry,
 }: {
   state: RemoteAccountState;
-  /** The sign-ins the server offers. */
-  signIns?: readonly SignInProvider[];
+  /** The sign-ins advertised by the server, including providers this app may not know. */
+  signIns?: readonly string[];
   /** The server did not answer when asked what it offers. */
   unreachable?: boolean;
   onRetry?: () => void;
 }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
-  const signIn = (provider: SignInProvider) => void ipcCallResult("remote", "signIn", { provider });
+  const signIn = (provider?: SignInProvider) =>
+    void ipcCallResult("remote", "signIn", provider ? { provider } : undefined);
   const cancel = () => void ipcCallResult("remote", "cancelSignIn", undefined);
   const signOut = () => void ipcCallResult("remote", "signOut", undefined);
+  const offered = SIGN_IN_PROVIDERS.filter((provider) => signIns.includes(provider));
+  const providers: readonly SignInProvider[] = offered.length > 0 ? offered : ["google"];
   const failure =
     state.status === "signed-out" && state.failure && state.failure !== "cancelled"
       ? state.failure
       : unreachable
         ? "unreachable"
         : undefined;
+  // Support's section on signing in and signup approval, in the app's language.
+  const signInHelp = siteUrl("signIn", i18n.language);
+  const noticeActions = [
+    failure === "pending_approval" && (
+      <Button key="check" variant="outline" size="sm" onClick={() => signIn()}>
+        {t("remote.account.checkAgain")}
+      </Button>
+    ),
+    failure === "suspended" && (
+      <Button key="support" variant="outline" size="sm" asChild>
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
+          {t("remote.account.openSupportPage")}
+        </a>
+      </Button>
+    ),
+    failure !== undefined && SIGN_IN_HELP_FAILURES.includes(failure) && (
+      <Button key="help" variant="link" size="sm" className="px-0" asChild>
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
+          {t("remote.account.learnMore")}
+        </a>
+      </Button>
+    ),
+    unreachable && onRetry && (
+      <Button key="retry" variant="outline" size="sm" onClick={onRetry}>
+        {t("remote.account.retry")}
+      </Button>
+    ),
+  ].filter(Boolean);
 
   return (
     <SettingsGroup
@@ -182,31 +189,29 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
-        // Below the name, not beside it: the buttons wrap when there are several.
-        <SettingsSection
-          label={t("remote.account.signedOut")}
-          action={
-            unreachable &&
-            onRetry && (
-              <Button variant="outline" size="sm" onClick={onRetry}>
-                {t("remote.account.retry")}
-              </Button>
-            )
-          }
-          description={
-            failure && (
-              <span className="text-destructive" role="alert">
-                {t(`remote.account.failure.${failure}`)}
-              </span>
-            )
-          }
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            {signIns.map((provider) => (
+        // Signed out, the group's description and its sign-in buttons say so,
+        // with no label of their own: why the last sign-in failed, when it did,
+        // then a button for each provider.
+        <>
+          {failure && (
+            <SignInNotice
+              failure={failure}
+              provider={state.status === "signed-out" ? state.provider : undefined}
+              actions={noticeActions.length > 0 ? noticeActions : undefined}
+            />
+          )}
+          <div
+            data-testid="sign-in-buttons"
+            className={cn(
+              "gap-2",
+              providers.includes("apple") ? "grid w-fit max-w-full" : "flex flex-wrap items-center",
+            )}
+          >
+            {providers.map((provider) => (
               <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
             ))}
           </div>
-        </SettingsSection>
+        </>
       )}
       {/* The released app's own server goes without saying. */}
       {state.server !== SERVER && (
@@ -316,6 +321,55 @@ export function RemoteAgentsPolicyRow() {
   );
 }
 
+function PhonePushPolicyRow() {
+  const { t } = useTranslation("settings");
+  const [policy, setPolicy] = useState<PhonePushPolicy | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void Promise.all([
+      ipcCallResult("remote", "serverInfo", undefined),
+      ipcCallResult("remote", "phonePushPolicy", undefined),
+    ])
+      .then(([server, setting]) => {
+        if (live && server.ok && server.value.push?.version === PUSH_VERSION && setting.ok) {
+          setPolicy(setting.value);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (policy === null) return null;
+  const label = t("remote.phonePush.label");
+  return (
+    <SettingsRow
+      label={label}
+      description={<span className="break-keep">{t("remote.phonePush.description")}</span>}
+    >
+      <SegmentedControl
+        label={label}
+        options={(["away", "always", "off"] as const).map((value) => ({
+          value,
+          label: t(`remote.phonePush.${value}`),
+        }))}
+        value={policy}
+        disabled={saving}
+        onChange={(next) => {
+          setSaving(true);
+          void ipcCallResult("remote", "setPhonePushPolicy", { policy: next })
+            .then((result) => {
+              if (result.ok) setPolicy(result.value);
+            })
+            .catch(() => {})
+            .finally(() => setSaving(false));
+        }}
+      />
+    </SettingsRow>
+  );
+}
+
 /** What the account's other devices may do here: chats, terminals, and their agents. */
 export function RemoteControlGroup() {
   const { t } = useTranslation("settings");
@@ -324,6 +378,7 @@ export function RemoteControlGroup() {
       <RemoteControlSwitch />
       <RemoteTerminalSwitch />
       <RemoteAgentsPolicyRow />
+      <PhonePushPolicyRow />
     </SettingsGroup>
   );
 }

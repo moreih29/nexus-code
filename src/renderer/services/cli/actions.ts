@@ -140,10 +140,14 @@ export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
     | "tabs.list"
+    | "tab.sandboxSession"
     | "terminal.read"
     | "terminal.watch"
     | "terminal.unwatch"
     | "events.read"
+    | "sessions.results"
+    | "sessions.snapshot"
+    | "sessions.markSeen"
     | "settings.instructions"
     | "settings.instructions.set"
     | "settings.keys"
@@ -247,7 +251,16 @@ export const actionHandlers: {
     return {};
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, shell, profile, placement }) => {
+  "terminal.open": async ({
+    workspaceId,
+    cwd,
+    title,
+    command,
+    shell,
+    profile,
+    openedBy,
+    placement,
+  }) => {
     const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
     if (profile !== undefined && !hasAnyProfile(profile)) {
       throw new UiRequestError(`no profile "${profile}"`);
@@ -256,6 +269,7 @@ export const actionHandlers: {
       cwd,
       ...(choice ? { shell: choice } : {}),
       ...(profile !== undefined ? { profile } : {}),
+      ...(openedBy ? { openedBy } : {}),
     };
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
@@ -481,11 +495,12 @@ export const actionHandlers: {
     createdBy,
     from,
     allowTerminal,
+    openedBy,
   }) => {
     const how = start ?? taskStartOf(resolvedTaskAgent());
     if (allowTerminal === false && "command" in how && how.command)
       throw new UiRequestError("a worktree command requires terminal control");
-    const started = await startTask(parentId, name, prompt, how, createdBy, from);
+    const started = await startTask(parentId, name, prompt, how, createdBy, from, openedBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
     if (started.tabId === null) {
       // A plain shell: none until the task is shown, when its panel opens one.
@@ -551,6 +566,7 @@ export const actionHandlers: {
         : {}),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
+      sameWorkspace: !fromDevice && fromWorkspaceId === toWorkspaceId,
       change,
       timeoutMs,
     });

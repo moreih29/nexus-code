@@ -6,6 +6,7 @@
     "IS_DIRECTORY": "디렉터리를 파일로 열 수 없습니다.",
     "NOT_DIRECTORY": "경로가 폴더가 아닙니다.",
     "TOO_LARGE": "파일이 너무 커서 열 수 없습니다.",
+    "TRANSFER_TOO_LARGE": "파일이 너무 커서 전송할 수 없습니다.",
     "OUT_OF_WORKSPACE": "이 경로는 워크스페이스 밖에 있습니다.",
     "NOT_EMPTY": "폴더가 비어 있지 않습니다.",
     "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다.",
@@ -44,6 +45,8 @@
     "unencodable": "{{encoding}}에 없는 문자 \"{{char}}\"가 있습니다 ({{line}}행 {{column}}열)"
   },
   "chat": {
+    "ambiguousProfile": "이름이 “{{name}}”인 프로필이 여러 개입니다. nexus chat profiles에 표시된 프로필 ID를 지정하세요.",
+    "permissionModeMismatch": "요청한 권한 모드 {{requested}} 대신 {{applied}} 모드가 적용되었습니다",
     "commandLineTooLong": "이 채팅의 지시가 너무 길어 Windows 에서 Claude Code 를 시작할 수 없습니다. 설정이나 이 세션의 지시를 줄인 뒤 다시 시도하세요."
   }
 }

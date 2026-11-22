@@ -5,6 +5,7 @@
  * It cannot open what a message carries (see ./sealed.ts).
  */
 import { z } from "zod";
+import { IntegerSchema, NonnegativeIntegerSchema, PositiveIntegerSchema } from "./validation.js";
 
 /**
  * The version of the frames below; the relay refuses a device that speaks
@@ -21,7 +22,7 @@ export const RELAY_VERSION = 2;
 export const UNSUPPORTED_VERSION = "unsupported_version";
 export const UnsupportedVersionSchema = z.object({
   error: z.literal(UNSUPPORTED_VERSION),
-  version: z.number().int(),
+  version: IntegerSchema,
 });
 
 /** A device's id, as the server gave it when the device signed in. */
@@ -45,8 +46,8 @@ export const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]*$/);
 export const OutgoingSchema = z.object({
   t: z.literal("send"),
   to: z.union([DeviceIdSchema, z.literal(ALL_DEVICES)]),
-  seq: z.number().int().positive(),
-  kid: z.number().int().nonnegative(),
+  seq: PositiveIntegerSchema,
+  kid: NonnegativeIntegerSchema,
   nonce: Base64UrlSchema,
   box: Base64UrlSchema,
 });
@@ -97,7 +98,7 @@ export const RelayErrorSchema = z.object({
   code: z.enum(["bad-frame", "too-big", "no-such-device", "unauthorized", "rate-limited"]),
   message: z.string(),
   /** The seq of the frame it refuses, when it was a message. */
-  seq: z.number().int().positive().optional(),
+  seq: PositiveIntegerSchema.optional(),
 });
 export type RelayError = z.infer<typeof RelayErrorSchema>;
 
@@ -115,8 +116,8 @@ export type RelayError = z.infer<typeof RelayErrorSchema>;
 export const AccountEventSchema = z.object({
   t: z.literal("account"),
   event: z.enum(["key-rotated", "key-reset", "reset-pending", "reset-cancelled"]),
-  kid: z.number().int().positive().optional(),
-  appliesAt: z.number().int().optional(),
+  kid: PositiveIntegerSchema.optional(),
+  appliesAt: IntegerSchema.optional(),
 });
 export type AccountEvent = z.infer<typeof AccountEventSchema>;
 

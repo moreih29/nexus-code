@@ -45,14 +45,23 @@ export function shownPath(path: string, cwd: string): string {
   return rel && rel !== slashed ? rel : path;
 }
 
+/** A Windows share's path: \\server\share\x, or //server/share/x. */
+const UNC_PATH = /^[\\/]{2}[^\\/]+[\\/][^\\/]+/;
+
+/** A Windows path, a drive's or a share's, with "/" between its parts; any other as it is. */
+function slashWindowsPath(path: string): string {
+  return UNC_PATH.test(path) ? path.replaceAll("\\", "/") : toSlashPath(path);
+}
+
 /** Path text split so a narrow toolbar can truncate the directory first. */
 export function workspacePathParts(filePath: string, workspaceRoot: string) {
-  const path = toSlashPath(filePath);
-  const root = toSlashPath(workspaceRoot).replace(/\/+$/, "");
+  const path = slashWindowsPath(filePath);
+  const root = slashWindowsPath(workspaceRoot).replace(/\/+$/, "");
   const prefix = `${root}/`;
+  // Windows matches names in any case.
   const inside =
     workspaceRoot !== "" &&
-    (isDrivePath(path)
+    (isDrivePath(path) || UNC_PATH.test(path)
       ? path.toLowerCase().startsWith(prefix.toLowerCase())
       : path.startsWith(prefix));
   const shown = inside ? path.slice(prefix.length) : path;

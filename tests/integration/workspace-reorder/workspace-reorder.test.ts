@@ -21,10 +21,11 @@ import path from "node:path";
 import { type BroadcastFn, WorkspaceManager } from "../../../src/main/features/workspace/manager";
 import { GlobalStorage } from "../../../src/main/infra/storage/global-storage";
 import { applyMigrations } from "../../../src/main/infra/storage/migrations";
-import { StateService } from "../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-storage";
 import { createWorkspacesStore } from "../../../src/renderer/state/stores/workspaces";
+import { WorkspaceReorderedEventSchema } from "../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
+import { openTestState } from "../../helpers/test-state";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -52,7 +53,7 @@ function makeFixtures(): Fixtures {
   const wsBaseDir = path.join(os.tmpdir(), "nexus-integ-reorder-test");
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
 
-  const stateService = new StateService(path.join(os.tmpdir(), "nexus-integ-reorder-state.json"));
+  const stateService = openTestState(path.join(os.tmpdir(), "nexus-integ-reorder-state.json"));
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});
 
   const manager = new WorkspaceManager(
@@ -411,9 +412,8 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     expect(ch).toBe("workspace");
     expect(ev).toBe("reordered");
 
-    // The reordered event must carry an array of all rows in the group.
-    expect(Array.isArray(args)).toBe(true);
-    const orders = args as Array<{ id: string; sortOrder: number }>;
+    // The reordered event must carry all rows in the group in the IPC envelope.
+    const { orders } = WorkspaceReorderedEventSchema.parse(args);
     expect(orders.length).toBeGreaterThanOrEqual(3);
 
     // After rebalance, uuid(101) and uuid(102) get step-1024 positions.

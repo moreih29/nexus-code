@@ -34,8 +34,14 @@ mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
-const { closePeerSession, newPeerChat, newPeerTerminal, renamePeerSession, runningProgramOf } =
-  await import("../../../../../src/renderer/components/agent-view/remote-session-actions");
+const {
+  closePeerSession,
+  newPeerChat,
+  newPeerTerminal,
+  renamePeerSession,
+  reorderPeerSessions,
+  runningProgramOf,
+} = await import("../../../../../src/renderer/components/agent-view/remote-session-actions");
 const { __resetAgentViewForTests, useAgentViewStore } = await import(
   "../../../../../src/renderer/state/stores/agent-view"
 );
@@ -86,6 +92,26 @@ beforeEach(() => {
 afterEach(() => {
   __resetAgentViewForTests();
   jest.useRealTimers();
+});
+
+describe("reordering another computer's sessions", () => {
+  test.each([
+    true,
+    false,
+  ])("shows the order before the RPC and keeps it on success=%s", async (ok) => {
+    const tabIds = ["t2", "t1"];
+    const preview = mock((_order: readonly string[] | undefined) => {});
+    const reply = Promise.withResolvers<unknown>();
+    answers.peerSessionsReorder = [reply.promise];
+    const request = reorderPeerSessions("d2", "w1", tabIds, preview);
+    expect(preview.mock.calls).toEqual([[tabIds]]);
+    expect(calls).toEqual([
+      { method: "peerSessionsReorder", args: { deviceId: "d2", workspaceId: "w1", tabIds } },
+    ]);
+    reply.resolve(ok ? { ok: true, value: {} } : refused("unavailable", "Device offline"));
+    await expect(request).resolves.toBe(ok);
+    expect(preview.mock.calls).toEqual(ok ? [[tabIds]] : [[tabIds], [undefined]]);
+  });
 });
 
 describe("a new session on another computer", () => {
@@ -185,6 +211,11 @@ describe("closing another computer's session", () => {
 
   test("a terminal running a program asks again, naming it, then closes it anyway", async () => {
     useRemoteViewStore.getState().open(terminal);
+    const view = useAgentViewStore.getState();
+    const account = "terminal-account";
+    view.setPeerOrderAccount(account);
+    view.updateRemoteSeen(account, new Map([[remoteSessionKey(terminal), { at: 10 }]]));
+    expect(useAgentViewStore.getState().remoteSeen?.entries.size).toBe(1);
     answers.peerTerminalClose = [running];
     expect(await closePeerSession(terminal)).toBe(true);
     expect(confirms.map((c) => c.title)).toEqual([
@@ -197,6 +228,7 @@ describe("closing another computer's session", () => {
       { deviceId: "d2", workspaceId: "w1", tabId: "t1", force: true },
     ]);
     expect(held()).toEqual([]);
+    expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
   });
 
   test("told no the second time, the terminal stays, and nothing is forced", async () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import {
   DocumentUriSchema,
   MarkupContentOrStringSchema,
@@ -29,8 +30,8 @@ export const InsertTextFormatSnippet = 2;
 export const CompletionItemSchema = z.object({
   label: z.string(),
   labelDetails: CompletionItemLabelDetailsSchema.optional(),
-  kind: z.number().int().optional(),
-  tags: z.array(z.number().int()).optional(),
+  kind: IntegerSchema.optional(),
+  tags: z.array(IntegerSchema).optional(),
   detail: z.string().optional(),
   documentation: MarkupContentOrStringSchema.optional(),
   deprecated: z.boolean().optional(),
@@ -38,7 +39,7 @@ export const CompletionItemSchema = z.object({
   sortText: z.string().optional(),
   filterText: z.string().optional(),
   insertText: z.string().optional(),
-  insertTextFormat: z.number().int().optional(),
+  insertTextFormat: IntegerSchema.optional(),
   textEdit: z.union([TextEditSchema, InsertReplaceEditSchema]).optional(),
   additionalTextEdits: z.array(TextEditSchema).optional(),
   commitCharacters: z.array(z.string()).optional(),
@@ -63,7 +64,7 @@ export const CompletionTriggerKind = {
 // Renderer → main: what typed the request, so main can skip characters the
 // server does not complete on and pass the context on to it.
 export const CompletionArgsSchema = TextDocumentPositionArgsSchema.extend({
-  triggerKind: z.number().int().optional(),
+  triggerKind: IntegerSchema.optional(),
   triggerCharacter: z.string().optional(),
 });
 export type CompletionArgs = z.infer<typeof CompletionArgsSchema>;

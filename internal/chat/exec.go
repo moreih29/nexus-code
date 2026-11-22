@@ -64,6 +64,10 @@ func runChatCommand(cmd *exec.Cmd, args []string) error {
 	if len(args) != 0 && (args[0] == "--bg" || args[0] == "--background") {
 		return cmd.Run()
 	}
+	return runOwnedCommand(cmd)
+}
+
+func runOwnedCommand(cmd *exec.Cmd) error {
 	p := &process{cmd: cmd}
 	cmd.Cancel = p.signalKill
 	if err := p.startOwned(); err != nil {

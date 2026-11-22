@@ -22,6 +22,7 @@ export const AgentFsErrorCodeSchema = z.enum([
   "IS_DIRECTORY",
   "NOT_DIRECTORY",
   "TOO_LARGE",
+  "TRANSFER_TOO_LARGE",
   "OUT_OF_WORKSPACE",
   "STALE",
   "NOT_EMPTY",

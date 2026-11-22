@@ -1,3 +1,4 @@
+import type { RowGroup } from "../../services/agent-sessions/rows";
 // Agent list — a session's state as a glyph and words, its agent as a
 // badge, and how long it has been in that state.
 //
@@ -16,6 +17,7 @@ import {
   MessageCircleQuestion,
   TriangleAlert,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
@@ -135,6 +137,25 @@ export function useDurationLabel(since: number | undefined): string | null {
   return durationLabel(since, Math.max(now, since ?? 0));
 }
 
+/** A turn that ended with an error, shown beside its time. */
+export function FailureLabel() {
+  const { t } = useTranslation();
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap text-(--state-error-fg)">
+      {t("agentView.list.failed")}
+    </span>
+  );
+}
+
+export function HiddenSessionCount({ count }: { count: number }) {
+  const { t } = useTranslation();
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap tabular-nums text-muted-foreground">
+      {t("agentView.list.hidden", { count })}
+    </span>
+  );
+}
+
 /** The agent's name in a small monospace badge. */
 export function AgentBadge({ agent }: { agent: string | undefined }) {
   return (
@@ -143,3 +164,18 @@ export function AgentBadge({ agent }: { agent: string | undefined }) {
     </span>
   );
 }
+
+/** The state whose glyph stands for a group. */
+export const GROUP_STATE: Record<RowGroup, string> = {
+  attention: "permissionPending",
+  running: "running",
+  done: "completed",
+  idle: "idle",
+};
+
+export const GROUP_TINT: Record<RowGroup, string> = {
+  attention: "text-(--state-warning-fg)",
+  running: "text-emerald-500",
+  done: "text-(--tab-claude-attention-fg)",
+  idle: "text-muted-foreground",
+};

@@ -151,15 +151,27 @@ describe("a repository's changes", () => {
     ]);
   });
 
-  test("with its branch against its upstream; NotFound for no repository", async () => {
+  test("with its branch against its upstream and repository root; NotFound for no repository", async () => {
     const { git } = repo();
     expect(await gitStatus(git, { workspaceId: "w1" })).toMatchObject({
       branch: "feat",
       upstream: "origin/feat",
       ahead: 2,
       behind: 0,
+      topLevel: "/src/app",
     });
     await expect(gitStatus(git, { workspaceId: "w2" })).rejects.toMatchObject({ code: 1001 });
+  });
+
+  test("omits a repository root that exceeds the wire limit while keeping its status", async () => {
+    const { git } = repo();
+    const repository = (await git.repository("w1"))!;
+    const reply = await gitStatus(
+      { ...git, repository: async () => ({ ...repository, topLevel: `/${"a".repeat(4096)}` }) },
+      { workspaceId: "w1" },
+    );
+    expect(reply).not.toHaveProperty("topLevel");
+    expect(reply.files).toEqual(filesOf(status()));
   });
 });
 

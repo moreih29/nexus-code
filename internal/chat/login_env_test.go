@@ -11,6 +11,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("CHAT_RUN_FIXTURE"); mode != "" {
+		os.Exit(runFixture(mode))
+	}
 	if address := os.Getenv(execTreeFixtureEnv); address != "" {
 		os.Exit(runExecTreeFixture(address))
 	}

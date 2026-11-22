@@ -14,7 +14,8 @@ import {
   mergeAgentInstructions,
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
-import type { RelaySender } from "../../../shared/chat/relay";
+import type { RelaySender, TerminalOpener } from "../../../shared/chat/relay";
+import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
@@ -25,10 +26,35 @@ import {
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { notesApi } from "../notes/api";
+import { tabLinkTarget } from "../notes/conversation";
+import { liveAnswerOf } from "../notes/live-answer";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
+import type { ChatModel } from "./model";
 import { clipTitle, titleOf } from "./tab-title";
 import { sendFirstMessage } from "./transport/submission";
+
+const log = createLogger("note-links");
+
+function syncNoteLinks(workspaceId: string, tabId: string): void {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") return;
+  void notesApi
+    .updateLinksForTab({ ...tabLinkTarget(workspaceId, tab), agent: tab.type })
+    .catch((error) => log.warn(`Linked conversation not updated: ${String(error)}`));
+}
+
+function saveLiveAnswer(workspaceId: string, tabId: string, model: ChatModel): void {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") return;
+  const snapshot = liveAnswerOf(model);
+  if (!snapshot) return;
+  const { session, profileId } = tabLinkTarget(workspaceId, tab);
+  void notesApi
+    .updateLiveAnswer({ workspaceId, tabId, profileId, session, agent: tab.type }, snapshot)
+    .catch((error) => log.warn(`Live note card not updated: ${String(error)}`));
+}
 
 /** What a Claude tab keeps: the session to go on with, and its title. */
 export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks {
@@ -43,13 +69,18 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
     onSession: (sessionId) => {
       rememberSessionInstructions(workspaceId, tabId, sessionId);
       tabs().setClaudeSession(workspaceId, tabId, sessionId);
+      syncNoteLinks(workspaceId, tabId);
     },
     onTarget: (target) => {
       if (target.sessionId) rememberSessionInstructions(workspaceId, tabId, target.sessionId);
       tabs().setClaudeTarget(workspaceId, tabId, target);
+      if (target.sessionId) syncNoteLinks(workspaceId, tabId);
     },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
-    onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onTitle: (title) => {
+      tabs().setProcessTitle(workspaceId, tabId, clipTitle(title));
+      syncNoteLinks(workspaceId, tabId);
+    },
     // The user's own name for it, whole, as the tab's rename menu keeps one.
     onRename: (title) => tabs().renameTab(workspaceId, tabId, title),
     onProfile: (profileId) =>
@@ -67,6 +98,7 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
         tabs().addChatPeerSubmission(workspaceId, tabId, id, { ...submission, written: true });
     },
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
+    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
   };
 }
 
@@ -78,9 +110,13 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onThread: (threadId) => {
       rememberSessionInstructions(workspaceId, tabId, threadId);
       tabs().setCodexThread(workspaceId, tabId, threadId);
+      syncNoteLinks(workspaceId, tabId);
     },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
-    onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onTitle: (title) => {
+      tabs().setProcessTitle(workspaceId, tabId, clipTitle(title));
+      syncNoteLinks(workspaceId, tabId);
+    },
     onProfile: (profileId) =>
       tabs().setChatProfile(
         workspaceId,
@@ -90,6 +126,7 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
+    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
   };
 }
 
@@ -184,7 +221,7 @@ export function startAgentTab(
   const text = message.trim();
   const target = agentTabController(workspaceId, tabId);
   if (text === "" || !target) return;
-  sendFirstMessage(workspaceId, tabId, target, text, from);
+  void sendFirstMessage(workspaceId, tabId, target, text, from).catch(() => {});
 }
 
 /**
@@ -199,8 +236,9 @@ export function openAgentTab(
   message: string,
   profileId?: string,
   from?: RelaySender,
+  openedBy?: TerminalOpener,
 ): string {
-  const props = { cwd, ...(profileId ? { profileId } : {}) };
+  const props = { cwd, ...(profileId ? { profileId } : {}), ...(openedBy ? { openedBy } : {}) };
   const { id: tabId } =
     agent === "claude" ? openClaudeTab(workspaceId, props) : openCodexTab(workspaceId, props);
   startAgentTab(workspaceId, tabId, message, from);

@@ -57,6 +57,7 @@ export const LineRow = memo(function LineRow({
   marks,
   narrowed,
   lit,
+  summaryTask = false,
   onSpeaker,
   onQuote,
   onShowInWhole,
@@ -72,6 +73,7 @@ export const LineRow = memo(function LineRow({
   narrowed: boolean;
   /** Just shown in the whole conversation: lit a moment. */
   lit: boolean;
+  summaryTask?: boolean;
   /** Opens the menu that moves the line to another voice, under its speaker. */
   onSpeaker: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
   /** Puts the line into the note, as a quote. */
@@ -101,6 +103,11 @@ export const LineRow = memo(function LineRow({
         </button>
       ) : (
         <span className="mr-1.5 text-app-micro text-muted-foreground tabular-nums">{time}</span>
+      )}
+      {summaryTask && (
+        <span className="mr-1.5 inline-flex items-center whitespace-nowrap rounded-(--radius-control) border border-[var(--state-info-border)] bg-[var(--state-info-bg)] px-1 text-app-micro text-[var(--state-info-fg)]">
+          {t("summary.task")}
+        </span>
       )}
       <button
         type="button"

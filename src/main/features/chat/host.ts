@@ -115,7 +115,11 @@ export interface ChatHostOptions {
   profile?: (id: string) => AgentProfile | null;
   connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
-  agentContext?: (workspaceId: string, tabId: string) => ChatAgentContext | undefined;
+  agentContext?: (
+    workspaceId: string,
+    tabId: string,
+    session?: string,
+  ) => Promise<ChatAgentContext | undefined> | undefined;
   instructions?: (workspaceId: string, profile: AgentProfile, session?: string) => string;
   claudeInstructionDigests?: {
     get(workspaceId: string, sessionId: string): string | null | undefined;
@@ -229,13 +233,24 @@ export class ChatHost {
     }
 
     const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const version = await this.probeVersion(
-      channel,
-      "claude",
-      cwd,
-      found.path,
-      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
-    );
+    const launchEnv = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
+    const version = await this.probeVersion(channel, "claude", cwd, found.path, launchEnv);
+
+    if (resume.usageOnly) {
+      try {
+        const result = await this.spawn(key, intent, channel, {
+          workspaceId,
+          tabId,
+          cwd,
+          program: found.path,
+          args: claudeTabArgs(resume),
+          env: launchEnv,
+        });
+        return { ok: true, pid: result.pid, attached: result.attached === true, version };
+      } catch (err) {
+        return { ok: false, reason: "failed", message: (err as Error).message };
+      }
+    }
 
     if (profile.connection?.method === "custom" && version && !gte(version, CUSTOM_CLAUDE_FROM)) {
       return {
@@ -555,7 +570,10 @@ export class ChatHost {
       this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
     }
     const turn = message.method === "turn/start";
-    const note = turn ? this.options.agentContext?.(workspaceId, tabId) : undefined;
+    const threadId = (message.params as { threadId?: unknown } | undefined)?.threadId;
+    const note = turn
+      ? await this.options.agentContext?.(workspaceId, tabId, instructionSessionId(threadId))
+      : undefined;
     const instructions =
       turn && this.options.instructions
         ? this.options.instructions(

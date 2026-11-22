@@ -16,11 +16,7 @@ import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
-import {
-  type CodexController,
-  codexController,
-  MIN_CODEX_VERSION,
-} from "../../services/chat/codex/controller";
+import { codexController } from "../../services/chat/codex/controller";
 import {
   codexHistoryAvailable,
   codexHistoryBusy,
@@ -56,15 +52,10 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { withRelayed } from "../../services/chat/relayed";
+import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import {
-  type ChatTabState,
-  chatKey,
-  revealPart,
-  useChatStore,
-  useChatTab,
-} from "../../services/chat/store";
+import { chatKey, revealPart, useChatStore, useChatTab } from "../../services/chat/store";
+import { ChatNotesProvider } from "../../services/notes/chat-notes";
 import { chatPanelOf } from "../../services/remote/chat-panel";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -90,16 +81,20 @@ import {
   remotePanelPartOf,
   SessionSidePanel,
 } from "../agent-view/remote-side-panel";
-import { Banner, type BannerAction } from "../ui/banner";
+import { ConversationNoteChip } from "../notes/conversation-note-chip";
+import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { CodexIcon } from "./agent-icons";
 import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
 import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
+import { ChatPhaseBanner, ChatSignedOutBanner } from "./chat-state-banner";
 import { CodexDefaultsDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
+import { ConversationChildren, ConversationParentChip } from "./conversation-tree";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
+import { LimitResumeBanner } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -111,6 +106,7 @@ import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
 import { toolSummary } from "./tool-row";
+import { TurnFailureBanner } from "./turn-failure-banner";
 import { CodexUsageLine } from "./usage-line";
 
 interface CodexTabViewProps {
@@ -153,6 +149,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   // Followed while shown: a tab in the background draws nothing per chunk
   // of a streaming reply, and shows the latest when it comes to the front.
   const state = useChatTab(workspaceId, tabId, isVisible);
+  const bannerScope = ["chat", workspaceId, tabId, state.model.sessionId];
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
   const steady = useStateBesideStream(state);
@@ -486,7 +483,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       cwd: props.cwd,
       rootPath,
       ...(props.profileId ? { profileId: props.profileId } : {}),
-      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
+      items: withRelayed(
+        history ? [...history.items, ...model.items] : model.items,
+        relayedOf(props),
+      ),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -572,6 +572,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       }
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
       testId="codex-side-panel"
+      conversations={isVisible ? <ConversationChildren tabId={tabId} /> : undefined}
     />
   );
 
@@ -626,22 +627,29 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           onClose={() => setRewinding(null)}
         />
       )}
-      <PhaseBanner controller={controller} state={state} />
-      {model.signedOut && model.process === "running" && (
-        <div className="shrink-0" data-testid="codex-signed-out">
-          <Banner
-            variant="warning"
-            message={t("chat.codex.signed_out")}
-            actions={[
-              { label: t("chat.codex.sign_in"), onAction: signIn },
-              {
-                label: t("chat.codex.sign_in_check"),
-                onAction: () => void controller.refreshAccount(),
-              },
-            ]}
-          />
-        </div>
-      )}
+      <ChatPhaseBanner
+        scope={bannerScope}
+        status={{
+          agent: "codex",
+          process: state.model.process,
+          phase: state.phase,
+          error: state.error,
+          version: state.version,
+          exit: state.model.exit,
+          phaseRevision: state.phaseRevision,
+        }}
+        onRestart={() => void controller.restart()}
+        onRetry={() => void controller.open()}
+        className="shrink-0 pt-1"
+      />
+      <ChatSignedOutBanner
+        scope={bannerScope}
+        status={{ agent: "codex", process: model.process, signedOut: model.signedOut }}
+        onSignIn={signIn}
+        onCheck={() => void controller.refreshAccount()}
+      />
+      {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
+      <ConversationNoteChip />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
@@ -697,7 +705,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
               reveal={callReveal ?? undefined}
               moves={props.moves}
-              relayed={props.relayed}
+              relayed={relayedOf(props)}
               historyTruncated={!shown && state.truncated}
               empty={
                 !shown && (state.phase === "ready" || state.phase === "ended") ? (
@@ -708,8 +716,16 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
                       {props.cwd}
                     </div>
                     {resumeError && (
-                      <div className="text-app-ui-sm text-[var(--state-error-fg)]">
-                        {t("chat.sessions.resume_failed", { message: resumeError })}
+                      <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
+                        <span className="flex-1">
+                          {t("chat.sessions.resume_failed", { message: resumeError })}
+                        </span>
+                        <BannerDismissButton
+                          dismiss={{
+                            label: t("action.dismiss"),
+                            onDismiss: () => setResumeError(null),
+                          }}
+                        />
                       </div>
                     )}
                     {state.phase === "ready" && (
@@ -768,11 +784,17 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               </button>
             </div>
           )}
+          <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
+          <TurnFailureBanner
+            scope={bannerScope}
+            model={model}
+            onRetry={(text) => controller.send(text)}
+          />
           <Composer
             instructionsTab={instructionsTab}
             controller={controller}
             state={state}
-            relayed={props.relayed}
+            relayed={relayedOf(props)}
             local={isLocal}
             commands={commands}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -904,6 +926,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           onOpenBeside={(path, { at }) => {
             setLook(null);
             placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+            return true;
           }}
           onOpenTab={(path, at) => {
             setLook(null);
@@ -924,65 +947,15 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   );
   return (
     <ChatAgentContext.Provider value="codex">
-      <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+      <ChatNotesProvider
+        workspaceId={workspaceId}
+        tabId={tabId}
+        agent="codex"
+        session={props.threadId}
+        visible={isVisible}
+      >
+        <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+      </ChatNotesProvider>
     </ChatAgentContext.Provider>
   );
-}
-
-function PhaseBanner({ controller, state }: { controller: CodexController; state: ChatTabState }) {
-  const { t } = useTranslation();
-  const retry: BannerAction = {
-    label: t("chat.phase.retry"),
-    onAction: () => void controller.open(),
-  };
-  let banner: React.ReactNode = null;
-  switch (state.phase) {
-    case "starting":
-      banner = <Banner variant="info" message={t("chat.codex.starting")} />;
-      break;
-    case "held":
-      banner = <Banner variant="warning" message={t("chat.codex.held")} />;
-      break;
-    case "ended":
-      banner = (
-        <Banner
-          variant="info"
-          message={t("chat.codex.ended")}
-          details={state.model.exit?.stderrTail || undefined}
-          actions={[{ label: t("chat.phase.restart"), onAction: () => void controller.restart() }]}
-        />
-      );
-      break;
-    case "not-found":
-      banner = (
-        <Banner
-          variant="error"
-          message={t("chat.codex.not_found")}
-          details={state.error}
-          actions={[retry]}
-        />
-      );
-      break;
-    case "failed":
-      banner =
-        state.error === "old-version" ? (
-          <Banner
-            variant="error"
-            message={t("chat.codex.old_version", {
-              version: state.version ?? "?",
-              min: MIN_CODEX_VERSION,
-            })}
-            actions={[retry]}
-          />
-        ) : (
-          <Banner
-            variant="error"
-            message={t("chat.codex.failed")}
-            details={state.error}
-            actions={[retry]}
-          />
-        );
-      break;
-  }
-  return banner ? <div className="shrink-0 pt-1">{banner}</div> : null;
 }

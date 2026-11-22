@@ -23,6 +23,7 @@ import {
   type LinkClassifyContext,
 } from "../../../services/editor/preview/link-router";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
+import { peerOf } from "../../../services/remote/peer-workspace";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
@@ -228,7 +229,9 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
           window.open(classified.href, "_blank", "noopener,noreferrer");
           return;
         case "internal-file":
-          openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
+          if (!peerOf(workspaceId)) {
+            openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
+          }
           return;
         case "blocked":
           log.warn(`blocked link click: ${classified.reason}`);

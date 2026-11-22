@@ -4,6 +4,7 @@
  * in its hello.
  */
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 
 export const RoomStatusSchema = z.enum([
   /** Not in the room: signed out, or without the account key. */
@@ -38,7 +39,7 @@ export const RoomPeerSchema = z.object({
    * this device stayed, which the room may not have shown: what was watched
    * there was dropped, and is watched again as this grows. Absent before.
    */
-  rejoins: z.number().int().nonnegative().optional(),
+  rejoins: NonnegativeIntegerSchema.optional(),
 });
 export type RoomPeer = z.infer<typeof RoomPeerSchema>;
 

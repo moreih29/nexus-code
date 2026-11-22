@@ -112,7 +112,13 @@ export function HistoryPanel({
         onChange={setQuery}
         onClear={() => setQuery("")}
       />
-      {banner ? <GitInlineBanner variant={banner.variant} message={banner.message} /> : null}
+      {banner && (
+        <GitInlineBanner
+          variant={banner.variant}
+          message={banner.message}
+          dismiss={{ label: t("common:action.dismiss"), onDismiss: () => setBanner(null) }}
+        />
+      )}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-auto app-scrollbar">
           <HistoryList

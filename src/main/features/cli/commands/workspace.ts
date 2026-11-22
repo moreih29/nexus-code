@@ -33,7 +33,8 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
-import { senderOf } from "../sender";
+import { mayExecute } from "../sandbox";
+import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 import { groupsOf } from "./layout";
@@ -341,13 +342,17 @@ const worktreeNew: CliCommand = {
     const body = [flags.command as string | undefined, prompt]
       .filter((part): part is string => part !== undefined && part.trim() !== "")
       .join("\n\n");
-    await mayChange(ctx, parent, {
+    await mayExecute(ctx, parent, {
       kind: "worktreeNew",
       detail: name,
+      ...(start && "command" in start && start.command.trim() ? { terminal: true } : {}),
       ...(body !== "" ? { body } : {}),
     });
     // An agent's prompt shows as its in the task's tab, and the agent there is told.
-    const from = prompt.trim() !== "" ? await senderOf(ctx) : undefined;
+    const sender = await senderOf(ctx);
+    const from = prompt.trim() !== "" ? sender : undefined;
+    const openedBy = openerOf(sender);
+    ctx.signal?.throwIfAborted();
     const created = await ctx.services.ui(
       "task.create",
       {
@@ -358,6 +363,7 @@ const worktreeNew: CliCommand = {
         show: flags.show === true,
         createdBy: ctx.caller,
         ...(from ? { from } : {}),
+        ...(openedBy ? { openedBy } : {}),
       },
       TASK_TIMEOUT_MS,
     );
@@ -445,7 +451,7 @@ const worktreeClaudeCreate: CliCommand = {
     if (source !== "-") throw new CliUsageError('give "-" to read the hook\'s JSON from stdin');
     const name = hookField(ctx, "WorktreeCreate", "name");
     const [parent] = worktreeFamily(ctx, resolveWorkspace(ctx, undefined)) as [WorkspaceMeta];
-    await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
+    await mayExecute(ctx, parent, { kind: "worktreeNew", detail: name, body: name });
     const { workspaceId } = await ctx.services.ui(
       "task.create",
       {
@@ -489,9 +495,13 @@ const worktreeClaudeRemove: CliCommand = {
       throw new CliError("this terminal is in that worktree; remove it from another terminal");
     }
     const made = task.createdBy;
-    if (made?.workspaceId !== ctx.caller.workspaceId || made.tabId !== ctx.caller.tabId) {
-      await mayChange(ctx, target, { kind: "worktreeRemove" });
-    }
+    const own = made?.workspaceId === ctx.caller.workspaceId && made.tabId === ctx.caller.tabId;
+    await mayExecute(
+      ctx,
+      target,
+      { kind: "worktreeRemove", body: folder },
+      { skipWorkspacePolicy: own },
+    );
     await ctx.services.ui(
       "task.remove",
       { taskId: target.id, force: false, deleteBranch: "merged" },
@@ -564,7 +574,7 @@ const worktreeRemove: CliCommand = {
       throw new CliError("this terminal is in that worktree; remove it from another terminal");
     }
     const deleteBranch = flags["delete-branch"] === true;
-    await mayChange(ctx, target, {
+    await mayExecute(ctx, target, {
       kind: deleteBranch ? "worktreeRemoveBranch" : "worktreeRemove",
     });
     await ctx.services.ui(

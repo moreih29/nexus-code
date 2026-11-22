@@ -1,5 +1,11 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { LspBootstrapProgressPhaseSchema } from "../lsp/diagnostics";
+import { DateTimeSchema } from "../validation/string";
 import { TabMetaSchema } from "./tab";
 import { toWorkspaceColor, WorkspaceColorSchema } from "./workspace-color";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -20,7 +26,7 @@ export const WorkspaceSshLocationSchema = z.preprocess(
     kind: z.literal("ssh"),
     host: z.string(),
     user: z.string().optional(),
-    port: z.number().int().positive().max(65_535).optional(),
+    port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
     remotePath: z.string(),
     identityFile: z.string().optional(),
     configAlias: z.string().optional(),
@@ -66,15 +72,15 @@ export type WorkspaceLocation = z.infer<typeof WorkspaceLocationSchema>;
  * switched to from inside the parent.
  */
 export const WorkspaceTaskSchema = z.object({
-  parentId: z.string().uuid(),
+  parentId: z.guid(),
   branch: z.string().min(1),
   /** The worktree's top folder; the task opens the parent's subfolder of it. */
   worktreePath: z.string().min(1),
   /**
-   * The terminal whose agent made the task with `nexus worktree new`;
-   * absent for a task the user made in the app.
+   * The tab that ran the local command to make the worktree. It may be a
+   * terminal where the user ran `nexus worktree new`.
    */
-  createdBy: z.object({ workspaceId: z.string().uuid(), tabId: z.string().min(1) }).optional(),
+  createdBy: z.object({ workspaceId: z.guid(), tabId: z.string().min(1) }).optional(),
 });
 
 export type WorkspaceTask = z.infer<typeof WorkspaceTaskSchema>;
@@ -109,8 +115,8 @@ export const WorkspaceConnectionProgressEventSchema = z.object({
   workspaceId: z.string(),
   name: z.string(),
   phase: LspBootstrapProgressPhaseSchema,
-  bytesDone: z.number().int().nonnegative().optional(),
-  bytesTotal: z.number().int().nonnegative().optional(),
+  bytesDone: NonnegativeIntegerSchema.optional(),
+  bytesTotal: NonnegativeIntegerSchema.optional(),
 });
 
 export type WorkspaceConnectionProgressEvent = z.infer<
@@ -130,8 +136,8 @@ export const SshBrowseProgressEventSchema = z.object({
   progressId: z.string(),
   name: z.string(),
   phase: LspBootstrapProgressPhaseSchema,
-  bytesDone: z.number().int().nonnegative().optional(),
-  bytesTotal: z.number().int().nonnegative().optional(),
+  bytesDone: NonnegativeIntegerSchema.optional(),
+  bytesTotal: NonnegativeIntegerSchema.optional(),
 });
 
 export type SshBrowseProgressEvent = z.infer<typeof SshBrowseProgressEventSchema>;
@@ -225,7 +231,7 @@ export const WorkspaceMetaSchema = z.preprocess(
     };
   },
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
     name: z.string(),
     location: WorkspaceLocationSchema,
     /**
@@ -236,12 +242,12 @@ export const WorkspaceMetaSchema = z.preprocess(
     /** The color that tells the workspace apart; "auto" leaves it to the app. */
     color: WorkspaceColorSchema,
     pinned: z.boolean(),
-    lastOpenedAt: z.string().datetime().optional(),
+    lastOpenedAt: DateTimeSchema.optional(),
     tabs: z.array(TabMetaSchema),
     /** Sort position within the unpinned group. 0 means "not yet positioned". */
-    sortOrder: z.number().int(),
+    sortOrder: IntegerSchema,
     /** Sort position within the pinned group. 0 means "not yet positioned". */
-    pinnedSortOrder: z.number().int(),
+    pinnedSortOrder: IntegerSchema,
     /** Set when this workspace is a task of another workspace. */
     task: WorkspaceTaskSchema.optional(),
   }),

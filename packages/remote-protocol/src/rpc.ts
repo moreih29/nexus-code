@@ -14,6 +14,14 @@ import {
   WorkspaceLayoutSchema,
 } from "./layout.js";
 import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+  NonnegativeNumberSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+  wireRecord,
+} from "./validation.js";
+import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
@@ -21,13 +29,14 @@ import {
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
+  ViewUsageMeterSchema,
 } from "./view.js";
 
 // ---------------------------------------------------------------------------
 // JSON-RPC 2.0 shapes
 // ---------------------------------------------------------------------------
 
-export const RpcIdSchema = z.union([z.number().int(), z.string()]);
+export const RpcIdSchema = z.union([IntegerSchema, z.string()]);
 
 export const RpcRequestSchema = z.object({
   jsonrpc: z.literal("2.0"),
@@ -38,7 +47,7 @@ export const RpcRequestSchema = z.object({
 export type RpcRequest = z.infer<typeof RpcRequestSchema>;
 
 export const RpcErrorSchema = z.object({
-  code: z.number().int(),
+  code: IntegerSchema,
   message: z.string(),
   data: z.unknown().optional(),
 });
@@ -48,7 +57,7 @@ export type RpcError = z.infer<typeof RpcErrorSchema>;
 // and would strip an error answer's `error`.
 export const RpcResponseSchema = z.union([
   z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, error: RpcErrorSchema }),
-  z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, result: z.unknown() }),
+  z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, result: z.unknown().optional() }),
 ]);
 export type RpcResponse = z.infer<typeof RpcResponseSchema>;
 
@@ -92,7 +101,7 @@ export const RpcErrorCode = {
  * version that adds an agent's state hides that agent from an older one,
  * not every session of the computer. Since 0.12.1.
  */
-export function readableList<T extends z.ZodTypeAny>(item: T, max = Number.POSITIVE_INFINITY) {
+export function readableList<T extends z.ZodType>(item: T, max = Number.POSITIVE_INFINITY) {
   return z.array(z.unknown()).transform((items) => {
     const read: z.output<T>[] = [];
     for (const value of items) {
@@ -126,9 +135,9 @@ export const RemoteWorkspaceSchema = z.object({
   git: z
     .object({
       branch: z.string().nullable(),
-      ahead: z.number().int().nonnegative(),
-      behind: z.number().int().nonnegative(),
-      uncommitted: z.number().int().nonnegative(),
+      ahead: NonnegativeIntegerSchema,
+      behind: NonnegativeIntegerSchema,
+      uncommitted: NonnegativeIntegerSchema,
     })
     .optional(),
 });
@@ -166,14 +175,14 @@ export const ChatRunSchema = z.object({
   description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
   /** What it was asked: its start, as chat.runs tells it; all of it (to MAX_RUN_TEXT) from chat.run. */
   prompt: z.string().max(MAX_RUN_TEXT).optional(),
-  start: z.number(),
-  end: z.number().optional(),
+  start: NumberSchema,
+  end: NumberSchema.optional(),
   state: RunStateSchema,
-  toolCount: z.number().int().nonnegative(),
-  failedCount: z.number().int().nonnegative(),
+  toolCount: NonnegativeIntegerSchema,
+  failedCount: NonnegativeIntegerSchema,
   /** Whether its tools are told (its output is a stream of events). */
   toolsTold: z.boolean().optional(),
-  exitCode: z.number().int().optional(),
+  exitCode: IntegerSchema.optional(),
   /** Its session's id, which chat.resume goes on with in a tab of its own. */
   sessionId: z.string().max(200).optional(),
   /** The tool it runs now, as "Bash npm test"; from chat.runs. */
@@ -188,8 +197,8 @@ export const ChatRunSchema = z.object({
         name: z.string().max(200),
         target: z.string().max(2000).optional(),
         note: z.string().max(2000).optional(),
-        start: z.number(),
-        end: z.number().optional(),
+        start: NumberSchema,
+        end: NumberSchema.optional(),
         failed: z.boolean().optional(),
         error: z.string().max(2000).optional(),
         background: z.boolean().optional(),
@@ -200,7 +209,7 @@ export const ChatRunSchema = z.object({
     .optional(),
   /** Its latest messages, oldest first; from chat.run. */
   messages: z
-    .array(z.object({ at: z.number(), text: z.string().max(MAX_RUN_TEXT) }))
+    .array(z.object({ at: NumberSchema, text: z.string().max(MAX_RUN_TEXT) }))
     .max(20)
     .optional(),
   /** Its answer, once it ended; from chat.run. */
@@ -225,9 +234,11 @@ export const RemoteSessionAgentSchema = z.object({
   description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
   state: z.enum(["running", "permissionPending", "completed", "stopped", "failed"]),
   /** When it started, in Unix milliseconds. */
-  start: z.number(),
+  start: NumberSchema,
 });
 export type RemoteSessionAgent = z.infer<typeof RemoteSessionAgentSchema>;
+
+export const MAX_SESSION_OPENER_NAME = 120;
 
 /** An agent session or terminal of the serving device. */
 export const RemoteSessionSchema = z.object({
@@ -236,8 +247,14 @@ export const RemoteSessionSchema = z.object({
   kind: z.enum(["claude", "codex", "terminal"]),
   title: z.string(),
   state: SessionStateSchema,
-  /** When it came to that state, in Unix milliseconds. */
-  since: z.number().optional(),
+  /** The last turn ended in error. Keep state as before for older readers. Since 0.22.0. */
+  failed: z.literal(true).optional(),
+  /**
+   * When it came to that state, in Unix milliseconds. Hosts serving sessions.markSeen
+   * report unread chat and terminal results as new-result, with their result time here.
+   * Return that time as upTo to mark the result seen. Failures keep their prior state.
+   */
+  since: NumberSchema.optional(),
   /** The last thing it said, a line. */
   last: z.string().optional(),
   /** The agent profile it runs with. */
@@ -287,6 +304,33 @@ export const RemoteSessionSchema = z.object({
    * more than MAX_SESSION_AGENTS are cut (readableList).
    */
   agents: readableList(RemoteSessionAgentSchema, MAX_SESSION_AGENTS).optional(),
+  /**
+   * The agent that opened this session. Its IDs are on the serving device
+   * unless device names the Room ID of another computer. Names and the
+   * whole opener may be left out to fit a listing in one frame. Since 0.25.0.
+   */
+  openedBy: z
+    .object({
+      workspaceId: z.string().max(64),
+      tabId: z.string().max(64),
+      kind: z.enum(["tab", "terminal"]).optional().catch(undefined),
+      agent: z.enum(["claude", "codex"]).optional().catch(undefined),
+      name: z.string().max(MAX_SESSION_OPENER_NAME).optional(),
+      device: z
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(MAX_SESSION_OPENER_NAME).optional(),
+        })
+        .optional(),
+    })
+    .optional()
+    .catch(undefined),
+  /**
+   * A chat the plan's usage limit stopped, which its app goes on in by
+   * itself at `at` (Unix milliseconds), once the limit resets. Since
+   * 0.19.0; one this version cannot read is left out, not the session.
+   */
+  limitWait: z.object({ at: NumberSchema }).optional().catch(undefined),
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 
@@ -304,11 +348,11 @@ export type ConsentAnswer = z.infer<typeof ConsentAnswerSchema>;
 export const RemoteConsentSchema = z.object({
   id: z.string(),
   /** When it was asked, by the serving device's clock (Unix ms). */
-  at: z.number(),
+  at: NumberSchema,
   /** When it counts as turned down, by the serving device's clock. */
-  expiresAt: z.number(),
+  expiresAt: NumberSchema,
   /** How long it has left as the list is sent: a countdown that needs no clock in common. */
-  expiresInMs: z.number().int().nonnegative(),
+  expiresInMs: NonnegativeIntegerSchema,
   /** Who asks. */
   from: z.object({
     /** An agent of another device of the account; absent: one of the serving device's own. */
@@ -366,8 +410,9 @@ export const RemoteConsentSchema = z.object({
   eachTime: z.boolean(),
   /**
    * Whether the device the list goes to may answer it: one that serves it
-   * chat.control, and terminal.control too for a change to a terminal; never
-   * the device whose agent asks.
+   * chat.control, and terminal.control too for a change to a terminal. The
+   * device whose agent asks may too, as its user (an older serving device
+   * says false to it): consent.answer is not taken from agents.
    */
   answerable: z.boolean(),
 });
@@ -383,9 +428,9 @@ export const RemoteRecordingSchema = z.object({
   /** The note's title; empty for a note not named yet. */
   title: z.string(),
   /** How long it had recorded at `at`, in milliseconds. */
-  recordedMs: z.number().nonnegative(),
+  recordedMs: NonnegativeNumberSchema,
   /** When it was counted, by the serving device's clock (Unix milliseconds). */
-  at: z.number(),
+  at: NumberSchema,
   /** Paused: `recordedMs` stays as it is until it records again. */
   paused: z.boolean(),
 });
@@ -395,6 +440,8 @@ const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
   /** Since 0.12.1, a session this version cannot read (a kind or state it does not know) is left out. */
   sessions: readableList(RemoteSessionSchema),
+  /** Workspaces whose rows may be partial or retained from the last good watch snapshot. */
+  incompleteWorkspaces: z.array(z.string()).optional(),
   /**
    * The consent prompts waiting on the user, in the order they are asked;
    * absent before 0.3.0. Since 0.12.1, one this version cannot read is left out.
@@ -529,8 +576,8 @@ export const ChatWaitStateSchema = z.enum(["working", "asking", "idle", "error",
 /** A session state change, as `nexus events` lists them. */
 export const SessionEventSchema = z.object({
   /** Counts the device's events from 1 since its app started. */
-  seq: z.number().int().positive(),
-  at: z.number(),
+  seq: PositiveIntegerSchema,
+  at: NumberSchema,
   workspaceId: z.string(),
   tabId: z.string(),
   title: z.string(),
@@ -651,7 +698,7 @@ export const ChatConfigSchema = z.object({
     .max(100),
   outputStyles: z.array(z.string()).max(100).optional(),
   efforts: z
-    .object({ level: z.string().optional(), byModel: z.record(z.string(), z.string()) })
+    .object({ level: z.string().optional(), byModel: wireRecord(z.string(), z.string()) })
     .optional(),
 });
 export type ChatConfig = z.infer<typeof ChatConfigSchema>;
@@ -661,9 +708,9 @@ export const PastSessionSchema = z.object({
   sessionId: z.string(),
   title: z.string(),
   /** When it last changed, in Unix milliseconds. */
-  at: z.number(),
+  at: NumberSchema,
   /** Its log's size in bytes, when known. */
-  bytes: z.number().int().nonnegative().optional(),
+  bytes: NonnegativeIntegerSchema.optional(),
   /** The folder it ran in. */
   cwd: z.string().optional(),
   profile: z.string().optional(),
@@ -690,10 +737,10 @@ export const GitFileSchema = z.object({
 
 /** A piece of a diff, as jsdiff's structuredPatch gives it: lines starting " ", "-" or "+". */
 export const DiffHunkSchema = z.object({
-  oldStart: z.number().int().nonnegative(),
-  oldLines: z.number().int().nonnegative(),
-  newStart: z.number().int().nonnegative(),
-  newLines: z.number().int().nonnegative(),
+  oldStart: NonnegativeIntegerSchema,
+  oldLines: NonnegativeIntegerSchema,
+  newStart: NonnegativeIntegerSchema,
+  newLines: NonnegativeIntegerSchema,
   lines: z.array(z.string()),
 });
 export type DiffHunk = z.infer<typeof DiffHunkSchema>;
@@ -735,12 +782,12 @@ export const MAX_READ_ITEMS = 500;
  */
 export const ChatPageSchema = z.object({
   status: ChatStatusSchema,
-  start: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
+  start: NonnegativeIntegerSchema,
+  total: NonnegativeIntegerSchema,
   items: z.array(ViewItemSchema),
-  tools: z.record(ViewToolCallSchema),
-  tasks: z.record(ViewTaskSchema),
-  agentItems: z.record(z.array(AssistantItemSchema)),
+  tools: wireRecord(z.string(), ViewToolCallSchema),
+  tasks: wireRecord(z.string(), ViewTaskSchema),
+  agentItems: wireRecord(z.string(), z.array(AssistantItemSchema)),
 });
 export type ChatPage = z.infer<typeof ChatPageSchema>;
 
@@ -750,8 +797,8 @@ export type ChatPage = z.infer<typeof ChatPageSchema>;
  * the whole item, while a reply streams in.
  */
 export const ChatAppendSchema = z.object({
-  index: z.number().int().nonnegative(),
-  block: z.number().int().nonnegative(),
+  index: NonnegativeIntegerSchema,
+  block: NonnegativeIntegerSchema,
   /** What follows the block's text, in UTF-16 code units: it may start inside a surrogate pair. */
   text: z.string(),
 });
@@ -763,7 +810,7 @@ export type ChatAppend = z.infer<typeof ChatAppendSchema>;
  * text for a tool is its input's JSON so far.
  */
 export const ChatStreamAppendSchema = z.object({
-  block: z.number().int().nonnegative(),
+  block: NonnegativeIntegerSchema,
   /** What follows the block's text, in UTF-16 code units: it may start inside a surrogate pair. */
   text: z.string(),
 });
@@ -797,16 +844,16 @@ export const ChatUpdateStatusSchema = ChatStatusSchema.extend({
 export const ChatUpdateSchema = z.object({
   watchId: z.string(),
   /** Counts the watch's updates from 1, so one lost shows. */
-  rev: z.number().int().positive(),
+  rev: PositiveIntegerSchema,
   status: ChatUpdateStatusSchema.optional(),
-  total: z.number().int().nonnegative(),
-  items: z.array(z.object({ index: z.number().int().nonnegative(), item: ViewItemSchema })),
+  total: NonnegativeIntegerSchema,
+  items: z.array(z.object({ index: NonnegativeIntegerSchema, item: ViewItemSchema })),
   /** Only for a watch that asked for them (chat.watch's `appends`), as streamAppends. */
   appends: z.array(ChatAppendSchema).optional(),
   streamAppends: z.array(ChatStreamAppendSchema).optional(),
-  tools: z.record(ViewToolCallSchema),
-  tasks: z.record(ViewTaskSchema),
-  agentItems: z.record(z.array(AssistantItemSchema)),
+  tools: wireRecord(z.string(), ViewToolCallSchema),
+  tasks: wireRecord(z.string(), ViewTaskSchema),
+  agentItems: wireRecord(z.string(), z.array(AssistantItemSchema)),
   /** The side panel, when it changed. */
   panel: ChatPanelSchema.optional(),
 });
@@ -822,8 +869,8 @@ export type ChatUpdate = z.infer<typeof ChatUpdateSchema>;
  * own does), or when it is above the lines sent.
  */
 export const TerminalCaretSchema = z.object({
-  line: z.number().int().nonnegative(),
-  column: z.number().int().nonnegative(),
+  line: NonnegativeIntegerSchema,
+  column: NonnegativeIntegerSchema,
 });
 export type TerminalCaret = z.infer<typeof TerminalCaretSchema>;
 
@@ -838,8 +885,8 @@ export type TerminalCaret = z.infer<typeof TerminalCaretSchema>;
 export const TerminalUpdateSchema = z.object({
   watchId: z.string(),
   /** Counts the watch's updates from 1, so one lost shows. */
-  rev: z.number().int().positive(),
-  start: z.number().int().nonnegative(),
+  rev: PositiveIntegerSchema,
+  start: NonnegativeIntegerSchema,
   text: z.string(),
   caret: TerminalCaretSchema.optional(),
 });
@@ -858,7 +905,7 @@ const FileScope = {
 };
 const FileTransferRef = {
   /** Keep a one-time approval within the paths used by this copy. */
-  transferId: z.string().uuid().optional(),
+  transferId: z.guid().optional(),
 };
 const FileUploadRef = {
   ...FileScope,
@@ -894,6 +941,9 @@ const TaskStartSchema = z.union([
   z.object({ command: z.string().max(10000) }),
 ]);
 
+/** Most sessions one sessions.markSeen request can name. */
+export const MAX_MARK_SEEN = 500;
+
 export const RPC_METHODS = {
   "sessions.list": {
     capability: "sessions",
@@ -911,6 +961,26 @@ export const RPC_METHODS = {
     params: z.object({ watchId: z.string() }),
     result: Ok,
   },
+  /** Reorders the named slots in a workspace's agent list, as the user. Since 0.21.0. */
+  "sessions.reorder": {
+    capability: "sessions.reorder",
+    params: z.object({ workspaceId: z.string(), tabIds: z.array(z.string()).max(500) }),
+    result: Ok,
+  },
+  /**
+   * For the user only. Marks currently unread results whose since is at most upTo,
+   * using the host's listing time. Returns the number marked. Since 0.23.0.
+   */
+  "sessions.markSeen": {
+    capability: "sessions.markSeen",
+    params: z.object({
+      seen: z
+        .array(z.object({ ...TabRef, upTo: z.number() }))
+        .min(1)
+        .max(MAX_MARK_SEEN),
+    }),
+    result: z.object({ marked: NonnegativeIntegerSchema }),
+  },
   /**
    * The session state changes after `since` (the first `limit`, `more` when
    * some were left out), or the last `limit`; `cursor` is the latest seq. A
@@ -919,14 +989,14 @@ export const RPC_METHODS = {
   "events.read": {
     capability: "sessions",
     params: z.object({
-      since: z.number().int().nonnegative().optional(),
-      limit: z.number().int().positive().max(500).optional(),
+      since: NonnegativeIntegerSchema.optional(),
+      limit: PositiveIntegerSchema.check(z.lte(500)).optional(),
       ...ReadBy,
     }),
     result: z.object({
       /** Since 0.12.1, an event this version cannot read (a kind it does not know) is left out. */
       events: readableList(SessionEventSchema),
-      cursor: z.number().int().nonnegative(),
+      cursor: NonnegativeIntegerSchema,
       more: z.boolean(),
     }),
   },
@@ -948,6 +1018,32 @@ export const RPC_METHODS = {
           isDefault: z.boolean(),
           workspaceDefault: z.boolean().optional(),
           path: z.string().optional(),
+        }),
+      ),
+    }),
+  },
+  /** Subscription limits last observed for the profiles on a workspace host. */
+  "profiles.usage": {
+    capability: "profiles.usage",
+    params: z.object({
+      agent: z.enum(["claude", "codex"]).optional(),
+      profile: z.string().min(1).max(64).optional(),
+      workspaceId: z.string().optional(),
+      refresh: z.boolean().optional(),
+      ...ReadBy,
+    }),
+    result: z.object({
+      profiles: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          agent: z.enum(["claude", "codex"]),
+          status: z.enum(["fresh", "stale", "unavailable", "not-subscription"]),
+          /** When the serving app last received limits, in Unix milliseconds. */
+          fetchedAt: NumberSchema.optional(),
+          limits: z.array(
+            ViewUsageMeterSchema.extend({ fetchedAt: NumberSchema, stale: z.boolean() }),
+          ),
         }),
       ),
     }),
@@ -1002,7 +1098,7 @@ export const RPC_METHODS = {
       /** Only those whose title has it. */
       query: z.string().max(200).optional(),
       ...ReadBy,
-      limit: z.number().int().positive().max(200).optional(),
+      limit: PositiveIntegerSchema.check(z.lte(200)).optional(),
     }),
     result: z.object({ sessions: z.array(PastSessionSchema) }),
   },
@@ -1012,8 +1108,8 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
-      before: z.number().int().nonnegative().optional(),
-      limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
+      before: NonnegativeIntegerSchema.optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_READ_ITEMS)).optional(),
       ...ReadBy,
     }),
     result: ChatPageSchema,
@@ -1023,7 +1119,7 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
-      limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_READ_ITEMS)).optional(),
       /**
        * The watcher takes text added to an assistant item's block, and to
        * the reply being written, as `appends` and `streamAppends` in its
@@ -1065,7 +1161,7 @@ export const RPC_METHODS = {
       cli: z.literal(true).optional(),
       ...ReadBy,
     }),
-    result: ViewToolCallSchema.extend({ index: z.number().int().nonnegative().optional() }),
+    result: ViewToolCallSchema.extend({ index: NonnegativeIntegerSchema.optional() }),
   },
   /**
    * A file the chat changed as it was before its first change, for its
@@ -1089,8 +1185,8 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
-      timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
-      after: z.number().optional(),
+      timeoutMs: PositiveIntegerSchema.check(z.lte(MAX_WAIT_MS)).optional(),
+      after: NumberSchema.optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1113,7 +1209,7 @@ export const RPC_METHODS = {
       ...TabRef,
       ...ReadBy,
       /** Since 0.9.0; a desktop before it sends the image whole. */
-      maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
+      maxEdge: PositiveIntegerSchema.check(z.lte(MAX_IMAGE_EDGE)).optional(),
       /** Opt in to validating the requested image before sending its bytes. */
       versioned: z.literal(true).optional(),
       ifVersion: z.string().min(1).max(128).optional(),
@@ -1121,17 +1217,17 @@ export const RPC_METHODS = {
         z.object({
           kind: z.literal("user"),
           itemKey: z.string(),
-          index: z.number().int().nonnegative(),
+          index: NonnegativeIntegerSchema,
         }),
         z.object({
           kind: z.literal("tool"),
           toolUseId: z.string(),
-          index: z.number().int().nonnegative(),
+          index: NonnegativeIntegerSchema,
         }),
         z.object({
           kind: z.literal("held"),
           id: z.string(),
-          index: z.number().int().nonnegative(),
+          index: NonnegativeIntegerSchema,
         }),
       ]),
     }),
@@ -1142,8 +1238,8 @@ export const RPC_METHODS = {
       version: z.string().min(1).max(128).optional(),
       notModified: z.literal(true).optional(),
       /** In pixels: always, from 0.9.0; before, only when it was drawn smaller. */
-      width: z.number().int().positive().optional(),
-      height: z.number().int().positive().optional(),
+      width: PositiveIntegerSchema.optional(),
+      height: PositiveIntegerSchema.optional(),
     }),
   },
 
@@ -1181,7 +1277,7 @@ export const RPC_METHODS = {
      */
     result: z.object({
       remoteControl: RemoteControlState.optional(),
-      at: z.number().optional(),
+      at: NumberSchema.optional(),
       heldId: z.string().optional(),
       clientNonce: ClientNonceSchema.optional(),
       itemKey: z.string().optional(),
@@ -1270,7 +1366,7 @@ export const RPC_METHODS = {
       /** The file's name, without a folder: what the agent is told it was. */
       name: z.string().min(1).max(255),
       /** Its bytes, all of them. */
-      size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
+      size: PositiveIntegerSchema.check(z.lte(MAX_UPLOAD_BYTES)),
       /** Its type when known; an image the chat takes goes as an image. */
       mediaType: z.string().min(1).max(255).optional(),
     }),
@@ -1281,7 +1377,7 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({
       uploadId: z.string().min(1).max(64),
-      offset: z.number().int().nonnegative().max(MAX_UPLOAD_BYTES),
+      offset: NonnegativeIntegerSchema.check(z.lte(MAX_UPLOAD_BYTES)),
       /** Base64, of at most MAX_BYTES_CHUNK bytes. */
       data: z
         .string()
@@ -1315,14 +1411,14 @@ export const RPC_METHODS = {
        * question's answers). Refused from an agent (`from`): the user is
        * asked about the request as it came.
        */
-      updatedInput: z.record(z.unknown()).optional(),
+      updatedInput: z.record(z.string(), z.unknown()).optional(),
       /** With deny: the turn stops too, as the card's "No, and stop" does. */
       stop: z.boolean().optional(),
       /**
        * With allow: the request's suggestions to keep from now on, by index
        * ("always allow"). Refused from an agent (`from`), as allowAlways is.
        */
-      always: z.array(z.number().int().nonnegative()).optional(),
+      always: z.array(NonnegativeIntegerSchema).optional(),
       /**
        * With allow of a plan (ExitPlanMode): the permission mode the chat
        * goes on in, as the plan card's approvals set it (edits allowed, or
@@ -1420,7 +1516,7 @@ export const RPC_METHODS = {
       ...TabRef,
       set: z
         .object({
-          changes: z.record(z.string().max(100), ConfigValueSchema),
+          changes: wireRecord(z.string().max(100), ConfigValueSchema),
           effort: z.string().max(50).optional(),
         })
         .optional(),
@@ -1539,8 +1635,8 @@ export const RPC_METHODS = {
       canRewind: z.boolean(),
       error: z.string().optional(),
       filesChanged: z.array(z.string()),
-      insertions: z.number().int().nonnegative(),
-      deletions: z.number().int().nonnegative(),
+      insertions: NonnegativeIntegerSchema,
+      deletions: NonnegativeIntegerSchema,
     }),
   },
   /**
@@ -1620,7 +1716,7 @@ export const RPC_METHODS = {
     capability: "terminal.read",
     params: z.object({
       ...TabRef,
-      lines: z.number().int().positive().max(5000).optional(),
+      lines: PositiveIntegerSchema.check(z.lte(5000)).optional(),
       ansi: z.boolean().optional(),
       ...ReadBy,
     }),
@@ -1631,7 +1727,7 @@ export const RPC_METHODS = {
     capability: "terminal.read",
     params: z.object({
       ...TabRef,
-      lines: z.number().int().positive().max(5000).optional(),
+      lines: PositiveIntegerSchema.check(z.lte(5000)).optional(),
       ansi: z.boolean().optional(),
     }),
     result: z.object({
@@ -1667,7 +1763,7 @@ export const RPC_METHODS = {
       from: AgentSenderSchema.optional(),
     }),
     /** `at`: when it was typed, by the serving device's clock, for terminal.wait's `after`. */
-    result: z.object({ at: z.number().optional() }),
+    result: z.object({ at: NumberSchema.optional() }),
   },
   /**
    * Waits up to `timeoutMs` (at most MAX_WAIT_MS) as `nexus terminal wait`
@@ -1679,13 +1775,13 @@ export const RPC_METHODS = {
     capability: "terminal.read",
     params: z.object({
       ...TabRef,
-      timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
+      timeoutMs: PositiveIntegerSchema.check(z.lte(MAX_WAIT_MS)).optional(),
       /** A terminal.input's `at`: a turn must have started after it. */
-      after: z.number().optional(),
+      after: NumberSchema.optional(),
       exit: z.boolean().optional(),
       match: z.string().min(1).max(1000).optional(),
       /** Quiet for this long counts as idle, for a program that is no agent or shell. */
-      quietMs: z.number().int().positive().max(600_000).optional(),
+      quietMs: PositiveIntegerSchema.check(z.lte(600_000)).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1791,7 +1887,7 @@ export const RPC_METHODS = {
         z.object({
           name: z.string(),
           kind: z.enum(["file", "dir", "link"]),
-          size: z.number().int().nonnegative().optional(),
+          size: NonnegativeIntegerSchema.optional(),
         }),
       ),
       /** More than MAX_LIST_ENTRIES: the rest left out. */
@@ -1817,11 +1913,11 @@ export const RPC_METHODS = {
       ...FileScope,
       ...FileTransferRef,
       ...ReadBy,
-      maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
+      maxBytes: PositiveIntegerSchema.check(z.lte(MAX_READ_BYTES)).optional(),
       as: z.literal("bytes").optional(),
-      offset: z.number().int().nonnegative().optional(),
+      offset: NonnegativeIntegerSchema.optional(),
       /** Zero is a metadata-only bytes read and requires version opt-in. */
-      length: z.number().int().nonnegative().max(MAX_BYTES_CHUNK).optional(),
+      length: NonnegativeIntegerSchema.check(z.lte(MAX_BYTES_CHUNK)).optional(),
       /** Ask for a version if the host can validate this file. */
       versioned: z.literal(true).optional(),
       /** Return notModified when this version still names the authorized file. */
@@ -1838,7 +1934,7 @@ export const RPC_METHODS = {
         kind: z.literal("text"),
         path: z.string(),
         text: z.string(),
-        size: z.number().int().nonnegative(),
+        size: NonnegativeIntegerSchema,
         truncated: z.boolean(),
         version: FileVersionSchema.optional(),
       }),
@@ -1847,13 +1943,13 @@ export const RPC_METHODS = {
         path: z.string(),
         mediaType: ImageMediaTypeSchema,
         data: z.string(),
-        size: z.number().int().nonnegative(),
+        size: NonnegativeIntegerSchema,
         version: FileVersionSchema.optional(),
       }),
       z.object({
         kind: z.literal("binary"),
         path: z.string(),
-        size: z.number().int().nonnegative(),
+        size: NonnegativeIntegerSchema,
         version: FileVersionSchema.optional(),
       }),
       z.object({
@@ -1861,9 +1957,9 @@ export const RPC_METHODS = {
         path: z.string(),
         /** Base64; fewer bytes than asked at the end of the file, none past it. */
         data: z.string(),
-        offset: z.number().int().nonnegative(),
+        offset: NonnegativeIntegerSchema,
         /** The whole file's. */
-        size: z.number().int().nonnegative(),
+        size: NonnegativeIntegerSchema,
         version: FileVersionSchema.optional(),
       }),
     ]),
@@ -1876,7 +1972,7 @@ export const RPC_METHODS = {
       ...FileTransferRef,
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
-      size: z.number().int().nonnegative().max(MAX_FILE_WRITE_BYTES),
+      size: NonnegativeIntegerSchema.check(z.lte(MAX_FILE_WRITE_BYTES)),
       from: AgentSenderSchema,
     }),
     result: z.object({ uploadId: z.string() }),
@@ -1886,7 +1982,7 @@ export const RPC_METHODS = {
     capability: "agents",
     params: z.object({
       ...FileUploadRef,
-      offset: z.number().int().nonnegative().max(MAX_FILE_WRITE_BYTES),
+      offset: NonnegativeIntegerSchema.check(z.lte(MAX_FILE_WRITE_BYTES)),
       data: z
         .string()
         .min(1)
@@ -1900,7 +1996,7 @@ export const RPC_METHODS = {
     params: z.object({ ...FileUploadRef, sha256: FileSha256Schema }),
     result: z.object({
       path: z.string(),
-      size: z.number().int().nonnegative(),
+      size: NonnegativeIntegerSchema,
       sha256: FileSha256Schema,
     }),
   },
@@ -1937,7 +2033,7 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       query: z.string().min(1).max(256),
       /** At most MAX_FIND_RESULTS; 50 when not said. */
-      limit: z.number().int().positive().max(MAX_FIND_RESULTS).optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_FIND_RESULTS)).optional(),
     }),
     result: z.object({
       files: z.array(z.string()),
@@ -1964,7 +2060,7 @@ export const RPC_METHODS = {
       include: z.array(z.string().max(256)).max(32).optional(),
       exclude: z.array(z.string().max(256)).max(32).optional(),
       /** Matches, at most MAX_SEARCH_MATCHES; 200 when not said. */
-      limit: z.number().int().positive().max(MAX_SEARCH_MATCHES).optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_SEARCH_MATCHES)).optional(),
     }),
     result: z.object({
       files: z.array(
@@ -1973,15 +2069,15 @@ export const RPC_METHODS = {
           matches: z.array(
             z.object({
               /** From 1. */
-              line: z.number().int().positive(),
+              line: PositiveIntegerSchema,
               /** From 0, in UTF-16 units of the whole line. */
-              column: z.number().int().nonnegative(),
+              column: NonnegativeIntegerSchema,
               /** In UTF-16 units. */
-              length: z.number().int().nonnegative(),
+              length: NonnegativeIntegerSchema,
               /** The line; a long one cut to a window around the match. */
               text: z.string(),
               /** Where `text` begins in the line when it was cut (UTF-16 units); 0 when absent. */
-              textStart: z.number().int().nonnegative().optional(),
+              textStart: NonnegativeIntegerSchema.optional(),
             }),
           ),
         }),
@@ -1999,8 +2095,10 @@ export const RPC_METHODS = {
       /** null when no branch is checked out. */
       branch: z.string().nullable(),
       upstream: z.string().optional(),
-      ahead: z.number().int().nonnegative(),
-      behind: z.number().int().nonnegative(),
+      ahead: NonnegativeIntegerSchema,
+      behind: NonnegativeIntegerSchema,
+      /** Absolute root from git rev-parse --show-toplevel, with slashes on Windows. Since 0.24.0. */
+      topLevel: z.string().min(1).max(4096).optional().catch(undefined),
       files: z.array(GitFileSchema),
       /** More files than a frame takes: the rest left out. */
       truncated: z.boolean().optional(),
@@ -2034,8 +2132,8 @@ export const RPC_METHODS = {
     capability: "git",
     params: z.object({
       workspaceId: z.string(),
-      limit: z.number().int().positive().max(200).optional(),
-      skip: z.number().int().nonnegative().optional(),
+      limit: PositiveIntegerSchema.check(z.lte(200)).optional(),
+      skip: NonnegativeIntegerSchema.optional(),
     }),
     result: z.object({
       commits: z.array(
@@ -2044,7 +2142,7 @@ export const RPC_METHODS = {
           subject: z.string(),
           author: z.string(),
           /** When it was written (git's author date, which a rebase keeps), Unix milliseconds. */
-          at: z.number(),
+          at: NumberSchema,
           refs: z.array(z.string()).optional(),
         }),
       ),
@@ -2067,7 +2165,7 @@ export const RPC_METHODS = {
       body: z.string().optional(),
       author: z.string(),
       /** When it was written, as git.log tells it (git's author date), Unix milliseconds. */
-      at: z.number(),
+      at: NumberSchema,
       files: z.array(
         z.object({
           path: z.string(),
@@ -2095,7 +2193,7 @@ export const RPC_METHODS = {
           /** Empty for a note not named yet. */
           title: z.string(),
           /** When it last changed, Unix milliseconds. */
-          updatedAt: z.number(),
+          updatedAt: NumberSchema,
         }),
       ),
     }),
@@ -2111,7 +2209,7 @@ export const RPC_METHODS = {
     result: z.object({
       id: z.string(),
       title: z.string(),
-      updatedAt: z.number(),
+      updatedAt: NumberSchema,
       markdown: z.string(),
       transcript: z.string(),
     }),
@@ -2130,13 +2228,13 @@ export const RPC_METHODS = {
       recordings: z.array(
         z.object({
           id: z.string(),
-          startedAt: z.number(),
-          participants: z.union([z.literal("auto"), z.literal("7+"), z.number().int().positive()]),
+          startedAt: NumberSchema,
+          participants: z.union([z.literal("auto"), z.literal("7+"), PositiveIntegerSchema]),
           lines: z.array(
             z.object({
               id: z.string(),
-              startMs: z.number().nonnegative(),
-              endMs: z.number().nonnegative(),
+              startMs: NonnegativeNumberSchema,
+              endMs: NonnegativeNumberSchema,
               speaker: z.string(),
               speakerLabel: z.string(),
               speakerName: z.string().nullable(),
@@ -2151,7 +2249,7 @@ export const RPC_METHODS = {
     capability: "chat.read",
     params: z.object({ workspaceId: z.string(), ...ReadBy }),
     result: z.object({
-      global: z.record(z.boolean()),
+      global: wireRecord(z.string(), z.boolean()),
       sites: z.array(
         z.object({
           origin: z.string(),
@@ -2212,7 +2310,10 @@ export const RPC_METHODS = {
         }),
         z.object({
           op: z.literal("regroup"),
-          participants: z.union([z.literal("auto"), z.number().int().min(1).max(50)]),
+          participants: z.union([
+            z.literal("auto"),
+            IntegerSchema.check(z.gte(1)).check(z.lte(50)),
+          ]),
         }),
       ]),
       from: AgentSenderSchema,
@@ -2264,7 +2365,7 @@ export const RPC_METHODS = {
     }),
     result: z.object({
       groupId: z.string().optional(),
-      closed: z.number().int().nonnegative().optional(),
+      closed: NonnegativeIntegerSchema.optional(),
     }),
   },
   "agentView.get": {
@@ -2281,7 +2382,7 @@ export const RPC_METHODS = {
     }),
     result: z.object({
       panelId: z.string().optional(),
-      removed: z.number().int().nonnegative().optional(),
+      removed: NonnegativeIntegerSchema.optional(),
       key: z.string().optional(),
       tabId: z.string().optional(),
     }),
@@ -2314,7 +2415,7 @@ export const RPC_METHODS = {
   },
   "chat.entryItem": {
     capability: "chat.read",
-    params: z.object({ ...TabRef, i: z.number().int().nonnegative(), ...ReadBy }),
+    params: z.object({ ...TabRef, i: NonnegativeIntegerSchema, ...ReadBy }),
     result: z.object({ itemKey: z.string(), kind: z.string(), text: z.string().optional() }),
   },
   /** Replace the session layer. With from, the receiving device's agent policy applies. */

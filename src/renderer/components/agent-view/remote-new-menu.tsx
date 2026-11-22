@@ -17,6 +17,7 @@ import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import { ipcCallResult } from "../../ipc/client";
 import { peerServes } from "../../services/remote/room";
+import type { OpenRemoteSession } from "../../state/stores/remote-view";
 import { ProfileDot } from "../agent-profiles/profile-badge";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import {
@@ -43,9 +44,11 @@ const knownShells = new Map<string, readonly PeerShell[]>();
 export function RemoteNewMenu({
   peer,
   workspace,
+  onOpenSession,
 }: {
   peer: RoomPeer;
   workspace: { id: string; name: string; path: string };
+  onOpenSession?: OpenRemoteSession;
 }) {
   const { t } = useTranslation();
   const chats = peerServes(peer, "chat.control");
@@ -110,13 +113,13 @@ export function RemoteNewMenu({
               key={agent}
               agent={agent}
               profiles={(profiles ?? []).filter((p) => p.agent === agent)}
-              onOpen={(profile) => void newPeerChat(where, agent, profile)}
+              onOpen={(profile) => void newPeerChat(where, agent, profile, onOpenSession)}
             />
           ))}
         {terminals && (
           <NewTerminalItems
             shells={shells}
-            onOpen={(shell) => void newPeerTerminal(where, shell)}
+            onOpen={(shell) => void newPeerTerminal(where, shell, onOpenSession)}
           />
         )}
       </DropdownMenuContent>

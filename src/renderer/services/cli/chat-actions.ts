@@ -19,9 +19,10 @@ import {
   mergeAgentInstructions,
   persistentInstructionLayers,
 } from "../../../shared/chat/instructions";
-import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
+import type { CliChatInfo, CliChatSettings, CliLimitResume, CliUiOp } from "../../../shared/cli/ui";
 import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
@@ -41,14 +42,13 @@ import {
   type AgentTabController,
   agentInstructionTarget,
   agentTabController,
-  startAgentTab,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
-import type { ForkPoint } from "../chat/claude/controller";
+import { existingChatController, type ForkPoint } from "../chat/claude/controller";
 import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
 import { CodexConfigRefusal } from "../chat/codex/config";
-import { CodexReplyError } from "../chat/codex/controller";
+import { CodexReplyError, existingCodexController } from "../chat/codex/controller";
 import { fileMention } from "../chat/composer-input";
 import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
 import type { ModelPickerContext } from "../chat/model-picker";
@@ -56,8 +56,14 @@ import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
+import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
-import { sendToAgentTab, sendUnseen, submissionAt } from "../chat/transport/submission";
+import {
+  sendFirstMessage,
+  sendToAgentTab,
+  sendUnseen,
+  submissionAt,
+} from "../chat/transport/submission";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
@@ -93,6 +99,7 @@ import {
 } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
+import { profileUsage } from "./profile-usage";
 
 type ChatOp = Extract<CliUiOp, `chat.${string}`>;
 
@@ -163,9 +170,34 @@ function profileShown(workspaceId: string, tabId: string, agent: ChatAgent): str
   return cliProfileName(profileOf(config, agent, props?.profileId));
 }
 
-function infoOf(workspaceId: string, tabId: string, { agent }: AgentTabController) {
+function infoOf(
+  workspaceId: string,
+  tabId: string,
+  { agent }: AgentTabController,
+  includeWaitingId?: boolean,
+) {
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  return withProfile(workspaceId, tabId, chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId)));
+  const info = chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId));
+  const waitingId = includeWaitingId && info.waiting && chat?.model.permissions[0]?.requestId;
+  return { ...withProfile(workspaceId, tabId, info), ...(waitingId ? { waitingId } : {}) };
+}
+
+/**
+ * Where a Claude or Codex tab stands without opening its program, as
+ * chat.state with `peek` tells it: a tab not opened since the app started
+ * reads idle.
+ */
+export function peekChatInfo(
+  workspaceId: string,
+  tabId: string,
+  includeWaitingId?: boolean,
+): CliChatInfo & { waitingId?: string } {
+  const target = agentTabController(workspaceId, tabId);
+  if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+  if (!opened(workspaceId, tabId)) {
+    return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
+  }
+  return infoOf(workspaceId, tabId, target, includeWaitingId);
 }
 
 /**
@@ -180,16 +212,33 @@ function askMcp(workspaceId: string, tabId: string, target: AgentTabController):
   }
 }
 
-/** The info with what the tab keeps of its own: its profile, and its folder when not the workspace's. */
+/**
+ * The info with what the tab keeps of its own: its profile, its folder when
+ * not the workspace's, and going on after the usage limit, while no turn runs.
+ */
 function withProfile(workspaceId: string, tabId: string, info: CliChatInfo): CliChatInfo {
   const profile = profileShown(workspaceId, tabId, info.agent);
-  const cwd = chatPropsOf(workspaceId, tabId)?.cwd;
+  const props = chatPropsOf(workspaceId, tabId);
+  const cwd = props?.cwd;
   const root = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath;
   const own = cwd && root && !sameFolder(cwd, root);
+  const limitResume = info.state === "working" ? undefined : cliLimitResume(props?.limitResume);
   return {
     ...info,
     ...(profile ? { profile } : {}),
     ...(own ? { cwd } : {}),
+    ...(limitResume ? { limitResume } : {}),
+  };
+}
+
+/** A tab's going on after the usage limit as the CLI tells it; none once its message went. */
+function cliLimitResume(record: LimitResume | undefined): CliLimitResume | undefined {
+  if (!record || record.state === "sent") return undefined;
+  return {
+    state: record.state,
+    ...(record.at !== undefined ? { at: record.at } : {}),
+    ...(record.resetsAt !== undefined ? { resetsAt: record.resetsAt } : {}),
+    ...(record.tries > 0 ? { tries: record.tries } : {}),
   };
 }
 
@@ -202,8 +251,9 @@ function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTab
     after: move.after,
     profile: cliProfileName(profileOf(config, agent, move.profileId)),
   }));
+  const relayed = relayedOf(props);
   return {
-    ...(props.relayed ? { relayed: props.relayed } : {}),
+    ...(relayed ? { relayed } : {}),
     ...(moves ? { moves } : {}),
   };
 }
@@ -371,8 +421,11 @@ async function applySettings(
   tabId: string,
   target: AgentTabController,
   wanted: CliChatSettings,
-  allowDangerousMode = false,
-  expectedMode?: string,
+  {
+    allowDangerousMode = false,
+    expectedMode,
+    confirmMode = false,
+  }: { allowDangerousMode?: boolean; expectedMode?: string; confirmMode?: boolean } = {},
 ): Promise<void> {
   const { agent, controller } = target;
   await whenReady(workspaceId, tabId, agent, true);
@@ -407,7 +460,25 @@ async function applySettings(
   if (plan.effort !== undefined) await controller.setEffort(plan.effort);
   if (plan.mode !== undefined) {
     currentTab();
-    await controller.setPermissionMode(plan.mode);
+    const applied = await controller.setPermissionMode(plan.mode);
+    // A reply can explicitly name the mode the program accepted. If it does
+    // not, the renderer may still be waiting to read the change from the log.
+    if (
+      confirmMode &&
+      typeof applied === "object" &&
+      applied !== null &&
+      "mode" in applied &&
+      typeof applied.mode === "string" &&
+      applied.mode !== "" &&
+      applied.mode !== plan.mode
+    ) {
+      throw new UiRequestError(
+        i18next.t("errors:chat.permissionModeMismatch", {
+          requested: plan.mode,
+          applied: applied.mode,
+        }),
+      );
+    }
   }
   await whenShown(workspaceId, tabId, target, plan);
 }
@@ -415,15 +486,18 @@ async function applySettings(
 /** The agent's profile a --profile flag names, by name (any case) or id. */
 function profileNamed(agent: ChatAgent, name: string): string {
   const profiles = profilesOf(useAgentProfilesStore.getState().config, agent);
-  const wanted = name.trim().toLowerCase();
-  const found = profiles.find(
-    (p) =>
-      p.id.toLowerCase() === wanted ||
-      p.name.trim().toLowerCase() === wanted ||
-      (isDefaultProfileId(p.id) && p.name.trim() === "" && wanted === "default"),
-  );
-  if (found) return found.id;
-  const names = profiles.map((p) => p.name.trim() || "default").join(", ");
+  const selector = name.trim();
+  const exact = profiles.find((p) => p.id === selector);
+  if (exact) return exact.id;
+  const wanted = selector.toLowerCase();
+  const id = profiles.find((p) => p.id.toLowerCase() === wanted);
+  if (id) return id.id;
+  const [match, ...others] = profiles.filter((p) => cliProfileName(p).toLowerCase() === wanted);
+  if (others.length > 0) {
+    throw new UiRequestError(i18next.t("errors:chat.ambiguousProfile", { name }));
+  }
+  if (match) return match.id;
+  const names = profiles.map(cliProfileName).join(", ");
   throw new UiRequestError(`${agent} has no profile "${name}"; it has ${names}`);
 }
 
@@ -432,6 +506,7 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
+  "chat.usage": profileUsage,
   "chat.profiles": async ({ agent, workspaceId }) => {
     const config = useAgentProfilesStore.getState().config;
     const { workspaces } = useWorkspacesStore.getState();
@@ -468,12 +543,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     settings,
     profile,
     instructions,
+    openedBy,
     from,
     user,
     allowDangerousMode,
   }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
+      ...(openedBy ? { openedBy } : {}),
       ...(instructions === undefined ? {} : { instructions }),
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
     });
@@ -482,18 +559,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         ? ({ type: "claude", props } as const)
         : ({ type: "codex", props } as const);
     const tabId = openTab(workspaceId, tab, placement);
-    if (!hasSettings(settings)) {
-      startAgentTab(workspaceId, tabId, prompt, from);
-      return { tabId };
-    }
-    // Set before the first message: its turn runs with them.
+    const text = prompt.trim();
+    const setting = hasSettings(settings);
+    if (!setting && text === "") return { tabId };
     const target = agentTabController(workspaceId, tabId);
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
-      await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings, user || allowDangerousMode);
-      if (prompt.trim() !== "") {
-        await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
+      if (setting) {
+        // Set before the first message so its turn runs with the new settings.
+        await target.controller.open();
+        await applySettings(workspaceId, tabId, target, settings, {
+          allowDangerousMode: user || allowDangerousMode,
+          confirmMode: text !== "",
+        });
+        if (text !== "") await sendToAgentTab(workspaceId, tabId, target, text, from);
+      } else {
+        await sendFirstMessage(workspaceId, tabId, target, text, from);
       }
     } catch (err) {
       return { tabId, error: (err as Error).message };
@@ -517,7 +598,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     };
   },
 
-  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after }) => {
+  "chat.state": async ({ workspaceId, tabId, peek, submissionId, after, includeWaitingId }) => {
     const tracked =
       submissionId ?? (after === undefined ? undefined : submissionAt(workspaceId, tabId, after));
     if (tracked) {
@@ -529,12 +610,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         trackedSubmission: true,
       };
     }
-    if (peek && !opened(workspaceId, tabId)) {
-      const target = agentTabController(workspaceId, tabId);
-      if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-      return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
-    }
-    return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId));
+    if (peek) return peekChatInfo(workspaceId, tabId, includeWaitingId);
+    return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId), includeWaitingId);
   },
 
   "chat.read": async ({ workspaceId, tabId, messages, since, subagents }) => {
@@ -709,8 +786,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model } = controller.state;
     // As the composer's ⌘↩ with nothing typed: only while messages sent in the turn wait.
-    const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
-    if (model.running && waiting) await controller.readHeldNow();
+    if (model.running && model.items.some(isWaiting)) await controller.readHeldNow();
     return {};
   },
 
@@ -799,6 +875,17 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
+  "chat.sandbox": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type === "codex") {
+      return (await existingCodexController(workspaceId, tabId)?.cliSandbox()) ?? null;
+    }
+    if (tab?.type === "claude") {
+      return (await existingChatController(workspaceId, tabId)?.cliSandbox()) ?? null;
+    }
+    return null;
+  },
+
   "chat.mode": async ({ workspaceId, tabId }) => {
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
     if (tab?.type !== "claude" && tab?.type !== "codex") return null;
@@ -825,14 +912,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (hasSettings(settings))
-      await applySettings(
-        workspaceId,
-        tabId,
-        target,
-        settings,
-        user || allowDangerousMode,
+      await applySettings(workspaceId, tabId, target, settings, {
+        allowDangerousMode: user || allowDangerousMode,
         expectedMode,
-      );
+      });
     else await whenReady(workspaceId, tabId, target.agent, true);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
@@ -909,7 +992,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.fork": async ({ workspaceId, tabId, itemKey }) => {
+  "chat.fork": async ({ workspaceId, tabId, itemKey, openedBy }) => {
     const target = await readableTab(workspaceId, tabId);
     const props = chatPropsOf(workspaceId, tabId);
     if (!props) throw new UiRequestError("that tab is gone");
@@ -925,6 +1008,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
           type: "codex",
           props: chatPropsWithProfile(workspaceId, "codex", {
             cwd: props.cwd,
+            ...(openedBy ? { openedBy } : {}),
             fork,
             profileId: target.controller.profileId,
             chosen: target.controller.inheritedChoice(),
@@ -969,6 +1053,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         type: "claude",
         props: chatPropsWithProfile(workspaceId, "claude", {
           cwd: props.cwd,
+          ...(openedBy ? { openedBy } : {}),
           ...(fork ? { fork } : {}),
           ...controller.inherited(),
         }),
@@ -1107,7 +1192,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };
   },
 
-  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly }) => {
+  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly, openedBy }) => {
     const open = tabWithSession(workspaceId, agent, sessionId);
     if (open) return { tabId: open };
     const cwd = workspaceRoot(workspaceId);
@@ -1152,19 +1237,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       return { tabId };
     }
     // Its own profile's, the default too: not the one the workspace's rules would pick.
-    const profileId = { profileId: session.profileId };
+    const props = { cwd, profileId: session.profileId, ...(openedBy ? { openedBy } : {}) };
     const tab =
       agent === "claude"
         ? ({
             type: "claude",
-            props: chatPropsWithProfile(workspaceId, "claude", { cwd, sessionId, ...profileId }),
+            props: chatPropsWithProfile(workspaceId, "claude", { ...props, sessionId }),
           } as const)
         : ({
             type: "codex",
             props: chatPropsWithProfile(workspaceId, "codex", {
-              cwd,
+              ...props,
               threadId: sessionId,
-              ...profileId,
             }),
           } as const);
     // Behind what the window shows: whoever sits at this computer keeps their place.

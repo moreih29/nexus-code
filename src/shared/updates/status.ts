@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeNumberSchema,
+} from "../../../packages/remote-protocol/src/validation";
 
 const TriggerSchema = z.enum(["auto", "manual"]);
 
@@ -34,7 +38,7 @@ export const UpdateStatusSchema = z.discriminatedUnion("kind", [
     // The renderer words the message from the reason; the detail stays in
     // the main-process log.
     reason: z.enum(["rate-limited", "http", "network", "unexpected", "response-too-large"]),
-    status: z.number().int().optional(),
+    status: IntegerSchema.optional(),
   }),
   z.object({ kind: z.literal("downloading"), version: z.string() }),
   // The download is done and the updater checks it (Squirrel.Mac's signature
@@ -53,9 +57,9 @@ export type UpdateStatus = z.infer<typeof UpdateStatusSchema>;
 /** How far the download of `version` has got, in bytes of what it fetches. */
 export const UpdateProgressSchema = z.object({
   version: z.string(),
-  transferred: z.number().nonnegative(),
-  total: z.number().nonnegative(),
-  bytesPerSecond: z.number().nonnegative(),
+  transferred: NonnegativeNumberSchema,
+  total: NonnegativeNumberSchema,
+  bytesPerSecond: NonnegativeNumberSchema,
 });
 export type UpdateProgress = z.infer<typeof UpdateProgressSchema>;
 

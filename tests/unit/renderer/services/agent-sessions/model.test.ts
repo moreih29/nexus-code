@@ -7,6 +7,7 @@ import {
   buildFamily,
   type FamilyInput,
 } from "../../../../../src/renderer/services/agent-sessions/model";
+import { buildAgents } from "../../../../../src/renderer/services/agent-view/agents";
 import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
@@ -86,6 +87,37 @@ function input(overrides: Partial<FamilyInput> = {}): FamilyInput {
 }
 
 describe("buildFamily", () => {
+  it("reads openers on chat and listed terminal tabs while leaving plain shells and app forks unlinked", () => {
+    const openedBy = { kind: "tab" as const, tabId: "parent", name: "Plan" };
+    const withOpener = (tab: Tab) => ({ ...tab, props: { ...tab.props, openedBy } }) as Tab;
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            parent: claudeTab("parent", "Plan"),
+            child: withOpener(codexTab("child", "Child")),
+            other: withOpener(claudeTab("other", "Other child")),
+            agent: withOpener(terminal("agent", "Codex")),
+            shell: withOpener(terminal("shell", "zsh")),
+            fork: {
+              ...claudeTab("fork", "App fork"),
+              props: { cwd: "/", fork: { sessionId: "original" } },
+            },
+          },
+        },
+        claudeByWorkspace: { [ROOT]: { agent: claude("running") } },
+      }),
+    );
+    const entries = family?.worktrees[0].sessions ?? [];
+    expect(entries.map(({ tabId, parent }) => [tabId, parent])).toEqual([
+      ["parent", undefined],
+      ["child", openedBy],
+      ["other", openedBy],
+      ["agent", openedBy],
+      ["fork", undefined],
+    ]);
+  });
+
   it("keeps Claude chat results authoritative while terminal Claude sessions keep their hooks", () => {
     const state = emptyTabState();
     const model = applyLine(state.model, {
@@ -107,6 +139,35 @@ describe("buildFamily", () => {
       message: "API failed",
     });
     expect(sessions.find((session) => session.tabId === "t")?.state).toBe("running");
+  });
+
+  it("tells when a tab the usage limit stopped goes on, only while it waits", () => {
+    const waiting = (id: string, state: "waiting" | "cancelled", tab = claudeTab) => {
+      const base = tab(id, id);
+      return {
+        ...base,
+        props: {
+          ...base.props,
+          limitResume: { stopAt: 1, resetsAt: 2, at: 60_002, state, tries: 0 },
+        },
+      } as Tab;
+    };
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            a: waiting("a", "waiting"),
+            b: waiting("b", "waiting", codexTab),
+            c: waiting("c", "cancelled"),
+          },
+        },
+      }),
+    );
+    const sessions = family?.worktrees[0].sessions ?? [];
+    const wait = (id: string) => sessions.find((session) => session.tabId === id)?.limitWait;
+    expect(wait("a")).toEqual({ at: 60_002 });
+    expect(wait("b")).toEqual({ at: 60_002 });
+    expect(wait("c")).toBeUndefined();
   });
 
   it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
@@ -328,4 +389,34 @@ describe("buildFamily", () => {
       ["up", "claude"],
     ]);
   });
+});
+
+it("keeps the previous sidebar row reference when another session changes state", () => {
+  const tabsByWorkspace = { [ROOT]: { a: claudeTab("a", "Plan"), b: claudeTab("b", "Tests") } };
+  const before = buildAgents(input({ tabsByWorkspace }));
+  const after = buildAgents(
+    input({ tabsByWorkspace, claudeByWorkspace: { [ROOT]: { b: claude("running") } } }),
+    before,
+  );
+  expect(after.byKey.get(`${ROOT}:a`)).toBe(before.byKey.get(`${ROOT}:a`));
+  expect(after.byKey.get(`${ROOT}:b`)?.session.phase).toBe("running");
+});
+
+it("counts a restored transcript even before the live model sees a turn", () => {
+  const state = emptyTabState();
+  const history = applyLine(state.model, {
+    seq: 1,
+    dir: "out",
+    message: {
+      type: "assistant",
+      message: { id: "past", content: [{ type: "text", text: "Past answer" }] },
+    },
+  });
+  const family = buildFamily(
+    input({
+      tabsByWorkspace: { [ROOT]: { c: claudeTab("c", "Claude") } },
+      chats: { [`${ROOT}:c`]: { ...state, history } },
+    }),
+  );
+  expect(family?.worktrees[0].sessions[0]).toMatchObject({ state: "idle", hasTurns: true });
 });

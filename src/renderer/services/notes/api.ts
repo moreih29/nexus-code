@@ -2,10 +2,32 @@
  * The renderer's way to a workspace's notes (the notes IPC channel), and the
  * URLs the editor shows a note's pictures by.
  */
-import type { DocNode } from "../../../shared/notes/markdown";
-import type { TranscriptFile } from "../../../shared/notes/transcript";
-import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
-import type { NoteBlocksAdded, NoteChanged, NotePhotoAdded } from "../../../shared/types/notes";
+import type {
+  NewNoteLink,
+  NoteConversation,
+  NoteLastAnswer,
+  NoteLink,
+  NoteLinkPatch,
+  NoteLinkTarget,
+} from "../../../shared/notes/links";
+import type { SummaryMode } from "../../../shared/notes/summary";
+import type { TranscriptEdit, TranscriptFile } from "../../../shared/notes/transcript";
+import type {
+  NoteAsset,
+  NoteContent,
+  NoteSaveChange,
+  NoteSummary,
+} from "../../../shared/notes/types";
+import type {
+  NoteBlocksAdded,
+  NoteBlocksRemoved,
+  NoteChanged,
+  NoteLineReported,
+  NoteLinksChanged,
+  NotePhotoAdded,
+  NoteSummaryChanged,
+  NoteSummaryCompleted,
+} from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
 const call = async <T>(p: Promise<import("../../ipc/client").IpcResult<T>>): Promise<T> =>
@@ -20,17 +42,69 @@ export const notesApi = {
     ) as Promise<NoteContent>,
   read: (workspaceId: string, noteId: string): Promise<NoteContent> =>
     call(ipcCallResult("notes", "read", { workspaceId, noteId })) as Promise<NoteContent>,
-  save: (
+  links: (workspaceId: string, noteId: string) =>
+    call(ipcCallResult("notes", "links", { workspaceId, noteId })),
+  linksOfConversation: (tab: NoteConversation) =>
+    call(ipcCallResult("notes", "linksOfConversation", tab)),
+  summaries: (workspaceId: string, noteId: string) =>
+    call(ipcCallResult("notes", "summaries", { workspaceId, noteId })),
+  summaryVisibility: (workspaceId: string, noteId: string, tabId: string, visible: boolean) =>
+    call(ipcCallResult("notes", "summaryVisibility", { workspaceId, noteId, tabId, visible })),
+  summarize: (workspaceId: string, noteId: string, recordingId: string, mode?: SummaryMode) =>
+    call(ipcCallResult("notes", "summarize", { workspaceId, noteId, recordingId, mode })),
+  cancelSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "cancel", { workspaceId, noteId, recordingId })),
+  undoSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "undo", { workspaceId, noteId, recordingId })),
+  dismissSummary: (workspaceId: string, noteId: string, recordingId: string) =>
+    call(ipcCallResult("notes", "dismiss", { workspaceId, noteId, recordingId })),
+  onSummaryChanged: (cb: (event: NoteSummaryChanged) => void): (() => void) =>
+    ipcListen("notes", "summaryChanged", cb),
+  onSummaryCompleted: (cb: (event: NoteSummaryCompleted) => void): (() => void) =>
+    ipcListen("notes", "summaryCompleted", cb),
+  onBlocksRemoved: (cb: (event: NoteBlocksRemoved) => void): (() => void) =>
+    ipcListen("notes", "blocksRemoved", cb),
+  addLink: (
     workspaceId: string,
     noteId: string,
-    change: { title?: string; doc?: DocNode },
-  ): Promise<NoteSummary> =>
+    link: NewNoteLink,
+    touchExisting?: true | string,
+  ) => call(ipcCallResult("notes", "addLink", { workspaceId, noteId, link, touchExisting })),
+  saveAnswer: (
+    workspaceId: string,
+    noteId: string | undefined,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent"> & { messageId: string },
+    markdown: string,
+    imageAlt: string,
+  ) =>
+    call(ipcCallResult("notes", "saveAnswer", { workspaceId, noteId, source, markdown, imageAlt })),
+  saveLiveCard: (
+    workspaceId: string,
+    noteId: string,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent">,
+    lastAnswer?: NoteLastAnswer,
+  ) => call(ipcCallResult("notes", "saveLiveCard", { workspaceId, noteId, source, lastAnswer })),
+  updateLiveAnswer: (tab: NoteConversation & { profileId?: string }, lastAnswer: NoteLastAnswer) =>
+    call(ipcCallResult("notes", "updateLiveAnswer", { tab, lastAnswer })),
+  updateLink: (workspaceId: string, noteId: string, linkId: string, patch: NoteLinkPatch) =>
+    call(ipcCallResult("notes", "updateLink", { workspaceId, noteId, linkId, patch })),
+  updateLinksForTab: (tab: NoteLinkTarget & Pick<NoteLink, "agent">) =>
+    call(ipcCallResult("notes", "updateLink", { tab })),
+  removeLink: (workspaceId: string, noteId: string, linkId: string) =>
+    call(ipcCallResult("notes", "removeLink", { workspaceId, noteId, linkId })),
+  onLinksChanged: (cb: (event: NoteLinksChanged) => void): (() => void) =>
+    ipcListen("notes", "linksChanged", cb),
+  onLineReported: (cb: (event: NoteLineReported) => void): (() => void) =>
+    ipcListen("notes", "lineReported", cb),
+  save: (workspaceId: string, noteId: string, change: NoteSaveChange): Promise<NoteSummary> =>
     call(
       ipcCallResult("notes", "save", {
         workspaceId,
         noteId,
         ...(change.title !== undefined ? { title: change.title } : {}),
-        ...(change.doc !== undefined ? { doc: change.doc as { type: "doc" } } : {}),
+        ...(change.doc !== undefined
+          ? { doc: change.doc as { type: "doc" }, baseUpdatedAt: change.baseUpdatedAt }
+          : {}),
       }),
     ),
   prune: (workspaceId: string, noteId: string): Promise<string[]> =>
@@ -91,10 +165,10 @@ export const notesApi = {
   saveTranscript: (
     workspaceId: string,
     noteId: string,
-    transcript: TranscriptFile,
+    edits: TranscriptEdit[],
     announce = false,
   ): Promise<void> =>
-    call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, transcript, announce })),
+    call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, edits, announce })),
   appendAudio: (workspaceId: string, noteId: string, file: string, audio: Uint8Array) =>
     call(ipcCallResult("notes", "appendAudio", { workspaceId, noteId, file, audio })),
   hasRecordingAudio: (workspaceId: string, noteId: string, files: string[]) =>

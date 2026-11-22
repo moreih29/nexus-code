@@ -7,6 +7,8 @@ export interface SplitLeaf {
   id: string;
   tabIds: string[];
   activeTabId: string | null;
+  /** Earlier active tabs, most recent first. Kept only in memory. */
+  previousTabIds?: readonly string[];
 }
 
 export interface SplitBranch {
@@ -19,5 +21,4 @@ export interface SplitBranch {
 }
 
 export type SplitNode = SplitLeaf | SplitBranch;
-
-export type SerializedNode = SplitNode;
+export type { SerializedNode } from "../../shared/types/layout";

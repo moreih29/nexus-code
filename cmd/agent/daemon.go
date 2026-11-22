@@ -61,6 +61,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -212,7 +213,12 @@ func runDaemon(root string) {
 	// by flock probing (acquired = provably dead), so a live daemon's files
 	// are never touched; see agentrun.SweepStale. Runs after our own lock is
 	// held so only one legitimate daemon per workspace ever sweeps.
-	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
+	if err := paths.EnsureSocketDir(); err != nil {
+		agentLogger.Error("daemon socket directory unavailable", "err", err)
+		lock.Unlock()
+		os.Exit(1)
+	}
+	if removed := agentrun.SweepStale(runDir, filepath.Dir(paths.Sock), agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
 		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
 
@@ -226,6 +232,10 @@ func runDaemon(root string) {
 		os.Exit(ExitCodeLockHeld)
 	}
 	_ = os.Remove(paths.Sock) // remove stale socket file if present
+
+	// Publish the stable path before the socket accepts a dialer, which
+	// updates the forwarded agent for its own connection.
+	agentrun.AdoptAuthSock(paths.AuthSock)
 
 	// Step 6: bind the Unix socket. The run directory (0700) is already
 	// ensured above; explicit socket chmod 0600 guards against any umask.
@@ -244,12 +254,6 @@ func runDaemon(root string) {
 		lock.Unlock()
 		os.Exit(1)
 	}
-
-	// Step 6b: export a stable SSH agent socket. The forwarded socket this
-	// process inherited dies with the connection that started it, while the
-	// daemon and its terminals live on across reconnects; each dialer
-	// re-points the link at its own connection's socket (runDialer).
-	agentrun.AdoptAuthSock(paths.AuthSock)
 
 	// Step 7: boot shared services. These persist for the daemon's entire
 	// lifetime and survive dialer reconnects — a reattaching dialer picks up
@@ -406,7 +410,7 @@ func runDaemon(root string) {
 			proto.HeartbeatAdvertiseMs,
 			int(reattachGrace/time.Millisecond),
 			epoch,
-			[]string{"reattach"},
+			[]string{"reattach", agentchat.RunCapability},
 		)); writeErr != nil {
 			agentLogger.Error("failed to write ready frame", "err", writeErr)
 			_ = conn.Close()

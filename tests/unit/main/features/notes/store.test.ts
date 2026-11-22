@@ -9,10 +9,20 @@ import {
   locationDirName,
   NoteError,
   NotesStore,
+  noteMarkdown,
   PRUNE_AFTER_MS,
   safeName,
 } from "../../../../../src/main/features/notes/store";
 import type { NoteLocation } from "../../../../../src/shared/notes/types";
+
+test("the Markdown heading escapes title markup without changing normal punctuation", () => {
+  expect(
+    noteMarkdown({
+      title: 'Today\'s "Q3"\r\n[WIP] release_notes `draft\u202e`',
+      doc: { type: "doc", content: [] },
+    }),
+  ).toStartWith('# Today\'s "Q3" \\[WIP\\] release\\_notes \\`draft \\`\n');
+});
 
 let root: string;
 let store: NotesStore;
@@ -56,6 +66,20 @@ describe("notes on disk", () => {
       ),
     );
     expect(location).toEqual(here);
+  });
+
+  test("concurrent title, document and block saves build on one another", async () => {
+    const note = await store.create(here, "Old");
+    const appended = { type: "paragraph", content: [{ type: "text", text: "Appended" }] };
+    await Promise.all([
+      store.save(here, note.id, { title: "Renamed" }),
+      store.save(here, note.id, { doc: doc("Edited") }),
+      store.appendBlocks(here, note.id, [appended]),
+    ]);
+    expect(await store.read(here, note.id)).toMatchObject({
+      title: "Renamed",
+      doc: { type: "doc", content: [...doc("Edited").content, appended] },
+    });
   });
 
   test("saving writes the document and its Markdown, newest first in the list", async () => {
@@ -395,6 +419,28 @@ describe("a note's recordings", () => {
     expect((await store.read(here, note.id)).recording?.people).toBe(2);
   });
 
+  test("a stale rename preserves independently added recordings and rejects a conflicting rename", async () => {
+    const note = await store.create(here);
+    const initial = transcript();
+    const [before] = initial.recordings;
+    if (!before) throw new Error("missing recording fixture");
+    const added = { ...before, id: "rmhz00cc0abce" };
+    const after = { ...before, speakers: { "1": "Pat" } };
+    await store.saveTranscript(here, note.id, initial);
+    await Promise.all([
+      store.editTranscript(here, note.id, [{ id: added.id, after: added }]),
+      store.editTranscript(here, note.id, [{ id: before.id, before, after }]),
+    ]);
+
+    expect((await store.readTranscript(here, note.id)).recordings).toEqual([after, added]);
+    await expect(
+      store.editTranscript(here, note.id, [
+        { id: before.id, before, after: { ...before, speakers: { "1": "Alex" } } },
+      ]),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect((await store.readTranscript(here, note.id)).recordings).toEqual([after, added]);
+  });
+
   test("a take's audio is written piece by piece, only under recordings/", async () => {
     const note = await store.create(here, "");
     expect(await store.hasRecordingAudio(here, note.id, [])).toBe(false);
@@ -441,4 +487,34 @@ describe("a note's recordings", () => {
     await store.appendAudio(here, note.id, take(1), new Uint8Array([1]));
     expect(await store.prune(here, note.id, Date.now() + PRUNE_AFTER_MS * 10)).toEqual([]);
   });
+});
+
+test("an answer link is rolled back if the document cannot be written", async () => {
+  const note = await store.create(here, "Before answer");
+  const rename = fs.rename;
+  const writes = spyOn(fs, "rename").mockImplementation((from, to) =>
+    to === path.join(note.dir, "note.json")
+      ? Promise.reject(new Error("document failed"))
+      : rename(from, to),
+  );
+  const source = {
+    workspaceId: crypto.randomUUID(),
+    tabId: "tab",
+    cwd: "/repo",
+    title: "Conversation",
+    agent: "claude",
+    messageId: "message",
+  } as const;
+  try {
+    await expect(
+      store.saveAnswer(here, note.id, source, doc("Answer").content, () => {
+        throw new Error("Unexpected document notification");
+      }),
+    ).rejects.toThrow("document failed");
+    expect(await store.links(here, note.id)).toEqual([]);
+    expect(await store.linksOfConversation(here, source)).toEqual([]);
+    expect((await store.read(here, note.id)).doc).toEqual(note.doc);
+  } finally {
+    writes.mockRestore();
+  }
 });

@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { WorkspaceIdSchema } from "../types/workspace-id";
+import { partialWithoutDefaults } from "../validation/partial";
 
 export const GIT_ERROR_KINDS = [
   "auth",
@@ -106,8 +108,8 @@ export type GitStatusGroups = z.infer<typeof GitStatusGroupsSchema>;
 export const BranchInfoSchema = z.object({
   current: z.string(),
   upstream: z.string().nullable().default(null),
-  ahead: z.number().int().nonnegative().default(0),
-  behind: z.number().int().nonnegative().default(0),
+  ahead: NonnegativeIntegerSchema.default(0),
+  behind: NonnegativeIntegerSchema.default(0),
   isUnborn: z.boolean(),
 });
 export type BranchInfo = z.infer<typeof BranchInfoSchema>;
@@ -134,8 +136,8 @@ export type BranchInfo = z.infer<typeof BranchInfoSchema>;
 export const RepoCapabilitiesSchema = z.object({
   hasHEAD: z.boolean(),
   remotes: z.array(z.string()),
-  stashCount: z.number().int().nonnegative(),
-  tagCount: z.number().int().nonnegative().default(0),
+  stashCount: NonnegativeIntegerSchema,
+  tagCount: NonnegativeIntegerSchema.default(0),
 });
 export type RepoCapabilities = z.infer<typeof RepoCapabilitiesSchema>;
 
@@ -156,7 +158,7 @@ export const GitOperationStateSchema = z.discriminatedUnion("kind", [
     headRef: z.string().nullable(),
     mergeRef: z.string().nullable(),
     mergeLabel: z.string().optional(),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
   z.object({
     kind: z.literal("rebase"),
@@ -164,22 +166,22 @@ export const GitOperationStateSchema = z.discriminatedUnion("kind", [
     headRef: z.string().nullable(),
     ontoRef: z.string().nullable(),
     ontoLabel: z.string().optional(),
-    doneCount: z.number().int().nonnegative(),
-    totalCount: z.number().int().nonnegative(),
-    conflictCount: z.number().int().nonnegative(),
+    doneCount: NonnegativeIntegerSchema,
+    totalCount: NonnegativeIntegerSchema,
+    conflictCount: NonnegativeIntegerSchema,
     currentCommitSubject: z.string().optional(),
   }),
   z.object({
     kind: z.literal("cherry-pick"),
     sourceSha: z.string().nullable(),
     sourceSubject: z.string().optional(),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
   z.object({
     kind: z.literal("revert"),
     sourceSha: z.string().nullable(),
     sourceSubject: z.string().optional(),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
 ]);
 export type GitOperationState = z.infer<typeof GitOperationStateSchema>;
@@ -189,8 +191,8 @@ export const DEFAULT_GIT_OPERATION_STATE: GitOperationState = { kind: "none" };
 export const GitStatusSchema = GitStatusGroupsSchema.extend({
   branch: BranchInfoSchema.nullable(),
   capabilities: RepoCapabilitiesSchema,
-  operationState: GitOperationStateSchema.default(DEFAULT_GIT_OPERATION_STATE),
-  lastFetchedAt: z.number().int().nonnegative().nullable().default(null),
+  operationState: GitOperationStateSchema.prefault(DEFAULT_GIT_OPERATION_STATE),
+  lastFetchedAt: NonnegativeIntegerSchema.nullable().default(null),
 });
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 
@@ -209,16 +211,16 @@ export type CommitResult = z.infer<typeof CommitResultSchema>;
 export const PullResultSchema = z.object({
   alreadyUpToDate: z.boolean(),
   fastForward: z.boolean().optional(),
-  filesChanged: z.number().int().nonnegative().optional(),
-  insertions: z.number().int().nonnegative().optional(),
-  deletions: z.number().int().nonnegative().optional(),
+  filesChanged: NonnegativeIntegerSchema.optional(),
+  insertions: NonnegativeIntegerSchema.optional(),
+  deletions: NonnegativeIntegerSchema.optional(),
   summary: z.string().optional(),
 });
 export type PullResult = z.infer<typeof PullResultSchema>;
 
 export const GitFetchAllResultSchema = z.object({
   fetched: z.boolean(),
-  lastFetchedAt: z.number().int().nonnegative().nullable(),
+  lastFetchedAt: NonnegativeIntegerSchema.nullable(),
 });
 export type GitFetchAllResult = z.infer<typeof GitFetchAllResultSchema>;
 
@@ -226,7 +228,7 @@ export const PushResultSchema = z.object({
   pushed: z.boolean(),
   remote: z.string().optional(),
   branch: z.string().optional(),
-  commitsPushed: z.number().int().nonnegative().optional(),
+  commitsPushed: NonnegativeIntegerSchema.optional(),
   summary: z.string().optional(),
 });
 export type PushResult = z.infer<typeof PushResultSchema>;
@@ -245,7 +247,7 @@ export const GitMergeResultSchema = z.discriminatedUnion("result", [
   z.object({ result: z.literal("clean") }),
   z.object({
     result: z.literal("conflicts"),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
 ]);
 export type GitMergeResult = z.infer<typeof GitMergeResultSchema>;
@@ -253,15 +255,15 @@ export type GitMergeResult = z.infer<typeof GitMergeResultSchema>;
 export const GitRebaseResultSchema = z.discriminatedUnion("result", [
   z.object({
     result: z.literal("clean"),
-    conflictCount: z.number().int().nonnegative(),
-    doneCount: z.number().int().nonnegative(),
-    totalCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
+    doneCount: NonnegativeIntegerSchema,
+    totalCount: NonnegativeIntegerSchema,
   }),
   z.object({
     result: z.literal("conflicts"),
-    conflictCount: z.number().int().nonnegative(),
-    doneCount: z.number().int().nonnegative(),
-    totalCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
+    doneCount: NonnegativeIntegerSchema,
+    totalCount: NonnegativeIntegerSchema,
   }),
 ]);
 export type GitRebaseResult = z.infer<typeof GitRebaseResultSchema>;
@@ -270,7 +272,7 @@ export const GitCherryPickResultSchema = z.discriminatedUnion("result", [
   z.object({ result: z.literal("clean") }),
   z.object({
     result: z.literal("conflicts"),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
 ]);
 export type GitCherryPickResult = z.infer<typeof GitCherryPickResultSchema>;
@@ -279,17 +281,17 @@ export const GitContinueOpResultSchema = z.discriminatedUnion("result", [
   z.object({ result: z.literal("completed") }),
   z.object({
     result: z.literal("clean"),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
   z.object({
     result: z.literal("conflicts"),
-    conflictCount: z.number().int().nonnegative(),
+    conflictCount: NonnegativeIntegerSchema,
   }),
 ]);
 export type GitContinueOpResult = z.infer<typeof GitContinueOpResultSchema>;
 
 export const GitMarkResolvedResultSchema = z.object({
-  remainingConflicts: z.number().int().nonnegative(),
+  remainingConflicts: NonnegativeIntegerSchema,
 });
 export type GitMarkResolvedResult = z.infer<typeof GitMarkResolvedResultSchema>;
 
@@ -317,7 +319,7 @@ export type GitSyncResult = z.infer<typeof GitSyncResultSchema>;
 export const GitOpenFileAtHeadResultSchema = z.object({
   content: z.string(),
   encoding: z.enum(["utf8", "utf8-bom"]),
-  sizeBytes: z.number().int().nonnegative(),
+  sizeBytes: NonnegativeIntegerSchema,
 });
 export type GitOpenFileAtHeadResult = z.infer<typeof GitOpenFileAtHeadResultSchema>;
 
@@ -331,7 +333,7 @@ export const GitBlobChunkSchema = z.object({
 export type GitBlobChunk = z.infer<typeof GitBlobChunkSchema>;
 
 export const GitBlobCompleteSchema = z.object({
-  bytes: z.number().int().nonnegative(),
+  bytes: NonnegativeIntegerSchema,
 });
 export type GitBlobComplete = z.infer<typeof GitBlobCompleteSchema>;
 
@@ -387,11 +389,11 @@ export const GitEditorSaveArgsSchema = GitHelperPromptIdArgsSchema.extend({
 });
 
 export const StashEntrySchema = z.object({
-  index: z.number().int().nonnegative(),
+  index: NonnegativeIntegerSchema,
   sha: z.string(),
   message: z.string(),
   branch: z.string().nullable(),
-  createdAt: z.number().int().nonnegative(),
+  createdAt: NonnegativeIntegerSchema,
 });
 export type StashEntry = z.infer<typeof StashEntrySchema>;
 
@@ -400,7 +402,7 @@ export const TagSchema = z.object({
   sha: z.string(),
   message: z.string().nullable(),
   type: z.enum(["annotated", "lightweight"]),
-  taggerDate: z.number().int().nonnegative().nullable(),
+  taggerDate: NonnegativeIntegerSchema.nullable(),
 });
 export type Tag = z.infer<typeof TagSchema>;
 
@@ -476,7 +478,7 @@ export const LogEntrySchema: z.ZodType<LogEntry> = z.object({
   authoredAt: z.string(),
   subject: z.string(),
   body: z.string().optional(),
-  refs: z.array(LogEntryRefSchema).default([]),
+  refs: z.array(LogEntryRefSchema).prefault([]),
 });
 
 export const LogChunkSchema = z.object({
@@ -485,7 +487,7 @@ export const LogChunkSchema = z.object({
 export type LogChunk = z.infer<typeof LogChunkSchema>;
 
 export const LogCompleteSchema = z.object({
-  count: z.number().int().nonnegative(),
+  count: NonnegativeIntegerSchema,
   hasMore: z.boolean().optional(),
 });
 export type LogComplete = z.infer<typeof LogCompleteSchema>;
@@ -514,8 +516,8 @@ export type CommitDetail = z.infer<typeof CommitDetailSchema>;
 export const FileLineStatsSchema = z.object({
   /** Relative to the repository's top level, as in GitStatus. */
   path: z.string(),
-  added: z.number().int().nonnegative(),
-  deleted: z.number().int().nonnegative(),
+  added: NonnegativeIntegerSchema,
+  deleted: NonnegativeIntegerSchema,
   binary: z.boolean().optional(),
 });
 export type FileLineStats = z.infer<typeof FileLineStatsSchema>;
@@ -527,8 +529,8 @@ export type FileLineStats = z.infer<typeof FileLineStatsSchema>;
  */
 export const GitChangeStatsSchema = z.object({
   files: z.array(FileLineStatsSchema),
-  ahead: z.number().int().nonnegative().optional(),
-  behind: z.number().int().nonnegative().optional(),
+  ahead: NonnegativeIntegerSchema.optional(),
+  behind: NonnegativeIntegerSchema.optional(),
 });
 export type GitChangeStats = z.infer<typeof GitChangeStatsSchema>;
 
@@ -550,7 +552,7 @@ export const DiffChunkSchema = z.object({
 export type DiffChunk = z.infer<typeof DiffChunkSchema>;
 
 export const DiffCompleteSchema = z.object({
-  bytes: z.number().int().nonnegative(),
+  bytes: NonnegativeIntegerSchema,
   truncated: z.boolean(),
 });
 export type DiffComplete = z.infer<typeof DiffCompleteSchema>;
@@ -719,7 +721,7 @@ export const GitAutofetchStateChangedSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   fetching: z.boolean(),
   paused: z.boolean(),
-  consecutiveFailures: z.number().int().nonnegative(),
+  consecutiveFailures: NonnegativeIntegerSchema,
   lastError: GitAutofetchErrorSchema.nullable(),
   showPausedBanner: z.boolean().default(false),
 });
@@ -732,17 +734,17 @@ export const GitPanelStateSchema = z.object({
   commitDraft: z.string(),
   expandedGroups: GitExpandedGroupsSchema,
   expandedTreeNodes: GitExpandedTreeNodesSchema,
-  commitOptions: GitCommitOptionsSchema.default(DEFAULT_GIT_COMMIT_OPTIONS),
-  autofetchIntervalMin: GitAutofetchIntervalMinSchema.default(DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN),
+  commitOptions: GitCommitOptionsSchema.prefault(DEFAULT_GIT_COMMIT_OPTIONS),
+  autofetchIntervalMin: GitAutofetchIntervalMinSchema.prefault(DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN),
   autofetchManualPaused: z.boolean().default(false),
-  protectedBranches: z.array(z.string()).default([]),
+  protectedBranches: z.array(z.string()).prefault([]),
   panelSegment: GitPanelSegmentSchema.default("changes"),
   historyRef: z.string().default("HEAD"),
   historyScope: GitHistoryScopeSchema.default("ref"),
 });
 export type GitPanelState = z.infer<typeof GitPanelStateSchema>;
 
-export const GitPanelStateUpdateSchema = GitPanelStateSchema.partial();
+export const GitPanelStateUpdateSchema = partialWithoutDefaults(GitPanelStateSchema);
 export type GitPanelStateUpdate = z.infer<typeof GitPanelStateUpdateSchema>;
 
 export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {

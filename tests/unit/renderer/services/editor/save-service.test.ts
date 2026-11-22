@@ -443,7 +443,7 @@ describe("saveModelInteractive — conflict, user chooses reload", () => {
     const result = await saveModelInteractive(INPUT);
 
     expect(result.kind).toBe("not-dirty");
-    expect(reloadModelFromDiskMock).toHaveBeenCalledWith(INPUT);
+    expect(reloadModelFromDiskMock).toHaveBeenCalledWith(INPUT, undefined, expect.any(Function));
     // Only the initial conflicting write — no retry
     expect(ipcCallMock).toHaveBeenCalledTimes(1);
   });

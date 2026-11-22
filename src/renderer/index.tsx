@@ -1,3 +1,4 @@
+import "./zod-config";
 import "./services/editor/runtime/monaco-loader";
 import { createRoot } from "react-dom/client";
 import { createLogger } from "../shared/log/renderer";

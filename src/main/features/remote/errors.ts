@@ -25,7 +25,10 @@ export class UnreachableError extends Error {
   }
 }
 
-/** The server answered with an error; `code` is its body's `error`, when it had one. */
+/**
+ * The server answered with an error; `code` is its body's `error`, when it
+ * had one, and `access` its body's `access` (a not_invited refusal's).
+ */
 export class ServerError extends Error {
   constructor(
     readonly status: number,
@@ -33,6 +36,8 @@ export class ServerError extends Error {
     what: string,
     /** How long the server asked to wait (Retry-After), in seconds. */
     readonly retryAfter?: number,
+    /** Where a refused account's signup stands, as the body said: read through its schema alone. */
+    readonly access?: unknown,
   ) {
     super(`${what}: ${status}${code ? ` ${code}` : ""}`);
   }

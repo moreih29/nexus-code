@@ -9,7 +9,11 @@ import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AppState } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import type { StateService } from "../../infra/storage/state-service";
+import {
+  isPlainRecord,
+  pickWorkspaceLayouts,
+  type StateService,
+} from "../../infra/storage/state-service";
 
 import { restoreLayoutOrigins } from "./layout-origins";
 
@@ -79,13 +83,27 @@ export function registerAppStateChannel(
         return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
-        const { instructionEdits, ...patch } = validateArgs(c.set.args, args);
+        // The workspace may have been removed while the renderer was saving.
+        const input = isPlainRecord(args) ? args : undefined;
+        const rawLayouts = input?.layoutByWorkspace;
+        const layouts = isPlainRecord(rawLayouts) ? rawLayouts : undefined;
+        const layoutWorkspaceIds = layouts && opts.listWorkspaces?.().map(({ id }) => id);
+        const { instructionEdits, ...patch } = validateArgs(
+          c.set.args,
+          layoutWorkspaceIds && layouts
+            ? {
+                ...input,
+                layoutByWorkspace: pickWorkspaceLayouts(layouts, layoutWorkspaceIds),
+              }
+            : args,
+        );
         const state = stateService.getState();
         const workspaceIds =
-          patch.layoutByWorkspace ||
+          layoutWorkspaceIds ??
+          (patch.layoutByWorkspace ||
           instructionEdits?.some(({ scope }) => scope.kind === "workspace")
             ? opts.listWorkspaces?.().map(({ id }) => id)
-            : undefined;
+            : undefined);
         const profiles = (patch.agentProfiles ?? state.agentProfiles ?? EMPTY_AGENT_PROFILES)
           .profiles;
         const hasProfile = (id: string) =>
@@ -114,23 +132,14 @@ export function registerAppStateChannel(
           patch.agentInstructions = instructionEdits?.reduce(withInstruction, config) ?? config;
         }
         if (patch.layoutByWorkspace) {
-          // A window sends only changed workspaces. Merge into the latest state
-          // so closing it cannot replace another window's unrelated layouts.
-          const latest = {
-            ...stateService.getState().layoutByWorkspace,
-            ...patch.layoutByWorkspace,
-          };
           // Archive a conversation's saved session layer for opening it again from history.
           const history = rememberChatInstructions(state, patch.layoutByWorkspace, workspaceIds);
           if (history) patch.chatInstructionHistory = history;
-          patch.layoutByWorkspace = workspaceIds
-            ? Object.fromEntries(
-                workspaceIds.flatMap((id) => (latest[id] ? [[id, latest[id]]] : [])),
-              )
-            : latest;
         }
         try {
-          stateService.setState(patch);
+          // Only validate layouts supplied by this window, then merge them into
+          // the latest state without replacing another window's layouts.
+          stateService.setState(patch, { workspaceIds });
         } catch (error) {
           return ipcErr("state-write-failed", String(error), { category: "failed" });
         }
@@ -163,6 +172,7 @@ export function registerAppStateChannel(
         }
 
         if ("agentProfiles" in patch) opts.onAgentProfilesChanged?.();
+        if (patch.noteSummary) broadcast("appState", "noteSummaryChanged", patch.noteSummary);
         if (patch.agentInstructions) {
           broadcast("appState", "agentInstructionsChanged", { config: patch.agentInstructions });
         }

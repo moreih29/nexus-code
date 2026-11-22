@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   OutdatedError,
+  ServerError,
   SignedOutError,
   UnreachableError,
 } from "../../../../../src/main/features/remote/errors";
@@ -16,6 +17,7 @@ import {
   SEND_BUFFER_STALL_MS,
   SOCKET_OPEN_TIMEOUT_MS,
 } from "../../../../../src/main/features/remote/relay-connection";
+import { SocketRetryAfter } from "../../../../../src/main/features/remote/retry-after";
 import {
   RETURN_CHECK_MS,
   returnToProxy,
@@ -30,6 +32,9 @@ class FakeSocket {
   constructor(readonly url: string) {}
   addEventListener(type: string, listener: (event: never) => void) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+  on(type: "unexpected-response", listener: (request: unknown, response: never) => void) {
+    this.addEventListener(type, (response) => listener({}, response));
   }
   emit(type: string, event: object = {}) {
     if (type === "open") this.readyState = 1;
@@ -48,6 +53,175 @@ class FakeSocket {
     this.readyState = 2;
   }
 }
+
+describe("relay connection rate limits", () => {
+  afterEach(() => jest.useRealTimers());
+
+  test.each([
+    [60, 60_000],
+    [600, 300_000],
+    [undefined, 1_000],
+  ] as const)("a ticket 429 uses Retry-After %p and waits %i ms", async (seconds, delay) => {
+    jest.useFakeTimers();
+    const url = jest.fn(async () => "wss://nexus.example/relay?ticket=fresh");
+    url.mockRejectedValueOnce(new ServerError(429, undefined, "POST /relay/ticket", seconds));
+    const relay = new RelayConnection({
+      url,
+      onOpen: () => {},
+      onFrame: () => {},
+      onStatus: () => {},
+      onSignedOut: () => {},
+      socket: (address) => new FakeSocket(address),
+      backoff: () => 1_000,
+      retryAfter: new SocketRetryAfter(Date.now),
+    });
+    try {
+      relay.start();
+      await Promise.resolve();
+      jest.advanceTimersByTime(delay - 1);
+      expect(url).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(1);
+      expect(url).toHaveBeenCalledTimes(2);
+      await Promise.resolve();
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test.each([
+    ["date", 60_000],
+    ["missing", 1_000],
+  ] as const)("an upgrade 429 with %s Retry-After waits %i ms", async (header, delay) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const cooldown = new SocketRetryAfter(Date.now);
+    const url = jest.fn(async () => "wss://nexus.example/relay?ticket=fresh");
+    const socket = new FakeSocket("wss://nexus.example/relay?ticket=fresh");
+    const unreachable = jest.fn();
+    const relay = new RelayConnection({
+      url,
+      onOpen: () => {},
+      onFrame: () => {},
+      onStatus: () => {},
+      onSignedOut: () => {},
+      unreachable,
+      socket: () => socket,
+      backoff: () => 1_000,
+      retryAfter: cooldown,
+    });
+    try {
+      relay.start();
+      await Promise.resolve();
+      const destroy = jest.fn();
+      socket.emit("unexpected-response", {
+        statusCode: 429,
+        headers:
+          header === "date" ? { "retry-after": new Date(Date.now() + delay).toUTCString() } : {},
+        destroy,
+      });
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(socket.closed).toBe(true);
+      expect(unreachable).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(delay - 100);
+      if (header === "date") {
+        relay.reconnect();
+        relay.stop();
+        relay.start();
+      }
+      jest.advanceTimersByTime(99);
+      expect(url).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(1);
+      expect(url).toHaveBeenCalledTimes(2);
+      await Promise.resolve();
+    } finally {
+      relay.stop();
+    }
+  });
+});
+
+test("ws exposes a 429 upgrade refusal and handles text, binary, and close after retry", async () => {
+  let now = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request, server) {
+      if (now === 60_000 && server.upgrade(request)) return;
+      return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
+    },
+    websocket: {
+      open(socket) {
+        socket.send(Buffer.from('{"t":"presence","self":"binary","devices":[]}'));
+        socket.send('{"t":"presence","self":"a","devices":[]}');
+        socket.close(CLOSE_SIGNED_OUT, "signed-out");
+      },
+      message() {},
+    },
+  });
+  const waiting = Promise.withResolvers<void>();
+  const received = Promise.withResolvers<unknown>();
+  const signedOut = Promise.withResolvers<void>();
+  const onFrame = jest.fn(received.resolve);
+  const cooldown = new SocketRetryAfter(() => now);
+  const unreachable = jest.fn();
+  const relay = new RelayConnection({
+    url: async () => `ws://127.0.0.1:${server.port}/relay?ticket=mock`,
+    onOpen: () => {},
+    onFrame,
+    onStatus: (status) => {
+      if (status === "waiting") waiting.resolve();
+    },
+    onSignedOut: signedOut.resolve,
+    unreachable,
+    retryAfter: cooldown,
+  });
+  try {
+    relay.start();
+    await waiting.promise;
+    expect(cooldown.remaining()).toBe(60_000);
+    expect(unreachable).not.toHaveBeenCalled();
+    now = 60_000;
+    relay.reconnect();
+    expect(await received.promise).toMatchObject({ t: "presence", self: "a", devices: [] });
+    await signedOut.promise;
+    expect(onFrame).toHaveBeenCalledTimes(1);
+  } finally {
+    relay.stop();
+    await server.stop(true);
+  }
+});
+
+test("a non-429 upgrade refusal follows the relay's usual close path once", async () => {
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(null, { status: 503 }),
+  });
+  const address = `ws://127.0.0.1:${server.port}/relay?ticket=mock`;
+  const waiting = Promise.withResolvers<void>();
+  const unreachable = jest.fn();
+  const backoff = jest.fn(() => 60_000);
+  const relay = new RelayConnection({
+    url: async () => address,
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: (status) => {
+      if (status === "waiting") waiting.resolve();
+    },
+    onSignedOut: () => {},
+    unreachable,
+    backoff,
+  });
+  try {
+    relay.start();
+    await waiting.promise;
+    expect(unreachable).toHaveBeenCalledTimes(1);
+    expect(unreachable).toHaveBeenCalledWith(address);
+    expect(backoff).toHaveBeenCalledTimes(1);
+  } finally {
+    relay.stop();
+    await server.stop(true);
+  }
+});
 
 test("a socket closed before it opened is told as unreachable; one closed after is not", async () => {
   const sockets: FakeSocket[] = [];

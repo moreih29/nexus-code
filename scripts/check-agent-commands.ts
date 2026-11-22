@@ -19,6 +19,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { noteReport } from "../src/main/features/cli/commands/note-report";
+import { commandHelp } from "../src/main/features/cli/registry";
 import { APP_COMMANDS, type AppCommand } from "../src/renderer/services/chat/app-commands";
 import {
   CONFIG_KEYS,
@@ -603,6 +605,15 @@ async function main(): Promise<number> {
     ["codex", () => checkCodex(verbose)],
   ];
   let failed = false;
+  if (!only) {
+    const help = commandHelp(noteReport);
+    if (
+      !["note report", "--done", "--failed", "--pr", "--line"].every((part) => help.includes(part))
+    ) {
+      console.error("nexus note report: missing usage or options");
+      failed = true;
+    }
+  }
   for (const [agent, check] of checks) {
     if (only && only !== agent) continue;
     let report: Report;

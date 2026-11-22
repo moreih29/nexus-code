@@ -32,6 +32,7 @@ export function openTerminal(
     cwd: input.cwd,
     ...(input.shell !== undefined ? { shell: input.shell } : {}),
     ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    ...(input.openedBy ? { openedBy: input.openedBy } : {}),
   };
 
   if (opts.newSplit) {

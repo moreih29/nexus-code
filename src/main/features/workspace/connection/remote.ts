@@ -1,3 +1,4 @@
+import { createAbortError } from "../../../../shared/abort";
 import { createLogger } from "../../../../shared/log/main";
 import {
   type WorkspaceLocation,
@@ -455,14 +456,23 @@ export class RemoteWorkspaceConnections {
       bootstrap.dispose?.();
       throw createWorkspaceRemovedError(meta.id);
     }
-    let providerMeta = meta;
-    if (!location.remoteArch) {
+    let providerMeta = ctx.getMeta();
+    const currentLocation = providerMeta.location;
+    if (
+      currentLocation.kind === "local" ||
+      workspaceLocationKey(currentLocation) !== workspaceLocationKey(location)
+    ) {
+      bootstrap.dispose?.();
+      this.state.broadcastConnectionStatus(meta.id, "disconnected");
+      throw createAbortError(`Workspace ${meta.id} moved while its agent was starting`);
+    }
+    if (!currentLocation.remoteArch) {
       providerMeta = {
-        ...meta,
+        ...providerMeta,
         location:
-          location.kind === "wsl"
-            ? { ...location, remoteArch: { os: "linux", arch: bootstrap.platform.arch } }
-            : { ...location, remoteArch: bootstrap.platform },
+          currentLocation.kind === "wsl"
+            ? { ...currentLocation, remoteArch: { os: "linux", arch: bootstrap.platform.arch } }
+            : { ...currentLocation, remoteArch: bootstrap.platform },
       };
       this.globalStorage.updateWorkspace(meta.id, { location: providerMeta.location });
       ctx.setMeta(providerMeta);

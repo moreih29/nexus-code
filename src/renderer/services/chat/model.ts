@@ -2,6 +2,7 @@
 
 import type { ClaudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
+import type { RetryReason, TurnFailure } from "./api-errors";
 import type { ClaudeGoal } from "./goal";
 
 export type LineDir = "out" | "in" | "sys";
@@ -104,7 +105,7 @@ export interface AssistantItem {
   kind: "assistant";
   key: string;
   messageId: string;
-  /** Claude's turn, which can contain several assistant messages. */
+  /** The turn this message belongs to, which can contain several messages. */
   turnId?: string;
   uuid?: string;
   blocks: AssistantBlock[];
@@ -273,7 +274,21 @@ export interface TurnState {
   thinkingTokens: number;
   /** requesting: waiting on the API; compacting: /compact runs. */
   status?: string;
-  retry?: { attempt: number; maxRetries?: number; delayMs?: number };
+  retry?: TurnRetry;
+}
+
+/** The program is trying the API again after an error (see api-errors). */
+export interface TurnRetry {
+  /** The try it is on, from 1. */
+  attempt: number;
+  maxRetries?: number;
+  /** How long it waits before the try. */
+  delayMs?: number;
+  /** When it said so, in Unix milliseconds: the wait ends `delayMs` after. */
+  at?: number;
+  /** The HTTP status of the error it tries again after; none when no answer came. */
+  status?: number;
+  reason?: RetryReason;
 }
 
 export function noteTurnActivity(model: ChatModel, at: number | undefined): void {
@@ -364,12 +379,15 @@ export interface AccountInfo {
 export interface ResultInfo {
   subtype: string;
   isError: boolean;
+  turnId?: string;
   durationMs?: number;
   numTurns?: number;
   costUsd?: number;
   terminalReason?: string;
   outcome?: ClaudeTurnResult["outcome"];
   error?: string;
+  /** Why the turn failed on the API, and whether trying again can help. */
+  failure?: TurnFailure;
   /** When the turn ended, in Unix milliseconds. */
   at?: number;
 }

@@ -3,6 +3,7 @@ import type { TerminalControllerDeps } from "../../../../../src/renderer/service
 import type {
   PtyClientOptions,
   TerminalDimensions,
+  TerminalInputCheckpoint,
 } from "../../../../../src/renderer/services/terminal/types";
 
 type IpcCallRecord = { channel: string; method: string; args: unknown };
@@ -128,9 +129,17 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
-const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
-  await import("../../../../../src/renderer/services/terminal");
+const { resumeInTerminal, watchAgentInput } = await import(
+  "../../../../../src/renderer/services/agent-view/resume-terminal"
+);
+const { registerTerminalController } = await import(
+  "../../../../../src/renderer/services/terminal/terminal-registry"
+);
+const { closeTerminal, closeTerminalWithConfirm, openTerminal } = await import(
+  "../../../../../src/renderer/services/terminal"
+);
 const {
+  createTerminalController,
   isShellPromptLikeTitle,
   isLoginShell,
   classifyOscTitle,
@@ -141,12 +150,16 @@ const {
 const { createPtyClient, STARTUP_INPUT_QUIET_MS } = await import(
   "../../../../../src/renderer/services/terminal/pty-client"
 );
+const { subscribeTerminalReopenRequest } = await import(
+  "../../../../../src/renderer/services/terminal/reopen-requests"
+);
 const { closeGroup } = await import("../../../../../src/renderer/state/operations");
 const { startTerminalExitListener } = await import(
   "../../../../../src/renderer/state/terminal-exit"
 );
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
+const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const OTHER_WS = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
@@ -263,6 +276,7 @@ function makeTerminalControllerDeps(
       },
       buffer: bufferState,
       modes,
+      options: { theme: undefined, fontSize: 14, cursorStyle: "block", fontFamily: "monospace" },
       dispose: () => {},
       loadAddon: () => {},
       onData: (handler) => {
@@ -299,7 +313,7 @@ function makeTerminalControllerDeps(
       fit: () => {},
       proposeDimensions: () => ({ cols: 100, rows: 40 }),
     }),
-    createLigaturesAddon: () => ({ dispose: () => {} }) as never,
+    loadLigaturesAddon: async () => () => ({ dispose: () => {} }),
     createPtyClient: (options) => {
       ptyOptions = options;
       return {
@@ -977,6 +991,77 @@ describe("services/terminal controller focus asked for before xterm opens", () =
   });
 });
 
+describe("services/terminal lazy ligatures", () => {
+  const opened = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const options = {
+    workspaceId: WS,
+    tabId: "tab-ligatures",
+    cwd: "/workspace",
+    container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+    autoSpawn: false,
+  };
+
+  afterEach(() => useTerminalStore.setState({ fontLigatures: undefined }));
+
+  it("opens after the first load and activates the addon after xterm opens", async () => {
+    useTerminalStore.setState({ fontLigatures: true });
+    const { deps } = makeTerminalControllerDeps();
+    const loaded = Promise.withResolvers<Awaited<ReturnType<typeof deps.loadLigaturesAddon>>>();
+    deps.loadLigaturesAddon = mock(() => loaded.promise);
+    const createTerminal = deps.createTerminal;
+    const open = mock(() => {});
+    const addon = { dispose: mock(() => {}) };
+    deps.createTerminal = (options) => ({
+      ...createTerminal(options),
+      open,
+      loadAddon: (next) => {
+        if (next === addon) expect(open).toHaveBeenCalledTimes(1);
+      },
+    });
+
+    const controller = createTerminalController(options, deps);
+    try {
+      expect(deps.loadLigaturesAddon).toHaveBeenCalledTimes(1);
+      expect(open).not.toHaveBeenCalled();
+      loaded.resolve(() => addon);
+      await opened();
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.dispose();
+    }
+    expect(addon.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips disabled ligatures and ignores a load that finishes after disabling or closing", async () => {
+    const { deps } = makeTerminalControllerDeps();
+    const loaded = Promise.withResolvers<Awaited<ReturnType<typeof deps.loadLigaturesAddon>>>();
+    const createAddon = mock(() => ({ dispose: () => {} }));
+    deps.loadLigaturesAddon = mock(() => loaded.promise);
+
+    const controller = createTerminalController(options, deps);
+    try {
+      await opened();
+      expect(deps.loadLigaturesAddon).not.toHaveBeenCalled();
+      useTerminalStore.setState({ fontLigatures: true });
+      controller.applyTerminalSettings();
+      expect(deps.loadLigaturesAddon).toHaveBeenCalledTimes(1);
+      useTerminalStore.setState({ fontLigatures: false });
+      controller.applyTerminalSettings();
+      loaded.resolve(createAddon);
+      await opened();
+      expect(createAddon).not.toHaveBeenCalled();
+
+      useTerminalStore.setState({ fontLigatures: true });
+      controller.applyTerminalSettings();
+      controller.dispose();
+      await opened();
+      expect(createAddon).not.toHaveBeenCalled();
+    } finally {
+      controller.dispose();
+    }
+  });
+});
+
 describe("services/terminal controller ready for input", () => {
   beforeEach(resetIpc);
   afterEach(() => jest.useRealTimers());
@@ -1072,6 +1157,93 @@ describe("services/terminal controller ready for input", () => {
   });
 });
 
+describe("services/terminal controller input tracking", () => {
+  beforeEach(resetIpc);
+
+  it("tracks browser input and leaves its checkpoint alone for PTY output and xterm replies", async () => {
+    const harness = makeTerminalControllerDeps();
+    const container = Object.assign(new EventTarget(), { clientWidth: 800, clientHeight: 480 });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-input-checkpoint",
+        cwd: "/workspace",
+        container: container as unknown as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const initial = controller.getInputCheckpoint();
+    const listener = mock(() => {});
+    const unsubscribe = controller.onInput(listener);
+
+    try {
+      harness.getPtyOptions()?.onData("shell prompt", false);
+      harness.getPtyOptions()?.onData("\x1b[6n", false);
+      harness.termData("\x1b[3;1R");
+      expect(controller.getInputCheckpoint()).toBe(initial);
+      expect(listener).not.toHaveBeenCalled();
+
+      container.dispatchEvent(Object.assign(new Event("keydown"), { key: "e" }));
+      const typed = controller.getInputCheckpoint();
+      expect(typed).not.toBe(initial);
+      expect(typed.hasInput).toBe(true);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      container.dispatchEvent(new Event("paste"));
+      expect(controller.getInputCheckpoint()).not.toBe(typed);
+      expect(listener).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+      controller.dispose();
+    }
+    const disposed = controller.getInputCheckpoint();
+    container.dispatchEvent(Object.assign(new Event("keydown"), { key: "x" }));
+    expect(controller.getInputCheckpoint()).toBe(disposed);
+  });
+
+  it("keeps a shell draft typed before the view notices the agent exit", async () => {
+    const harness = makeTerminalControllerDeps();
+    const terminal = { workspaceId: WS, tabId: "tab-exit-input-gap" };
+    const container = Object.assign(new EventTarget(), { clientWidth: 800, clientHeight: 480 });
+    const controller = createTerminalController(
+      { ...terminal, cwd: "/workspace", container: container as unknown as HTMLElement },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const unregister = registerTerminalController(terminal.tabId, controller);
+    let checkpoint: TerminalInputCheckpoint | undefined;
+    const stop = watchAgentInput(terminal, controller, "codex", (input) => {
+      checkpoint = input;
+    });
+    const type = (key: string) => {
+      container.dispatchEvent(Object.assign(new Event("keydown"), { key }));
+      harness.termData(key);
+    };
+
+    try {
+      mockForegroundProcessName = "codex";
+      type("a");
+      await flushTerminalInit();
+      const whileRunning = controller.getInputCheckpoint();
+      expect(checkpoint).toBe(whileRunning);
+
+      mockForegroundProcessName = "zsh";
+      type("e");
+      await flushTerminalInit();
+      expect(checkpoint).toBe(whileRunning);
+
+      await resumeInTerminal(terminal, "codex resume", checkpoint);
+      expect(harness.ptyWrites).toEqual(["a", "e"]);
+    } finally {
+      stop();
+      unregister();
+      controller.dispose();
+      mockForegroundProcessName = "lazygit";
+    }
+  });
+});
+
 describe("services/terminal controller replay", () => {
   beforeEach(resetIpc);
 
@@ -1108,6 +1280,27 @@ describe("services/terminal controller replay", () => {
 
 describe("services/terminal controller reopen", () => {
   beforeEach(resetIpc);
+
+  it("changes the sandbox consent scope when the shell reopens", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-reopen-sandbox",
+        cwd: "/workspace/original",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+
+    const session = controller.sandboxSession;
+    await controller.reopen();
+    expect(controller.sandboxSession).not.toBe(session);
+    controller.dispose();
+    expect(controller.sandboxSession).toBeNull();
+  });
 
   it("surfaces reopen spawn failure so the view can swap to retry copy", async () => {
     const harness = makeTerminalControllerDeps(() => Promise.reject(new Error("agent down")));
@@ -1173,12 +1366,12 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     resetIpc();
   });
 
-  async function setupHandler() {
+  async function setupHandler(tabId = "tab-keymap") {
     const harness = makeTerminalControllerDeps();
     const controller = createTerminalController(
       {
         workspaceId: WS,
-        tabId: "tab-keymap",
+        tabId,
         cwd: "/workspace",
         container: {} as HTMLElement,
         autoSpawn: false,
@@ -1200,6 +1393,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    repeat?: boolean;
     isComposing?: boolean;
     keyCode?: number;
     defaultPrevented: boolean;
@@ -1213,6 +1407,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    repeat?: boolean;
     isComposing?: boolean;
     keyCode?: number;
   }): FakeKeyEvent {
@@ -1223,6 +1418,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       metaKey: opts.metaKey,
       ctrlKey: opts.ctrlKey,
       altKey: opts.altKey,
+      repeat: opts.repeat,
       isComposing: opts.isComposing,
       keyCode: opts.keyCode,
       defaultPrevented: false,
@@ -1233,6 +1429,44 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     };
     return event;
   }
+
+  it("reopens an ended terminal on Enter and consumes held repeats through reopening", async () => {
+    const tab = useTabsStore.getState().createTab(WS, {
+      type: "terminal",
+      props: { cwd: "/workspace" },
+    });
+    const { controller, handler } = await setupHandler(tab.id);
+    const requested = mock(() => {});
+    const unsubscribe = subscribeTerminalReopenRequest(WS, tab.id, requested);
+    const press = (opts: Partial<Parameters<typeof fakeKeyEvent>[0]> = {}) => {
+      const event = fakeKeyEvent({ key: "Enter", ...opts });
+      return { passed: handler(event as unknown as KeyboardEvent), event };
+    };
+    try {
+      expect(press().passed).toBe(true);
+      expect(requested).not.toHaveBeenCalled();
+
+      useTabsStore.getState().setTerminalDead(WS, tab.id, true);
+      expect(press({ isComposing: true }).passed).toBe(true);
+      expect(press({ ctrlKey: true }).passed).toBe(true);
+      expect(requested).not.toHaveBeenCalled();
+      const { passed, event } = press();
+      expect(passed).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+      expect(requested).toHaveBeenCalledTimes(1);
+      expect(press({ repeat: true }).passed).toBe(false);
+      expect(requested).toHaveBeenCalledTimes(1);
+
+      useTabsStore.getState().setTerminalDead(WS, tab.id, false);
+      expect(press({ repeat: true }).passed).toBe(false);
+      expect(press().passed).toBe(true);
+      expect(press({ repeat: true }).passed).toBe(true);
+      expect(requested).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+      controller.dispose();
+    }
+  });
 
   it("조합 중 bare Cmd(Meta) keydown → return false (xterm 조기 finalize 차단, preventDefault 안 함)", async () => {
     // Regression guard for the Mac Cmd+←/→ duplicate-syllable bug: while an IME

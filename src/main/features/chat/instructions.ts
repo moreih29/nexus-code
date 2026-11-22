@@ -36,7 +36,7 @@ function digest(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-const claudeSessionId = z.string().uuid();
+const claudeSessionId = z.guid();
 
 export interface ClaudeInstructionHook {
   sessionId?: string;

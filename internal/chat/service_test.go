@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -602,14 +603,15 @@ func TestResetLogStartsTheReplayAtTheNewProgram(t *testing.T) {
 		t.Fatalf("Replay: %v", err)
 	}
 	rec.mu.Lock()
-	lines := rec.lines
-	rec.mu.Unlock()
-	if len(lines) == 0 {
+	defer rec.mu.Unlock()
+	firstReplay := slices.IndexFunc(rec.lines, func(line LinePayload) bool { return line.Replay })
+	if firstReplay < 0 {
 		t.Fatal("nothing replayed")
 	}
-	first := lines[0]
-	if first.Dir != DirSys || !strings.Contains(string(first.Message), `"resumed":true`) {
-		t.Fatalf("first replayed line = %s", describe(lines[:1]))
+	first := rec.lines[firstReplay]
+	if first.Dir != DirSys || !strings.Contains(string(first.Message), `"event":"start"`) ||
+		!strings.Contains(string(first.Message), `"resumed":true`) {
+		t.Fatalf("first replayed line = %s", describe(rec.lines[firstReplay:firstReplay+1]))
 	}
 	if first.Seq <= before {
 		t.Fatalf("seq %d did not go on from %d", first.Seq, before)
@@ -640,12 +642,18 @@ func TestConnectionRestartKeepsTheLog(t *testing.T) {
 	}
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
-	if len(rec.lines) < 2 {
-		t.Fatal("missing the old log or the restart")
+	var starts []LinePayload
+	for _, line := range rec.lines {
+		if line.Replay && line.Dir == DirSys && strings.Contains(string(line.Message), `"event":"start"`) {
+			starts = append(starts, line)
+		}
 	}
-	first, last := string(rec.lines[0].Message), string(rec.lines[len(rec.lines)-1].Message)
-	if !strings.Contains(first, `"event":"start"`) || strings.Contains(first, `"connectionChanged"`) ||
-		!strings.Contains(last, `"connectionChanged":true`) || !strings.Contains(last, `"resumed":true`) {
+	if len(starts) != 2 || starts[0].Seq >= starts[1].Seq {
+		t.Fatalf("want two replayed start events in sequence: %s", describe(rec.lines))
+	}
+	first, restart := string(starts[0].Message), string(starts[1].Message)
+	if strings.Contains(first, `"connectionChanged"`) ||
+		!strings.Contains(restart, `"connectionChanged":true`) || !strings.Contains(restart, `"resumed":true`) {
 		t.Fatalf("wrong start and restart events: %s", describe(rec.lines))
 	}
 }

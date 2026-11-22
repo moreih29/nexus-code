@@ -14,13 +14,13 @@ import type { DocNode } from "./markdown";
 
 type Mark = NonNullable<DocNode["marks"]>[number];
 
-/** The note's blocks for `markdown`; none for blank text. */
-export function markdownToBlocks(markdown: string): DocNode[] {
+/** The note's blocks for `markdown`; none for blank text. With `imageAlt`, use inline text for images. */
+export function markdownToBlocks(markdown: string, imageAlt?: string): DocNode[] {
   const tree = fromMarkdown(markdown, {
     extensions: [gfm()],
     mdastExtensions: [gfmFromMarkdown()],
   });
-  return blocksOf(tree.children, markdown);
+  return blocksOf(tree.children, markdown, imageAlt);
 }
 
 /** The images among blocks (at any depth), as markdownToBlocks left them. */
@@ -28,25 +28,25 @@ export function imagesOf(blocks: DocNode[]): DocNode[] {
   return blocks.flatMap((b) => (b.type === "noteImage" ? [b] : imagesOf(b.content ?? [])));
 }
 
-function blocksOf(nodes: RootContent[], source: string): DocNode[] {
-  return nodes.flatMap((node) => blockOf(node, source));
+function blocksOf(nodes: RootContent[], source: string, imageAlt: string | undefined): DocNode[] {
+  return nodes.flatMap((node) => blockOf(node, source, imageAlt));
 }
 
-function blockOf(node: RootContent, source: string): DocNode[] {
+function blockOf(node: RootContent, source: string, imageAlt: string | undefined): DocNode[] {
   switch (node.type) {
     case "paragraph":
-      return paragraphs(node.children);
+      return paragraphs(node.children, imageAlt);
     case "heading":
       return [
         withContent(
           { type: "heading", attrs: { level: Math.min(Math.max(node.depth, 1), 3) } },
-          inline(node.children, []),
+          inline(node.children, [], imageAlt),
         ),
       ];
     case "thematicBreak":
       return [{ type: "horizontalRule" }];
     case "blockquote":
-      return [{ type: "blockquote", content: nonEmpty(blocksOf(node.children, source)) }];
+      return [{ type: "blockquote", content: nonEmpty(blocksOf(node.children, source, imageAlt)) }];
     case "code":
       return [codeBlock(node.value, node.lang ?? null)];
     case "list": {
@@ -62,7 +62,7 @@ function blockOf(node: RootContent, source: string): DocNode[] {
       return runs.map((run) => {
         const tasks = isTask(run[0]);
         const items = run.map((item) => {
-          const content = listItemContent(blocksOf(item.children, source));
+          const content = listItemContent(blocksOf(item.children, source, imageAlt));
           return tasks
             ? { type: "taskItem", attrs: { checked: item.checked === true }, content }
             : { type: "listItem", content };
@@ -88,7 +88,7 @@ function blockOf(node: RootContent, source: string): DocNode[] {
       return node.value.trim() ? [paragraph([{ type: "text", text: node.value }])] : [];
     default:
       // Definitions, footnotes and the like: their text, if they have any.
-      return "children" in node ? blocksOf(node.children as RootContent[], source) : [];
+      return "children" in node ? blocksOf(node.children as RootContent[], source, imageAlt) : [];
   }
 }
 
@@ -126,16 +126,16 @@ function withContent(node: DocNode, content: DocNode[]): DocNode {
  * images are blocks): the text before and after an image goes on either
  * side of it.
  */
-function paragraphs(children: PhrasingContent[]): DocNode[] {
+function paragraphs(children: PhrasingContent[], imageAlt: string | undefined): DocNode[] {
   const out: DocNode[] = [];
   let run: PhrasingContent[] = [];
   const flush = () => {
-    const content = trimBreaks(inline(run, []));
+    const content = trimBreaks(inline(run, [], imageAlt));
     if (content.length > 0) out.push(paragraph(content));
     run = [];
   };
   for (const child of children) {
-    if (child.type === "image") {
+    if (child.type === "image" && imageAlt === undefined) {
       flush();
       out.push({ type: "noteImage", attrs: { src: child.url, alt: child.alt ?? "" } });
     } else {
@@ -163,32 +163,41 @@ function trimBreaks(content: DocNode[]): DocNode[] {
   return kept.filter((n) => n.type !== "text" || n.text);
 }
 
-function inline(nodes: PhrasingContent[], marks: Mark[]): DocNode[] {
+function inline(nodes: PhrasingContent[], marks: Mark[], imageAlt: string | undefined): DocNode[] {
   return nodes.flatMap((node): DocNode[] => {
     switch (node.type) {
       case "text":
         return textNode(node.value, marks);
       case "strong":
-        return inline(node.children, [...marks, { type: "bold" }]);
+        return inline(node.children, [...marks, { type: "bold" }], imageAlt);
       case "emphasis":
-        return inline(node.children, [...marks, { type: "italic" }]);
+        return inline(node.children, [...marks, { type: "italic" }], imageAlt);
       case "delete":
-        return inline(node.children, [...marks, { type: "strike" }]);
+        return inline(node.children, [...marks, { type: "strike" }], imageAlt);
       case "inlineCode":
         // Code takes no other mark in the editor.
         return textNode(node.value, [{ type: "code" }]);
       case "link":
-        return inline(node.children, [...marks, { type: "link", attrs: { href: node.url } }]);
+        return inline(
+          node.children,
+          [...marks, { type: "link", attrs: { href: node.url } }],
+          imageAlt,
+        );
       case "break":
         return [{ type: "hardBreak" }];
       case "html":
         return textNode(node.value, marks);
       case "image":
         // Within a link or a heading: its words, as a note has no image there.
-        return textNode(node.alt ?? "", marks);
+        return textNode(
+          imageAlt === undefined ? (node.alt ?? "") : node.alt?.trim() || imageAlt,
+          marks,
+        );
+      case "imageReference":
+        return imageAlt === undefined ? [] : textNode(node.alt?.trim() || imageAlt, marks);
       default:
         return "children" in node
-          ? inline((node as { children: PhrasingContent[] }).children, marks)
+          ? inline((node as { children: PhrasingContent[] }).children, marks, imageAlt)
           : [];
     }
   });

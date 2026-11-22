@@ -1,7 +1,9 @@
+import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import type { AnsiScreen } from "./buffer-ansi";
 
 export interface TerminalInput {
+  openedBy?: TerminalOpener;
   workspaceId: string;
   cwd: string;
   /** The shell to open with; absent = the default shell setting. */
@@ -69,7 +71,14 @@ export interface TerminalControllerOptions {
   onExit?: (args: { code: number | null }) => void;
 }
 
+/** A new snapshot for each interaction that may change the terminal input. */
+export interface TerminalInputCheckpoint {
+  readonly hasInput: boolean;
+}
+
 export interface TerminalController {
+  /** Identity of the current shell for sandbox consent. Replaced when a new shell starts. */
+  readonly sandboxSession: string | null;
   /**
    * Re-rasterize the visible viewport from xterm's in-memory line buffer.
    * Call after the underlying DOM container is moved (e.g. createPortal
@@ -99,6 +108,8 @@ export interface TerminalController {
    * terminal has opened.
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
+  getInputCheckpoint: () => TerminalInputCheckpoint;
+  onInput: (listener: () => void) => () => void;
   /**
    * True once input reaches its shell: it has opened (after its view
    * registers it, once its fonts have loaded) and its shell has started,

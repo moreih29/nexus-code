@@ -1,3 +1,5 @@
+import { posixShellString, powerShellString } from "../../../shared/pty/shell";
+
 /**
  * Quotes text as one argument of a command typed into the terminal's shell.
  * `shellPath` is the local shell main reported; a remote terminal has none
@@ -24,7 +26,7 @@ export function quoteShellArgument(text: string, shellPath?: string): string {
   if (shell === "powershell.exe") return powerShellString(escapeForCommandLine(oneLine));
   if (shell === "pwsh.exe" || shell === "pwsh") return powerShellString(oneLine);
   if (shell === "cmd.exe") return cmdString(oneLine);
-  return `'${oneLine.replaceAll("'", "'\\''")}'`;
+  return posixShellString(oneLine);
 }
 
 /**
@@ -37,11 +39,6 @@ function cmdString(text: string): string {
     .split("%")
     .map((part) => `"${part.replace(/(\\*)"/g, '$1$1""').replace(/(\\+)$/, "$1$1")}"`)
     .join("^%");
-}
-
-/** A single-quoted PowerShell string, which also takes the typographic single quotes as quotes. */
-function powerShellString(text: string): string {
-  return `'${text.replace(/['‘’‚‛]/g, "$&$&")}'`;
 }
 
 /** What .NET's Char.IsWhiteSpace counts, which Windows PowerShell checks. */

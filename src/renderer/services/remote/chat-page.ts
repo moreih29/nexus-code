@@ -20,6 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { LimitResume } from "../../../shared/types/layout";
 import type { CodexModel, CodexRateLimits } from "../chat/codex/model";
 import type {
   AssistantItem,
@@ -59,6 +60,8 @@ export interface ChatSource {
    * `after` (its id, as the tab keeps it), in the profile named `profile`.
    */
   moves?: readonly { after: string; profile: string; at: number }[];
+  /** Going on after the plan's usage limit stopped it, as the tab keeps it. */
+  limitResume?: LimitResume;
   /** What another device can do with it now, as the tab's own buttons do. */
   can?: {
     rewind: boolean;
@@ -236,6 +239,7 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     ...(model.interrupting ? { interrupting: true } : {}),
     process: model.process,
     phase: chat.phase,
+    ...(chat.phaseRevision !== undefined ? { phaseRevision: chat.phaseRevision } : {}),
     ...(chat.error ? { error: chat.error.slice(0, MAX_STATUS_TEXT) } : {}),
     ...(version ? { version } : {}),
     ...((model as Partial<CodexModel>).signedOut ? { signedOut: true } : {}),

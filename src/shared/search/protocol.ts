@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PositiveIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types";
 
 export const SEARCH_TEXT_METHOD = "search.text";
@@ -28,7 +29,7 @@ export const AgentSearchCompleteSchema = SearchCompleteSchema;
 
 export const AgentSearchFilesParamsSchema = z.object({
   query: z.string().min(1),
-  limit: z.number().int().positive().max(1000).optional(),
+  limit: PositiveIntegerSchema.check(z.lte(1000)).optional(),
 });
 export type AgentSearchFilesParams = z.infer<typeof AgentSearchFilesParamsSchema>;
 

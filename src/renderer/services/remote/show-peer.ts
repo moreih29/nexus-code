@@ -17,17 +17,20 @@ export interface PeerSessionRef {
 
 export async function showPeerSession(ref: PeerSessionRef): Promise<void> {
   const listed = await ipcCallResult("remote", "peerSessions", { deviceId: ref.device.id });
+  const sessions = listed.ok ? listed.value.sessions : [];
+  const matching = sessions.filter((session) => session.tabId === ref.tabId);
+  const session =
+    matching.find((session) => session.workspaceId === ref.workspaceId) ??
+    (matching.length === 1 ? matching[0] : undefined);
+  const workspaceId = session?.workspaceId ?? ref.workspaceId;
   const workspace = listed.ok
-    ? listed.value.workspaces.find((w) => w.id === ref.workspaceId)
-    : undefined;
-  const session = listed.ok
-    ? listed.value.sessions.find((s) => s.workspaceId === ref.workspaceId && s.tabId === ref.tabId)
+    ? listed.value.workspaces.find((w) => w.id === workspaceId)
     : undefined;
   useRemoteViewStore.getState().open({
     deviceId: ref.device.id,
     deviceName: ref.device.name,
-    workspaceId: ref.workspaceId,
-    workspaceName: workspace?.name ?? ref.workspaceId.slice(0, 8),
+    workspaceId,
+    workspaceName: workspace?.name ?? workspaceId.slice(0, 8),
     path: workspace?.path ?? "",
     tabId: ref.tabId,
     kind: session?.kind ?? ref.kind,

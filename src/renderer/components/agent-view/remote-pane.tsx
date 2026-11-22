@@ -2,6 +2,7 @@ import i18next, { type TFunction } from "i18next";
 import { ArrowLeft, CloudOff } from "lucide-react";
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -12,11 +13,12 @@ import {
 import { useTranslation } from "react-i18next";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import { appErrorFailed } from "../../../shared/error/app-error";
-import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import type { IpcResult } from "../../../shared/ipc/result";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
+import { forgetRemoteResult, useRemotePaneSeen } from "../../services/agent-view/remote-results";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude/config";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
@@ -78,19 +80,25 @@ import {
   TerminalInputQueueFullError,
   type TerminalTyping,
 } from "../../services/remote/terminal-typing";
-import { registerTabFocusTarget, requestTabFocus } from "../../services/tab-focus";
-import { useAgentViewStore } from "../../state/stores/agent-view";
+import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useChatFontStyle } from "../../state/stores/chat-font";
-import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import {
+  askOf,
+  type OpenRemoteSession,
+  openRemoteSession,
+  type RemoteTarget,
+} from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { AgentStrip, ShownState } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
+import { ChatPhaseBanner, ChatSignedOutBanner } from "../chat/chat-state-banner";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint, composerKeys } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
+import { LimitResumeView, showsLimitResume } from "../chat/limit-resume-banner";
 import {
   type CallReveal,
   type MessageActions,
@@ -107,15 +115,17 @@ import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
+import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
+import { consentFromChat, PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
-import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import { closePeerSession } from "./remote-session-actions";
+import { type RemoteSessionHost, RemoteSessionHostContext } from "./remote-session-host";
 import {
   panelSummaryCounts,
   type RemotePanelAsk,
@@ -191,7 +201,11 @@ async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
  * its program runs (a sign-in there is the profile's, not the default
  * folder's).
  */
-export function runInPeerTerminal(target: RemoteTarget, command: string): void {
+export function runInPeerTerminal(
+  target: RemoteTarget,
+  command: string,
+  open: OpenRemoteSession = openRemoteSession,
+): void {
   // A folder outside its workspace is not one a terminal there opens in.
   const folder =
     target.cwd && target.cwd !== target.path && isUnder(target.cwd, target.path)
@@ -200,7 +214,7 @@ export function runInPeerTerminal(target: RemoteTarget, command: string): void {
   const failed = (message: string) =>
     showToast({ kind: "error", message: i18next.t("agentView.remote.failed", { message }) });
   void peerProfileIdOf(target).then(
-    (profile) => openPeerTerminal(target, command, profile, folder, failed),
+    (profile) => openPeerTerminal(target, command, profile, folder, failed, open),
     (error: Error) => failed(error.message),
   );
 }
@@ -211,6 +225,7 @@ function openPeerTerminal(
   profile: string,
   folder: string | undefined,
   failed: (message: string) => void,
+  open: OpenRemoteSession,
 ): void {
   const { deviceId, workspaceId } = target;
   void ipcCallResult("remote", "peerTerminalOpen", {
@@ -225,7 +240,7 @@ function openPeerTerminal(
       return;
     }
     const { profile: _theirs, cwd: _its, state: _was, ...rest } = target;
-    useRemoteViewStore.getState().open({
+    open({
       ...rest,
       kind: "terminal",
       tabId: result.value.tabId,
@@ -239,28 +254,45 @@ const CODEX_SIGN_IN = "codex login --device-auth";
 
 /**
  * The session in front of a panel, filling it below the panel's tabs. It
- * is read only while the agent view is `visible`.
+ * is read only while its tab is `visible`.
  */
-export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; visible: boolean }) {
+export function RemoteSessionPane({
+  target,
+  visible,
+  host = null,
+}: {
+  target: RemoteTarget;
+  visible: boolean;
+  host?: RemoteSessionHost | null;
+}) {
   const reach = usePeerReach(target.deviceId);
-  const controls = usePeerControls(target.deviceId);
+  const controls = usePeerControls(target.deviceId, host === null);
   return (
-    // Out of reach, nothing in it turns: a running call shows as it was, not as live.
-    <div
-      className={cn(
-        "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden",
-        reach !== "online" && "[&_*]:animate-none!",
-      )}
-      data-testid="remote-pane"
-      data-reach={reach}
-    >
-      {target.kind === "terminal" ? (
-        <RemoteTerminal target={target} visible={visible} reach={reach} />
-      ) : (
-        <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
-      )}
-    </div>
+    <RemoteSessionHostContext.Provider value={host}>
+      {/* Out of reach, nothing in it turns: a running call shows as it was, not as live. */}
+      <div
+        className={cn(
+          "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden",
+          reach !== "online" && "[&_*]:animate-none!",
+        )}
+        data-testid="remote-pane"
+        data-reach={reach}
+      >
+        {target.kind === "terminal" ? (
+          <RemoteTerminal target={target} visible={visible} reach={reach} controls={controls} />
+        ) : (
+          <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
+        )}
+      </div>
+    </RemoteSessionHostContext.Provider>
   );
+}
+
+function useSessionGone(gone: boolean): void {
+  const onGone = useContext(RemoteSessionHostContext)?.onGone;
+  useEffect(() => {
+    if (gone) onGone?.();
+  }, [gone, onGone]);
 }
 
 function Waiting({
@@ -298,26 +330,32 @@ export function Unreachable({
   reach,
   device,
   goalBar,
+  notice,
 }: {
   reach: PeerReach;
   device: string;
   goalBar?: React.ReactNode;
+  notice?: ReturnType<typeof useBannerDismissal>;
 }) {
   const { t } = useTranslation();
+  if (notice?.dismissed && !goalBar) return null;
   return (
     <div className="shrink-0 px-4 pt-1 pb-3">
       {goalBar && <div className="mx-auto mb-2 max-w-[860px]">{goalBar}</div>}
-      <p
-        role="status"
-        className="mx-auto flex max-w-[860px] items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground"
-      >
-        <CloudOff aria-hidden className="size-3.5 shrink-0" />
-        <span>
-          {reach === "disconnected"
-            ? t("agentView.remote.disconnectedLast")
-            : t("agentView.remote.offlineLast", { device })}
-        </span>
-      </p>
+      {!notice?.dismissed && (
+        <div
+          role="status"
+          className="mx-auto flex max-w-[860px] items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground"
+        >
+          <CloudOff aria-hidden className="size-3.5 shrink-0" />
+          <span className="flex-1">
+            {reach === "disconnected"
+              ? t("agentView.remote.disconnectedLast")
+              : t("agentView.remote.offlineLast", { device })}
+          </span>
+          {notice && <BannerDismissButton dismiss={notice.dismiss} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -330,20 +368,26 @@ function ViewOnly({
   model,
   device,
   goalBar,
+  notice,
 }: {
   model: ChatModel;
   device: string;
   goalBar?: React.ReactNode;
+  notice: ReturnType<typeof useBannerDismissal>;
 }) {
   const { t } = useTranslation();
+  if (notice.dismissed && !goalBar && !model.running) return null;
   return (
     <div className="shrink-0 px-4 py-2" data-testid="remote-view-only">
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {goalBar}
         {(model.permissions.length > 0 || model.running) && <StatusLine model={model} />}
-        <p className="rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground">
-          {t("agentView.remote.viewOnlyNote", { device })}
-        </p>
+        {!notice.dismissed && (
+          <div className="flex items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground">
+            <span className="flex-1">{t("agentView.remote.viewOnlyNote", { device })}</span>
+            <BannerDismissButton dismiss={notice.dismiss} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -368,6 +412,7 @@ function planModeOf(
 export function remoteAnswerOf(
   answer: PermissionAnswer,
   request: PermissionRequest,
+  planModeOptions: boolean,
 ): {
   decision: "allow" | "deny";
   message?: string;
@@ -380,7 +425,9 @@ export function remoteAnswerOf(
     case "allow": {
       // A plan's approval: the mode it goes on in, as the card set it.
       const planMode =
-        request.toolName === "ExitPlanMode" ? planModeOf(answer.updatedPermissions) : undefined;
+        planModeOptions && request.toolName === "ExitPlanMode"
+          ? planModeOf(answer.updatedPermissions)
+          : undefined;
       return {
         decision: "allow",
         ...(answer.updatedInput ? { updatedInput: answer.updatedInput } : {}),
@@ -422,6 +469,7 @@ function RemoteChat({
     { deviceId, workspaceId, tabId },
     visible,
   );
+  useSessionGone(visible && read.status === "gone");
   const page = read.status === "ready" ? read.value : null;
   const older = useMemo<OlderMessages | undefined>(
     () =>
@@ -505,7 +553,31 @@ function RemoteChatView({
   selfId?: string;
 }) {
   const { t } = useTranslation();
+  const host = useContext(RemoteSessionHostContext);
+  const open = host?.openSession ?? openRemoteSession;
   const { deviceId, workspaceId, tabId } = target;
+  const listed = usePeerSessions([deviceId], visible && reach === "online")[deviceId];
+  const list = listed?.status === "ready" ? listed.list : undefined;
+  const session = list?.sessions.find((s) => s.workspaceId === workspaceId && s.tabId === tabId);
+  useRemotePaneSeen(deviceId, session, visible && reach === "online");
+  const consents = usePeerConsents(deviceId, host ? undefined : list?.consents).filter((consent) =>
+    consentFromChat(consent, target),
+  );
+  const consentCards = consents.length
+    ? consents.map((consent) => (
+        <PeerConsentCard
+          key={consent.id}
+          consent={controls ? consent : { ...consent, answerable: false }}
+          deviceId={deviceId}
+          device={target.deviceName}
+          sessions={list?.sessions}
+          workspaceName={
+            list?.workspaces.find((workspace) => workspace.id === consent.workspaceId)?.name ??
+            consent.workspaceId.slice(0, 8)
+          }
+        />
+      ))
+    : null;
   const submissions = usePeerSubmissions({ deviceId, workspaceId, tabId });
   const previewItems = useMemo(() => {
     const visible = submissions.filter(
@@ -525,7 +597,8 @@ function RemoteChatView({
   const claude = target.kind !== "codex";
   const rootRef = useRef<HTMLDivElement>(null);
   // Opened or picked, it takes the keyboard as a chat here does: its permission card, or its box.
-  const focusKey = remoteSessionKey(target);
+  const sessionKey = remoteSessionKey(target);
+  const focusKey = host?.focusKey ?? sessionKey;
   useEffect(
     () => registerTabFocusTarget(focusKey, () => focusChatTab(rootRef.current)),
     [focusKey],
@@ -636,6 +709,17 @@ function RemoteChatView({
   };
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
+  const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
+  const unreachableNotice = useBannerDismissal(
+    [...bannerScope, "unreachable"],
+    reach !== "online" ? [reach] : undefined,
+    true,
+  );
+  const viewOnlyNotice = useBannerDismissal(
+    [...bannerScope, "view-only"],
+    controls ? undefined : [true],
+    true,
+  );
   const types = usePeerTypes(deviceId);
   // Its terminal signs in the chat's profile from 0.13.1; one before signs in its default folder.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
@@ -655,7 +739,7 @@ function RemoteChatView({
     const from = itemKey
       ? model.items.find((i) => i.kind === "user" && (i.uuid ?? i.key) === itemKey)
       : undefined;
-    void forkPeerChat(target, itemKey, from?.kind === "user" ? from : undefined);
+    void forkPeerChat(target, itemKey, from?.kind === "user" ? from : undefined, open);
   };
   const canRewind = can?.rewind === true;
   const canFork = can?.fork === true;
@@ -723,7 +807,7 @@ function RemoteChatView({
   // A file this chat changed is read again by the views showing it.
   usePeerChatFileChanges(peerWorkspace, page.panel?.changedFiles ?? NO_CHANGES, model.tools);
   const [look, setLook] = useState<QuickLookList | null>(null);
-  const links = useRemoteLinks(target, { model }, files, setLook);
+  const links = useRemoteLinks(target, { model }, files, setLook, host?.openFileBeside);
   // A chat put out of sight takes its quick look with it.
   useEffect(() => {
     if (!visible) setLook(null);
@@ -732,9 +816,9 @@ function RemoteChatView({
   // The goal, as a chat here shows it over the composer; an ended one closed stays closed.
   const goal = useRemoteGoal(page.panel?.goal, claude ? "claude" : "codex");
   const [, goalClosed] = useReducer((n: number) => n + 1, 0);
-  const closedGoal = closedGoals.get(focusKey);
+  const closedGoal = closedGoals.get(sessionKey);
   const closeGoal = (key: string) => {
-    closedGoals.set(focusKey, key);
+    closedGoals.set(sessionKey, key);
     goalClosed();
   };
   const goalNow: TabGoal | null = goal
@@ -801,7 +885,7 @@ function RemoteChatView({
     });
   // As a Codex tab here signs in, in a terminal of its computer, shown here: by a code, as
   // a browser here cannot reach a sign-in that waits there.
-  const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN);
+  const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN, open);
   const panel = (
     <RemoteSidePanel
       target={target}
@@ -870,14 +954,16 @@ function RemoteChatView({
             data-chat-drop
             onKeyDown={onKeyDown}
           >
-            <RemotePhaseBanner
+            <ChatPhaseBanner
+              scope={bannerScope}
               status={page.status}
               // A computer that tells its phase starts it again (chat.restart).
               {...(reachable && page.status.phase
                 ? { onRestart: () => told(ipcCallResult("remote", "peerChatRestart", ref)) }
                 : {})}
             />
-            <RemoteSignedOutBanner
+            <ChatSignedOutBanner
+              scope={bannerScope}
               status={page.status}
               {...(reachable && types && inProfile ? { onSignIn: signInThere } : {})}
               {...(reachable
@@ -965,9 +1051,22 @@ function RemoteChatView({
                   />
                 )}
                 {reach !== "online" ? (
-                  <Unreachable reach={reach} device={target.deviceName} goalBar={goalBar} />
+                  <Unreachable
+                    reach={reach}
+                    device={target.deviceName}
+                    goalBar={goalBar}
+                    notice={unreachableNotice}
+                  />
                 ) : !controls ? (
-                  <ViewOnly model={model} device={target.deviceName} goalBar={goalBar} />
+                  <>
+                    {consentCards && <RemoteRequestDock>{consentCards}</RemoteRequestDock>}
+                    <ViewOnly
+                      model={model}
+                      device={target.deviceName}
+                      goalBar={goalBar}
+                      notice={viewOnlyNotice}
+                    />
+                  </>
                 ) : (
                   <RemoteControls
                     target={target}
@@ -977,6 +1076,7 @@ function RemoteChatView({
                     toMain={shown !== undefined}
                     onShowMain={() => showAgent(null)}
                     goalBar={goalBar}
+                    consentCards={consentCards}
                     onPanelPart={askPanel}
                     selfId={selfId}
                   />
@@ -1022,7 +1122,7 @@ function RemoteChatView({
                 onClose={() => setRewinding(null)}
               />
             )}
-            {look && (
+            {visible && look && (
               <QuickLook
                 workspaceId={peerWorkspace}
                 peerRoot={target.path}
@@ -1031,19 +1131,11 @@ function RemoteChatView({
                 local={false}
                 onIndex={(index) => setLook({ ...look, index })}
                 onClose={() => setLook(null)}
-                onOpenBeside={(path, { at, before, mode, compare }) => {
+                openBesideInWorkspace={host !== null}
+                onOpenBeside={(path, options) => {
+                  if (!links.openBeside(path, options)) return false;
                   setLook(null);
-                  const key = remoteFileKey({ deviceId, workspaceId, path });
-                  useAgentViewStore.getState().placeRemoteFile(key, focusKey, {
-                    deviceName: target.deviceName,
-                    workspaceRoot: target.path,
-                    at: at?.line ? { line: at.line, column: at.column } : undefined,
-                    before,
-                    mode,
-                    compare,
-                    compareFrom: before !== undefined ? tabId : undefined,
-                  });
-                  requestTabFocus(key);
+                  return true;
                 }}
               />
             )}
@@ -1051,6 +1143,15 @@ function RemoteChatView({
         </ChatLinksContext.Provider>
       </ChatFilesContext.Provider>
     </ImageLoaderContext.Provider>
+  );
+}
+
+/** Docked over the composer, so requests are seen wherever the chat is scrolled. */
+function RemoteRequestDock({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-2">{children}</div>
+    </div>
   );
 }
 
@@ -1063,6 +1164,7 @@ function RemoteControls({
   toMain,
   onShowMain,
   goalBar,
+  consentCards,
   onPanelPart,
   selfId,
 }: {
@@ -1075,13 +1177,18 @@ function RemoteControls({
   toMain: boolean;
   onShowMain: () => void;
   goalBar?: React.ReactNode;
+  consentCards: React.ReactNode;
   /** A bare /status, /context or /usage shows the side panel's part, as a chat here's does. */
   onPanelPart?: (part: RemotePanelPart) => void;
 }) {
   const { t } = useTranslation();
+  const host = useContext(RemoteSessionHostContext);
+  const open = host?.openSession ?? openRemoteSession;
   const links = useChatLinks();
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
+  const peerTakesPlanMode = usePeerSpeaks(deviceId, "0.13.0");
+  const planModeOptions = agent === "claude" && peerTakesPlanMode;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
   // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
@@ -1141,12 +1248,11 @@ function RemoteControls({
           t,
         ),
       openUrl: (url) => links?.openUrl(url),
-      // Its tab there closed, as /exit closes a chat here: once the user says so, as it is not here.
-      exit: () => void closePeerSession(target),
+      exit: host?.hideSession ?? (() => void closePeerSession(target)),
       ...(types && inProfile
         ? {
             terminal: {
-              run: (line: string) => runInPeerTerminal(target, line),
+              run: (line: string) => runInPeerTerminal(target, line, open),
               // Its program started again, as the card a chat here shows after /login does.
               ...(page.status.phase
                 ? {
@@ -1168,7 +1274,7 @@ function RemoteControls({
     // The tab /fork or /branch opened there shows, as a fork from a message's does.
     onOpened: (opened, draft) => {
       if (draft) putPeerDraft({ deviceId, workspaceId, tabId: opened }, draft);
-      useRemoteViewStore.getState().open({ ...target, tabId: opened, state: "idle" });
+      open({ ...target, tabId: opened, state: "idle" });
     },
   });
   /** Runs a control; the watch shows what it did, and a refusal is told. */
@@ -1183,7 +1289,7 @@ function RemoteControls({
         workspaceId,
         tabId,
         requestId: request.requestId,
-        ...remoteAnswerOf(given, request),
+        ...remoteAnswerOf(given, request, planModeOptions),
       }),
     );
   // /resume's list above the composer, with the words it was given, as a chat here shows it.
@@ -1224,6 +1330,7 @@ function RemoteControls({
   // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(visible, 60_000);
   const line = useMemo(() => usageLineOf(page.panel, now), [page.panel, now]);
+  const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
   const limit = useMemo(
     () => (target.kind === "codex" ? undefined : rateLimitOf(page.panel, now)),
     [target.kind, page.panel, now],
@@ -1234,42 +1341,43 @@ function RemoteControls({
       : { ...target, kind: "claude" as const };
   return (
     <>
-      {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
-      {(model.permissions.length > 0 || model.running || goalBar) && (
-        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-            {goalBar}
-            {model.permissions.length > 0 && toMain && (
-              <div
-                className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
-                role="status"
+      {(consentCards || model.permissions.length > 0 || model.running || goalBar) && (
+        <RemoteRequestDock>
+          {goalBar}
+          {consentCards}
+          {model.permissions.length > 0 && toMain && (
+            <div
+              className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
+              role="status"
+            >
+              <span className="min-w-0 flex-1 truncate">{t("chat.strip.permission_waiting")}</span>
+              <button
+                type="button"
+                onClick={onShowMain}
+                className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {t("chat.strip.permission_waiting")}
-                </span>
-                <button
-                  type="button"
-                  onClick={onShowMain}
-                  className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
-                >
-                  {t("chat.strip.to_main")}
-                </button>
-              </div>
-            )}
-            {model.permissions.length > 0 && !toMain && (
-              <PermissionCard
-                requests={model.permissions}
-                workspaceId={peerWorkspaceId(deviceId, workspaceId)}
-                cwd={target.cwd ?? target.path}
-                rootPath={target.path}
-                onAnswer={answer}
-              />
-            )}
-            <StatusLine model={model} />
-          </div>
-        </div>
+                {t("chat.strip.to_main")}
+              </button>
+            </div>
+          )}
+          {model.permissions.length > 0 && !toMain && (
+            <PermissionCard
+              requests={model.permissions}
+              workspaceId={peerWorkspaceId(deviceId, workspaceId)}
+              cwd={target.cwd ?? target.path}
+              rootPath={target.path}
+              planModeOptions={planModeOptions}
+              onAnswer={answer}
+            />
+          )}
+          <StatusLine model={model} />
+        </RemoteRequestDock>
       )}
-      <RateLimitBanner limit={limit} />
+      {/* The serving app goes on in it by itself, as it tells (from 0.19.0). */}
+      <LimitResumeView scope={bannerScope} record={page.panel?.limitResume} />
+      {!showsLimitResume(page.panel?.limitResume) && (
+        <RateLimitBanner scope={bannerScope} limit={limit} />
+      )}
       <Composer
         controller={composer.controller}
         composition={composition}
@@ -1356,31 +1464,31 @@ function RemoteTerminal({
   target,
   visible,
   reach,
+  controls,
 }: {
   target: RemoteTarget;
   visible: boolean;
   reach: PeerReach;
+  controls: boolean;
 }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
+  useSessionGone(visible && read.status === "gone");
+  useEffect(() => {
+    if (visible && read.status === "gone") forgetRemoteResult({ deviceId, workspaceId, tabId });
+  }, [deviceId, read.status, tabId, visible, workspaceId]);
   const types = usePeerTypes(deviceId);
-  // Its Claude Code's request is answered as a chat's is: where the computer lets this one control.
-  const controls = usePeerControls(deviceId);
   // The request answered here, kept out of sight until the list no longer says it waits.
   const [answered, setAnswered] = useState<string | null>(null);
-  // What its Claude Code asks, as the computer lists it: watched here as well, for the agent
-  // view's list may be hidden; the list's last word (target.ask) until it comes.
-  const listed = usePeerSessions([deviceId], visible && controls)[deviceId];
-  const ask =
+  // Its state and Claude Code's requests keep updating while the sidebar is hidden.
+  const listed = usePeerSessions([deviceId], visible)[deviceId];
+  const session =
     listed?.status === "ready"
-      ? (() => {
-          const session = listed.list.sessions.find(
-            (s) => s.workspaceId === workspaceId && s.tabId === tabId,
-          );
-          return session ? askOf(session) : undefined;
-        })()
-      : target.ask;
+      ? listed.list.sessions.find((s) => s.workspaceId === workspaceId && s.tabId === tabId)
+      : undefined;
+  useRemotePaneSeen(deviceId, session, visible && reach === "online");
+  const ask = listed?.status === "ready" ? (session ? askOf(session) : undefined) : target.ask;
   const [typing, setTyping] = useState<TerminalTyping | null>(null);
   useLayoutEffect(() => {
     setTyping(null);
@@ -1390,6 +1498,17 @@ function RemoteTerminal({
       surfaceError(appErrorFailed(String(error), { code }), { surface: "toast" });
     });
   }, [deviceId, workspaceId, tabId]);
+  const terminalScope = ["remote-terminal", deviceId, workspaceId, tabId];
+  const unreachableNotice = useBannerDismissal(
+    [...terminalScope, "unreachable"],
+    reach !== "online" ? [reach] : undefined,
+    true,
+  );
+  const viewOnlyNotice = useBannerDismissal(
+    [...terminalScope, "view-only"],
+    types ? undefined : [true],
+    true,
+  );
   if (read.status !== "ready") {
     return <Waiting read={read} reach={reach} device={target.deviceName} />;
   }
@@ -1398,9 +1517,9 @@ function RemoteTerminal({
       <RemoteTerminalScreen
         text={read.value.text}
         {...(read.value.caret ? { caret: read.value.caret } : {})}
-        {...(typing && reach === "online" ? { typing } : {})}
+        {...(typing && visible && types && reach === "online" ? { typing } : {})}
       />
-      {reach === "online" && controls && ask && ask.requestId !== answered && (
+      {visible && reach === "online" && controls && ask && ask.requestId !== answered && (
         <RemoteTerminalAsk
           key={ask.requestId}
           ask={ask}
@@ -1420,15 +1539,19 @@ function RemoteTerminal({
         />
       )}
       {reach !== "online" ? (
-        <Unreachable reach={reach} device={target.deviceName} />
+        <Unreachable reach={reach} device={target.deviceName} notice={unreachableNotice} />
       ) : (
-        !types && (
-          <p
-            className="shrink-0 border-border border-t px-3 py-1.5 text-app-micro text-muted-foreground"
+        !types &&
+        !viewOnlyNotice.dismissed && (
+          <div
+            className="flex shrink-0 items-center gap-2 border-border border-t px-3 py-1.5 text-app-micro text-muted-foreground"
             data-testid="remote-terminal-view-only"
           >
-            {t("agentView.remote.terminalViewOnly", { device: target.deviceName })}
-          </p>
+            <span className="flex-1">
+              {t("agentView.remote.terminalViewOnly", { device: target.deviceName })}
+            </span>
+            <BannerDismissButton dismiss={viewOnlyNotice.dismiss} />
+          </div>
         )
       )}
     </>

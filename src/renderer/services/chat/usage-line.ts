@@ -101,7 +101,7 @@ export function claudeUsageLine(
   return lineOf(context, meters, more, now);
 }
 
-function codexMeter(window: CodexLimitWindow): UsageMeter {
+export function codexMeter(window: CodexLimitWindow): UsageMeter {
   const resetsAt = window.resetsAt !== undefined ? window.resetsAt * 1000 : undefined;
   const base = {
     percent: window.usedPercent,

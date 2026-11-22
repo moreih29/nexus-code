@@ -17,9 +17,11 @@
  */
 
 import { CircleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { revealEditorAt } from "@/services/editor/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
+import type { SearchRange } from "../../../../shared/search/types";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { usePanelViewOptionsStore, useViewOptions } from "../../../state/stores/panel-view-options";
 import {
@@ -215,6 +217,24 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
     firstRowFocusRef.current?.();
   }
 
+  const handleOpenMatch = useCallback(
+    (relPath: string, range: SearchRange) => {
+      const filePath = rootPath.endsWith("/") ? `${rootPath}${relPath}` : `${rootPath}/${relPath}`;
+      revealEditorAt(
+        { workspaceId, filePath },
+        {
+          selection: {
+            startLineNumber: range.line + 1,
+            startColumn: range.startCol + 1,
+            endLineNumber: range.line + 1,
+            endColumn: range.endCol + 1,
+          },
+        },
+      );
+    },
+    [rootPath, workspaceId],
+  );
+
   // ---- Render states ----
 
   // isEmpty: no active search — no local input AND no session with a query.
@@ -288,8 +308,7 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
 
         {hasResults && session && (
           <SearchResultsList
-            workspaceId={workspaceId}
-            rootPath={rootPath}
+            onOpenMatch={handleOpenMatch}
             results={session.results}
             onToggleGroup={(relPath) => toggleGroup(workspaceId, relPath)}
             viewMode={viewState.viewMode}

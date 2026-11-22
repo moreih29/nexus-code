@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -9,25 +8,54 @@ import {
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
 import { migrateAppState } from "./app-state-migrations";
+import { CANCELLED, PREPARING, RENAMING, writeStateFile } from "./state-file";
+import { StateWorkerError, StateWriter } from "./state-writer";
 
 const log = createLogger("storage");
+const WRITE_DELAY_MS = 25;
+const RETRY_DELAY_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 8_000;
+const RENAME_WAIT_MS = 1_000;
+const MAX_WORKER_FAILURES = 3;
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
-// ---------------------------------------------------------------------------
-// StateService — atomic JSON persistence (pattern: vscode stateService.ts:141)
-// Writes to a .vsctmp postfix file then renames atomically (POSIX rename).
-// ---------------------------------------------------------------------------
+interface MergeLayouts {
+  readonly workspaceIds?: readonly string[];
+}
+
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function pickWorkspaceLayouts<T>(
+  layouts: Record<string, T>,
+  workspaceIds: readonly string[],
+): Record<string, T> {
+  return Object.fromEntries(
+    workspaceIds.flatMap((id) => (Object.hasOwn(layouts, id) ? [[id, layouts[id]]] : [])),
+  );
+}
 
 export class StateService {
-  private readonly filePath: string;
-  private readonly tmpPath: string;
+  private readonly writer: StateWriter;
   private state: AppState;
+  private revision = 0;
+  private writtenRevision = 0;
+  private timer?: ReturnType<typeof setTimeout>;
+  private writing?: Int32Array;
+  private retryDelay = RETRY_DELAY_MS;
+  private workerFailures = 0;
+  private useSyncWriter = false;
 
-  constructor(filePath: string) {
-    this.filePath = filePath;
-    this.tmpPath = `${filePath}.vsctmp`;
+  constructor(
+    private readonly filePath: string,
+    workerPath: string,
+  ) {
     this.state = this.load();
+    this.writer = new StateWriter(filePath, workerPath);
   }
 
   private load(): AppState {
@@ -63,53 +91,119 @@ export class StateService {
     return this.state;
   }
 
-  setState(partial: Partial<AppState>): void {
-    const next = { ...this.state, ...partial };
-    AppStateSchema.parse(next);
-    this.flush(next);
-    this.state = next;
+  setState(partial: Partial<AppState>, mergeLayouts?: MergeLayouts): void {
+    this.state = this.update(partial, mergeLayouts);
+    this.revision++;
+    this.scheduleWrite(WRITE_DELAY_MS);
   }
 
   mergeState(partial: Partial<AppState>): void {
     this.setState(partial);
   }
 
-  /**
-   * Synchronously flush the current in-memory state to disk.
-   *
-   * Exposed as a public API for callers that must guarantee durability before
-   * a destructive operation (e.g. `app.relaunch`).  The underlying I/O is
-   * synchronous (write + rename), so this method is safe to call without
-   * awaiting in contexts that cannot wait for an async flush cycle.
-   */
-  flushNow(): void {
-    this.flush();
+  /** Accept a change only after writing it, for callers that update a second file. */
+  commitState(partial: Partial<AppState>): void {
+    const next = this.update(partial);
+    this.writeNow(next);
+    this.state = next;
+    this.writtenRevision = ++this.revision;
   }
 
-  private flush(state = this.state): void {
-    const dir = path.dirname(this.filePath);
-    fs.mkdirSync(dir, { recursive: true });
-    const serialized = JSON.stringify(state, null, 2);
-    // fsync before the rename so a crash or power loss cannot leave the
-    // renamed file empty.
-    const fd = fs.openSync(this.tmpPath, "w");
+  private update(partial: Partial<AppState>, mergeLayouts?: MergeLayouts): AppState {
+    // Loaded state and earlier updates have already been checked. AppStateSchema
+    // validates each top-level field independently.
+    const next = { ...this.state, ...partial };
+    const workspaceIds = mergeLayouts?.workspaceIds;
+    const mergesLayouts = mergeLayouts && Object.hasOwn(partial, "layoutByWorkspace");
+    if (mergesLayouts && workspaceIds && isPlainRecord(next.layoutByWorkspace)) {
+      next.layoutByWorkspace = pickWorkspaceLayouts(next.layoutByWorkspace, workspaceIds);
+    }
+    const { shape } = AppStateSchema;
+    for (const key of Object.keys(partial) as (keyof AppState)[]) {
+      if (Object.hasOwn(shape, key) && !shape[key].safeParse(next[key]).success) {
+        // Preserve the original validation error and field paths on failure.
+        AppStateSchema.parse(next);
+      }
+    }
+    if (mergesLayouts && next.layoutByWorkspace) {
+      const layouts = { ...this.state.layoutByWorkspace, ...next.layoutByWorkspace };
+      next.layoutByWorkspace = workspaceIds ? pickWorkspaceLayouts(layouts, workspaceIds) : layouts;
+    }
+    return next;
+  }
+
+  /** Make all accepted changes durable before the app exits or restarts. */
+  flushNow(): void {
+    if (this.revision === this.writtenRevision) return;
     try {
-      try {
-        fs.writeSync(fd, serialized, null, "utf8");
-        fs.fsyncSync(fd);
-      } finally {
-        fs.closeSync(fd);
-      }
-      fs.renameSync(this.tmpPath, this.filePath);
+      this.writeNow(this.state);
+      this.writtenRevision = this.revision;
     } catch (error) {
-      try {
-        fs.unlinkSync(this.tmpPath);
-      } catch (cleanupError) {
-        if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
-          log.warn(`Could not remove temporary app state: ${String(cleanupError)}`);
-        }
-      }
+      this.scheduleWrite(RETRY_DELAY_MS);
       throw error;
+    }
+  }
+
+  private writeNow(state: AppState): void {
+    const writing = this.writing;
+    if (writing) {
+      // Either prevent the old rename, or let it finish before our rename.
+      // The worker signals directly, so it never needs the main event loop.
+      const phase = Atomics.compareExchange(writing, 0, PREPARING, CANCELLED);
+      if (
+        phase === RENAMING &&
+        Atomics.wait(writing, 0, RENAMING, RENAME_WAIT_MS) === "timed-out"
+      ) {
+        throw new Error("Timed out waiting for the earlier app state rename");
+      }
+    }
+    writeStateFile(this.filePath, `${this.filePath}.vsctmp.sync`, state);
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.retryDelay = RETRY_DELAY_MS;
+  }
+
+  private scheduleWrite(delay: number): void {
+    if (this.timer || this.writing || this.revision === this.writtenRevision) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.write();
+    }, delay);
+    this.timer.unref();
+  }
+
+  private async write(): Promise<void> {
+    const revision = this.revision;
+    let delay = WRITE_DELAY_MS;
+    try {
+      if (this.useSyncWriter) {
+        this.writeNow(this.state);
+        this.writtenRevision = revision;
+      } else {
+        const gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+        this.writing = gate;
+        const written = await this.writer.write(this.state, gate);
+        this.workerFailures = 0;
+        if (written) this.writtenRevision = Math.max(this.writtenRevision, revision);
+      }
+      this.retryDelay = RETRY_DELAY_MS;
+    } catch (error) {
+      if (error instanceof StateWorkerError) {
+        this.workerFailures++;
+        if (error.startup || this.workerFailures >= MAX_WORKER_FAILURES) {
+          this.useSyncWriter = true;
+          log.warn(`App state worker unavailable; using synchronous writes: ${String(error)}`);
+          return;
+        }
+      } else {
+        this.workerFailures = 0;
+      }
+      log.warn(`Could not save app state; retrying: ${String(error)}`);
+      delay = this.retryDelay;
+      this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_DELAY_MS);
+    } finally {
+      this.writing = undefined;
+      this.scheduleWrite(delay);
     }
   }
 }
@@ -133,7 +227,7 @@ function salvageAppState(raw: unknown, empty: AppState): AppState {
 }
 
 function salvageField(
-  schema: z.ZodTypeAny,
+  schema: z.ZodType,
   value: unknown,
 ): { ok: true; value: unknown } | { ok: false } {
   const direct = schema.safeParse(value);

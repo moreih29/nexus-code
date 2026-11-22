@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/agentrun"
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -90,6 +91,20 @@ func main() {
 		return // unreachable; runDaemon calls os.Exit
 	}
 
+	// Resolve the socket on the host using the same paths as the daemon.
+	if args.dialRoot != "" {
+		paths, err := agentrun.For(args.dialRoot, proto.ServerVersion)
+		if err == nil {
+			err = paths.EnsureSocketDir()
+		}
+		if err != nil {
+			agentLogger.Error("daemon socket directory unavailable", "err", err)
+			os.Exit(1)
+		}
+		runDialer(paths.Sock)
+		return
+	}
+
 	// --dial <sock>: relay stdin/stdout to an existing daemon's Unix socket.
 	// This is the SSH exec command that replaces the direct agent invocation
 	// once a daemon is running on the remote host.
@@ -100,8 +115,7 @@ func main() {
 
 	// Local stdio mode (no --daemon / --dial flags): the classical agent
 	// path where the Electron main process forks the agent directly with
-	// stdin/stdout connected. This path is completely unchanged — byte-for-byte
-	// compatible with all existing local workspace behaviour.
+	// stdin/stdout connected.
 	if args.root == "" {
 		agentLogger.Error("Usage: agent [--idle-watchdog] <rootPath>")
 		os.Exit(2)
@@ -216,10 +230,9 @@ func main() {
 	// is unrecoverable — without a Ready, the client will time out.
 	// methods 목록과 heartbeat 판정 기준(5s), idle watchdog 한도를 함께 전달해
 	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
-	// agentEpoch and capabilities are 0/nil in local stdio mode — the TS client
-	// (task 12) uses their presence to detect daemon-mode reattach capability.
+	// The local stdio agent advertises features without a reattach epoch.
 	if err := host.WriteFrame(
-		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, nil),
+		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, []string{agentchat.RunCapability}),
 	); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
@@ -292,6 +305,8 @@ type runArgs struct {
 	// dialSock is the Unix socket path for `--dial <sock>` mode.
 	// Non-empty triggers the dialer execution path.
 	dialSock string
+	// dialRoot is the workspace root for `--dial-workspace <root>` mode.
+	dialRoot string
 }
 
 // parseRunArgs extracts the workspace root and option flags from argv for the
@@ -325,13 +340,18 @@ func parseRunArgs(argv []string) runArgs {
 				i++
 				args.daemonRoot = argv[i]
 			}
+		case "--dial-workspace":
+			if i+1 < len(argv) {
+				i++
+				args.dialRoot = argv[i]
+			}
 		case "--dial":
 			if i+1 < len(argv) {
 				i++
 				args.dialSock = argv[i]
 			}
 		default:
-			if args.root == "" && args.daemonRoot == "" && args.dialSock == "" {
+			if args.root == "" && args.daemonRoot == "" && args.dialSock == "" && args.dialRoot == "" {
 				args.root = arg
 			}
 		}

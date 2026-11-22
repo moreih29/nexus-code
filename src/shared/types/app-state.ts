@@ -1,13 +1,27 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import {
   AgentInstructionsSchema,
   ChatInstructionHistorySchema,
   ClaudeInstructionDigestsSchema,
 } from "../chat/instructions";
+import {
+  LIMIT_RESUME_BOUNDS,
+  LIMIT_RESUME_DEFAULTS,
+  LIMIT_RESUME_MESSAGE_LINE,
+} from "../chat/limit-resume-settings";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
+import {
+  DEFAULT_RECORDING_SUMMARY_SETTINGS,
+  RecordingSummarySettingsSchema,
+} from "../notes/summary";
 import { VoiceNameSettingsSchema } from "../notes/voice-names";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
 import { AgentViewSnapshotSchema } from "./agent-view";
@@ -26,22 +40,33 @@ export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
 export const RemoteAgentsPolicySchema = z.enum(["ask", "allow", "deny"]);
 export type RemoteAgentsPolicy = z.infer<typeof RemoteAgentsPolicySchema>;
 
+export const PhonePushPolicySchema = z.enum(["away", "always", "off"]);
+export type PhonePushPolicy = z.infer<typeof PhonePushPolicySchema>;
+
 export const WindowBoundsSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  width: z.number(),
-  height: z.number(),
+  x: NumberSchema,
+  y: NumberSchema,
+  width: NumberSchema,
+  height: NumberSchema,
 });
+
+export const WORKSPACE_SIDEBAR_FOLDED_PEERS_MAX = 100;
 
 export const AppStateSchema = z.object({
   windowBounds: WindowBoundsSchema.optional(),
   lastActiveWorkspaceId: z.string().optional(),
-  sidebarWidth: z.number().int().positive().optional(),
-  filesPanelWidth: z.number().int().positive().optional(),
+  sidebarWidth: PositiveIntegerSchema.optional(),
+  // Device IDs folded in the workspace sidebar. Absent = expanded.
+  workspaceSidebarFoldedPeers: z
+    .array(z.string().min(1).max(64))
+    .max(WORKSPACE_SIDEBAR_FOLDED_PEERS_MAX)
+    .optional(),
+  filesPanelWidth: PositiveIntegerSchema.optional(),
   // A note's transcript: its width beside the text, where the note is wide, and its share
   // of the note's height under the text, where it is narrow. Absent = the defaults.
-  noteTranscriptWidth: z.number().int().positive().optional(),
-  noteTranscriptShare: z.number().gt(0).lt(1).optional(),
+  noteTranscriptWidth: PositiveIntegerSchema.optional(),
+  noteTranscriptShare: NumberSchema.check(z.gt(0)).check(z.lt(1)).optional(),
+  noteSummary: RecordingSummarySettingsSchema.catch(DEFAULT_RECORDING_SUMMARY_SETTINGS),
   // Sidebar (workspace switcher strip) hidden state. Persisted so a
   // restart preserves the layout the user last chose. Absent = visible.
   sidebarHidden: z.boolean().optional(),
@@ -53,14 +78,14 @@ export const AppStateSchema = z.object({
   // FilesPanelMode: "tree", "search", "git", "agents"). Absent = the tree.
   // Kept as a plain string so a view this version lacks does not fail the
   // state.
-  filesPanelModeByWorkspace: z.record(z.string().uuid(), z.string().max(16)).optional(),
+  filesPanelModeByWorkspace: z.record(z.guid(), z.string().max(16)).optional(),
   // The agent list's groups the user folded ("idle", "ended", …). Absent =
   // every group open.
   agentListFoldedGroups: z.array(z.string()).optional(),
   // The worktrees (workspace ids) whose facts the agent list's task view
   // shows unfolded. Absent = every one folded.
   agentListUnfoldedTasks: z.array(z.string()).optional(),
-  layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
+  layoutByWorkspace: z.record(z.guid(), WorkspaceLayoutSnapshotSchema).optional(),
   // Experimental: whether language servers run at all. Absent = off.
   // Settings › Editor applies a change at once; see shared/lsp/settings.ts
   // for how the lsp* fields combine.
@@ -69,9 +94,11 @@ export const AppStateSchema = z.object({
   // left out runs while lspEnabled is on.
   lspLanguages: z.record(z.string(), LspLanguageSettingsSchema).optional(),
   // How many workspaces keep their servers running; absent = 4.
-  lspMaxActiveWorkspaces: z.number().int().min(1).max(LSP_MAX_ACTIVE_WORKSPACES_LIMIT).optional(),
+  lspMaxActiveWorkspaces: IntegerSchema.check(z.gte(1))
+    .check(z.lte(LSP_MAX_ACTIVE_WORKSPACES_LIMIT))
+    .optional(),
   // Per workspace, the languages turned off in it. Key = workspaceId (UUID).
-  lspDisabledLanguagesByWorkspace: z.record(z.string().uuid(), z.array(z.string())).optional(),
+  lspDisabledLanguagesByWorkspace: z.record(z.guid(), z.array(z.string())).optional(),
   // Theme preference persisted to appState (authoritative store).
   // localStorage is also written as a boot cache for FOUC prevention.
   themePreference: ThemePreferenceSchema.optional(),
@@ -80,12 +107,12 @@ export const AppStateSchema = z.object({
   // Applies live on macOS and Windows 11 22H2+. A Linux window opens transparent
   // only while this is under 1, so crossing 1 there applies at the next launch —
   // `transparent` is constructor-only in Electron.
-  windowOpacity: z.number().min(0).max(1).optional(),
+  windowOpacity: NumberSchema.check(z.gte(0)).check(z.lte(1)).optional(),
 
   // Inactive-panel dim multiplier — scales each theme's tuned inactive-veil
   // alpha. 1 = theme default (omitted from storage), 0 = no dim, 2 = double.
   // Applied at runtime via --inactive-panel-dim CSS var; no restart needed.
-  inactivePanelDim: z.number().min(0).max(2).optional(),
+  inactivePanelDim: NumberSchema.check(z.gte(0)).check(z.lte(2)).optional(),
 
   // UI density — closed set; absent = token fallback ('default').
   density: z.enum(["default", "compact"]).optional(),
@@ -93,7 +120,7 @@ export const AppStateSchema = z.object({
   // Editor font size in px — integer, clamped to [8, 32]; absent = token fallback (16).
   // Widened from a closed set so the Settings dialog can offer a numeric
   // stepper instead of a discrete slider (user-driven UX change).
-  editorFontSize: z.number().int().min(8).max(32).optional(),
+  editorFontSize: IntegerSchema.check(z.gte(8)).check(z.lte(32)).optional(),
 
   // Editor font family — sanitize: blocks CSS injection (/^[A-Za-z0-9\s,'"]+$/); absent = token fallback.
   editorFontFamily: z
@@ -112,7 +139,7 @@ export const AppStateSchema = z.object({
   // Terminal font size in px — integer, clamped to [8, 32]; absent = token fallback (14).
   // Widened from a closed set so the Settings dialog can offer a numeric
   // stepper instead of a discrete slider.
-  terminalFontSize: z.number().int().min(8).max(32).optional(),
+  terminalFontSize: IntegerSchema.check(z.gte(8)).check(z.lte(32)).optional(),
 
   // Terminal cursor style — closed set; absent = token fallback ('block').
   terminalCursorStyle: z.enum(["block", "underline", "bar"]).optional(),
@@ -131,7 +158,7 @@ export const AppStateSchema = z.object({
 
   // The chat tabs' (Claude, Codex) text size in px: their replies' size, which
   // the rest of a tab's text scales with. Absent = 14.
-  chatFontSize: z.number().int().min(10).max(24).optional(),
+  chatFontSize: IntegerSchema.check(z.gte(10)).check(z.lte(24)).optional(),
 
   // The chat tabs' font, as CSS names it; absent = the app's. Sanitized as
   // the editor's, with a hyphen allowed for names such as system-ui.
@@ -173,7 +200,7 @@ export const AppStateSchema = z.object({
 
   // The view each workspace's agent list was last switched to, by the
   // workspace its tasks belong to; it outlasts a change of the default.
-  agentListViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+  agentListViewByWorkspace: z.record(z.guid(), z.string().max(32)).optional(),
 
   // The agent view: whether the window shows it rather than the workspaces,
   // and its panels, each holding agents by session key. Absent = the
@@ -185,12 +212,12 @@ export const AppStateSchema = z.object({
   // again after a restart.
   portForwardsByWorkspace: z
     .record(
-      z.string().uuid(),
+      z.guid(),
       z
         .array(
           z.object({
-            remotePort: z.number().int().positive(),
-            localPort: z.number().int().positive(),
+            remotePort: PositiveIntegerSchema,
+            localPort: PositiveIntegerSchema,
           }),
         )
         .max(256),
@@ -242,6 +269,30 @@ export const AppStateSchema = z.object({
   // limit is near. Off hides the warning only: a limit reached still shows.
   rateLimitWarnings: z.boolean().default(true),
 
+  // Whether a Claude or Codex tab of a subscription's profile goes on by
+  // itself once the plan's usage limit that stopped it resets: the app sends
+  // the agent a message to go on (services/chat/limit-resume).
+  chatLimitResume: z.boolean().default(true),
+  chatLimitResumeDelayMinutes: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeDelayMinutes.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeDelayMinutes.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeDelayMinutes),
+  chatLimitResumeMaxTries: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeMaxTries.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeMaxTries.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeMaxTries),
+  chatLimitResumeDeadlineHours: z
+    .int()
+    .min(LIMIT_RESUME_BOUNDS.chatLimitResumeDeadlineHours.min)
+    .max(LIMIT_RESUME_BOUNDS.chatLimitResumeDeadlineHours.max)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeDeadlineHours),
+  chatLimitResumeMessage: z
+    .string()
+    .regex(LIMIT_RESUME_MESSAGE_LINE)
+    .default(LIMIT_RESUME_DEFAULTS.chatLimitResumeMessage),
+
   // The language voice input listens for: the app's ("app", ko or en), or
   // "multi", which lets the server tell the language as the user speaks.
   voiceLanguage: z.enum(["app", "multi"]).default("app"),
@@ -267,6 +318,7 @@ export const AppStateSchema = z.object({
   // restart, for a pair of workspaces), allowed, or not taken at all.
   // Apart from the switches above, which are for the user's own hands.
   remoteAgents: RemoteAgentsPolicySchema.default("ask"),
+  phonePush: PhonePushPolicySchema.default("away"),
 
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.

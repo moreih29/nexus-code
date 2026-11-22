@@ -8,15 +8,17 @@
  * in this one's place.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentProfile, defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../ipc/client";
 import type { ListedSession } from "../../services/chat/sessions";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { openRemoteSession, type RemoteTarget } from "../../state/stores/remote-view";
 import { SessionPicker } from "../chat/session-list";
+import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
+import { RemoteSessionHostContext } from "./remote-session-host";
 
 /** Most sessions asked of that computer: a chat here lists about as many. */
 const LIMIT = 100;
@@ -102,6 +104,7 @@ export function useResumePast(
   fail?: (message: string) => void,
 ) => void {
   const { t } = useTranslation();
+  const open = useContext(RemoteSessionHostContext)?.openSession ?? openRemoteSession;
   return (sessionId, title, profileId, fail) => {
     void ipcCallResult("remote", "peerChatResume", {
       deviceId: target.deviceId,
@@ -122,7 +125,7 @@ export function useResumePast(
       }
       const { profile: _was, ...rest } = target;
       const profile = profileId === undefined ? target.profile : profileNameOf(profileId);
-      useRemoteViewStore.getState().open({
+      open({
         ...rest,
         ...(profile ? { profile } : {}),
         tabId: result.value.tabId,
@@ -148,6 +151,7 @@ export function RemoteSessionList({
   exceptSessionId?: string;
 }) {
   const { t } = useTranslation();
+  const open = useContext(RemoteSessionHostContext)?.openSession ?? openRemoteSession;
   const listed = usePastSessions(target);
   const resume = useResumePast(target);
   // Under the empty conversation a failure shows there, as a chat here's; from /resume, as a toast.
@@ -166,8 +170,11 @@ export function RemoteSessionList({
   return (
     <>
       {failed && !onClose && (
-        <div className="text-app-ui-sm text-[var(--state-error-fg)]">
-          {t("chat.sessions.resume_failed", { message: failed })}
+        <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
+          <span className="flex-1">{t("chat.sessions.resume_failed", { message: failed })}</span>
+          <BannerDismissButton
+            dismiss={{ label: t("action.dismiss"), onDismiss: () => setFailed(null) }}
+          />
         </div>
       )}
       <SessionPicker
@@ -177,7 +184,7 @@ export function RemoteSessionList({
         onShowTab={(tabId, session) => {
           // Another tab: its folder and state come with that computer's next list.
           const { cwd: _cwd, state: _state, ...where } = target;
-          useRemoteViewStore.getState().open({ ...where, tabId, title: session.title });
+          open({ ...where, tabId, title: session.title });
         }}
         workspaceId={`remote:${target.deviceId}`}
         tabId={target.tabId}

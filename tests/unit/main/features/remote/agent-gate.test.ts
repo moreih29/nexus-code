@@ -161,7 +161,7 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
     expect(asked[0]).toMatchObject({
       fromDevice: "MacBook",
-      // That computer may not answer its own agent's prompt from there.
+      // Told to the computers that list the prompt, that one included.
       fromDeviceId: "dev-1",
       fromName: "Fix build",
       fromWorkspaceId: "bw",
@@ -309,6 +309,8 @@ test("the sender a chat keeps: who, and on which computer", () => {
   // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
   expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
   expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
+  const ids = { workspaceId: "w".repeat(64), tabId: "t".repeat(64) };
+  expect(relaySenderOf({ ...from, ...ids }, device)).toMatchObject(ids);
 });
 
 test("outside read approval is scoped to the canonical tree and expires two idle minutes later", async () => {

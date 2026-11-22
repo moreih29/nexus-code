@@ -14,9 +14,14 @@ type AskArgs = CliUiOps["consent.ask"]["args"];
 
 export interface ConsentPromptsDeps {
   /** Shows the prompt (the renderer's consent.ask), waiting up to `timeoutMs` for the answer. */
-  ask(args: AskArgs, timeoutMs: number): Promise<{ answer: CliConsentAnswer }>;
+  ask(
+    args: AskArgs,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<{ answer: CliConsentAnswer }>;
   /** Answers a prompt shown (consent.settle); false when it no longer waits. */
-  settle(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
+  settle(id: string, answer: "once" | "session" | "deny", by?: string): Promise<boolean>;
+  onChange?(): void;
   now?: () => number;
 }
 
@@ -31,15 +36,33 @@ export class ConsentPrompts implements CliConsents {
    * is answered or runs out. The renderer takes it down at its timeout; the
    * wait for the answer, `bridgeTimeoutMs`, is a little longer by default.
    */
-  async ask(args: AskArgs, bridgeTimeoutMs?: number): Promise<{ answer: CliConsentAnswer }> {
+  async ask(
+    args: AskArgs,
+    bridgeTimeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<{ answer: CliConsentAnswer }> {
+    signal?.throwIfAborted();
     const id = randomUUID();
     const at = this.deps.now?.() ?? Date.now();
     const request = { ...args, id };
     this.pending.set(id, { id, at, expiresAt: at + args.timeoutMs, request });
+    this.deps.onChange?.();
+    const cancel = () => {
+      this.remove(id);
+      void this.deps.settle(id, "deny").catch(() => false);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     try {
-      return await this.deps.ask(request, bridgeTimeoutMs ?? args.timeoutMs + 10_000);
+      const answer = await this.deps.ask(
+        request,
+        bridgeTimeoutMs ?? args.timeoutMs + 10_000,
+        signal,
+      );
+      signal?.throwIfAborted();
+      return answer;
     } finally {
-      this.pending.delete(id);
+      signal?.removeEventListener("abort", cancel);
+      this.remove(id);
     }
   }
 
@@ -49,6 +72,12 @@ export class ConsentPrompts implements CliConsents {
 
   async answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean> {
     if (!this.pending.has(id)) return false;
-    return this.deps.settle(id, answer, by).catch(() => false);
+    const settled = await this.deps.settle(id, answer, by).catch(() => false);
+    if (settled) this.remove(id);
+    return settled;
+  }
+
+  private remove(id: string): void {
+    if (this.pending.delete(id)) this.deps.onChange?.();
   }
 }

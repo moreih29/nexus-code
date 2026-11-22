@@ -16,6 +16,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
@@ -112,11 +113,14 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
  * there is an agent's, gated by that computer's setting for agents. So is
  * what the user runs at a shell of theirs: the command is what agents run,
  * and one in a terminal that is no Claude Code or Codex is not told from
- * the user, so it goes as an agent in that terminal.
+ * the user, so it goes as an agent in that terminal. So does one in a
+ * terminal an agent on another computer opened: that agent's tab is no tab
+ * here to name.
  */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
-  if (!sender) {
+  // The app sends on its own, never through the command.
+  if (!sender || sender.kind === "app" || sender.device) {
     const { workspaceId, tabId } = ctx.caller;
     return { kind: "terminal", workspaceId, tabId };
   }
@@ -210,6 +214,7 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "chat.image",
   "history.list",
   "profiles.list",
+  "profiles.usage",
   "terminal.shells",
   "notes.list",
   "notes.read",
@@ -224,7 +229,9 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
 /**
  * Asks `device` for `method`: a request with `from` waits on its user's
  * consent, a wait on its own time. Offline, older and refusing devices
- * are CliErrors as the command tells them.
+ * are CliErrors as the command tells them. A consent prompt is never
+ * answered from here: the user answers it in the app, and an agent does
+ * not allow itself.
  */
 export async function askDevice<M extends RpcMethod>(
   ctx: CliContext,
@@ -234,6 +241,13 @@ export async function askDevice<M extends RpcMethod>(
   signal?: AbortSignal,
 ): Promise<RpcResult<M>> {
   signal?.throwIfAborted();
+  if (method === "consent.answer") {
+    throw new CliError("consent prompts are answered by the user in the app", 1, {
+      error: "refused",
+      device: deviceRef(device),
+      message: "consent prompts are answered by the user in the app",
+    });
+  }
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
   // A read says who reads: a device whose user turned agents down is read by people alone.
@@ -260,7 +274,7 @@ export async function askDevice<M extends RpcMethod>(
     (params as { permissionMode?: string }).permissionMode !== undefined
   )
     requirePeerCli(ctx, device);
-  const timeoutMs =
+  let timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
@@ -292,6 +306,9 @@ export async function askDevice<M extends RpcMethod>(
                   needsFileConsent(method, params as { anywhere?: true }))
               ? AGENT_REQUEST_MS
               : undefined;
+  if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
+    timeoutMs = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 5_000;
+  }
   try {
     return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
   } catch (error) {

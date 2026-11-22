@@ -4,6 +4,7 @@
  * worktrees, sessions and states.
  */
 
+import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { StatusEntry } from "../../../shared/claude/status";
 import {
   describeTerminal,
@@ -11,9 +12,11 @@ import {
   type TabActivity,
   type TabActivityEntry,
 } from "../../../shared/sessions/agent-state";
+import type { LimitResume } from "../../../shared/types/layout";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatTabState } from "../chat/store";
+import { remoteDisplayName } from "../remote/display-name";
 import { claudeChatStateOf, codexStateOf } from "./codex-state";
 
 /**
@@ -29,6 +32,10 @@ export interface AgentSession {
   readonly tabId: string;
   /** The tab's title. */
   readonly title: string;
+  /** The agent that opened the tab, as recorded when it was opened. */
+  readonly parent?: TerminalOpener;
+  /** The tab's opening time, including after restart. */
+  readonly openedAt?: number;
   /**
    * The kind of tab: a terminal, or a Claude or Codex tab, whose program
    * takes messages rather than keys.
@@ -51,6 +58,29 @@ export interface AgentSession {
   readonly message: string | undefined;
   /** The last prompt the user gave Claude. */
   readonly prompt: string | undefined;
+  /** Whether the chat has any turns in the conversation it displays. */
+  readonly hasTurns?: boolean;
+  /**
+   * A Claude or Codex tab the plan's usage limit stopped, which the app goes
+   * on in at `at` (Unix ms) once the limit resets (services/chat/limit-resume).
+   */
+  readonly limitWait?: { readonly at: number };
+}
+
+export function sessionParentName(opener: TerminalOpener | undefined, title?: string) {
+  return (
+    title ||
+    opener?.name ||
+    (opener?.device && remoteDisplayName(opener.tabId?.slice(0, 8))) ||
+    (opener?.kind !== "tab" ? opener?.agent : undefined)
+  );
+}
+
+/** The wait a tab's record of going on after the usage limit tells, while it waits. */
+function limitWaitOf(record: LimitResume | undefined): Pick<AgentSession, "limitWait"> {
+  return record?.state === "waiting" && record.at !== undefined
+    ? { limitWait: { at: record.at } }
+    : {};
 }
 
 export interface WorktreeEntry {
@@ -213,14 +243,26 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
   for (const tab of Object.values(tabs)) {
     const key = sessionKey(workspace.id, tab.id);
     const status = claude[tab.id];
+    const chat = input.chats?.[key];
+    const opener =
+      (tab.type === "claude" || tab.type === "codex" || tab.type === "terminal") &&
+      tab.props.openedBy
+        ? { parent: tab.props.openedBy, openedAt: tab.openedAt }
+        : {};
+    const hasTurns = Boolean(
+      chat?.model.lastResult ||
+        chat?.model.items.some((item) => item.kind === "user") ||
+        chat?.history?.items.some((item) => item.kind === "user" || item.kind === "assistant"),
+    );
     if (tab.type === "claude") {
-      const streamed = claudeChatStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      const streamed = claudeChatStateOf(chat, seen[tab.id], key === input.viewing);
       const state = streamed?.state ?? status?.status ?? "idle";
       sessions.push({
         key,
         workspaceId: workspace.id,
         tabId: tab.id,
         title: tab.title,
+        ...opener,
         kind: "claude",
         agent: "claude",
         state,
@@ -229,16 +271,19 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: streamed ? streamed.since : status?.since,
         message: streamed ? streamed.message : status?.message,
         prompt: streamed?.prompt ?? status?.prompt,
+        hasTurns,
+        ...limitWaitOf(tab.props.limitResume),
       });
       continue;
     }
     if (tab.type === "codex") {
-      const codex = codexStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      const codex = codexStateOf(chat, seen[tab.id], key === input.viewing);
       sessions.push({
         key,
         workspaceId: workspace.id,
         tabId: tab.id,
         title: tab.title,
+        ...opener,
         kind: "codex",
         agent: "codex",
         state: codex.state,
@@ -247,6 +292,8 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: codex.since,
         message: codex.message,
         prompt: codex.prompt,
+        hasTurns,
+        ...limitWaitOf(tab.props.limitResume),
       });
       continue;
     }
@@ -268,6 +315,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
       workspaceId: workspace.id,
       tabId: tab.id,
       title: tab.title,
+      ...opener,
       kind: "terminal",
       agent: terminal.agent,
       state,
@@ -301,6 +349,8 @@ export function buildFamily(input: FamilyInput): SessionFamily | null {
 const SESSION_FIELDS = [
   "key",
   "title",
+  "parent",
+  "openedAt",
   "kind",
   "agent",
   "state",
@@ -309,7 +359,15 @@ const SESSION_FIELDS = [
   "since",
   "message",
   "prompt",
+  "hasTurns",
 ] as const satisfies readonly (keyof AgentSession)[];
+
+/** Whether a rebuilt session tells the same as the row already shown. */
+export function sameSession(a: AgentSession, b: AgentSession): boolean {
+  return (
+    a.limitWait?.at === b.limitWait?.at && SESSION_FIELDS.every((field) => a[field] === b[field])
+  );
+}
 
 /** Whether two builds of a family show the same. */
 export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): boolean {
@@ -322,7 +380,7 @@ export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): bo
       x.isRoot === y.isRoot &&
       x.branch === y.branch &&
       x.sessions.length === y.sessions.length &&
-      x.sessions.every((s, j) => SESSION_FIELDS.every((field) => s[field] === y.sessions[j][field]))
+      x.sessions.every((s, j) => sameSession(s, y.sessions[j]))
     );
   });
 }

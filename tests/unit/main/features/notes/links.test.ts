@@ -1,0 +1,500 @@
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { promises as fs } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { NotesStore } from "../../../../../src/main/features/notes/store";
+import {
+  MAX_NOTE_LINK_BYTES,
+  MAX_NOTE_LINKS,
+  type NewNoteLink,
+} from "../../../../../src/shared/notes/links";
+import type { NoteLocation } from "../../../../../src/shared/notes/types";
+
+const location: NoteLocation = {
+  key: "local:/workspace",
+  kind: "local",
+  path: "/workspace",
+  label: "Workspace",
+};
+const base: NewNoteLink = {
+  agent: "claude",
+  workspaceId: "123e4567-e89b-12d3-a456-426614174000",
+  tabId: "tab-1",
+  cwd: "/workspace",
+  title: "Conversation",
+  kind: "note",
+};
+
+let root: string;
+let store: NotesStore;
+let note: Awaited<ReturnType<NotesStore["create"]>>;
+let file: string;
+
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), "note-links-"));
+  store = new NotesStore(root);
+  note = await store.create(location, "Note");
+  file = path.join(note.dir, "links.json");
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+test("a note without links opens with an empty list and does not get a link file", async () => {
+  expect(await store.links(location, note.id)).toEqual([]);
+  await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("broken, unrecognized and oversized link files read as empty", async () => {
+  for (const content of [
+    "{incomplete",
+    '{"version":2,"conversations":{}}',
+    " ".repeat(MAX_NOTE_LINK_BYTES + 1),
+  ]) {
+    await writeFile(file, content);
+    expect(await store.links(location, note.id)).toEqual([]);
+  }
+  const entry = await store.addLink(location, note.id, base);
+  expect(await store.links(location, note.id)).toEqual([entry]);
+});
+
+test("loose decoding keeps valid entries beside malformed ones", async () => {
+  const valid = { ...base, createdAt: 1, updatedAt: 1 };
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: {
+        l1234567: { ...valid, extra: true },
+        l1234568: { ...valid, agent: "unknown" },
+        invalid: valid,
+      },
+    }),
+  );
+  expect(await store.links(location, note.id)).toEqual([{ id: "l1234567", link: valid }]);
+});
+
+test("concurrent writes preserve each link, session order and the previous-session cap", async () => {
+  const [first, second] = await Promise.all([
+    store.addLink(location, note.id, { ...base, session: "s0" }),
+    store.addLink(location, note.id, { ...base, tabId: "tab-2" }),
+  ]);
+  const changes: string[] = [];
+  await Promise.all(
+    Array.from({ length: 7 }, (_, index) =>
+      store.updateLinksForTab(location, { ...base, session: `s${index + 1}` }, (id) =>
+        changes.push(id),
+      ),
+    ),
+  );
+  const links = await store.links(location, note.id);
+  expect(links).toEqual([
+    {
+      id: first.id,
+      link: expect.objectContaining({ session: "s7", sessions: ["s6", "s5", "s4", "s3", "s2"] }),
+    },
+    second,
+  ]);
+  expect(changes).toEqual(Array(7).fill(note.id));
+  await Promise.all([
+    store.updateLink(location, note.id, first.id, { session: "s5" }),
+    store.removeLink(location, note.id, second.id),
+  ]);
+  expect(await store.links(location, note.id)).toEqual([
+    {
+      id: first.id,
+      link: expect.objectContaining({ session: "s5", sessions: ["s7", "s6", "s4", "s3", "s2"] }),
+    },
+  ]);
+});
+
+test("the reverse index loads existing links and reads only linked notes after warming", async () => {
+  const unrelated = await store.create(location, "Unrelated");
+  const entry = await store.addLink(location, note.id, { ...base, session: "before" });
+  await store.addLink(location, unrelated.id, { ...base, tabId: "unrelated" });
+  const reopened = new NotesStore(root);
+  expect(await reopened.linksOfConversation(location, base)).toEqual([
+    { noteId: note.id, title: "Note", updatedAt: entry.link.updatedAt },
+  ]);
+
+  const open = spyOn(fs, "open");
+  const read = spyOn(fs, "readFile");
+  try {
+    const unknown = { ...base, tabId: "unknown", session: "unknown" };
+    await reopened.updateLinksForTab(location, unknown, () => {});
+    expect(await reopened.linksOfConversation(location, unknown)).toEqual([]);
+    expect(open).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+
+    const changed: string[] = [];
+    await reopened.updateLinksForTab(location, { ...base, session: "after" }, (id) =>
+      changed.push(id),
+    );
+    expect(changed).toEqual([note.id]);
+    expect(open.mock.calls.filter(([, flags]) => flags === "r").map(([file]) => file)).toEqual([
+      path.join(note.dir, "links.json"),
+    ]);
+    for (const session of ["before", "after"]) {
+      expect(await reopened.linksOfConversation(location, { ...unknown, session })).toEqual([
+        expect.objectContaining({ noteId: note.id }),
+      ]);
+    }
+  } finally {
+    open.mockRestore();
+    read.mockRestore();
+  }
+});
+
+test("changes, deletions, and removing a location keep its reverse index current", async () => {
+  const other = await store.create(location, "Newer link");
+  const previous = { ...base, session: "previous" };
+  const [empty, first] = await Promise.all([
+    store.linksOfConversation(location, previous),
+    store.addLink(location, note.id, previous),
+  ]);
+  expect(empty).toEqual([]);
+  const second = await store.addLink(location, other.id, previous);
+  const touched = await store.addLink(location, other.id, { ...previous, title: "Ignored" }, true);
+  expect(touched).toEqual({
+    id: second.id,
+    link: { ...second.link, updatedAt: touched.link.updatedAt },
+  });
+  expect(touched.link.updatedAt).toBeGreaterThan(second.link.updatedAt);
+  expect((await store.linksOfConversation(location, previous)).map(({ noteId }) => noteId)).toEqual(
+    [other.id, note.id],
+  );
+
+  const moved = { ...base, tabId: "moved", session: "current" };
+  await store.updateLink(location, note.id, first.id, moved);
+  await store.remove(location, other.id);
+  expect(await store.linksOfConversation(location, moved)).toHaveLength(1);
+  expect(await store.linksOfConversation(location, base)).toEqual([]);
+  await store.removeLink(location, note.id, first.id);
+  expect(await store.linksOfConversation(location, moved)).toEqual([]);
+
+  await store.removeLocation(location.key);
+  const recreated = new NotesStore(root);
+  const restored = await recreated.create(location, "Restored");
+  await recreated.addLink(location, restored.id, base);
+  expect(await store.linksOfConversation(location, base)).toEqual([
+    expect.objectContaining({ noteId: restored.id }),
+  ]);
+});
+
+test("the conversation cap leaves the file unchanged and space can be reclaimed", async () => {
+  const full = Object.fromEntries(
+    Array.from({ length: MAX_NOTE_LINKS }, (_, i) => [
+      `l${String(i).padStart(7, "0")}`,
+      { ...base, createdAt: i, updatedAt: i },
+    ]),
+  );
+  const content = JSON.stringify({ version: 1, conversations: full });
+  await writeFile(file, content);
+  await expect(store.addLink(location, note.id, base)).rejects.toMatchObject({
+    code: "bad-request",
+  });
+  expect(await readFile(file, "utf8")).toBe(content);
+  await store.removeLink(location, note.id, "l0000000");
+  await store.addLink(location, note.id, base);
+  expect(await store.links(location, note.id)).toHaveLength(MAX_NOTE_LINKS);
+});
+
+test("the byte cap uses UTF-8 and rejects oversized edits atomically", async () => {
+  const large: NewNoteLink = { ...base, cwd: `/${"길".repeat(4000)}`, title: "제".repeat(200) };
+  const almostFull = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      `l${String(i).padStart(7, "0")}`,
+      { ...large, createdAt: i, updatedAt: i },
+    ]),
+  );
+  const content = JSON.stringify({ version: 1, conversations: almostFull });
+  await writeFile(file, content);
+  await expect(store.addLink(location, note.id, large)).rejects.toMatchObject({
+    code: "bad-request",
+  });
+  expect(await readFile(file, "utf8")).toBe(content);
+});
+
+test("links count toward text storage and leave the note document and sort date intact", async () => {
+  const textBefore = (await store.storage())[0].bytes.text;
+  const previous = await readFile(path.join(note.dir, "note.json"), "utf8");
+  const markdown = await readFile(path.join(note.dir, "note.md"), "utf8");
+  await store.addLink(location, note.id, base);
+  expect((await store.storage())[0].bytes.text).toBe(textBefore + (await stat(file)).size);
+  expect(await readFile(path.join(note.dir, "note.json"), "utf8")).toBe(previous);
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe(markdown);
+  expect((await store.list(location))[0].updatedAt).toBe(note.updatedAt);
+  await store.save(location, note.id, { title: "Updated" });
+  expect(await store.links(location, note.id)).toHaveLength(1);
+  await store.remove(location, note.id);
+  expect(await store.links(location, note.id)).toEqual([]);
+  await expect(store.addLink(location, note.id, base)).rejects.toMatchObject({ code: "not-found" });
+});
+
+test("the conversation header receives one note for its task and card links", async () => {
+  const chat = { ...base, session: "session" };
+  const task = await store.addLink(location, note.id, { ...chat, kind: "task" });
+  const paragraph = (text: string) => ({
+    type: "paragraph",
+    content: [{ type: "text", text }],
+  });
+  await store.save(location, note.id, {
+    doc: {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              attrs: { nexusLink: task.id },
+              content: [paragraph("Run the checks")],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  await store.saveAnswer(
+    location,
+    note.id,
+    { ...chat, messageId: "answer" },
+    [paragraph("Checks passed")],
+    () => {},
+  );
+  const entries = await store.links(location, note.id);
+  expect(entries.map(({ link }) => link.kind)).toEqual(["task", "card"]);
+  const expected = [
+    {
+      noteId: note.id,
+      title: note.title,
+      line: "Run the checks",
+      updatedAt: Math.max(...entries.map(({ link }) => link.updatedAt)),
+    },
+  ];
+  expect(await store.linksOfConversation(location, chat)).toEqual(expected);
+  expect(await store.linksOfConversation(location, { ...chat, tabId: "reopened" })).toEqual(
+    expected,
+  );
+});
+
+test("live cards append once and reload their latest plain-text snapshot without changing note Markdown", async () => {
+  const source = { ...base, profileId: "profile", session: "thread", title: "Review [logs]\u202e" };
+  const writes: string[] = [];
+  await Promise.all([
+    store.saveLiveCard(location, note.id, source, { text: "Earlier", at: 10 }, () =>
+      writes.push("first"),
+    ),
+    store.saveLiveCard(location, note.id, { ...source, tabId: "reopened" }, undefined, () =>
+      writes.push("duplicate"),
+    ),
+  ]);
+  expect(writes).toEqual(["first"]);
+  const saved = await store.read(location, note.id);
+  const [{ id, link }] = await store.links(location, note.id);
+  expect(link).toMatchObject({
+    kind: "live",
+    title: "Review [logs]",
+    lastAnswer: { text: "Earlier", at: 10 },
+  });
+  expect(link.messageId).toBeUndefined();
+  expect(saved.doc.content).toEqual([
+    {
+      type: "blockquote",
+      attrs: { nexusLink: id },
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Review [logs]" }] }],
+    },
+  ]);
+
+  const notify: string[] = [];
+  const reopened = new NotesStore(root);
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened", profileId: "other" },
+    { text: "Other profile", at: 30 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(
+    location,
+    { ...source, tabId: "reopened" },
+    { text: "Newest <b>answer</b>", at: 20, turnFiles: 2 },
+    (id) => notify.push(id),
+  );
+  await reopened.updateLiveAnswer(location, source, { text: "Late arrival", at: 11 }, (id) =>
+    notify.push(id),
+  );
+  expect(notify).toEqual([note.id]);
+  expect((await new NotesStore(root).links(location, note.id))[0].link.lastAnswer).toEqual({
+    text: "Newest <b>answer</b>",
+    at: 20,
+    turnFiles: 2,
+  });
+  expect((await reopened.read(location, note.id)).updatedAt).toBe(saved.updatedAt);
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe(
+    "# Note\n\n> Review \\[logs\\]\n",
+  );
+
+  for (const fields of [{ files: 21 }, { turnFiles: "invalid" }]) {
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        conversations: {
+          [id]: { ...link, lastAnswer: { text: "Old preview", at: 22, ...fields } },
+        },
+      }),
+    );
+    expect((await reopened.links(location, note.id))[0].link.lastAnswer).toEqual({
+      text: "Old preview",
+      at: 22,
+    });
+  }
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: { [id]: { ...link, lastAnswer: { text: "Bad timestamp", at: 9e16 } } },
+    }),
+  );
+  expect((await reopened.links(location, note.id))[0].link).toMatchObject({
+    kind: "live",
+    lastAnswer: undefined,
+  });
+});
+
+test("reinserting a deleted live card refreshes the reused link and leaves the old note alone until then", async () => {
+  const source = { ...base, session: "older-thread" };
+  await store.saveLiveCard(location, note.id, source, { text: "Former", at: 10 }, () => {});
+  const [{ id }] = await store.links(location, note.id);
+  await store.save(location, note.id, { doc: { type: "doc", content: [{ type: "paragraph" }] } });
+  const linksBefore = await readFile(file, "utf8");
+  const notify = spyOn(fs, "rename");
+  const changes: string[] = [];
+  try {
+    await store.updateLiveAnswer(location, source, { text: "Without a card", at: 20 }, (id) => {
+      changes.push(id);
+    });
+    expect(notify).not.toHaveBeenCalled();
+    expect(changes).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(linksBefore);
+  } finally {
+    notify.mockRestore();
+  }
+  await store.saveLiveCard(
+    location,
+    note.id,
+    { ...source, session: "new-thread" },
+    { text: "Current", at: 30 },
+    () => {},
+  );
+  await store.save(location, note.id, { doc: { type: "doc", content: [{ type: "paragraph" }] } });
+  // A restored tab may have a new ID for the same session.
+  await store.saveLiveCard(
+    location,
+    note.id,
+    { ...source, tabId: "restored", session: "new-thread" },
+    { text: "Current again", at: 40 },
+    () => {},
+  );
+  const links = await store.links(location, note.id);
+  expect(links).toEqual([
+    {
+      id,
+      link: expect.objectContaining({
+        tabId: "restored",
+        session: "new-thread",
+        sessions: ["older-thread"],
+        lastAnswer: { text: "Current again", at: 40 },
+      }),
+    },
+  ]);
+  const current = await store.read(location, note.id);
+  expect(current.doc.content?.[0]).toMatchObject({ type: "blockquote", attrs: { nexusLink: id } });
+  await store.updateLiveAnswer(
+    location,
+    { ...source, tabId: "restored", session: "new-thread" },
+    { text: "Next", at: 50 },
+    () => {},
+  );
+  expect((await store.links(location, note.id))[0].link.lastAnswer?.text).toBe("Next");
+});
+
+test("a failed reinsert restores the previous live link", async () => {
+  const source = { ...base, session: "previous" };
+  await store.saveLiveCard(location, note.id, source, { text: "Previous", at: 10 }, () => {});
+  await store.save(location, note.id, { doc: { type: "doc", content: [] } });
+  const before = await readFile(file, "utf8");
+  const rename = fs.rename;
+  const blockWrite = spyOn(fs, "rename").mockImplementation(async (from, to) => {
+    if (path.basename(String(to)) === "note.json") throw new Error("Card write failed");
+    await rename(from, to);
+  });
+  try {
+    await expect(
+      store.saveLiveCard(
+        location,
+        note.id,
+        { ...source, session: "new-thread" },
+        {
+          text: "Current",
+          at: 20,
+        },
+        () => {},
+      ),
+    ).rejects.toThrow("Card write failed");
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(JSON.parse(before));
+  } finally {
+    blockWrite.mockRestore();
+  }
+});
+
+test("live answers repair future clock skew without accepting an ordinary older answer", async () => {
+  const source = { ...base, session: "thread" };
+  const now = Date.now();
+  const farFuture = now + 48 * 60 * 60 * 1000;
+  await store.saveLiveCard(
+    location,
+    note.id,
+    source,
+    { text: "Clock skew", at: farFuture },
+    () => {},
+  );
+  const [{ id, link }] = await store.links(location, note.id);
+  expect(link.lastAnswer?.at).toBeLessThan(farFuture);
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      conversations: { [id]: { ...link, lastAnswer: { text: "Clock skew", at: farFuture } } },
+    }),
+  );
+  const changed: string[] = [];
+  const keep = (id: string) => {
+    changed.push(id);
+  };
+  await store.updateLiveAnswer(location, source, { text: "Clock skew", at: now }, keep);
+  expect(changed).toEqual([]);
+  await store.updateLiveAnswer(location, source, { text: "Recovered", at: now }, keep);
+  await store.updateLiveAnswer(location, source, { text: "Older", at: now - 1 }, keep);
+  expect(changed).toEqual([note.id]);
+  expect((await store.links(location, note.id))[0].link.lastAnswer).toEqual({
+    text: "Recovered",
+    at: now,
+  });
+  await store.updateLiveAnswer(location, source, { text: "New and skewed", at: farFuture }, keep);
+  const updated = (await store.links(location, note.id))[0].link.lastAnswer;
+  expect(updated?.text).toBe("New and skewed");
+  expect(updated?.at).toBeGreaterThanOrEqual(now);
+  expect(updated?.at).toBeLessThan(farFuture);
+});
+
+test("a live fallback title drops lone surrogates while preserving paired characters", async () => {
+  const source = { ...base, title: "Title\uD800 😀\uDC00\u202E" };
+  await store.saveLiveCard(location, note.id, source, undefined, () => {});
+  expect((await store.links(location, note.id))[0].link.title).toBe("Title 😀");
+  expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe("# Note\n\n> Title 😀\n");
+});

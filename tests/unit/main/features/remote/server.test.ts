@@ -1,10 +1,12 @@
-/** Which NexusCode server the app signs in to. */
+/** Which NexusCode server the app signs in to, and the addresses it reaches it at. */
 import { describe, expect, test } from "bun:test";
 import {
   DEV_SERVER,
+  DIRECT,
+  FALLBACK,
   PROXY,
-  remoteProxy,
   remoteServer,
+  remoteWays,
   SERVER,
 } from "../../../../../src/main/features/remote/server";
 
@@ -38,21 +40,38 @@ describe("the server", () => {
     );
   });
 
-  test("the released app goes to its own server through the proxy, to another straight", () => {
-    expect(remoteProxy({}, true, SERVER)).toBe(PROXY);
-    expect(PROXY).toBe("https://13-124-109-101.sslip.io");
-    expect(remoteProxy({}, true, "https://staging.example.com")).toBeNull();
+  test("the released app's server is a name; its requests go to the domain's addresses", () => {
+    const ways = remoteWays({}, true, SERVER);
+    expect(ways).toEqual({ proxy: PROXY, direct: DIRECT, fallback: FALLBACK });
+    expect(new URL(PROXY).host).toBe("api.nexuscode.gradiendo.com");
+    expect(new URL(DIRECT).host).toBe("cloud.nexuscode.gradiendo.com");
+    // The name it signs in to answers still, last.
+    expect(FALLBACK).toBe(SERVER);
     // An environment does not name the released app's proxy.
-    expect(remoteProxy({ NEXUS_REMOTE_PROXY: "https://evil.example.com" }, true, SERVER)).toBe(
-      PROXY,
+    expect(remoteWays({ NEXUS_REMOTE_PROXY: "https://evil.example.com" }, true, SERVER)).toEqual(
+      ways,
     );
   });
 
+  test("another server is reached at its own address alone", () => {
+    expect(remoteWays({}, true, "https://staging.example.com")).toEqual({
+      proxy: null,
+      direct: "https://staging.example.com",
+      fallback: null,
+    });
+    expect(remoteWays({}, false, DEV_SERVER)).toEqual({
+      proxy: null,
+      direct: DEV_SERVER,
+      fallback: null,
+    });
+  });
+
   test("development goes straight unless NEXUS_REMOTE_PROXY names one", () => {
-    expect(remoteProxy({}, false, DEV_SERVER)).toBeNull();
-    expect(remoteProxy({ NEXUS_REMOTE_PROXY: " " }, false, DEV_SERVER)).toBeNull();
-    expect(remoteProxy({ NEXUS_REMOTE_PROXY: "http://localhost:9999" }, false, DEV_SERVER)).toBe(
-      "http://localhost:9999",
-    );
+    expect(remoteWays({ NEXUS_REMOTE_PROXY: " " }, false, DEV_SERVER).proxy).toBeNull();
+    expect(remoteWays({ NEXUS_REMOTE_PROXY: "http://localhost:9999" }, false, DEV_SERVER)).toEqual({
+      proxy: "http://localhost:9999",
+      direct: DEV_SERVER,
+      fallback: null,
+    });
   });
 });

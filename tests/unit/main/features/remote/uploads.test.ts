@@ -17,13 +17,33 @@ const b64 = (b: Buffer) => b.toString("base64");
 
 function kit() {
   let clock = 0;
+  const timers = new Set<{ run: () => void; ms: number }>();
   const attachments = new Attachments(() => clock);
-  const uploads = new Uploads(attachments, () => clock);
+  const uploads = new Uploads(
+    attachments,
+    () => clock,
+    (run, ms) => {
+      const timer = { run, ms };
+      timers.add(timer);
+      return () => {
+        timers.delete(timer);
+      };
+    },
+  );
   return {
     attachments,
     uploads,
     tick: (ms: number) => {
       clock += ms;
+    },
+    /** In how long each sweep set now is due. */
+    due: () => [...timers].map((t) => t.ms),
+    /** Runs the sweeps set now, as their time came. */
+    sweep: () => {
+      for (const timer of [...timers]) {
+        timers.delete(timer);
+        timer.run();
+      }
     },
   };
 }
@@ -116,6 +136,23 @@ describe("an uploaded file", () => {
     tick(ATTACHMENT_TTL_MS - 1);
     uploads.chunk("d", id, 4, b64(Buffer.alloc(4)));
     tick(ATTACHMENT_TTL_MS);
+    expect(() => uploads.end("d", id)).toThrow("no upload");
+  });
+
+  test("one its device left unfinished goes when its time is up, with no upload after it", () => {
+    const { uploads, tick, due, sweep } = kit();
+    const id = uploads.begin("d", "w", "t", { name: "a.bin", size: 8 });
+    expect(due()).toEqual([ATTACHMENT_TTL_MS]);
+    tick(1000);
+    uploads.chunk("d", id, 0, b64(Buffer.alloc(4)));
+    // A piece came: it is kept past the first time up, till that long after the piece.
+    tick(ATTACHMENT_TTL_MS - 1000);
+    sweep();
+    expect(due()).toEqual([1000]);
+    tick(1000);
+    sweep();
+    // None under way: its pieces are gone, and no sweep is set.
+    expect(due()).toEqual([]);
     expect(() => uploads.end("d", id)).toThrow("no upload");
   });
 

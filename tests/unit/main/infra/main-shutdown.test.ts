@@ -1,5 +1,35 @@
 import { expect, jest, mock, test } from "bun:test";
-import { finishMainShutdown } from "../../../../src/main/infra/main-shutdown";
+import { createQuitStateFlush, finishMainShutdown } from "../../../../src/main/infra/main-shutdown";
+
+test("quit proceeds after three failed state flush attempts", () => {
+  jest.useFakeTimers();
+  try {
+    const flush = mock(() => {
+      throw new Error("ENOSPC");
+    });
+    const preventDefault = mock(() => {});
+    const warn = mock((_message: string) => {});
+    const error = mock((_message: string) => {});
+    const quit = () => {
+      if (flushBeforeQuit({ preventDefault })) finished = true;
+    };
+    let finished = false;
+    const flushBeforeQuit = createQuitStateFlush({ flush, quit, warn, error });
+    quit();
+    jest.advanceTimersByTime(1_999);
+    expect(flush).toHaveBeenCalledTimes(2);
+    expect(finished).toBe(false);
+    jest.advanceTimersByTime(1);
+    expect(finished).toBe(true);
+    expect(preventDefault).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("3 attempts: Error: ENOSPC"));
+    jest.advanceTimersByTime(10_000);
+    expect(flush).toHaveBeenCalledTimes(3);
+  } finally {
+    jest.useRealTimers();
+  }
+});
 
 test("quit joins note writes and socket cleanup while letting LSP close before agents", async () => {
   const notes = Promise.withResolvers<void>();

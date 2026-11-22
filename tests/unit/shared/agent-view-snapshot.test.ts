@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { remoteFileKey } from "../../../src/shared/fs/remote-file-key";
-import { AgentViewSnapshotSchema } from "../../../src/shared/types/agent-view";
+import { AgentViewSnapshotSchema, boundedPeerFoldKey } from "../../../src/shared/types/agent-view";
 
 const LEAF = "00000000-0000-4000-8000-0000000000a1";
 const base = {
@@ -10,6 +10,11 @@ const base = {
 };
 
 describe("AgentViewSnapshotSchema", () => {
+  test("persists the sidebar order for a workspace larger than one RPC batch", () => {
+    const order = { ws: Array.from({ length: 501 }, (_, i) => `ws:t${i}`) };
+    expect(AgentViewSnapshotSchema.parse({ ...base, order }).order).toEqual(order);
+  });
+
   test("reads a snapshot stored before ended agents were", () => {
     const parsed = AgentViewSnapshotSchema.parse(base);
     expect(parsed.ended).toBeUndefined();
@@ -45,4 +50,29 @@ describe("AgentViewSnapshotSchema", () => {
     expect(parsed.ended).toBeUndefined();
     expect(parsed.root).toEqual(base.root);
   });
+});
+
+test("old remote family folds are discarded before local folds and long peer keys stay bounded", () => {
+  const local = "family:home:keep";
+  const long = `family:remote:peer/${"worktree".repeat(40)}/parent`;
+  const key = boundedPeerFoldKey(long);
+  expect(key.length).toBeLessThanOrEqual(200);
+  expect(key).not.toBe(boundedPeerFoldKey(`${long}-other`));
+  expect(AgentViewSnapshotSchema.parse({ ...base, folded: [local, long] }).folded).toEqual([
+    local,
+    key,
+  ]);
+  const folded = AgentViewSnapshotSchema.parse({
+    ...base,
+    folded: [
+      local,
+      "family:remote:peer/short/parent",
+      long,
+      ...Array.from({ length: 255 }, (_, i) => `workspace:${i}`),
+    ],
+  }).folded;
+  expect(folded).toHaveLength(256);
+  expect(folded).toContain(local);
+  expect(folded).not.toContain("family:remote:peer/short/parent");
+  expect(folded).not.toContain(key);
 });

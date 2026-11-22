@@ -23,6 +23,7 @@ import {
   claudeStatusOf,
   codexStatusOf,
 } from "../../../shared/agent-profiles/status";
+import { posixShellString, powerShellString } from "../../../shared/pty/shell";
 import { findOnPath, nodeShellHost } from "../pty/shells";
 
 const STATUS_TIMEOUT_MS = 20_000;
@@ -256,8 +257,9 @@ export function loginCommand(profile: AgentProfile, onWindows = windows): string
   const program = profile.agent === "claude" ? "claude auth login" : "codex login";
   if (profile.dir.trim() === "") return program;
   const key = PROFILE_DIR_ENV[profile.agent];
-  if (onWindows) return `$env:${key}="${localProfileDir(profile)}"; ${program}`;
-  return `${key}=${profile.dir} ${program}`;
+  const dir = localProfileDir(profile);
+  if (onWindows) return `$env:${key}=${powerShellString(dir)}; ${program}`;
+  return `${key}=${posixShellString(dir)} ${program}`;
 }
 
 export interface LoginEvents {

@@ -36,6 +36,7 @@
   src: url("../assets/fonts/JetBrainsMono/JetBrainsMonoNerdFont-Regular.ttf") format("truetype");
 }
 
+/* Loaded before xterm measures its cells, or by CSS when a visible glyph uses this face. */
 @font-face {
   font-family: "Sarasa Term K";
   font-weight: 400;
@@ -329,10 +330,40 @@
   background-clip: padding-box;
 }
 
+/* xterm's DOM renderer marks cursors that should blink, including PTY overrides.
+   The terminal controller changes their appearance twice a second. */
+.xterm .xterm-cursor-blink {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides xterm's per-renderer animation. */
+  animation: none !important;
+}
+
+.xterm.nexus-block-cursor-colors .xterm-cursor-blink.xterm-cursor-block {
+  /* biome-ignore lint/complexity/noImportantStyles: cursor colors win over the cell's inline ANSI colors. */
+  background-color: var(--nexus-terminal-cursor-color) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: cursor colors win over the cell's inline ANSI colors. */
+  color: var(--nexus-terminal-cursor-accent) !important;
+}
+
+.xterm.nexus-cursor-blink-off .xterm-cursor-blink.xterm-cursor-block {
+  /* biome-ignore lint/complexity/noImportantStyles: the hidden phase overrides the visible phase. */
+  background-color: inherit !important;
+  /* biome-ignore lint/complexity/noImportantStyles: the hidden phase overrides the visible phase. */
+  color: var(--nexus-terminal-cursor-color, inherit) !important;
+}
+
+.xterm.nexus-cursor-blink-off .xterm-cursor-blink.xterm-cursor-bar {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides xterm's per-renderer cursor style. */
+  box-shadow: none !important;
+}
+
+.xterm.nexus-cursor-blink-off .xterm-cursor-blink.xterm-cursor-underline {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides xterm's per-renderer cursor style. */
+  border-bottom-style: hidden !important;
+}
+
 /* ---------------------------------------------------------------------------
    Settings → Terminal preview cursor blink.
-   1.2s on/off cycle mirrors xterm's default blink cadence. The `.preview-cursor-blink`
-   utility opts in; we don't apply blinking to real terminals (xterm handles that itself).
+   The preview uses its own 1.2s on/off cycle.
    --------------------------------------------------------------------------- */
 
 @keyframes preview-cursor-blink {
@@ -974,6 +1005,18 @@
 .note-doc .ProseMirror > * + * {
   margin-top: 0.5em;
 }
+.note-doc .ProseMirror > .note-summary-divider {
+  margin-top: 1.25em;
+  border-top: 1px solid var(--surface-island-border);
+  padding-top: 0.35em;
+  color: var(--editor-text-muted);
+  font-size: 0.85em;
+}
+.note-doc .ProseMirror > .note-summary-divider::before {
+  content: "✧" / "";
+  margin-inline-end: 0.5em;
+  color: var(--state-info-fg);
+}
 .note-doc .ProseMirror p.is-editor-empty:first-child::before,
 .note-doc .ProseMirror .is-empty.is-editor-empty::before {
   content: attr(data-placeholder);
@@ -1051,14 +1094,57 @@
   flex: 1;
   min-width: 0;
 }
-.note-doc ul[data-type="taskList"] li[data-checked="true"] > div {
+.note-doc
+  li[data-type="taskItem"][data-checked="true"]
+  > div
+  > p:first-child:not(.note-task-report) {
   color: var(--editor-text-muted);
   text-decoration: line-through;
+}
+.note-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: middle;
+  margin-inline-start: 0.4rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--surface-island-bg, transparent);
+  font-size: var(--text-app-micro);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+button.note-task-chip:hover {
+  background: var(--state-hover-bg);
+}
+.note-task-action {
+  opacity: 0;
+}
+.note-doc
+  li[data-type="taskItem"]:hover:not(:has(li[data-type="taskItem"]:hover))
+  > div
+  > p:first-child
+  .note-task-action,
+.note-task-action:focus-visible,
+.note-task-action[data-state="open"] {
+  opacity: 1;
+}
+.note-doc .note-task-report {
+  color: var(--editor-text-muted);
+  font-size: var(--text-app-ui-sm);
 }
 .note-doc blockquote {
   border-left: 3px solid var(--surface-island-border);
   color: var(--editor-text-muted);
   padding-left: 0.9em;
+}
+.note-doc blockquote:has(> [data-note-answer-card] > [data-note-live-card]) {
+  border-left: 0;
+  padding-left: 0;
+}
+.note-doc blockquote > [data-note-answer-card]:has(> [data-note-live-card]) + p {
+  display: none;
 }
 .note-doc code {
   font-family: var(

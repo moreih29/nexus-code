@@ -14,10 +14,13 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { LineReport } from "../../../shared/notes/line-report";
+import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
+import type { LinkedNote } from "../../../shared/types/notes";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { ProfileConnections } from "../agent-profiles/connection-save";
@@ -103,10 +106,31 @@ export interface WorkspaceMove {
   readonly group: "pinned" | "unpinned";
 }
 
+/**
+ * The renderer's count of changes to the sessions, the highest it has told
+ * (cli.sessionsChanged) or answered a sessions.snapshot with: a snapshot
+ * read at it still tells what the renderer has.
+ */
+export interface SessionsRenderer {
+  readonly latest: number | undefined;
+  readonly closed: boolean;
+  saw(revision: number): void;
+  snapshot(
+    args: CliUiOps["sessions.snapshot"]["args"],
+    timeoutMs: number,
+  ): Promise<CliUiOps["sessions.snapshot"]["result"]>;
+}
+
+export interface SessionsRevision {
+  current(): SessionsRenderer | undefined;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
   /** The consent prompts waiting on the user. */
   readonly consents: CliConsents;
+  /** The renderer's sessions revision; none where no renderer tells one. */
+  readonly sessionsRevision?: SessionsRevision;
   /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;
@@ -184,12 +208,12 @@ export interface CliServices {
    * Resolves when a change to another workspace than the caller's may go
    * ahead, as the setting or the user says; a CliError saying why when not.
    */
-  allowChange(request: ChangeRequest): Promise<void>;
+  allowChange(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
   /**
    * Resolves when the user allows `request`, asked whatever the setting;
    * a CliError saying why when not.
    */
-  askUser(request: ChangeRequest): Promise<void>;
+  askUser(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
   claudeInstructions?(
@@ -223,6 +247,9 @@ export interface CliServices {
 
 /** A workspace's notes, as the nexus note commands read them. */
 export interface CliNotes {
+  linksOfConversation(tab: NoteConversation): Promise<LinkedNote[]>;
+  reportTargets(tab: NoteConversation): Promise<{ noteId: string; linkId: string }[]>;
+  reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
   /** Newest first. */
   list(workspaceId: string): Promise<NoteSummary[]>;
   /** Fails when there is no such note. */
@@ -327,14 +354,18 @@ export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (workspace.id === ctx.caller.workspaceId) return;
-  await ctx.services.allowChange({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change,
-  });
+  await ctx.services.allowChange(
+    {
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: workspace.id,
+      change,
+    },
+    signal,
+  );
 }
 
 /** The agents of a terminal's Claude session (claude/session-activity.ts). */

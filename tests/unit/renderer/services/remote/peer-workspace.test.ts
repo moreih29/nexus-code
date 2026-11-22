@@ -1,11 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { MAX_BYTES_CHUNK, RpcErrorCode } from "../../../../../packages/remote-protocol/src/rpc";
+import { createElement } from "react";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
+import {
+  MAX_BYTES_CHUNK,
+  MAX_READ_BYTES,
+  RpcErrorCode,
+} from "../../../../../packages/remote-protocol/src/rpc";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import { RpcFailure } from "../../../../../src/main/features/remote/room";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
-const { readPeerBinary, readPeerPiece, readPeerText } = await import(
-  "../../../../../src/renderer/services/remote/peer-workspace"
+const {
+  readPeerBinary,
+  readPeerPiece,
+  readPeerText,
+  readPeerWorkspaceText,
+  PEER_WORKSPACE_TEXT_LIMIT,
+} = await import("../../../../../src/renderer/services/remote/peer-workspace");
+
+const { FileLookBody, useFileLookView } = await import(
+  "../../../../../src/renderer/components/chat/file-look"
+);
+const { watchPeerFile } = await import(
+  "../../../../../src/renderer/services/remote/peer-file-live"
 );
 
 const { readWorkspaceRange } = await import(
@@ -21,6 +38,7 @@ let failAt: number | null = null;
 let version: string | undefined;
 let changeAt: number | null = null;
 let downloaded = 0;
+const prefixes: number[] = [];
 const asked: {
   offset: number;
   length: number;
@@ -35,6 +53,7 @@ let saved: unknown;
 
 beforeEach(() => {
   asked.length = 0;
+  prefixes.length = 0;
   failAt = null;
   version = "first";
   changeAt = null;
@@ -86,10 +105,23 @@ beforeEach(() => {
           path: string;
           offset: number;
           length: number;
+          maxBytes?: number;
           whole?: true;
           requireVersion?: string;
         },
       ) => {
+        if (method === "peerFilesRead") {
+          const maxBytes = args.maxBytes ?? 0;
+          prefixes.push(maxBytes);
+          const bytes = file.subarray(0, maxBytes);
+          downloaded += bytes.length;
+          return ipcOk({
+            kind: bytes.subarray(0, 8000).includes(0) ? "binary" : "text",
+            text: new TextDecoder().decode(bytes, { stream: true }),
+            truncated: bytes.length < file.length,
+            version,
+          });
+        }
         expect(method).toBe("peerFilesReadBytes");
         try {
           return ipcOk(
@@ -224,5 +256,78 @@ test("unversioned 20 MiB PDFs use only the required data RPCs on old and new hos
         : [undefined, undefined, undefined, undefined],
     );
     expect(asked.every((r) => r.length > 0 && !r.requireVersion && !r.ifVersion)).toBe(true);
+  }
+});
+
+test("workspace text reads the full cache limit in byte chunks", async () => {
+  file = new Uint8Array(PEER_WORKSPACE_TEXT_LIMIT).fill(65);
+  const read = await readPeerWorkspaceText(PEER, "/w/full.txt");
+  expect(read.text.kind).toBe("text");
+  if (read.text.kind === "text") expect(read.text.text.length).toBe(file.length);
+  expect(prefixes).toEqual([]);
+  expect(asked[0]?.length).toBe(1);
+  expect(downloaded).toBe(1 + file.length);
+});
+
+test("a large workspace file requests only its prefix and renders the read limit banner", async () => {
+  file = new Uint8Array(PEER_WORKSPACE_TEXT_LIMIT + 1).fill(65);
+  file.set(new TextEncoder().encode("first\r\nsecond\rthird"));
+  file[MAX_READ_BYTES - 1] = 10;
+  const workspaceId = "peer:d1:w1";
+  const path = "/w/large.md";
+  const loaded = Promise.withResolvers<void>();
+  const stop = watchPeerFile(workspaceId, path, () => loaded.resolve(), "workspace-text");
+  try {
+    await loaded.promise;
+    function Preview({ line }: { line: number }) {
+      const view = useFileLookView(path, { mode: "preview" });
+      return createElement(FileLookBody, {
+        workspaceId,
+        root: "/w",
+        path,
+        at: { line },
+        view,
+        peerFile: { watch: true, connection: 0, toolbar: null },
+      });
+    }
+    expect(renderToStaticMarkup(createElement(Preview, { line: 3 }))).toContain(
+      "Partial file · First 512 KB",
+    );
+    expect(renderToStaticMarkup(createElement(Preview, { line: 4 }))).toContain(
+      "Partial file · Line outside the preview",
+    );
+    expect(prefixes).toEqual([MAX_READ_BYTES]);
+    expect(asked.map(({ length }) => length)).toEqual([1]);
+    expect(downloaded).toBe(1 + MAX_READ_BYTES);
+  } finally {
+    stop();
+  }
+});
+
+test("a Windows peer markdown preview resolves its relative images without a chat pane", async () => {
+  file = new TextEncoder().encode("![Demo](./preview.png)");
+  const workspaceId = "peer:d1:w1";
+  const path = "c:\\Project\\Docs\\README.md";
+  const loaded = Promise.withResolvers<void>();
+  const stop = watchPeerFile(workspaceId, path, () => loaded.resolve(), "workspace-text");
+  try {
+    await loaded.promise;
+    function Preview() {
+      const view = useFileLookView(path, { mode: "preview" });
+      return createElement(FileLookBody, {
+        workspaceId,
+        root: "C:/Project",
+        path,
+        view,
+        peerFile: { watch: true, connection: 0, toolbar: null },
+      });
+    }
+    const markup = await renderToReadableStream(createElement(Preview));
+    await markup.allReady;
+    expect(await new Response(markup).text()).toContain(
+      "nexus-workspace://peer/d1/w1/C%3A/Project/Docs/preview.png",
+    );
+  } finally {
+    stop();
   }
 });

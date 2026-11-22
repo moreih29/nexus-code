@@ -3,11 +3,18 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
-import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/relay";
+import {
+  type AppMessage,
+  RELAYED_KEPT,
+  type RelayedMessage,
+  type TerminalOpener,
+  withRelayedMessage,
+} from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
   type CodexFork,
+  type LimitResume,
   MAX_CHAT_PEER_SUBMISSIONS,
   type NoteTabProps,
   PROFILE_MOVES_KEPT,
@@ -42,6 +49,8 @@ export interface TerminalTabProps {
    * chat of it runs with, as a sign-in for the profile needs.
    */
   profile?: string;
+  /** The agent that opened it: a nexus command run in it is that agent's (see SerializedTab). */
+  openedBy?: TerminalOpener;
   dead?: boolean;
 }
 
@@ -57,6 +66,7 @@ export type { NoteTabProps };
 
 export interface ClaudeTabProps {
   cwd: string;
+  openedBy?: TerminalOpener;
   instructions?: string;
   /** The session the tab last had, to go on with once its program is gone. */
   sessionId?: string;
@@ -72,13 +82,18 @@ export interface ClaudeTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The messages the app sent it on its own. */
+  fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 export interface CodexTabProps {
   cwd: string;
+  openedBy?: TerminalOpener;
   instructions?: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
@@ -93,13 +108,19 @@ export interface CodexTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The messages the app sent it on its own. */
+  fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen?: ChatChosen;
+  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
+  limitResume?: LimitResume;
 }
 
 interface TabBase {
   id: string;
+  /** When an agent opened the tab. */
+  openedAt?: number;
   /**
    * Display title — derived: customTitle ?? processTitle ?? defaultTitle.
    * Every set path (rename / setProcessTitle / createTab) maintains this invariant.
@@ -257,6 +278,7 @@ interface TabsState {
    * types or unknown ids.
    */
   retargetEditorTab: (workspaceId: string, tabId: string, filePath: string) => void;
+  retargetWorkingDiffTab: (workspaceId: string, tabId: string, relPath: string) => void;
   /**
    * Swap a diff preview tab's props (path / refs) in place, keeping its id and
    * `isPreview: true`. Used by `openDiffTab` for VSCode-style "click another
@@ -334,6 +356,8 @@ interface TabsState {
     submission: PeerSubmission,
   ) => void;
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
+  /** Sets, or with undefined drops, a chat tab's going on after the usage limit. */
+  setLimitResume: (workspaceId: string, tabId: string, record: LimitResume | undefined) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -475,6 +499,10 @@ export const useTabsStore = create<TabsState>((set, get) => {
           : defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
+        ...((args.type === "terminal" || args.type === "claude" || args.type === "codex") &&
+        args.props.openedBy
+          ? { openedAt: performance.timeOrigin + performance.now() }
+          : {}),
         // Initially there is neither customTitle nor processTitle, so the derived title = defaultTitle.
         title: dt,
         defaultTitle: dt,
@@ -644,6 +672,27 @@ export const useTabsStore = create<TabsState>((set, get) => {
       );
     },
 
+    retargetWorkingDiffTab(workspaceId, tabId, relPath) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "editor.diff" || tab.props.rightRef !== "WORKING") return tab;
+          if (tab.props.relPath === relPath) return tab;
+          const props = { ...tab.props, relPath };
+          const nextDefault = defaultTitle({ type: "editor.diff", props });
+          return {
+            ...tab,
+            props,
+            defaultTitle: nextDefault,
+            title: computeDisplayTitle({
+              defaultTitle: nextDefault,
+              customTitle: tab.customTitle,
+              processTitle: tab.processTitle,
+            }),
+          };
+        }),
+      );
+    },
+
     replaceDiffPreviewTab(workspaceId, tabId, props, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
@@ -736,11 +785,13 @@ export const useTabsStore = create<TabsState>((set, get) => {
           // tab takes the new profile's own, as its controller does.
           const props = {
             cwd: tab.props.cwd,
+            ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
             ...(tab.props.instructions !== undefined
               ? { instructions: tab.props.instructions }
               : {}),
             ...(profileId ? { profileId } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.props.fromApp ? { fromApp: tab.props.fromApp } : {}),
             ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
             ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
           };
@@ -832,8 +883,26 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (record.from.kind === "app") {
+            // Kept apart, for versions that know no "app" sender (AppMessageSchema).
+            const { from: _app, ...message } = record;
+            const kept = (tab.props.fromApp ?? []).filter((m) => m.id !== message.id);
+            const fromApp = [...kept, message].slice(-RELAYED_KEPT);
+            return { ...tab, props: { ...tab.props, fromApp } } as Tab;
+          }
           const relayed = withRelayedMessage(tab.props.relayed, record);
           return { ...tab, props: { ...tab.props, relayed } } as Tab;
+        }),
+      );
+    },
+
+    setLimitResume(workspaceId, tabId, record) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.limitResume === record) return tab;
+          const { limitResume: _was, ...props } = tab.props;
+          return { ...tab, props: record ? { ...props, limitResume: record } : props } as Tab;
         }),
       );
     },

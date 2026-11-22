@@ -20,6 +20,7 @@
  * stopPropagation in their bubble handlers.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { requestTabFocus } from "@/services/tab-focus";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
 import { type DropZone, MIME_FILE, MIME_TAB } from "../../../types/workbench-dnd";
 import { hasSupportedMime, parseDragPayload } from "../../../utils/workbench-dnd-payload";
@@ -214,7 +215,8 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
         if (parsed.kind === "tab") {
           const { workspaceId: srcWs, tabId } = parsed.payload;
           if (srcWs !== workspaceId) return;
-          moveTabToZone(workspaceId, tabId, { groupId, zone });
+          const moved = moveTabToZone(workspaceId, tabId, { groupId, zone });
+          if (moved) requestTabFocus(moved.tabId);
         } else {
           const { workspaceId: srcWs, filePaths } = parsed.payload;
           if (srcWs !== workspaceId) return;

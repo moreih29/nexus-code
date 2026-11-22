@@ -16,11 +16,11 @@ import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { cn } from "../../utils/cn";
 import { profileName } from "../agent-profiles/profile-badge";
 import { InstructionField, InstructionPreview } from "../settings/instruction-field";
 import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
+import { COMPOSER_CHIP_CLASS } from "./composer-chip";
 
 export interface InstructionsTab {
   workspaceId: string;
@@ -95,17 +95,12 @@ export function SessionInstructionsChip({
       trigger={
         <button
           type="button"
-          className={cn(
-            "flex shrink-0 cursor-pointer items-center gap-1 rounded-(--radius-pill) border px-1.5 py-0.5 text-app-ui-sm focus-visible:ring-1 focus-visible:ring-ring",
-            count > 0 || open
-              ? "border-[var(--state-selected-indicator)] bg-[var(--sidebar-item-selected-bg)] text-foreground"
-              : "border-border text-muted-foreground hover:text-foreground",
-          )}
+          className={COMPOSER_CHIP_CLASS}
           aria-label={chipLabel}
           title={t("instructions.session.title")}
           data-testid="session-instructions-chip"
         >
-          <List className="size-3" aria-hidden />
+          {compact && <List className="size-3" aria-hidden />}
           {compact ? (count > 0 ? count : undefined) : chipLabel}
         </button>
       }

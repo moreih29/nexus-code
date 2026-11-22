@@ -8,6 +8,7 @@ import {
 
 const SERVER = "https://nexus.example";
 const PROXY = "https://proxy.example";
+const FALLBACK = "https://fallback.example";
 
 describe("the route to the server", () => {
   test("goes through the proxy, and straight for a while once it could not be reached", () => {
@@ -35,6 +36,33 @@ describe("the route to the server", () => {
     expect(route.base()).toBe(SERVER);
     expect(route.unreachable(`${SERVER}/x`)).toBe(false);
     expect(route.base()).toBe(SERVER);
+  });
+
+  test("with a fallback: the next way for each that fails, the fallback never passed by", () => {
+    let now = 0;
+    const route = new ServerRoute(SERVER, PROXY, () => now, FALLBACK);
+    expect(route.base()).toBe(PROXY);
+    expect(route.unreachable(`${PROXY}/devices`)).toBe(true);
+    expect(route.base()).toBe(SERVER);
+    now = 1000;
+    expect(route.unreachable("wss://nexus.example/relay")).toBe(true);
+    expect(route.base()).toBe(FALLBACK);
+    expect(route.unreachable(`${FALLBACK}/devices`)).toBe(false);
+    expect(route.base()).toBe(FALLBACK);
+    // Each way is tried again once its own while is over.
+    now = PROXY_DOWN_MS;
+    expect(route.base()).toBe(PROXY);
+    expect(route.unreachable(PROXY)).toBe(true);
+    expect(route.base()).toBe(FALLBACK);
+    now = PROXY_DOWN_MS + 1000;
+    expect(route.base()).toBe(SERVER);
+  });
+
+  test("without a proxy, straight first, then the fallback", () => {
+    const route = new ServerRoute(SERVER, null, () => 0, FALLBACK);
+    expect(route.base()).toBe(SERVER);
+    expect(route.unreachable(SERVER)).toBe(true);
+    expect(route.base()).toBe(FALLBACK);
   });
 
   test("makes the addresses: a path where requests go now, a websocket's as ws(s)", () => {
@@ -185,6 +213,43 @@ describe("a socket that went straight", () => {
     await pending;
 
     expect(route.base()).toBe(PROXY);
+  });
+
+  test("one on the fallback goes back to the earliest way that answers", async () => {
+    let now = 0;
+    const route = new ServerRoute(SERVER, PROXY, () => now, FALLBACK);
+    const via = { origin: "wss://fallback.example", openedAt: -Infinity };
+    const asked: string[] = [];
+    let reconnects = 0;
+    const down = new Set([PROXY]);
+    const back = returnToProxy({
+      route,
+      via: () => via,
+      now: () => now,
+      reconnect: () => {
+        reconnects += 1;
+      },
+      fetch: (async (input: URL | string) => {
+        const url = new URL(String(input));
+        asked.push(url.href);
+        if (down.has(url.origin)) throw new TypeError("fetch failed");
+        return new Response("{}");
+      }) as typeof fetch,
+    });
+    probes.push(back);
+    route.unreachable(PROXY);
+    route.unreachable(SERVER);
+    // Both passed by: nothing asked.
+    await back.check();
+    expect(asked).toEqual([]);
+    // Both tried again: the proxy does not answer, so straight it is.
+    now = PROXY_DOWN_MS;
+    await back.check();
+    expect(asked).toEqual([`${PROXY}/info`]);
+    expect(reconnects).toBe(0);
+    await back.check();
+    expect(asked).toEqual([`${PROXY}/info`, `${SERVER}/info`]);
+    expect(reconnects).toBe(1);
   });
 
   test("a proxy that does not answer, or answers with an error, is passed by again", async () => {

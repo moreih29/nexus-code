@@ -4,18 +4,14 @@
 // workspace is inactive (see view-park.tsx).
 
 import { memo } from "react";
+import { useShallow } from "zustand/shallow";
 import { Grid } from "@/engine";
 import { useLayoutStore } from "../../../state/stores/layout";
-import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { ContentHost } from "./host";
 import { ownerLeafIdOf } from "./selectors";
 
-// Stable empty fallback — returning a fresh `{}` from the selector would change
-// identity on every render and trip useSyncExternalStore's infinite-loop guard.
-const EMPTY_TABS: Record<string, Tab> = {};
-
-// Memoized: it renders for its own tabs and layout, and when its workspace
-// is shown or hidden, not each time the panel above it does.
+// The pool tracks membership and placement. Each host reads its own tab record.
 export const ContentPool = memo(function ContentPool({
   workspaceId,
   isWorkspaceActive,
@@ -23,7 +19,7 @@ export const ContentPool = memo(function ContentPool({
   workspaceId: string;
   isWorkspaceActive: boolean;
 }) {
-  const tabRecord = useTabsStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
+  const tabIds = useTabsStore(useShallow((s) => Object.keys(s.byWorkspace[workspaceId] ?? {})));
   const layout = useLayoutStore((s) => s.byWorkspace[workspaceId]);
 
   // Derive activeTabId for each leaf once so ContentHost can get isActiveTab.
@@ -36,15 +32,15 @@ export const ContentPool = memo(function ContentPool({
 
   return (
     <>
-      {Object.values(tabRecord).map((tab) => {
-        const ownerLeafId = layout ? ownerLeafIdOf(layout.root, tab.id) : null;
-        const isActiveTab = ownerLeafId !== null ? activeTabByLeaf[ownerLeafId] === tab.id : false;
+      {tabIds.map((tabId) => {
+        const ownerLeafId = layout ? ownerLeafIdOf(layout.root, tabId) : null;
+        const isActiveTab = ownerLeafId !== null && activeTabByLeaf[ownerLeafId] === tabId;
 
         return (
           <ContentHost
-            key={tab.id}
+            key={tabId}
             workspaceId={workspaceId}
-            tab={tab}
+            tabId={tabId}
             ownerLeafId={ownerLeafId}
             isActiveTab={isActiveTab}
             isWorkspaceActive={isWorkspaceActive}

@@ -316,7 +316,7 @@ describe("PTY restore on ready (epoch-match)", () => {
     });
   });
 
-  test("session.list failure falls back to killing all held sessions", async () => {
+  test("a failed session list expires the hold before ending the terminal", async () => {
     const channel = new FakeAgentChannel();
     channel.call = async (method: string, params?: unknown) => {
       channel.calls.push({ method, params: params ?? null });
@@ -326,8 +326,10 @@ describe("PTY restore on ready (epoch-match)", () => {
     };
 
     const host = startAgentPtyHost(makeWorkspaceManager(channel));
-    const exits: unknown[] = [];
-    host.on("exit", (a) => exits.push(a));
+    const events: Array<{ event: string; tab: unknown }> = [];
+    for (const event of ["held", "expired", "exit"]) {
+      host.on(event, (tab) => events.push({ event, tab }));
+    }
 
     await host.call("spawn", {
       workspaceId: WORKSPACE_ID,
@@ -340,7 +342,15 @@ describe("PTY restore on ready (epoch-match)", () => {
     channel.emitLifecycle({ type: "ready" });
     await new Promise<void>((r) => setTimeout(r, 0));
 
-    expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, code: null });
+    const tab = { workspaceId: WORKSPACE_ID, tabId: TAB_A };
+    expect(events).toEqual([
+      { event: "held", tab },
+      { event: "expired", tab },
+      { event: "exit", tab: { ...tab, code: null } },
+    ]);
+    await host.call("spawn", { ...tab, cwd: "/", cols: 80, rows: 24 });
+    expect(events).toHaveLength(3);
+    host.dispose();
   });
 });
 

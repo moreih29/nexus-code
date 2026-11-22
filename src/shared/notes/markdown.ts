@@ -5,6 +5,7 @@
  * agents and anything else that reads text. Assets stay relative to the
  * note's folder (sketches/, materials/, screens/).
  */
+import { clockOf } from "./transcript";
 
 /** A node of the editor's document, as TipTap's getJSON() gives it. */
 export interface DocNode {
@@ -49,13 +50,22 @@ function block(node: DocNode, indent: string): string {
       return list(node, indent, (i) => `${start + i}. `);
     }
     case "taskList":
-      return list(node, indent, (_i, item) => (item.attrs?.checked ? "- [x] " : "- [ ] "));
+      return list(
+        node,
+        indent,
+        (_i, item) => (item.attrs?.checked ? "- [x] " : "- [ ] "),
+        taskSource,
+      );
     case "blockquote":
       return prefixLines(blocks(node.content ?? [], ""), `${indent}> `);
     case "codeBlock": {
       const lang = typeof attrs.language === "string" ? attrs.language : "";
       const text = (node.content ?? []).map((t) => t.text ?? "").join("");
-      const fence = text.includes("```") ? "~~~" : "```";
+      const fence = text.includes("```")
+        ? "~".repeat(
+            (text.match(/~{3,}/g) ?? []).reduce((size, run) => Math.max(size, run.length + 1), 3),
+          )
+        : "```";
       return prefixLines(`${fence}${lang}\n${text}\n${fence}`, indent);
     }
     case "horizontalRule":
@@ -73,16 +83,30 @@ function block(node: DocNode, indent: string): string {
   }
 }
 
-function list(node: DocNode, indent: string, marker: (i: number, item: DocNode) => string): string {
+function taskSource(item: DocNode): string {
+  const speaker = str(item.attrs?.nexusSpeaker).replace(/\s+/g, " ").trim();
+  const at = item.attrs?.nexusAt;
+  const time = typeof at === "number" && Number.isFinite(at) && at >= 0 ? clockOf(at) : "";
+  const source = [escapeText(speaker), time].filter(Boolean).join(" ");
+  return source ? ` — ${source}` : "";
+}
+
+function list(
+  node: DocNode,
+  indent: string,
+  marker: (i: number, item: DocNode) => string,
+  suffix?: (item: DocNode) => string,
+): string {
   return (node.content ?? [])
     .map((item, i) => {
       const m = marker(i, item);
       const inner = (item.content ?? []).map((c) => block(c, "")).join("\n");
       const [first = "", ...rest] = inner.split("\n");
       const pad = " ".repeat(m.length);
-      return [`${indent}${m}${first}`, ...rest.map((l) => (l ? `${indent}${pad}${l}` : ""))].join(
-        "\n",
-      );
+      return [
+        `${indent}${m}${first}${suffix?.(item) ?? ""}`,
+        ...rest.map((l) => (l ? `${indent}${pad}${l}` : "")),
+      ].join("\n");
     })
     .join("\n");
 }
@@ -108,7 +132,11 @@ function inline(nodes: DocNode[] | undefined): string {
       else if (m.type === "strike") t = `~~${t}~~`;
     }
     const link = marks.find((m) => m.type === "link");
-    if (link) t = `[${t}](${linkTarget(str(link.attrs?.href))})`;
+    if (link) {
+      // A literal exclamation mark before a link must stay text, even across nodes.
+      if (out.endsWith("!")) out = `${out.slice(0, -1)}\\!`;
+      t = `[${t}](${linkTarget(str(link.attrs?.href))})`;
+    }
     out += t;
   }
   return out;

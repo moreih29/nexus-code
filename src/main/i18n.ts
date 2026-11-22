@@ -24,8 +24,7 @@
  */
 
 import i18next, { type i18n, type TFunction } from "i18next";
-import type { SupportedLanguage } from "../shared/i18n";
-import { createI18n } from "../shared/i18n";
+import { createI18n, SUPPORTED_LANGUAGES, type SupportedLanguage } from "../shared/i18n";
 import { createLogger } from "../shared/log/main";
 
 const logger = createLogger("main:i18n");
@@ -78,6 +77,11 @@ export function getMainI18n(): i18n {
  */
 export function getMainT(): TFunction {
   return getMainI18n().t;
+}
+
+/** The app's language once i18n is initialized, English before. */
+export function mainLanguage(): SupportedLanguage {
+  return SUPPORTED_LANGUAGES.find((lng) => lng === _instance?.language) ?? "en";
 }
 
 /**

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema, NumberSchema } from "./validation.js";
 
 type LayoutNode =
   | { kind: "group"; id: string; shownTabId: string | null; tabIds: readonly string[] }
@@ -13,8 +14,10 @@ type LayoutNode =
 
 const Id = z.string().min(1).max(1024);
 const SplitSide = z.enum(["left", "right", "up", "down"]);
-const Ratios = z.array(z.object({ splitId: Id, ratio: z.number().gt(0).lt(1) })).max(500);
-const Index = z.number().int().nonnegative().optional();
+const Ratios = z
+  .array(z.object({ splitId: Id, ratio: NumberSchema.check(z.gt(0)).check(z.lt(1)) }))
+  .max(500);
+const Index = NonnegativeIntegerSchema.optional();
 const View = z.enum(["agents", "workspaces"]);
 const Grouping = z.enum(["status", "workspace"]);
 
@@ -30,7 +33,7 @@ const Node: z.ZodType<LayoutNode> = z.lazy(() =>
       kind: z.literal("split"),
       id: Id,
       direction: z.enum(["rows", "columns"]),
-      ratio: z.number(),
+      ratio: NumberSchema,
       first: Node,
       second: Node,
     }),

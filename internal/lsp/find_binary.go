@@ -40,6 +40,8 @@ type FindBinaryParams struct {
 	// Dir is where the server will run, the workspace root. A rustup proxy
 	// picks its toolchain there.
 	Dir string `json:"dir,omitempty"`
+	// ExcludeAgentWrappers also removes wrapper directories from the returned PATH.
+	ExcludeAgentWrappers bool `json:"excludeAgentWrappers,omitempty"`
 }
 
 type FindBinaryResult struct {
@@ -78,7 +80,32 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 	// The install directories last: go in /usr/local/go/bin is missed by a
 	// PATH no login shell gave, as a GUI app's is when the shell fails.
 	lists := append([]string{filepath.Dir(path), shellPath, os.Getenv("PATH")}, dirs...)
-	return FindBinaryResult{Path: path, EnvPath: joinPathLists(lists...)}, nil
+	envPath := joinPathLists(lists...)
+	if p.ExcludeAgentWrappers {
+		envPath = withoutAgentWrappers(envPath)
+	}
+	return FindBinaryResult{Path: path, EnvPath: envPath}, nil
+}
+
+func withoutAgentWrappers(pathList string) string {
+	var clean []string
+	for _, dir := range filepath.SplitList(pathList) {
+		if filepath.IsAbs(dir) && !hasAgentWrapper(dir) {
+			clean = append(clean, dir)
+		}
+	}
+	return strings.Join(clean, string(os.PathListSeparator))
+}
+
+func hasAgentWrapper(dir string) bool {
+	for _, name := range []string{"claude", "codex"} {
+		for _, file := range append(executableNames(filepath.Join(dir, name)), filepath.Join(dir, name+".cmd")) {
+			if isAgentWrapper(name, file) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func findBinary(name, userPath, workDir string, dirs []string) string {

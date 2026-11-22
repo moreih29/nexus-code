@@ -54,6 +54,8 @@ export interface PlanUsage {
   claude?: Record<string, unknown>;
   /** Codex: the windows of the profile's bucket. */
   codex?: CodexRateLimits;
+  /** A push may refresh only one of the Codex windows. */
+  codexFetchedAt?: Partial<Record<"primary" | "secondary", number>>;
   /** When the numbers were heard. */
   fetchedAt?: number;
   /** The profile has no plan limits (signed in with an API key). */
@@ -220,26 +222,29 @@ export function backoffMs(failures: number, jitter: number = Math.random()): num
  */
 export function wantPlanUsage(
   key: string,
-  { force = false }: { force?: boolean } = {},
+  {
+    force = false,
+    probe,
+  }: { force?: boolean; probe?: Pick<PlanUsageSource, "agent" | "fetchUsage"> } = {},
 ): Promise<void> {
   const out = inflight.get(key);
   if (out) return out;
   const now = clock();
   if (!mayAsk(entryOf(key), now, force)) return Promise.resolve();
   const source = pickSource(key);
-  // No tab can ask: it is no failure, and the next one that can will.
-  if (!source) return Promise.resolve();
+  const requester = source ?? probe;
+  if (!requester) return Promise.resolve();
   patch(key, (entry) => ({ ...entry, lastAttemptAt: now }));
-  const ask = source
+  const ask = requester
     .fetchUsage()
     .then(
-      (answer) => takeAnswer(key, source.agent, answer, clock()),
+      (answer) => takeAnswer(key, requester.agent, answer, clock()),
       (err: unknown) => {
         // The tab closed, or its program stopped, while it asked: no failure
         // of the profile's, and the next tab that can asks at once.
-        if (!sources.has(source) || !source.ready()) {
+        if (source && (!sources.has(source) || !source.ready())) {
           patch(key, (entry) => ({ ...entry, lastAttemptAt: 0 }));
-        } else if (source.agent === "codex" && isNoChatGpt(err)) {
+        } else if (requester.agent === "codex" && isNoChatGpt(err)) {
           takeUnavailable(key, clock());
         } else {
           takeFailure(key, clock());
@@ -355,6 +360,10 @@ export function ingestCodexLimits(key: string, limits: CodexRateLimits, at: numb
       : {
           ...entry,
           codex: sameOr(entry.codex, limits),
+          codexFetchedAt: {
+            ...(limits.primary ? { primary: at } : {}),
+            ...(limits.secondary ? { secondary: at } : {}),
+          },
           fetchedAt: at,
           unavailable: false,
           failures: 0,
@@ -366,11 +375,17 @@ export function ingestCodexLimits(key: string, limits: CodexRateLimits, at: numb
 /** A Codex push, which may carry one window and is laid over what the store has. */
 export function ingestCodexPush(key: string, raw: unknown, at: number): void {
   patch(key, (entry) => {
+    if (entry.fetchedAt !== undefined && at < entry.fetchedAt) return entry;
     const codex = mergeRateLimits(entry.codex, raw);
     if (!codex || codex === entry.codex) return entry;
     return {
       ...entry,
-      codex,
+      codex: sameOr(entry.codex, codex),
+      codexFetchedAt: {
+        ...entry.codexFetchedAt,
+        ...(codex.primary && codex.primary !== entry.codex?.primary ? { primary: at } : {}),
+        ...(codex.secondary && codex.secondary !== entry.codex?.secondary ? { secondary: at } : {}),
+      },
       fetchedAt: at,
       unavailable: false,
       failures: 0,

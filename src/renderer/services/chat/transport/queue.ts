@@ -21,6 +21,20 @@ export interface QueuedMessage {
   device?: string;
 }
 
+const MAX_CANCELLED_SUBMISSIONS = 4096;
+
+/** Removes a held message and lets its waiter distinguish cancellation from delivery. */
+export function cancelQueuedMessage(state: ChatTabState, id: string): ChatTabState {
+  return {
+    ...state,
+    queue: state.queue.filter((item) => item.id !== id),
+    cancelledSubmissions: [
+      ...(state.cancelledSubmissions ?? []).slice(1 - MAX_CANCELLED_SUBMISSIONS),
+      id,
+    ],
+  };
+}
+
 /** Reads the failure code the chat IPC carried across the process boundary. */
 export function chatSendErrorKind(error: unknown): string | undefined {
   const kind = (error as { kind?: unknown } | null)?.kind;

@@ -27,10 +27,12 @@ import (
 
 // Service owns the tabs' programs and their logs.
 type Service struct {
-	mu         sync.Mutex
-	sink       *connectionSink
-	sessions   map[tabKey]*session
-	closedTabs map[closedTabGeneration]struct{}
+	mu              sync.Mutex
+	sink            *connectionSink
+	sessions        map[tabKey]*session
+	closedTabs      map[closedTabGeneration]struct{}
+	runs            map[runKey]*activeRun
+	earlyRunCancels map[runKey]time.Time
 	// closedOrder lets expiry and capacity discard the oldest closes first.
 	closedOrder     list.List
 	closed          bool
@@ -128,6 +130,8 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.replay", service.Replay)
 	d.Register("chat.list", service.List)
 	d.Register("chat.exec", service.Exec)
+	d.Register("chat.run", service.Run)
+	d.Register("chat.cancelRun", service.CancelRun)
 	d.Register("chat.transcript", service.Transcript)
 	d.Register("chat.transcriptPage", service.TranscriptPage)
 	d.Register("chat.subagentTranscript", service.SubagentTranscript)
@@ -165,12 +169,19 @@ func (s *Service) SetConnectionSink(ctx context.Context, sink EventSink) {
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
+	runs := make([]<-chan struct{}, 0, len(s.runs))
+	for _, active := range s.runs {
+		active.cancel()
+		runs = append(runs, active.done)
+	}
 	sessions := make([]*session, 0, len(s.sessions))
 	for key, sess := range s.sessions {
 		sessions = append(sessions, sess)
 		delete(s.sessions, key)
 	}
 	s.mu.Unlock()
+	deadline := time.NewTimer(runCloseGrace)
+	defer deadline.Stop()
 	for _, sess := range sessions {
 		sess.mu.Lock()
 		sess.closed = true
@@ -178,6 +189,13 @@ func (s *Service) Close() {
 		sess.mu.Unlock()
 		if p != nil {
 			p.kill()
+		}
+	}
+	for _, done := range runs {
+		select {
+		case <-done:
+		case <-deadline.C:
+			return
 		}
 	}
 }

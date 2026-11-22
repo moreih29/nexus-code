@@ -6,20 +6,29 @@
  * own prompt (consent-dialog): what it asks, what it would run or write
  * (all of it, in a box that scrolls), the seconds left before it counts as
  * turned down, and the answers it allows ("until restart" not for one
- * asked about each time). One this computer may not answer (its own
- * agent's, one too long to be sent whole, or one the settings there keep
- * from here) shows, to be answered at that computer.
+ * asked about each time). Its own agent's too: the user answers it here as
+ * from any other computer. One this computer may not answer (one too long
+ * to be sent whole, one the settings there keep from here, or its own
+ * agent's where that computer runs an older NexusCode) shows, to be
+ * answered at that computer.
  */
 
 import i18next, { type TFunction } from "i18next";
 import { ShieldQuestion } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import type { ConsentAnswer, RemoteConsent } from "../../../../packages/remote-protocol/src/rpc";
+import type {
+  ConsentAnswer,
+  RemoteConsent,
+  RemoteSession,
+} from "../../../../packages/remote-protocol/src/rpc";
 import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 import { useNow } from "../../hooks/use-now";
+import { ipcCallResult } from "../../ipc/client";
+import { refreshPeerSessions } from "../../services/remote/room";
 import { cn } from "../../utils/cn";
 import {
   CONSENT_CONFIRM_BUTTON_CLASS,
@@ -32,6 +41,66 @@ import { Button } from "../ui/button";
 
 /** How long a prompt found answered or over still shows, saying so. */
 const GONE_SHOWN_MS = 1500;
+
+const consentChanges = createListenerBus();
+let settledConsents: ReadonlySet<string> = new Set();
+const settledSnapshot = () => settledConsents;
+const consentKey = (deviceId: string, id: string) => JSON.stringify([deviceId, id]);
+
+/** Leaves answered prompts out of every view, including one still showing an older list. */
+export function usePeerConsents(
+  deviceId: string,
+  consents: readonly RemoteConsent[] | undefined,
+): RemoteConsent[] {
+  const pending = useConsentIsPending();
+  return (consents ?? []).filter((consent) => pending(deviceId, consent.id));
+}
+
+export function useConsentIsPending() {
+  const settled = useSyncExternalStore(consentChanges.subscribe, settledSnapshot, settledSnapshot);
+  return (deviceId: string, id: string) => !settled.has(consentKey(deviceId, id));
+}
+
+/** Matches the agent that asked on the serving device, using its workspace and tab. */
+export function consentFromChat(
+  { from }: RemoteConsent,
+  { workspaceId, tabId }: { workspaceId: string; tabId: string },
+): boolean {
+  return !from.device && !from.manager && from.workspaceId === workspaceId && from.tabId === tabId;
+}
+
+export function PeerConsentCard({
+  consent,
+  deviceId,
+  device,
+  workspaceName,
+  sessions,
+}: {
+  consent: RemoteConsent;
+  deviceId: string;
+  device: string;
+  workspaceName: string;
+  sessions: readonly RemoteSession[] | undefined;
+}) {
+  return (
+    <RemoteConsentCard
+      consent={consent}
+      device={device}
+      workspaceName={workspaceName}
+      sessions={sessions}
+      onAnswer={(answer) =>
+        ipcCallResult("remote", "peerConsentAnswer", { deviceId, id: consent.id, answer })
+      }
+      onSettled={() => {
+        const key = consentKey(deviceId, consent.id);
+        if (settledConsents.has(key)) return;
+        settledConsents = new Set(settledConsents).add(key);
+        consentChanges.notify();
+        refreshPeerSessions(deviceId);
+      }}
+    />
+  );
+}
 
 /** What the agent asks to do, as the prompt here words it; a kind this app does not know, by its name. */
 export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent["change"]): string {
@@ -52,6 +121,7 @@ export function consentSentenceOf(
   t: TFunction<"settings">,
   consent: RemoteConsent,
   to: string,
+  sessions?: readonly RemoteSession[],
 ): string {
   const { from } = consent;
   const action = consentActionOf(t, consent.change);
@@ -60,16 +130,20 @@ export function consentSentenceOf(
     const destination = namesTarget ? "" : t("agentCli.consent.destination", { to });
     return t("agentCli.consent.manager_description", { destination, action });
   }
+  const kind = sessions?.find((session) => consentFromChat(consent, session))?.kind;
   return describeConsent(
     t,
     {
       fromWorkspace: from.workspaceName ?? from.workspaceId.slice(0, 8),
       fromTab: from.name ?? from.tabId.slice(0, 8),
+      ...(kind === "claude" || kind === "codex" ? { fromAgent: kind } : {}),
       ...(from.device ? { fromDevice: from.device.name } : {}),
       toWorkspace: to,
+      sameWorkspace: !from.device && from.workspaceId === consent.workspaceId,
     },
     action,
     namesTarget,
+    consent.change.kind === "sandboxExecution",
   );
 }
 
@@ -77,6 +151,7 @@ export function RemoteConsentCard({
   consent,
   device,
   workspaceName,
+  sessions,
   onAnswer,
   onSettled,
 }: {
@@ -85,9 +160,11 @@ export function RemoteConsentCard({
   device: string;
   /** The name of its workspace the prompt would change. */
   workspaceName: string;
+  /** The serving computer's sessions, which identify the asking tab. */
+  sessions?: readonly RemoteSession[] | undefined;
   /** Sends the answer there. */
   onAnswer: (answer: ConsentAnswer) => Promise<IpcResult<unknown>>;
-  /** Answered here, or found answered there: the list leaves it out until asked again. */
+  /** Answered here, or found answered there: every view leaves it out. */
   onSettled: () => void;
 }) {
   const { t } = useTranslation("settings");
@@ -134,7 +211,7 @@ export function RemoteConsentCard({
     </Button>
   );
 
-  const title = t(consentTitleOf(consent.change.kind, false));
+  const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
   const { body } = consentDetailsOf(t, consent.change);
   return (
     <section
@@ -147,7 +224,7 @@ export function RemoteConsentCard({
         <span>{title}</span>
       </span>
       <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
-        {consentSentenceOf(t, consent, workspaceName)}
+        {consentSentenceOf(t, consent, workspaceName, sessions)}
       </p>
       {body && (
         // What an answer lets run, whole: its first line can hide the rest.
@@ -162,7 +239,11 @@ export function RemoteConsentCard({
         <span className="flex flex-wrap justify-end gap-2">
           {button("deny", t("agentCli.consent.deny"), "ghost")}
           {!consent.eachTime && button("session", t("agentCli.consent.session"), "outline")}
-          {button("once", t("agentCli.consent.once"), "default")}
+          {button(
+            "once",
+            t(consent.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once"),
+            "default",
+          )}
         </span>
       ) : (
         <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">

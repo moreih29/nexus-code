@@ -11,8 +11,8 @@ export const AgentInstructionsSchema = z.object({
   all: InstructionTextSchema.optional(),
   claude: InstructionTextSchema.optional(),
   codex: InstructionTextSchema.optional(),
-  profiles: z.record(InstructionTextSchema).optional(),
-  workspaces: z.record(InstructionTextSchema).optional(),
+  profiles: z.record(z.string(), InstructionTextSchema).optional(),
+  workspaces: z.record(z.string(), InstructionTextSchema).optional(),
 });
 
 export type AgentInstructions = z.infer<typeof AgentInstructionsSchema>;
@@ -31,11 +31,14 @@ export const InstructionEditSchema = z.object({
 });
 export type InstructionEdit = z.infer<typeof InstructionEditSchema>;
 
-export const ChatInstructionHistorySchema = z.record(z.record(InstructionTextSchema));
+export const ChatInstructionHistorySchema = z.record(
+  z.string(),
+  z.record(z.string(), InstructionTextSchema),
+);
 export const ClaudeInstructionDigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const ClaudeInstructionDigestsSchema = z.record(
-  z.string().uuid(),
-  z.record(z.string().uuid(), ClaudeInstructionDigestSchema.nullable()),
+  z.guid(),
+  z.record(z.guid(), ClaudeInstructionDigestSchema.nullable()),
 );
 export function chatInstructionHistoryKey(agent: ChatAgent, conversationId: string): string {
   return `${agent}:${conversationId}`;

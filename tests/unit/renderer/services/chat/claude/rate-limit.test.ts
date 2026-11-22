@@ -1,7 +1,5 @@
 /**
- * The usage-limit notice above a Claude tab's composer: a limit reached
- * always shows; a limit near shows unless warnings are off or the user
- * closed that window's warning.
+ * The usage-limit notice above a Claude tab's composer.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -39,10 +37,21 @@ describe("rateLimitNotice", () => {
     expect(rateLimitNotice({ ...near, rateLimitType: "seven_day" }, closed)).toBe("warning");
   });
 
-  it("always shows a limit reached", () => {
+  it("shows a limit reached after a warning was dismissed, even with warnings off", () => {
     const reached = { ...near, status: "rejected" };
     expect(
-      rateLimitNotice(reached, { warnings: false, dismissed: new Set([rateLimitKey(reached)]) }),
+      rateLimitNotice(reached, { warnings: false, dismissed: new Set([rateLimitKey(near)]) }),
     ).toBe("rejected");
+  });
+
+  it("closes a reached limit only for its window and tab", () => {
+    const reached = { ...near, status: "rejected" };
+    const scope = ["workspace", "tab"];
+    const prefs = { warnings: true, dismissed: new Set([rateLimitKey(reached, scope)]), scope };
+    expect(rateLimitNotice(reached, prefs)).toBeNull();
+    expect(rateLimitNotice({ ...reached, resetsAt: 1_700_018_000 }, prefs)).toBe("rejected");
+    expect(rateLimitNotice(reached, { ...prefs, scope: ["workspace", "other-tab"] })).toBe(
+      "rejected",
+    );
   });
 });

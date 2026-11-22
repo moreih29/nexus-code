@@ -32,7 +32,7 @@ const { GlobalStorage } = await import("../../../../../src/main/infra/storage/gl
 const { WorkspaceStorage } = await import(
   "../../../../../src/main/infra/storage/workspace-storage"
 );
-const { StateService } = await import("../../../../../src/main/infra/storage/state-service");
+const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
 const { ChatHost } = await import("../../../../../src/main/features/chat/host");
 const { startAgentPtyHost } = await import("../../../../../src/main/features/pty/agent-host");
@@ -105,7 +105,7 @@ function makeHarness() {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-lc-degraded-${Date.now()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(
+  const stateService = openTestState(
     path.join(os.tmpdir(), `nexus-lc-degraded-state-${Date.now()}.json`),
   );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});
@@ -142,7 +142,7 @@ function makeHarness() {
     { bootstrap, createChannel } as never,
   );
 
-  return { manager, globalDb, channels, removeShimDirMock };
+  return { manager, globalDb, channels, removeShimDirMock, writeShimFilesMock };
 }
 
 async function bootLocalWorkspace(harness: ReturnType<typeof makeHarness>) {
@@ -453,6 +453,37 @@ describe("handleLocalChannelLifecycle: health signals must not tear down the pro
 
       harness.globalDb.close();
     });
+  }
+});
+
+test("a superseded local boot cannot replace the newly connected provider", async () => {
+  const { manager, channels, writeShimFilesMock } = makeHarness();
+  const { id } = manager.create({ rootPath: path.join(os.tmpdir(), "pending-local-boot") });
+  const shim = Promise.withResolvers<Awaited<ReturnType<typeof writeShimFilesMock>>>();
+  const writingShim = Promise.withResolvers<void>();
+  writeShimFilesMock.mockImplementationOnce(() => {
+    writingShim.resolve();
+    return shim.promise;
+  });
+  const ready = mock(() => {});
+  manager.onProviderReady(ready);
+
+  try {
+    const initial = manager.connect(id);
+    await writingShim.promise;
+    channels[0].emitLifecycle({ type: "exit" });
+    const replacement = await manager.getAgentChannel(id);
+    const provider = await manager.getFs(id);
+
+    shim.resolve({ dir: "", zshrc: "", zshenv: "", bashrc: "" });
+    await expect(initial).rejects.toMatchObject({ name: "AbortError" });
+    expect(channels).toHaveLength(2);
+    expect(channels[1].disposed).toBe(false);
+    expect(await manager.getAgentChannel(id)).toBe(replacement);
+    expect(await manager.getFs(id)).toBe(provider);
+    expect(ready).toHaveBeenCalledTimes(1);
+  } finally {
+    manager.close();
   }
 });
 

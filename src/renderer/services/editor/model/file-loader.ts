@@ -110,7 +110,11 @@ export async function statFileForModel(
 ): Promise<{ mtime: string; size: number }> {
   const rp = relPathForInput(input);
   const stat = unwrapIpcResult(
-    await ipcCallResult("fs", "stat", { workspaceId: input.workspaceId, relPath: rp }),
+    await ipcCallResult("fs", "stat", {
+      workspaceId: input.workspaceId,
+      relPath: rp,
+      followSymlink: true,
+    }),
   );
   return { mtime: stat.mtime, size: stat.size };
 }

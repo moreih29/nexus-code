@@ -12,7 +12,13 @@ import { useLayoutStore } from "@/state/stores/layout/store";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
-import { readSessionEvents } from "../agent-sessions/session-events";
+import { acknowledgedResults, unreadResults } from "../agent-sessions/inbox";
+import { listed } from "../agent-sessions/rows";
+import { readSessionEvents, recordSessionEvents } from "../agent-sessions/session-events";
+import { inboxNow, markSessionRead } from "../agent-sessions/use-inbox";
+import { orderedSidebarSessions } from "../agent-view/session-order";
+import { existingChatController } from "../chat/claude/controller";
+import { existingCodexController } from "../chat/codex/controller";
 import { focusHolder, restoreFocus } from "../keep-focus";
 import { startTerminalWatch, stopTerminalWatch } from "../remote/terminal-watch";
 import { getTerminalController } from "../terminal/terminal-registry";
@@ -24,9 +30,11 @@ import {
   UiRequestError,
 } from "./actions";
 import { appHandlers } from "./app-actions";
-import { chatHandlers } from "./chat-actions";
+import { chatHandlers, peekChatInfo } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { noteHandlers } from "./note-actions";
+import { readSessionsRevision, startSessionsRevision } from "./sessions-revision";
+import { sessionsSnapshot } from "./sessions-snapshot";
 import { settingsHandlers } from "./settings";
 import { viewHandlers } from "./view-actions";
 
@@ -47,7 +55,11 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
         cwd: tab.props.cwd,
         ...(tab.props.dead ? { dead: true } : {}),
         ...(getTerminalController(tab.id) ? {} : { unstarted: true }),
+        ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
       };
+    case "claude":
+    case "codex":
+      return { ...base, ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}) };
     case "editor":
       return { ...base, filePath: tab.props.filePath };
     case "browser": {
@@ -59,8 +71,12 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
   }
 }
 
-/** A workspace's tabs, group by group, in layout order. */
-export function listTabs(workspaceId: string): CliTabInfo[] {
+/** A workspace's tabs, in layout order unless the remote sessions list asks for its own order. */
+export function listTabs(
+  workspaceId: string,
+  agentOrder?: true,
+  includeSession?: true,
+): CliTabInfo[] {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   const records = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
   if (!layout) return [];
@@ -68,14 +84,62 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
   for (const leaf of allLeaves(layout.root)) {
     for (const id of leaf.tabIds) {
       const tab = records[id];
-      if (tab) tabs.push(tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id));
+      if (!tab) continue;
+      const session = includeSession
+        ? tab.type === "claude"
+          ? tab.props.sessionId
+          : tab.type === "codex"
+            ? tab.props.threadId
+            : undefined
+        : undefined;
+      tabs.push({
+        ...tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id),
+        ...(session ? { session } : {}),
+      });
     }
   }
-  return tabs;
+  if (!agentOrder) return tabs;
+
+  const remaining = new Map(tabs.map((tab) => [tab.id, tab]));
+  const sidebar = (orderedSidebarSessions(workspaceId) ?? []).filter(listed);
+  const ordered: CliTabInfo[] = [];
+  for (const { tabId } of sidebar) {
+    const tab = remaining.get(tabId);
+    if (!tab) continue;
+    ordered.push(tab);
+    remaining.delete(tabId);
+  }
+  return [...ordered, ...remaining.values()];
+}
+
+/** The finished turns the user has not looked at, by workspace and tab (sessions.results). */
+function unreadResultsMap(): Record<string, Record<string, number>> {
+  const unread: Record<string, Record<string, number>> = Object.create(null);
+  for (const { session, since } of unreadResults(inboxNow())) {
+    unread[session.workspaceId] ??= Object.create(null);
+    const tabs = unread[session.workspaceId];
+    tabs[session.tabId] = since;
+  }
+  return unread;
 }
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
-  "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
+  "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
+    tabs: listTabs(workspaceId, agentOrder, includeSession),
+  }),
+  "tab.sandboxSession": async ({ workspaceId, tabId }) => {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type === "codex") {
+      return existingCodexController(workspaceId, tabId)?.sandboxSession ?? null;
+    }
+    if (tab?.type === "claude") {
+      return existingChatController(workspaceId, tabId)?.sandboxSession ?? null;
+    }
+    if (tab?.type === "terminal" && !tab.props.dead) {
+      return getTerminalController(tabId)?.sandboxSession ?? null;
+    }
+    return null;
+  },
   "terminal.read": async ({ workspaceId, tabId, lines, ansi }) => {
     const controller = await startedTerminal(workspaceId, tabId);
     return ansi ? controller.readScreen(lines) : { text: controller.readText(lines) };
@@ -96,6 +160,23 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
+  "sessions.results": async () => ({ unread: unreadResultsMap() }),
+  "sessions.snapshot": async (args) =>
+    sessionsSnapshot(args, {
+      readRevision: readSessionsRevision,
+      listTabs: (workspaceId) => listTabs(workspaceId, true),
+      peekChat: (workspaceId, tabId) => peekChatInfo(workspaceId, tabId, true),
+      readUnread: unreadResultsMap,
+    }),
+  "sessions.markSeen": async ({ seen }) => {
+    const results = acknowledgedResults(inboxNow(), seen);
+    // A receipt can follow a listing before the session log's debounce has recorded completion.
+    if (results.length === 0) return { marked: 0 };
+    recordSessionEvents();
+    for (const { session, since } of results) markSessionRead(session, since);
+    recordSessionEvents();
+    return { marked: results.length };
+  },
   ...actionHandlers,
   ...appHandlers,
   ...chatHandlers,
@@ -104,6 +185,28 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...settingsHandlers,
   ...viewHandlers,
 };
+
+/**
+ * Requests that only read: nothing on screen moves, so the keyboard stays
+ * where it is without the frames of checks restoreFocus schedules. The
+ * remote sessions' list reads some of them every second.
+ */
+export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
+  "tabs.list",
+  "terminal.read",
+  "terminal.shells",
+  "tab.sandboxSession",
+  "events.read",
+  "sessions.results",
+  "sessions.snapshot",
+  "chat.state",
+  "chat.read",
+  "chat.page",
+  "layout.get",
+  "panels.get",
+  "agentView.get",
+  "problems.list",
+]);
 
 /** Removes the cli:uiRequest listener installed last, if it is still there. */
 let stopListening: (() => void) | null = null;
@@ -118,19 +221,20 @@ import.meta.hot?.dispose(() => stopListening?.());
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
- * focus (see ../keep-focus).
+ * focus (see ../keep-focus). One that only reads cannot drop it.
  */
 export function startCliUiListener(ready: Promise<void>): () => void {
   // One listener, however often the app boots: a second would carry out
   // each request again, typing or sending twice. The dev build's hot reload
   // boots the app again with each edit.
   stopListening?.();
+  const stopRevision = startSessionsRevision();
   const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       try {
         await ready;
         const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
-        const held = focusHolder();
+        const held = READ_ONLY_OPS.has(op) ? null : focusHolder();
         if (!handler) throw new UiRequestError(`unknown request ${op}`);
         const value = await handler(args as never).finally(() => restoreFocus(held));
         await ipcCallResult("cli", "uiRespond", { requestId, ok: true, value });
@@ -145,6 +249,7 @@ export function startCliUiListener(ready: Promise<void>): () => void {
   });
   const stopThis = (): void => {
     stop();
+    stopRevision();
     if (stopListening === stopThis) stopListening = null;
   };
   stopListening = stopThis;

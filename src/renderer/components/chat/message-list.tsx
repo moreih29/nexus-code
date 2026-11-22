@@ -34,6 +34,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
+import { shownNoteText } from "../../../shared/notes/line-report";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
@@ -88,6 +89,7 @@ import {
   relativeTimeFormat,
 } from "../../utils/intl-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
+import { SaveAnswerMenu } from "../notes/save-answer-menu";
 import { IconButton } from "../ui/icon-button";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
@@ -501,9 +503,10 @@ export function MessageList({
   // Each message, memoized, renders only when it, these or its part of the
   // sources (item-view) change: not for a streamed chunk, a call of
   // another message's, or its tab shown or hidden.
+  const wholeConversation = items === undefined;
   const ctx = useMemo<ItemContext>(
-    () => ({ workspaceId, tabId, cwd, rootPath, actions }),
-    [workspaceId, tabId, cwd, rootPath, actions],
+    () => ({ workspaceId, tabId, cwd, rootPath, actions, wholeConversation }),
+    [workspaceId, tabId, cwd, rootPath, actions, wholeConversation],
   );
   const under = useMemo(() => callsUnder(tools), [tools]);
   const views = useMemo(() => {
@@ -622,6 +625,7 @@ interface ItemContext {
   cwd: string;
   rootPath: string;
   actions?: MessageActions;
+  wholeConversation: boolean;
 }
 
 interface ItemProps {
@@ -753,6 +757,9 @@ function RelaySenderLine({ from }: { from: MessageSource }) {
   if (device) return <PeerSenderLine from={from} device={device} />;
   if (from.kind === "manager") {
     return <span className="shrink-0">{t("chat.received.manager")}</span>;
+  }
+  if (from.kind === "app") {
+    return <span className="shrink-0">{t("chat.received.app")}</span>;
   }
   // One whose tab could not be told is named by none: the ids it gave are any process's to give.
   if (from.kind === "terminal" && !from.agent) {
@@ -938,7 +945,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const taken = item.uuid !== undefined;
   const optimistic = item.optimistic;
   const parts = splitAttachments(item.text);
-  const text = optimistic ? item.text : parts.text;
+  const text = shownNoteText(optimistic ? item.text : parts.text);
   const files = optimistic?.fileNames ?? parts.files;
   const status = optimistic?.status;
   const submittedAt = optimistic?.submittedAt;
@@ -1120,6 +1127,9 @@ function AssistantMessage({
             >
               <GitFork className="size-3.5" />
             </IconButton>
+          )}
+          {ctx.wholeConversation && ctx.tabId && (
+            <SaveAnswerMenu claudeUuid={item.uuid} messageId={item.messageId} markdown={text} />
           )}
           <MessageTime at={item.at} />
         </div>

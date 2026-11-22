@@ -84,9 +84,9 @@ describe("a task's git facts", () => {
     let tabsReady = Promise.resolve();
     const services = {
       listWorkspaces: () => workspaces,
-      ui: async () => {
+      ui: async (_op: string, { workspaceIds }: { workspaceIds: string[] }) => {
         await tabsReady;
-        return { tabs: [] };
+        return { workspaces: workspaceIds.map(() => ({ tabs: [] })) };
       },
     } as unknown as CliServices;
     await listSessions(services, git.facts);

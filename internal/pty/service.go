@@ -47,6 +47,7 @@ type pendingSpawn struct {
 type outputSink struct {
 	ctx  context.Context
 	emit EventSink
+	stop func() bool
 }
 
 // closedTabMemory is how long a kill that found no session is kept for the
@@ -96,7 +97,8 @@ type session struct {
 	paused      bool
 	stopped     bool
 
-	readDone chan struct{}
+	readDone        chan struct{}
+	stopReadingOnce sync.Once
 	// exited is closed once the shell has ended and been waited for.
 	exited chan struct{}
 	// stopDone is closed once stop has ended the shell.
@@ -189,7 +191,22 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 func (s *Service) SetEventSink(ctx context.Context, sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.output = &outputSink{ctx: ctx, emit: sink}
+	if s.output.stop != nil {
+		s.output.stop()
+	}
+	output := &outputSink{ctx: ctx, emit: sink}
+	s.output = output
+	output.stop = context.AfterFunc(ctx, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.output == output {
+			s.resetOutputWindowLocked()
+		}
+	})
+	s.resetOutputWindowLocked()
+}
+
+func (s *Service) resetOutputWindowLocked() {
 	for _, sess := range s.sessions {
 		sess.outstanding = 0
 		sess.paused = false
@@ -202,6 +219,9 @@ func (s *Service) SetEventSink(ctx context.Context, sink EventSink) {
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if s.output.stop != nil {
+		s.output.stop()
+	}
 	s.mu.Unlock()
 	s.starts.Wait()
 
@@ -564,6 +584,7 @@ func (s *session) waitLoop() {
 	s.exitOnce.Do(func() {
 		select {
 		case <-s.readDone:
+			s.stopReading()
 		case <-timeAfter(exitDrainGrace):
 			s.stopReading()
 			<-s.readDone
@@ -709,7 +730,7 @@ func (s *session) stopReading() {
 	s.paused = false
 	s.flowCond.Broadcast()
 	s.service.mu.Unlock()
-	_ = s.master.Close()
+	s.stopReadingOnce.Do(func() { _ = s.master.Close() })
 }
 
 // decodeParams unmarshals a request body into a strongly typed PTY parameter struct.

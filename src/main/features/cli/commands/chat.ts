@@ -52,7 +52,8 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
-import { senderOf } from "../sender";
+import { callerSandboxLevel, mayExecute, sandboxLevel } from "../sandbox";
+import { openerOf, senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
   answerPeer,
@@ -158,6 +159,8 @@ function infoJson(
     ...(info.since !== undefined ? { since: info.since } : {}),
     ...(info.profile ? { profile: info.profile } : {}),
     ...(info.goal ? { goal: info.goal } : {}),
+    ...(info.failure ? { failure: info.failure } : {}),
+    ...(info.limitResume ? { limitResume: info.limitResume } : {}),
   };
 }
 
@@ -197,13 +200,17 @@ const TIMEOUT_FLAG = {
  * working: idle after its turn, asking the user, stopped on an error, or
  * closed. Says which, as `tab`. Never throws for a timeout.
  */
+/** A chat wait's result: the tab it ended on, and why its turn failed, when it did. */
+export type ChatWaitResult = WaitResult &
+  Pick<CliChatInfo, "failure" | "limitResume"> & { tab?: CliTabInfo };
+
 export async function waitOnChats(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   tabs: readonly CliTabInfo[],
   timeoutMs: number,
   submissionId?: string,
-): Promise<WaitResult & { tab?: CliTabInfo }> {
+): Promise<ChatWaitResult> {
   const { clock } = ctx.services;
   const startedAt = clock.now();
   const ends = tabs.map((tab) =>
@@ -221,12 +228,15 @@ export async function waitOnChats(
           tabId: tab.id,
           ...(submissionId ? { submissionId } : {}),
         });
+        // A turn the usage limit stopped has ended too: the text says when it goes on.
         if (info.state !== "working") {
           return {
             done: true,
             state: info.state,
             text: chatStateText(tab, info),
             ...(info.message ? { message: info.message } : {}),
+            ...(info.failure ? { failure: info.failure } : {}),
+            ...(info.limitResume ? { limitResume: info.limitResume } : {}),
             tab,
           };
         }
@@ -254,15 +264,25 @@ export function waitOnChat(
   tab: CliTabInfo,
   timeoutMs: number,
   submissionId?: string,
-): Promise<WaitResult> {
+): Promise<ChatWaitResult> {
   return waitOnChats(ctx, workspace, [tab], timeoutMs, submissionId);
 }
 
 /** A wait's result as the command prints it; exit 124 when the wait ran out. */
-function waitOutput(text: string, json: Record<string, unknown>, result: WaitResult): CliOutput {
+function waitOutput(
+  text: string,
+  json: Record<string, unknown>,
+  result: ChatWaitResult,
+): CliOutput {
   return output(
     text,
-    { ...json, state: result.state, ...(result.message ? { message: result.message } : {}) },
+    {
+      ...json,
+      state: result.state,
+      ...(result.message ? { message: result.message } : {}),
+      ...(result.failure ? { failure: result.failure } : {}),
+      ...(result.limitResume ? { limitResume: result.limitResume } : {}),
+    },
     result.done ? {} : { exitCode: 124 },
   );
 }
@@ -358,18 +378,27 @@ async function mayLoosen(
   name: string,
   to: string,
   from?: string,
+  signal?: AbortSignal,
+  body?: string,
 ): Promise<CallerMode | undefined> {
   const dangerous = to === CHAT_MODES[agent].dangerous;
   if (!dangerous && (from === undefined || !loosens(agent, from, to))) return;
   const caller = await verifiedChatMode(ctx);
-  if (caller && grants(caller.agent, caller.mode, agent, to)) return caller;
-  if (dangerous) throw dangerousModeError(to);
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: { kind: "chatMode", detail: `${name} (${from} → ${to})` },
-  });
+  const delegated = caller && grants(caller.agent, caller.mode, agent, to) ? caller : undefined;
+  if (dangerous && !delegated) throw dangerousModeError(to);
+  signal?.throwIfAborted();
+  await mayExecute(
+    ctx,
+    workspace,
+    {
+      kind: "chatMode",
+      detail: `${name} (${from} → ${to})`,
+      ...(body ? { body } : {}),
+      eachTime: true,
+    },
+    { level: sandboxLevel(agent, to), alwaysAsk: !delegated, skipWorkspacePolicy: true },
+  );
+  return delegated;
 }
 
 export async function readInstructionsFile(ctx: CliContext, file: string): Promise<string> {
@@ -456,11 +485,18 @@ const chatNew: CliCommand = {
     const instructions =
       instructionFile === undefined ? undefined : await readInstructionsFile(ctx, instructionFile);
     const body = [prompt, instructions].filter(Boolean).join("\n\n");
-    await mayChange(ctx, workspace, {
+    const level = sandboxLevel(agent, settings.mode);
+    const needsModeGrant =
+      settings.mode !== undefined &&
+      (settings.mode === CHAT_MODES[agent].dangerous ||
+        loosens(agent, CHAT_MODES[agent].fallback, settings.mode));
+    const change: ChangeRequest["change"] = {
       kind: "chatNew",
       detail: AGENT_NAMES[agent],
       ...(body ? { body } : {}),
-    });
+    };
+    if (needsModeGrant) await mayChange(ctx, workspace, change, ctx.signal);
+    else await mayExecute(ctx, workspace, change, { level });
     const delegated =
       settings.mode === undefined
         ? undefined
@@ -471,10 +507,14 @@ const chatNew: CliCommand = {
             `"${AGENT_NAMES[agent]}"`,
             settings.mode,
             CHAT_MODES[agent].fallback,
+            ctx.signal,
+            body,
           );
     const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
-    const from = prompt !== "" ? await senderOf(ctx) : undefined;
+    const sender = await senderOf(ctx);
+    const openedBy = openerOf(sender);
+    ctx.signal?.throwIfAborted();
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
@@ -483,7 +523,8 @@ const chatNew: CliCommand = {
         cwd,
         prompt,
         ...(instructions === undefined ? {} : { instructions }),
-        ...(from ? { from } : {}),
+        ...(sender && prompt !== "" ? { from: sender } : {}),
+        ...(openedBy ? { openedBy } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
         ...(allowDangerousMode ? { allowDangerousMode } : {}),
@@ -491,15 +532,16 @@ const chatNew: CliCommand = {
           ? { profile: flags.profile.trim() }
           : {}),
       },
-      // Its program starts and lists its models before the settings go.
-      setting ? SEND_TIMEOUT_MS : undefined,
+      // Its program starts before applying settings or submitting the first message.
+      setting || prompt !== "" ? SEND_TIMEOUT_MS : undefined,
     );
     const reach =
       workspace.id === ctx.caller.workspaceId ? "" : ` --workspace ${shortId(workspace.id)}`;
     if (error !== undefined) {
+      const failure = setting ? "could not set it" : "could not submit its first prompt";
       const sent = prompt === "" ? "" : " The prompt was not sent.";
       return output(
-        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but could not set it: ${error}.${sent}`,
+        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but ${failure}: ${error}.${sent}`,
         { tabId, workspaceId: workspace.id, agent, cwd, error },
         { exitCode: 1 },
       );
@@ -668,15 +710,15 @@ async function setProfile(
     fresh,
     dryRun: true,
   });
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change: {
+  await mayExecute(
+    ctx,
+    workspace,
+    {
       kind: fresh ? "chatProfileNew" : "chatProfile",
       detail: `"${tab.title}" (${names.from} → ${names.to})`,
     },
-  });
+    { alwaysAsk: true },
+  );
   const { from, to } = await ctx.services.ui(
     "chat.profile",
     { ...target, profile, fresh },
@@ -791,11 +833,10 @@ const chatRead: CliCommand = {
     }
     const maxChars = maxCharsFlag(flags);
     const device = await resolveDevice(ctx, deviceFlag(flags));
-    const { tab, workspaceId, entries, end, info } = device
+    const read = device
       ? await readPeerChat(ctx, device, flags, selector, {
           ...(messages !== undefined ? { messages } : {}),
           ...(since !== undefined ? { since } : {}),
-          all: flags.all === true,
           subagents: flags.subagents === true,
         }).then((read) => ({
           tab: { id: read.peer.session.tabId, title: read.peer.session.title },
@@ -803,6 +844,8 @@ const chatRead: CliCommand = {
           ...read,
         }))
       : await readChat(ctx, flags, selector, messages, since);
+    const { tab, workspaceId, entries, end, info } = read;
+    const nextSince = "nextSince" in read ? read.nextSince : undefined;
     const shown =
       maxChars === undefined
         ? entries
@@ -816,10 +859,11 @@ const chatRead: CliCommand = {
     }${about ? `\n${about}` : ""}`;
     // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
-    const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
+    const last = nextSince ?? entries.at(-1)?.i ?? (restarted ? undefined : since);
     const stands = {
       ...infoJson(tab, workspaceId, info, device ?? undefined),
       ...(restarted ? { restarted } : {}),
+      ...(nextSince === undefined ? {} : { more: true, last: nextSince }),
     };
     const json = { ...stands, entries: shown, ...(last !== undefined ? { last } : {}) };
     const before = restarted
@@ -827,9 +871,15 @@ const chatRead: CliCommand = {
       : since !== undefined && entries.length === 0
         ? `Nothing after #${since}.\n`
         : "";
-    return output(transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`, json, {
-      records: [...shown, stands],
-    });
+    const more =
+      nextSince === undefined
+        ? ""
+        : `\nMore messages remain. Continue with --since ${nextSince}, omitting --all and --messages.`;
+    return output(
+      `${transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`}${more}`,
+      json,
+      { records: [...shown, stands] },
+    );
   },
 };
 
@@ -983,7 +1033,7 @@ const chatSend: CliCommand = {
     ) {
       if (timeoutMs !== null || when === "after")
         throw new CliUsageError("Remote Control is a setting change; omit --wait and --after");
-      await mayChange(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
+      await mayExecute(ctx, workspace, { kind: "chatRemoteControlToggle", detail: tab.title });
       return remoteControlOutput(
         `${tab.title} (${shortId(tab.id)})`,
         target,
@@ -992,20 +1042,25 @@ const chatSend: CliCommand = {
     }
     if (hurry) {
       if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
-      await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
+      await mayExecute(ctx, workspace, { kind: "chatInput", detail: tab.title }, { target: tab });
       await ctx.services.ui("chat.hurry", target);
       return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
     }
     const attached = await attachments(ctx, files);
     const images = imagePath === undefined ? [] : [await imageAttachment(ctx, imagePath)];
     const listed = attached.map((file) => `[${file.name}]`).join(" ");
-    await mayChange(ctx, workspace, {
-      kind: "chatInput",
-      detail: tab.title,
-      body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
-        .filter(Boolean)
-        .join("\n\n"),
-    });
+    await mayExecute(
+      ctx,
+      workspace,
+      {
+        kind: "chatInput",
+        detail: tab.title,
+        body: [text, listed, imagePath === undefined ? "" : `[image: ${path.basename(imagePath)}]`]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+      { target: tab },
+    );
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
     const sender = await senderOf(ctx);
@@ -1101,13 +1156,26 @@ async function mayAnswer(
     // The workspace policy can wait for a user decision. Read the mode again.
     caller = await unrestrictedCaller(ctx);
   }
-  if (caller) return caller;
-  await ctx.services.askUser({
-    fromWorkspaceId: ctx.caller.workspaceId,
-    fromTabId: ctx.caller.tabId,
-    toWorkspaceId: workspace.id,
-    change,
-  });
+  if (
+    caller &&
+    (await callerSandboxLevel(ctx)) ===
+      sandboxLevel(caller.agent, CHAT_MODES[caller.agent].dangerous)
+  ) {
+    return caller;
+  }
+  if (change.kind === "permissionAllow") {
+    await mayExecute(ctx, workspace, change, { alwaysAsk: true });
+  } else {
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change: { ...change, eachTime: true },
+      },
+      ctx.signal,
+    );
+  }
 }
 
 /**
@@ -1164,11 +1232,15 @@ async function answerTerminal(
   });
   const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
   if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
-    throw new CliError(
-      answer === "denyStop"
-        ? "a subagent's request cannot stop the turn"
-        : "that request no longer waits for an answer",
-    );
+    if (answer === "denyStop" && ask.agentId !== undefined) {
+      throw new CliError("a subagent's request cannot stop the turn");
+    }
+    if (ctx.services.claudeAsks(workspace.id, tab.id).some(({ id }) => id === ask.id)) {
+      throw new CliError(
+        "the answer could not be delivered; try again if the request is still open",
+      );
+    }
+    throw new CliError("that request no longer waits for an answer");
   }
   if (delegated) logDelegation(ctx, tab.id, delegated);
   const target = { workspaceId: workspace.id, tabId: tab.id };
@@ -1300,11 +1372,16 @@ const chatInstructions: CliCommand = {
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const text = file === undefined ? "" : await readInstructionsFile(ctx, file);
     if (!show) {
-      await mayChange(ctx, workspace, {
-        kind: "chatSettings",
-        detail: tab.title,
-        ...(text ? { body: text } : {}),
-      });
+      await mayExecute(
+        ctx,
+        workspace,
+        {
+          kind: "chatSettings",
+          detail: tab.title,
+          ...(text ? { body: text } : {}),
+        },
+        { target: tab },
+      );
     }
     const { instructions } = await ctx.services.ui(
       "chat.instructions",

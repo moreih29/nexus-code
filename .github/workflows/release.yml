@@ -19,15 +19,20 @@
 #   the dist/ artifacts, and a separate step attaches them explicitly with
 #   `gh release upload --clobber`.
 #
-# Code signing: a self-signed certificate (no Apple Developer ID, no notarization).
-# Every release is signed with the same one so that an installed app takes the
-# next version in place — Squirrel.Mac accepts an update only when it meets the
-# running app's designated requirement, which names this certificate. A release
-# signed with another certificate cannot update the ones before it.
-#   secrets.MAC_SIGNING_CERT_P12       base64 of the certificate's .p12
-#   secrets.MAC_SIGNING_CERT_PASSWORD  its password
-#   env.NEXUS_MAC_SIGN_IDENTITY        its SHA-1, pinned so a swapped secret fails
-#                                      the release instead of shipping it
+# Squirrel.Mac accepts an update that meets the running app's designated
+# requirement. Set vars.NEXUS_MAC_TEAM_ID for the self-signed bridge release,
+# then add all five Developer ID secrets once users have had time to install it.
+# See .github/release/MAC_RELEASE_SIGNING.md for the rollout.
+#
+# Self-signed and bridge secrets:
+#   MAC_SIGNING_CERT_P12              base64 of the original certificate's .p12
+#   MAC_SIGNING_CERT_PASSWORD         its password
+# Developer ID and notarization secrets:
+#   MAC_DEVELOPER_ID_CERT_P12         base64 of the Developer ID Application .p12
+#   MAC_DEVELOPER_ID_CERT_PASSWORD    its password
+#   MAC_NOTARY_API_KEY_P8             base64 of the App Store Connect API key .p8
+#   MAC_NOTARY_API_KEY_ID             App Store Connect key ID
+#   MAC_NOTARY_API_ISSUER             App Store Connect issuer ID
 
 name: Release
 
@@ -109,8 +114,7 @@ jobs:
       # GitHub Actions ternary expression: `condition && 'true-val' || 'false-val'`
       NEXUS_CHANNEL: ${{ github.event.release.prerelease && 'beta' || 'stable' }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # SHA-1 of the release signing certificate ("NexusCode Release Signing").
-      NEXUS_MAC_SIGN_IDENTITY: A1FC28A2A25510877EBF48CBB0F65E96504CABD0
+      NEXUS_MAC_TEAM_ID: ${{ vars.NEXUS_MAC_TEAM_ID }}
 
     steps:
       - name: Checkout
@@ -140,68 +144,119 @@ jobs:
         run: bun run build
 
       - name: Import signing certificate
-        # macOS does not trust a self-signed certificate, so electron-builder's
-        # identity lookup skips it; scripts/sign-mac.cjs (mac.sign) signs with
-        # it by NEXUS_MAC_SIGN_IDENTITY out of this keychain instead.
+        id: mac-signing
+        shell: bash
         env:
-          CERT_P12: ${{ secrets.MAC_SIGNING_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.MAC_SIGNING_CERT_PASSWORD }}
+          LEGACY_CERT_P12: ${{ secrets.MAC_SIGNING_CERT_P12 }}
+          LEGACY_CERT_PASSWORD: ${{ secrets.MAC_SIGNING_CERT_PASSWORD }}
+          DEVELOPER_CERT_P12: ${{ secrets.MAC_DEVELOPER_ID_CERT_P12 }}
+          DEVELOPER_CERT_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.MAC_NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MAC_NOTARY_API_ISSUER }}
         run: |
-          : "${CERT_P12:?secret MAC_SIGNING_CERT_P12 is not set}"
-          : "${CERT_PASSWORD:?secret MAC_SIGNING_CERT_PASSWORD is not set}"
+          umask 077
+          if [[ -n "$DEVELOPER_CERT_P12" && -n "$DEVELOPER_CERT_PASSWORD" && -n "$NOTARY_KEY_P8" && -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER" ]]; then
+            [[ "$NEXUS_MAC_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] \
+              || { echo "::error::Set the NEXUS_MAC_TEAM_ID repository variable"; exit 1; }
+            mode=developer-id
+            cert_p12="$DEVELOPER_CERT_P12"
+            cert_password="$DEVELOPER_CERT_PASSWORD"
+          else
+            mode=self-signed
+            [[ -z "$NEXUS_MAC_TEAM_ID" ]] || mode=bridge
+            cert_p12="${LEGACY_CERT_P12:?secret MAC_SIGNING_CERT_P12 is not set}"
+            cert_password="${LEGACY_CERT_PASSWORD:?secret MAC_SIGNING_CERT_PASSWORD is not set}"
+          fi
+          echo "macOS signing mode: $mode"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
           keychain="$RUNNER_TEMP/signing.keychain-db"
           keychain_password="$(openssl rand -hex 24)"
-          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          p12="$RUNNER_TEMP/signing.p12"
+          trap 'rm -f "$p12"' EXIT
+          printf '%s' "$cert_p12" | base64 --decode > "$p12"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/signing.p12"
+          security import "$p12" -k "$keychain" -P "$cert_password" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
-          # codesign --keychain still looks the identity up through the search
-          # list ("The specified item could not be found in the keychain").
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          if ! security find-identity -p codesigning "$keychain" | grep -q "$NEXUS_MAC_SIGN_IDENTITY"; then
-            echo "::error::the certificate in MAC_SIGNING_CERT_P12 is not $NEXUS_MAC_SIGN_IDENTITY"
-            exit 1
+          # codesign still uses the search list to build the certificate chain.
+          search_list=("$keychain")
+          while IFS= read -r item; do search_list+=("$item"); done < <(security list-keychains -d user | sed 's/^[[:space:]]*"\(.*\)"$/\1/')
+          security list-keychains -d user -s "${search_list[@]}"
+          if [[ "$mode" == developer-id ]]; then
+            identity="$(security find-identity -v -p codesigning "$keychain" | awk -v team="$NEXUS_MAC_TEAM_ID" \
+              '/"Developer ID Application: / && index($0, "(" team ")\"") {print $2}')"
+            [[ "$identity" =~ ^[A-F0-9]{40}$ ]] \
+              || { echo "::error::Expected one valid Developer ID Application identity for $NEXUS_MAC_TEAM_ID"; exit 1; }
+            key="$RUNNER_TEMP/notary-api-key.p8"
+            printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$key"
+            {
+              echo "CSC_KEYCHAIN=$keychain"
+              echo "NEXUS_MAC_DEVELOPER_ID_IDENTITY=$identity"
+              echo "APPLE_API_KEY=$key"
+              echo "APPLE_API_KEY_ID=$NOTARY_KEY_ID"
+              echo "APPLE_API_ISSUER=$NOTARY_ISSUER"
+            } >> "$GITHUB_ENV"
+          else
+            identity=A1FC28A2A25510877EBF48CBB0F65E96504CABD0
+            if ! security find-identity -p codesigning "$keychain" | grep -F "$identity" > /dev/null; then
+              echo "::error::Expected the original NexusCode Release Signing certificate ($identity)"
+              exit 1
+            fi
+            echo "NEXUS_MAC_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+            echo "NEXUS_MAC_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           fi
-          echo "NEXUS_MAC_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 
       - name: Package with electron-builder
-        # `--publish never` only produces the dist/ artifacts.
-        # electron-builder's built-in publish can silently skip assets because of a conflict between
-        # an existing published release and draft mode, so it is not trusted. The next step handles
-        # attaching.
-        run: >
-          bun x electron-builder
-          --mac dmg zip
-          --arm64
-          --publish never
+        env:
+          MAC_SIGNING_MODE: ${{ steps.mac-signing.outputs.mode }}
+        run: |
+          config=electron-builder.yml
+          if [[ "$MAC_SIGNING_MODE" == developer-id ]]; then
+            config=build/electron-builder.developer-id.cjs
+          fi
+          bun x electron-builder --config "$config" --mac dmg zip --arm64 --publish never
 
       - name: Verify the signature
-        # The designated requirement must name the release certificate, or the
-        # installed apps cannot update to this release. codesign names a
-        # self-signed certificate as the leaf or as the root (it is both),
-        # depending on the macOS version.
+        env:
+          MAC_SIGNING_MODE: ${{ steps.mac-signing.outputs.mode }}
         run: |
           app="dist/mac-arm64/NexusCode.app"
-          codesign --verify --deep --strict "$app"
-          requirement="$(codesign -d -r- "$app" 2>&1)"
-          echo "$requirement"
-          identity="$(echo "$NEXUS_MAC_SIGN_IDENTITY" | tr '[:upper:]' '[:lower:]')"
-          echo "$requirement" | grep -Eq "certificate (leaf|root) = H\"$identity\"" \
-            || { echo "::error::$app is not signed with the release certificate"; exit 1; }
+          if [[ "$MAC_SIGNING_MODE" == developer-id ]]; then
+            node scripts/sign-mac.cjs --verify-developer-id "$app"
+            xcrun stapler validate "$app"
+          else
+            node scripts/sign-mac.cjs --verify "$app"
+          fi
+
+      - name: Notarize and staple the DMG
+        if: steps.mac-signing.outputs.mode == 'developer-id'
+        shell: bash
+        run: |
+          for dmg in dist/*.dmg; do
+            xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER" --wait --output-format json | tee "$RUNNER_TEMP/notary-dmg.json"
+            jq -e '.status == "Accepted"' "$RUNNER_TEMP/notary-dmg.json" > /dev/null
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/notary-api-key.p8" "$RUNNER_TEMP/signing.p12"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          if [[ -e "$keychain" ]]; then security delete-keychain "$keychain"; fi
 
       - name: Upload assets to release
-        # `tag_name` is the release identifier. `--clobber` overwrites an asset of the same name
-        # (makes workflow reruns safe). latest-mac.yml is the metadata file electron-updater uses to
-        # detect new versions, so it must be uploaded together.
+        env:
+          MAC_SIGNING_MODE: ${{ steps.mac-signing.outputs.mode }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            dist/*.dmg dist/*.dmg.blockmap \
-            dist/*.zip dist/*.zip.blockmap \
-            dist/latest-mac.yml \
-            --clobber
+          assets=(dist/*.dmg dist/*.zip dist/*.zip.blockmap dist/latest-mac.yml)
+          if [[ "$MAC_SIGNING_MODE" != developer-id ]]; then assets+=(dist/*.dmg.blockmap); fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
 
   # ── Job 3: Electron packaging (Linux) ──────────────────────────────────────
   # One runner per architecture: the postinstall step rebuilds node-pty and
@@ -326,7 +381,7 @@ jobs:
   # build/store-release-notes.json; once it passes, the Store updates its
   # installs. A pre-release builds the beta channel, which the Store doesn't
   # carry. The Store CLI signs in as a Microsoft Entra application with the
-  # Manager role in Partner Center (docs/RELEASING.md):
+  # Manager role in Partner Center (.github/release/RELEASING.md):
   #   secrets.MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET
   #   secrets.MSSTORE_SELLER_ID
   # Don't re-run this job once it has submitted: it would replace the

@@ -144,7 +144,10 @@ export function chatInfoOf(
     return { agent, state: "working", ...told, ...at };
   }
   const error = turnError(model);
-  if (error) return { agent, state: "error", message: error, ...at };
+  if (error) {
+    const failure = model.lastResult?.failure?.kind;
+    return { agent, state: "error", message: error, ...(failure ? { failure } : {}), ...at };
+  }
   return { agent, state: "idle", ...told, ...at };
 }
 
@@ -186,6 +189,9 @@ export function chatSubmissionInfo(
     accepted.turnId === model.turn?.id
   ) {
     return chatInfoOf(agent, chat, false);
+  }
+  if (chat.cancelledSubmissions?.includes(submissionId)) {
+    return { agent, state: "error", message: "the held message was cancelled" };
   }
   const queued = chat.queue.find((item) => item.id === submissionId);
   if (queued?.status === "failed" || queued?.status === "unconfirmed") {

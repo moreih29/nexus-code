@@ -1,6 +1,8 @@
 import type { DiffHunk } from "../../../../packages/remote-protocol/src/rpc";
 import type { RemoteFileRef } from "../../../shared/fs/remote-file-key";
 import { ipcCallResult } from "../../ipc/client";
+import { peerGitPaths } from "./peer-git-paths";
+import { readPeerGitStatus } from "./peer-git-status";
 
 /**
  * The file before the changes `hunks` tell, from the file as it is now:
@@ -9,13 +11,25 @@ import { ipcCallResult } from "../../ipc/client";
  */
 export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string | null {
   const lines = now.split("\n");
+  const lineCount = lines.length - Number(lines.at(-1) === "");
   const out: string[] = [];
   let at = 0;
   for (const hunk of [...hunks].sort((a, b) => a.newStart - b.newStart)) {
+    if (hunk.newLines > 0 && hunk.newStart + hunk.newLines - 1 === lineCount) {
+      const lastBefore = hunk.lines.findLast((line) => line[0] === "-" || line[0] === " ");
+      const lastAfter = hunk.lines.findLast((line) => line[0] === "+" || line[0] === " ");
+      // Git sends a delete/add pair for an EOF newline change, but the marker is omitted on the wire.
+      if (
+        lastBefore?.startsWith("-") &&
+        lastAfter?.startsWith("+") &&
+        lastBefore.slice(1) === lastAfter.slice(1)
+      )
+        return null;
+    }
     // A hunk that adds nothing starts after its line; any other, at it.
     const from = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
     if (from < at || from > lines.length) return null;
-    out.push(...lines.slice(at, from));
+    for (; at < from; at++) out.push(lines[at]);
     at = from;
     for (const line of hunk.lines) {
       const mark = line[0];
@@ -33,24 +47,45 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
       // "\ No newline at end of file" tells nothing of the lines.
     }
   }
-  out.push(...lines.slice(at));
+  for (; at < lines.length; at++) out.push(lines[at]);
   return out.join("\n");
+}
+
+/**
+ * As beforeOfHunks, also when Git tells LF lines of a working file checked
+ * out with CRLF (core.autocrlf): the file before, in CRLF. A file with
+ * mixed line endings is taken only as it is.
+ */
+export function beforeOfWorkingText(hunks: readonly DiffHunk[], now: string): string | null {
+  const exact = beforeOfHunks(hunks, now);
+  if (exact !== null || !now.includes("\r\n") || /(?<!\r)\n/.test(now)) return exact;
+  const before = beforeOfHunks(hunks, now.replaceAll("\r\n", "\n"));
+  return before?.replace(/(?<!\r)\n/g, "\r\n") ?? null;
 }
 
 /** The session's saved original, or the last commit when that original is unavailable. */
 export async function readRemoteFileBefore(
   file: RemoteFileRef,
   tabId: string,
+  workspaceRoot: string,
   signal?: AbortSignal,
 ): Promise<string | null | undefined> {
   const kept = await ipcCallResult("remote", "peerChatOriginal", { ...file, tabId }, { signal });
   if (kept.ok) return kept.value.before;
   if (signal?.aborted) return undefined;
+  const { deviceId, workspaceId } = file;
+  const peer = { deviceId, workspaceId };
+  const status = await readPeerGitStatus(peer, signal);
+  if (signal?.aborted) return undefined;
+  const git = status.ok ? status.value : undefined;
+  const path = peerGitPaths(workspaceRoot, git?.topLevel).toGit(file.path, git?.files ?? []);
+  if (!path) return undefined;
   const [diff, read] = await Promise.all([
-    ipcCallResult("remote", "peerGitDiff", file, { signal }),
+    ipcCallResult("remote", "peerGitDiff", { ...peer, path }, { signal }),
     ipcCallResult("remote", "peerFilesRead", file, { signal }),
   ]);
-  if (!diff.ok || diff.value.binary || diff.value.hunks.length === 0) return undefined;
+  if (!diff.ok || diff.value.binary || diff.value.truncated || diff.value.hunks.length === 0)
+    return undefined;
   if (!read.ok || read.value.kind !== "text" || read.value.truncated) return undefined;
-  return beforeOfHunks(diff.value.hunks, read.value.text) ?? undefined;
+  return beforeOfWorkingText(diff.value.hunks, read.value.text) ?? undefined;
 }

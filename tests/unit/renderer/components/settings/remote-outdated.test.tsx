@@ -31,15 +31,18 @@ describe("the update a server that no longer takes this version asks for", () =>
 
   test("from the Microsoft Store: the store updates it, and opens from here", () => {
     const html = render(true);
-    expect(html).toContain("Updates come from the Microsoft Store.");
+    expect(html).toContain("Updates from the Microsoft Store");
     expect(html).toContain("Open Microsoft Store");
     expect(html).not.toContain("Check for Updates");
   });
 
   test("the Other computers list: one line, and a button to the update", () => {
-    const html = renderToStaticMarkup(<OutdatedLine />);
+    const html = renderToStaticMarkup(
+      <OutdatedLine dismiss={{ label: "Dismiss", onDismiss: () => {} }} />,
+    );
     expect(html).toContain('data-testid="remote-outdated"');
     expect(html).toContain("This version can&#x27;t connect");
     expect(html).toContain(">Update<");
+    expect(html).toContain('aria-label="Dismiss"');
   });
 });

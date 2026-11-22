@@ -25,6 +25,8 @@ export interface ComposerDraft {
 
 export interface ChatTabState {
   phase: ChatPhase;
+  /** Changes when a new phase is reached, even if a view missed the transition. */
+  phaseRevision?: number;
   error?: string;
   model: ChatModel;
   /** What the tab showed before its program's log: a transcript, an earlier agent's log. */
@@ -33,6 +35,8 @@ export interface ChatTabState {
   historyPage?: { hasEarlier: boolean; loading: boolean };
   /** Messages the app holds for a tool completion or the end of the turn. */
   queue: QueuedMessage[];
+  /** Recently cancelled queue entries, for callers waiting on those submissions. */
+  cancelledSubmissions?: readonly string[];
   /** Authenticated remote user submissions, keyed by the host-generated message ID. */
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
 
@@ -121,18 +125,38 @@ interface ChatStore {
   remove: (key: string) => void;
 }
 
+/** Tracks the user-message count at submission until the prompt is visible. */
+export const unseenSends = new Map<string, { before: number }>();
+
+let phaseRevision = 0;
+
 export const useChatStore = create<ChatStore>((set) => ({
   tabs: {},
   update: (key, update) =>
-    set((state) => ({
-      tabs: { ...state.tabs, [key]: update(state.tabs[key] ?? emptyTabState()) },
-    })),
-  remove: (key) =>
+    set((state) => {
+      const prev = state.tabs[key] ?? emptyTabState();
+      const next = update(prev);
+      const phaseChanged = prev.phase !== next.phase || prev.error !== next.error;
+      if (phaseChanged) phaseRevision = Math.max(Date.now(), phaseRevision + 1);
+      const revision = phaseChanged ? phaseRevision : prev.phaseRevision;
+      return {
+        tabs: {
+          ...state.tabs,
+          [key]:
+            revision !== undefined && revision !== next.phaseRevision
+              ? { ...next, phaseRevision: revision }
+              : next,
+        },
+      };
+    }),
+  remove: (key) => {
+    unseenSends.delete(key);
     set((state) => {
       if (!(key in state.tabs)) return state;
       const { [key]: _removed, ...rest } = state.tabs;
       return { tabs: rest };
-    }),
+    });
+  },
 }));
 
 /** Asks the tab with `key` to show one of its parts. */

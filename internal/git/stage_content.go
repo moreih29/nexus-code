@@ -22,9 +22,6 @@ type StageContentParams struct {
 // defaultFileMode is the index mode of a path with no index or HEAD entry.
 const defaultFileMode = "100644"
 
-// literalPathspecs makes git read a relPath as a path, not a glob or magic.
-var literalPathspecs = map[string]string{"GIT_LITERAL_PATHSPECS": "1"}
-
 // StageContent makes content the staged version of relPath without touching
 // the working tree. This is how part of a file gets staged, as VSCode does:
 // the renderer applies the chosen changes to the index version and hands

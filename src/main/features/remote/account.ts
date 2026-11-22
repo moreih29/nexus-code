@@ -1,15 +1,20 @@
 /**
- * The app's NexusCode account: signing in with Google or GitHub through
- * the system browser (OAuth with PKCE and a loopback redirect, as RFC 8252
- * has it for a desktop app), the server's session token it gets for this
+ * The app's NexusCode account: signing in through the system browser
+ * (OAuth with PKCE and a loopback redirect, as RFC 8252 has it for a
+ * desktop app), the server's session token it gets for this
  * device, and the account's devices. The token is what the relay and the
  * API take. Requests go by its route: through the proxy when there is one,
- * the server straight when it cannot be reached.
+ * the server's own address when it cannot be reached, and the fallback when
+ * neither can.
  */
 
 import os from "node:os";
 import { z } from "zod";
-import { type ServerInfo, ServerInfoSchema } from "../../../../packages/remote-protocol/src";
+import {
+  type PushSend,
+  type ServerInfo,
+  ServerInfoSchema,
+} from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import {
   type RemoteAccountState,
@@ -21,8 +26,9 @@ import {
 } from "../../../shared/remote/account";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
-import { type LoopbackListener, listenForCallback } from "./loopback";
+import { type LoopbackListener, listenForCallback, notInvitedFailure } from "./loopback";
 import { makePkce, makeState } from "./pkce";
+import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
 
@@ -55,14 +61,6 @@ const TokenResponseSchema = z.object({
 
 const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema) });
 
-/** What the server sends the browser back with, besides a code. */
-const CALLBACK_ERRORS: readonly SignInFailure[] = [
-  "access_denied",
-  "unverified_email",
-  "not_invited",
-  "server_error",
-];
-
 /** This device as the server should name it: up to 100 characters, a lowercase platform. */
 export function thisDevice(): { name: string; platform: string } {
   const name =
@@ -74,11 +72,18 @@ export function thisDevice(): { name: string; platform: string } {
 }
 
 export interface RemoteAccountDeps {
-  /** The server's address, e.g. http://localhost:8787: the one signed in to. */
+  /**
+   * The server signed in to, kept with the sign-in, e.g. http://localhost:8787;
+   * its address too unless `direct` names another.
+   */
   readonly server: string;
-  /** The proxy requests to the server go through; none to go straight. */
+  /** The proxy requests to the server go through first; none to go straight first. */
   readonly proxy?: string | null;
-  /** The time now, for how long the proxy stays passed by. */
+  /** The server's own address, where its sign-in opens in the browser; `server` when not given. */
+  readonly direct?: string;
+  /** Where requests go when neither the proxy nor `direct` can be reached; none to stop there. */
+  readonly fallback?: string | null;
+  /** The time now, for how long a way that failed stays passed by. */
   now?: () => number;
   readonly store: Kept<SavedAccount>;
   openExternal(url: string): Promise<void>;
@@ -90,6 +95,11 @@ export interface RemoteAccountDeps {
   /** This install's id, sent with a sign-in so the server gives the same device back. */
   installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
+  /**
+   * Told when the browser comes back from the sign-in, whatever it brought:
+   * the rest of it, or why it failed, shows in the app.
+   */
+  onBrowserBack?(): void;
   timeoutMs?: number;
   /** The sign-in used when none is asked for. */
   provider?: SignInProvider;
@@ -99,16 +109,26 @@ export interface RemoteAccountDeps {
 
 export class RemoteAccount {
   private saved: SavedAccount | null = null;
+  /** Blocks another sign-in while the callback listener is starting. */
+  private startingSignIn = false;
   private signingIn: LoopbackListener | null = null;
+  private recheckingToken: string | undefined;
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
+  /** The provider to use when checking a pending signup again. */
+  private pendingProvider: SignInProvider | undefined;
   private readonly fetch: typeof fetch;
   /** How requests reach the server; the relay's and voice input's sockets go by it too. */
   readonly route: ServerRoute;
 
   constructor(private readonly deps: RemoteAccountDeps) {
     this.fetch = deps.fetch ?? fetch;
-    this.route = new ServerRoute(deps.server, deps.proxy ?? null, deps.now);
+    this.route = new ServerRoute(
+      deps.direct ?? deps.server,
+      deps.proxy ?? null,
+      deps.now,
+      deps.fallback ?? null,
+    );
   }
 
   /** Picks up the sign-in kept from the last run, if there is one for this server. */
@@ -127,7 +147,12 @@ export class RemoteAccount {
       return { status: "signed-in", server, user: this.saved.user, device: this.saved.device };
     }
     if (this.signingIn) return { status: "signing-in", server };
-    return { status: "signed-out", server, ...(this.failure ? { failure: this.failure } : {}) };
+    return {
+      status: "signed-out",
+      server,
+      ...(this.failure ? { failure: this.failure } : {}),
+      ...(this.pendingProvider ? { provider: this.pendingProvider } : {}),
+    };
   }
 
   /** The session token, while signed in. */
@@ -136,26 +161,32 @@ export class RemoteAccount {
   }
 
   /**
-   * Opens the server's sign-in (Google's unless told) in the browser and
-   * waits for it to come back; then trades its code for this device's
-   * token. A sign-in that does not finish leaves the app signed out, with
-   * why in the state.
+   * Opens the server's sign-in in the browser, then trades its callback code
+   * for this device's token. Without a provider, it retries a pending signup
+   * or uses the default. A failed sign-in leaves the reason in the state.
+   * The browser's page waits for how it ended, and says the same.
    */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
-    if (this.signingIn || this.saved) return this.state();
-    const listener = await (this.deps.listen ?? listenForCallback)(
-      this.deps.timeoutMs ?? SIGN_IN_TIMEOUT_MS,
-    );
-    this.signingIn = listener;
+    if (this.startingSignIn || this.signingIn || this.saved) return this.state();
+    const choice = provider ?? this.pendingProvider ?? this.deps.provider ?? "google";
+    this.startingSignIn = true;
+    let listener: LoopbackListener;
+    try {
+      listener = await (this.deps.listen ?? listenForCallback)(
+        this.deps.timeoutMs ?? SIGN_IN_TIMEOUT_MS,
+      );
+      this.signingIn = listener;
+    } finally {
+      this.startingSignIn = false;
+    }
     this.failure = undefined;
+    this.pendingProvider = undefined;
     this.changed();
+    let signedIn = false;
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
-      const start = new URL(
-        `/auth/${provider ?? this.deps.provider ?? "google"}/start`,
-        this.deps.server,
-      );
+      const start = new URL(`/auth/${choice}/start`, this.route.direct);
       start.search = new URLSearchParams({
         redirect_uri: listener.redirectUri,
         state,
@@ -165,11 +196,9 @@ export class RemoteAccount {
       }).toString();
       await this.deps.openExternal(start.toString());
       const back = await listener.result;
+      this.deps.onBrowserBack?.();
       if (back.state !== state) throw new SignInError("mismatch");
-      if (back.error) {
-        const failure = CALLBACK_ERRORS.find((e) => e === back.error);
-        throw new SignInError(failure ?? "failed", back.error);
-      }
+      if (back.failure) throw new SignInError(back.failure, back.error);
       if (!back.code) throw new SignInError("failed", "no code");
       const installId = await this.deps.installId?.().catch(() => undefined);
       const answer = await this.call("POST", "/auth/token", {
@@ -183,11 +212,14 @@ export class RemoteAccount {
       });
       const { token, user, device } = TokenResponseSchema.parse(answer);
       this.saved = { server: this.deps.server, token, user, device };
+      signedIn = true;
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
+      if (this.failure === "pending_approval") this.pendingProvider = choice;
       log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      listener.report(signedIn ? "signed-in" : (this.failure ?? "failed"), this.pendingProvider);
       listener.close();
       this.signingIn = null;
       this.changed();
@@ -205,6 +237,18 @@ export class RemoteAccount {
     if (!this.saved) return;
     await this.call("POST", "/auth/logout").catch(() => {});
     this.forget();
+  }
+
+  /** A socket says the sign-in ended. Let the authenticated request confirm it. */
+  recheckSignIn(): void {
+    const token = this.token();
+    if (!token || this.recheckingToken === token) return;
+    this.recheckingToken = token;
+    void this.request("GET", "/me")
+      .catch(() => {})
+      .finally(() => {
+        if (this.recheckingToken === token) this.recheckingToken = undefined;
+      });
   }
 
   /** What the server offers: its sign-ins, and whether it has the relay and voice. */
@@ -270,6 +314,11 @@ export class RemoteAccount {
     if (id === this.saved?.device.id) this.forget();
   }
 
+  sendPush(body: PushSend, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
+    // The sender owns the retry and rechecks the pending request before using it.
+    return this.call("POST", "/push/send?v=1", { body, signal, timeoutMs, retryOrigin: false });
+  }
+
   /**
    * Asks the server as this device: the JSON it answered, or a ServerError;
    * a 401 signs the app out and throws SignedOutError. `headers` adds to the
@@ -316,15 +365,21 @@ export class RemoteAccount {
       signedIn?: boolean;
       timeoutMs?: number;
       signal?: AbortSignal;
+      retryOrigin?: boolean;
     } = {},
   ): Promise<unknown> {
     const { signal } = options;
     signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
+    // The token the request goes with: a refusal of it signs out that sign-in alone.
+    let token: string | undefined;
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
-      headers.authorization = `Bearer ${this.saved.token}`;
+      token = this.saved.token;
+      headers.authorization = `Bearer ${token}`;
     }
+    // Signed out, or in again, while the request was away: the sign-in now is not the one refused.
+    const signedInAsSent = () => this.saved !== null && this.saved.token === token;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     if (options.raw) headers["content-type"] = options.raw.type;
     const body = options.raw
@@ -341,54 +396,63 @@ export class RemoteAccount {
         ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
     };
-    const base = this.route.base();
+    let base = this.route.base();
+    const tried = [base];
     let res: Response;
-    try {
-      res = await send(base);
-    } catch (error) {
-      signal?.throwIfAborted();
-      // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
-      // is slow. The proxy not reached, the server is asked straight, now and for a while; a
-      // request that timed out may have gone through, and is not sent again.
-      if (!this.route.unreachable(base) || isTimeout(error)) throw new UnreachableError(error);
+    for (;;) {
       try {
-        res = await send(this.route.base());
-      } catch (again) {
+        res = await send(base);
+        break;
+      } catch (error) {
         signal?.throwIfAborted();
-        throw new UnreachableError(again);
+        // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
+        // is slow. A way not reached is passed by, now and for a while, and the request goes by
+        // the next, each way once; a request that timed out may have gone through, and is not
+        // sent again.
+        if (!this.route.unreachable(base) || options.retryOrigin === false || isTimeout(error)) {
+          throw new UnreachableError(error);
+        }
+        base = this.route.base();
+        if (tried.includes(base)) throw new UnreachableError(error);
+        tried.push(base);
       }
     }
     // A stale relay ticket can no longer change the account or its route.
     signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
       void res.body?.cancel().catch(() => {});
-      this.forget();
+      if (signedInAsSent()) this.forget();
       throw new SignedOutError();
     }
+    const retryAfter = retryAfterSeconds(res.headers.get("retry-after"));
     const text = await readResponseText(res).catch((error: unknown) => {
       if (error instanceof ResponseTooLargeError) {
-        throw new ServerError(res.status, error.code, `${method} ${path}`);
+        throw new ServerError(res.status, error.code, `${method} ${path}`, retryAfter);
+      }
+      signal?.throwIfAborted();
+      if (res.status === 429)
+        throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
+      // A known HTTP error consumes the push attempt even if its body was lost.
+      if (options.retryOrigin === false) {
+        if (!res.ok) throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
+        if (error instanceof TypeError || isTimeout(error)) throw new UnreachableError(error);
       }
       throw error;
     });
     signal?.throwIfAborted();
     const answer = parseJson(text);
     if (!res.ok) {
-      const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;
-      // An account taken off an invite-only server's list: signed out as by a
-      // 401, saying why.
+      const refusal = isRecord(answer) ? answer : undefined;
+      const code = typeof refusal?.error === "string" ? refusal.error : undefined;
+      // The server revoked access. Sign out as with a 401 and keep the reason.
       if (res.status === 403 && code === "not_invited" && options.signedIn !== false) {
-        this.failure = "not_invited";
-        this.forget();
+        if (signedInAsSent()) {
+          this.failure = refusal?.access === "suspended" ? "suspended" : "not_invited";
+          this.forget();
+        }
         throw new SignedOutError();
       }
-      const retryAfter = Number(res.headers.get("retry-after"));
-      throw new ServerError(
-        res.status,
-        code,
-        `${method} ${path}`,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-      );
+      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter, refusal?.access);
     }
     return answer ?? {};
   }
@@ -409,6 +473,13 @@ function failureOf(error: unknown): SignInFailure {
   if (error instanceof ServerError) {
     if (error.code === "invalid_grant") return "invalid_grant";
     if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
+    if (error.status === 429) return "rate_limited";
+    // A code refused for the account: suspended, or not invited. The signup states
+    // (pending, rejected, closed) come with the callback, not here.
+    if (error.status === 403 && error.code === "not_invited") {
+      const failure = notInvitedFailure(error.access);
+      return failure === "suspended" || failure === "not_invited" ? failure : "failed";
+    }
     return "failed";
   }
   if (error instanceof UnreachableError) return "unreachable";

@@ -6,6 +6,8 @@ import { fitsInFrame, RpcFailure } from "../room";
 /** What this version serves; a hello says so, and the others ask for nothing more. */
 export const SERVES: readonly Capability[] = [
   "sessions",
+  "sessions.reorder",
+  "sessions.markSeen",
   "chat.read",
   "chat.control",
   "terminal.read",
@@ -18,6 +20,8 @@ export const SERVES: readonly Capability[] = [
   "agents",
   "agents.cli",
   "settings.instructions",
+  "profiles.usage",
+  "push",
 ];
 
 /**
@@ -30,20 +34,19 @@ export function servesWith(
   allowControl: boolean,
   allowTerminal = false,
   allowAgents = false,
+  allowPush = false,
 ): readonly Capability[] {
   return SERVES.filter(
     (c) =>
       ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
       (c !== "files.write" || (allowControl && allowAgents)) &&
       (c !== "terminal.control" || allowTerminal) &&
-      (c !== "agents" || allowAgents),
+      (c !== "agents" || allowAgents) &&
+      (c !== "push" || allowPush),
   );
 }
 
-export function oneLine(text: string, max = 200): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
+export { oneLine } from "../../../../shared/remote/one-line";
 
 /** The tab, when the workspace holds one of that kind; else NotFound. */
 export async function tabOf(

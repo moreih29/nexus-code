@@ -357,3 +357,33 @@ test("the update poller cancels an oversized body before parsing it", async () =
   ).toMatchObject({ kind: "error", reason: "response-too-large" });
   expect(response.cancelled()).toBe(true);
 });
+
+test("a conditional reply uses the candidate from its own request", async () => {
+  const cache = createConditionalCache();
+  await pollGithubReleases({
+    cache,
+    channel: "stable",
+    currentVersion: "1.0.0",
+    fetchImpl: async () => new Response("version: 2.0.0", { headers: { etag: '"stable"' } }),
+  });
+  const conditional = Promise.withResolvers<Response>();
+  const stable = pollGithubReleases({
+    cache,
+    channel: "stable",
+    currentVersion: "1.0.0",
+    fetchImpl: async (_url, init) => {
+      expect(new Headers(init?.headers).get("If-None-Match")).toBe('"stable"');
+      return conditional.promise;
+    },
+  });
+  await pollGithubReleases({
+    cache,
+    channel: "beta",
+    currentVersion: "1.0.0",
+    fetchImpl: async () =>
+      new Response('<link href="https://example.test/releases/tag/v3.0.0-beta.1"/>'),
+  });
+  conditional.resolve(new Response(null, { status: 304 }));
+
+  expect(await stable).toMatchObject({ kind: "newer", latest: "2.0.0" });
+});

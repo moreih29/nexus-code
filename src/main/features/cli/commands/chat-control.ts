@@ -17,7 +17,7 @@ import {
 } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
-import { ago, oneLine } from "../format";
+import { ago, clockAt, oneLine } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
   askPeerCli,
@@ -29,9 +29,10 @@ import {
   requirePeerCli,
   resolveDevice,
 } from "../remote";
-import { senderOf } from "../sender";
+import { mayExecute } from "../sandbox";
+import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
-import { chatProfilesAdd, profileTable } from "./chat-profiles";
+import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -159,6 +160,8 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
         : "";
     usage.push(`Rate limit: ${panel.rateLimit.status}${resets}`);
   }
+  const going = panel.limitResume && limitResumeLine(panel.limitResume, now);
+  if (going) usage.push(`Usage limit: ${going}`);
   if (usage.length > 0) blocks.push(usage.join("\n"));
   if (panel.mcp && panel.mcp.length > 0) {
     blocks.push(
@@ -181,6 +184,28 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
     }),
   );
   return blocks.length > 0 ? `${title}\n\n${blocks.join("\n\n")}` : `${title}: its panel is empty.`;
+}
+
+/** Going on after the usage limit, as chat panel says it; undefined for a state it does not know. */
+function limitResumeLine(
+  resume: NonNullable<ChatPanel["limitResume"]>,
+  now: number,
+): string | undefined {
+  const resets = resume.resetsAt !== undefined ? `, resets ${clockAt(resume.resetsAt, now)}` : "";
+  switch (resume.state) {
+    case "waiting":
+      return resume.at !== undefined
+        ? `reached; the app sends a message to go on at ${clockAt(resume.at, now)}`
+        : `reached${resets}`;
+    case "unknown":
+      return "reached; when it resets is not known, so nothing goes on by itself";
+    case "cancelled":
+      return `reached${resets}; going on by itself was cancelled`;
+    case "gave_up":
+      return `still reached after ${resume.tries ?? 0} tries${resets}; the app no longer goes on by itself`;
+    default:
+      return undefined;
+  }
 }
 
 /** The panel without the account its program is signed in with: not the agent's to read. */
@@ -325,11 +350,16 @@ const chatEdit: CliCommand = {
       });
     }
     const target = await otherChat(ctx, flags, selector);
-    await mayChange(ctx, target.workspace, {
-      kind: "chatInput",
-      detail: target.tab.title,
-      body: text,
-    });
+    await mayExecute(
+      ctx,
+      target.workspace,
+      {
+        kind: "chatInput",
+        detail: target.tab.title,
+        body: text,
+      },
+      { target: target.tab },
+    );
     await ctx.services.ui("chat.editHeld", { ...target.ref, id, text });
     return output(`Changed the held message ${id} of ${named(target)}.`, {
       ...target.ref,
@@ -476,15 +506,17 @@ const chatFork: CliCommand = {
       });
     }
     const target = await chatTarget(ctx, flags, selector);
-    await mayChange(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
+    await mayExecute(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
     const itemKey =
       message === undefined
         ? undefined
         : (await ctx.services.ui("chat.entryItem", { ...target.ref, i: placeArg(message) }))
             .itemKey;
+    const openedBy = openerOf(await senderOf(ctx));
+    ctx.signal?.throwIfAborted();
     const { tabId, draft } = await ctx.services.ui(
       "chat.fork",
-      { ...target.ref, ...(itemKey ? { itemKey } : {}) },
+      { ...target.ref, ...(itemKey ? { itemKey } : {}), ...(openedBy ? { openedBy } : {}) },
       SEND_TIMEOUT_MS,
     );
     const reach =
@@ -591,7 +623,8 @@ async function setRemoteControl(
       : enabled
         ? "chatRemoteControlOn"
         : "chatRemoteControlOff";
-  await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  if (enabled === false) await mayChange(ctx, target.workspace, { kind, detail: target.tab.title });
+  else await mayExecute(ctx, target.workspace, { kind, detail: target.tab.title });
   return remoteControlOutput(
     named(target),
     target.ref,
@@ -692,11 +725,17 @@ const chatCommandRun: CliCommand = {
     }
     const text = `/${name}${args ? ` ${args}` : ""}`;
     // Asked first: listing its commands starts a tab's program that is not running.
-    await mayChange(ctx, target.workspace, {
-      kind: "chatInput",
-      detail: target.tab.title,
-      body: text,
-    });
+    await mayExecute(
+      ctx,
+      target.workspace,
+      {
+        kind: "chatInput",
+        detail: target.tab.title,
+        body: text,
+      },
+      // These commands can start a thread using profile defaults.
+      lower === "fork" || lower === "new" || lower === "clear" ? {} : { target: target.tab },
+    );
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
     const command =
       commands.find((c) => c.name.toLowerCase() === lower) ??
@@ -873,7 +912,9 @@ const chatResume: CliCommand = {
     const into =
       typeof flags.tab === "string" ? await resolveChat(ctx, workspace, flags.tab) : undefined;
     if (into?.id === ctx.caller.tabId) throw new CliError("that is this tab");
-    await mayChange(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    await mayExecute(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    const openedBy = openerOf(await senderOf(ctx));
+    ctx.signal?.throwIfAborted();
     const { tabId } = await ctx.services.ui(
       "chat.resume",
       {
@@ -881,6 +922,7 @@ const chatResume: CliCommand = {
         agent,
         sessionId: session.sessionId,
         ...(into ? { tabId: into.id, emptyOnly: true } : {}),
+        ...(openedBy ? { openedBy } : {}),
       },
       SEND_TIMEOUT_MS,
     );
@@ -969,6 +1011,7 @@ export const chatControlCommands: CliCommand[] = [
   chatHistory,
   chatProfiles,
   chatProfilesAdd,
+  chatUsage,
   chatFiles,
   chatResume,
 ];

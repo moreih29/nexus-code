@@ -58,6 +58,7 @@ import type { ListeningPort, PortForward } from "../../../../src/shared/pty/port
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import type { WorkspaceColor } from "../../../../src/shared/types/workspace-color";
 import { compareWorkspaceOrder } from "../../../../src/shared/workspace-order";
+import { withSessionsSnapshot } from "../../../helpers/sessions-snapshot";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -250,6 +251,7 @@ export interface FakeApp {
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
   /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
   chatChoices: Map<string, CliChatChoices>;
+  sandboxes: Map<string, NonNullable<CliUiOps["chat.sandbox"]["result"]>>;
   /** What chat.open answers it could not set; it sets everything when absent. */
   chatOpenError: { message?: string };
   /**
@@ -501,10 +503,12 @@ export function fakeApp(now = Date.now()): FakeApp {
   const events: FakeApp["events"] = [];
   const chatAnswered: FakeApp["chatAnswered"] = [];
   const chatChoices: FakeApp["chatChoices"] = new Map();
+  const sandboxes: FakeApp["sandboxes"] = new Map();
   const chatOpenError: FakeApp["chatOpenError"] = {};
   const closeRefused: FakeApp["closeRefused"] = new Map();
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
+    sandboxSession: (workspaceId, tabId) => ui("tab.sandboxSession", { workspaceId, tabId }),
     ask: async (request) => {
       asked.push(request);
       return answers.shift() ?? "deny";
@@ -535,11 +539,16 @@ export function fakeApp(now = Date.now()): FakeApp {
   const uiAnswers: FakeApp["uiAnswers"] = new Map();
   const terminalAsks: FakeApp["terminalAsks"] = new Map();
   const terminalAnswered: FakeApp["terminalAnswered"] = [];
+  // The renderer's one read for the sessions' list, made of the requests below.
+  const sessionsSnapshot = withSessionsSnapshot((op: CliUiOp, args: never) => ui(op, args));
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
     if (uiAnswers.has(op)) {
       const answer = uiAnswers.get(op);
       return (typeof answer === "function" ? answer(args) : answer) as CliUiOps[K]["result"];
+    }
+    if (op === "sessions.snapshot") {
+      return (await sessionsSnapshot(op, args)) as CliUiOps[K]["result"];
     }
     // Each entry is an item of its own, keyed k<i>.
     if (op === "chat.entryItem") {
@@ -609,6 +618,11 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
     }
+    if (op === "tab.sandboxSession") {
+      const { workspaceId, tabId } = args as CliUiOps["tab.sandboxSession"]["args"];
+      const tab = tabs[workspaceId]?.find((tab) => tab.id === tabId);
+      return (tab && !tab.dead ? tabId : null) as CliUiOps[K]["result"];
+    }
     if (op === "terminal.read") {
       const { tabId, lines } = args as CliUiOps["terminal.read"]["args"];
       const text = (screens.get(tabId) ?? "").split("\n").slice(-lines).join("\n");
@@ -669,6 +683,15 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { profile } = args as CliUiOps["chat.profile"]["args"];
       if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
       return { from: "default", to: profile } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.sandbox") {
+      const { tabId } = args as CliUiOps["chat.sandbox"]["args"];
+      const choices = chatChoices.get(tabId);
+      const fallback =
+        choices?.agent === "codex"
+          ? { agent: "codex", current: choices.mode, next: choices.mode }
+          : null;
+      return (sandboxes.get(tabId) ?? fallback) as CliUiOps[K]["result"];
     }
     if (op === "chat.mode") {
       const { workspaceId, tabId } = args as CliUiOps["chat.mode"]["args"];
@@ -879,6 +902,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     },
     browser: fakeBrowserDriver(browser),
     notes: {
+      reportTargets: async () => [],
+      reportLine: async () => false,
+      linksOfConversation: async () => [],
       list: async (workspaceId) =>
         (notes[workspaceId] ?? []).map(({ doc: _doc, dir: _dir, ...summary }) => summary),
       read: async (workspaceId, noteId) => {
@@ -974,6 +1000,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     events,
     chatAnswered,
     chatChoices,
+    sandboxes,
     chatOpenError,
     uiAnswers,
     noteAssets,

@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { generatingElapsed } from "../../../../../src/renderer/components/chat/status-line";
+import i18next from "i18next";
+import {
+  generatingElapsed,
+  retryText,
+} from "../../../../../src/renderer/components/chat/status-line";
 import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
   applyCodexLine,
@@ -72,4 +76,31 @@ test("Claude streaming resets the timer even for reasoning and approval suppress
   });
   expect(model.permissions).toHaveLength(1);
   expect(generatingElapsed(model, 9_000)).toBeUndefined();
+});
+
+test("a retry tells its try, its reason and how long until it goes", () => {
+  let model: ChatModel = emptyModel();
+  model = applyLine(model, { seq: 1, at: 1_000, dir: "in", message: { type: "user" } });
+  // As Claude Code 2.1.325 writes a 429 it tries again after.
+  model = applyLine(model, {
+    seq: 2,
+    at: 2_000,
+    dir: "out",
+    message: {
+      type: "system",
+      subtype: "api_retry",
+      attempt: 2,
+      max_retries: 10,
+      retry_delay_ms: 5_000,
+      error_status: 429,
+      error: "rate_limit",
+    },
+  });
+  const retry = model.turn?.retry;
+  if (!retry) throw new Error("no retry");
+  expect(retryText(retry, i18next.t, 2_500)).toBe("Retrying (2/10) · Rate limited (429) · in 5s");
+  // Once the wait is over, the try goes; a request no answer came to has no status.
+  expect(retryText({ ...retry, status: undefined, reason: "connection" }, i18next.t, 7_000)).toBe(
+    "Retrying (2/10) · Connection lost",
+  );
 });

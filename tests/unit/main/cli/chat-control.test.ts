@@ -276,6 +276,12 @@ describe("chat fork", () => {
     expect(from.stdout).toContain("Its message was not sent");
     expect(from.stdout).toEndWith("\nAlso the logout\n");
     expect(calls(app, "chat.fork")).toEqual([TARGET, { ...TARGET, itemKey: "u3" }]);
+    const caller = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, ["chat", "fork", "eeee"], caller)).exitCode).toBe(0);
+    expect(calls(app, "chat.fork").at(-1)).toMatchObject({
+      ...TARGET,
+      openedBy: { kind: "terminal", agent: "claude", ...caller },
+    });
   });
 });
 
@@ -383,6 +389,8 @@ describe("chat background, stop-task and remote-control", () => {
     expect(app.asked).toHaveLength(0);
 
     const remoteWorkspace = ["chat", ...argv, "--workspace", APP];
+    const shell = app.tabs[APP]?.find((tab) => tab.id === SHELL_TAB);
+    if (shell) app.tabs[API]?.push(shell);
     const caller = { workspaceId: API, tabId: SHELL_TAB };
     app.settings.crossWorkspace = "deny";
     expect((await nexus(app, remoteWorkspace, caller)).exitCode).toBe(1);
@@ -492,6 +500,12 @@ describe("chat history and chat resume", () => {
     expect(calls(app, "chat.resume")).toEqual([
       { workspaceId: APP, agent: "claude", sessionId: "71bc-2" },
     ]);
+    const caller = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, ["chat", "resume", "71bc"], caller)).exitCode).toBe(0);
+    expect(calls(app, "chat.resume").at(-1)).toMatchObject({
+      sessionId: "71bc-2",
+      openedBy: { kind: "terminal", agent: "claude", ...caller },
+    });
     expect((await nexus(app, ["chat", "resume", "9"])).stderr).toContain(
       "no past Claude conversation 9",
     );
@@ -530,6 +544,33 @@ describe("chat panel", () => {
     );
   });
 
+  test("says when the app goes on after the usage limit, or why it does not", () => {
+    const base: ChatPanel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    const now = Date.now();
+    const at = now + 38 * 60_000;
+    const waiting = panelText("T", { ...base, limitResume: { state: "waiting", at } }, now);
+    expect(waiting).toMatch(
+      /^Usage limit: reached; the app sends a message to go on at \d\d:\d\d \(in 38m\)$/m,
+    );
+    expect(panelText("T", { ...base, limitResume: { state: "unknown" } }, now)).toContain(
+      "Usage limit: reached; when it resets is not known, so nothing goes on by itself",
+    );
+    expect(panelText("T", { ...base, limitResume: { state: "gave_up", tries: 3 } }, now)).toContain(
+      "Usage limit: still reached after 3 tries; the app no longer goes on by itself",
+    );
+    // A state a later version tells: nothing said of it.
+    expect(panelText("T", { ...base, limitResume: { state: "snoozed" } }, now)).toBe(
+      "T: its panel is empty.",
+    );
+  });
+
   test("leaves out the account the tab's program is signed in with", async () => {
     const app = withChat();
     app.uiAnswers.set("chat.panel", {
@@ -559,6 +600,7 @@ describe("chat answer for a terminal's Claude Code", () => {
       kind: "permissionDeny",
       detail: "Bash (✳ Claude Code)",
       body: "Bash rm -rf build",
+      eachTime: true,
     });
     expect(app.terminalAnswered).toEqual([{ tabId: CLAUDE_TAB, askId: "h1", answer: "denyStop" }]);
     const none = await nexus(app, [
@@ -612,6 +654,119 @@ test("chat profiles exposes selectable names and the workspace default, with por
   });
   expect(calls(app, "chat.profiles")).toEqual([{ workspaceId: API, agent: "codex" }]);
   expect(app.asked).toEqual([]);
+});
+
+describe("chat usage", () => {
+  const now = Date.parse("2026-11-22T12:00:00Z");
+  const fetchedAt = now - 5_000;
+  const result = {
+    profiles: [
+      {
+        id: "work",
+        name: "Work",
+        agent: "claude",
+        status: "stale",
+        fetchedAt,
+        limits: [
+          {
+            kind: "session",
+            percent: 18.5,
+            fetchedAt: now - 12_000,
+            resetsAt: now + (4 * 60 + 55) * 60_000,
+            stale: false,
+          },
+          {
+            kind: "weekly",
+            percent: 50,
+            fetchedAt,
+            resetsAt: now + (4 * 24 + 3) * 3_600_000,
+            stale: false,
+          },
+          {
+            kind: "weekly_scoped",
+            scope: "Sonnet",
+            percent: 80,
+            fetchedAt,
+            resetsAt: now - 5 * 60_000,
+            stale: true,
+          },
+        ],
+      },
+      {
+        id: "gateway",
+        name: "Gateway",
+        agent: "codex",
+        status: "not-subscription",
+        limits: [],
+      },
+    ],
+  } satisfies CliUiOps["chat.usage"]["result"];
+
+  test("prints relative times in text and Unix milliseconds in JSON and JSONL", async () => {
+    const app = fakeApp(now);
+    app.uiAnswers.set("chat.usage", result);
+    const text = await nexus(app, ["chat", "usage"]);
+    expect(text.stdout).toBe(
+      "claude · Work (work) · Stale · Observed 5s ago\n" +
+        "  5-hour session 18.5% used · Resets in 4h 55m · Observed 12s ago\n" +
+        "  Weekly 50% used · Resets in 4d 3h\n" +
+        "  Weekly (Sonnet) 80% used · Reset 5m ago · Stale\n\n" +
+        "codex · Gateway (gateway) · No subscription\n",
+    );
+    const json = await nexus(app, ["chat", "usage", "--json"]);
+    expect(JSON.parse(json.stdout)).toEqual(result);
+    const jsonl = await nexus(app, ["chat", "usage", "--jsonl"]);
+    expect(
+      jsonl.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual(result.profiles);
+    expect(app.uiCalls.map(({ op }) => op)).toEqual(["chat.usage", "chat.usage", "chat.usage"]);
+    const help = await nexus(app, ["help", "chat", "usage"]);
+    expect(help.stdout).toContain("--refresh");
+  });
+
+  test("sends profile filters to a peer that serves usage", async () => {
+    const app = fakeApp();
+    const device = { id: "55555555-5555-4555-8555-555555555555", name: "Mac mini" };
+    const peer = {
+      ...device,
+      platform: "darwin",
+      online: true,
+      self: false,
+      schema: "0.17.0",
+    };
+    app.peers.devices = [{ ...peer, serves: ["agents", "profiles.usage"] }];
+    app.peers.answer = async () => result;
+    const args = [
+      "chat",
+      "usage",
+      "--device",
+      device.name,
+      "--agent",
+      "claude",
+      "--profile",
+      "Work",
+      "--refresh",
+      "--json",
+    ];
+    const filters = { agent: "claude", profile: "Work", refresh: true };
+    const json = await nexus(app, args);
+    expect(JSON.parse(json.stdout)).toEqual({ device, ...filters, ...result });
+    expect(app.peers.requests).toEqual([
+      {
+        deviceId: device.id,
+        method: "profiles.usage",
+        params: { ...filters, from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB } },
+        timeoutMs: 125_000,
+      },
+    ]);
+
+    app.peers.devices = [{ ...peer, schema: "0.16.0", serves: ["agents"] }];
+    expect((await nexus(app, args)).stderr).toContain('Update NexusCode on "Mac mini"');
+    expect(app.peers.requests).toHaveLength(1);
+  });
 });
 
 test("an image save collision does not print its destination path", async () => {

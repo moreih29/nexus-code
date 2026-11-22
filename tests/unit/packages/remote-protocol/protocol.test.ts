@@ -16,15 +16,31 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_BYTES_CHUNK,
   MAX_IMAGE_EDGE,
+  MAX_MARK_SEEN,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
+  olderConnection,
+  PUSH_VERSION,
+  PushPayloadSchema,
+  PushRegistrationSchema,
+  PushSendResultSchema,
+  PushSendSchema,
+  RemoteSessionSchema,
   RPC_METHODS,
+  RpcIdSchema,
+  RpcResponseSchema,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
   SealedMessageSchema,
   ServerFrameSchema,
+  ServerInfoSchema,
   ViewItemSchema,
 } from "../../../../packages/remote-protocol/src";
+
+import {
+  LegacySessionsList,
+  LegacySessionsWatch,
+} from "../../../fixtures/remote-protocol/sessions-v0.24.0";
 
 const status = {
   agent: "claude" as const,
@@ -70,6 +86,49 @@ describe("the relay's frames", () => {
   });
 });
 
+describe("0.19.0 wire compatibility", () => {
+  test("accepts integer IDs outside the safe range and rejects fractions", () => {
+    expect(RpcIdSchema.parse(Number.MAX_SAFE_INTEGER + 1)).toBe(Number.MAX_SAFE_INTEGER + 1);
+    expect(RpcIdSchema.safeParse(1.5).success).toBe(false);
+    expect(RpcIdSchema.safeParse(Number.POSITIVE_INFINITY).success).toBe(false);
+  });
+
+  test("keeps an absent RPC result and strips unknown fields", () => {
+    expect(RpcResponseSchema.parse({ jsonrpc: "2.0", id: 1, extra: true })).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+    });
+  });
+
+  test("accepts UUID-shaped transfer IDs with legacy variant bits", () => {
+    const { params } = RPC_METHODS["files.read"];
+    const input = {
+      workspaceId: "w",
+      path: "file",
+      transferId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    };
+    expect(params.parse(input)).toEqual(input);
+    expect(params.safeParse({ ...input, transferId: "not-a-uuid" }).success).toBe(false);
+  });
+
+  test("retains unrestricted numbers and validates record values before dropping reserved keys", () => {
+    const { result } = RPC_METHODS["browser.permissions"];
+    expect(PushSendResultSchema.parse(JSON.parse('{"sent":1e400,"skipped":0}'))).toEqual({
+      sent: Number.POSITIVE_INFINITY,
+      skipped: 0,
+    });
+    expect(
+      result.parse(JSON.parse('{"global":{"__proto__":true,"camera":true},"sites":[]}')),
+    ).toEqual({
+      global: { camera: true },
+      sites: [],
+    });
+    expect(result.safeParse(JSON.parse('{"global":{"__proto__":"yes"},"sites":[]}')).success).toBe(
+      false,
+    );
+  });
+});
+
 describe("a sealed message", () => {
   test("a hello, a request, an answer and a notification", () => {
     const hello = {
@@ -106,6 +165,35 @@ describe("a sealed message", () => {
     expect(SealedEnvelopeSchema.safeParse(message).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, epoch: "short" }).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: undefined }).success).toBe(false);
+  });
+
+  test("says its sender's connection, since 0.18.0: a run and a number above 0", () => {
+    const message = { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} };
+    const envelope = { epoch: "A".repeat(22), peer: "B".repeat(22), message };
+    const conn = { boot: "C".repeat(22), n: 1 };
+    expect(SealedEnvelopeSchema.parse({ ...envelope, conn })).toEqual({ ...envelope, conn });
+    expect(SealedEnvelopeSchema.parse(envelope)).toEqual(envelope);
+    for (const bad of [
+      { ...conn, n: 0 },
+      { ...conn, n: 1.5 },
+      { ...conn, boot: "short" },
+      { n: 1 },
+    ]) {
+      expect(SealedEnvelopeSchema.safeParse({ ...envelope, conn: bad }).success).toBe(false);
+    }
+  });
+
+  const run = "R".repeat(22);
+  const other = "S".repeat(22);
+  test.each([
+    ["an older connection of the same run", { boot: run, n: 2 }, { boot: run, n: 3 }, true],
+    ["the same connection number again", { boot: run, n: 3 }, { boot: run, n: 3 }, true],
+    ["a newer connection of the same run", { boot: run, n: 4 }, { boot: run, n: 3 }, false],
+    ["a lower number of another run", { boot: other, n: 1 }, { boot: run, n: 3 }, false],
+    ["no connection said (before 0.18.0)", undefined, { boot: run, n: 3 }, false],
+    ["none heard (before 0.18.0)", { boot: run, n: 1 }, undefined, false],
+  ] as const)("%s: older is %p", (_, conn, heard, older) => {
+    expect(olderConnection(conn, heard)).toBe(older);
   });
 });
 
@@ -187,6 +275,64 @@ describe("the methods", () => {
       new URL("../../../../packages/remote-protocol/package.json", import.meta.url),
     ).json();
     expect(SCHEMA_VERSION).toBe(pkg.version);
+  });
+
+  test("git.status preserves an optional bounded repository root across readers", () => {
+    const { capability, result } = RPC_METHODS["git.status"];
+    const old = { branch: "main", ahead: 0, behind: 0, files: [{ path: "app/main.ts" }] };
+    expect(capability).toBe("git");
+    expect(result.parse(old)).toEqual(old);
+    for (const topLevel of [
+      "/repo",
+      "D:\\Repo",
+      "\\\\server\\share\\repo",
+      `/${"a".repeat(4095)}`,
+    ]) {
+      const next = { ...old, topLevel };
+      expect(result.parse(next)).toEqual(next);
+      expect(result.omit({ topLevel: true }).parse(next)).toEqual(old);
+    }
+    for (const topLevel of ["", null, 123, `/${"a".repeat(4096)}`]) {
+      const { topLevel: discarded, ...status } = result.parse({ ...old, topLevel });
+      expect(discarded).toBeUndefined();
+      expect(status).toEqual(old);
+    }
+    expect(result.safeParse({ ...old, ahead: -1, topLevel: 123 }).success).toBe(false);
+  });
+
+  test("sessions.reorder takes a bounded list of tab IDs for a workspace", () => {
+    const { capability, params, result } = RPC_METHODS["sessions.reorder"];
+    expect(capability).toBe("sessions.reorder");
+    expect(CAPABILITIES).toContain(capability);
+    const order = { workspaceId: "w", tabIds: ["c", "a", "c", "gone"] };
+    expect(params.parse(order)).toEqual(order);
+    expect(params.parse({ ...order, tabIds: [] })).toEqual({ ...order, tabIds: [] });
+    expect(params.safeParse({ tabIds: ["c"] }).success).toBe(false);
+    expect(params.safeParse({ ...order, tabIds: [42] }).success).toBe(false);
+    expect(params.safeParse({ ...order, tabIds: Array(500).fill("c") }).success).toBe(true);
+    expect(params.safeParse({ ...order, tabIds: Array(501).fill("c") }).success).toBe(false);
+    expect(result.parse({})).toEqual({});
+  });
+
+  const receipt = { workspaceId: "w", tabId: "t", upTo: 123 };
+  test.each([
+    ["one entry", [receipt], true],
+    ["the maximum", Array(MAX_MARK_SEEN).fill(receipt), true],
+    ["no entries", [], false],
+    ["over the maximum", Array(MAX_MARK_SEEN + 1).fill(receipt), false],
+    ["missing upTo", [{ workspaceId: "w", tabId: "t" }], false],
+    ["string upTo", [{ ...receipt, upTo: "123" }], false],
+    ["nonfinite upTo", [{ ...receipt, upTo: Infinity }], false],
+  ])("sessions.markSeen validates %s", (_label, seen, valid) => {
+    expect(RPC_METHODS["sessions.markSeen"].params.safeParse({ seen }).success).toBe(valid);
+  });
+
+  test("sessions.markSeen has a capability and can mark zero results", () => {
+    const { capability, result } = RPC_METHODS["sessions.markSeen"];
+    expect(capability).toBe("sessions.markSeen");
+    expect(CAPABILITIES).toContain(capability);
+    expect(MAX_MARK_SEEN).toBe(500);
+    expect(result.parse({ marked: 0 })).toEqual({ marked: 0 });
   });
 
   test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {
@@ -338,6 +484,64 @@ describe("the methods", () => {
     ).toBe(false);
   });
 
+  test("a failed session round-trips and readers on either schema keep its state", () => {
+    const before = { workspaceId: "w", tabId: "t", kind: "codex", title: "Review", state: "idle" };
+    const failed = { ...before, failed: true };
+    const result = RPC_METHODS["sessions.list"].result;
+    const wire = JSON.parse(JSON.stringify(result.parse({ workspaces: [], sessions: [failed] })));
+    expect(result.parse(wire).sessions).toEqual([failed]);
+    expect(RemoteSessionSchema.omit({ failed: true }).parse(wire.sessions[0])).toEqual(before);
+    expect(result.parse({ workspaces: [], sessions: [before] }).sessions).toEqual([before]);
+    expect(RemoteSessionSchema.safeParse({ ...before, failed: false }).success).toBe(false);
+  });
+
+  test("opener metadata is additive on lists and watches and invalid metadata leaves the session", () => {
+    const row = { workspaceId: "w", tabId: "t", kind: "codex", title: "Review", state: "idle" };
+    const openedBy = {
+      workspaceId: "p",
+      tabId: "opener",
+      kind: "terminal",
+      agent: "claude",
+      name: "Prepare release",
+      device: { id: "d", name: "Studio" },
+    };
+    const list = RPC_METHODS["sessions.list"].result;
+    const watch = RPC_METHODS["sessions.watch"].result;
+    const wire = JSON.parse(
+      JSON.stringify({ workspaces: [], sessions: [row, { ...row, openedBy }] }),
+    );
+    expect(list.parse(wire).sessions).toEqual([row, { ...row, openedBy }]);
+    expect(watch.parse({ ...wire, watchId: "w1" }).sessions).toEqual([row, { ...row, openedBy }]);
+    expect(LegacySessionsList.parse(wire).sessions).toEqual([row, row]);
+    expect(LegacySessionsWatch.parse({ ...wire, watchId: "w1" }).sessions).toEqual([row, row]);
+    for (const invalid of [
+      null,
+      "opener",
+      { ...openedBy, workspaceId: "w".repeat(65) },
+      { ...openedBy, tabId: "t".repeat(65) },
+      { ...openedBy, name: "a".repeat(121) },
+      { ...openedBy, device: { id: "d".repeat(65), name: "Studio" } },
+      { ...openedBy, device: { id: "d", name: "a".repeat(121) } },
+    ]) {
+      const sessions = list.parse({
+        workspaces: [],
+        sessions: [{ ...row, openedBy: invalid }],
+      }).sessions;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject(row);
+      expect(sessions[0]?.openedBy).toBeUndefined();
+    }
+    const reference = { workspaceId: "p", tabId: "opener", device: { id: "d" } };
+    expect(RemoteSessionSchema.parse({ ...row, openedBy: reference }).openedBy).toEqual(reference);
+    const result = RemoteSessionSchema.parse({
+      ...row,
+      openedBy: { ...openedBy, kind: "unknown", agent: "unknown" },
+    });
+    expect(result.openedBy).toMatchObject({ tabId: openedBy.tabId, name: openedBy.name });
+    expect(result.openedBy?.kind).toBeUndefined();
+    expect(result.openedBy?.agent).toBeUndefined();
+  });
+
   test("files.read gives a file's bytes piece by piece, at most a chunk at once", () => {
     const read = RPC_METHODS["files.read"];
     const ask = (more: object) =>
@@ -410,6 +614,37 @@ describe("the methods", () => {
     expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
       false,
     );
+  });
+
+  test("a chat's panel and session tell when its app goes on after the usage limit (0.19.0)", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    const resume = { state: "waiting", at: 1_763_200_060_000, resetsAt: 1_763_200_000_000 };
+    expect(ChatPanelSchema.parse({ ...panel, limitResume: resume }).limitResume).toEqual(resume);
+    // One this version cannot read is left out, not the panel.
+    expect(ChatPanelSchema.parse({ ...panel, limitResume: { at: "soon" } })).toEqual(panel);
+    const session = {
+      workspaceId: "w",
+      tabId: "a",
+      kind: "claude",
+      title: "chat",
+      state: "idle",
+    };
+    const list = RPC_METHODS["sessions.list"].result.parse({
+      workspaces: [{ id: "w", name: "ws", path: "/w" }],
+      sessions: [
+        { ...session, limitWait: { at: 5 } },
+        { ...session, tabId: "b", limitWait: { at: "soon" } },
+      ],
+    });
+    expect(list.sessions.map((s) => s.limitWait)).toEqual([{ at: 5 }, undefined]);
+    expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "b"]);
   });
 
   test("a session list leaves out what a newer version adds that this one cannot read", () => {
@@ -628,6 +863,67 @@ describe("the voice socket", () => {
       expect(TranscriptionSchema.parse(t)).toEqual(t as never);
     }
     expect(TranscriptionSchema.safeParse({ id: "tr_1", status: "done" }).success).toBe(false);
+  });
+});
+
+describe("push notifications", () => {
+  test("a phone registers its APNs token and notification kinds", () => {
+    const registration = {
+      service: "apns",
+      token: "a0".repeat(16),
+      environment: "sandbox",
+      locale: "ko",
+      kinds: ["consent", "request"],
+    };
+    expect(PushRegistrationSchema.parse(registration)).toEqual(registration);
+    expect(
+      PushRegistrationSchema.safeParse({ ...registration, token: "A0".repeat(16) }).success,
+    ).toBe(false);
+    expect(PushRegistrationSchema.safeParse({ ...registration, kinds: [] }).success).toBe(false);
+  });
+
+  test("a computer sends one event with a relative TTL and up to 20 recipients", () => {
+    const send = { id: "AbCdEf0123456789_-wxyz", kind: "consent", ttl: 85, to: ["dev-a"] };
+    expect(PushSendSchema.parse(send)).toEqual(send);
+    const all = { id: send.id, kind: send.kind, ttl: 1 };
+    expect(PushSendSchema.parse(all)).toEqual(all);
+    expect(PushSendSchema.parse({ ...send, ttl: 1801 }).ttl).toBe(1801);
+    expect(PushSendSchema.safeParse({ ...send, ttl: 1.5 }).success).toBe(false);
+    for (const id of ["too-short", "A".repeat(44), `${send.id}=`]) {
+      expect(PushSendSchema.safeParse({ ...send, id }).success).toBe(false);
+    }
+    expect(PushSendSchema.safeParse({ ...send, to: [] }).success).toBe(false);
+    expect(PushSendSchema.safeParse({ ...send, to: [""] }).success).toBe(false);
+    const recipients = Array.from({ length: 21 }, (_, index) => `dev-${index}`);
+    expect(PushSendSchema.safeParse({ ...send, to: recipients.slice(0, 20) }).success).toBe(true);
+    expect(PushSendSchema.safeParse({ ...send, to: recipients }).success).toBe(false);
+  });
+
+  test("a send returns counts or reports a duplicate event", () => {
+    const counts = { sent: 1, skipped: 2, reasons: { no_registration: 1, another_reason: 1 } };
+    expect(PushSendResultSchema.parse(counts)).toEqual(counts);
+    expect(PushSendResultSchema.parse({ sent: 1, skipped: 0 })).toEqual({ sent: 1, skipped: 0 });
+    expect(PushSendResultSchema.parse({ duplicate: true })).toEqual({ duplicate: true });
+    expect(PushSendResultSchema.safeParse({ duplicate: false }).success).toBe(false);
+  });
+
+  test("a notification's app data names its version and kind", () => {
+    expect(PUSH_VERSION).toBe(1);
+    expect(CAPABILITIES).toContain("push");
+    expect(PushPayloadSchema.parse({ v: 1, k: "result" })).toEqual({ v: 1, k: "result" });
+    expect(PushPayloadSchema.safeParse({ v: 2, k: "consent" }).success).toBe(false);
+  });
+
+  test("server info keeps push absent, unavailable, or advertised", () => {
+    const older = { signIn: ["apple"], relay: { version: 2 }, voice: null };
+    expect(ServerInfoSchema.parse(older)).toEqual(older);
+    const unavailable = { ...older, push: null };
+    expect(ServerInfoSchema.parse(unavailable)).toEqual(unavailable);
+    const supported = {
+      ...older,
+      push: { version: PUSH_VERSION, environments: ["production", "sandbox", "future"] },
+    };
+    expect(ServerInfoSchema.parse(supported)).toEqual(supported);
   });
 });
 

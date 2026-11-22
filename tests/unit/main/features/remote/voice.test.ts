@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { ServerError, UnreachableError } from "../../../../../src/main/features/remote/errors";
+import { SocketRetryAfter } from "../../../../../src/main/features/remote/retry-after";
 import { ServerRoute } from "../../../../../src/main/features/remote/route";
 import {
   refusalOf,
@@ -8,7 +9,7 @@ import {
   VoiceSessions,
   type VoiceSocket,
 } from "../../../../../src/main/features/remote/voice";
-import type { VoiceEvent } from "../../../../../src/shared/remote/voice";
+import { VOICE_CLOSE_SIGNED_OUT, type VoiceEvent } from "../../../../../src/shared/remote/voice";
 
 const OPEN = 1;
 
@@ -36,9 +37,12 @@ class FakeSocket extends EventEmitter {
     this.emit("message", Buffer.from(JSON.stringify(message)), false);
   }
   /** The server refuses the upgrade. */
-  refuse(statusCode: number, body: object) {
-    const response = new EventEmitter() as EventEmitter & { statusCode: number };
-    response.statusCode = statusCode;
+  refuse(statusCode: number, body: object, retryAfter?: string) {
+    const response = Object.assign(new EventEmitter(), {
+      statusCode,
+      headers: retryAfter === undefined ? {} : { "retry-after": retryAfter },
+      destroy() {},
+    });
     this.emit("unexpected-response", {}, response);
     response.emit("data", Buffer.from(JSON.stringify(body)));
     response.emit("end");
@@ -59,6 +63,8 @@ function setup(options: {
   upload?: (path: string, bytes: Uint8Array, options: unknown) => Promise<unknown>;
   purpose?: "dictation" | "note";
   route?: ServerRoute;
+  retryAfter?: SocketRetryAfter;
+  recheckSignIn?: () => void;
   names?: () => Promise<readonly string[]>;
 }) {
   const sockets: FakeSocket[] = [];
@@ -71,9 +77,11 @@ function setup(options: {
       request: (options.request ?? (async () => ({ ticket: "t-1" }))) as never,
       upload: (options.upload ?? (async () => ({ id: "tr-1" }))) as never,
       route: options.route ?? new ServerRoute("https://nexus.example"),
+      recheckSignIn: options.recheckSignIn ?? (() => {}),
     },
     ...(options.purpose ? { purpose: options.purpose } : {}),
     ...(options.names ? { names: options.names } : {}),
+    ...(options.retryAfter ? { retryAfter: options.retryAfter } : {}),
     emit: (event) => events.push(event),
     socket: (url) => {
       const socket = new FakeSocket(url);
@@ -147,6 +155,95 @@ describe("voice input's socket", () => {
       expect(await started).toMatchObject({ status: "failed", reason });
     }
     expect(refusalOf(500, undefined)).toBe("failed");
+  });
+
+  test.each([
+    ["45", 45_000],
+    ["Thu, 01 Jan 2026 00:00:30 GMT", 30_000],
+    [undefined, 60_000],
+  ] as const)("a voice upgrade 429 with Retry-After %p blocks both kinds of voice", async (header, delay) => {
+    const clock = spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1));
+    let now = 0;
+    const retryAfter = new SocketRetryAfter(() => now);
+    const request = mock(async () => ({ ticket: "mock" }));
+    const dictation = setup({ retryAfter, request });
+    const note = setup({ purpose: "note", retryAfter, request });
+    try {
+      const started = dictation.voice.start("ko");
+      (await dictation.socket()).refuse(429, { error: "rate_limited" }, header);
+      expect(await started).toMatchObject({ status: "failed", reason: "rate-limited" });
+      now = delay - 1;
+      expect(await dictation.voice.start("ko")).toMatchObject({ reason: "rate-limited" });
+      expect(await note.voice.start("en")).toMatchObject({ reason: "rate-limited" });
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(note.sockets).toHaveLength(0);
+
+      now = delay;
+      const next = note.voice.start("en");
+      (await note.socket()).say({
+        t: "ready",
+        format: "pcm_s16le",
+        sampleRate: 16000,
+        maxSeconds: 60,
+      });
+      expect((await next).status).toBe("ready");
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("a ticket 429 also blocks an upgrade whose ticket was already in flight", async () => {
+    const retryAfter = new SocketRetryAfter(() => 0);
+    const pending = Promise.withResolvers<unknown>();
+    const asked = Promise.withResolvers<void>();
+    const note = setup({
+      purpose: "note",
+      retryAfter,
+      request: () => {
+        asked.resolve();
+        return pending.promise;
+      },
+    });
+    const dictation = setup({
+      retryAfter,
+      request: async () => {
+        throw new ServerError(429, undefined, "POST /relay/ticket", 60);
+      },
+    });
+    const starting = note.voice.start("en");
+    await asked.promise;
+    expect(await dictation.voice.start("en")).toMatchObject({ reason: "rate-limited" });
+    pending.resolve({ ticket: "mock" });
+    expect(await starting).toMatchObject({ reason: "rate-limited" });
+    expect(dictation.sockets).toHaveLength(0);
+    expect(note.sockets).toHaveLength(0);
+    expect(retryAfter.remaining()).toBe(60_000);
+  });
+
+  test.each([
+    false,
+    true,
+  ])("a 4001 rechecks sign-in with ready=%p and never reconnects", async (ready) => {
+    const recheckSignIn = mock(() => {});
+    const { voice, events, socket, sockets } = setup({ recheckSignIn });
+    const started = voice.start("en");
+    const s = await socket();
+    if (ready) s.say({ t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 60 });
+    s.close(VOICE_CLOSE_SIGNED_OUT);
+    const result = await started;
+    if (ready) {
+      if (result.status !== "ready") throw new Error("not ready");
+      expect(voice.has(result.id)).toBe(false);
+      expect(events).toEqual([
+        { id: result.id, event: { t: "closed", code: VOICE_CLOSE_SIGNED_OUT } },
+      ]);
+    } else {
+      expect(result).toMatchObject({ status: "failed", reason: "signed-out" });
+      expect(events).toEqual([]);
+    }
+    expect(recheckSignIn).toHaveBeenCalledTimes(1);
+    expect(sockets).toHaveLength(1);
   });
 
   test("does not open a socket signed out, or where the server has no voice", async () => {
@@ -408,6 +505,7 @@ test("an oversized voice upgrade refusal fails and aborts the response", async (
   let aborted = false;
   const response = Object.assign(new EventEmitter(), {
     statusCode: 403,
+    headers: {},
     destroy: () => {
       aborted = true;
     },

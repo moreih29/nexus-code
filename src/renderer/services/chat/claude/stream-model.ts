@@ -8,6 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { claudeTurnResult } from "../../../../shared/claude/turn-result";
+import { claudeTurnFailure, retryReasonOf } from "../api-errors";
 import { type ClaudeGoal, goalFeedbackReason } from "../goal";
 import {
   type AccountInfo,
@@ -199,11 +200,16 @@ function applyOut(
       applyControlResponse(draft, message, seq, at);
       return;
     case "command_lifecycle": {
+      const uuid = str(message.command_uuid);
+      if (!uuid) return;
+      if (message.state === "started") {
+        startSent(draft, uuid, seq, at);
+        return;
+      }
       // A waiting message taken back before the CLI read it.
       if (message.state !== "cancelled") return;
-      const uuid = str(message.command_uuid);
       const index = draft.next.items.findIndex((item) => isWaiting(item) && item.sentUuid === uuid);
-      if (uuid && index >= 0) draft.removeItem(index);
+      if (index >= 0) draft.removeItem(index);
       return;
     }
     case "conversation_reset": {
@@ -230,6 +236,36 @@ function applyOut(
       }
       return;
     }
+  }
+}
+
+/**
+ * The CLI begins a message the app wrote, which it can no longer take back
+ * (cancel_async_message answers false from here). A message read during a
+ * turn is echoed first, and taken by then. A command written during a turn
+ * (/compact, /clear, a skill's) waits for the turn's end, then begins one of
+ * its own, which its result ends: Claude Code 2.1.325 says it started right
+ * after the turn's result, and echoes it only once it is done, after a
+ * compaction's "compacting" status and its boundary. One sent with
+ * priority "now" stops the turn and begins the same way.
+ */
+function startSent(draft: Draft, uuid: string, seq: number, at: number | undefined): void {
+  const m = draft.next;
+  const index = m.items.findIndex(
+    (item) => item.kind === "user" && item.state === "sent" && item.sentUuid === uuid,
+  );
+  if (index < 0) return;
+  const item = m.items[index] as UserItem;
+  if (item.queued) {
+    // It no longer waits above the box: it is read here, after what the turn did.
+    const { queued: _queued, ...read } = item;
+    draft.removeItem(index);
+    draft.push({ ...read, at: at ?? item.at });
+  }
+  if (!m.running && m.process === "running") {
+    m.running = true;
+    m.turn = { id: `claude-${seq}`, startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+    noteTurnActivity(m, at);
   }
 }
 
@@ -265,12 +301,16 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     }
     case "api_retry": {
       if (m.turn) {
+        const status = num(message.error_status);
         m.turn = {
           ...m.turn,
           retry: {
             attempt: num(message.attempt) ?? 1,
             maxRetries: num(message.max_retries),
             delayMs: num(message.retry_delay_ms),
+            ...(at === undefined ? {} : { at }),
+            ...(status === undefined ? {} : { status }),
+            reason: retryReasonOf(status, str(message.error)),
           },
         };
       }
@@ -446,6 +486,15 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
   const when = time(message.timestamp) ?? at;
   if (!parent && applyGoalCommand(draft, message, content, seq, when)) return;
 
+  // An API error Claude Code wrote in the turn's place: an error notice, not
+  // Claude's words; the result after it says the same and adds none.
+  if (!parent && isApiErrorMessage(message)) {
+    const detail = userContent(content).text.trim();
+    takeLimitParams(m, message);
+    pushErrorNotice(draft, detail || str(message.error) || "API error", `n${seq}`, when);
+    return;
+  }
+
   const blocks: AssistantBlock[] = [];
   for (const raw of content) {
     const block = rec(raw);
@@ -484,6 +533,11 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     m.streaming = { ...m.streaming, blocks: {} };
   if (blocks.length === 0) return;
 
+  // Claude can start answering a task notification without echoing a prompt.
+  if (draft.matchSentInputs && m.process === "running" && !m.turn) {
+    m.running = true;
+    m.turn = { id: `claude-${seq}`, startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+  }
   const items = m.items;
   for (let i = items.length - 1; i >= 0 && i >= items.length - 8; i--) {
     const item = items[i];
@@ -769,9 +823,11 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
     m.processCostUsd = cost;
   }
+  const failure = outcome === "error" ? claudeTurnFailure(message) : undefined;
   m.lastResult = {
     subtype,
     isError,
+    ...(turnId ? { turnId } : {}),
     durationMs: num(message.duration_ms),
     numTurns: num(message.num_turns),
     costUsd: num(message.total_cost_usd),
@@ -779,11 +835,45 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     outcome,
     at,
     ...(outcome === "error" ? { error: detail } : {}),
+    ...(failure ? { failure } : {}),
   };
-  if (outcome === "error") {
-    draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
-  }
+  if (outcome === "error") pushErrorNotice(draft, detail, `n${seq}`, at);
   finishSubmittedTurn(draft, turnId, outcome === "error" ? detail : undefined);
+}
+
+/** Claude Code's message for an API error that ended the turn (`is_api_error_message`). */
+function isApiErrorMessage(message: Rec): boolean {
+  return (
+    message.is_api_error_message === true ||
+    (str(message.error) !== undefined && str(rec(message.message)?.model) === "<synthetic>")
+  );
+}
+
+/**
+ * The plan's limit an API error tells (`api_error_params.rate_limit_info`),
+ * as a rate_limit_event would: a transcript read again has no such event.
+ */
+function takeLimitParams(m: ChatModel, message: Rec): void {
+  const info = rec(rec(message.api_error_params)?.rate_limit_info);
+  const status = str(info?.status);
+  if (!info || !status) return;
+  m.rateLimit = {
+    status,
+    resetsAt: num(info.resetsAt),
+    rateLimitType: str(info.rateLimitType),
+  };
+}
+
+/** An error notice, once: the API error and the result after it tell the same. */
+function pushErrorNotice(
+  draft: Draft,
+  detail: string | undefined,
+  key: string,
+  at: number | undefined,
+): void {
+  const last = draft.next.items.at(-1);
+  if (last?.kind === "notice" && last.code === "error" && last.detail === detail) return;
+  draft.push({ kind: "notice", key, code: "error", detail, at });
 }
 
 /**

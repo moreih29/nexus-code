@@ -406,8 +406,11 @@ describe("codex model", () => {
     ]);
     expect(pending.permissionMode).toBe("fullAccess");
     expect(pending.confirmedPermissionMode).toBe("auto");
+    expect(pending.sandboxMode).toBe("auto");
     const running = run([out({ id: "app-turn", result: { turn: { id: "t1" } } })], pending);
     expect(running.confirmedPermissionMode).toBe("fullAccess");
+    expect(running.sandboxMode).toBe("fullAccess");
+    expect(run([sys({ event: "start", pid: 2 })], running).sandboxMode).toBeUndefined();
     expect(run([sys({ event: "start", pid: 2 })], running).confirmedPermissionMode).toBeUndefined();
     const stillAsks = run(
       [
@@ -422,6 +425,7 @@ describe("codex model", () => {
       running,
     );
     expect(stillAsks.confirmedPermissionMode).toBeUndefined();
+    expect(stillAsks.sandboxMode).toBe("fullAccess");
   });
 
   test("a turn: the message, streamed thinking and answer, a command", () => {
@@ -812,14 +816,49 @@ describe("codex model", () => {
     ]);
   });
 
-  test("a retried error shows on the turn, not as a notice", () => {
-    const m = run([
+  test("a retried error shows on the turn, not as a notice, until the model answers", () => {
+    // As codex 0.170.0 tells a 429 it tries again after.
+    const retrying = (message: string) =>
+      note("error", {
+        threadId: T,
+        turnId: "turn_1",
+        error: {
+          message,
+          codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 429 } },
+          additionalDetails: "exceeded retry limit, last status: 429 Too Many Requests",
+        },
+        willRetry: true,
+      });
+    const m = run([...started(), ...sendTurn("go"), retrying("Reconnecting... 2/5")]);
+    expect(m.turn?.retry).toEqual({
+      attempt: 2,
+      maxRetries: 5,
+      at: 1000,
+      status: 429,
+      reason: "rate_limit",
+    });
+    expect(m.items.some((i) => i.kind === "notice")).toBe(false);
+
+    // A dropped stream has no status, and an error without a count is counted.
+    const dropped = run([
       ...started(),
       ...sendTurn("go"),
       note("error", { threadId: T, turnId: "turn_1", error: { message: "busy" }, willRetry: true }),
     ]);
-    expect(m.turn?.retry).toEqual({ attempt: 1 });
-    expect(m.items.some((i) => i.kind === "notice")).toBe(false);
+    expect(dropped.turn?.retry).toEqual({ attempt: 1, at: 1000, reason: "connection" });
+
+    const answered = run(
+      [
+        note("item/agentMessage/delta", {
+          threadId: T,
+          turnId: "turn_1",
+          itemId: "a",
+          delta: "hi",
+        }),
+      ],
+      m,
+    );
+    expect(answered.turn?.retry).toBeUndefined();
   });
 
   const notResumed = (): ChatLine[] => [

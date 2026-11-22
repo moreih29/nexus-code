@@ -291,8 +291,8 @@ function ProfileConnectionModels({
   const grid = cn(
     "grid items-center gap-1.5",
     claude
-      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem_3rem_1.5rem]"
-      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_6.5rem_3rem_1.5rem]",
+      ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_3rem_1.5rem]"
+      : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_7rem_3rem_1.5rem]",
   );
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-3">
@@ -429,6 +429,11 @@ function ProfileConnectionModels({
       {draft.reasoningModelIdError && (
         <p className={errorClass}>{t("profiles.connection.errors.reasoningModelId")}</p>
       )}
+      <p className={hintClass}>
+        {t(
+          claude ? "profiles.connection.reasoningHintClaude" : "profiles.connection.reasoningHint",
+        )}
+      </p>
       <Button
         variant="ghost"
         size="sm"

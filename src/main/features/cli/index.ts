@@ -5,10 +5,12 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { BrowserWindow } from "electron";
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
+  CliRequestRefSchema,
   CliRequestSchema,
   type CliResult,
 } from "../../../shared/cli/protocol";
@@ -34,7 +36,11 @@ import { formatPick, type PickedElement } from "./browser/pick";
 import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
-import { type ChatAgentContext, chatAgentContext } from "./commands/agent-context";
+import {
+  type ChatAgentContext,
+  chatAgentContext,
+  linkedNoteGuidance,
+} from "./commands/agent-context";
 import { type ChangeRequest, CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import { ConsentPrompts } from "./consent-prompts";
 import {
@@ -49,7 +55,8 @@ import {
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { commandName, commandWaits, runCli } from "./registry";
-import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { RendererBridge } from "./renderer-bridge";
+import { SessionsRevisions } from "./sessions-revisions";
 import { noteSlowRequest } from "./slow-log";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
@@ -111,6 +118,7 @@ export interface SetupCliFeatureOptions {
   };
   /** The user's other computers, once the remote is set up; none before. */
   remote?: () => CliRemote | null;
+  onConsentsChanged?: () => void;
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
@@ -124,7 +132,7 @@ export interface SetupCliFeatureOptions {
     agentContext: boolean;
   };
   /** The app window the renderer side of the CLI runs in. */
-  getWindow: () => UiWindow | null;
+  getWindow: () => Pick<BrowserWindow, "webContents"> | null;
   /** Whether the app has focus. */
   isAppFocused: () => boolean;
   /** Brings the app's window forward. */
@@ -144,7 +152,11 @@ export interface SetupCliFeatureOptions {
 export interface CliFeature {
   /** What the commands work with: the remote serves its own requests with them too. */
   readonly services: CliServices;
-  agentContextForChat(workspaceId: string, tabId: string): ChatAgentContext | undefined;
+  agentContextForChat(
+    workspaceId: string,
+    tabId: string,
+    session?: string,
+  ): Promise<ChatAgentContext | undefined>;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
@@ -172,15 +184,28 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const startedAgents = new StartedAgents(agentHost);
   // Every consent prompt, kept by id while it waits, for another device to answer too.
   const consents = new ConsentPrompts({
-    ask: (args, timeoutMs) => bridge.ask("consent.ask", args, timeoutMs),
+    ask: (args, timeoutMs, signal) => bridge.ask("consent.ask", args, timeoutMs, signal),
     settle: async (id, answer, by) =>
       (await bridge.ask("consent.settle", { id, answer, by })).settled,
+    onChange: () => options.onConsentsChanged?.(),
   });
-  const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
-    (await consents.ask({ ...request, timeoutMs })).answer;
+  const askConsent = async (
+    { fromWorkspaceId, fromTabId, toWorkspaceId, change }: ChangeRequest,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) =>
+    (
+      await consents.ask(
+        { fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs },
+        undefined,
+        signal,
+      )
+    ).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
+    sandboxSession: (workspaceId, tabId, signal) =>
+      bridge.ask("tab.sandboxSession", { workspaceId, tabId }, undefined, signal),
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);
@@ -197,10 +222,17 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser.watch(tabId, contents),
   );
 
+  const sessionsRevision = new SessionsRevisions(bridge, () => options.getWindow()?.webContents);
+
   register("cli", {
     call: {
-      uiRespond: async (args: unknown) => {
-        bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args));
+      uiRespond: async (args: unknown, ctx) => {
+        bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args), ctx?.sender?.id);
+        return ipcOk(undefined);
+      },
+      sessionsChanged: async (args: unknown, ctx) => {
+        const { revision } = validateArgs(ipcContract.cli.call.sessionsChanged.args, args);
+        if (ctx?.sender) sessionsRevision.saw(ctx.sender, revision);
         return ipcOk(undefined);
       },
       activity: async () => ipcOk(activity.snapshot()),
@@ -259,6 +291,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const services: CliServices = {
     appVersion: options.appVersion,
+    sessionsRevision,
     profileConnections: options.profileConnections,
     listWorkspaces: () => workspaceManager.list(),
     addWorkspace: async (location, name, color) => {
@@ -350,8 +383,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       );
       return read.kind === "ok" ? read.base64 : null;
     },
-    allowChange: (request) => consent.check(request),
-    askUser: (request) => consent.ask(request),
+    allowChange: (request, signal) => consent.check(request, signal),
+    askUser: (request, signal) => consent.ask(request, signal),
     agentContextEnabled: () => options.settings().enabled && options.settings().agentContext,
     claudeInstructions: options.claudeInstructions,
     terminalClaudeInstructions: options.terminalClaudeInstructions,
@@ -389,7 +422,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const off = agentHost.on("cli.request", (payload) => {
     const parsed = CliRequestSchema.safeParse(payload);
     if (!parsed.success) {
-      log.warn("Dropped a malformed cli.request");
+      log.warn("Rejected a malformed cli.request");
+      const ref = CliRequestRefSchema.safeParse(payload);
+      if (ref.success) {
+        const { workspaceId, requestId } = ref.data;
+        void respond(workspaceId, requestId, {
+          stdout: "",
+          stderr: "nexus: invalid CLI request\n",
+          exitCode: 1,
+        }).catch(() => log.warn("Could not reply to a malformed cli.request"));
+      }
       return;
     }
     const { requestId, workspaceId, tabId, request, verified } = parsed.data;
@@ -423,8 +465,17 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   return {
     services,
-    agentContextForChat: (workspaceId, tabId) =>
-      chatAgentContext(options.settings(), services, workspaceId, tabId),
+    agentContextForChat: async (workspaceId, tabId, session) => {
+      const context = chatAgentContext(options.settings(), services, workspaceId, tabId);
+      if (!context) return undefined;
+      const linked = await linkedNoteGuidance(services.notes, {
+        workspaceId,
+        tabId,
+        agent: "codex",
+        session,
+      });
+      return linked ? { ...context, status: `${context.status}\n${linked}` } : context;
+    },
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();
@@ -435,6 +486,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       claudeExit.dispose();
       waits.dispose();
       startedAgents.dispose();
+      sessionsRevision.dispose();
       bridge.dispose();
     },
   };

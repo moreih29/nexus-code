@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  IntegerSchema,
+  NonnegativeIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 import { DocumentUriSchema, PositionSchema, RangeSchema } from "./primitives";
 
 export const TextDocumentIdentifierSchema = z.object({
@@ -7,14 +11,14 @@ export const TextDocumentIdentifierSchema = z.object({
 export type TextDocumentIdentifier = z.infer<typeof TextDocumentIdentifierSchema>;
 
 export const VersionedTextDocumentIdentifierSchema = TextDocumentIdentifierSchema.extend({
-  version: z.number().int().nullable(),
+  version: IntegerSchema.nullable(),
 });
 export type VersionedTextDocumentIdentifier = z.infer<typeof VersionedTextDocumentIdentifierSchema>;
 
 export const TextDocumentItemSchema = z.object({
   uri: DocumentUriSchema,
   languageId: z.string(),
-  version: z.number().int(),
+  version: IntegerSchema,
   text: z.string(),
 });
 export type TextDocumentItem = z.infer<typeof TextDocumentItemSchema>;
@@ -32,22 +36,18 @@ export const TextDocumentSyncKindSchema = z.union([
 ]);
 export type TextDocumentSyncKind = z.infer<typeof TextDocumentSyncKindSchema>;
 
-export const FullTextDocumentContentChangeEventSchema = z
-  .object({
-    text: z.string(),
-  })
-  .strict();
+export const FullTextDocumentContentChangeEventSchema = z.strictObject({
+  text: z.string(),
+});
 export type FullTextDocumentContentChangeEvent = z.infer<
   typeof FullTextDocumentContentChangeEventSchema
 >;
 
-export const IncrementalTextDocumentContentChangeEventSchema = z
-  .object({
-    range: RangeSchema,
-    rangeLength: z.number().int().nonnegative().optional(),
-    text: z.string(),
-  })
-  .strict();
+export const IncrementalTextDocumentContentChangeEventSchema = z.strictObject({
+  range: RangeSchema,
+  rangeLength: NonnegativeIntegerSchema.optional(),
+  text: z.string(),
+});
 export type IncrementalTextDocumentContentChangeEvent = z.infer<
   typeof IncrementalTextDocumentContentChangeEventSchema
 >;
@@ -58,7 +58,7 @@ export const TextDocumentContentChangeEventSchema = z.union([
 ]);
 export type TextDocumentContentChangeEvent = z.infer<typeof TextDocumentContentChangeEventSchema>;
 
-export const ServerCapabilitiesSchema = z.record(z.unknown());
+export const ServerCapabilitiesSchema = z.record(z.string(), z.unknown());
 export type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
 
 // Renderer → main IPC argument shape for position-scoped LSP requests

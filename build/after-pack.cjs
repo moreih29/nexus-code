@@ -1,13 +1,9 @@
 // electron-builder afterPack 훅.
 //
-// extraResources(dist/agent)를 .app/Contents/Resources/agent 로 복사할 때
-// 실행 비트(+x)가 떨어져, 번들된 Go 에이전트 바이너리와 bin/ 래퍼가 0644 로
-// 들어간다. 로컬 채널(local-channel.ts)은 이 바이너리를 자식 프로세스로 spawn
-// 하므로, +x 가 없으면 EACCES 로 실패하고 "Remote agent failed to start" 로
-// 표면화된다. (SSH 업로드 경로는 transport.ts 에서 별도로 chmod 755 하므로 무관.)
-//
-// 여기서 패킹된 .app 안의 해당 파일들에 0o755 를 복원한다. DMG/zip 은 POSIX
-// 권한을 보존하므로 이 시점에 고치면 배포본까지 그대로 전달된다.
+// The release workflow's agent artifact can arrive with files set to 0644.
+// Restore the execute bits of the bundled agent binaries and bin/ wrappers
+// before building the macOS and Linux installers. Otherwise the app cannot
+// spawn the agent (EACCES) from a read-only or system-owned install.
 //
 // On Windows it removes the binaries built for the other architecture
 // (dropOtherWindowsArch).
@@ -35,7 +31,7 @@ exports.default = async function afterPack(context) {
     dropOtherWindowsArch(appOutDir, arch);
     return;
   }
-  if (electronPlatformName !== "darwin") return;
+  if (electronPlatformName !== "darwin" && electronPlatformName !== "linux") return;
 
   const agentDir = path.join(resources, "agent");
 
@@ -54,8 +50,8 @@ exports.default = async function afterPack(context) {
     }
   }
 
-  // bin/ 아래 실행 파일(claude 래퍼 등). runtime/·lsp/ 는 tar.gz 라 런타임에
-  // 별도 권한으로 풀리므로 대상이 아니다.
+  // The bin/ wrappers launch directly. Local LSP entries are read as scripts
+  // by Electron, and the SSH runtime/LSP archives carry their own modes.
   const binDir = path.join(agentDir, "bin");
   if (fs.existsSync(binDir)) {
     for (const entry of fs.readdirSync(binDir, { withFileTypes: true })) {

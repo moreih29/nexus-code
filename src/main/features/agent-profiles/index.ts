@@ -7,12 +7,7 @@ import {
   connectionKeyTarget,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
-import {
-  type AgentProfile,
-  EMPTY_AGENT_PROFILES,
-  PROFILE_AGENTS,
-  profilesOf,
-} from "../../../shared/agent-profiles/profiles";
+import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -32,14 +27,6 @@ import {
 const c = ipcContract.agentProfiles.call;
 
 export { findProfile } from "./connection-save";
-
-export function profileKeyIds(state: StateService): ReadonlySet<string> {
-  return new Set(
-    PROFILE_AGENTS.flatMap((agent) =>
-      profilesOf(state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES, agent).map(({ id }) => id),
-    ),
-  );
-}
 
 export function registerAgentProfilesChannel(
   state: StateService,

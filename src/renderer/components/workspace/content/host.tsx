@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
@@ -16,10 +16,10 @@ import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import { retainPanelDirectoryWatch } from "@/state/operations/files";
 import { useAgentViewStore } from "@/state/stores/agent-view";
-import type { Tab } from "@/state/stores/tabs";
+import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { relPath } from "@/utils/path";
-import { NoteEditor } from "../../notes/note-editor";
+import { NoteTab } from "../../notes/note-tab";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
 import { EditorView, ImageEditorView } from "./editor-view";
@@ -30,12 +30,15 @@ import { PdfEditorView } from "./pdf-editor-view";
 import { PptxEditorView } from "./pptx-editor-view";
 import { AGENT_VIEW_SLOTS, useSlotElement } from "./slot-registry";
 import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
-import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
+
+const TerminalView = lazy(() =>
+  import("./terminal-view").then(({ TerminalView }) => ({ default: TerminalView })),
+);
 
 interface ContentHostProps {
   workspaceId: string;
-  tab: Tab;
+  tabId: string;
   ownerLeafId: string | null;
   isActiveTab: boolean;
   isWorkspaceActive: boolean;
@@ -91,18 +94,19 @@ interface ContentHostProps {
  * across DOM detach/reattach. TerminalView refresh() (called on parent
  * change) handles that.
  */
-export function ContentHost({
+export const ContentHost = memo(function ContentHost({
   workspaceId,
-  tab,
+  tabId,
   ownerLeafId,
   isActiveTab,
   isWorkspaceActive,
 }: ContentHostProps) {
+  const tab = useTabsStore((s) => s.byWorkspace[workspaceId]?.[tabId]);
   // While the agent view is shown it decides alone: the tab shows in the
   // panel that has it in front, and is parked everywhere else. Undefined
   // while the workspaces are shown.
   const agentLeafId = useAgentViewStore((s) =>
-    s.mode === "agents" ? leafShowing(s.root, sessionKey(workspaceId, tab.id)) : undefined,
+    s.mode === "agents" ? leafShowing(s.root, sessionKey(workspaceId, tabId)) : undefined,
   );
   const inAgentView = agentLeafId !== undefined;
   const placedLeafId = inAgentView ? agentLeafId : ownerLeafId;
@@ -112,7 +116,7 @@ export function ContentHost({
   const currentParent = isVisible ? (slotEl ?? parkEl) : parkEl;
 
   const panelFilePath =
-    agentLeafId && tab.type === "editor" && tab.props.origin !== "external"
+    agentLeafId && tab?.type === "editor" && tab.props.origin !== "external"
       ? tab.props.filePath
       : null;
   const workspaceRoot = useWorkspacesStore((s) =>
@@ -139,7 +143,7 @@ export function ContentHost({
   // value derived from props is.
   const [shown, setShown] = useState(isVisible);
   if (isVisible && !shown) setShown(true);
-  const deferred = !shown && builtWhenShown(tab);
+  const deferred = !shown && tab !== undefined && builtWhenShown(tab);
 
   // Stable per-tab portal target. Created once on first render and reused
   // for the component's entire lifetime. Use lazy-init via ref so we don't
@@ -177,7 +181,7 @@ export function ContentHost({
   // Only a terminal and a browser are told where they are placed; the
   // others would re-render for nothing each time the agent view comes or
   // goes, which moves every tab's placement.
-  const placed = tab.type === "terminal" || tab.type === "browser";
+  const placed = tab?.type === "terminal" || tab?.type === "browser";
   const leafId = placed ? placedLeafId : null;
   const parentEl = placed ? currentParent : null;
 
@@ -185,7 +189,7 @@ export function ContentHost({
   // pin and preview state are the tab bar's, so a title that changes (a
   // note's typed in, a terminal's from its shell) leaves the view as it is.
   // biome-ignore lint/correctness/useExhaustiveDependencies: what the view reads of the tab
-  const viewTab = useMemo(() => tab, [tab.id, tab.type, tab.props]);
+  const viewTab = useMemo(() => tab, [tab?.id, tab?.type, tab?.props]);
 
   // No CSS-based visibility masking on the inner wrapper: when the tab is
   // not visible, its portalTarget lives in the view park (off-screen, inert,
@@ -199,19 +203,21 @@ export function ContentHost({
   // for its own stores and contexts.
   const inner = useMemo(() => {
     const tab = viewTab;
-    if (deferred) return null;
+    if (!tab || deferred) return null;
     const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
     return (
       <div className="absolute inset-0">
         {tab.type === "terminal" ? (
-          <TerminalView
-            workspaceId={workspaceId}
-            tabId={tab.id}
-            cwd={tab.props.cwd}
-            ownerLeafId={leafId}
-            parentEl={parentEl}
-            isVisible={isVisible}
-          />
+          <Suspense fallback={null}>
+            <TerminalView
+              workspaceId={workspaceId}
+              tabId={tab.id}
+              cwd={tab.props.cwd}
+              ownerLeafId={leafId}
+              parentEl={parentEl}
+              isVisible={isVisible}
+            />
+          </Suspense>
         ) : tab.type === "editor" ? (
           // key on filePath: the preview-slot reuse path swaps props.filePath on
           // the same Tab id, so without a key the EditorView would keep the same
@@ -240,6 +246,7 @@ export function ContentHost({
             />
           ) : mediaKind ? (
             <MediaEditorView
+              tabId={tab.id}
               key={tab.props.filePath}
               filePath={tab.props.filePath}
               workspaceId={workspaceId}
@@ -323,14 +330,19 @@ export function ContentHost({
             isVisible={isVisible}
           />
         ) : tab.type === "note" ? (
-          <NoteEditor workspaceId={workspaceId} tabId={tab.id} noteId={tab.props.noteId} />
+          <NoteTab
+            workspaceId={workspaceId}
+            tabId={tab.id}
+            noteId={tab.props.noteId}
+            isVisible={isVisible}
+          />
         ) : null}
       </div>
     );
   }, [viewTab, workspaceId, isVisible, leafId, parentEl, deferred]);
 
   return createPortal(inner, portalTarget);
-}
+});
 
 /**
  * Whether the tab is a viewer, built only once it shows: an image, media, a

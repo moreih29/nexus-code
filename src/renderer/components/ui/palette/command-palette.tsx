@@ -193,6 +193,8 @@ export function CommandPalette<TItem extends PaletteItem>({
       dimmed={snapshot.dimmed ?? false}
       emptyQueryMessage={source?.emptyQueryMessage ?? t("palette.no_workspace")}
       noResultsMessage={source?.noResultsMessage ?? t("palette.no_results")}
+      errorMessage={status === "error" ? source?.errorMessage?.(snapshot.error) : undefined}
+      maxQueryLength={source?.maxQueryLength}
       onQueryChange={setQuery}
       onKeyDown={handleKeyDown}
       onOverlayClick={onClose}

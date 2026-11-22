@@ -24,15 +24,139 @@ import {
   SHARED_BY_DEFAULT,
   suggestedProfileDir,
 } from "../../../../shared/agent-profiles/profiles";
+import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { expandHome, inspectLocalFolder, localDefaultDir } from "../../agent-profiles/local";
-import { CliUsageError, type FlagValues } from "../args";
-import { type CliContext, CliError } from "../context";
-import { table } from "../format";
+import { CliUsageError, exactArgs, type FlagValues } from "../args";
+import { type CliContext, CliError, resolveWorkspace } from "../context";
+import { ago, oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
-import { readInstructionsFile } from "./chat";
+import {
+  askDevice,
+  DEVICE_FLAG,
+  deviceFlag,
+  deviceRef,
+  peerWorkspace,
+  requirePeerCli,
+  resolveDevice,
+} from "../remote";
+import { mayExecute } from "../sandbox";
+import { chatAgentFlag, readInstructionsFile } from "./chat";
+import { WORKSPACE_FLAG } from "./flags";
+
+type ProfileUsageResult = CliUiOps["chat.usage"]["result"];
+
+const USAGE_STATUS: Record<ProfileUsageResult["profiles"][number]["status"], string> = {
+  fresh: "Fresh",
+  stale: "Stale",
+  unavailable: "No usage snapshot",
+  "not-subscription": "No subscription",
+};
+
+function usageResetText(at: number, now: number): string {
+  if (at <= now) return `Reset ${ago(at, now)}`;
+  const seconds = Math.ceil((at - now) / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours >= 24) {
+    const remainingHours = hours % 24;
+    return `Resets in ${Math.floor(hours / 24)}d${remainingHours ? ` ${remainingHours}h` : ""}`;
+  }
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return `Resets in ${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ""}`;
+  }
+  return `Resets in ${minutes ? `${minutes}m` : `${seconds}s`}`;
+}
+
+function usageText({ profiles }: ProfileUsageResult, now: number): string {
+  return profiles
+    .map(({ id, name, agent, status, fetchedAt, limits }) => {
+      const header = [agent, `${oneLine(name, 80)} (${oneLine(id, 64)})`, USAGE_STATUS[status]];
+      if (fetchedAt !== undefined) header.push(`Observed ${ago(fetchedAt, now)}`);
+      const windows = limits.map((limit) => {
+        const label =
+          limit.kind === "session" || (limit.kind === "window" && limit.windowMins === 300)
+            ? "5-hour session"
+            : limit.kind === "weekly" || limit.kind === "weekly_scoped"
+              ? "Weekly"
+              : limit.windowMins
+                ? `${limit.windowMins}-minute window`
+                : oneLine(limit.kind, 80);
+        const scoped = limit.scope ? `${label} (${oneLine(limit.scope, 80)})` : label;
+        const parts = [`${scoped} ${limit.percent}% used`];
+        if (limit.resetsAt !== undefined) parts.push(usageResetText(limit.resetsAt, now));
+        if (limit.fetchedAt !== fetchedAt) parts.push(`Observed ${ago(limit.fetchedAt, now)}`);
+        if (limit.stale) parts.push("Stale");
+        return `  ${parts.join(" · ")}`;
+      });
+      return [header.join(" · "), ...windows].join("\n");
+    })
+    .join("\n\n");
+}
+
+export const chatUsage: CliCommand = {
+  path: ["chat", "usage"],
+  summary: "Show subscription limits by agent profile",
+  details:
+    "Shows the last usage snapshot on the device or the selected workspace's host.\n" +
+    "A window is stale after two minutes or once its reset time passes.\n" +
+    "Use --refresh to ask the agent program without opening a chat tab.\n" +
+    "Refreshes follow the app's read intervals and retry delays.\n" +
+    "Remote reads require a device that serves profile usage and accepts agent requests.",
+  flags: {
+    agent: { type: "string", value: "AGENT", description: "Filter by claude or codex" },
+    profile: { type: "string", value: "NAME", description: "Filter by profile name or id" },
+    refresh: { type: "boolean", description: "Refresh usage through the provider's CLI" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const profile = typeof flags.profile === "string" ? flags.profile.trim() : undefined;
+    if (profile !== undefined && (!profile || profile.length > 64)) {
+      throw new CliUsageError("--profile takes a profile name or id of up to 64 characters");
+    }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device, "profiles.usage");
+    const workspace =
+      typeof flags.workspace === "string"
+        ? device
+          ? await peerWorkspace(ctx, device, flags.workspace)
+          : resolveWorkspace(ctx, flags.workspace)
+        : undefined;
+    const refresh = flags.refresh === true;
+    const params = {
+      ...(agent ? { agent } : {}),
+      ...(profile ? { profile } : {}),
+      ...(workspace ? { workspaceId: workspace.id } : {}),
+      ...(refresh ? { refresh } : {}),
+    };
+    if (!device && refresh) {
+      await mayExecute(
+        ctx,
+        resolveWorkspace(ctx, flags.workspace as string | undefined),
+        { kind: "chatSettings" },
+        { skipWorkspacePolicy: true },
+      );
+    }
+    const result = device
+      ? await askDevice(ctx, device, "profiles.usage", params, ctx.signal)
+      : await ctx.services.ui(
+          "chat.usage",
+          params,
+          refresh ? PROFILE_USAGE_REFRESH_TIMEOUT_MS : undefined,
+        );
+    return output(
+      usageText(result, ctx.services.clock.now()),
+      { ...params, ...result, ...(device ? { device: deviceRef(device) } : {}) },
+      { records: result.profiles },
+    );
+  },
+};
 
 export function profileTable(
   rows: readonly {

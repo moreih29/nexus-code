@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 
 /** The hosts an SSH workspace runs on. */
 export const SshHostOsSchema = z.enum(["linux", "darwin"]);
@@ -12,7 +13,7 @@ export const AgentArtifactPlatformSchema = z.object({
 });
 
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
-const ArtifactSizeSchema = z.number().int().nonnegative();
+const ArtifactSizeSchema = NonnegativeIntegerSchema;
 
 export const AgentBinaryManifestEntrySchema = AgentArtifactPlatformSchema.extend({
   path: z.string().min(1),

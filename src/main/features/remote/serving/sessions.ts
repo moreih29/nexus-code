@@ -1,22 +1,34 @@
 import {
   MAX_AGENT_DESCRIPTION,
   MAX_SESSION_AGENTS,
+  MAX_SESSION_OPENER_NAME,
   type RemoteSession,
   type RemoteSessionAgent,
   type RemoteWorkspace,
+  RpcErrorCode,
+  type RpcParams,
+  type RpcRequest,
   type RpcResult,
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../../shared/claude/activity";
-import type { CliChatState, CliTabInfo } from "../../../../shared/cli/ui";
+import type {
+  CliChatState,
+  CliSessionsSnapshotCursor,
+  CliSessionTab,
+  CliUiOps,
+} from "../../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
-import type { CliServices } from "../../cli/context";
+import type { CliServices, SessionsRenderer, SessionsRevision } from "../../cli/context";
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
-import { oneLine } from "./common";
-import { ReadBudget } from "./read-budget";
+import { RpcFailure } from "../room";
+import { fitSessionReply } from "../session-list-size";
+import { SESSIONS_POLL_MS } from "../session-watches";
+import { oneLine, unavailable, workspaceOf } from "./common";
+import { RENDERER_READ_MAX_MS, ReadBudget } from "./read-budget";
 
 /** A chat's state as the agent lists show it. */
 const CHAT_STATES: Record<CliChatState, SessionState> = {
@@ -83,76 +95,324 @@ function agentsField(
   return agents ? { agents } : {};
 }
 
-const MAX_CONCURRENT_UI_READS = 8;
+const UNREAD_RESULTS_MAX_AGE_MS = 30_000;
 
-/** Keeps renderer requests bounded and puts their results back in input order. */
-async function gather<T, R>(
-  items: readonly T[],
-  budget: ReadBudget,
-  read: (item: T) => Promise<R>,
-) {
-  const results: (R | undefined)[] = Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length && budget.remaining() > 0) {
-      const index = next++;
-      results[index] = await read(items[index] as T);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(items.length, MAX_CONCURRENT_UI_READS) }, worker),
-  );
-  return { results, skipped: items.length - next };
+type UnreadResults = CliUiOps["sessions.results"]["result"]["unread"];
+const lastUnreadResults = new WeakMap<
+  CliServices | SessionsRenderer,
+  { startedAt: number; unread: UnreadResults }
+>();
+
+/**
+ * The unread map a read started at `startedAt` gave, kept for the reads
+ * after it; when it gave none, the last one kept, for a while. `readAt`:
+ * when the read of the map used started.
+ */
+function unreadResults(
+  source: CliServices | SessionsRenderer | undefined,
+  startedAt: number,
+  unread: UnreadResults | undefined,
+): { unread?: UnreadResults; readAt: number } {
+  if (!source) return { unread, readAt: startedAt };
+  const last = lastUnreadResults.get(source);
+  if (unread && (!last || startedAt >= last.startedAt)) {
+    lastUnreadResults.set(source, { startedAt, unread });
+    return { unread, readAt: startedAt };
+  }
+  if (last && performance.now() - last.startedAt < UNREAD_RESULTS_MAX_AGE_MS) {
+    return { unread: last.unread, readAt: last.startedAt };
+  }
+  lastUnreadResults.delete(source);
+  return { readAt: startedAt };
 }
 
-async function chatSession(
+interface Receipt {
+  readonly upTo: number;
+  readonly requestedAt: number;
+  /** When the renderer took it; Infinity until it answers. */
+  takenAt: number;
+}
+
+/**
+ * Pending receipts are dropped after this even if the renderer never answers;
+ * a taken one is kept as long as an unread map read before it may be used.
+ */
+const RECEIPT_MAX_AGE_MS = UNREAD_RESULTS_MAX_AGE_MS;
+
+/**
+ * The read receipts other devices sent here (sessions.markSeen), by
+ * workspace and tab, for a short while: an unread map read before the
+ * renderer took one (a list being read as it came, a reused read, the map
+ * kept when a read fails) must not list what it covers as a new result
+ * again once the receipt is in.
+ */
+const receipts = new WeakMap<SessionsRevision, Map<string, Receipt[]>>();
+
+const receiptKey = (workspaceId: string, tabId: string) => `${workspaceId}\0${tabId}`;
+
+function liveReceipts(revisions: SessionsRevision): Map<string, Receipt[]> {
+  let byTab = receipts.get(revisions);
+  if (!byTab) {
+    byTab = new Map();
+    receipts.set(revisions, byTab);
+  }
+  const now = performance.now();
+  for (const [key, list] of byTab) {
+    const live = list.filter(
+      (r) =>
+        now - r.requestedAt < RECEIPT_MAX_AGE_MS ||
+        (Number.isFinite(r.takenAt) && now - r.takenAt < RECEIPT_MAX_AGE_MS),
+    );
+    if (live.length === 0) byTab.delete(key);
+    else if (live.length < list.length) byTab.set(key, live);
+  }
+  return byTab;
+}
+
+/**
+ * Keeps another device's receipts from now: the lists made while the
+ * renderer takes them, and those after from unread maps read before,
+ * leave what they cover read. `taken` once the renderer has; `failed`
+ * when it did not, and the receipts count for nothing.
+ */
+export function holdReceipts(
+  services: CliServices,
+  seen: RpcParams<"sessions.markSeen">["seen"],
+): { taken(): void; failed(): void } {
+  const revisions = services.sessionsRevision;
+  if (!revisions) return { taken() {}, failed() {} };
+  const byTab = liveReceipts(revisions);
+  const held = seen.map(({ workspaceId, tabId, upTo }) => {
+    const receipt: Receipt = { upTo, requestedAt: performance.now(), takenAt: Infinity };
+    const key = receiptKey(workspaceId, tabId);
+    byTab.set(key, [...(byTab.get(key) ?? []), receipt]);
+    return { key, receipt };
+  });
+  return {
+    taken() {
+      const now = performance.now();
+      for (const { receipt } of held) receipt.takenAt = now;
+    },
+    failed() {
+      for (const { key, receipt } of held) {
+        const rest = (byTab.get(key) ?? []).filter((r) => r !== receipt);
+        if (rest.length > 0) byTab.set(key, rest);
+        else byTab.delete(key);
+      }
+    },
+  };
+}
+
+/**
+ * Whether a receipt covers a tab's unread result at `since` in a map read
+ * at `readAt`: one read once the renderer had taken it tells for itself.
+ */
+function receiptCovers(
+  byTab: ReadonlyMap<string, readonly Receipt[]> | undefined,
+  workspaceId: string,
+  tabId: string,
+  since: number,
+  readAt: number,
+): boolean {
+  return (
+    byTab
+      ?.get(receiptKey(workspaceId, tabId))
+      ?.some((r) => since <= r.upTo && readAt <= r.takenAt) ?? false
+  );
+}
+
+/**
+ * Leave time for the next watch poll and its renderer read within ten seconds.
+ */
+export const SESSIONS_REREAD_MS = 10_000 - SESSIONS_POLL_MS - RENDERER_READ_MAX_MS;
+
+interface RendererRead {
+  readonly tabs: readonly (readonly CliSessionTab[] | undefined)[];
+  readonly unread: UnreadResults | undefined;
+  /** When the read of `unread` started. */
+  readonly unreadAt: number;
+}
+
+type SessionsSnapshot = CliUiOps["sessions.snapshot"]["result"];
+
+/** The last whole read keyed by the revision record for its window's webContents id. */
+const lastReads = new WeakMap<
+  SessionsRenderer,
+  { key: string; revision: number; readAt: number; read: RendererRead }
+>();
+
+/** Whether a read told every workspace's tabs, every chat's state and the unread map. */
+function wholeRead(snapshot: SessionsSnapshot, workspaces: number): boolean {
+  return (
+    snapshot.unread !== undefined &&
+    snapshot.workspaces.length === workspaces &&
+    snapshot.workspaces.every(
+      ({ tabs }) =>
+        tabs?.every((tab) => (tab.type !== "claude" && tab.type !== "codex") || tab.chat) ?? false,
+    )
+  );
+}
+
+async function readSnapshot(
+  budget: ReadBudget,
+  workspaceIds: string[],
+  renderer: SessionsRenderer | undefined,
+): Promise<SessionsSnapshot | undefined> {
+  const ask = async (cursor?: CliSessionsSnapshotCursor) => {
+    if (renderer?.closed) return undefined;
+    const page = await budget
+      .ui(
+        "sessions.snapshot",
+        { workspaceIds, ...(cursor ? { cursor } : {}) },
+        undefined,
+        renderer?.snapshot,
+      )
+      .catch(() => undefined);
+    if (renderer?.closed) return undefined;
+    if (page && Number.isSafeInteger(page.revision)) renderer?.saw(page.revision);
+    return page;
+  };
+  const first = await ask();
+  if (!first?.next) return first;
+
+  const workspaces = [...first.workspaces];
+  let next: CliSessionsSnapshotCursor | undefined = first.next;
+  while (next) {
+    const { workspace, tab } = next;
+    const page = await ask(next);
+    if (renderer?.closed) return undefined;
+    if (!page || page.revision !== first.revision) {
+      // A split workspace only counts once every page of it was read at the same revision.
+      workspaces.length = workspace;
+      break;
+    }
+    if (tab > 0) {
+      const previous = workspaces[workspace]?.tabs;
+      const more = page.workspaces[0]?.tabs;
+      workspaces[workspace] = previous && more ? { tabs: [...previous, ...more] } : {};
+    }
+    workspaces.push(...page.workspaces.slice(tab > 0 ? 1 : 0));
+    next = page.next;
+  }
+  return { revision: first.revision, workspaces, unread: first.unread };
+}
+
+/**
+ * What the renderer tells of the workspaces within the budget: each one's
+ * tabs (none for one that could not be read) and the unread map. The last
+ * whole read stands until the renderer tells of a change or the cache expires.
+ */
+async function readRenderer(
   services: CliServices,
   budget: ReadBudget,
+  workspaceIds: string[],
+): Promise<RendererRead> {
+  const renderer = services.sessionsRevision?.current();
+  const key = workspaceIds.join("\n");
+  const last = renderer && lastReads.get(renderer);
+  if (
+    renderer &&
+    last &&
+    last.key === key &&
+    last.revision === renderer.latest &&
+    performance.now() - last.readAt < SESSIONS_REREAD_MS
+  ) {
+    return last.read;
+  }
+  const startedAt = performance.now();
+  const snapshot = await readSnapshot(budget, workspaceIds, renderer);
+  const source = services.sessionsRevision ? (renderer?.closed ? undefined : renderer) : services;
+  const { unread, readAt } = unreadResults(source, startedAt, snapshot?.unread);
+  const read: RendererRead = {
+    tabs: workspaceIds.map((_, index) => snapshot?.workspaces[index]?.tabs),
+    unread,
+    unreadAt: readAt,
+  };
+  // A later request may have finished while this one was in flight.
+  if (
+    renderer &&
+    !renderer.closed &&
+    snapshot &&
+    snapshot.revision === renderer.latest &&
+    startedAt >= (lastReads.get(renderer)?.readAt ?? -Infinity) &&
+    wholeRead(snapshot, workspaceIds.length)
+  ) {
+    lastReads.set(renderer, { key, revision: snapshot.revision, readAt: startedAt, read });
+  }
+  return read;
+}
+
+function clipOpenerName(name: string): string {
+  return name.slice(0, MAX_SESSION_OPENER_NAME).replace(/[\uD800-\uDBFF]$/u, "");
+}
+
+function openerField(opener: CliSessionTab["openedBy"]): Pick<RemoteSession, "openedBy"> {
+  if (!opener?.workspaceId || !opener.tabId || opener.kind === "manager") return {};
+  const { workspaceId, tabId, kind, agent, name, device } = opener;
+  return {
+    openedBy: {
+      workspaceId,
+      tabId,
+      kind,
+      ...(agent === undefined ? {} : { agent }),
+      ...(name === undefined ? {} : { name: clipOpenerName(name) }),
+      ...(device ? { device: { id: device.id, name: clipOpenerName(device.name) } } : {}),
+    },
+  };
+}
+
+function chatSession(
+  services: CliServices,
   workspaceId: string,
-  tab: CliTabInfo,
-): Promise<RemoteSession | undefined> {
+  tab: CliSessionTab,
+): { row: RemoteSession; waitingId?: string } | undefined {
   if (tab.type !== "claude" && tab.type !== "codex") return undefined;
-  const info = await budget
-    .ui("chat.state", { workspaceId, tabId: tab.id, peek: true })
-    .catch(() => undefined);
+  const info = tab.chat;
   // The protocol has no unknown chat state. Leave the row out until it can be read.
   if (!info) return undefined;
-  return {
+  const row: RemoteSession = {
     workspaceId,
     tabId: tab.id,
     kind: tab.type,
     title: tab.title,
     state: CHAT_STATES[info.state],
+    ...(info.state === "error" ? { failed: true } : {}),
     ...(info.since !== undefined ? { since: info.since } : {}),
-    ...(info.message ? { last: oneLine(info.message) } : {}),
+    // The renderer put it on a line; one of only white space is an empty one.
+    ...(info.message !== undefined ? { last: oneLine(info.message) } : {}),
     ...(info.profile ? { profile: info.profile } : {}),
     ...(info.cwd ? { cwd: info.cwd } : {}),
     ...(info.state === "asking" && info.waiting
       ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
       : {}),
+    ...(info.limitResume?.state === "waiting" && info.limitResume.at !== undefined
+      ? { limitWait: { at: info.limitResume.at } }
+      : {}),
     ...agentsField(services, workspaceId, tab.id),
+    ...openerField(tab.openedBy),
   };
+  return { row, ...(row.waiting && info.waitingId ? { waitingId: info.waitingId } : {}) };
 }
 
 function terminalSession(
   services: CliServices,
   workspaceId: string,
-  tab: CliTabInfo,
+  tab: CliSessionTab,
   now: number,
 ): RemoteSession {
   const claude = services.claudeStatus(workspaceId, tab.id);
   const state = describeTerminal(claude, services.activity(workspaceId, tab.id), tab.title, now);
-  const ask =
-    claude?.status === "permissionPending"
-      ? services.claudeAsks(workspaceId, tab.id)[0]
-      : undefined;
+  const agent = isAgentSession(state) ? (state.agent ?? "agent") : undefined;
+  const status = agent ? (tab.dead ? "ended" : terminalSessionState(state.state)) : "idle";
+  const ask = tab.dead ? undefined : terminalAsk(services, workspaceId, tab.id, claude?.status);
   return {
     workspaceId,
     tabId: tab.id,
     kind: "terminal",
     title: tab.title,
-    state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
-    ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
+    state: status,
+    ...(state.state === "error" ? { failed: true } : {}),
+    ...(agent ? { agent } : {}),
     ...(state.since !== undefined ? { since: state.since } : {}),
     ...(state.message ? { last: oneLine(state.message) } : {}),
     ...(ask
@@ -166,8 +426,18 @@ function terminalSession(
           },
         }
       : {}),
-    ...agentsField(services, workspaceId, tab.id),
+    ...(tab.dead ? {} : agentsField(services, workspaceId, tab.id)),
+    ...openerField(tab.openedBy),
   };
+}
+
+function terminalAsk(
+  services: CliServices,
+  workspaceId: string,
+  tabId: string,
+  status: string | undefined,
+) {
+  return status === "permissionPending" ? services.claudeAsks(workspaceId, tabId)[0] : undefined;
 }
 
 /** The workspaces and their sessions, using task Git facts from the cache. */
@@ -185,9 +455,22 @@ export async function serveSessionsList(
   notes: RemoteNotes | undefined,
   from: string,
   controls: ConsentControls,
+  id: RpcRequest["id"] = 0,
 ): Promise<RpcResult<"sessions.list">> {
   const snapshot = await snapshotSessions(services, git, notes, "sessions.list", from);
-  return snapshot.forDevice(from, controls);
+  const list = await snapshot.forDevice(controls);
+  return fitSessionReply(list, id)?.list ?? list;
+}
+
+export async function reorderSessions(
+  services: CliServices,
+  params: RpcParams<"sessions.reorder">,
+): Promise<RpcResult<"sessions.reorder">> {
+  const notFound = () => new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  if (!workspaceOf(services, params.workspaceId)) throw notFound();
+  const { found } = await services.ui("agentView.reorderSessions", params).catch(unavailable);
+  if (!found) throw notFound();
+  return {};
 }
 
 /** A snapshot whose renderer reads can also supply consent titles for each watcher. */
@@ -197,8 +480,10 @@ export async function snapshotSessions(
   notes?: RemoteNotes,
   method: "sessions.list" | "sessions.watch" = "sessions.watch",
   from?: string,
+  includeWaitingIds = false,
 ) {
-  const budget = new ReadBudget(services, method, from);
+  // Continuation pages share the original renderer read's deadline.
+  const budget = new ReadBudget(services, method, from, RENDERER_READ_MAX_MS);
   const workspaces = ordered(services.listWorkspaces());
   // Read Git facts with the workspace snapshot. Waiting for tabs first would
   // let an old list recreate the cache entry for a workspace removed meanwhile.
@@ -214,22 +499,25 @@ export async function snapshotSessions(
     };
   });
   const now = Date.now();
-  const tabs = await gather(workspaces, budget, ({ id: workspaceId }) =>
-    budget.ui("tabs.list", { workspaceId }).catch(() => undefined),
+  const read = await readRenderer(
+    services,
+    budget,
+    workspaces.map(({ id }) => id),
   );
 
   const incompleteWorkspaces = new Set<string>();
-  const tabsByWorkspace = new Map<string, readonly CliTabInfo[]>();
+  const tabsByWorkspace = new Map<string, readonly CliSessionTab[]>();
   const sessions: (RemoteSession | undefined)[] = [];
-  const chats: { index: number; workspaceId: string; tab: CliTabInfo }[] = [];
+  const waitingIds = new Map<number, string>();
+  const chats: { index: number; workspaceId: string; tab: CliSessionTab }[] = [];
   for (const [index, { id: workspaceId }] of workspaces.entries()) {
-    const entry = tabs.results[index];
-    if (!entry) {
+    const tabs = read.tabs[index];
+    if (!tabs) {
       incompleteWorkspaces.add(workspaceId);
       continue;
     }
-    tabsByWorkspace.set(workspaceId, entry.tabs);
-    for (const tab of entry.tabs) {
+    tabsByWorkspace.set(workspaceId, tabs);
+    for (const tab of tabs) {
       if (tab.type === "claude" || tab.type === "codex") {
         chats.push({ index: sessions.length, workspaceId, tab });
         sessions.push(undefined);
@@ -238,30 +526,72 @@ export async function snapshotSessions(
       }
     }
   }
-  const chatReads = await gather(chats, budget, async ({ index, workspaceId, tab }) => {
-    sessions[index] = await chatSession(services, budget, workspaceId, tab);
-  });
+  for (const { index, workspaceId, tab } of chats) {
+    const result = chatSession(services, workspaceId, tab);
+    sessions[index] = result?.row;
+    if (includeWaitingIds && result?.waitingId) waitingIds.set(index, result.waitingId);
+  }
   for (const { index, workspaceId } of chats) {
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
+  const rows = sessions.filter((row) => row !== undefined);
+  const tabIds = new Set(rows.map(({ tabId }) => tabId));
+  const unread = read.unread;
+  const taken = services.sessionsRevision && liveReceipts(services.sessionsRevision);
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
-    sessions: sessions.filter((row) => row !== undefined),
+    sessions: rows.map((row) => {
+      const opener = row.openedBy;
+      if (opener?.name !== undefined && !opener.device && tabIds.has(opener.tabId)) {
+        const { name: _name, ...reference } = opener;
+        row = { ...row, openedBy: reference };
+      }
+      if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
+      const since = unread[row.workspaceId]?.[row.tabId];
+      if (
+        !row.failed &&
+        !row.limitWait &&
+        !row.waiting &&
+        since !== undefined &&
+        Number.isFinite(since) &&
+        !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
+      )
+        return { ...row, state: "new-result", since };
+      return row.state === "new-result" ? { ...row, state: "idle" } : row;
+    }),
+    ...(incompleteWorkspaces.size > 0 ? { incompleteWorkspaces: [...incompleteWorkspaces] } : {}),
     ...(recording ? { recording } : {}),
   };
-  budget.report(tabs.skipped + chatReads.skipped);
+  const waitingRequests = includeWaitingIds
+    ? sessions.flatMap((row, index) => {
+        if (!row?.waiting) return [];
+        const { workspaceId, tabId, kind } = row;
+        const id = row.waiting.requestId ?? waitingIds.get(index);
+        if (!id) return [];
+        // Terminal asks live in main and may have settled during the chat reads.
+        if (
+          kind === "terminal" &&
+          terminalAsk(
+            services,
+            workspaceId,
+            tabId,
+            services.claudeStatus(workspaceId, tabId)?.status,
+          )?.id !== id
+        )
+          return [];
+        return [{ workspaceId, key: JSON.stringify([workspaceId, tabId, kind, id]) }];
+      })
+    : [];
+  budget.report();
   return {
     list,
     incompleteWorkspaces,
-    async forDevice(
-      deviceId: string,
-      controls: ConsentControls,
-    ): Promise<RpcResult<"sessions.list">> {
+    waitingRequests,
+    async forDevice(controls: ConsentControls): Promise<RpcResult<"sessions.list">> {
       // Titles are optional. Reuse the bounded tab reads, even if some are missing.
       const consents = await remoteConsents(
         services,
-        deviceId,
         controls,
         Date.now(),
         async (id) => tabsByWorkspace.get(id) ?? [],

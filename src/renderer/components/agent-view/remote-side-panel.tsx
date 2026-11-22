@@ -200,6 +200,8 @@ interface SessionPanelProps {
   contextUsed?: number;
   branch?: string | null;
   mcp?: React.ReactNode;
+  /** This computer’s conversations opened by the tab, after Agents. */
+  conversations?: React.ReactNode;
   className?: string;
   testId?: string;
 }
@@ -226,6 +228,7 @@ export function SessionSidePanel({
   contextUsed,
   branch,
   mcp,
+  conversations,
   className,
   testId,
 }: SessionPanelProps) {
@@ -552,6 +555,7 @@ export function SessionSidePanel({
         onBackground={controls ? onBackground : undefined}
         jobDetail={jobDetail}
       />
+      {conversations}
       <ResultsSection
         items={model.items}
         tools={model.tools}

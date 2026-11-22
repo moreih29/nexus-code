@@ -29,6 +29,7 @@ export interface CliConsentPrompt {
   /** The user's other computer the agent asks from, by its name; none for this one. */
   readonly fromDevice?: string;
   readonly toWorkspace: string;
+  readonly sameWorkspace?: boolean;
   readonly change: CliChange;
   readonly timeoutMs: number;
 }
@@ -36,6 +37,7 @@ export interface CliConsentPrompt {
 interface Pending {
   readonly prompt: CliConsentPrompt;
   readonly resolve: (answer: CliConsentAnswer) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 let queue: Pending[] = [];
@@ -46,6 +48,7 @@ export const CONSENT_DESCRIPTION_CLASS = "break-keep [overflow-wrap:anywhere]";
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
   queue = queue.filter((p) => p !== pending);
+  clearTimeout(pending.timer);
   pending.resolve(answer);
   bus.notify();
 }
@@ -61,12 +64,13 @@ export function settleCliConsent(
   by?: string,
 ): boolean {
   const pending = queue.find((p) => p.prompt.id === id);
-  if (!pending) return false;
+  if (!pending || (answer === "session" && pending.prompt.change.eachTime)) return false;
   settle(pending, answer);
   if (by) {
+    const toastAnswer = answer === "once" && pending.prompt.change.eachTime ? "allow" : answer;
     showToast({
       kind: "info",
-      message: i18next.t(`settings:agentCli.consent.answered_${answer}`, { device: by }),
+      message: i18next.t(`settings:agentCli.consent.answered_${toastAnswer}`, { device: by }),
     });
   }
   return true;
@@ -75,10 +79,10 @@ export function settleCliConsent(
 /** Shows the prompt and resolves to the user's answer, or "timeout". */
 export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswer> {
   return new Promise((resolve) => {
-    const pending: Pending = { prompt, resolve };
+    const timer = setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
+    const pending: Pending = { prompt, resolve, timer };
     queue.push(pending);
     bus.notify();
-    setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
   });
 }
 
@@ -95,11 +99,20 @@ export function describeConsent(
   t: (key: string, values: Record<string, string>) => string,
   prompt: Pick<
     CliConsentPrompt,
-    "fromWorkspace" | "fromTab" | "fromAgent" | "fromDevice" | "toWorkspace"
+    "fromWorkspace" | "fromTab" | "fromAgent" | "fromDevice" | "toWorkspace" | "sameWorkspace"
   >,
   action: string,
   namesTarget = false,
+  sandbox = false,
 ): string {
+  if (sandbox) {
+    return t(
+      prompt.sameWorkspace
+        ? "agentCli.consent.sandbox_description_same_workspace"
+        : "agentCli.consent.sandbox_description",
+      { tab: prompt.fromTab, from: prompt.fromWorkspace, to: prompt.toWorkspace },
+    );
+  }
   const destination = namesTarget
     ? ""
     : t("agentCli.consent.destination", { to: prompt.toWorkspace });
@@ -147,6 +160,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
     return "agentCli.consent.rewind_title" as const;
   }
   if (kind === "chatRemoteControlOn") return "agentCli.consent.remote_control_title" as const;
+  if (kind === "sandboxExecution") return "agentCli.consent.sandbox_title" as const;
   if (kind === "noteRecord") return "agentCli.consent.record_title" as const;
   return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
 }
@@ -163,8 +177,9 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = change
     ? t(`agentCli.consent.action.${change.kind}`, { detail: copy?.detail ?? "" })
     : "";
+  const sandbox = change?.kind === "sandboxExecution";
   const description = prompt
-    ? describeConsent(t, prompt, action, consentNamesTarget(prompt.change.kind))
+    ? describeConsent(t, prompt, action, consentNamesTarget(prompt.change.kind), sandbox)
     : "";
 
   return (
@@ -187,7 +202,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         </pre>
       )}
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("agentCli.consent.timeout", {
+        {t(sandbox ? "agentCli.consent.sandbox_deadline" : "agentCli.consent.timeout", {
           seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),
         })}
       </p>
@@ -200,7 +215,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        {!prompt?.change.eachTime && (
+        {!change?.eachTime && (
           <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
             {t("agentCli.consent.session")}
           </Button>
@@ -211,7 +226,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           className={CONSENT_CONFIRM_BUTTON_CLASS}
           onClick={() => active && settle(active, "once")}
         >
-          {t("agentCli.consent.once")}
+          {t(change?.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once")}
         </Button>
       </div>
     </Dialog>

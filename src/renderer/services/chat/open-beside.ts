@@ -25,14 +25,14 @@ import { type FileLink, isUnder, type LineAt } from "./links";
  * Claude tab is there says nothing of its group in the workspace, and the
  * conversation stays in sight beside what it opened.
  */
-function activateTarget(workspaceId: string, claudeTabId: string, split: boolean): void {
-  if (showWorkspaceOf(workspaceId, claudeTabId)) split = true;
+export function activateTarget(workspaceId: string, tabId: string, split: boolean): void {
+  if (showWorkspaceOf(workspaceId, tabId)) split = true;
   const store = useLayoutStore.getState();
   store.ensureLayout(workspaceId);
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return;
   const leaves = Grid.allLeaves(layout.root);
-  const at = leaves.findIndex((leaf) => leaf.tabIds.includes(claudeTabId));
+  const at = leaves.findIndex((leaf) => leaf.tabIds.includes(tabId));
   if (at < 0) return;
   const next = leaves[at + 1] ?? leaves[at - 1];
   if (next) store.setActiveGroup(workspaceId, next.id);
@@ -107,13 +107,12 @@ export async function followFileLink(
 }
 
 /**
- * Leaves the agent view for the Claude tab's workspace, the Claude tab in
- * front there: what it opens goes in that workspace, out of sight while
- * the agent view is up. Whether it was up.
+ * Leaves the agent view for the chat's workspace and brings the chat to the front.
+ * Returns whether the agent view was shown.
  */
-function showWorkspaceOf(workspaceId: string, claudeTabId: string): boolean {
+export function showWorkspaceOf(workspaceId: string, tabId: string): boolean {
   if (!isAgentViewShown()) return false;
-  revealInWorkspace({ workspaceId, tabId: claudeTabId });
+  revealInWorkspace({ workspaceId, tabId });
   useAgentViewStore.getState().setMode("workspace");
   return true;
 }

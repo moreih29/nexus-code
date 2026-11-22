@@ -1,17 +1,18 @@
 import { useTranslation } from "react-i18next";
 import { revealInOSLabel } from "../../../utils/reveal-label";
-import { Banner } from "../../ui/banner";
+import { Banner, type BannerDismiss } from "../../ui/banner";
 
 interface ReadOnlyBannerProps {
-  filePath: string;
+  dismiss?: BannerDismiss;
   onRevealInFinder?: () => void;
 }
 
-export function ReadOnlyBanner({ onRevealInFinder }: ReadOnlyBannerProps) {
+export function ReadOnlyBanner({ dismiss, onRevealInFinder }: ReadOnlyBannerProps) {
   const { t } = useTranslation();
   return (
     <Banner
       display="bar"
+      dismiss={dismiss}
       variant="info"
       message={t("editor.read_only_message")}
       actions={onRevealInFinder ? [{ label: revealInOSLabel(), onAction: onRevealInFinder }] : []}

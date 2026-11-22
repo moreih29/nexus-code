@@ -15,7 +15,7 @@ import type { TextEncoding } from "../encoding/text-encoding";
 import { registerKnownModelUri } from "../lsp/known-uris";
 import { initializeMonacoSingleton, requireMonaco } from "../runtime/monaco-singleton";
 import { workingFileOfDiff } from "../tabs/diff-working-file";
-import { attachDirtyTracker } from "./dirty-tracker";
+import { attachDirtyTracker, isDirty } from "./dirty-tracker";
 import {
   cleanupEntry,
   createEntry,
@@ -144,8 +144,9 @@ function hasOpenBufferTab(entry: ModelEntry, tabs: Record<string, Tab> | undefin
   });
 }
 
-// Remote views unmount when the connection expires. An open tab keeps its
-// loaded model until a view acquires it again or the tab is closed.
+// An open tab can own a buffer before its view mounts. Keep dirty buffers
+// until a view acquires them again or the last tab closes. Remote views also
+// retain clean buffers and their undo history when the connection expires.
 useTabsStore.subscribe((state, previous) => {
   for (const [cacheUri, entry] of retainedByTabs) {
     const { workspaceId } = entry.input;
@@ -268,7 +269,7 @@ export function releaseModel(input: EditorInput): void {
     .workspaces.find((w) => w.id === input.workspaceId);
   if (
     workspace &&
-    workspace.location.kind !== "local" &&
+    (workspace.location.kind !== "local" || isDirty(cacheUri)) &&
     entry.origin !== "external" &&
     entry.model &&
     !entry.model.isDisposed() &&
@@ -379,9 +380,10 @@ export async function reconcileWatchedModel(input: EditorInput): Promise<void> {
 export async function reloadModelFromDisk(
   input: EditorInput,
   encoding?: TextEncoding,
+  onReadFailure?: (error: unknown) => void,
 ): Promise<boolean> {
   const entry = entries.get(cacheUriForInput(input));
-  return entry ? reloadEntryFromDisk(entry, encoding) : false;
+  return entry ? reloadEntryFromDisk(entry, encoding, onReadFailure) : false;
 }
 
 /**

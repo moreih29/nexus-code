@@ -34,12 +34,24 @@ const { installPermissionHandler } = await import(
 // Fake helpers
 // ---------------------------------------------------------------------------
 
-type FakeCheckHandler = (webContents: unknown, permission: string) => boolean;
+type PermissionSource = {
+  isMainFrame?: boolean;
+  requestingUrl?: string;
+  securityOrigin?: string;
+};
+
+type FakeCheckHandler = (
+  webContents: unknown,
+  permission: string,
+  requestingOrigin?: string,
+  details?: PermissionSource,
+) => boolean;
 
 type FakeRequestHandler = (
   webContents: unknown,
   permission: string,
   callback: (ok: boolean) => void,
+  details?: PermissionSource,
 ) => void;
 
 interface FakeSession {
@@ -237,6 +249,60 @@ describe("installPermissionHandler (full-deps) — prompt lifetime", () => {
       },
     };
   }
+
+  test("checks and prompts for the requesting frame instead of the top document", () => {
+    const session = makeFakeSession();
+    const deps = makeDepsForDecision("ask");
+    const frameOrigin = "https://component.test";
+    installPermissionHandler(
+      session as unknown as import("electron").Session,
+      {
+        ...deps,
+        getRemembered: (_workspace, origin) =>
+          origin === new URL(ATTRIBUTABLE_ORIGIN_URL).origin ? "allow" : null,
+        promptManager: deps.promptManager as never,
+      },
+      "ws-1",
+    );
+    const wc = makeTrackedWebContents(7102);
+    const frame = { isMainFrame: false, requestingUrl: `${frameOrigin}/widget` };
+    expect(session._checkHandler?.(wc, PROMPT_PERMISSION, frameOrigin, frame)).toBe(false);
+    expect(
+      session._checkHandler?.(wc, PROMPT_PERMISSION, new URL(ATTRIBUTABLE_ORIGIN_URL).origin, {
+        isMainFrame: true,
+      }),
+    ).toBe(true);
+
+    session._requestHandler?.(wc, PROMPT_PERMISSION, () => {}, frame);
+    expect(deps.promptManager.handlePermissionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: frameOrigin, decision: "ask" }),
+      expect.any(Function),
+    );
+    wc.emit("destroyed");
+  });
+
+  test("denies a missing or opaque frame origin without falling back to the top document", () => {
+    const session = makeFakeSession();
+    const deps = makeDepsForDecision("allow");
+    installPermissionHandler(
+      session as unknown as import("electron").Session,
+      deps as never,
+      "ws-1",
+    );
+    const wc = makeTrackedWebContents(7103);
+    const opaque = {
+      isMainFrame: false,
+      securityOrigin: "null",
+      requestingUrl: ATTRIBUTABLE_ORIGIN_URL,
+    };
+    expect(session._checkHandler?.(wc, PROMPT_PERMISSION, "null", opaque)).toBe(false);
+
+    const reply = mock((_allowed: boolean) => {});
+    session._requestHandler?.(wc, PROMPT_PERMISSION, reply, opaque);
+    session._requestHandler?.(wc, PROMPT_PERMISSION, reply, { isMainFrame: false });
+    expect(reply.mock.calls).toEqual([[false], [false]]);
+    expect(deps.promptManager.handlePermissionRequest).not.toHaveBeenCalled();
+  });
 
   // Regression: only registry.destroy() released prompts, so a popup that
   // closed or a tab that navigated away left its modal up for good.

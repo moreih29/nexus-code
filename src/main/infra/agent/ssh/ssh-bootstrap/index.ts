@@ -11,7 +11,7 @@
  * orchestration and the public surface — type and constant re-exports stay
  * here so existing callers keep their import paths.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -244,11 +244,7 @@ export async function ensureRemoteAgent(
     // (a reused master), we surface that path back but no dispose handle —
     // the caller already owns that socket's lifecycle.
     return {
-      remoteCommand: buildRemoteAgentCommand(
-        remoteBinaryPath,
-        options.remotePath,
-        localManifest.version,
-      ),
+      remoteCommand: buildRemoteAgentCommand(remoteBinaryPath, options.remotePath),
       remoteHome,
       platform,
       uploaded: ensured.uploaded,
@@ -351,24 +347,6 @@ export async function ensureRemoteLspServer(
 }
 
 /**
- * Computes the identifier (wsId) of the daemon that serves a remote root path
- * at an agent version.
- *
- * This mirrors the Go `agentrun.WsID(rootPath, version)` function:
- *   sha256(version + "\0" + rootPath) → hex string → first 16 chars
- *
- * The result is used to derive the socket/lock/log file names under
- * `~/.nexus-code/run/` on the remote host. The version keeps an updated
- * agent off the previous version's daemon, which outlives the app.
- */
-export function computeWsId(remotePath: string, version: string): string {
-  return createHash("sha256")
-    .update(`${version}\0${remotePath}`, "utf8")
-    .digest("hex")
-    .slice(0, 16);
-}
-
-/**
  * Composes the `bash -lc '...'` line used to spawn the agent in daemon/dialer
  * mode.
  *
@@ -376,7 +354,7 @@ export function computeWsId(remotePath: string, version: string): string {
  *
  *   p=0; while :; do
  *     ( agent --daemon <root> </dev/null >/dev/null 2>&1 & )
- *     agent --dial <sock>; rc=$?
+ *     agent --dial-workspace <root>; rc=$?
  *     if [ $rc -ne 4 ]; then exit $rc; fi
  *     p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2
  *   done
@@ -408,11 +386,7 @@ export function computeWsId(remotePath: string, version: string): string {
  * root, so a relative path or `~` literal would silently mis-root the agent
  * and cause every subsequent fs call to resolve against an unexpected base.
  */
-export function buildRemoteAgentCommand(
-  binaryPath: string,
-  remotePath: string,
-  version: string,
-): string {
+export function buildRemoteAgentCommand(binaryPath: string, remotePath: string): string {
   if (!remotePath.startsWith("/")) {
     throw createSshError(
       "server.protocol-error",
@@ -422,13 +396,7 @@ export function buildRemoteAgentCommand(
   const bin = quoteShellArg(binaryPath);
   const root = quoteShellArg(remotePath);
 
-  // Derive the socket path using the same wsId formula as the Go agent
-  // (see computeWsId). $HOME is resolved by the remote shell at runtime so
-  // we never need to know the remote user's home on the TS side.
-  const wsId = computeWsId(remotePath, version);
-  const sockPath = `$HOME/.nexus-code/run/${wsId}.sock`;
-
-  // Each iteration: fire daemon as detached grandchild, then try dial.
+  // Start and dial by workspace so both processes resolve the socket on the host.
   // Exit code 4 = socket not ready yet → retry.
   // Any other exit code (0 = dialer EOF clean, other = error) → propagate.
   // Cap at 25 retries (~5 s at 0.2 s intervals) to avoid infinite spin when
@@ -436,7 +404,7 @@ export function buildRemoteAgentCommand(
   const script =
     `p=0; while :; do ` +
     `( ${bin} --daemon ${root} </dev/null >/dev/null 2>&1 & ); ` +
-    `${bin} --dial ${sockPath}; rc=$?; ` +
+    `${bin} --dial-workspace ${root}; rc=$?; ` +
     `if [ $rc -ne 4 ]; then exit $rc; fi; ` +
     `p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2; ` +
     `done`;

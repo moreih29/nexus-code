@@ -33,6 +33,7 @@ const fakeClose = async (workspaceId: string, tabId: string) => {
 mock.module(
   `${import.meta.dir}/../../../../src/renderer/services/editor/save/close-handler`,
   () => ({
+    closeDiffWithConfirm: fakeClose,
     closeEditorWithConfirm: fakeClose,
     closeUntitledWithConfirm: fakeClose,
   }),
@@ -87,6 +88,26 @@ describe("groupClose command", () => {
     expect(closeCalls).toEqual([editorId]);
     expect(hasGroup(rightId)).toBe(true);
     expect(useTabsStore.getState().byWorkspace[WS]?.[editorId]).toBeDefined();
+  });
+
+  it("keeps the group and its working-tree diff when the save prompt is cancelled", async () => {
+    const { rightId, editorId } = setUpSplitWithEditor();
+    const { id } = useTabsStore.getState().createTab(WS, {
+      type: "editor.diff",
+      props: { workspaceId: WS, relPath: "file.ts", leftRef: "INDEX", rightRef: "WORKING" },
+    });
+    useLayoutStore.getState().attachTab(WS, rightId, id);
+    useLayoutStore.getState().detachTab(WS, editorId);
+    useTabsStore.getState().removeTab(WS, editorId);
+    useLayoutStore.getState().setActiveGroup(WS, rightId);
+    closeOutcome = "cancelled";
+
+    executeCommand(COMMANDS.groupClose);
+    await flush();
+
+    expect(closeCalls).toEqual([id]);
+    expect(hasGroup(rightId)).toBe(true);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[id]).toBeDefined();
   });
 
   it("keeps the group when saving the buffer fails", async () => {

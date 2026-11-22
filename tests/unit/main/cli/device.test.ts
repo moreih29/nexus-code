@@ -285,6 +285,20 @@ describe("--device", () => {
     expect(app.peers.requests).toEqual([]);
   });
 
+  test("a consent prompt is never answered from a command: an agent does not allow itself", async () => {
+    const app = withDevices();
+    const mini = app.peers.devices[1] as CliDevice;
+    app.peers.answer = async () => ({});
+    await expect(
+      askDevice(ctx(app, CLAUDE_TAB), mini, "consent.answer", { id: "c1", answer: "once" }),
+    ).rejects.toMatchObject({
+      message: "consent prompts are answered by the user in the app",
+      exitCode: 1,
+      json: { error: "refused", device: { id: MINI, name: "Mac mini" } },
+    });
+    expect(app.peers.requests).toEqual([]);
+  });
+
   test("the sender a request goes with: its tab, the manager's own, the user's terminal", async () => {
     const app = withDevices();
     // The user at a shell is not told from an agent there: it goes as one in that terminal.
@@ -298,6 +312,28 @@ describe("--device", () => {
       agent: "claude",
       workspaceId: APP,
       tabId: CLAUDE_TAB,
+    });
+  });
+
+  test("a terminal an agent on another computer opened goes on as one in that terminal", async () => {
+    const app = withDevices();
+    const shell = app.tabs[APP]?.find((t) => t.id === SHELL_TAB);
+    if (!shell) throw new Error("no shell tab");
+    // Its tab and workspace are the other computer's: no tab here to name.
+    Object.assign(shell, {
+      openedBy: {
+        kind: "tab",
+        agent: "codex",
+        name: "Plan",
+        workspaceId: "w-mini",
+        tabId: "t-mini",
+        device: { id: MINI, name: "Mac mini" },
+      },
+    });
+    expect(await agentSenderOf(ctx(app))).toEqual({
+      kind: "terminal",
+      workspaceId: APP,
+      tabId: SHELL_TAB,
     });
   });
 });
@@ -354,6 +390,32 @@ describe("nexus session list", () => {
     const result = await nexus(withDevices(), ["session", "list", "--device", "Office PC"]);
     expect(result.exitCode).toBe(3);
     expect(result.stderr).toBe('nexus: "Office PC" is offline (last seen 2h ago)\n');
+  });
+
+  test.each([
+    [["--json=true"], "json"],
+    [["--jsonl=true"], "jsonl"],
+    [["--json", "--json=false"], "text"],
+    [["--json", "--jsonl"], "jsonl"],
+    [["--jsonl"], "jsonl"],
+  ] as const)("an offline device formats errors using parsed flags %j", async (flags, format) => {
+    const result = await nexus(withDevices(), [
+      "session",
+      "list",
+      "--device",
+      "Office PC",
+      ...flags,
+    ]);
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toContain("is offline");
+    if (format === "text") {
+      expect(result.stdout).toBe("");
+    } else {
+      expect(JSON.parse(result.stdout)).toMatchObject({ error: "offline" });
+      const lines = result.stdout.trimEnd().split("\n");
+      if (format === "jsonl") expect(lines).toHaveLength(1);
+      else expect(lines.length).toBeGreaterThan(1);
+    }
   });
 
   test("--device all has this computer's too, and the offline ones counted in a line", async () => {
@@ -437,6 +499,85 @@ describe("nexus agent-context", () => {
         expect(JSON.parse(result.stdout)).toEqual({
           hookSpecificOutput: { hookEventName: event, additionalContext: `${phase} instructions` },
         });
+    }
+  });
+
+  test("restores a linked note in verified Claude startup, resume and compact hooks", async () => {
+    const app = withDevices();
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const lookups: unknown[] = [];
+    app.services.notes.linksOfConversation = async (target) => {
+      lookups.push(target);
+      return [{ noteId: "n1234567", title: `Review\n\t\u202e${"x".repeat(300)}`, updatedAt: 1 }];
+    };
+    app.services.claudeInstructions = () => "User instructions";
+    for (const source of ["startup", "resume", "compact"]) {
+      const ctx = contextFor(app, ["agent-context", "--launch=test", "-"], {
+        workspaceId: APP,
+        tabId: CLAUDE_TAB,
+        verified: true,
+      });
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        invocation: {
+          ...ctx.invocation,
+          stdin: JSON.stringify({ hook_event_name: "SessionStart", source, session_id: sessionId }),
+        },
+      });
+      const text =
+        source === "compact"
+          ? JSON.parse(result.stdout).hookSpecificOutput.additionalContext
+          : result.stdout;
+      const line = text
+        .split("\n")
+        .find((part: string) => part.includes("nexus note read n1234567"));
+      expect(line).toBe(
+        `This conversation is linked to the note "Review ${"x".repeat(113)}" · nexus note read n1234567`,
+      );
+      expect(text).toContain("User instructions");
+    }
+    expect(lookups).toEqual(
+      Array(3).fill({ workspaceId: APP, tabId: CLAUDE_TAB, agent: "claude", session: sessionId }),
+    );
+    expect(
+      (
+        await nexus(app, ["agent-context", "--launch=test"], {
+          workspaceId: APP,
+          tabId: CLAUDE_TAB,
+        })
+      ).stdout,
+    ).not.toContain("n1234567");
+  });
+
+  test("adds the linked note and to-do to the existing Codex CLI guidance", async () => {
+    const app = withDevices();
+    const feature = setupCliFeature({
+      agentHost: { on: () => () => {} },
+      workspaceManager: { list: () => app.services.listWorkspaces() },
+      getWindow: () => null,
+      settings: () => ({ ...app.settings, enabled: true }),
+      remote: () => app.services.remote,
+      notes: {
+        ...app.services.notes,
+        linksOfConversation: async (target) => {
+          expect(target).toEqual({
+            workspaceId: APP,
+            tabId: "codex",
+            agent: "codex",
+            session: "thread",
+          });
+          return [{ noteId: "n1234567", title: "Review", line: "Run tests", updatedAt: 1 }];
+        },
+      },
+    } as unknown as SetupCliFeatureOptions);
+    try {
+      const context = await feature.agentContextForChat(APP, "codex", "thread");
+      expect(context?.status).toContain(
+        'to-do "Run tests" in the note "Review" · nexus note read n1234567 · when finished, use nexus note report',
+      );
+      expect(context?.commands).toContain("nexus help");
+    } finally {
+      feature.dispose();
     }
   });
 

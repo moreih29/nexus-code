@@ -165,6 +165,17 @@ func validateGitArgs(args []string) error {
 	return nil
 }
 
+// literalPathspecs is for commands constructed here from selected file names.
+// Raw git.run and git.stream callers own their argument semantics.
+var literalPathspecs = map[string]string{"GIT_LITERAL_PATHSPECS": "1"}
+
+func selectedPathEnv(paths []string) map[string]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	return literalPathspecs
+}
+
 func (s *Service) command(ctx context.Context, args []string, cwd string, env map[string]string, interactive bool) (*exec.Cmd, error) {
 	if err := validateGitArgs(args); err != nil {
 		return nil, err

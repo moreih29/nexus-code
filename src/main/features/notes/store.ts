@@ -4,6 +4,7 @@
  *   notes/<location dir>/location.json        where the workspace's folder is
  *   notes/<location dir>/<note id>/note.json  the note (its editor document)
  *   notes/<location dir>/<note id>/note.md    the same as Markdown, for agents
+ *   notes/<location dir>/<note id>/links.json the note's linked conversations
  *   notes/<location dir>/<note id>/sketches/  <sketch id>.excalidraw and .svg
  *   notes/<location dir>/<note id>/materials/ files put into the note
  *   notes/<location dir>/<note id>/screens/   pasted images
@@ -16,17 +17,52 @@
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
+import { answerCard, hasAnswerCard, withAnswerCard } from "../../../shared/notes/answer-card";
 import { withBlocks } from "../../../shared/notes/insert";
-import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
+import {
+  isTaskLink,
+  type LineReport,
+  linkedTask,
+  taskText,
+  withLineReport,
+} from "../../../shared/notes/line-report";
+import {
+  LIVE_ANSWER_CLOCK_TOLERANCE_MS,
+  liveAnswerTime,
+  MAX_EARLIER_SESSIONS,
+  MAX_NOTE_LINK_BYTES,
+  MAX_NOTE_LINKS,
+  type NewNoteLink,
+  type NoteConversation,
+  type NoteLastAnswer,
+  type NoteLink,
+  type NoteLinkEntry,
+  NoteLinkIdSchema,
+  type NoteLinkPatch,
+  NoteLinkSchema,
+  type NoteLinkTarget,
+} from "../../../shared/notes/links";
+import { type DocNode, docToMarkdown, escapeText } from "../../../shared/notes/markdown";
+import {
+  failedSummary,
+  RecordingIdSchema,
+  type RecordingSummary,
+  RecordingSummarySchema,
+} from "../../../shared/notes/summary";
 import {
   EMPTY_TRANSCRIPT,
+  numberSpeakers,
   peopleIn,
   RECORDING_ID_RE,
   recordingMs,
   TAKE_FILE_RE,
+  type TranscriptEdit,
   type TranscriptFile,
   TranscriptFileSchema,
+  type TranscriptRecording,
   transcriptMarkdown,
 } from "../../../shared/notes/transcript";
 import {
@@ -39,21 +75,117 @@ import {
   type NoteFile,
   type NoteLocation,
   type NoteRecordingSummary,
+  type NoteSaveChange,
   type NoteStorageEntry,
   type NoteSummary,
   SKETCH_ID_RE,
 } from "../../../shared/notes/types";
+import type { LinkedNote } from "../../../shared/types/notes";
 
 const log = createLogger("notes");
 
 const EMPTY_DOC: DocNode = { type: "doc", content: [{ type: "paragraph" }] };
+const LINKS_JSON = "links.json";
+const RECENT_SUMMARIES = 50;
+const LinksFileSchema = z.object({
+  version: z.literal(1),
+  conversations: z.record(z.string(), z.unknown()),
+  summaries: z.record(z.string(), z.unknown()).catch({}),
+  summaryHistory: z.array(RecordingIdSchema).optional().catch(undefined),
+});
+
+interface LinksFile {
+  version: 1;
+  conversations: Record<string, NoteLink>;
+  summaries: Record<string, unknown>;
+  summaryHistory?: string[];
+}
+
+interface LinkIndex {
+  byConversation: Map<string, Set<string>>;
+  byNote: Map<string, Set<string>>;
+}
+
+function tabLinkKey({ workspaceId, tabId }: Pick<NoteConversation, "workspaceId" | "tabId">) {
+  return `tab:${workspaceId}:${tabId}`;
+}
+
+function indexNote(index: LinkIndex, noteId: string, links: readonly NoteLink[]) {
+  const keys = new Set<string>();
+  for (const link of links) {
+    keys.add(tabLinkKey(link));
+    if (link.session) keys.add(`session:${link.session}`);
+    for (const session of link.sessions ?? []) keys.add(`session:${session}`);
+    if (link.kind === "live") {
+      keys.add(`live:${tabLinkKey(link)}`);
+      if (link.session) keys.add(`live:session:${link.session}`);
+    }
+  }
+  for (const key of index.byNote.get(noteId) ?? []) {
+    if (keys.has(key)) continue;
+    const notes = index.byConversation.get(key);
+    notes?.delete(noteId);
+    if (notes?.size === 0) index.byConversation.delete(key);
+  }
+  for (const key of keys) {
+    let notes = index.byConversation.get(key);
+    if (!notes) {
+      notes = new Set();
+      index.byConversation.set(key, notes);
+    }
+    notes.add(noteId);
+  }
+  if (keys.size) index.byNote.set(noteId, keys);
+  else index.byNote.delete(noteId);
+}
+
+function sameTab(link: NoteLink, tab: NoteConversation): boolean {
+  return (
+    link.agent === tab.agent && link.workspaceId === tab.workspaceId && link.tabId === tab.tabId
+  );
+}
+
+function sameSession(link: NoteLink, tab: NoteConversation): boolean {
+  return (
+    link.agent === tab.agent &&
+    tab.session !== undefined &&
+    (link.session === tab.session || link.sessions?.includes(tab.session) === true)
+  );
+}
+
+function sameLiveConversation(link: NoteLink, target: NoteConversation & { profileId?: string }) {
+  return (
+    link.kind === "live" &&
+    (sameTab(link, target) ||
+      (link.agent === target.agent &&
+        target.session !== undefined &&
+        link.session === target.session &&
+        link.profileId === target.profileId))
+  );
+}
+
+function newerLiveAnswer(
+  previous: NoteLastAnswer | undefined,
+  incoming: NoteLastAnswer,
+  now: number,
+): NoteLastAnswer {
+  const at = liveAnswerTime(incoming.at, now);
+  if (previous) {
+    const keep =
+      previous.at > now + LIVE_ANSWER_CLOCK_TOLERANCE_MS
+        ? previous.text === incoming.text
+        : previous.at > at;
+    if (keep) return previous;
+  }
+  return { ...incoming, at };
+}
 
 /** How long a file the note does not use is kept: one just written may be about to be. */
 export const PRUNE_AFTER_MS = 10 * 60 * 1000;
 
 export class NoteError extends Error {
   constructor(
-    readonly code: "not-found" | "bad-request",
+    readonly code: "not-found" | "bad-request" | "conflict",
     message: string,
   ) {
     super(message);
@@ -72,9 +204,23 @@ export function newSketchId(now = Date.now()): string {
   return `s${now.toString(36)}${randomBytes(2).toString("hex")}`;
 }
 
+interface SavedLineReport {
+  report: LineReport;
+  updatedAt: number;
+  checkedAt?: number;
+}
+
 export class NotesStore {
-  /** By note folder: the blocks going into that note's document now, which the next wait for. */
-  private readonly appendTurns = new Map<string, Promise<void>>();
+  /** Serializes document updates by note folder. */
+  private readonly documentTurns = new Map<string, Promise<void>>();
+  /** Card revisions used to merge renderer snapshots still in flight. */
+  private readonly savedCards = new Map<string, Map<string, number>>();
+  /** Latest report per link for merging renderer snapshots still in flight. */
+  private readonly savedReports = new Map<string, Map<string, SavedLineReport>>();
+  private readonly transcriptTurns = new Map<string, Promise<void>>();
+  /** Serializes index construction, link edits and deletions for a location. */
+  private readonly linkTurns = new Map<string, Promise<void>>();
+  private readonly linkIndexes = new Map<string, LinkIndex>();
 
   constructor(
     /** The notes folder: <app data>/notes. */
@@ -131,30 +277,486 @@ export class NotesStore {
     return { ...summaryOf(note, await recordingSummary(dir)), doc: note.doc, dir };
   }
 
-  async save(
+  async save(location: NoteLocation, id: string, change: NoteSaveChange): Promise<NoteSummary> {
+    const dir = this.noteDir(location, id);
+    return this.queueWrite(this.documentTurns, dir, () => this.saveNote(location, id, dir, change));
+  }
+
+  private async saveNote(
     location: NoteLocation,
     id: string,
-    change: { title?: string; doc?: DocNode },
+    dir: string,
+    change: NoteSaveChange,
+    onDocumentWritten?: (updatedAt: number) => void,
   ): Promise<NoteSummary> {
-    const dir = this.noteDir(location, id);
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
     if (change.title !== undefined) note.title = change.title.slice(0, 500);
     if (change.doc !== undefined) {
       if (change.doc?.type !== "doc") throw new NoteError("bad-request", "not a document");
+      const previousDoc = note.doc;
       note.doc = change.doc;
+      if (change.baseUpdatedAt !== undefined) {
+        const base = change.baseUpdatedAt;
+        const cards = this.savedCards.get(dir);
+        if (cards) {
+          for (const block of previousDoc.content ?? []) {
+            const linkId = block.attrs?.nexusLink;
+            if (
+              block.type === "blockquote" &&
+              typeof linkId === "string" &&
+              (cards.get(linkId) ?? 0) > base
+            ) {
+              note.doc = withAnswerCard(note.doc, block);
+            }
+          }
+        }
+        for (const saved of this.savedReports.get(dir)?.values() ?? []) {
+          if (saved.updatedAt <= base) continue;
+          note.doc = withLineReport(note.doc, {
+            ...saved.report,
+            check: saved.checkedAt !== undefined && saved.checkedAt > base,
+          });
+        }
+      }
     }
     note.updatedAt = Math.max(Date.now(), note.updatedAt + 1);
-    await writeNote(dir, note);
+    await writeNote(dir, note, onDocumentWritten);
     await this.touchLocation(location);
     return summaryOf(note, await recordingSummary(dir));
   }
 
   async remove(location: NoteLocation, id: string): Promise<void> {
     const dir = this.noteDir(location, id);
-    if (!(await exists(dir))) return;
-    await this.discard(dir);
+    await this.queueWrite(this.linkTurns, location.key, async () => {
+      if (await exists(dir)) await this.discard(dir);
+      this.savedReports.delete(dir);
+      this.savedCards.delete(dir);
+      const index = this.linkIndexes.get(location.key);
+      if (index) indexNote(index, id, []);
+    });
+  }
+
+  async links(location: NoteLocation, id: string): Promise<NoteLinkEntry[]> {
+    const file = await readLinks(this.noteDir(location, id));
+    return Object.entries(file.conversations).map(([id, link]) => ({ id, link }));
+  }
+
+  async linksOfConversation(location: NoteLocation, tab: NoteConversation): Promise<LinkedNote[]> {
+    const matches = await this.conversationNotes(location, tab);
+    return matches
+      .map(({ note, links }) => {
+        const line = links
+          .filter(({ link }) => isTaskLink(link))
+          .map(({ id }) => taskText(linkedTask(note.doc, id)))
+          .find((text) => text.trim());
+        return {
+          noteId: note.id,
+          title: note.title,
+          updatedAt: links[0].link.updatedAt,
+          ...(line ? { line } : {}),
+        };
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt || b.noteId.localeCompare(a.noteId));
+  }
+
+  async reportTargets(location: NoteLocation, tab: NoteConversation) {
+    const matches = await this.conversationNotes(location, tab);
+    return matches.flatMap(({ note, links }) =>
+      links
+        .filter(({ link }) => isTaskLink(link))
+        .map(({ id }) => ({
+          noteId: note.id,
+          linkId: id,
+        })),
+    );
+  }
+
+  private conversationNotes(location: NoteLocation, tab: NoteConversation) {
+    return this.queueWrite(this.linkTurns, location.key, async () => {
+      const { byConversation } = await this.linkIndex(location);
+      const noteIds = new Set(byConversation.get(tabLinkKey(tab)));
+      if (tab.session) {
+        for (const id of byConversation.get(`session:${tab.session}`) ?? []) noteIds.add(id);
+      }
+      const notes: { note: NoteFile; links: [NoteLinkEntry, ...NoteLinkEntry[]] }[] = [];
+      for (const noteId of noteIds) {
+        const dir = this.noteDir(location, noteId);
+        const file = await readLinks(dir);
+        const links = Object.entries(file.conversations)
+          .filter(([, link]) => sameTab(link, tab) || sameSession(link, tab))
+          .map(([id, link]) => ({ id, link }))
+          .sort((a, b) => b.link.updatedAt - a.link.updatedAt);
+        const [first, ...rest] = links;
+        if (!first) continue;
+        const note = await readNote(dir).catch(() => null);
+        if (note?.id === noteId) notes.push({ note, links: [first, ...rest] });
+      }
+      return notes;
+    });
+  }
+
+  /** Rechecks ownership in the link queue before writing either file. */
+  async reportLine(
+    location: NoteLocation,
+    tab: NoteConversation,
+    noteId: string,
+    report: LineReport,
+    announce?: {
+      resultSaved(): void;
+      documentWritten(updatedAt: number): void;
+    },
+  ): Promise<boolean> {
+    return this.editLinks(location, noteId, async (file, dir) => {
+      const link = file.conversations[report.linkId];
+      if (!link || !isTaskLink(link) || !(sameTab(link, tab) || sameSession(link, tab))) {
+        throw new NoteError("not-found", "No linked to-do for this conversation");
+      }
+      file.conversations[report.linkId] = { ...link, result: report.result };
+      await writeLinks(dir, file);
+      announce?.resultSaved();
+      return this.queueWrite(this.documentTurns, dir, async () => {
+        const note = await readNote(dir);
+        const doc = withLineReport(note.doc, report);
+        if (doc === note.doc) return false;
+        await this.saveNote(location, noteId, dir, { doc }, (updatedAt) => {
+          const reports = this.savedReports.get(dir) ?? new Map<string, SavedLineReport>();
+          const checkedAt = report.check ? updatedAt : reports.get(report.linkId)?.checkedAt;
+          reports.set(report.linkId, { report, updatedAt, checkedAt });
+          this.savedReports.set(dir, reports);
+          announce?.documentWritten(updatedAt);
+        });
+        return true;
+      });
+    });
+  }
+
+  private async linkIndex(location: NoteLocation): Promise<LinkIndex> {
+    const cached = this.linkIndexes.get(location.key);
+    if (cached) return cached;
+    const index: LinkIndex = { byConversation: new Map(), byNote: new Map() };
+    for (const noteId of await readdirSafe(this.locationDir(location))) {
+      if (!NOTE_ID_RE.test(noteId)) continue;
+      const file = await readLinks(this.noteDir(location, noteId));
+      indexNote(index, noteId, Object.values(file.conversations));
+    }
+    this.linkIndexes.set(location.key, index);
+    return index;
+  }
+
+  async summaries(location: NoteLocation, id: string): Promise<Record<string, RecordingSummary>> {
+    return summariesOf(await readLinks(this.noteDir(location, id)));
+  }
+
+  async editSummary(
+    location: NoteLocation,
+    id: string,
+    recordingId: string,
+    edit: (
+      current: RecordingSummary | undefined,
+      inHistory: boolean,
+    ) => Promise<
+      | {
+          next: RecordingSummary;
+          updateDocument?: () => Promise<void>;
+        }
+      | undefined
+    >,
+  ): Promise<RecordingSummary | undefined> {
+    return this.editLinks(location, id, async (file, dir) => {
+      const current = RecordingSummarySchema.safeParse(file.summaries[recordingId]).data;
+      const change = await edit(current, file.summaryHistory?.includes(recordingId) ?? false);
+      if (!change) return undefined;
+      const next = RecordingSummarySchema.parse(change.next);
+      file.summaries[recordingId] = next;
+      compactSummaries(file);
+      const data = encodeLinks(file);
+      await change.updateDocument?.();
+      await writeAtomic(path.join(dir, LINKS_JSON), data);
+      return next;
+    });
+  }
+
+  /** A fresh main process has no live runs, including for notes in closed workspaces. */
+  async recoverSummaries(
+    recovered: (
+      locationKey: string,
+      noteId: string,
+      recordingId: string,
+      state: RecordingSummary,
+    ) => void,
+  ): Promise<void> {
+    for (const dirName of await readdirSafe(this.root)) {
+      if (!/^[a-f0-9]{16}$/.test(dirName)) continue;
+      const locationDir = path.join(this.root, dirName);
+      const location = await readJson<NoteLocation>(path.join(locationDir, "location.json")).catch(
+        () => null,
+      );
+      if (typeof location?.key !== "string" || locationDirName(location.key) !== dirName) continue;
+      for (const noteId of await readdirSafe(locationDir)) {
+        if (!NOTE_ID_RE.test(noteId)) continue;
+        const dir = path.join(locationDir, noteId);
+        await this.queueWrite(this.linkTurns, location.key, async () => {
+          const file = await readLinks(dir);
+          const previous = file.summaries;
+          const history = file.summaryHistory;
+          const interrupted: [string, RecordingSummary][] = [];
+          const summaries = summariesOf(file);
+          for (const [recordingId, state] of Object.entries(summaries)) {
+            if (state.state !== "running") continue;
+            const next = failedSummary(state, { kind: "interrupted" });
+            summaries[recordingId] = next;
+            interrupted.push([recordingId, next]);
+          }
+          compactSummaries(file, summaries);
+          if (
+            isDeepStrictEqual(file.summaries, previous) &&
+            isDeepStrictEqual(file.summaryHistory, history)
+          )
+            return;
+          await writeLinks(dir, file);
+          this.refreshLinkIndex(location.key, noteId, file);
+          for (const [recordingId, state] of interrupted) {
+            if (Object.hasOwn(file.summaries, recordingId))
+              recovered(location.key, noteId, recordingId, state);
+          }
+        }).catch((error) => log.warn(`Could not recover note summary: ${String(error)}`));
+      }
+    }
+  }
+
+  async addLink(
+    location: NoteLocation,
+    id: string,
+    link: NewNoteLink,
+    touchExisting?: true | string,
+  ): Promise<NoteLinkEntry> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (touchExisting || link.kind === "mention") {
+        const entries = Object.entries(file.conversations);
+        const existing =
+          entries.find(
+            ([, current]) =>
+              sameTab(current, link) && (touchExisting || current.kind === link.kind),
+          ) ??
+          entries.find(
+            ([linkId, current]) => linkId === touchExisting && sameSession(current, link),
+          );
+        if (existing) {
+          const [linkId, current] = existing;
+          const touched = { ...current, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+          file.conversations[linkId] = touched;
+          await writeLinks(dir, file);
+          return { id: linkId, link: touched };
+        }
+      }
+      const entry = newLinkEntry(file, link);
+      await writeLinks(dir, file);
+      return entry;
+    });
+  }
+
+  async saveAnswer(
+    location: NoteLocation,
+    noteId: string,
+    source: Omit<NewNoteLink, "kind"> & { messageId: string },
+    blocks: DocNode[],
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    await this.saveCard(location, noteId, { ...source, kind: "card" }, blocks, documentWritten);
+  }
+
+  async saveLiveCard(
+    location: NoteLocation,
+    noteId: string,
+    source: NoteLinkTarget & Pick<NoteConversation, "agent">,
+    lastAnswer: NoteLastAnswer | undefined,
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    const title = source.title
+      .replace(/\p{Cs}/gu, "")
+      .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ")
+      .trim();
+    if (!title) throw new NoteError("bad-request", "Empty conversation title");
+    await this.saveCard(
+      location,
+      noteId,
+      { ...source, title, kind: "live", lastAnswer },
+      [{ type: "paragraph", content: [{ type: "text", text: title }] }],
+      documentWritten,
+    );
+  }
+
+  private async saveCard(
+    location: NoteLocation,
+    noteId: string,
+    source: NewNoteLink & { lastAnswer?: NoteLastAnswer },
+    blocks: DocNode[],
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    await this.editLinks(location, noteId, async (file, dir) => {
+      await this.queueWrite(this.documentTurns, dir, async () => {
+        const note = await readNote(dir);
+        const existing = Object.entries(file.conversations).find(([, link]) =>
+          source.kind === "live"
+            ? sameLiveConversation(link, source)
+            : link.kind === "card" && link.messageId === source.messageId,
+        );
+        if (existing && (source.kind === "card" || hasAnswerCard(note.doc, existing[0]))) return;
+
+        const previous = existing?.[1];
+        const now = Date.now();
+        const next = source.lastAnswer
+          ? { ...source, lastAnswer: newerLiveAnswer(previous?.lastAnswer, source.lastAnswer, now) }
+          : source;
+        const id = existing?.[0] ?? newLinkEntry(file, next).id;
+        const card = answerCard(id, blocks);
+        if (previous) {
+          file.conversations[id] = {
+            ...previous,
+            ...next,
+            session: source.session,
+            profileId: source.profileId,
+            sessions: earlierSessions(previous, source.session),
+            lastAnswer: next.lastAnswer ?? previous.lastAnswer,
+            updatedAt: Math.max(now, previous.updatedAt + 1),
+          };
+        }
+        await writeLinks(dir, file);
+        let written = false;
+        try {
+          const doc = withAnswerCard(note.doc, card);
+          await this.saveNote(location, noteId, dir, { doc }, (updatedAt) => {
+            written = true;
+            const cards = this.savedCards.get(dir) ?? new Map<string, number>();
+            cards.set(id, updatedAt);
+            this.savedCards.set(dir, cards);
+            documentWritten(card, updatedAt);
+          });
+        } catch (error) {
+          if (!written) {
+            if (previous) file.conversations[id] = previous;
+            else delete file.conversations[id];
+            await writeLinks(dir, file);
+          } else {
+            this.refreshLinkIndex(location.key, noteId, file);
+          }
+          throw error;
+        }
+      });
+    });
+  }
+
+  async updateLiveAnswer(
+    location: NoteLocation,
+    tab: NoteConversation & { profileId?: string },
+    lastAnswer: NoteLastAnswer,
+    changed: (noteId: string) => void,
+  ): Promise<void> {
+    await this.queueWrite(this.linkTurns, location.key, async () => {
+      const { byConversation } = await this.linkIndex(location);
+      const noteIds = new Set(byConversation.get(`live:${tabLinkKey(tab)}`));
+      if (tab.session) {
+        for (const noteId of byConversation.get(`live:session:${tab.session}`) ?? [])
+          noteIds.add(noteId);
+      }
+      for (const noteId of noteIds) {
+        const dir = this.noteDir(location, noteId);
+        const file = await readLinks(dir);
+        const updates: NoteLinkEntry[] = [];
+        const now = Date.now();
+        for (const [id, link] of Object.entries(file.conversations)) {
+          if (!sameLiveConversation(link, tab)) continue;
+          const next = newerLiveAnswer(link.lastAnswer, lastAnswer, now);
+          if (!isDeepStrictEqual(link.lastAnswer, next))
+            updates.push({ id, link: { ...link, lastAnswer: next } });
+        }
+        if (!updates.length) continue;
+        try {
+          const written = await this.queueWrite(this.documentTurns, dir, async () => {
+            const { doc } = await readNote(dir);
+            const present = updates.filter(({ id }) => hasAnswerCard(doc, id));
+            if (!present.length) return false;
+            for (const { id, link } of present) file.conversations[id] = link;
+            await writeLinks(dir, file);
+            return true;
+          });
+          if (written) changed(noteId);
+        } catch (error) {
+          log.warn(`Could not update live answer for note ${noteId}: ${String(error)}`);
+        }
+      }
+    });
+  }
+
+  async updateLink(
+    location: NoteLocation,
+    id: string,
+    linkId: string,
+    patch: NoteLinkPatch,
+  ): Promise<boolean> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (!patchLink(file, linkId, patch)) return false;
+      await writeLinks(dir, file);
+      return true;
+    });
+  }
+
+  /** A chat can receive its session while its note is closed, even after an app restart. */
+  async updateLinksForTab(
+    location: NoteLocation,
+    { agent, ...tab }: NoteLinkTarget & Pick<NoteLink, "agent">,
+    changed: (noteId: string) => void,
+  ): Promise<void> {
+    const target = { agent, ...tab };
+    await this.queueWrite(this.linkTurns, location.key, async () => {
+      const index = await this.linkIndex(location);
+      for (const noteId of index.byConversation.get(tabLinkKey(tab)) ?? []) {
+        const dir = this.noteDir(location, noteId);
+        const file = await readLinks(dir);
+        let dirty = false;
+        for (const [id, link] of Object.entries(file.conversations)) {
+          if (!sameTab(link, target)) continue;
+          if (patchLink(file, id, { ...tab, profileId: tab.profileId ?? null })) dirty = true;
+        }
+        if (!dirty || !(await exists(path.join(dir, "note.json")))) continue;
+        await writeLinks(dir, file);
+        indexNote(index, noteId, Object.values(file.conversations));
+        changed(noteId);
+      }
+    });
+  }
+
+  async removeLink(location: NoteLocation, id: string, linkId: string): Promise<boolean> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (!Object.hasOwn(file.conversations, linkId)) return false;
+      delete file.conversations[linkId];
+      await writeLinks(dir, file);
+      return true;
+    });
+  }
+
+  private editLinks<T>(
+    location: NoteLocation,
+    id: string,
+    edit: (file: LinksFile, dir: string) => Promise<T>,
+  ): Promise<T> {
+    const dir = this.noteDir(location, id);
+    return this.queueWrite(this.linkTurns, location.key, async () => {
+      await readNote(dir).catch(() => {
+        throw new NoteError("not-found", `no note ${id}`);
+      });
+      const file = await readLinks(dir);
+      const result = await edit(file, dir);
+      this.refreshLinkIndex(location.key, id, file);
+      return result;
+    });
+  }
+
+  private refreshLinkIndex(locationKey: string, noteId: string, file: LinksFile): void {
+    const index = this.linkIndexes.get(locationKey);
+    if (index) indexNote(index, noteId, Object.values(file.conversations));
   }
 
   /** Copies a file into the note's materials/, under a name not taken yet. */
@@ -221,18 +823,29 @@ export class NotesStore {
     under?: string,
   ): Promise<void> {
     const dir = this.noteDir(location, id);
-    const turn = (this.appendTurns.get(dir) ?? Promise.resolve()).then(async () => {
+    await this.queueWrite(this.documentTurns, dir, async () => {
       const note = await this.read(location, id);
       const doc = withBlocks(note.doc, blocks, under);
       if (!doc) throw new NoteError("bad-request", `no heading "${under}" in the note`);
-      await this.save(location, id, { doc });
+      await this.saveNote(location, id, dir, { doc });
     });
-    const settled = turn.catch(() => {});
-    this.appendTurns.set(dir, settled);
-    void settled.then(() => {
-      if (this.appendTurns.get(dir) === settled) this.appendTurns.delete(dir);
+  }
+
+  /** Removes only the top-level blocks that still carry this origin. */
+  async removeBlocksByOrigin(location: NoteLocation, id: string, origin: string): Promise<number> {
+    const dir = this.noteDir(location, id);
+    return this.queueWrite(this.documentTurns, dir, async () => {
+      const { doc } = await this.read(location, id);
+      const previous = doc.content ?? [];
+      const content = previous.filter((block) => block.attrs?.nexusOrigin !== origin);
+      const removed = previous.length - content.length;
+      if (removed) {
+        await this.saveNote(location, id, dir, {
+          doc: content.length ? { ...doc, content } : EMPTY_DOC,
+        });
+      }
+      return removed;
     });
-    await turn;
   }
 
   /** Writes a file's bytes into the note's materials/, under a name not taken yet. */
@@ -278,11 +891,57 @@ export class NotesStore {
   /** Writes transcript.json, and transcript.md (with the note's title) beside it. */
   async saveTranscript(location: NoteLocation, id: string, file: TranscriptFile): Promise<void> {
     const dir = this.noteDir(location, id);
+    await this.queueWrite(this.transcriptTurns, dir, () => this.writeTranscript(dir, id, file));
+  }
+
+  /** Applies only changed recordings to the latest file, across all windows and aliases. */
+  async editTranscript(
+    location: NoteLocation,
+    id: string,
+    edits: readonly TranscriptEdit[],
+  ): Promise<void> {
+    if (!edits.length) return;
+    const dir = this.noteDir(location, id);
+    await this.queueWrite(this.transcriptTurns, dir, async () => {
+      const file = await readTranscript(dir);
+      const recordings = new Map(file.recordings.map((recording) => [recording.id, recording]));
+      for (const { id: recordingId, before, after } of edits) {
+        if ((before && before.id !== recordingId) || (after && after.id !== recordingId))
+          throw new NoteError("bad-request", "transcript edit has a different recording ID");
+        const current = recordings.get(recordingId);
+        if (sameRecording(current, after)) continue;
+        if (!sameRecording(current, before))
+          throw new NoteError("conflict", "The recording was changed in another window.");
+        if (after) recordings.set(recordingId, after);
+        else recordings.delete(recordingId);
+      }
+      await this.writeTranscript(dir, id, { ...file, recordings: [...recordings.values()] });
+    });
+  }
+
+  private queueWrite<T>(
+    turns: Map<string, Promise<void>>,
+    dir: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const turn = (turns.get(dir) ?? Promise.resolve()).then(work);
+    const settled = turn.then(
+      () => {},
+      () => {},
+    );
+    turns.set(dir, settled);
+    void settled.then(() => {
+      if (turns.get(dir) === settled) turns.delete(dir);
+    });
+    return turn;
+  }
+
+  private async writeTranscript(dir: string, id: string, file: TranscriptFile): Promise<void> {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
-    await writeAtomic(path.join(dir, TRANSCRIPT_JSON), `${JSON.stringify(file)}\n`);
     await writeAtomic(path.join(dir, TRANSCRIPT_MD), transcriptMarkdown(file, note.title));
+    await writeAtomic(path.join(dir, TRANSCRIPT_JSON), `${JSON.stringify(file)}\n`);
   }
 
   async hasRecordingAudio(
@@ -329,19 +988,21 @@ export class NotesStore {
     if (!RECORDING_ID_RE.test(recordingId))
       throw new NoteError("bad-request", `not a recording id: ${recordingId}`);
     const dir = this.noteDir(location, id);
-    const file = await readTranscript(dir);
-    for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
-      if (name.startsWith(`${recordingId}-`))
-        await this.discard(path.join(dir, NOTE_DIRS.recordings, name));
-    }
-    const next: TranscriptFile = {
-      ...file,
-      recordings: text
-        ? file.recordings.filter((r) => r.id !== recordingId)
-        : file.recordings.map((r) => (r.id === recordingId ? { ...r, audioRemoved: true } : r)),
-    };
-    await this.saveTranscript(location, id, next);
-    return next;
+    return this.queueWrite(this.transcriptTurns, dir, async () => {
+      const file = await readTranscript(dir);
+      for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
+        if (name.startsWith(`${recordingId}-`))
+          await this.discard(path.join(dir, NOTE_DIRS.recordings, name));
+      }
+      const next: TranscriptFile = {
+        ...file,
+        recordings: text
+          ? file.recordings.filter((r) => r.id !== recordingId)
+          : file.recordings.map((r) => (r.id === recordingId ? { ...r, audioRemoved: true } : r)),
+      };
+      await this.writeTranscript(dir, id, next);
+      return next;
+    });
   }
 
   /**
@@ -410,6 +1071,7 @@ export class NotesStore {
         entry.updatedAt = Math.max(entry.updatedAt, note.updatedAt);
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.json"));
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.md"));
+        entry.bytes.text += await sizeOf(path.join(noteDir, LINKS_JSON));
         entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_JSON));
         entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_MD));
         entry.bytes.recordings += await sizeOf(path.join(noteDir, NOTE_DIRS.recordings));
@@ -425,7 +1087,16 @@ export class NotesStore {
   /** Removes every note of a location (by its key). */
   async removeLocation(key: string): Promise<void> {
     const dir = path.join(this.root, locationDirName(key));
-    if (await exists(dir)) await this.discard(dir);
+    await this.queueWrite(this.linkTurns, key, async () => {
+      if (await exists(dir)) await this.discard(dir);
+      this.linkIndexes.delete(key);
+      for (const noteDir of this.savedReports.keys()) {
+        if (path.dirname(noteDir) === dir) this.savedReports.delete(noteDir);
+      }
+      for (const noteDir of this.savedCards.keys()) {
+        if (path.dirname(noteDir) === dir) this.savedCards.delete(noteDir);
+      }
+    });
   }
 
   private async touchLocation(location: NoteLocation): Promise<void> {
@@ -445,6 +1116,119 @@ export class NotesStore {
     }
     await fs.rm(dir, { recursive: true, force: true });
   }
+}
+
+async function readLinks(dir: string): Promise<LinksFile> {
+  const empty: LinksFile = { version: 1, conversations: {}, summaries: {} };
+  try {
+    const handle = await fs.open(path.join(dir, LINKS_JSON), "r");
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > MAX_NOTE_LINK_BYTES) return empty;
+      const bytes = await handle.readFile();
+      if (bytes.length > MAX_NOTE_LINK_BYTES) return empty;
+      const file = LinksFileSchema.safeParse(JSON.parse(bytes.toString("utf8")));
+      if (!file.success) return empty;
+      empty.summaries = file.data.summaries;
+      if (file.data.summaryHistory) empty.summaryHistory = file.data.summaryHistory;
+      let count = 0;
+      for (const [id, value] of Object.entries(file.data.conversations)) {
+        if (!NoteLinkIdSchema.safeParse(id).success) continue;
+        const link = NoteLinkSchema.safeParse(value);
+        if (!link.success) continue;
+        empty.conversations[id] = link.data;
+        if (++count === MAX_NOTE_LINKS) break;
+      }
+      return empty;
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT")
+      return empty;
+    throw error;
+  }
+}
+
+async function writeLinks(dir: string, file: LinksFile): Promise<void> {
+  await writeAtomic(path.join(dir, LINKS_JSON), encodeLinks(file));
+}
+
+function encodeLinks(file: LinksFile): string {
+  const data = `${JSON.stringify(file)}\n`;
+  if (Buffer.byteLength(data) > MAX_NOTE_LINK_BYTES)
+    throw new NoteError("bad-request", "The note's linked conversations exceed 256 KB");
+  return data;
+}
+
+function summariesOf(file: LinksFile): Record<string, RecordingSummary> {
+  const entries: [string, RecordingSummary][] = [];
+  for (const [id, value] of Object.entries(file.summaries)) {
+    if (!RECORDING_ID_RE.test(id)) continue;
+    const state = RecordingSummarySchema.safeParse(value);
+    if (state.success) entries.push([id, state.data]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function compactSummaries(file: LinksFile, summaries = summariesOf(file)): void {
+  const entries = Object.entries(summaries).sort(
+    ([, a], [, b]) =>
+      ("endedAt" in b ? b.endedAt : b.startedAt) - ("endedAt" in a ? a.endedAt : a.startedAt),
+  );
+  const history = new Set(file.summaryHistory);
+  const keep: typeof entries = [];
+  for (const entry of entries) {
+    const [id, state] = entry;
+    if (
+      keep.length < RECENT_SUMMARIES ||
+      state.state === "running" ||
+      (state.state === "done" && !state.seen)
+    ) {
+      keep.push(entry);
+      history.delete(id);
+    } else {
+      // A compact marker still prevents automatic retries of an evicted summary.
+      history.add(id);
+    }
+  }
+  file.summaries = Object.fromEntries(keep);
+  file.summaryHistory = history.size ? [...history] : undefined;
+}
+
+function newLinkEntry(file: LinksFile, link: NewNoteLink): NoteLinkEntry {
+  if (Object.keys(file.conversations).length >= MAX_NOTE_LINKS)
+    throw new NoteError("bad-request", "Too many conversations linked to this note");
+  const id = `l${randomBytes(8).toString("hex")}`;
+  const now = Date.now();
+  const entry = { ...link, createdAt: now, updatedAt: now };
+  file.conversations[id] = entry;
+  return { id, link: entry };
+}
+
+function earlierSessions(link: NoteLink, session: string | undefined): string[] | undefined {
+  if (session === link.session) return link.sessions;
+  const previous = link.session ? [link.session, ...(link.sessions ?? [])] : link.sessions;
+  return (
+    previous && [...new Set(previous)].filter((id) => id !== session).slice(0, MAX_EARLIER_SESSIONS)
+  );
+}
+
+function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
+  if (!Object.hasOwn(file.conversations, id)) return false;
+  const current = file.conversations[id];
+  const { profileId, session, ...target } = patch;
+  const next = { ...current, ...target };
+  if (profileId === null) delete next.profileId;
+  else if (profileId !== undefined) next.profileId = profileId;
+  if (session !== undefined && session !== current.session) {
+    next.session = session;
+    const previous = earlierSessions(current, session);
+    if (previous) next.sessions = previous;
+  }
+  if (isDeepStrictEqual(next, current)) return false;
+  file.conversations[id] = { ...next, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+  return true;
 }
 
 /** What a note has in it, counted from its document. */
@@ -515,6 +1299,12 @@ function summaryOf(note: NoteFile, recording?: NoteRecordingSummary): NoteSummar
   };
 }
 
+function sameRecording(current?: TranscriptRecording, expected?: TranscriptRecording): boolean {
+  if (current && !current.speakerNumbers && expected?.speakerNumbers)
+    return isDeepStrictEqual(numberSpeakers(current), expected);
+  return isDeepStrictEqual(current, expected);
+}
+
 const TRANSCRIPT_JSON = "transcript.json";
 const TRANSCRIPT_MD = "transcript.md";
 
@@ -539,7 +1329,7 @@ async function recordingSummary(dir: string): Promise<NoteRecordingSummary | und
 /** The note as Markdown: its title, then its body. */
 export function noteMarkdown(note: Pick<NoteFile, "title" | "doc">): string {
   const body = docToMarkdown(note.doc);
-  const title = note.title.trim();
+  const title = escapeText(note.title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim());
   return title ? `# ${title}\n\n${body}` : body;
 }
 
@@ -549,8 +1339,13 @@ async function readNote(dir: string): Promise<NoteFile> {
   return note;
 }
 
-async function writeNote(dir: string, note: NoteFile): Promise<void> {
+async function writeNote(
+  dir: string,
+  note: NoteFile,
+  onDocumentWritten?: (updatedAt: number) => void,
+): Promise<void> {
   await writeAtomic(path.join(dir, "note.json"), `${JSON.stringify(note)}\n`);
+  onDocumentWritten?.(note.updatedAt);
   await writeAtomic(path.join(dir, "note.md"), noteMarkdown(note));
 }
 

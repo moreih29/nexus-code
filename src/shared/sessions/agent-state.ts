@@ -5,6 +5,7 @@
  * read terminals the same way.
  */
 import { z } from "zod";
+import { NumberSchema } from "../../../packages/remote-protocol/src/validation";
 import type { ClaudeStatus } from "../claude/status";
 import { isLoginShell } from "../pty/login-shell";
 
@@ -37,9 +38,9 @@ export interface TabActivity {
 export const TabActivityEntrySchema = z.object({
   workspaceId: z.string(),
   tabId: z.string(),
-  lastOutputAt: z.number(),
+  lastOutputAt: NumberSchema,
   lastNotice: z
-    .object({ title: z.string().optional(), body: z.string(), at: z.number() })
+    .object({ title: z.string().optional(), body: z.string(), at: NumberSchema })
     .optional(),
   program: z.string().optional(),
 });
@@ -133,6 +134,6 @@ export type TerminalRef = z.infer<typeof TerminalRefSchema>;
 export const TerminalWaitSchema = z.object({
   waiter: TerminalRefSchema,
   target: TerminalRefSchema,
-  since: z.number(),
+  since: NumberSchema,
 });
 export type TerminalWait = z.infer<typeof TerminalWaitSchema>;

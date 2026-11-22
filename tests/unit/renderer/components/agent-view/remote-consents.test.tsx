@@ -4,14 +4,23 @@
  * would run, the seconds left, and the answers it allows; or, where this
  * computer may not answer it, where to.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
+import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { RemoteConsent } from "../../../../../packages/remote-protocol/src/rpc";
+import type { RemoteConsent, RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
+import * as buttons from "../../../../../src/renderer/components/ui/button";
+import * as ipc from "../../../../../src/renderer/ipc/client";
+import { ipcOk } from "../../../../../src/shared/ipc/result";
 
-const { RemoteConsentCard, consentActionOf, consentSentenceOf } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-consents"
-);
+const {
+  PeerConsentCard,
+  RemoteConsentCard,
+  consentActionOf,
+  consentFromChat,
+  consentSentenceOf,
+  usePeerConsents,
+} = await import("../../../../../src/renderer/components/agent-view/remote-consents");
 
 const t = i18next.getFixedT("en", "settings");
 
@@ -38,6 +47,65 @@ const card = (c: RemoteConsent) =>
       onSettled={() => {}}
     />,
   );
+
+describe("another computer's consent in the sidebar and chat", () => {
+  test("matches the asking workspace and tab on the serving computer", () => {
+    const from = { workspaceId: "w1", tabId: "t1" };
+    const prompt = consent({ from, workspaceId: "other-workspace" });
+    expect(consentFromChat(prompt, from)).toBe(true);
+    expect(consentFromChat(prompt, { ...from, tabId: "t2" })).toBe(false);
+    expect(consentFromChat(prompt, { ...from, workspaceId: "w2" })).toBe(false);
+    expect(consentFromChat(consent({ from: { ...from, manager: true } }), from)).toBe(false);
+    const device = { id: "d3", name: "Another PC" };
+    expect(consentFromChat(consent({ from: { ...from, device } }), from)).toBe(false);
+  });
+
+  test("an answer clears both surfaces even if they still have the old list", async () => {
+    const prompt = consent({ id: "shared-answer" });
+    const sessions: RemoteSession[] = [
+      { ...prompt.from, title: "Review", kind: "claude", state: "idle" },
+    ];
+    function Cards({ deviceId, inChat }: { deviceId: string; inChat?: boolean }) {
+      return usePeerConsents(deviceId, [prompt])
+        .filter((entry) => !inChat || consentFromChat(entry, prompt.from))
+        .map((entry) => (
+          <PeerConsentCard
+            key={entry.id}
+            consent={entry}
+            deviceId={deviceId}
+            device="Work PC"
+            workspaceName="api"
+            sessions={sessions}
+          />
+        ));
+    }
+
+    const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk({}));
+    const renderButton = spyOn(buttons, "Button");
+    try {
+      const sidebar = () => renderToStaticMarkup(<Cards deviceId="d2" />);
+      const chat = () => renderToStaticMarkup(<Cards deviceId="d2" inChat />);
+      expect(sidebar()).toContain("The Claude tab");
+      renderButton.mockClear();
+      expect(chat()).toContain("The Claude tab");
+      const allow = renderButton.mock.calls.at(-1)?.[0].onClick;
+      expect(allow).toBeDefined();
+      allow?.({} as MouseEvent<HTMLButtonElement>);
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledWith("remote", "peerConsentAnswer", {
+        deviceId: "d2",
+        id: prompt.id,
+        answer: "once",
+      });
+      expect(sidebar()).toBe("");
+      expect(chat()).toBe("");
+      expect(renderToStaticMarkup(<Cards deviceId="d3" />)).toContain("Allow once");
+    } finally {
+      renderButton.mockRestore();
+      call.mockRestore();
+    }
+  });
+});
 
 describe("what another computer's consent prompt says", () => {
   test("what it would do, as this computer's prompt words it", () => {
@@ -68,6 +136,28 @@ describe("what another computer's consent prompt says", () => {
     ).toBe('The manager asks to type into the terminal "dev" in api.');
   });
 
+  test.each([
+    ["claude", "Claude"],
+    ["codex", "Codex"],
+  ] as const)("names a %s tab only when the workspace and tab IDs match", (kind, agent) => {
+    const prompt = consent({
+      from: { workspaceId: "w1", workspaceName: "app", tabId: "t1", name: "Review" },
+    });
+    const sender = { workspaceId: "w1", tabId: "t1", title: "Review", state: "idle" } as const;
+    const sessions: RemoteSession[] = [
+      { ...sender, workspaceId: "w2", kind: "terminal" },
+      { ...sender, tabId: "t2", kind: "terminal" },
+      { ...sender, kind },
+    ];
+    expect(consentSentenceOf(t, prompt, "api", sessions)).toContain(`The ${agent} tab "Review"`);
+    expect(
+      consentSentenceOf(i18next.getFixedT("ko", "settings"), prompt, "api", sessions),
+    ).toContain(`app의 ${agent} 탭 "Review"이(가)`);
+    expect(consentSentenceOf(t, prompt, "api", sessions.slice(0, 2))).toContain(
+      'The terminal "Review"',
+    );
+  });
+
   test("a card: its question, all it would run, the seconds left, and the three answers", () => {
     const html = card(consent());
     expect(html).toContain("Allow an agent to change another workspace?");
@@ -86,6 +176,19 @@ describe("what another computer's consent prompt says", () => {
     expect(card(consent({ change: { kind: "permissionAllow", detail: "Bash" } }))).toContain(
       "Answer another session&#x27;s permission request?",
     );
+  });
+
+  test.each([
+    ["terminalInput", "Allow an agent on another computer to change this one?"],
+    ["permissionAllow", "Answer another session&#x27;s permission request?"],
+  ])("a remote %s request uses the local dialog's title selection", (kind, title) => {
+    const from = {
+      ...consent().from,
+      device: { id: "d3", name: "Laptop" },
+    };
+    const html = card(consent({ from, change: { kind } }));
+    expect(html).toContain(`aria-label="${title}"`);
+    expect(html).toContain("Laptop");
   });
 
   test("instruction prompts use the viewer's language and name the layer", () => {
@@ -121,17 +224,26 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
-  test("one asked about each time is not answered until restart", () => {
+  test("one asked about each time offers Don't allow and Allow", () => {
     const html = card(consent({ eachTime: true }));
+    expect(html).toContain("Don&#x27;t allow</button>");
     expect(html).not.toContain("Allow until restart");
-    expect(html).toContain("Allow once");
-    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow once/);
+    expect(html).not.toContain("Allow once");
+    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow<\/button>/);
+  });
+
+  test("sandbox approval offers the same choices in the same order", () => {
+    const change = { kind: "sandboxExecution", body: "nexus terminal new" };
+    const html = card(consent({ change }));
+    expect(html).toContain("Let an agent run a command outside its sandbox?");
+    expect(html).toMatch(/Don&#x27;t allow.*Allow until restart.*Allow once/s);
+    expect(card(consent({ change, eachTime: true }))).not.toContain("Allow until restart");
   });
 
   test("one this computer may not answer says where to, with no answers", () => {
     const html = card(consent({ answerable: false }));
     expect(html).toContain("Answer it on Work PC");
-    expect(html).not.toContain("Allow once");
+    expect(html).not.toContain("<button");
   });
 
   test("one run out is gone", () => {

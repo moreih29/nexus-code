@@ -70,16 +70,24 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		defer s.unregisterStream(params.StreamID)
 	}
-	cmd, err := s.command(cmdCtx, []string{"cat-file", "--batch"}, params.Cwd, nil, false)
+	args := []string{"cat-file", "--batch"}
+	terminator := "\n"
+	if strings.ContainsRune(objectSpec, '\n') {
+		// -z changes only input framing and works with older Git versions
+		// that do not support -Z. Keep the usual mode for other paths.
+		args = append(args, "-z")
+		terminator = "\x00"
+	}
+	cmd, err := s.command(cmdCtx, args, params.Cwd, nil, false)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdin = strings.NewReader(objectSpec + "\n")
+	cmd.Stdin = strings.NewReader(objectSpec + terminator)
 	var stderr gitStderr
 	cmd.Stderr = &stderr
 	stdout, finish, err := startGitOutput(cmdCtx, cmd)
 	if err != nil {
-		return nil, mapGitStartError(err, []string{"cat-file", "--batch"})
+		return nil, mapGitStartError(err, args)
 	}
 
 	emit := func(payload BlobChunkPayload) error {
@@ -94,6 +102,10 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	result, readErr := parseBlobCatFileOutput(ctx, params, stdout, emit)
 	if readErr != nil || result.Truncated {
 		cancel()
+	} else {
+		// Git writes a newline after the blob body. Drain stdout before finish
+		// closes it so Wait does not report a failed copy of that newline.
+		_, readErr = io.Copy(io.Discard, stdout)
 	}
 	waitErr := finish()
 	if readErr != nil {
@@ -150,7 +162,7 @@ func parseBlobParams(raw json.RawMessage) (BlobParams, error) {
 
 func parseBlobCatFileOutput(ctx context.Context, params BlobParams, stdout io.Reader, emit func(BlobChunkPayload) error) (BlobResult, error) {
 	reader := bufio.NewReader(stdout)
-	header, err := readBlobHeader(reader)
+	header, err := readBlobHeader(reader, blobObjectSpec(params.Ref, params.RelPath))
 	if err != nil {
 		return BlobResult{}, err
 	}
@@ -202,10 +214,23 @@ func parseBlobCatFileOutput(ctx context.Context, params BlobParams, stdout io.Re
 	return result, nil
 }
 
-func readBlobHeader(reader *bufio.Reader) (blobHeader, error) {
+func readBlobHeader(reader *bufio.Reader, objectSpec string) (blobHeader, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return blobHeader{}, err
+	}
+	// With -z, a missing object is echoed verbatim in a newline-delimited
+	// response. Match the remaining bytes when the spec itself was multiline.
+	if first, rest, multiline := strings.Cut(objectSpec, "\n"); multiline && line == first+"\n" {
+		expected := rest + " missing\n"
+		actual := make([]byte, len(expected))
+		if _, err := io.ReadFull(reader, actual); err != nil {
+			return blobHeader{}, err
+		}
+		if string(actual) != expected {
+			return blobHeader{}, fmt.Errorf("unexpected git cat-file missing-object response")
+		}
+		return blobHeader{Missing: true}, nil
 	}
 	line = strings.TrimSuffix(line, "\n")
 	line = strings.TrimSuffix(line, "\r")

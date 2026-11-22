@@ -2,10 +2,17 @@
 //
 // About / Info panel — replaces the previous Updates panel.
 //
-// Shows the product name, the app version (injected at build time via the
-// `__APP_VERSION__` Vite define — see `electron.vite.config.ts`) and the
-// copyright line, with the release notes and a manual "Check for Updates"
-// beside them, then an auto-check toggle.
+// From the top:
+//   - The product name and the copyright line, with the release notes
+//     beside them: the running version's, or the newer one's while one is on
+//     offer. They open over the panels (closing Settings).
+//   - Updates: the app version (injected at build time via the
+//     `__APP_VERSION__` Vite define — see `electron.vite.config.ts`) with
+//     where its update stands under it and what can be done about it beside
+//     it, then the auto-check toggle.
+//   - Links: the website's front page, support and privacy policy, in the
+//     app's language; the window opens them in the browser, as any link.
+//   - Logs: the log folder and its path, what a user sends with a report.
 //
 // The Update Channel SegmentedControl (stable / beta) is intentionally not
 // rendered at this stage: no GA release exists yet, so a channel toggle has
@@ -19,24 +26,25 @@
 //                    every few hours while it runs. A newer version shows on
 //                    the title bar's update button, with one toast a version.
 //   - Off          : those polls are skipped. The "Check for Updates"
-//                    button below always works regardless of this setting —
+//                    button always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
-// The release notes open from here over the panels (closing Settings): the
-// running version's, or the newer one's while one is on offer.
-//
-// Below the name the panel shows where an update stands, from the updates
-// store: the last check's answer, then the download with its progress, the
-// signature check (macOS), and the restart that installs it.
+// Where an update stands comes from the updates store: the last check's
+// answer, then the download with its progress, the signature check (macOS),
+// and the restart that installs it.
 //
 // A Microsoft Store install shows none of this: the Store updates it, and a
-// GitHub release has no build for it. It gets a button to the Store page.
+// GitHub release has no build for it. Its version row says so, with a
+// button to the Store page, and it has no auto-check toggle.
 //
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
+import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
+import { type SitePage, siteUrl } from "../../../../shared/site";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
 import { installUpdate } from "../../../services/updates/operations";
@@ -46,7 +54,7 @@ import { useUpdatesStore } from "../../../state/stores/updates";
 import { copyTextViaIpc } from "../../../utils/clipboard";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
-import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 
 // ---------------------------------------------------------------------------
 // Static product metadata
@@ -83,60 +91,126 @@ export function AboutPanel() {
   return (
     <SettingsPage>
       <SettingsGroup>
-        {/* Product identity on the left, what can be done about it on the right. */}
+        {/* The product, and the notes of its version or of the newer one on offer. */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
-            <div className="text-app-ui-sm text-muted-foreground">
-              {t("about.version", { version: __APP_VERSION__ })}
-            </div>
             <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {/* The notes of the running version, or of the newer one on offer. */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
-              data-testid="about-release-notes"
-            >
-              {t("about.releaseNotes")}
-            </Button>
-            {storeManaged ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
-              >
-                {t("about.openStore")}
-              </Button>
-            ) : (
-              <UpdateActions status={status} releaseNotes={false} />
-            )}
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
+            data-testid="about-release-notes"
+          >
+            {t("about.releaseNotes")}
+          </Button>
         </div>
-        {storeManaged ? (
-          <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
-        ) : (
-          <UpdateProgressLines status={status} progress={progress} />
-        )}
       </SettingsGroup>
 
-      <SettingsGroup title={t("about.logs.title")} description={t("about.logs.description")}>
-        <LogActions />
-      </SettingsGroup>
-
-      {!storeManaged && (
-        <SettingsGroup>
+      <SettingsGroup title={t("about.updates.title")}>
+        <VersionRow status={status} progress={progress} storeManaged={storeManaged} />
+        {!storeManaged && (
           <SettingsSwitch
             label={t("about.autoCheck.label")}
             description={t("about.autoCheck.description")}
             checked={autoCheckEnabled}
             onChange={handleAutoCheckChange}
           />
-        </SettingsGroup>
-      )}
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup title={t("about.links.title")}>
+        <SiteLinks />
+      </SettingsGroup>
+
+      <SettingsGroup title={t("about.logs.title")} description={t("about.logs.description")}>
+        <LogActions />
+      </SettingsGroup>
     </SettingsPage>
+  );
+}
+
+/**
+ * The running version, where its update stands under it, and the buttons
+ * the status offers beside it; the download's bar below while there is one.
+ * A Microsoft Store install says the Store updates it, with its page.
+ */
+export function VersionRow({
+  status,
+  progress,
+  storeManaged,
+}: {
+  status: UpdateStatus | null;
+  progress: UpdateProgress | null;
+  storeManaged: boolean;
+}) {
+  const { t } = useTranslation("settings");
+  const line = useUpdateStatusText(status);
+  const version = t("about.version", { version: __APP_VERSION__ });
+  if (storeManaged) {
+    return (
+      <SettingsRow label={version} description={t("about.storeManaged")}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
+        >
+          {t("about.openStore")}
+        </Button>
+      </SettingsRow>
+    );
+  }
+  return (
+    <>
+      <SettingsRow
+        label={version}
+        description={
+          line && (
+            <span className={cn("break-keep", line.failed && "text-destructive")}>{line.text}</span>
+          )
+        }
+      >
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <UpdateActions status={status} releaseNotes={false} />
+        </div>
+      </SettingsRow>
+      {(status?.kind === "downloading" || status?.kind === "verifying") && (
+        <DownloadProgressBar status={status} progress={progress} />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The website
+// ---------------------------------------------------------------------------
+
+const SITE_LINKS = [
+  { page: "home", label: "about.links.website" },
+  { page: "support", label: "about.links.support" },
+  { page: "privacy", label: "about.links.privacy" },
+] as const satisfies readonly { page: SitePage; label: string }[];
+
+/** The website's pages, in the app's language. */
+function SiteLinks() {
+  const { t, i18n } = useTranslation("settings");
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {SITE_LINKS.map(({ page, label }) => (
+        <Button key={page} variant="outline" size="sm" asChild>
+          <a
+            href={siteUrl(page, i18n.language)}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`about-site-${page}`}
+          >
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+            {t(label)}
+          </a>
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -303,7 +377,10 @@ function UpdateActions({
   );
 }
 
-function UpdateStatusLine({ status }: { status: UpdateStatus | null }) {
+/** Where the update stands, in words, and whether that is a failure; null with nothing to say. */
+function useUpdateStatusText(
+  status: UpdateStatus | null,
+): { text: string; failed: boolean } | null {
   const { t } = useTranslation("common");
   let text: string | null;
   switch (status?.kind) {
@@ -336,15 +413,17 @@ function UpdateStatusLine({ status }: { status: UpdateStatus | null }) {
       break;
   }
   if (text === null) return null;
+  return { text, failed: status?.kind === "error" || status?.kind === "installFailed" };
+}
+
+function UpdateStatusLine({ status }: { status: UpdateStatus | null }) {
+  const line = useUpdateStatusText(status);
+  if (line === null) return null;
   return (
     <p
-      className={
-        status?.kind === "error" || status?.kind === "installFailed"
-          ? "text-app-ui-sm text-destructive"
-          : "text-app-ui-sm text-foreground"
-      }
+      className={line.failed ? "text-app-ui-sm text-destructive" : "text-app-ui-sm text-foreground"}
     >
-      {text}
+      {line.text}
     </p>
   );
 }

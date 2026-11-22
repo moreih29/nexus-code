@@ -4,8 +4,10 @@
  * rows it lists, a recording's heading and then its lines, as a speaker
  * picked and words searched for leave them. Pure.
  */
+import { summaryOrigin } from "../../../shared/notes/summary";
 import {
   joinedLines,
+  speakerName,
   speakersOf,
   type TranscriptLine,
   type TranscriptRecording,
@@ -144,6 +146,39 @@ export function readRecordings(recordings: readonly TranscriptRecording[]): Read
 /** A line's key: its recording, its voice and its start, as long as it is not moved. */
 export function lineKey(recordingId: string, line: Pick<TranscriptLine, "speaker" | "startMs">) {
   return `${recordingId}:${line.speaker}-${line.startMs}`;
+}
+
+export interface TranscriptJump {
+  speaker: string;
+  at: number;
+  origin?: string;
+}
+
+export function transcriptJumpKey(
+  read: readonly ReadRecording[],
+  jump: TranscriptJump,
+): string | undefined {
+  const recordings = jump.origin
+    ? read.filter(({ recording }) => summaryOrigin(recording.id) === jump.origin)
+    : read;
+  let closest: { key: string; distance: number; sameSpeaker: boolean } | undefined;
+  for (const { recording, lines } of recordings) {
+    const source = recording.lines.find((line) => Math.round(line.startMs) === jump.at);
+    for (const line of lines) {
+      const sameSpeaker =
+        source?.speaker === line.speaker ||
+        Boolean(jump.speaker && speakerName(recording, line.speaker) === jump.speaker);
+      const distance = Math.max(line.startMs - jump.at, jump.at - line.endMs, 0);
+      if (
+        !closest ||
+        distance < closest.distance ||
+        (distance === closest.distance && sameSpeaker && !closest.sameSpeaker)
+      ) {
+        closest = { key: lineKey(recording.id, line), distance, sameSpeaker };
+      }
+    }
+  }
+  return closest?.key;
 }
 
 export type TranscriptRow =

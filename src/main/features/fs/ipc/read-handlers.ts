@@ -45,10 +45,10 @@ export function statHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<FsStat | FsIpcErrorResult> {
   return async (args: unknown): Promise<FsStat | FsIpcErrorResult> => {
-    const { workspaceId, relPath } = validateArgs(c.stat.args, args);
+    const { workspaceId, relPath, followSymlink } = validateArgs(c.stat.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
-      return await fs.stat(relPath);
+      return await fs.stat(relPath, followSymlink && !isGuardedPeerViewFile(workspaceId, relPath));
     } catch (error) {
       const expected = fsCallError(error);
       if (expected) return expected;

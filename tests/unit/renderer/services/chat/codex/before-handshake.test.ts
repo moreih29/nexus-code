@@ -44,7 +44,9 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
     if (method === "codexStart") {
       starts.push(args);
       onStart?.();
-      const value = { ok: true, pid: 1, attached: false, version: installedVersion, ...hostFolder };
+      const value = startFailure
+        ? { ok: false, reason: "failed", message: startFailure }
+        : { ok: true, pid: 1, attached: false, version: installedVersion, ...hostFolder };
       return Promise.resolve({
         ok: true,
         value: catalog ? contract.codexStart.result.parse(value) : value,
@@ -76,6 +78,7 @@ let installedVersion: string | null = null;
 let replayResponse: (() => unknown) | undefined;
 let onStart: (() => void) | undefined;
 let onStop: (() => void) | undefined;
+let startFailure: string | undefined;
 
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
@@ -90,6 +93,7 @@ afterEach(() => {
   replayResponse = undefined;
   onStart = undefined;
   onStop = undefined;
+  startFailure = undefined;
 });
 
 /** A tab whose program is not running and answers initialize a while after it is asked. */
@@ -750,6 +754,169 @@ test("peer history filter requests share eight real catalog lifecycles", async (
     await tab.ask("thread/name/set", { threadId: "account-0", name: "renamed profile" });
     expect((await search("RENAMED"))[0]?.title).toBe("renamed profile");
     expect(count()).toEqual([24, 24, 24]);
+  } finally {
+    wire.mockRestore();
+  }
+});
+
+test("replaying a Codex turn reply settles the tracked send without repeating server requests", async () => {
+  const c = tab();
+  const line = (dir: "sys" | "in" | "out", message: Message, replay = false) =>
+    c.receive({ seq: ++lineSeq, dir, message, replay });
+  onStart = () => line("sys", { event: "start" });
+  await c.prepareSend();
+
+  const wrote = Promise.withResolvers<Message>();
+  codex = (message) => {
+    sent.push(message);
+    if (message.method === "turn/start") {
+      line("in", message);
+      wrote.resolve(message);
+    }
+  };
+  const sending = c.sendWithTiming("Tracked turn", [], "next", undefined, undefined, "tracked-id");
+  const request = await wrote.promise;
+  c.held();
+  replayResponse = () => {
+    line("out", { id: request.id, result: { turn: { id: "accepted" } } }, true);
+    line("out", { id: "old-ask", method: "mcpServer/elicitation/request" }, true);
+    return { found: true, running: true, truncated: false, lastSeq: lineSeq };
+  };
+
+  await c.resync();
+  expect(await Promise.race([sending, Bun.sleep(100).then(() => "still pending")])).toBeUndefined();
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({
+      kind: "user",
+      text: "Tracked turn",
+      state: "taken",
+      turnId: "accepted",
+    }),
+  );
+  expect(sent.some(({ id }) => id === "old-ask")).toBe(false);
+});
+
+test("a failed Codex /new keeps the source history, queue, and saved thread", async () => {
+  const c = tab(({ method }) => {
+    if (method !== "thread/resume") return undefined;
+    const item = {
+      type: "userMessage",
+      id: "original",
+      content: [{ type: "text", text: "Source" }],
+    };
+    return {
+      thread: { id: "t1", turns: [{ id: "old-turn", status: "completed", items: [item] }] },
+    };
+  });
+  onStart = () => c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start" } });
+  await c.prepareSend();
+  const queued = { id: "held", text: "Recoverable prompt", images: [], status: "failed" as const };
+  useChatStore.getState().update(c.key, (prev) => ({
+    ...prev,
+    queue: [queued],
+  }));
+  const onThread = mock(() => {});
+  const onTitle = mock(() => {});
+  const onMoves = mock(() => {});
+  c.setHooks({ onThread, onTitle, onMoves });
+  startFailure = "replacement could not start";
+  onStart = undefined;
+  onStop = () => c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 0 } });
+
+  await expect(c.newThread()).rejects.toThrow("replacement could not start");
+  expect(c.currentThread()).toBe("t1");
+  expect(c.model.items).toContainEqual(expect.objectContaining({ kind: "user", text: "Source" }));
+  expect(c.state.queue).toEqual([queued]);
+  expect(c.state.phase).toBe("failed");
+  expect(onThread).not.toHaveBeenCalled();
+  expect(onTitle).not.toHaveBeenCalled();
+  expect(onMoves).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["0.170.0", true, true],
+  ["0.170.0", true, false],
+  ["0.166.0", false, false],
+  [null, false, false],
+] as const)("Codex %s keeps saved turn status with paged history=%s and summary=%s", async (version, supported, summarySupported) => {
+  installedVersion = version;
+  const prototype = CodexController.prototype as unknown as {
+    write(this: Controller, message: Message): Promise<void>;
+  };
+  const write = prototype.write;
+  const saved = {
+    id: "recorded-turn",
+    status: "completed",
+    itemsView: "summary",
+    startedAt: 123,
+    completedAt: 124,
+    durationMs: 1000,
+    items: [
+      {
+        type: "userMessage",
+        id: "prompt",
+        content: [{ type: "text", text: "Prompt", text_elements: [] }],
+      },
+      {
+        type: "agentMessage",
+        id: "answer",
+        text: "Recorded answer",
+        phase: "final_answer",
+        completedAtMs: 124000,
+      },
+    ],
+  };
+  const wire = spyOn(prototype, "write").mockImplementation(async function (
+    this: Controller,
+    message: Message,
+  ) {
+    await write.call(this, message);
+    if (!message.id) return;
+    const { threadId, itemsView } = (message.params as Message) ?? {};
+    const turns =
+      threadId === "saved"
+        ? [itemsView === "summary" ? saved : { ...saved, items: [], itemsView }]
+        : [];
+    const error =
+      threadId === "missing"
+        ? { code: -32600, message: "no rollout found" }
+        : itemsView === "summary" && !summarySupported
+          ? { code: -32602, message: "unsupported items view" }
+          : undefined;
+    const reply = error
+      ? { error }
+      : { result: { data: turns, nextCursor: null, backwardsCursor: null } };
+    this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } });
+  });
+  try {
+    expect(
+      await CodexController.savedThreadTurns(
+        { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
+        ["missing", "saved", "empty"],
+      ),
+    ).toEqual(new Map(supported ? [["saved", summarySupported ? [saved] : []]] : []));
+    expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
+    expect(catalogCalls.at(-1)?.method).toBe("close");
+    const requests = catalogCalls
+      .filter(({ method }) => method === "send")
+      .map(({ args }) => args.message as Message);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "initialize",
+      "initialized",
+      ...(supported ? Array(summarySupported ? 4 : 6).fill("thread/turns/list") : []),
+    ]);
+    if (supported) {
+      const savedRequests = requests.filter(
+        ({ params }) => (params as Message)?.threadId === "saved",
+      );
+      expect(savedRequests.map(({ params }) => params)).toEqual(
+        (summarySupported ? ["summary"] : ["summary", "notLoaded"]).map((itemsView) => ({
+          threadId: "saved",
+          itemsView,
+          limit: 1,
+        })),
+      );
+    }
   } finally {
     wire.mockRestore();
   }

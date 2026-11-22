@@ -12,31 +12,23 @@ import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabActivityStore } from "../../state/stores/tab-activity";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { viewingKey } from "../agent-sessions/viewing";
+import { sessionsInputNow } from "../agent-sessions/use-inbox";
 import { useChatStore } from "../chat/store";
 import { type Agents, buildAgents, sameAgents } from "./agents";
 
-function agentsNow(): Agents {
-  return buildAgents({
-    workspaces: useWorkspacesStore.getState().workspaces,
-    tabsByWorkspace: useTabsStore.getState().byWorkspace,
-    claudeByWorkspace: useClaudeStatusStore.getState().byWorkspace,
-    activity: useTabActivityStore.getState().activity,
-    now: Date.now(),
-    seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
-    chats: useChatStore.getState().tabs,
-    viewing: viewingKey(),
-  });
-}
-
 /** The agents, kept current while `enabled`; the last read otherwise. */
 export function useAgents(enabled = true): Agents {
-  const [agents, setAgents] = useState(agentsNow);
+  const [agents, setAgents] = useState(() =>
+    buildAgents(sessionsInputNow(useTabActivityStore.getState().activity)),
+  );
   useEffect(() => {
     if (!enabled) return;
     const update = (): void => {
-      const next = agentsNow();
-      setAgents((prev) => (sameAgents(prev, next) ? prev : next));
+      const input = sessionsInputNow(useTabActivityStore.getState().activity);
+      setAgents((prev) => {
+        const next = buildAgents(input, prev);
+        return sameAgents(prev, next) ? prev : next;
+      });
     };
     const stops = [
       useWorkspacesStore.subscribe(update),

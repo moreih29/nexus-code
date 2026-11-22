@@ -3,8 +3,11 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import { noteLabel } from "../../../../shared/notes/line-report";
+import type { NoteConversation } from "../../../../shared/notes/links";
+import { NOTE_ID_RE } from "../../../../shared/notes/types";
 import { instructionSessionId } from "../../chat/instructions";
-import { type CliServices, resolveWorkspace, shortId } from "../context";
+import { type CliNotes, type CliServices, resolveWorkspace, shortId } from "../context";
 import { type CliCommand, output } from "../registry";
 
 const agentContext: CliCommand = {
@@ -39,7 +42,18 @@ const agentContext: CliCommand = {
             phase: prompt ? "prompt" : restoresContext ? "restore" : "start",
           })
         : !launch && start && ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
-    const text = [note, instructions].filter(Boolean).join("\n\n");
+    const linked =
+      note && launch && start && ctx.caller.verified === true
+        ? await linkedNoteGuidance(ctx.services.notes, {
+            workspaceId: workspace.id,
+            tabId: ctx.caller.tabId,
+            agent: "claude",
+            session: instructionSessionId(event.session_id),
+          })
+        : "";
+    const text = [[note, linked].filter(Boolean).join("\n"), instructions]
+      .filter(Boolean)
+      .join("\n\n");
     if (text && launch && (prompt || restoresContext)) {
       const result = {
         hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text },
@@ -66,6 +80,17 @@ function hookEvent(input: string | undefined): {
 export interface ChatAgentContext {
   status: string;
   commands: string;
+}
+
+export async function linkedNoteGuidance(notes: CliNotes, tab: NoteConversation): Promise<string> {
+  const linked = await notes.linksOfConversation(tab).catch(() => []);
+  const note = linked.find(({ line }) => line) ?? linked[0];
+  if (!note || !NOTE_ID_RE.test(note.noteId)) return "";
+  const title = noteLabel(note.title, "Untitled note");
+  if (note.line) {
+    return `This conversation started from the to-do ${noteLabel(note.line)} in the note ${title} · nexus note read ${note.noteId} · when finished, use nexus note report`;
+  }
+  return `This conversation is linked to the note ${title} · nexus note read ${note.noteId}`;
 }
 
 /** Reads the hosting app's settings and the chat's own workspace and tab. */
@@ -127,6 +152,10 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "not the user\" is another agent's: answer it as that line says (here, or with the command",
     "it gives when the sender is not waiting); what only the user may allow is still theirs.",
     "Use chat panel for held message ids and chat unsend TAB ID to take one back.",
+    "Use nexus chat usage --json to check subscription limits by profile before assigning work.",
+    "It shows when each limit was observed. Use --refresh to ask the program without opening a tab.",
+    "A subscription tab stopped at its usage limit goes on by itself once the limit resets: chat wait",
+    "ends there and says when (limitResume in --json); a message sent to it before goes on instead.",
     "chat profiles lists choices. On this computer, chat profiles add creates a profile with the user's",
     "approval. Give API keys through --key-file FILE or --key-file - for stdin. Custom models accept",
     "repeatable --reasoning MODEL=LEVEL (none, high, xhigh, max; Claude also auto).",
@@ -148,6 +177,7 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "Use view open-file PATH for files and nexus problems for language server diagnostics.",
     "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",
     "not another app's. nexus note list lists the workspace's, nexus note read prints one;",
+    "Use nexus note report for a result on a to-do linked to this conversation.",
     "Use note transcript --json for speaker and line ids, note speaker to edit, and note voice for names.",
     "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
     "Use settings instructions show --profile PROFILE for a profile's layers and",

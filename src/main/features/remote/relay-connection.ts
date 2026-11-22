@@ -7,6 +7,8 @@
  * A heartbeat finds a socket that no longer reaches the relay and joins
  * the room again.
  */
+import type { IncomingMessage } from "node:http";
+import WebSocket from "ws";
 import {
   type ClientFrame,
   MAX_FRAME_BYTES,
@@ -14,8 +16,9 @@ import {
   ServerFrameSchema,
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
-import { OutdatedError, SignedOutError } from "./errors";
+import { OutdatedError, ServerError, SignedOutError } from "./errors";
 import { responsiveTimeout } from "./frame-stall";
+import { retryAfterSeconds, SocketRetryAfter } from "./retry-after";
 
 const log = createLogger("remote-relay");
 
@@ -76,6 +79,7 @@ type LocalCloseReason =
   | RelayStopReason
   | "open-timeout"
   | "route-change"
+  | "upgrade-refused"
   | "superseded";
 type ConnectReason =
   | RelayRecoveryReason
@@ -83,6 +87,7 @@ type ConnectReason =
   | "start"
   | "route-change"
   | "socket-closed"
+  | "rate-limited"
   | "ticket-failed"
   | "flooding";
 const SERVER_CLOSE_REASONS: ReadonlyMap<number, string> = new Map([
@@ -103,8 +108,14 @@ export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "ou
 
 type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
   readonly bufferedAmount?: number;
-  addEventListener(type: string, listener: (event: never) => void): void;
+  addEventListener: WebSocket["addEventListener"];
+  on(
+    event: "unexpected-response",
+    listener: (request: unknown, response: UpgradeRefusal) => void,
+  ): void;
 };
+
+type UpgradeRefusal = Pick<IncomingMessage, "statusCode" | "headers" | "destroy">;
 
 export interface RelayConnectionDeps {
   /**
@@ -121,6 +132,7 @@ export interface RelayConnectionDeps {
   /** The socket to `url` closed before it opened: what it went to was not reached. */
   unreachable?(url: string): void;
   socket?: (url: string) => Socket;
+  retryAfter?: SocketRetryAfter;
   /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
   now?: () => number;
@@ -165,8 +177,11 @@ export class RelayConnection {
   } | null = null;
   private readonly warnedAt = new Map<RelayWarning, number>();
   private invalidErrorAt = -Infinity;
+  private readonly retryAfter: SocketRetryAfter;
 
-  constructor(private readonly deps: RelayConnectionDeps) {}
+  constructor(private readonly deps: RelayConnectionDeps) {
+    this.retryAfter = deps.retryAfter ?? new SocketRetryAfter();
+  }
 
   start(): void {
     if (this.running) return;
@@ -292,6 +307,7 @@ export class RelayConnection {
     this.clearTimer();
     const owner = new AbortController();
     this.owner = owner;
+    if (this.waitIfLimited(owner, reason)) return;
     this.set("connecting");
     if (!this.owns(owner)) return;
     log.info(`Relay connecting reason=${reason}`);
@@ -301,8 +317,9 @@ export class RelayConnection {
     try {
       url = await this.deps.url(owner.signal);
       if (!this.owns(owner)) return;
+      if (this.waitIfLimited(owner, reason)) return;
       const origin = new URL(url).origin;
-      const socket = (this.deps.socket ?? ((address) => new WebSocket(address) as Socket))(url);
+      const socket = this.deps.socket?.(url) ?? new WebSocket(url, { perMessageDeflate: false });
       if (!this.owns(owner)) {
         this.closeSocket(socket, "superseded");
         return;
@@ -314,7 +331,10 @@ export class RelayConnection {
         this.giveUp("stopped");
         this.deps.onSignedOut();
       } else if (error instanceof OutdatedError) this.giveUp("outdated");
-      else this.retry(owner, "ticket-failed");
+      else if (error instanceof ServerError && error.status === 429) {
+        this.retryAfter.pause(error.retryAfter ?? 0);
+        this.retry(owner, "rate-limited");
+      } else this.retry(owner, "ticket-failed");
       return;
     }
 
@@ -329,6 +349,17 @@ export class RelayConnection {
       this.retry(owner, "open-timeout");
     }, SOCKET_OPEN_TIMEOUT_MS);
     this.openTimer.unref?.();
+    socket.on("unexpected-response", (_request, response) => {
+      // With an unexpected-response listener, ws leaves cleanup to the caller.
+      if (this.connection === connection && response.statusCode === 429) {
+        this.retryAfter.pause(retryAfterSeconds(response.headers["retry-after"]) ?? 0);
+        this.closeCurrent(connection, "upgrade-refused");
+        this.retry(owner, "rate-limited");
+      } else if (socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      response.destroy();
+    });
     socket.addEventListener("open", () => {
       if (this.connection !== connection) return;
       connection.openedAt = performance.now();
@@ -462,18 +493,30 @@ export class RelayConnection {
     return true;
   }
 
+  private waitIfLimited(owner: AbortController, reason: ConnectReason): boolean {
+    const remaining = this.retryAfter.remaining();
+    if (remaining <= 0) return false;
+    this.schedule(owner, reason, remaining);
+    return true;
+  }
+
   /** Schedules backoff only for the attempt that reported the loss. */
   private retry(owner: AbortController, reason: ConnectReason, floodDelay?: number): void {
     if (!this.owns(owner)) return;
+    const backoff = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
+    this.schedule(owner, reason, Math.max(backoff, this.retryAfter.remaining()));
+  }
+
+  private schedule(owner: AbortController, reason: ConnectReason, delay: number): void {
+    if (!this.owns(owner)) return;
     this.set("waiting");
     if (!this.owns(owner)) return;
-    const delay = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
     log.info(`Relay retry scheduled reason=${reason} delayMs=${delay}`);
     this.clearTimer();
     this.timer = setTimeout(() => {
       this.timer = null;
       if (this.owns(owner)) void this.connect(reason);
-    }, delay);
+    }, Math.ceil(delay));
   }
 
   private giveUp(status: RelayStatus): void {

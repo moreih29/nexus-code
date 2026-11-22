@@ -31,7 +31,7 @@ import {
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { fsErrorReason } from "../../utils/file-error";
-import { isWithinWorkspace } from "../../utils/path";
+import { isWithinWorkspace, relPath } from "../../utils/path";
 import { getActiveTabContext } from "../context";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ function withFocusedTreePaths(
   );
   if (absPaths.length === 0) return;
   const entries = absPaths.map((p) => ({
-    relPath: p.slice(tree.rootAbsPath.length + 1),
+    relPath: relPath(p, tree.rootAbsPath),
     absPath: p,
   }));
   handler({ wsId, tree, absPaths, entries });

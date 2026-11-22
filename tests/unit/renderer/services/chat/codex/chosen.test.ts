@@ -57,6 +57,9 @@ const { useTabsStore } = await import("../../../../../../src/renderer/state/stor
 const { sendToAgentTab } = await import(
   "../../../../../../src/renderer/services/chat/transport/submission"
 );
+const { sendToConversation } = await import(
+  "../../../../../../src/renderer/services/notes/send-to-conversation"
+);
 const { chatPanelOf } = await import("../../../../../../src/renderer/services/remote/chat-panel");
 const { chatPageOf } = await import("../../../../../../src/renderer/services/remote/chat-page");
 type Controller = InstanceType<typeof CodexController>;
@@ -522,6 +525,40 @@ describe("delivering a Codex queue entry", () => {
     end(c);
     await Bun.sleep(0);
     expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text: "after" });
+  });
+
+  test.each([
+    false,
+    true,
+  ])("sending a note through Codex steer queues only when refused (%s)", async (refused) => {
+    const workspaceId = crypto.randomUUID();
+    const { id: tabId } = useTabsStore.getState().createTab(workspaceId, {
+      type: "codex",
+      props: { cwd: "/p", threadId: "t1" },
+    });
+    const c = tab(
+      undefined,
+      undefined,
+      ({ method }) =>
+        refused && method === "turn/steer"
+          ? { error: { code: -32602, message: "NonSteerableTurn" } }
+          : undefined,
+      { workspaceId, tabId },
+    );
+    const text = "Read the note again\n\n`nexus note read n1234567`";
+    try {
+      await running(c);
+      expect(await sendToConversation(workspaceId, tabId, text)).toBe(refused);
+      expect(delivered()).toEqual([{ method: "turn/steer", text, expectedTurnId: "turn-1" }]);
+      expect(c.state.queue.map(({ text }) => text)).toEqual(refused ? [text] : []);
+      if (refused) {
+        end(c);
+        await Bun.sleep(0);
+        expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text });
+      }
+    } finally {
+      useTabsStore.getState().closeAllForWorkspace(workspaceId);
+    }
   });
 
   test("an immediate follow-up during turn/start waits for that turn's id", async () => {
@@ -1077,4 +1114,71 @@ test.each([
   } finally {
     closeCodexTab(workspaceId, tabRecord.id);
   }
+});
+
+test.each([
+  false,
+  true,
+])("denying extra permissions stops only the requesting Codex turn (ended: %s)", async (ended) => {
+  const c = tab();
+  await c.sendWithTiming("Prompt", [], "next", undefined, undefined, "prompt");
+  const notify = (message: Message) => c.receive({ seq: ++lineSeq, dir: "out", message });
+  const params = {
+    threadId: "t1",
+    turnId: "turn-1",
+    permissions: { network: { enabled: true } },
+  };
+  notify({ id: 73, method: "item/permissions/requestApproval", params });
+  c.flushNow();
+
+  const permission = c.model.permissions[0];
+  expect(permission?.toolName).toBe("Permissions");
+  const answer = c.answerPermission(permission, { kind: "deny-stop" });
+  if (ended) {
+    notify({
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "turn-1", status: "completed" } },
+    });
+    notify({
+      method: "turn/started",
+      params: { threadId: "t1", turn: { id: "turn-2" } },
+    });
+  }
+  await answer;
+
+  expect(sent.find(({ id }) => id === 73)).toEqual({
+    id: 73,
+    result: { permissions: {}, scope: "turn" },
+  });
+  expect(
+    sent.filter(({ method }) => method === "turn/interrupt").map(({ params }) => params),
+  ).toEqual(ended ? [] : [{ threadId: "t1", turnId: "turn-1" }]);
+});
+
+test("a late Codex refusal makes a direct desktop prompt and its image recoverable", async () => {
+  const refusal = Promise.withResolvers<{ error: { code: number; message: string } }>();
+  const c = tab(undefined, undefined, ({ method }) =>
+    method === "turn/start" ? refusal.promise : undefined,
+  );
+  const images = [{ mediaType: "image/png", data: "AA==" }];
+  await c.send("Recover this prompt", images);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "user", text: "Recover this prompt", state: "sent" }),
+  );
+
+  refusal.resolve({ error: { code: -32602, message: "model not supported" } });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(c.model.items.some((item) => item.kind === "user")).toBe(false);
+  expect(c.model.items).toContainEqual(
+    expect.objectContaining({ kind: "notice", code: "error", detail: "model not supported" }),
+  );
+  expect(c.state.queue).toMatchObject([
+    { status: "failed", error: "model not supported", text: "Recover this prompt", images },
+  ]);
+  expect(c.removeQueued(c.state.queue[0].id)).toMatchObject({
+    text: "Recover this prompt",
+    images,
+  });
+  expect(sent.filter(({ method }) => method === "turn/start")).toHaveLength(1);
 });

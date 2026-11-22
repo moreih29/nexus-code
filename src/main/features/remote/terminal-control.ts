@@ -10,6 +10,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { CliServices } from "../cli/context";
 import { keySequence } from "../cli/keys";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -92,12 +93,14 @@ async function profileIdOf(services: CliServices, profile: string): Promise<stri
 
 /**
  * Opens a terminal behind what the window shows: in a folder of the
- * workspace, a shell, a command, with a profile's environment.
+ * workspace, a shell, a command, with a profile's environment. One an agent
+ * opens (`openedBy`) is its: what runs nexus in it here is that agent.
  */
 export async function openTerminal(
   services: CliServices,
   { workspaceId, shell, folder, command, title, profile }: RpcParams<"terminal.open">,
   fs?: (workspaceId: string) => Promise<FsProvider>,
+  openedBy?: TerminalOpener,
 ): Promise<RpcResult<"terminal.open">> {
   const workspace = workspaceOf(services, workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
@@ -119,6 +122,7 @@ export async function openTerminal(
       ...(profileId !== undefined ? { profile: profileId } : {}),
       // Behind what the window shows: whoever sits at this computer keeps their place.
       placement: { background: true },
+      ...(openedBy ? { openedBy } : {}),
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);

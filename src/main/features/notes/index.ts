@@ -4,7 +4,11 @@ import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { answerCardBlocks } from "../../../shared/notes/answer-card";
+import type { LineReport } from "../../../shared/notes/line-report";
+import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
+import { DEFAULT_RECORDING_SUMMARY_SETTINGS } from "../../../shared/notes/summary";
 import {
   imageBlock,
   type NoteAsset,
@@ -19,12 +23,24 @@ import {
 } from "../../../shared/types/workspace";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import { VoicePrints } from "../voice-print";
+import { getActiveAppWindow, getAppWindows } from "../window/app-windows";
 import { NoteError, NotesStore } from "./store";
+import { NotesSummary, type NotesSummaryOptions, type SummaryTarget } from "./summary";
 
 const c = ipcContract.notes.call;
 const NOTE_WRITE_CALLS: readonly string[] = [
   "create",
   "save",
+  "addLink",
+  "saveAnswer",
+  "saveLiveCard",
+  "updateLiveAnswer",
+  "updateLink",
+  "removeLink",
+  "summarize",
+  "cancel",
+  "undo",
+  "dismiss",
   "prune",
   "remove",
   "addFiles",
@@ -114,6 +130,7 @@ export interface NotesFeature {
    * note puts them in its copy too.
    */
   append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
+  reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
   /**
    * Writes a file into a note's folder: an image into screens/, which it
    * shows, anything else into materials/. The block that shows it.
@@ -154,8 +171,8 @@ function withNoteErrors(
           return await handler(args, ctx);
         } catch (error) {
           if (!(error instanceof NoteError)) throw error;
-          if (error.code === "not-found") {
-            return ipcErr("not-found", error.message, { category: "failed", code: error.code });
+          if (error.code === "not-found" || error.code === "conflict") {
+            return ipcErr(error.code, error.message, { category: "failed", code: error.code });
           }
           return ipcErr("invalid-args", error.message, {
             category: "invalid-input",
@@ -170,6 +187,7 @@ function withNoteErrors(
 export function registerNotesChannel(opts: {
   userData: string;
   workspaces: () => readonly WorkspaceMeta[];
+  summary?: Pick<NotesSummaryOptions, "settings" | "language" | "profile" | "runClaude">;
 }): NotesFeature {
   const store = new NotesStore(path.join(opts.userData, "notes"), (dir) => shell.trashItem(dir));
   const writes = new Set<Promise<unknown>>();
@@ -188,8 +206,57 @@ export function registerNotesChannel(opts: {
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
+  const linksChanged = (locationKey: string, noteId: string) =>
+    broadcast("notes", "linksChanged", { locationKey, noteId });
+  const cardAdded = (locationKey: string, noteId: string, card: object, updatedAt: number) =>
+    broadcast("notes", "blocksAdded", {
+      locationKey,
+      noteId,
+      blocks: [card as Record<string, unknown>],
+      updatedAt,
+    });
   // Beside the main bundle (electron.vite.config.ts).
   const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
+  const visibleNotes = new Map<number, Map<string, string>>();
+  const noteKey = (locationKey: string, noteId: string) => JSON.stringify([locationKey, noteId]);
+  const isWindowVisible = (win: BrowserWindow) => win.isVisible() && !win.isMinimized();
+  const isNoteVisible = (key: string) =>
+    getAppWindows().some(
+      (win) =>
+        isWindowVisible(win) &&
+        Array.from(visibleNotes.get(win.webContents.id)?.values() ?? []).includes(key),
+    );
+  const notifySummary = async (
+    locationKey: string,
+    noteId: string,
+    runId: string,
+    todos: number,
+  ) => {
+    const key = noteKey(locationKey, noteId);
+    if (isNoteVisible(key)) return;
+    const workspaces = opts.workspaces();
+    const matchesLocation = (item: WorkspaceMeta) =>
+      noteLocationOf(item, workspaces).key === locationKey;
+    const workspace =
+      workspaces.find((item) => !item.task && matchesLocation(item)) ??
+      workspaces.find(matchesLocation);
+    if (!workspace || !getActiveAppWindow()) return;
+    const { title } = await store.read(noteLocationOf(workspace, workspaces), noteId);
+    if (isNoteVisible(key)) return;
+    // Deliver the toast to a single app window, even though the banner is broadcast to all.
+    const active = getActiveAppWindow();
+    const destination =
+      active && isWindowVisible(active)
+        ? active
+        : (getAppWindows().find(isWindowVisible) ?? active);
+    destination?.webContents.send("ipc:event", "notes", "summaryCompleted", {
+      workspaceId: workspace.id,
+      noteId,
+      title,
+      runId,
+      todos,
+    });
+  };
 
   // The windows' recorders, by window: what each told last.
   const recordings = new Map<number, NoteRecording>();
@@ -233,9 +300,13 @@ export function registerNotesChannel(opts: {
       changed({ locationKey: location.key, noteId: note.id, change: "created" });
       return note;
     });
-  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+  const appendAtLocation = (
+    location: NoteLocation,
+    noteId: string,
+    blocks: DocNode[],
+    under?: string,
+  ) =>
     trackWrite(async () => {
-      const location = locationOf(workspaceId);
       await store.appendBlocks(location, noteId, blocks, under);
       broadcast("notes", "blocksAdded", {
         locationKey: location.key,
@@ -244,6 +315,47 @@ export function registerNotesChannel(opts: {
         ...(under !== undefined ? { under } : {}),
       });
       changed({ locationKey: location.key, noteId, change: "saved" });
+    });
+  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+    appendAtLocation(locationOf(workspaceId), noteId, blocks, under);
+  const summary = new NotesSummary({
+    store,
+    settings: opts.summary?.settings ?? (() => DEFAULT_RECORDING_SUMMARY_SETTINGS),
+    language: opts.summary?.language ?? (() => "en"),
+    profile: opts.summary?.profile ?? (() => null),
+    runClaude: opts.summary?.runClaude ?? (async () => ({ error: { kind: "missing" } })),
+    append: ({ location, noteId }, blocks) => appendAtLocation(location, noteId, blocks),
+    onState: (locationKey, noteId, recordingId, state) => {
+      broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state });
+      if (state.state === "done" && !state.seen) {
+        void notifySummary(locationKey, noteId, state.runId, state.todos).catch(() => {});
+      }
+    },
+    onRemoved: ({ location, noteId }, origin) => {
+      broadcast("notes", "blocksRemoved", { locationKey: location.key, noteId, origin });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+    },
+  });
+  const summaryTarget = ({
+    workspaceId,
+    noteId,
+    recordingId,
+  }: {
+    workspaceId: string;
+    noteId: string;
+    recordingId: string;
+  }): SummaryTarget => ({ location: locationOf(workspaceId), noteId, recordingId });
+  const reportLine: NotesFeature["reportLine"] = (tab, noteId, report) =>
+    trackWrite(async () => {
+      const location = locationOf(tab.workspaceId);
+      const place = { locationKey: location.key, noteId };
+      return store.reportLine(location, tab, noteId, report, {
+        resultSaved: () => linksChanged(location.key, noteId),
+        documentWritten: (updatedAt) => {
+          broadcast("notes", "lineReported", { ...place, ...report, updatedAt });
+          changed({ ...place, change: "saved" });
+        },
+      });
     });
   const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
     trackWrite(async () => {
@@ -280,12 +392,139 @@ export function registerNotesChannel(opts: {
         const { workspaceId, noteId } = validateArgs(c.read.args, args);
         return ipcOk(await store.read(locationOf(workspaceId), noteId));
       },
+      links: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.links.args, args);
+        return ipcOk(await store.links(locationOf(workspaceId), noteId));
+      },
+      linksOfConversation: async (args: unknown) => {
+        const tab = validateArgs(c.linksOfConversation.args, args);
+        return ipcOk(await store.linksOfConversation(locationOf(tab.workspaceId), tab));
+      },
+      summaries: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.summaries.args, args);
+        return ipcOk(await summary.states(locationOf(workspaceId), noteId));
+      },
+      summaryVisibility: (args: unknown, ctx) => {
+        const { workspaceId, noteId, tabId, visible } = validateArgs(
+          c.summaryVisibility.args,
+          args,
+        );
+        const sender = ctx?.sender;
+        if (!sender || sender.isDestroyed()) return ipcOk(undefined);
+        const tabs = visibleNotes.get(sender.id);
+        if (!visible) {
+          tabs?.delete(tabId);
+        } else {
+          const key = noteKey(locationOf(workspaceId).key, noteId);
+          if (tabs) tabs.set(tabId, key);
+          else {
+            visibleNotes.set(sender.id, new Map([[tabId, key]]));
+            sender.once("destroyed", () => visibleNotes.delete(sender.id));
+          }
+        }
+        return ipcOk(undefined);
+      },
+      summarize: async (args: unknown) => {
+        const request = validateArgs(c.summarize.args, args);
+        return ipcOk(await summary.summarize(summaryTarget(request), request.mode ?? "auto"));
+      },
+      cancel: async (args: unknown) =>
+        ipcOk(await summary.cancel(summaryTarget(validateArgs(c.cancel.args, args)))),
+      undo: async (args: unknown) =>
+        ipcOk(await summary.undo(summaryTarget(validateArgs(c.undo.args, args)))),
+      dismiss: async (args: unknown) =>
+        ipcOk(await summary.dismiss(summaryTarget(validateArgs(c.dismiss.args, args)))),
+      addLink: async (args: unknown) => {
+        const { workspaceId, noteId, link, touchExisting } = validateArgs(c.addLink.args, args);
+        const location = locationOf(workspaceId);
+        const entry = await store.addLink(location, noteId, link, touchExisting);
+        linksChanged(location.key, noteId);
+        return ipcOk(entry);
+      },
+      saveAnswer: async (args: unknown) => {
+        const request = validateArgs(c.saveAnswer.args, args);
+        const location = locationOf(request.workspaceId);
+        const blocks = answerCardBlocks(request.markdown, request.imageAlt);
+        if (!blocks.length) throw new NoteError("bad-request", "Empty answer");
+        const noteId = request.noteId ?? (await store.create(location)).id;
+        let written = false;
+        try {
+          await store.saveAnswer(
+            location,
+            noteId,
+            { ...request.source, workspaceId: request.workspaceId },
+            blocks,
+            (card, updatedAt) => {
+              written = true;
+              cardAdded(location.key, noteId, card, updatedAt);
+            },
+          );
+        } catch (error) {
+          if (!written && !request.noteId) await store.remove(location, noteId);
+          throw error;
+        } finally {
+          if (written) {
+            linksChanged(location.key, noteId);
+            changed({
+              locationKey: location.key,
+              noteId,
+              change: request.noteId ? "saved" : "created",
+            });
+          }
+        }
+        return ipcOk({ noteId, saved: written });
+      },
+      saveLiveCard: async (args: unknown) => {
+        const { workspaceId, noteId, source, lastAnswer } = validateArgs(c.saveLiveCard.args, args);
+        const location = locationOf(workspaceId);
+        let written = false;
+        try {
+          await store.saveLiveCard(location, noteId, source, lastAnswer, (card, updatedAt) => {
+            written = true;
+            cardAdded(location.key, noteId, card, updatedAt);
+          });
+        } finally {
+          if (written) {
+            linksChanged(location.key, noteId);
+            changed({ locationKey: location.key, noteId, change: "saved" });
+          }
+        }
+        return ipcOk(written);
+      },
+      updateLiveAnswer: async (args: unknown) => {
+        const { tab, lastAnswer } = validateArgs(c.updateLiveAnswer.args, args);
+        const location = locationOf(tab.workspaceId);
+        await store.updateLiveAnswer(location, tab, lastAnswer, (noteId) =>
+          linksChanged(location.key, noteId),
+        );
+        return ipcOk(undefined);
+      },
+      updateLink: async (args: unknown) => {
+        const update = validateArgs(c.updateLink.args, args);
+        if ("tab" in update) {
+          const location = locationOf(update.tab.workspaceId);
+          await store.updateLinksForTab(location, update.tab, (noteId) =>
+            linksChanged(location.key, noteId),
+          );
+        } else {
+          const location = locationOf(update.workspaceId);
+          if (await store.updateLink(location, update.noteId, update.linkId, update.patch))
+            linksChanged(location.key, update.noteId);
+        }
+        return ipcOk(undefined);
+      },
+      removeLink: async (args: unknown) => {
+        const { workspaceId, noteId, linkId } = validateArgs(c.removeLink.args, args);
+        const location = locationOf(workspaceId);
+        if (await store.removeLink(location, noteId, linkId)) linksChanged(location.key, noteId);
+        return ipcOk(undefined);
+      },
       save: async (args: unknown) => {
-        const { workspaceId, noteId, title, doc } = validateArgs(c.save.args, args);
+        const { workspaceId, noteId, title, doc, baseUpdatedAt } = validateArgs(c.save.args, args);
         const location = locationOf(workspaceId);
         const summary = await store.save(location, noteId, {
           ...(title !== undefined ? { title } : {}),
-          ...(doc !== undefined ? { doc: doc as never } : {}),
+          ...(doc !== undefined ? { doc: doc as never, baseUpdatedAt } : {}),
         });
         changed({ locationKey: location.key, noteId, change: "saved" });
         retitle(noteId, summary.title);
@@ -443,12 +682,9 @@ export function registerNotesChannel(opts: {
         return ipcOk(await store.readTranscript(locationOf(workspaceId), noteId));
       },
       saveTranscript: async (args: unknown) => {
-        const { workspaceId, noteId, transcript, announce } = validateArgs(
-          c.saveTranscript.args,
-          args,
-        );
+        const { workspaceId, noteId, edits, announce } = validateArgs(c.saveTranscript.args, args);
         const location = locationOf(workspaceId);
-        await store.saveTranscript(location, noteId, transcript);
+        await store.editTranscript(location, noteId, edits);
         if (announce) changed({ locationKey: location.key, noteId, change: "saved" });
         return ipcOk(undefined);
       },
@@ -484,6 +720,12 @@ export function registerNotesChannel(opts: {
     }),
     listen: {
       changed: {},
+      linksChanged: {},
+      summaryChanged: {},
+      summaryCompleted: {},
+      blocksAdded: {},
+      blocksRemoved: {},
+      lineReported: {},
     },
   });
 
@@ -498,14 +740,18 @@ export function registerNotesChannel(opts: {
       const results = await Promise.allSettled(writes);
       const failure = results.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
+      await summary.waitForIdle();
     },
     dispose: () => {
+      summary.dispose();
+      visibleNotes.clear();
       pendingRecordings.clear();
       recordings.clear();
       voicePrints.stop();
     },
     create,
     append,
+    reportLine,
     addAsset,
   };
 }

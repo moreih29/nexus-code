@@ -12,15 +12,19 @@ import type {
   ChatConfig,
   ChatPage,
   RemoteConsent,
+  RpcParams,
   RpcResult,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { InstructionScope } from "../chat/instructions";
-import type { RelaySender } from "../chat/relay";
+import type { RelaySender, TerminalOpener } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
+
+/** A refresh may start a provider CLI and wait for its usage request. */
+export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
@@ -71,6 +75,8 @@ export interface CliTabInfo {
   readonly groupId: string;
   /** Whether it is the tab its group shows. */
   readonly shown: boolean;
+  /** The current Claude or Codex session, on an internal lookup. */
+  readonly session?: string;
   /** A terminal's starting directory. */
   readonly cwd?: string;
   /** An editor's file. */
@@ -84,6 +90,8 @@ export interface CliTabInfo {
    * app started, so it has nothing to read or watch.
    */
   readonly unstarted?: boolean;
+  /** The agent that opened this terminal or chat tab. */
+  readonly openedBy?: TerminalOpener;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
   /** Pinned to the front of its group. */
@@ -99,6 +107,44 @@ export interface CliPlacement {
    * group than this one's, so the terminal stays in view.
    */
   readonly besideTabId?: string;
+}
+
+/**
+ * A tab as the remote sessions' list reads it (sessions.snapshot): what
+ * tabs.list tells of it that the list uses, and a Claude or Codex tab's
+ * state with it.
+ */
+export interface CliSessionTab {
+  readonly id: string;
+  readonly type: string;
+  readonly title: string;
+  readonly dead?: boolean;
+  readonly unstarted?: boolean;
+  readonly openedBy?: TerminalOpener;
+  /** A Claude or Codex tab's state; none when it could not be read. */
+  readonly chat?: CliSessionChat;
+}
+
+/**
+ * A chat's state as chat.state tells it with `peek` and `includeWaitingId`,
+ * only what the remote sessions' list uses, its texts already on one line
+ * (oneLine) so a long answer does not cross to main every second.
+ */
+export interface CliSessionChat {
+  readonly state: CliChatState;
+  readonly since?: number;
+  readonly message?: string;
+  readonly profile?: string;
+  readonly cwd?: string;
+  readonly waiting?: CliChatWaiting;
+  readonly limitResume?: CliLimitResume;
+  readonly waitingId?: string;
+}
+
+/** Where to continue a bounded sessions.snapshot reply. */
+export interface CliSessionsSnapshotCursor {
+  readonly workspace: number;
+  readonly tab: number;
 }
 
 /** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
@@ -301,7 +347,8 @@ export type CliChangeKind =
   | "workspacePin"
   | "workspaceMove"
   | "permissionAllow"
-  | "permissionDeny";
+  | "permissionDeny"
+  | "sandboxExecution";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
@@ -379,6 +426,29 @@ export interface CliChatInfo {
   readonly goal?: CliChatGoal;
   /** The folder it runs in, when it is not its workspace's. */
   readonly cwd?: string;
+  /**
+   * On an error from the API, what it needs: usage_limit (the plan's usage
+   * limit; it goes on once the limit resets), transient (an overloaded or
+   * failing server, a rate limit, a dropped connection that outlasted the
+   * program's retries; a message to go on may help), auth (a new sign-in
+   * or key), request (the API refused the request itself), other.
+   */
+  readonly failure?: "usage_limit" | "transient" | "auth" | "request" | "other";
+  /** Stopped at the plan's usage limit: whether and when the app goes on in it. */
+  readonly limitResume?: CliLimitResume;
+}
+
+/**
+ * Going on in a tab the plan's usage limit stopped: waiting (the app sends
+ * it a message to go on at `at`), unknown (no reset time, nothing
+ * scheduled), cancelled (by the user), gave_up (the limit held after the
+ * most tries). Times in Unix ms.
+ */
+export interface CliLimitResume {
+  readonly state: "waiting" | "unknown" | "cancelled" | "gave_up";
+  readonly at?: number;
+  readonly resetsAt?: number;
+  readonly tries?: number;
 }
 
 /** What a tab asks the user for. */
@@ -481,9 +551,9 @@ export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: s
 
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
-  /** The tabs of a workspace, in layout order. */
+  /** The tabs of a workspace in layout order, or with sidebar sessions first in their order. */
   "tabs.list": {
-    args: { workspaceId: string };
+    args: { workspaceId: string; agentOrder?: true; includeSession?: true };
     result: { tabs: CliTabInfo[] };
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
@@ -560,6 +630,8 @@ export interface CliUiOps {
       shell?: string;
       /** An agent profile, by id: the shell runs with what a chat of it runs with. */
       profile?: string;
+      /** The agent opening it, kept with the tab: absent when the user does. */
+      openedBy?: TerminalOpener;
       placement: CliPlacement;
     };
     result: { tabId: string };
@@ -597,6 +669,11 @@ export interface CliUiOps {
   "tab.close": {
     args: { workspaceId: string; tabId: string; force: boolean };
     result: Record<string, never>;
+  };
+  /** The live chat conversation or terminal session a sandbox grant can be bound to. */
+  "tab.sandboxSession": {
+    args: { workspaceId: string; tabId: string };
+    result: string | null;
   };
   /** Opens a browser tab on a URL or an address such as localhost:3000. */
   "browser.open": {
@@ -743,6 +820,11 @@ export interface CliUiOps {
     args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
   };
+  /** Reorders the named slots in the workspace's agent sidebar. */
+  "agentView.reorderSessions": {
+    args: { workspaceId: string; tabIds: string[] };
+    result: { found: boolean };
+  };
   /** The folders a workspace's Claude tabs were given beside its own (/add-dir), absolute. */
   "workspace.folders": {
     args: { workspaceId: string };
@@ -768,7 +850,8 @@ export interface CliUiOps {
       start?: CliTaskStart;
       show: boolean;
       allowTerminal?: boolean;
-      /** The terminal whose agent asks for the task. */
+      openedBy?: TerminalOpener;
+      /** The tab that ran the local command to make the worktree. */
       createdBy?: { workspaceId: string; tabId: string };
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
@@ -795,6 +878,7 @@ export interface CliUiOps {
       /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
       instructions?: string;
+      openedBy?: TerminalOpener;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
       /**
@@ -825,6 +909,10 @@ export interface CliUiOps {
       }[];
     };
   };
+  "chat.usage": {
+    args: Omit<RpcParams<"profiles.usage">, "from">;
+    result: RpcResult<"profiles.usage">;
+  };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {
     args: { workspaceId: string; tabId: string };
@@ -845,6 +933,14 @@ export interface CliUiOps {
   "chat.checkSignIn": {
     args: { workspaceId: string; tabId: string };
     result: { signedOut: boolean };
+  };
+  /** Live sandbox policy and the next turn's pick, without starting a program. */
+  "chat.sandbox": {
+    args: { workspaceId: string; tabId: string };
+    result:
+      | { agent: "codex"; current?: string; next?: string; running?: boolean }
+      | { agent: "claude"; enabled: boolean }
+      | null;
   };
   /** The caller's confirmed live permission mode, without starting its program. */
   "chat.mode": {
@@ -912,6 +1008,7 @@ export interface CliUiOps {
       sessionId: string;
       tabId?: string;
       emptyOnly?: true;
+      openedBy?: TerminalOpener;
     };
     result: { tabId: string };
   };
@@ -972,8 +1069,9 @@ export interface CliUiOps {
       peek?: boolean;
       submissionId?: string;
       after?: number;
+      includeWaitingId?: boolean;
     };
-    result: CliChatInfo & { trackedSubmission?: boolean };
+    result: CliChatInfo & { trackedSubmission?: boolean; waitingId?: string };
   };
   /**
    * A Claude or Codex tab's messages, and where it stands: those after
@@ -1072,7 +1170,7 @@ export interface CliUiOps {
    * with no item, all of it.
    */
   "chat.fork": {
-    args: { workspaceId: string; tabId: string; itemKey?: string };
+    args: { workspaceId: string; tabId: string; itemKey?: string; openedBy?: TerminalOpener };
     result: { tabId: string; draft?: string };
   };
   /** Sends a Claude tab's running command or subagent to the background, by its call's id. */
@@ -1170,6 +1268,33 @@ export interface CliUiOps {
   "events.read": {
     args: { since?: number; limit: number };
     result: { events: CliSessionEvent[]; cursor: number; more: boolean };
+  };
+  "sessions.results": {
+    args: Record<string, never>;
+    result: { unread: Record<string, Record<string, number>> };
+  };
+  /**
+   * What the remote sessions' list reads of the renderer:
+   * each of `workspaceIds`' tabs as tabs.list lists them with `agentOrder`
+   * (none for a workspace that could not be read), each chat's state with
+   * its tab, and sessions.results' map (none when it could not be read).
+   * `revision`: the renderer's count of changes it was read at; while it
+   * tells main no higher one (cli.sessionsChanged), a read again would
+   * tell the same. Large lists continue from `next`, with the unread map
+   * only on the first page.
+   */
+  "sessions.snapshot": {
+    args: { workspaceIds: string[]; cursor?: CliSessionsSnapshotCursor };
+    result: {
+      revision: number;
+      workspaces: { tabs?: CliSessionTab[] }[];
+      unread?: Record<string, Record<string, number>>;
+      next?: CliSessionsSnapshotCursor;
+    };
+  };
+  "sessions.markSeen": {
+    args: RpcParams<"sessions.markSeen">;
+    result: RpcResult<"sessions.markSeen">;
   };
   /**
    * Sends a Claude or Codex tab a message, as its composer does: during a
@@ -1435,7 +1560,7 @@ export interface CliUiOps {
       change: CliChange;
       timeoutMs: number;
       fromDevice?: string;
-      /** That computer's id, which may not answer its own agent's request. */
+      /** That computer's id, told to the other computers that list the request. */
       fromDeviceId?: string;
       fromName?: string;
       id?: string;
@@ -1458,7 +1583,7 @@ export type CliUiOp = keyof CliUiOps;
 export const CliUiRequestSchema = z.object({
   requestId: z.string().min(1),
   op: z.string().min(1),
-  args: z.unknown(),
+  args: z.unknown().optional(),
 });
 export type CliUiRequest = z.infer<typeof CliUiRequestSchema>;
 

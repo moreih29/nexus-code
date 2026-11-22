@@ -3,9 +3,10 @@
 // connection, so the view only reads what its controller has.
 
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
@@ -24,7 +25,6 @@ import {
   useClaudeModelCatalog,
 } from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
-import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { filesThere } from "../../services/chat/file-presence";
 import {
   imageLook,
@@ -66,11 +66,10 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { withRelayed } from "../../services/chat/relayed";
+import { relayedOf, withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { jobToolStatuses } from "../../services/chat/running";
 import {
-  type ChatTabState,
   type ComposerDraft,
   chatKey,
   type RevealPart,
@@ -79,6 +78,7 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
+import { ChatNotesProvider } from "../../services/notes/chat-notes";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -90,15 +90,19 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
-import { Banner, type BannerAction } from "../ui/banner";
+import { ConversationNoteChip } from "../notes/conversation-note-chip";
+import { Banner, BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
+import { ChatPhaseBanner } from "./chat-state-banner";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
+import { ConversationParentChip } from "./conversation-tree";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
+import { LimitResumeBanner, showsLimitResume } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -112,6 +116,7 @@ import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { SummaryLine, summaryCountsOf } from "./summary-line";
 import { toolSummary } from "./tool-row";
+import { TurnFailureBanner } from "./turn-failure-banner";
 import { ClaudeUsageLine } from "./usage-line";
 
 interface ClaudeTabViewProps {
@@ -154,6 +159,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // Followed while shown: a tab in the background draws nothing per chunk
   // of a streaming reply, and shows the latest when it comes to the front.
   const state = useChatTab(workspaceId, tabId, isVisible);
+  const bannerScope = ["chat", workspaceId, tabId, state.model.sessionId];
   // For the side panel and the composer, which show nothing of a streaming
   // reply's text: the same state while only that changes, so they and what
   // they hold do not render for each chunk of it.
@@ -180,12 +186,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     if (!isVisible || opened.current) return;
     opened.current = true;
     void controller.open();
-    const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-    const open = Object.values(tabs).filter((tab) => tab.type === "claude");
-    pruneAttachmentsOnce(
-      workspaceId,
-      open.map((tab) => tab.id),
-    );
+    pruneAttachmentsOnce(workspaceId);
   }, [isVisible, controller, workspaceId]);
 
   // A name the user gives the tab names its session too, as /rename does,
@@ -235,7 +236,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
-  const [rewinding, setRewinding] = useState<UserItem | null>(null);
+  const [rewinding, setRewinding] = useState<{
+    item: UserItem;
+    sessionId: string | undefined;
+    clears: number | undefined;
+  } | null>(null);
+  if (
+    rewinding &&
+    (rewinding.sessionId !== controller.currentSession() || rewinding.clears !== state.model.clears)
+  ) {
+    setRewinding(null);
+  }
   // Kept while what it says holds, so the conversation's messages do not
   // all render each time the tab does.
   const running = state.model.running;
@@ -253,7 +264,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         (item.kind !== "user" || (item.state === "taken" && item.uuid !== unverifiedStart)),
       canRewindItem: (item) =>
         item.state === "taken" && !!item.uuid && item.uuid !== unverifiedStart,
-      onRewind: (item) => setRewinding(item),
+      onRewind: (item) =>
+        setRewinding({
+          item,
+          sessionId: controller.currentSession(),
+          clears: controller.state.model.clears,
+        }),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
       onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
@@ -582,7 +598,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       tabId,
       cwd: props.cwd,
       rootPath,
-      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
+      items: withRelayed(
+        history ? [...history.items, ...model.items] : model.items,
+        relayedOf(props),
+      ),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -615,6 +634,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   });
   const panel = (
     <SidePanel
+      conversationTabId={isVisible ? tabId : undefined}
       controller={controller}
       state={steady}
       workspaceId={workspaceId}
@@ -667,7 +687,23 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       data-chat-drop
       onKeyDown={onKeyDown}
     >
-      <PhaseBanner controller={controller} state={state} />
+      <ChatPhaseBanner
+        scope={bannerScope}
+        status={{
+          agent: "claude",
+          process: state.model.process,
+          phase: state.phase,
+          error: state.error,
+          version: state.version,
+          exit: state.model.exit,
+          phaseRevision: state.phaseRevision,
+        }}
+        onRestart={() => void controller.restart()}
+        onRetry={() => void controller.open()}
+        className="shrink-0 pt-1"
+      />
+      {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
+      <ConversationNoteChip />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
@@ -726,7 +762,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
-              relayed={props.relayed}
+              relayed={relayedOf(props)}
               historyTruncated={!shown && state.truncated}
               older={
                 !shown && state.historyPage
@@ -750,8 +786,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                       {props.cwd}
                     </div>
                     {resumeError && (
-                      <div className="text-app-ui-sm text-[var(--state-error-fg)]">
-                        {t("chat.sessions.resume_failed", { message: resumeError })}
+                      <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
+                        <span className="flex-1">
+                          {t("chat.sessions.resume_failed", { message: resumeError })}
+                        </span>
+                        <BannerDismissButton
+                          dismiss={{
+                            label: t("action.dismiss"),
+                            onDismiss: () => setResumeError(null),
+                          }}
+                        />
                       </div>
                     )}
                     <SessionList
@@ -807,14 +851,30 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               </div>
             </div>
           )}
-          <RateLimitBanner limit={state.model.rateLimit} />
-          <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
+          {showsLimitResume(props.limitResume) ? (
+            <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
+          ) : (
+            <RateLimitBanner scope={bannerScope} limit={state.model.rateLimit} />
+          )}
+          <TurnFailureBanner
+            scope={bannerScope}
+            model={state.model}
+            onRetry={(text) => controller.send(text)}
+          />
+          {isVisible && state.model.sessionId && (
+            <TwinBanner
+              key={state.model.sessionId}
+              workspaceId={workspaceId}
+              tabId={tabId}
+              sessionId={state.model.sessionId}
+            />
+          )}
           <Composer
             instructionsTab={instructionsTab}
             controller={controller}
             state={steady}
             fallbackModels={fallbackModels}
-            relayed={props.relayed}
+            relayed={relayedOf(props)}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={
@@ -881,7 +941,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       </div>
       <RewindDialog
         controller={controller}
-        item={rewinding}
+        item={rewinding?.item ?? null}
         cwd={props.cwd}
         onClose={() => setRewinding(null)}
       />
@@ -903,6 +963,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           onOpenBeside={(path, { at }) => {
             setLook(null);
             placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+            return true;
           }}
           onOpenTab={(path, at) => {
             setLook(null);
@@ -917,7 +978,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       )}
     </div>
   );
-  return <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>;
+  return (
+    <ChatNotesProvider
+      workspaceId={workspaceId}
+      tabId={tabId}
+      agent="claude"
+      session={props.sessionId}
+      visible={isVisible}
+    >
+      <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
+    </ChatNotesProvider>
+  );
 }
 
 /** Sends a call the turn waits on to the background, as Ctrl+B does in the terminal. */
@@ -953,90 +1024,32 @@ function forkFrom(
   }
 }
 
-function PhaseBanner({ controller, state }: { controller: ChatController; state: ChatTabState }) {
-  const { t } = useTranslation();
-  const retry: BannerAction = {
-    label: t("chat.phase.retry"),
-    onAction: () => void controller.open(),
-  };
-  const banners: React.ReactNode[] = [];
-  switch (state.phase) {
-    case "starting":
-      banners.push(<Banner key="phase" variant="info" message={t("chat.phase.starting")} />);
-      break;
-    case "held":
-      banners.push(<Banner key="phase" variant="warning" message={t("chat.phase.held")} />);
-      break;
-    case "ended":
-      banners.push(
-        <Banner
-          key="phase"
-          variant="info"
-          message={t("chat.phase.ended")}
-          details={state.model.exit?.stderrTail || undefined}
-          actions={[{ label: t("chat.phase.restart"), onAction: () => void controller.restart() }]}
-        />,
-      );
-      break;
-    case "not-found":
-      banners.push(
-        <Banner
-          key="phase"
-          variant="error"
-          message={t("chat.phase.not_found")}
-          details={state.error}
-          actions={[retry]}
-        />,
-      );
-      break;
-    case "failed":
-      banners.push(
-        state.error === "old-version" ? (
-          <Banner
-            key="phase"
-            variant="error"
-            message={t("chat.phase.old_version", {
-              version: state.version ?? "?",
-              min: MIN_CLAUDE_VERSION,
-            })}
-            actions={[retry]}
-          />
-        ) : (
-          <Banner
-            key="phase"
-            variant="error"
-            message={t("chat.phase.failed")}
-            details={state.error}
-            actions={[retry]}
-          />
-        ),
-      );
-      break;
-  }
-  if (banners.length === 0) return null;
-  return <div className="shrink-0 pt-1">{banners}</div>;
-}
-
 /** Warns that the session is open in a terminal tab too, where going on forks it. */
-function TwinBanner({
+const TwinBanner = memo(function TwinBanner({
   workspaceId,
   tabId,
   sessionId,
 }: {
   workspaceId: string;
   tabId: string;
-  sessionId: string | undefined;
+  sessionId: string;
 }) {
   const { t } = useTranslation();
   const twin = useTerminalTwin(workspaceId, tabId, sessionId);
-  if (!twin) return null;
+  const { dismiss, dismissed } = useBannerDismissal(
+    ["chat-terminal-twin", workspaceId, tabId, sessionId],
+    twin ? [twin] : undefined,
+    twin !== undefined,
+  );
+  if (!twin || dismissed) return null;
   return (
     <div className="shrink-0" data-testid="chat-terminal-twin">
       <Banner
         variant="warning"
         message={t("chat.twin.message")}
+        dismiss={dismiss}
         actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
       />
     </div>
   );
-}
+});

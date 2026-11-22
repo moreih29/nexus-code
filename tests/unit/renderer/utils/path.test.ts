@@ -65,6 +65,12 @@ describe("workspacePathParts", () => {
     ["/plan.md", "", "/", "plan.md"],
     ["c:\\Work\\docs\\plan.md", "C:/work/", "docs/", "plan.md"],
     ["D:\\Work\\plan.md", "C:/Work", "D:/Work/", "plan.md"],
+    ["\\\\server\\share\\프로젝트\\src\\한글.ts", "\\\\server\\share\\프로젝트", "src/", "한글.ts"],
+    ["\\\\server\\share\\a.ts", "\\\\server\\share\\", "", "a.ts"],
+    ["\\\\SERVER\\Share\\App\\src\\a.ts", "\\\\server\\share\\app", "src/", "a.ts"],
+    ["//server/share/app/src/a.ts", "\\\\server\\share\\app", "src/", "a.ts"],
+    ["\\\\server\\other\\a.ts", "\\\\server\\share", "//server/other/", "a.ts"],
+    ["/Work/plan.md", "/work", "/Work/", "plan.md"],
   ])("splits %s against %s", (path, root, directory, fileName) => {
     expect(workspacePathParts(path, root)).toEqual({ directory, fileName });
   });

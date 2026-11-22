@@ -1,8 +1,6 @@
 // primitive.ts — Raw immutable scale values.
 // No semantic meaning assigned here; no shadcn variables; no theme-specific values.
 // Consumers: semantic.ts (key contract), themes/*.ts (fill values), generate-theme-css.ts.
-//
-// Authoritative source: .nexus/context/design.md §3 (spacing), §4 (radius).
 
 // ---------------------------------------------------------------------------
 // Color palette — OKLCH (converted from hex via culori for perceptual accuracy)

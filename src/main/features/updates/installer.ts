@@ -3,14 +3,16 @@
  * installs it over the running app on restart.
  *
  * On macOS, Squirrel.Mac (behind electron-updater) takes an update only when
- * its code signature meets the running app's designated requirement. Release
- * builds are all signed with one certificate (scripts/sign-mac.cjs), so each
- * meets the requirement of the one before it; a build signed any other way (a
- * local, ad-hoc one) fails the check, and the user is pointed at the release
- * page instead. The app downloads the update itself, so the new bundle carries
- * no quarantine attribute and opens without a Gatekeeper prompt. On Linux the
- * new AppImage replaces the running one, and a deb is installed with the
- * user's admin password (electron-update-backend.ts).
+ * its code signature meets the running app's designated requirement (DR).
+ * The bridge release uses the original certificate with a DR that also accepts
+ * Developer ID Application signatures from our Apple team. An older install
+ * must go through the bridge to update in place. If verification fails, the
+ * user is pointed at the release page. The app downloads the update itself,
+ * so the new bundle carries no quarantine attribute and opens without a
+ * Gatekeeper prompt. See .github/release/MAC_RELEASE_SIGNING.md for the rollout and
+ * Squirrel.Mac source. On Linux the new AppImage replaces the running one,
+ * and a deb is installed with the user's admin password
+ * (electron-update-backend.ts).
  *
  * STATES
  * ------
@@ -51,7 +53,8 @@ export interface UpdateBackend {
    * resolved — Squirrel.Mac checks the signature once the file is handed over.
    */
   onError(listener: (error: Error) => void): void;
-  quitAndInstall(): void;
+  prepareRestart?(): Promise<void>;
+  quitAndInstall(): void | Promise<void>;
 }
 
 export type InstallStatus =
@@ -64,7 +67,7 @@ export interface UpdateInstaller {
   /** Starts an update; while one is under way, reports where it stands instead. */
   install(channel: UpdateChannel): Promise<void>;
   /** Quits and installs the staged update; does nothing until one is ready. */
-  restart(): void;
+  restart(): Promise<void>;
 }
 
 export interface CreateUpdateInstallerOptions {
@@ -87,6 +90,7 @@ type State =
 export function createUpdateInstaller(options: CreateUpdateInstallerOptions): UpdateInstaller {
   const { backend, onStatus, onProgress, releaseUrl, logger } = options;
   let state: State = { kind: "idle" };
+  let preparingRestart = false;
 
   function fail(version: string | null, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
@@ -151,8 +155,18 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       }
     },
 
-    restart() {
-      if (state.kind === "ready") backend.quitAndInstall();
+    async restart() {
+      if (state.kind !== "ready" || preparingRestart) return;
+      const readyUpdate = state;
+      preparingRestart = true;
+      try {
+        if (backend.prepareRestart) await backend.prepareRestart();
+        if (state === readyUpdate) await backend.quitAndInstall();
+      } catch (error) {
+        if (state === readyUpdate) fail(readyUpdate.version, error);
+      } finally {
+        preparingRestart = false;
+      }
     },
   };
 }

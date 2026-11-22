@@ -6,7 +6,11 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatItem, UserItem } from "../../../../../src/renderer/services/chat/model";
 import { followsMessage } from "../../../../../src/renderer/services/chat/profile-moves";
-import { relaySenderText, withRelayed } from "../../../../../src/renderer/services/chat/relayed";
+import {
+  relayedOf,
+  relaySenderText,
+  withRelayed,
+} from "../../../../../src/renderer/services/chat/relayed";
 import {
   RELAYED_KEPT,
   type RelayedMessage,
@@ -51,6 +55,12 @@ describe("the line the agent reads", () => {
     );
     expect(relayHeader({ kind: "manager" })).toStartWith(
       "[nexus] The manager (an agent the user runs) sent this, not the user.",
+    );
+  });
+
+  it("from the app, says so, and gives no command to answer it", () => {
+    expect(relayHeader({ kind: "app" })).toBe(
+      "[nexus] NexusCode, the app, sent this on its own, not the user.",
     );
   });
 
@@ -208,5 +218,32 @@ describe("withRelayed", () => {
     );
     expect(relaySenderText({ kind: "manager" })).toBe("the manager");
     expect(relaySenderText({ kind: "peer", name: "other" })).toBeUndefined();
+    expect(relaySenderText({ kind: "app" })).toBe("NexusCode (the app)");
+  });
+
+  it("shows app, terminal opener, and user messages in the same resumed turn", () => {
+    const app = { kind: "app" } as const;
+    const openedBy = { ...TAB, kind: "terminal", agent: "codex" } as const;
+    const turnId = "turn-1";
+    const props = {
+      relayed: [record("agent-id", { from: openedBy, at: 2, turnId })],
+      fromApp: [{ id: "app-id", at: 1, turnId }],
+    };
+    const records = relayedOf(props);
+    // The same records for the same lists, so the list does not render again.
+    expect(relayedOf(props)).toBe(records);
+    expect(relayedOf({ relayed: props.relayed })).toBe(props.relayed);
+    const typed = user("u1.0.1", "Go on.", { turnId });
+    const [appItem, userItem, agentItem] = withRelayed(
+      [
+        user("u1.0.0", relayedText(app, "Go on."), { turnId }),
+        typed,
+        user("u1.0.2", relayedText(openedBy, "Run the tests."), { turnId }),
+      ],
+      records,
+    );
+    expect(appItem).toMatchObject({ kind: "received", from: app, text: "Go on." });
+    expect(userItem).toBe(typed);
+    expect(agentItem).toMatchObject({ kind: "received", from: openedBy, text: "Run the tests." });
   });
 });

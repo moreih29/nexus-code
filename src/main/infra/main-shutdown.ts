@@ -3,6 +3,44 @@ import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/ti
 export const MAIN_QUIT_GRACE_MS = 3_000;
 // Match the Go LSP request, exit and forced-exit grace periods.
 const LSP_QUIT_GRACE_MS = 2_250;
+const STATE_FLUSH_ATTEMPTS = 3;
+const STATE_FLUSH_RETRY_MS = 1_000;
+
+interface QuitStateFlush {
+  flush(): void;
+  quit(): void;
+  warn(message: string): void;
+  error(message: string): void;
+}
+
+/** Let Electron finish quitting after a bounded attempt to save the final state. */
+export function createQuitStateFlush(
+  work: QuitStateFlush,
+  timers: TimerScheduler = defaultTimerScheduler,
+): (event: { preventDefault(): void }) => boolean {
+  let attempts = 0;
+  let retry: unknown;
+  return (event) => {
+    if (retry !== undefined) {
+      timers.clearTimeout(retry);
+      retry = undefined;
+    }
+    try {
+      work.flush();
+    } catch (error) {
+      if (++attempts < STATE_FLUSH_ATTEMPTS) {
+        event.preventDefault();
+        work.warn(`Could not save app state before quit; retrying: ${String(error)}`);
+        retry = timers.setTimeout(work.quit, STATE_FLUSH_RETRY_MS);
+        return false;
+      }
+      work.error(
+        `Could not save app state before quit after ${attempts} attempts: ${String(error)}`,
+      );
+    }
+    return true;
+  };
+}
 
 interface ShutdownWork {
   readonly waitForNotes: () => Promise<void> | undefined;

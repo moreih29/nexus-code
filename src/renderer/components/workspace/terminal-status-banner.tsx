@@ -2,9 +2,10 @@ import i18next from "i18next";
 import { requestTerminalReopen } from "../../services/terminal/reopen-requests";
 import type { Tab, TerminalTab } from "../../state/stores/tabs";
 import type { TerminalDeathAggregate } from "../../state/stores/terminal-deaths";
-import { Banner } from "../ui/banner";
+import { Banner, type BannerDismiss } from "../ui/banner";
 
 interface WorkspaceTerminalStatusBannerProps {
+  dismiss?: BannerDismiss;
   deadTerminalCount: number;
   onReopenAll: () => void;
 }
@@ -71,12 +72,14 @@ export function requestReopenForDeadTerminalTabs(
  * Displays the workspace-level aggregate dead-terminal affordance.
  */
 export function WorkspaceTerminalStatusBanner({
+  dismiss,
   deadTerminalCount,
   onReopenAll,
 }: WorkspaceTerminalStatusBannerProps) {
   return (
     <Banner
       display="bar"
+      dismiss={dismiss}
       variant="info"
       message={workspaceTerminalStatusMessage(deadTerminalCount)}
       actions={[{ label: i18next.t("action.reopenAll"), onAction: onReopenAll }]}

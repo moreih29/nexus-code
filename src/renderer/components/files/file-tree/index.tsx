@@ -22,22 +22,24 @@ import {
   toggleExpand,
 } from "../../../state/operations/files";
 import { parentOf, selectFlat, selectIsSelected, useFilesStore } from "../../../state/stores/files";
+import { joinPath } from "../../../state/stores/files/helpers";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { useTabsStore } from "../../../state/stores/tabs";
+import { relPath } from "../../../utils/path";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
 import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";
 import { createFileTreeKeydownHandler } from "../keys";
 import { getDisplayFlat } from "./display";
+import { type FileTreeDecorationLookup, LocalFileTreeVirtualBody } from "./local-virtual-body";
 import { buildFileTreeMenuItems } from "./menu";
 import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
 import { WorkspaceRootHeader } from "./root-header";
 import { FileTreeStatusView } from "./status-view";
-import { type FileTreeDecorationLookup, FileTreeVirtualBody } from "./virtual-body";
 
 interface FileTreeProps {
   workspaceId: string;
@@ -117,7 +119,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (!tab) return null;
     if (tab.type === "editor") return tab.props.filePath;
     if (tab.type === "editor.diff" && tab.props.relPath) {
-      return `${rootAbsPath}/${tab.props.relPath}`;
+      return joinPath(rootAbsPath, tab.props.relPath);
     }
     return null;
   }, [layoutForWs, tabsForWs, rootAbsPath]);
@@ -247,9 +249,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // even if the user collapses the parent and flat loses the leaf again — VSCode parity.
   useEffect(() => {
     if (!activeEditorAbsPath) return;
-    if (activeEditorAbsPath !== rootAbsPath && !activeEditorAbsPath.startsWith(`${rootAbsPath}/`)) {
-      return;
-    }
+    if (relPath(activeEditorAbsPath, rootAbsPath) === activeEditorAbsPath) return;
     if (lastRevealedRef.current === activeEditorAbsPath) return;
     if (flat.some((f) => f.absPath === activeEditorAbsPath)) return;
     void reveal(workspaceId, activeEditorAbsPath);
@@ -300,7 +300,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // user triggers New File / New Folder, `flat` is still empty but
   // `getDisplayFlat` injects the inline-edit sentinel row (a root-anchored
   // pending create yields `displayFlat = [sentinel]`). That row only renders
-  // inside <FileTreeVirtualBody>, so keying off `flat.length` would leave the
+  // inside <LocalFileTreeVirtualBody>, so keying off `flat.length` would leave the
   // StatusView mounted, the edit row never appears, and the create silently
   // dies — the empty-tree "create buttons do nothing" bug.
   const showStatusView = displayFlat.length === 0 && rootExpanded;
@@ -527,7 +527,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
                 treeKnown={!!tree}
               />
             ) : (
-              <FileTreeVirtualBody
+              <LocalFileTreeVirtualBody
                 workspaceId={workspaceId}
                 tree={tree}
                 displayFlat={displayFlat}

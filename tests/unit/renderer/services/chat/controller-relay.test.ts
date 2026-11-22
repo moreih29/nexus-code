@@ -144,4 +144,23 @@ describe("the senders a tab keeps", () => {
     };
     expect(props.relayed).toEqual([{ id: "u1", from: FROM, at: 1, turnId: "t" }]);
   });
+
+  test("keeps what the app sent apart, which older versions' layouts load without", () => {
+    const tabs = () => useTabsStore.getState();
+    const tab = tabs().createTab("ws-relay-app", { type: "codex", props: { cwd: "/p" } });
+    tabs().addChatRelayed("ws-relay-app", tab.id, { id: "c1", from: { kind: "app" }, at: 1 });
+    tabs().addChatRelayed("ws-relay-app", tab.id, {
+      id: "c1",
+      from: { kind: "app" },
+      at: 1,
+      turnId: "t",
+    });
+    tabs().setChatProfile("ws-relay-app", tab.id, "work");
+    const props = tabs().byWorkspace["ws-relay-app"]?.[tab.id]?.props as {
+      relayed?: RelayedMessage[];
+      fromApp?: unknown[];
+    };
+    expect(props.relayed).toBeUndefined();
+    expect(props.fromApp).toEqual([{ id: "c1", at: 1, turnId: "t" }]);
+  });
 });

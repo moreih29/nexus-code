@@ -8,6 +8,7 @@ const log = createLogger("remote-serving");
 const SLOW_UI_MS = 1_000;
 const WARNING_INTERVAL_MS = 30_000;
 const warnedAt = new Map<RpcMethod, number>();
+export const RENDERER_READ_MAX_MS = 2_000;
 
 /** Shares a deadline across the renderer reads that make up a remote answer. */
 export class ReadBudget {
@@ -43,7 +44,8 @@ export class ReadBudget {
   async ui<K extends CliUiOp>(
     op: K,
     args: CliUiOps[K]["args"],
-    maxMs = 2_000,
+    maxMs = RENDERER_READ_MAX_MS,
+    read = (args: CliUiOps[K]["args"], ms: number) => this.services.ui(op, args, ms),
   ): Promise<CliUiOps[K]["result"]> {
     const timeout = () =>
       new RpcFailure(RpcErrorCode.Unavailable, `${op}: the window did not answer in time`);
@@ -60,7 +62,7 @@ export class ReadBudget {
       }, ms);
     });
     try {
-      return await Promise.race([expiry, this.services.ui(op, args, ms)]);
+      return await Promise.race([expiry, read(args, ms)]);
     } finally {
       clearTimeout(timer);
       const elapsed = Math.round(performance.now() - started);

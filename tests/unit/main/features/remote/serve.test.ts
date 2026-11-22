@@ -9,6 +9,7 @@ import {
   MAX_LISTED_NOTES,
   MAX_SESSION_AGENTS,
   RpcErrorCode,
+  SessionsUpdateSchema,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
@@ -31,7 +32,9 @@ import {
   stopChatRun,
 } from "../../../../../src/main/features/remote/serve";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
+import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
+import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
@@ -68,7 +71,8 @@ function services(pending: PendingConsent[] = []): CliServices {
         return at >= 0;
       },
     },
-    ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
+    ui: withSessionsSnapshot(async (op: string, args: { workspaceId: string; tabId?: string }) => {
+      if (op === "sessions.results") return { unread: {} };
       if (op === "tabs.list") {
         const list = tabs[args.workspaceId];
         if (!list) throw new Error("not open");
@@ -86,7 +90,7 @@ function services(pending: PendingConsent[] = []): CliServices {
         };
       }
       return { agent: "codex", state: "working", since: 20 };
-    },
+    }),
   } as unknown as CliServices;
 }
 
@@ -142,8 +146,34 @@ test("a peer editing a task's workspace instructions asks for and changes the pa
   ]);
 });
 
+test("profile usage follows the receiving device's agent read policy", async () => {
+  const calls: [string, unknown][] = [];
+  const s = {
+    ...services(),
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return { profiles: [] };
+    },
+  } as CliServices;
+  let policy: "ask" | "deny" = "ask";
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => policy }) });
+  const params = { agent: "claude", workspaceId: "w1", profile: "Work" };
+  const from = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
+  const request = { from: "d", method: "profiles.usage" as const, params };
+  expect(servesWith(false, false, true)).toContain("profiles.usage");
+  await expect(serve(request)).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  await expect(serve({ ...request, params: { ...params, from } })).resolves.toEqual({
+    profiles: [],
+  });
+  policy = "deny";
+  await expect(serve({ ...request, params: { ...params, from } })).rejects.toMatchObject({
+    code: RpcErrorCode.Forbidden,
+  });
+  expect(calls).toEqual([["chat.usage", params]]);
+});
+
 describe("the sessions list's renderer deadline", () => {
-  test("a stuck tab list or chat leaves the other rows and the consent prompt usable", async () => {
+  test("a renderer that does not answer leaves every workspace incomplete at the deadline, the consent prompt usable", async () => {
     const pending: PendingConsent[] = [
       {
         id: "consent",
@@ -160,119 +190,88 @@ describe("the sessions list's renderer deadline", () => {
       },
     ];
     const base = services(pending);
-    const tabLists: string[] = [];
+    const reads: { op: string; timeoutMs: number }[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
-        if (op === "tabs.list") {
-          tabLists.push(args.workspaceId);
-          if (args.workspaceId === "w3") return new Promise(() => {});
-          return base.ui("tabs.list", args);
-        }
-        if (args.tabId === "t1") return new Promise(() => {});
-        return base.ui("chat.state", { workspaceId: args.workspaceId, tabId: args.tabId! });
+      ui: async (op: string, _args: unknown, timeoutMs: number) => {
+        reads.push({ op, timeoutMs });
+        return new Promise(() => {});
       },
-    } as CliServices;
+    } as unknown as CliServices;
     jest.useFakeTimers();
     try {
+      let answered = false;
       const response = serveWith(() => s)({ method: "sessions.list", params: {}, from: "phone" });
+      void response.then(() => {
+        answered = true;
+      });
       await flush();
-      expect(tabLists).toEqual(["w1", "w2", "w3"]);
-      jest.advanceTimersByTime(2_000);
+      expect(reads).toEqual([{ op: "sessions.snapshot", timeoutMs: 2_000 }]);
+      jest.advanceTimersByTime(1_999);
       await flush();
-      jest.advanceTimersByTime(2_000);
+      expect(answered).toBe(false);
+      jest.advanceTimersByTime(1);
       await flush();
       expect(await response).toMatchObject({
         workspaces: [{ id: "w1" }, { id: "w2" }, { id: "w3" }],
-        sessions: [{ tabId: "t2" }, { tabId: "t5" }, { tabId: "t4" }],
+        sessions: [],
+        incompleteWorkspaces: ["w1", "w2", "w3"],
         consents: [{ id: "consent", from: { workspaceName: "closed", tabId: "gone" } }],
       });
-      expect(tabLists).toEqual(["w1", "w2", "w3"]);
+      expect(reads).toHaveLength(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  test("many chats use bounded concurrency and stop at the overall deadline", async () => {
+  test("one request reads every workspace and chat, however many", async () => {
     const base = services();
     const tabs = Array.from({ length: 96 }, (_, i) => ({
       id: `chat-${i}`,
       type: "codex",
       title: "Chat",
+      ...(i < 2 ? { chat: { state: "idle" } } : {}),
     }));
-    const calls: { tabId: string; timeoutMs: number }[] = [];
+    const reads: unknown[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; tabId?: string }, timeoutMs: number) => {
-        if (op === "tabs.list") return { tabs: args.workspaceId === "w1" ? tabs : [] };
-        calls.push({ tabId: args.tabId!, timeoutMs });
-        if (args.tabId === "chat-1" || args.tabId === "chat-2") return { state: "idle" };
-        return new Promise(() => {});
+      ui: async (op: string, args: unknown) => {
+        reads.push([op, args]);
+        return { workspaces: [{ tabs }, { tabs: [] }, { tabs: [] }], unread: {} };
       },
     } as unknown as CliServices;
-    jest.useFakeTimers();
-    try {
-      let ids: string[] | undefined;
-      const list = listSessions(s).then((value) => {
-        ids = value.sessions.map((row) => row.tabId);
-      });
-      await flush();
-      expect(calls).toHaveLength(10);
-      expect(ids).toBeUndefined();
-      for (let i = 0; i < 4; i++) {
-        jest.advanceTimersByTime(2_000);
-        await flush();
-      }
-      expect(ids).toEqual(["chat-1", "chat-2"]);
-      await list;
-      expect(calls).toHaveLength(34);
-      expect(calls.every(({ timeoutMs }) => timeoutMs <= 2_000)).toBe(true);
-    } finally {
-      jest.useRealTimers();
-    }
+    const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
+    expect(reads).toEqual([["sessions.snapshot", { workspaceIds: ["w1", "w2", "w3"] }]]);
+    expect(list.sessions.map((row) => row.tabId)).toEqual(["chat-0", "chat-1"]);
+    // The chats it could not read leave their workspace incomplete.
+    expect(incompleteWorkspaces).toEqual(new Set(["w1"]));
   });
 
-  test("marks failed and skipped tab reads and skipped chat reads as incomplete", async () => {
-    const workspaces = Array.from({ length: 40 }, (_, i) => ({
+  test("marks a workspace not read, then one with a chat not read, as incomplete", async () => {
+    const workspaces = Array.from({ length: 4 }, (_, i) => ({
       id: `w${i + 1}`,
       name: "app",
       rootPath: "/app",
     }));
-    const tabReads: string[] = [];
-    const chatReads: string[] = [];
     const s = {
       ...services(),
       listWorkspaces: () => workspaces,
-      ui: async (op: string, { workspaceId }: { workspaceId: string }) => {
-        if (op === "chat.state") {
-          chatReads.push(workspaceId);
-          return { state: "idle" };
-        }
-        tabReads.push(workspaceId);
-        if (workspaceId === "w1") return { tabs: [{ id: "chat", type: "codex", title: "Chat" }] };
-        if (workspaceId === "w2") throw new Error("window unavailable");
-        if (workspaceId === "w3") return { tabs: [] };
-        return new Promise(() => {});
-      },
+      ui: async () => ({
+        workspaces: [
+          { tabs: [{ id: "chat", type: "codex", title: "Chat" }] },
+          {},
+          { tabs: [] },
+          { tabs: [{ id: "read", type: "codex", title: "Read", chat: { state: "working" } }] },
+        ],
+      }),
     } as unknown as CliServices;
-    jest.useFakeTimers();
-    try {
-      const snapshot = snapshotSessions(s, undefined);
-      await flush();
-      for (let i = 0; i < 4; i++) {
-        jest.advanceTimersByTime(2_000);
-        await flush();
-      }
-      const { incompleteWorkspaces } = await snapshot;
-      expect(tabReads).toContain("w2");
-      expect(tabReads).not.toContain("w40");
-      expect(chatReads).toEqual([]);
-      expect(incompleteWorkspaces).toEqual(
-        new Set(workspaces.filter(({ id }) => id !== "w3").map(({ id }) => id)),
-      );
-    } finally {
-      jest.useRealTimers();
-    }
+    const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
+    expect([...incompleteWorkspaces]).toEqual(["w2", "w1"]);
+    expect(list.sessions).toMatchObject([{ workspaceId: "w4", tabId: "read", state: "running" }]);
+    expect(SessionsUpdateSchema.parse({ ...list, watchId: "watch" }).incompleteWorkspaces).toEqual([
+      "w2",
+      "w1",
+    ]);
   });
 });
 
@@ -420,6 +419,184 @@ describe("serving a chat's claude -p runs", () => {
 });
 
 describe("serving the sessions", () => {
+  test("reuses a recent unread map across list and watch failures, then falls back after it expires", async () => {
+    const base = services();
+    let unread: Record<string, Record<string, number>> | undefined;
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "sessions.results") {
+        if (!unread) throw new Error("renderer unavailable");
+        return { unread };
+      }
+      if (op === "chat.state") return { state: "idle" };
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const host = {
+      ...base,
+      ui,
+      claudeStatus: (_w: string, tab: string) =>
+        tab === "t2" ? { status: "completed" as const, since: 55 } : null,
+    };
+    const states = async (operation: "sessions.watch" | "sessions.list") => {
+      const { list } = await snapshotSessions(host, undefined, undefined, operation);
+      return list.sessions
+        .filter(({ tabId }) => tabId === "t1" || tabId === "t2")
+        .map(({ state }) => state);
+    };
+    jest.useFakeTimers();
+    try {
+      expect(await states("sessions.watch")).toEqual(["idle", "new-result"]);
+      unread = { w1: { t1: 123 } };
+      expect(await states("sessions.list")).toEqual(["new-result", "idle"]);
+      unread = undefined;
+      jest.advanceTimersByTime(29_999);
+      expect(await states("sessions.watch")).toEqual(["new-result", "idle"]);
+      jest.advanceTimersByTime(1);
+      expect(await states("sessions.watch")).toEqual(["idle", "new-result"]);
+      unread = {};
+      expect(await states("sessions.watch")).toEqual(["idle", "idle"]);
+      unread = undefined;
+      expect(await states("sessions.watch")).toEqual(["idle", "idle"]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test.each([
+    [
+      { state: "idle", limitResume: { state: "waiting", at: 123 } },
+      { state: "idle", limitWait: { at: 123 } },
+    ],
+    [
+      { state: "asking", waiting: { kind: "permission", text: "May I?" } },
+      { state: "needs-you", waiting: { text: "May I?" } },
+    ],
+  ])("an unread timestamp leaves a blocked chat in its listed state (%j)", async (info, expected) => {
+    const base = services();
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "sessions.results") return { unread: { w1: { t1: 123 } } };
+      if (op === "chat.state" && args.tabId === "t1") return info;
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const list = await listSessions({ ...base, ui });
+    expect(list.sessions.find(({ tabId }) => tabId === "t1")).toMatchObject(expected);
+  });
+
+  test.each([
+    ["unread chat", "idle", { w1: { t1: 123 } }, "t1", { state: "new-result", since: 123 }],
+    ["read chat", "idle", {}, "t1", { state: "idle" }],
+    ["failed chat", "error", { w1: { t1: 123 } }, "t1", { state: "idle", failed: true }],
+    ["read terminal", "idle", {}, "t2", { state: "idle" }],
+    ["failed result lookup", "idle", undefined, "t2", { state: "new-result", since: 55 }],
+  ] as const)("maps %s", async (_label, state, unread, tabId, expected) => {
+    const base = services();
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "sessions.results") {
+        if (!unread) throw new Error("renderer unavailable");
+        return { unread };
+      }
+      if (op === "chat.state" && args.tabId === "t1") return { state, since: 100 };
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const { sessions } = await listSessions({
+      ...base,
+      ui,
+      claudeStatus: (_w, tab) => (tab === "t2" ? { status: "completed", since: 55 } : null),
+    });
+    expect(sessions.find((session) => session.tabId === tabId)).toMatchObject(expected);
+  });
+
+  test("takes a current person's receipt and refuses agent and stale requests", async () => {
+    const ui = jest.fn(async () => ({ marked: 1 }));
+    const serve = serveWith(() => ({ ...services(), ui: ui as unknown as CliServices["ui"] }));
+    const params = { seen: [{ workspaceId: "w1", tabId: "t1", upTo: 123 }] };
+    const request = { from: "phone", method: "sessions.markSeen", params } as const;
+    await expect(
+      serve({ ...request, params: { ...params, from: { kind: "tab" } } }),
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+    await expect(serve({ ...request, isCurrent: () => false })).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+    });
+    expect(await serve(request)).toEqual({ marked: 1 });
+    expect(ui.mock.calls).toEqual([["sessions.markSeen", params]]);
+  });
+
+  test("flags a failed chat and terminal hook without changing their session state", async () => {
+    const base = services();
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "chat.state" && args.tabId === "t1") {
+        return { agent: "claude", state: "error", message: "Turn failed", since: 15 };
+      }
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const { sessions } = await listSessions({
+      ...base,
+      ui,
+      claudeStatus: (_workspace, tab) => (tab === "t2" ? { status: "error", since: 16 } : null),
+    });
+    expect(sessions.filter((session) => session.failed)).toMatchObject([
+      { tabId: "t1", state: "idle", failed: true },
+      { tabId: "t2", state: "idle", failed: true },
+    ]);
+    expect(sessions.find((session) => session.tabId === "t4")).not.toHaveProperty("failed");
+    expect(sessions.find((session) => session.tabId === "t5")).not.toHaveProperty("failed");
+  });
+
+  test("uses agent order for the list and broadcasts a reorder-only update to watchers", async () => {
+    const base = services();
+    const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
+    const orderReads: unknown[] = [];
+    let sidebarOrder = ["t2", "t1", "t5"];
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "agentView.reorderSessions") {
+        sidebarOrder = (args as { tabIds: string[] }).tabIds;
+        return { found: true };
+      }
+      if (op === "tabs.list" && args.workspaceId === "w1") {
+        orderReads.push(args);
+        return { tabs: sidebarOrder.flatMap((id) => tabs.filter((tab) => tab.id === id)) };
+      }
+      if (op === "tabs.list" && args.workspaceId === "w3") return { tabs: [] };
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const s = { ...base, ui };
+    const notified: unknown[] = [];
+    const watches = new SessionWatches({
+      snapshot: async () => {
+        const snapshot = await snapshotSessions(s, undefined);
+        return { ...snapshot, forDevice: async () => snapshot.list };
+      },
+      notify: async (to, update) => {
+        notified.push([to, update.sessions.map(({ tabId }) => tabId)]);
+        return true;
+      },
+      pollMs: 60_000,
+    });
+    const serve = serveWith(() => s, { sessions: watches });
+    const params = { workspaceId: "w1", tabIds: ["t1", "t2", "t5"] };
+    try {
+      expect(await listSessions(s)).toMatchObject({
+        sessions: [{ tabId: "t2" }, { tabId: "t1" }, { tabId: "t5" }, { tabId: "t4" }],
+      });
+      expect(await serve({ from: "phone", method: "sessions.watch", params: {} })).toMatchObject({
+        sessions: [{ tabId: "t2" }, { tabId: "t1" }, { tabId: "t5" }, { tabId: "t4" }],
+      });
+      await expect(
+        serve({
+          from: "pc",
+          method: "sessions.reorder",
+          params: { ...params, workspaceId: "gone" },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+      expect(await serve({ from: "pc", method: "sessions.reorder", params })).toEqual({});
+      await watches.poll();
+      expect(orderReads).toEqual(Array(3).fill({ workspaceId: "w1", agentOrder: true }));
+      expect(notified).toEqual([["phone", ["t1", "t2", "t5", "t4"]]]);
+    } finally {
+      watches.dropAll();
+    }
+  });
   test("lists the workspaces in the sidebar's order: pinned first, each group by its order, a task after its workspace", async () => {
     const base = services();
     const s = {
@@ -499,6 +676,38 @@ describe("serving the sessions", () => {
         since: 20,
       },
     ]);
+  });
+
+  test("reports only dead agent terminals as ended and drops dead terminals' activity", async () => {
+    const base = services();
+    const ui = withSessionsSnapshot((async (op, args) => {
+      if (op === "tabs.list" && args.workspaceId === "w1") {
+        const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
+        return {
+          tabs: [
+            ...tabs.map((tab) => (tab.type === "terminal" ? { ...tab, dead: true } : tab)),
+            { id: "t7", type: "terminal", title: "Codex", groupId: "g1", shown: false, dead: true },
+          ],
+        };
+      }
+      return base.ui(op, args);
+    }) as CliServices["ui"]);
+    const { sessions } = await listSessions({
+      ...base,
+      ui,
+      claudeAgents: { ...base.claudeAgents, list: () => [agentRun({})] },
+    });
+    const terminals = sessions.filter((session) => session.kind === "terminal");
+    expect(terminals).toMatchObject([
+      { tabId: "t2", state: "ended", agent: "claude" },
+      { tabId: "t5", state: "idle", title: "bash" },
+      { tabId: "t7", state: "ended", agent: "codex" },
+    ]);
+    expect(terminals[1]).not.toHaveProperty("agent");
+    for (const terminal of terminals) {
+      expect(terminal).not.toHaveProperty("waiting");
+      expect(terminal).not.toHaveProperty("agents");
+    }
   });
 
   test("with the consent prompts waiting on the user, as the device asking may answer them", async () => {
@@ -733,6 +942,15 @@ describe("serving a chat and a terminal to read", () => {
 });
 
 describe("what this device serves", () => {
+  test.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])("advertises receipts with chat control=%s and agents=%s", (control, agents) => {
+    expect(servesWith(control, false, agents)).toContain("sessions.markSeen");
+  });
+
   test("its chats' controls only when the user allows them", () => {
     expect(servesWith(true)).toContain("chat.control");
     expect(servesWith(false)).not.toContain("chat.control");
@@ -813,6 +1031,44 @@ describe("serving a workspace's notes", () => {
       code: RpcErrorCode.NotFound,
     });
     expect(attached).toHaveLength(1);
+  });
+
+  test("a note's transcript by its recording; a recording it has not, or several, is not found", async () => {
+    const recording = (id: string) => ({
+      id,
+      startedAt: 1000,
+      language: "en",
+      takes: [],
+      speakers: {},
+      lines: [{ speaker: "s1", startMs: 0, endMs: 900, text: `in ${id}` }],
+    });
+    const note = { id: "n1", title: "Standup", updatedAt: 1000 };
+    const s = {
+      ...services(),
+      notes: {
+        list: async () => [note],
+        read: async () => note,
+        transcript: async () => ({
+          version: 1,
+          recordings: [recording("rec1aaaa"), recording("rec1bbbb")],
+        }),
+      },
+    } as unknown as CliServices;
+    const transcript = (recording: string) =>
+      serveWith(() => s)({
+        from: "phone",
+        method: "notes.transcript",
+        params: { workspaceId: "w1", note: "n1", recording },
+      });
+    expect(await transcript("rec1bbbb")).toMatchObject({
+      id: "n1",
+      recordings: [{ id: "rec1bbbb", lines: [{ text: "in rec1bbbb" }] }],
+    });
+    await expect(transcript("rec9")).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+      message: 'no recording "rec9"',
+    });
+    await expect(transcript("rec1")).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
   });
 
   test("thirty photos a minute from one device; more wait for the minute to pass", async () => {
@@ -1849,6 +2105,99 @@ describe("serving a chat's controls", () => {
       params: { ...tab, model: "haiku", from },
     });
     expect(asked.at(-1)?.[1]).not.toHaveProperty("user");
+  });
+
+  test("a terminal an agent opens is its; one the user opens from a phone is theirs", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return { tabId: "t9" };
+      },
+    } as unknown as CliServices;
+    const from = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "bw", tabId: "bt" };
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      deviceName: (id) => (id === "d" ? "MacBook" : undefined),
+    });
+    const params = { workspaceId: "w1", command: "make test" };
+    await serve({
+      from: "d",
+      method: "terminal.open",
+      params: { ...params, from: { ...from, waits: true } },
+    });
+    expect(asked.at(-1)?.[1]).toEqual({
+      workspaceId: "w1",
+      cwd: "/src/app",
+      command: "make test",
+      placement: { background: true },
+      openedBy: { ...from, device: { id: "d", name: "MacBook" } },
+    });
+    await serve({ from: "phone", method: "terminal.open", params });
+    expect(asked.at(-1)?.[1]).not.toHaveProperty("openedBy");
+  });
+
+  test.each([
+    ["chat.new", { workspaceId: "w1", agent: "codex" }, "chat.open"],
+    ["chat.fork", tab, "chat.fork"],
+    ["chat.resume", { workspaceId: "w1", agent: "claude", sessionId: "s1" }, "chat.resume"],
+    ["worktree.new", { workspaceId: "w1", name: "review", prompt: "", show: false }, "task.create"],
+    [
+      "worktree.new",
+      { workspaceId: "w1", name: "review", prompt: "", show: false, start: { command: "codex" } },
+      "task.create",
+    ],
+  ] as const)("%s records an opener only when relayed from an agent", async (method, params, op) => {
+    const base = services();
+    const opened = jest.fn(async (_op: string, _args: unknown) => ({
+      tabId: "t9",
+      start: { agent: "codex" },
+    }));
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) =>
+        op === "tabs.list" ? base.ui("tabs.list", args) : opened(op, args),
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      deviceName: () => "MacBook",
+      controls: () => ({ chat: true, terminal: true }),
+    });
+    const sender = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "bw", tabId: "bt" };
+    await serve({ from: "d", method, params: { ...params, from: { ...sender, waits: true } } });
+    expect(opened).toHaveBeenLastCalledWith(
+      op,
+      expect.objectContaining({ openedBy: { ...sender, device: { id: "d", name: "MacBook" } } }),
+    );
+    await serve({ from: "d", method, params });
+    expect(opened.mock.lastCall?.[0]).toBe(op);
+    expect(opened.mock.lastCall?.[1]).not.toHaveProperty("openedBy");
+  });
+
+  test.each([
+    ["chat.new", { workspaceId: "w1", agent: "codex" }],
+    ["terminal.open", { workspaceId: "w1" }],
+    ["chat.send", { ...tab, text: "check the tests" }],
+  ] as const)("%s rejects oversized agent caller IDs before asking for consent", async (method, params) => {
+    const base = services();
+    const ui = jest.fn(base.ui);
+    const serve = serveWith(() => ({ ...base, ui }), {
+      agents: new AgentGate({ policy: () => "ask" }),
+    });
+    const from = { kind: "tab", agent: "codex", workspaceId: "bw", tabId: "bt" };
+    for (const field of ["workspaceId", "tabId"] as const) {
+      await expect(
+        serve({
+          from: "d",
+          method,
+          params: { ...params, from: { ...from, [field]: "x".repeat(65) } },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    }
+    expect(ui).not.toHaveBeenCalled();
   });
 
   test.each([

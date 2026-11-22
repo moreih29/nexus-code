@@ -3,9 +3,13 @@
  * which server, and this device as the server knows it.
  */
 import { z } from "zod";
+import {
+  NumberSchema,
+  PositiveIntegerSchema,
+} from "../../../packages/remote-protocol/src/validation";
 
-/** The sign-ins the app knows how to offer; the server says which it has (GET /info). */
-export const SIGN_IN_PROVIDERS = ["google", "github", "dev"] as const;
+/** The sign-ins the app knows, in display order; GET /info says which to offer. */
+export const SIGN_IN_PROVIDERS = ["apple", "google", "github", "dev"] as const;
 export const SignInProviderSchema = z.enum(SIGN_IN_PROVIDERS);
 export type SignInProvider = z.infer<typeof SignInProviderSchema>;
 
@@ -17,21 +21,19 @@ export const RemoteUserSchema = z.object({
 export type RemoteUser = z.infer<typeof RemoteUserSchema>;
 
 /** A device of the account, as the server knows it. */
-export const RemoteDeviceInfoSchema = z
-  .object({
-    id: z.string(),
-    /** The name it signed in with (its host's). */
-    name: z.string(),
-    /** The name the user gave it, shown in its place; null or absent for none. */
-    alias: z.string().nullable().optional(),
-    platform: z.string(),
-    /** When the device signed in, and when the server last heard from it, in Unix ms. */
-    createdAt: z.number().optional(),
-    lastSeenAt: z.number().optional(),
-    /** Whether it is the device asking. */
-    current: z.boolean().optional(),
-  })
-  .passthrough();
+export const RemoteDeviceInfoSchema = z.looseObject({
+  id: z.string(),
+  /** The name it signed in with (its host's). */
+  name: z.string(),
+  /** The name the user gave it, shown in its place; null or absent for none. */
+  alias: z.string().nullable().optional(),
+  platform: z.string(),
+  /** When the device signed in, and when the server last heard from it, in Unix ms. */
+  createdAt: NumberSchema.optional(),
+  lastSeenAt: NumberSchema.optional(),
+  /** Whether it is the device asking. */
+  current: z.boolean().optional(),
+});
 export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
 
 /** The longest alias a device is given (the server's limit). */
@@ -42,15 +44,20 @@ export function deviceLabel(device: { name: string; alias?: string | null }): st
   return device.alias || device.name;
 }
 
+export const SIGNUP_FAILURES = ["pending_approval", "rejected", "suspended", "closed"] as const;
+
 /**
  * Why a sign-in did not finish:
  * - cancelled, timed-out: the app stopped waiting for the browser;
- * - access_denied, unverified_email, not_invited, server_error: what the
- *   server sent the browser back with (the user said no at Google; Google has
- *   not verified the email; the server takes only invited accounts, and this
- *   is not one; the server failed). not_invited also signs out an account
- *   taken off the list, whose requests the server refuses with a 403;
+ * - access_denied, unverified_email, server_error: the user declined, the
+ *   provider has not verified the email, or the server failed;
+ * - not_invited: the server refused access without giving a signup status;
+ * - pending_approval, rejected, suspended, closed: the signup request awaits
+ *   approval, was denied, the account was suspended, or signup is closed;
+ *   an authenticated 403 not_invited also signs the account out, with
+ *   suspended when the server gives that status;
  * - invalid_grant: the server would not trade the code (expired, or used);
+ * - rate_limited: the server took too many tries to trade a code (a 429);
  * - too_many_devices: the account has as many devices signed in as it may,
  *   so one is to be removed from another device before signing in again;
  * - mismatch: the browser came back for another sign-in;
@@ -63,8 +70,10 @@ export const SIGN_IN_FAILURES = [
   "access_denied",
   "unverified_email",
   "not_invited",
+  ...SIGNUP_FAILURES,
   "server_error",
   "invalid_grant",
+  "rate_limited",
   "too_many_devices",
   "mismatch",
   "unreachable",
@@ -74,8 +83,56 @@ export const SignInFailureSchema = z.enum(SIGN_IN_FAILURES);
 export type SignInFailure = z.infer<typeof SignInFailureSchema>;
 
 /**
+ * The sign-ins' names as the user knows them, the same in every language;
+ * the dev sign-in has none.
+ */
+const SIGN_IN_PROVIDER_NAMES: Partial<Record<SignInProvider, string>> = {
+  apple: "Apple",
+  google: "Google",
+  github: "GitHub",
+};
+
+/** The name of a sign-in to put in a sentence; undefined for one without (or none known). */
+export function signInProviderName(provider: SignInProvider | undefined): string | undefined {
+  return provider ? SIGN_IN_PROVIDER_NAMES[provider] : undefined;
+}
+
+/**
+ * The failures that come of the server taking approved accounts only; they
+ * say so in a line of their own (`remote.account.approvedOnly`).
+ */
+export const APPROVED_ONLY_FAILURES: readonly SignInFailure[] = [
+  "pending_approval",
+  "closed",
+  "not_invited",
+];
+
+/**
+ * The failures support's section on signing in and signup approval
+ * explains: those above, and a request turned down. The notice in Settings
+ * and the browser's page link to it.
+ */
+export const SIGN_IN_HELP_FAILURES: readonly SignInFailure[] = [
+  ...APPROVED_ONLY_FAILURES,
+  "rejected",
+];
+
+/**
+ * How a failed sign-in is shown: waiting (on an approval, or the user's
+ * own cancel), a step to take, or an account stopped.
+ */
+export type SignInFailureTone = "info" | "warning" | "error";
+
+export function signInFailureTone(failure: SignInFailure): SignInFailureTone {
+  if (failure === "pending_approval" || failure === "access_denied") return "info";
+  if (failure === "suspended") return "error";
+  return "warning";
+}
+
+/**
  * Where the account stands: signed out (with why the last sign-in failed,
- * if it did), signing in (the browser is open on the server's Google
+ * if it did, and the sign-in a pending approval is for: the server knows
+ * the account by it), signing in (the browser is open on the server's
  * sign-in), or signed in.
  */
 export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
@@ -83,6 +140,7 @@ export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
     status: z.literal("signed-out"),
     server: z.string(),
     failure: SignInFailureSchema.optional(),
+    provider: SignInProviderSchema.optional(),
   }),
   z.object({ status: z.literal("signing-in"), server: z.string() }),
   z.object({
@@ -107,7 +165,7 @@ export const MIN_PASSWORD_LENGTH = 12;
  * (`self` when it is this one).
  */
 export const PendingResetInfoSchema = z.object({
-  appliesAt: z.number(),
+  appliesAt: NumberSchema,
   deviceId: z.string(),
   self: z.boolean().optional(),
 });
@@ -133,13 +191,9 @@ export const AccountKeyStateSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("signed-out") }),
   z.object({ status: z.literal("checking") }),
   z.object({ status: z.literal("missing") }),
-  z
-    .object({ status: z.literal("locked"), kid: z.number().int().positive() })
-    .merge(KeyExtrasSchema),
-  z
-    .object({ status: z.literal("unlocked"), kid: z.number().int().positive() })
-    .merge(KeyExtrasSchema),
-  z.object({ status: z.literal("unavailable"), retryAt: z.number().optional() }),
+  z.object({ status: z.literal("locked"), kid: PositiveIntegerSchema }).merge(KeyExtrasSchema),
+  z.object({ status: z.literal("unlocked"), kid: PositiveIntegerSchema }).merge(KeyExtrasSchema),
+  z.object({ status: z.literal("unavailable"), retryAt: NumberSchema.optional() }),
 ]);
 export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
 
@@ -153,6 +207,7 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  * - signed-out: the sign-in ended;
  * - too-heavy: the bundle is locked with heavier settings than this app
  *   opens one with (MAX_OPEN_KDF): a newer app's, or a server's doing;
+ * - weak-kdf: the server requires stronger settings for a new bundle;
  * - account-auth: the password opened the bundle, but the server did not
  *   take its proof (its verifier is another's: a reset sets it anew);
  * - device-key: a device's key does not check under the account key, so
@@ -168,6 +223,7 @@ export const KEY_FAILURES = [
   "unavailable",
   "signed-out",
   "too-heavy",
+  "weak-kdf",
   "account-auth",
   "device-key",
   "reset-pending",

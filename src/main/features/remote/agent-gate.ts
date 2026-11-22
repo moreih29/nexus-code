@@ -17,7 +17,7 @@ import {
   RpcErrorCode,
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
-import type { RelaySender } from "../../../shared/chat/relay";
+import { type RelaySender, RelaySenderSchema } from "../../../shared/chat/relay";
 import { consentProfileLayer } from "../../../shared/cli/consent-copy";
 import type { CliChange } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/chat-modes";
@@ -272,12 +272,12 @@ function refuseBeyondAsked({ method, params }: AgentRequest): void {
   }
 }
 
-/** The agent's sender as the chat it writes to keeps it: who, on which computer, how far down the chain. */
+/** The agent's sender as chat and terminal tabs save it. */
 export function relaySenderOf(
   from: AgentSender,
   device: { id: string; name: string },
 ): RelaySender {
-  return {
+  const sender = RelaySenderSchema.safeParse({
     kind: from.kind,
     ...(from.agent === "claude" || from.agent === "codex" ? { agent: from.agent } : {}),
     ...(from.name ? { name: from.name.slice(0, 200) } : {}),
@@ -285,7 +285,9 @@ export function relaySenderOf(
     tabId: from.tabId,
     device: { id: device.id, name: device.name.slice(0, 200) },
     ...(typeof from.waits === "boolean" ? { waits: from.waits } : {}),
-  };
+  });
+  if (!sender.success) throw new RpcFailure(RpcErrorCode.InvalidParams, "invalid agent sender");
+  return sender.data;
 }
 
 const AGENT_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex" };
