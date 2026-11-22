@@ -5,7 +5,7 @@ import { ipcCallResult } from "../../ipc/client";
 import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
 import { SearchInput } from "../files/search/input";
 import { SearchResultsList } from "../files/search/results-list";
-import { searchErrorText } from "../files/search/search-error-text";
+import { unsupportedSearchPatternReason } from "../files/search/search-error-text";
 import { useGlobalSearchHotkey } from "../files/search/use-global-search-hotkey";
 import { validateRegexPattern } from "../files/search/validate-regex-pattern";
 import { Button } from "../ui/button";
@@ -25,6 +25,8 @@ const INITIAL_OPTIONS = {
   includes: [],
   excludes: [],
 };
+
+const PATTERN_REASON_LIMIT = 256;
 
 export function PeerSearchPanel({
   target,
@@ -54,6 +56,7 @@ export function PeerSearchPanel({
   const excludes = parsePeerSearchFilters(exclude, true);
   const invalidFilters = !includes || !excludes;
   const unsupported = error?.kind === "unsupported";
+  const canSearch = canRead && !!query && validation.valid && !invalidFilters && !unsupported;
   useGlobalSearchHotkey(input);
   useEffect(() => input.current?.focus(), []);
 
@@ -67,9 +70,7 @@ export function PeerSearchPanel({
     };
   }, [canRead, rejoin]);
 
-  function changeQuery(next: string) {
-    setQuery(next);
-    if (next) return;
+  function changeSearchCriteria() {
     flight.current?.abort();
     flight.current = null;
     setRunning(false);
@@ -77,20 +78,18 @@ export function PeerSearchPanel({
     if (!unsupported) setError(null);
   }
 
+  function changeQuery(next: string) {
+    setQuery(next);
+    changeSearchCriteria();
+  }
+
   async function search() {
-    if (
-      !canRead ||
-      !query ||
-      !validation.valid ||
-      !includes ||
-      !excludes ||
-      flight.current ||
-      unsupported
-    )
-      return;
+    if (!canSearch || !includes || !excludes) return;
+    flight.current?.abort();
     const controller = new AbortController();
     flight.current = controller;
     setRunning(true);
+    setResults(null);
     setError(null);
     const { signal } = controller;
     try {
@@ -110,7 +109,7 @@ export function PeerSearchPanel({
         { signal },
       );
       if (signal.aborted) return;
-      if (reply.ok) setResults(peerSearchResults(reply.value));
+      if (reply.ok) setResults(peerSearchResults(target.workspace.path, reply.value));
       else if (reply.kind === "not-found") markMissingPeer(target);
       else setError({ kind: reply.kind, message: reply.message });
     } catch {
@@ -124,8 +123,15 @@ export function PeerSearchPanel({
   }
 
   const hasResults = !!results?.groups.length;
-  const errorMessage = error?.message?.startsWith("Invalid search pattern")
-    ? searchErrorText(error.message, files)
+  const reason =
+    error?.kind === "unavailable" && error.message && unsupportedSearchPatternReason(error.message);
+  const errorMessage = reason
+    ? files("search.unsupportedRegex", {
+        error:
+          reason.length > PATTERN_REASON_LIMIT
+            ? `${reason.slice(0, PATTERN_REASON_LIMIT - 1)}…`
+            : reason,
+      })
     : error && t(peerSearchErrorKey(error.kind));
 
   return (
@@ -148,7 +154,10 @@ export function PeerSearchPanel({
             if (query) changeQuery("");
             else input.current?.blur();
           }}
-          onToggleOption={(key) => setOptions({ ...options, [key]: !options[key] })}
+          onToggleOption={(key) => {
+            changeSearchCriteria();
+            setOptions({ ...options, [key]: !options[key] });
+          }}
           onArrowDown={() => firstRow.current?.()}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -161,7 +170,10 @@ export function PeerSearchPanel({
               <span>{t("peerWorkspace.searchInclude")}</span>
               <input
                 value={include}
-                onChange={(event) => setInclude(event.target.value)}
+                onChange={(event) => {
+                  changeSearchCriteria();
+                  setInclude(event.target.value);
+                }}
                 placeholder="*.ts, README.md"
                 className="min-w-0 rounded border border-border bg-background px-2 py-1 text-app-body text-foreground"
               />
@@ -170,20 +182,16 @@ export function PeerSearchPanel({
               <span>{t("peerWorkspace.searchExclude")}</span>
               <input
                 value={exclude}
-                onChange={(event) => setExclude(event.target.value)}
+                onChange={(event) => {
+                  changeSearchCriteria();
+                  setExclude(event.target.value);
+                }}
                 placeholder="fixtures/, *.min.js"
                 className="min-w-0 rounded border border-border bg-background px-2 py-1 text-app-body text-foreground"
               />
             </label>
           </details>
-          <Button
-            type="submit"
-            variant="ghost"
-            size="sm"
-            disabled={
-              !canRead || !query || running || unsupported || !validation.valid || invalidFilters
-            }
-          >
+          <Button type="submit" variant="ghost" size="sm" disabled={!canSearch}>
             <Search aria-hidden="true" />
             {t("files:panel.tab.search")}
           </Button>

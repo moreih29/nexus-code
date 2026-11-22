@@ -9,21 +9,28 @@ import {
 import type { FileGroup } from "../../state/stores/search";
 import { peerPathKey, peerSearchResultPath } from "../../utils/peer-path";
 
-export function peerSearchResults(reply: RpcResult<"files.search">) {
+const PREVIEW_LIMIT = 512;
+const PREVIEW_CONTEXT = 64;
+
+export function peerSearchResults(root: string, reply: RpcResult<"files.search">) {
   const groups = new Map<string, FileGroup>();
   let matchesFound = 0;
   for (const file of reply.files) {
-    if (file.matches.length === 0) continue;
+    if (file.matches.length === 0 || peerSearchResultPath(root, file.path) === null) continue;
     let group = groups.get(file.path);
     if (!group) {
       group = { relPath: file.path, expanded: true, matches: [] };
       groups.set(file.path, group);
     }
     for (const { line, column, length, text, textStart } of file.matches) {
+      const offset = Math.min(
+        Math.max(0, column - (textStart ?? 0) - PREVIEW_CONTEXT),
+        Math.max(0, text.length - PREVIEW_LIMIT),
+      );
       group.matches.push({
         range: { line: line - 1, startCol: column, endCol: column + length },
-        preview: text,
-        ...(textStart !== undefined && { previewStart: textStart }),
+        preview: text.slice(offset, offset + PREVIEW_LIMIT),
+        ...((textStart !== undefined || offset > 0) && { previewStart: (textStart ?? 0) + offset }),
       });
       matchesFound++;
     }
