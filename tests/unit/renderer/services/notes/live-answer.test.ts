@@ -3,8 +3,11 @@ import * as ipc from "../../../../../src/renderer/ipc/client";
 import { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
 import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
-import { useChatStore } from "../../../../../src/renderer/services/chat/store";
-import { liveAnswerOf } from "../../../../../src/renderer/services/notes/live-answer";
+import { emptyTabState, useChatStore } from "../../../../../src/renderer/services/chat/store";
+import {
+  liveAnswerOf,
+  loadedAnswerOf,
+} from "../../../../../src/renderer/services/notes/live-answer";
 
 test("a snapshot is capped at 500 Unicode characters with no format controls", () => {
   const model: ChatModel = {
@@ -95,4 +98,29 @@ test.each([
     call.mockRestore();
     listen.mockRestore();
   }
+});
+
+test("a loaded tab can seed from history or the preceding answer while a turn runs", () => {
+  const assistant = (text: string, at: number) => ({
+    kind: "assistant" as const,
+    key: text,
+    messageId: text,
+    at,
+    blocks: [{ type: "text" as const, text }],
+  });
+  const history = { ...emptyModel(), items: [assistant("Restored answer", 100)] };
+  const state = emptyTabState();
+  expect(loadedAnswerOf({ ...state, history })).toEqual({ text: "Restored answer", at: 100 });
+  expect(
+    loadedAnswerOf({
+      ...state,
+      history,
+      model: {
+        ...state.model,
+        running: true,
+        turn: { startedAt: 300, outputTokens: 0, thinkingTokens: 0 },
+        items: [assistant("Preceding answer", 200), assistant("Still streaming", 301)],
+      },
+    }),
+  ).toEqual({ text: "Preceding answer", at: 200 });
 });

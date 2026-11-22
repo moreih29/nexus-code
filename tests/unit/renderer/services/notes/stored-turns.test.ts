@@ -4,6 +4,7 @@ import * as ipc from "../../../../../src/renderer/ipc/client";
 import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import type { ConversationResolution } from "../../../../../src/renderer/services/notes/conversation";
 import {
+  readStoredAnswer,
   readStoredTurns,
   storedTurnTarget,
   useStoredTurns,
@@ -67,7 +68,21 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
       };
     },
   );
-  const codex = spyOn(CodexController, "savedThreadsWithTurns").mockResolvedValue(["saved"]);
+  const codex = spyOn(CodexController, "savedThreadTurns").mockResolvedValue(
+    new Map([
+      [
+        "saved",
+        [
+          {
+            id: "turn",
+            status: "completed",
+            completedAt: 2,
+            items: [{ type: "agentMessage", text: "Codex answer" }],
+          },
+        ],
+      ],
+    ]),
+  );
   const targets = [
     ["claude", "workspace", "/repo", "profile", "old-session"],
     ["claude", "workspace", "/repo", "profile", "empty"],
@@ -95,6 +110,10 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
       profileId: "profile",
       cursor: "older",
     });
+    expect(await readStoredAnswer(moved[2])).toEqual({ text: "Codex answer", at: 2000 });
+    expect(
+      await readStoredAnswer(["codex", "workspace", "/repo", null, "uncached"]),
+    ).toBeUndefined();
     expect(codex).toHaveBeenCalledTimes(1);
     expect(codex).toHaveBeenCalledWith(
       { workspaceId: "workspace", cwd: "/repo", profileId: undefined },
@@ -111,9 +130,9 @@ test("hiding, showing and reopening a note reuses its saved turns", async () => 
   function Panel({ visible }: { visible: boolean }) {
     return createElement("span", {}, useStoredTurns(targets, visible)?.size);
   }
-  const codex = spyOn(CodexController, "savedThreadsWithTurns").mockResolvedValue([
-    "reopened-thread",
-  ]);
+  const codex = spyOn(CodexController, "savedThreadTurns").mockResolvedValue(
+    new Map([["reopened-thread", [{ id: "turn" }]]]),
+  );
   try {
     await withTestDom(async (host, root) => {
       await act(async () => root.render(createElement(Panel, { visible: false })));
@@ -134,7 +153,9 @@ test("hiding, showing and reopening a note reuses its saved turns", async () => 
 
 test("only absent turns expire, and profiles keep independent cache entries", async () => {
   const now = spyOn(Date, "now").mockReturnValue(1_000);
-  const codex = spyOn(CodexController, "savedThreadsWithTurns").mockResolvedValue(["history"]);
+  const codex = spyOn(CodexController, "savedThreadTurns").mockResolvedValue(
+    new Map([["history", [{ id: "turn" }]]]),
+  );
   const targets = [
     ["codex", "workspace", "/repo", "original", "history"],
     ["codex", "workspace", "/repo", "original", "later"],
@@ -145,7 +166,7 @@ test("only absent turns expire, and profiles keep independent cache entries", as
     now.mockReturnValue(30_999);
     expect(await readStoredTurns(targets)).toEqual(new Set([JSON.stringify(targets[0])]));
     expect(codex).toHaveBeenCalledTimes(1);
-    codex.mockResolvedValue(["later"]);
+    codex.mockResolvedValue(new Map([["later", [{ id: "turn" }]]]));
     expect(await readStoredTurns([otherProfile])).toEqual(new Set([JSON.stringify(otherProfile)]));
     now.mockReturnValue(31_000);
     expect(await readStoredTurns(targets)).toEqual(
@@ -156,5 +177,55 @@ test("only absent turns expire, and profiles keep independent cache entries", as
   } finally {
     now.mockRestore();
     codex.mockRestore();
+  }
+});
+
+test("Claude card previews look past a tail with no assistant text and reuse the result", async () => {
+  const target = ["claude", "workspace", "/repo", null, "claude-preview"] as const;
+  const timestamp = "2026-11-22T16:46:00Z";
+  const read = spyOn(ipc, "ipcCallResult").mockImplementation(async (_channel, _method, args) => {
+    const { cursor } = args as { cursor?: string };
+    const common = { found: true, snapshot: "snapshot", truncated: false };
+    return cursor
+      ? {
+          ok: true,
+          value: {
+            ...common,
+            positions: [1],
+            lines: [
+              {
+                type: "assistant",
+                timestamp,
+                message: {
+                  role: "assistant",
+                  id: "m1",
+                  content: [{ type: "text", text: "Saved\u202e answer" }],
+                },
+              },
+            ],
+          },
+        }
+      : {
+          ok: true,
+          value: {
+            ...common,
+            cursor: "before",
+            positions: [2],
+            lines: [{ type: "user", message: { role: "user", content: "New prompt" } }],
+          },
+        };
+  });
+  try {
+    expect(await readStoredTurns([target])).toEqual(new Set([JSON.stringify(target)]));
+    expect(read).toHaveBeenCalledTimes(1);
+    const preview = { text: "Saved answer", at: Date.parse(timestamp) };
+    expect(await Promise.all([readStoredAnswer(target), readStoredAnswer(target)])).toEqual([
+      preview,
+      preview,
+    ]);
+    expect(await readStoredAnswer(target)).toEqual(preview);
+    expect(read).toHaveBeenCalledTimes(3);
+  } finally {
+    read.mockRestore();
   }
 });

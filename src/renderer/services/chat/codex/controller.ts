@@ -917,24 +917,24 @@ export class CodexController {
   }
 
   /** Checks exact saved threads in one app-server without resuming any of them. */
-  static async savedThreadsWithTurns(
+  static async savedThreadTurns(
     target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">,
     threadIds: readonly string[],
-  ): Promise<string[]> {
+  ): Promise<Map<string, unknown[]>> {
     const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
+    const found = new Map<string, unknown[]>();
     try {
-      if (!(await controller.start({}, true))) return [];
+      if (!(await controller.start({}, true))) return found;
       if (!codexHistoryAvailable(codexServerVersion(controller.model, controller.state.version)))
-        return [];
-      const found: string[] = [];
+        return found;
       for (const threadId of threadIds) {
         try {
           const reply = await controller.request("thread/turns/list", {
             threadId,
-            itemsView: "notLoaded",
+            itemsView: "summary",
             limit: 1,
           });
-          if (Array.isArray(reply.data) && reply.data.length > 0) found.push(threadId);
+          if (Array.isArray(reply.data) && reply.data.length > 0) found.set(threadId, reply.data);
         } catch {
           // An empty thread may have no rollout yet. Keep checking the other threads.
         }

@@ -850,7 +850,10 @@ test.each([
     await write.call(this, message);
     if (!message.id) return;
     const threadId = (message.params as Message)?.threadId;
-    const turns = threadId === "saved" ? [{ id: "recorded-turn" }] : [];
+    const turns =
+      threadId === "saved"
+        ? [{ id: "recorded-turn", items: [{ type: "agentMessage", text: "Recorded answer" }] }]
+        : [];
     const reply =
       threadId === "missing"
         ? { error: { code: -32600, message: "no rollout found" } }
@@ -859,11 +862,27 @@ test.each([
   });
   try {
     expect(
-      await CodexController.savedThreadsWithTurns(
+      await CodexController.savedThreadTurns(
         { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
         ["missing", "saved", "empty"],
       ),
-    ).toEqual(supported ? ["saved"] : []);
+    ).toEqual(
+      new Map(
+        supported
+          ? [
+              [
+                "saved",
+                [
+                  {
+                    id: "recorded-turn",
+                    items: [{ type: "agentMessage", text: "Recorded answer" }],
+                  },
+                ],
+              ],
+            ]
+          : [],
+      ),
+    );
     expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
     expect(catalogCalls.at(-1)?.method).toBe("close");
     const requests = catalogCalls
@@ -877,7 +896,7 @@ test.each([
     if (supported) {
       expect(requests.at(-2)?.params).toEqual({
         threadId: "saved",
-        itemsView: "notLoaded",
+        itemsView: "summary",
         limit: 1,
       });
     }

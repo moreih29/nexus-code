@@ -28,8 +28,12 @@ import {
   conversationHistoryKey,
   readConversationHistory,
 } from "../../services/notes/conversation-history";
-import { liveAnswerOf } from "../../services/notes/live-answer";
-import { storedTurnTarget, useStoredTurns } from "../../services/notes/stored-turns";
+import { loadedAnswerOf } from "../../services/notes/live-answer";
+import {
+  readStoredAnswer,
+  storedTurnTarget,
+  useStoredTurns,
+} from "../../services/notes/stored-turns";
 import { useNoteLinks } from "../../services/notes/use-links";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
@@ -256,13 +260,34 @@ export function ConversationChip({
     try {
       const open = target.kind === "open" || target.kind === "moved" ? target : undefined;
       const source = open ? tabLinkTarget(open.workspace.id, open.tab) : link;
-      const model =
-        open && useChatStore.getState().tabs[chatKey(open.workspace.id, open.tab.id)]?.model;
+      const loaded = () =>
+        loadedAnswerOf(
+          open && useChatStore.getState().tabs[chatKey(open.workspace.id, open.tab.id)],
+        );
+      let snapshot = loaded();
+      const history =
+        target.kind === "resume"
+          ? {
+              workspaceId: target.workspace.id,
+              session: target.session.sessionId,
+              profileId: target.session.profileId,
+            }
+          : source;
+      if (!snapshot && history.session) {
+        const stored = await readStoredAnswer([
+          link.agent,
+          history.workspaceId,
+          source.cwd,
+          history.profileId ?? null,
+          history.session,
+        ]);
+        snapshot = loaded() ?? stored;
+      }
       const saved = await notesApi.saveLiveCard(
         note.workspaceId,
         note.noteId,
         { ...source, agent: link.agent, title: source.title || title },
-        model ? liveAnswerOf(model) : undefined,
+        snapshot,
       );
       if (!saved) showToast({ kind: "info", message: t("connections.liveAlreadyExists") });
     } catch {
