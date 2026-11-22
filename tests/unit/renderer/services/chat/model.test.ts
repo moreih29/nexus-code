@@ -701,6 +701,152 @@ describe("messages written during a turn", () => {
   });
 });
 
+// The order Claude Code 2.1.325 gave, recorded with the app's flags: a
+// command written during a turn waits in the CLI's queue (cancel_async_message
+// takes it back then), and starts only after the turn's result; it is echoed
+// once it is done, a compaction's after its status and boundary.
+describe("a command written during a turn", () => {
+  const sent = (seq: number, text: string, uuid: string, more: Record<string, unknown> = {}) =>
+    ({
+      seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: text }, uuid, ...more },
+    }) as ChatLine;
+  const out = (seq: number, message: Record<string, unknown>) =>
+    ({ seq, dir: "out", message }) as ChatLine;
+  const echo = (seq: number, text: string, uuid: string) =>
+    out(seq, { type: "user", isReplay: true, uuid, message: { role: "user", content: text } });
+  const lifecycle = (seq: number, uuid: string, state: string) =>
+    out(seq, { type: "command_lifecycle", command_uuid: uuid, state });
+  const status = (seq: number, value: string | null) =>
+    out(seq, { type: "system", subtype: "status", status: value });
+  const result = (seq: number) => out(seq, { type: "result", subtype: "success" });
+  const toolUse = (seq: number) =>
+    out(seq, {
+      type: "assistant",
+      message: {
+        id: "m1",
+        content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "sleep 8" } }],
+      },
+    });
+  const commandEcho = (name: string) =>
+    `<command-name>/${name}</command-name>\n            <command-message>${name}</command-message>\n            <command-args></command-args>`;
+  const users = (model: ChatModel) =>
+    model.items.flatMap((item) =>
+      item.kind === "user"
+        ? [`${item.text}:${item.state}${isWaiting(item) ? ":waiting" : ""}`]
+        : [],
+    );
+  const turnWith = (text: string, more: Record<string, unknown> = {}) =>
+    run([
+      sent(1, "go", "u-1"),
+      lifecycle(2, "u-1", "started"),
+      echo(3, "go", "u-1"),
+      toolUse(4),
+      sent(5, text, "u-2", more),
+      lifecycle(6, "u-2", "queued"),
+    ]);
+
+  test("/compact waits till the turn ends, then compacts in a turn of its own", () => {
+    let model = turnWith("/compact");
+    expect(users(model)).toEqual(["go:taken", "/compact:sent:waiting"]);
+    // The turn's result, and the command started in the same frame.
+    model = applyLines(model, [
+      result(7),
+      lifecycle(8, "u-1", "completed"),
+      lifecycle(9, "u-2", "started"),
+      status(10, "compacting"),
+    ]);
+    // Begun, it can no longer be taken back: it no longer waits above the box.
+    expect(users(model)).toEqual(["go:taken", "/compact:sent"]);
+    expect(model.items.map((item) => item.kind)).toEqual(["user", "assistant", "user"]);
+    expect(model.running).toBe(true);
+    expect(model.turn?.status).toBe("compacting");
+    model = applyLines(model, [
+      out(11, { type: "system", subtype: "status", status: null, compact_result: "success" }),
+      out(12, { type: "system", subtype: "compact_boundary", compact_metadata: {} }),
+      out(13, {
+        type: "user",
+        message: { role: "user", content: "This session is being continued" },
+      }),
+      echo(14, "<local-command-stdout>Compacted </local-command-stdout>", "c-1"),
+      echo(15, commandEcho("compact"), "u-2"),
+    ]);
+    expect(model.turn?.status).toBeUndefined();
+    expect(model.running).toBe(true);
+    model = applyLines(model, [result(16), lifecycle(17, "u-2", "completed")]);
+    expect(model.running).toBe(false);
+    expect(model.turn).toBeNull();
+    expect(users(model)).toEqual(["go:taken", "/compact:taken"]);
+    expect(model.items.map((item) => (item.kind === "notice" ? item.code : item.kind))).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "compacted",
+    ]);
+  });
+
+  test("one taken back before the turn ends is dropped", () => {
+    const model = applyLines(turnWith("/compact"), [lifecycle(7, "u-2", "cancelled")]);
+    expect(users(model)).toEqual(["go:taken"]);
+  });
+
+  test("/compact to read at once stops the turn, and compacts in a turn of its own", () => {
+    let model = turnWith("/compact", { priority: "now", origin: { kind: "human" } });
+    expect(users(model)).toEqual(["go:taken", "/compact:sent"]);
+    model = applyLines(model, [
+      result(7),
+      lifecycle(8, "u-1", "cancelled"),
+      lifecycle(9, "u-2", "started"),
+      status(10, "compacting"),
+    ]);
+    expect(model.running).toBe(true);
+    expect(model.turn?.status).toBe("compacting");
+    expect(users(model)).toEqual(["go:taken", "/compact:sent"]);
+  });
+
+  test("/clear runs in a turn of its own, which its result ends", () => {
+    let model = applyLines(turnWith("/clear"), [result(7), lifecycle(8, "u-2", "started")]);
+    expect(model.running).toBe(true);
+    expect(users(model)).toEqual(["go:taken", "/clear:sent"]);
+    model = applyLines(model, [
+      out(9, { type: "conversation_reset", trigger: "clear", user_message_uuid: "u-2" }),
+      echo(10, commandEcho("clear"), "u-2"),
+      result(11),
+      lifecycle(12, "u-2", "completed"),
+    ]);
+    expect(model.running).toBe(false);
+    expect(users(model)).toEqual([]);
+  });
+
+  test("a skill's command is no longer waiting while the model answers it", () => {
+    let model = applyLines(turnWith("/caveman:caveman-help"), [
+      result(7),
+      lifecycle(8, "u-2", "started"),
+    ]);
+    expect(users(model)).toEqual(["go:taken", "/caveman:caveman-help:sent"]);
+    expect(model.running).toBe(true);
+    model = applyLines(model, [
+      echo(
+        9,
+        "<command-message>caveman:caveman-help</command-message>\n<command-name>/caveman:caveman-help</command-name>",
+        "u-2",
+      ),
+      result(10),
+    ]);
+    expect(users(model)).toEqual(["go:taken", "/caveman:caveman-help:taken"]);
+    expect(model.running).toBe(false);
+  });
+
+  test("a message read at a tool's end is echoed before it starts, and stays where it was read", () => {
+    let model = turnWith("and this");
+    model = applyLines(model, [echo(7, "and this", "u-2"), lifecycle(8, "u-2", "started")]);
+    expect(users(model)).toEqual(["go:taken", "and this:taken"]);
+    expect(model.items.map((item) => item.kind)).toEqual(["user", "assistant", "user"]);
+    expect(model.running).toBe(true);
+  });
+});
+
 describe("the context's size during a turn", () => {
   const counted = {
     categories: [

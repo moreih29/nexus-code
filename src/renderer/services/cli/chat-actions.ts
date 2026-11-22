@@ -770,8 +770,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model } = controller.state;
     // As the composer's ⌘↩ with nothing typed: only while messages sent in the turn wait.
-    const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
-    if (model.running && waiting) await controller.readHeldNow();
+    if (model.running && model.items.some(isWaiting)) await controller.readHeldNow();
     return {};
   },
 

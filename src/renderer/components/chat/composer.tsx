@@ -36,6 +36,7 @@ import {
   completionAt,
   fileMention,
   followTyped,
+  isCommandMessage,
   isFolder,
   matchCommands,
   type TypedToken,
@@ -267,7 +268,8 @@ export const Composer = memo(function Composer({
   // unless the tab says something of its own there.
   const hint = placeholder ?? composerHint(t, running, program);
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
-  const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
+  // Not one the program began (a /compact after the turn): that would stop it.
+  const held = running && model.items.some(isWaiting);
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
   const waiting = useMemo(
     () => withRelayed(model.items.filter(isWaiting), relayed).filter(isWaiting),
@@ -722,7 +724,12 @@ export const Composer = memo(function Composer({
             {waiting.map((item) => (
               <QueueRow
                 key={item.key}
-                label={t("chat.queue.label")}
+                label={
+                  // A command waits for the turn's end, a message only for the tool's.
+                  isCommandMessage(item.text, item.images.length, cliCommands)
+                    ? t("chat.queue.after_turn")
+                    : t("chat.queue.label")
+                }
                 item={item}
                 onEdit={canWithdraw ? () => void takeBackWaiting(item, "after") : undefined}
                 onRemove={canWithdraw ? () => void takeBackWaiting(item, "nowhere") : undefined}

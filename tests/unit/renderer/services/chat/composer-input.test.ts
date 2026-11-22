@@ -3,6 +3,7 @@ import {
   applyCompletion,
   completionAt,
   followTyped,
+  isCommandMessage,
   matchCommands,
   splitAttachments,
 } from "../../../../../src/renderer/services/chat/composer-input";
@@ -227,5 +228,27 @@ describe("matching commands", () => {
     expect(names(matchCommands([{ name: "__x", builtin: true }, { name: "a" }], ""))).toEqual([
       "a",
     ]);
+  });
+});
+
+describe("a message that is a command", () => {
+  const commands = [
+    { name: "compact" },
+    { name: "caveman:caveman-help" },
+    { name: "clear", aliases: ["reset"] },
+  ];
+
+  test("is one the program listed, with or without arguments, by name or alias", () => {
+    expect(isCommandMessage("/compact", 0, commands)).toBe(true);
+    expect(isCommandMessage("  /compact keep the plan", 0, commands)).toBe(true);
+    expect(isCommandMessage("/caveman:caveman-help", 0, commands)).toBe(true);
+    expect(isCommandMessage("/Reset", 0, commands)).toBe(true);
+  });
+
+  test("is not a message, a path at its start, one with images, or before the list comes", () => {
+    expect(isCommandMessage("compact it", 0, commands)).toBe(false);
+    expect(isCommandMessage("/Users/me/a.ts fails", 0, commands)).toBe(false);
+    expect(isCommandMessage("/compact", 1, commands)).toBe(false);
+    expect(isCommandMessage("/compact", 0, undefined)).toBe(false);
   });
 });
