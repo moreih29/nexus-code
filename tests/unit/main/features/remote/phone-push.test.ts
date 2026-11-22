@@ -48,6 +48,8 @@ function setup(
     devices?: (typeof phone)[];
     mode?: PhonePushPolicy;
     signedOut?: boolean;
+    /** The renderer tells its sessions' changes (cli.sessionsChanged). */
+    revisions?: boolean;
   } = {},
 ) {
   let token = options.signedOut ? undefined : "token";
@@ -63,6 +65,7 @@ function setup(
   const devices = mock(async () => options.devices ?? [phone]);
   const serverInfo = mock(async () => options.serverInfo ?? pushInfo);
   const ui = mock(async (op: string, args: { includeWaitingId?: boolean }) => {
+    if (op === "sessions.results") return { unread: {} };
     if (op === "tabs.list") {
       return {
         tabs: [
@@ -81,9 +84,23 @@ function setup(
         }
       : { agent: "codex", state: "idle" };
   });
+  let revision = 1;
+  let latest: number | undefined;
+  const revisions = {
+    latest: () => latest,
+    saw: (seen: number) => {
+      if (latest === undefined || seen > latest) latest = seen;
+    },
+  };
+  let snapshots = 0;
+  const snapshot = withSessionsSnapshot(ui, () => revision);
   const services = {
     listWorkspaces: () => [{ id: "w", name: "Private workspace", rootPath: "/private/project" }],
-    ui: withSessionsSnapshot(ui),
+    ui: (op: string, args: never) => {
+      if (op === "sessions.snapshot") snapshots++;
+      return snapshot(op, args);
+    },
+    ...(options.revisions ? { sessionsRevision: revisions } : {}),
     consents: { list: () => consents },
     activity: () => null,
     claudeStatus: () => (terminalWait ? { status: "permissionPending", since: 0 } : null),
@@ -138,6 +155,12 @@ function setup(
     },
     chatReadable: (value: boolean) => {
       chatReadable = value;
+    },
+    snapshots: () => snapshots,
+    /** The renderer's sessions changed, and it told main. */
+    changed: () => {
+      revision++;
+      revisions.saw(revision);
     },
     terminal: (id?: string) => {
       terminalWait = id;
@@ -442,6 +465,24 @@ describe("chat and terminal request notifications", () => {
     await tick(3_000);
     app.chatReadable(true);
     await tick(30_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("reads the sessions again only when the renderer tells a change, and every ten seconds", async () => {
+    const app = setup({ revisions: true });
+    await tick();
+    const first = app.snapshots();
+    expect(first).toBe(1);
+    // Checked every 3 seconds: the read stands until it is 10 seconds old.
+    await tick(9_000);
+    expect(app.snapshots()).toBe(first);
+    await tick(3_000);
+    expect(app.snapshots()).toBe(first + 1);
+    app.chat("new request");
+    app.changed();
+    await tick(3_000);
+    expect(app.snapshots()).toBe(first + 2);
+    await tick(20_000);
     expect(app.send).toHaveBeenCalledTimes(1);
   });
 

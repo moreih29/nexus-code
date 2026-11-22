@@ -8,6 +8,12 @@ import type { TerminalController } from "./types";
 const controllers = new Map<string, TerminalController>();
 /** Who waits for a tab's controller (whenTerminalController), by tab id. */
 const waiting = new Map<string, Set<(controller: TerminalController) => void>>();
+/** Who is told a controller came or went (onTerminalControllersChanged). */
+const listeners = new Set<() => void>();
+
+function changed(): void {
+  for (const listener of listeners) listener();
+}
 
 /** Registers a tab's controller. Returns the unregister function for unmount. */
 export function registerTerminalController(
@@ -18,9 +24,18 @@ export function registerTerminalController(
   const wanted = waiting.get(tabId);
   waiting.delete(tabId);
   for (const give of wanted ?? []) give(controller);
+  changed();
   return () => {
-    if (controllers.get(tabId) === controller) controllers.delete(tabId);
+    if (controllers.get(tabId) !== controller) return;
+    controllers.delete(tabId);
+    changed();
   };
+}
+
+/** Calls `listener` whenever a terminal's controller registers or goes. Returns the unsubscribe. */
+export function onTerminalControllersChanged(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 /** The controller of a mounted terminal tab. */

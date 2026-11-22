@@ -106,10 +106,22 @@ export interface WorkspaceMove {
   readonly group: "pinned" | "unpinned";
 }
 
+/**
+ * The renderer's count of changes to the sessions, the highest it has told
+ * (cli.sessionsChanged) or answered a sessions.snapshot with: a snapshot
+ * read at it still tells what the renderer has.
+ */
+export interface SessionsRevision {
+  latest(): number | undefined;
+  saw(revision: number): void;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
   /** The consent prompts waiting on the user. */
   readonly consents: CliConsents;
+  /** The renderer's sessions revision; none where no renderer tells one. */
+  readonly sessionsRevision?: SessionsRevision;
   /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;

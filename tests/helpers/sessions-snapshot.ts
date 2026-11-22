@@ -24,9 +24,11 @@ function sessionChat(info: Record<string, unknown>): CliSessionChat {
   } as CliSessionChat;
 }
 
-export function withSessionsSnapshot<T extends Ui>(ui: T): T {
+/** `revision`: the renderer's count of changes, which a snapshot tells. */
+export function withSessionsSnapshot<T extends Ui>(ui: T, revision: () => number = () => 0): T {
   return (async (op: string, args: Record<string, unknown>, timeoutMs?: number) => {
     if (op !== "sessions.snapshot") return ui(op, args, timeoutMs);
+    const at = revision();
     const read = async (workspaceId: string) => {
       const listed = await ui("tabs.list", { workspaceId, agentOrder: true }).catch(
         () => undefined,
@@ -55,6 +57,10 @@ export function withSessionsSnapshot<T extends Ui>(ui: T): T {
     };
     const workspaces = await Promise.all((args.workspaceIds as string[]).map(read));
     const results = await ui("sessions.results", {}).catch(() => undefined);
-    return { workspaces, ...(results?.unread ? { unread: results.unread } : {}) };
+    return {
+      revision: at,
+      workspaces,
+      ...(results?.unread ? { unread: results.unread } : {}),
+    };
   }) as T;
 }

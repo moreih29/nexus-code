@@ -49,6 +49,7 @@ import {
   type CliNotes,
   type CliRemote,
   type CliServices,
+  type SessionsRevision,
   shortId,
 } from "./context";
 import { listedAt } from "./listed";
@@ -220,10 +221,26 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser.watch(tabId, contents),
   );
 
+  let sessionsRevisionSeen: number | undefined;
+  const sessionsRevision: SessionsRevision = {
+    latest: () => sessionsRevisionSeen,
+    saw: (revision) => {
+      if (sessionsRevisionSeen === undefined || revision > sessionsRevisionSeen) {
+        sessionsRevisionSeen = revision;
+      }
+    },
+  };
+
   register("cli", {
     call: {
       uiRespond: async (args: unknown) => {
         bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args));
+        return ipcOk(undefined);
+      },
+      sessionsChanged: async (args: unknown) => {
+        sessionsRevision.saw(
+          validateArgs(ipcContract.cli.call.sessionsChanged.args, args).revision,
+        );
         return ipcOk(undefined);
       },
       activity: async () => ipcOk(activity.snapshot()),
@@ -282,6 +299,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const services: CliServices = {
     appVersion: options.appVersion,
+    sessionsRevision,
     profileConnections: options.profileConnections,
     listWorkspaces: () => workspaceManager.list(),
     addWorkspace: async (location, name, color) => {

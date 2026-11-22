@@ -40,6 +40,7 @@ import { appHandlers } from "./app-actions";
 import { chatHandlers, peekChatInfo } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { noteHandlers } from "./note-actions";
+import { readSessionsRevision, startSessionsRevision } from "./sessions-revision";
 import { settingsHandlers } from "./settings";
 import { viewHandlers } from "./view-actions";
 
@@ -202,6 +203,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
   "sessions.results": async () => ({ unread: unreadResultsMap() }),
   "sessions.snapshot": async ({ workspaceIds }) => {
+    const revision = readSessionsRevision();
     const workspaces = workspaceIds.map((workspaceId) => {
       try {
         return { tabs: listTabs(workspaceId, true).map((tab) => sessionTab(workspaceId, tab)) };
@@ -215,7 +217,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     } catch {
       // Main keeps the last map it read for a while.
     }
-    return { workspaces, ...(unread ? { unread } : {}) };
+    return { revision, workspaces, ...(unread ? { unread } : {}) };
   },
   "sessions.markSeen": async ({ seen }) => {
     const results = acknowledgedResults(inboxNow(), seen);
@@ -277,6 +279,7 @@ export function startCliUiListener(ready: Promise<void>): () => void {
   // each request again, typing or sending twice. The dev build's hot reload
   // boots the app again with each edit.
   stopListening?.();
+  const stopRevision = startSessionsRevision();
   const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       try {
@@ -297,6 +300,7 @@ export function startCliUiListener(ready: Promise<void>): () => void {
   });
   const stopThis = (): void => {
     stop();
+    stopRevision();
     if (stopListening === stopThis) stopListening = null;
   };
   stopListening = stopThis;

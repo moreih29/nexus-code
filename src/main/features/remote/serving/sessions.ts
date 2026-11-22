@@ -14,7 +14,7 @@ import type { CliChatState, CliSessionTab, CliUiOps } from "../../../../shared/c
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
-import type { CliServices } from "../../cli/context";
+import type { CliServices, SessionsRevision } from "../../cli/context";
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
 import { RpcFailure } from "../room";
@@ -110,23 +110,74 @@ function unreadResults(
 }
 
 /**
+ * How long a read of the renderer stands for it at most: a change it did
+ * not tell main of is in the list within this.
+ */
+export const SESSIONS_REREAD_MS = 10_000;
+
+interface RendererRead {
+  readonly tabs: readonly (readonly CliSessionTab[] | undefined)[];
+  readonly unread: UnreadResults | undefined;
+}
+
+type SessionsSnapshot = CliUiOps["sessions.snapshot"]["result"];
+
+/** The last whole read of the renderer, by its revision source. */
+const lastReads = new WeakMap<
+  SessionsRevision,
+  { key: string; revision: number; readAt: number; read: RendererRead }
+>();
+
+/** Whether a read told every workspace's tabs, every chat's state and the unread map. */
+function wholeRead(snapshot: SessionsSnapshot, workspaces: number): boolean {
+  return (
+    snapshot.unread !== undefined &&
+    snapshot.workspaces.length === workspaces &&
+    snapshot.workspaces.every(
+      ({ tabs }) =>
+        tabs?.every((tab) => (tab.type !== "claude" && tab.type !== "codex") || tab.chat) ?? false,
+    )
+  );
+}
+
+/**
  * What the renderer tells of the workspaces, in one request within the
  * budget: each one's tabs (none for one that could not be read) and the
- * unread map.
+ * unread map. The last whole read stands while the renderer tells no
+ * change and for SESSIONS_REREAD_MS at most.
  */
 async function readRenderer(
   services: CliServices,
   budget: ReadBudget,
   workspaceIds: string[],
-): Promise<{ tabs: (readonly CliSessionTab[] | undefined)[]; unread: UnreadResults | undefined }> {
+): Promise<RendererRead> {
+  const revisions = services.sessionsRevision;
+  const key = workspaceIds.join("\n");
+  const last = revisions && lastReads.get(revisions);
+  if (
+    last &&
+    last.key === key &&
+    last.revision === revisions.latest() &&
+    performance.now() - last.readAt < SESSIONS_REREAD_MS
+  ) {
+    return last.read;
+  }
   const startedAt = performance.now();
   const snapshot = await budget
     .ui("sessions.snapshot", { workspaceIds }, budget.remaining())
     .catch(() => undefined);
-  return {
+  const read: RendererRead = {
     tabs: workspaceIds.map((_, index) => snapshot?.workspaces[index]?.tabs),
     unread: unreadResults(services, startedAt, snapshot?.unread),
   };
+  if (revisions && snapshot && Number.isSafeInteger(snapshot.revision)) {
+    revisions.saw(snapshot.revision);
+    // Only a whole one: what is missing is asked again at the next read.
+    if (wholeRead(snapshot, workspaceIds.length)) {
+      lastReads.set(revisions, { key, revision: snapshot.revision, readAt: startedAt, read });
+    }
+  }
+  return read;
 }
 
 function chatSession(

@@ -1271,10 +1271,14 @@ export interface CliUiOps {
    * each of `workspaceIds`' tabs as tabs.list lists them with `agentOrder`
    * (none for a workspace that could not be read), each chat's state with
    * its tab, and sessions.results' map (none when it could not be read).
+   * `revision`: the renderer's count of changes it was read at; while it
+   * tells main no higher one (cli.sessionsChanged), a read again would
+   * tell the same.
    */
   "sessions.snapshot": {
     args: { workspaceIds: string[] };
     result: {
+      revision: number;
       workspaces: { tabs?: CliSessionTab[] }[];
       unread?: Record<string, Record<string, number>>;
     };

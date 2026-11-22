@@ -537,6 +537,7 @@ test("the sessions' snapshot is tabs.list, chat.state and sessions.results in on
       unread: unknown;
     };
     expect(snapshot).toEqual({
+      revision: expect.any(Number),
       workspaces: [
         {
           tabs: listed.tabs.map(({ id, type, title, unstarted }) => {
