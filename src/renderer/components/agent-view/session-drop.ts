@@ -1,4 +1,5 @@
-import { type DragEvent, useState } from "react";
+import { type DragEvent, useState, useSyncExternalStore } from "react";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 import type { DropEdge } from "../../services/agent-view/order";
 import { beginDragInFlight } from "../../utils/drag-in-flight";
 import { MIME_AGENT, setAgentDrag } from "./drag";
@@ -16,6 +17,12 @@ interface SessionDrag {
 
 // Dragover can read the payload's type only, so keep the row's scope while dragging.
 let source: SessionDrag | null = null;
+const dragChanges = createListenerBus();
+
+export function useSessionDrag(deviceId?: string): SessionDrag | null {
+  const snapshot = () => (source?.deviceId === deviceId ? source : null);
+  return useSyncExternalStore(dragChanges.subscribe, snapshot, () => null);
+}
 
 export function startSessionDrag(event: DragEvent, row: SessionDrag): void {
   if (row.deviceId === undefined) {
@@ -25,11 +32,16 @@ export function startSessionDrag(event: DragEvent, row: SessionDrag): void {
     event.dataTransfer.effectAllowed = "move";
   }
   source = row;
+  dragChanges.notify();
   beginDragInFlight();
+  document.addEventListener("pointerdown", endSessionDrag, true);
 }
 
 export function endSessionDrag(): void {
+  if (!source) return;
   source = null;
+  document.removeEventListener("pointerdown", endSessionDrag, true);
+  dragChanges.notify();
 }
 
 /** A row accepts another row from the same device and workspace. */

@@ -71,7 +71,12 @@ import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
-import { FailureLabel, StateGlyph, useDurationLabel } from "../agent-list/session-status";
+import {
+  FailureLabel,
+  HiddenSessionCount,
+  StateGlyph,
+  useDurationLabel,
+} from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
@@ -100,6 +105,7 @@ import {
   endSessionDrag,
   type SessionReorder,
   startSessionDrag,
+  useSessionDrag,
   useSessionDrop,
 } from "./session-drop";
 import { SidebarDropIndicator } from "./sidebar-drop";
@@ -230,11 +236,15 @@ export function workspaceGroups(
     opens,
     inPanel,
     worktreesIn,
+    folds,
+    reordering,
   }: {
     query: string;
     opens: boolean;
     inPanel: (session: RemoteSession) => boolean;
     worktreesIn: ReadonlySet<string>;
+    folds?: ReadonlySet<string>;
+    reordering?: ReadonlySet<string>;
   },
 ) {
   const searching = query.trim().length > 0;
@@ -250,6 +260,16 @@ export function workspaceGroups(
   const eligible = new Set<string>();
   const worktreeCounts = new Map<string, number>();
   const hidden = new Set<string>();
+  const hiddenCounts = new Map<string, number>();
+  const plainShown = new Map(plain);
+  const expanded = new Set(reordering);
+  for (const id of reordering ?? []) {
+    const parent = workspaces.get(id)?.parentId;
+    if (parent !== undefined) expanded.add(parent);
+  }
+  const foldedWorkspaces = new Set(
+    [...byWorkspace.keys()].filter((id) => !searching && !expanded.has(id) && folds?.has(id)),
+  );
   const keepsWorktreeVisible = (s: RemoteSession) =>
     s.state === "running" ||
     s.state === "needs-you" ||
@@ -268,16 +288,30 @@ export function workspaceGroups(
     const terminals = plain.get(id);
     if (rows.length === 0 && !terminals && !canStart) continue;
     eligible.add(id);
+    if (rootParent && !searching) eligible.add(rootParent.id);
 
-    if (searching || !rootParent) continue;
-    eligible.add(rootParent.id);
+    const parentFolded = rootParent && foldedWorkspaces.has(rootParent.id);
+    const ownFolded = foldedWorkspaces.has(id);
+    if (parentFolded || ownFolded) {
+      const visible = rows.filter((session) => GROUP_OF[session.state] !== "idle");
+      byWorkspace.set(id, visible);
+      plainShown.delete(id);
+      const owner = parentFolded ? rootParent.id : id;
+      const count = rows.filter(
+        (session) => GROUP_OF[session.state] === "idle" && listedByDefault(session),
+      ).length;
+      hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
+      if (parentFolded && visible.length === 0) hidden.add(id);
+    }
+
+    if (searching || !rootParent || parentFolded || reordering?.has(id)) continue;
     if (rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible)) continue;
     worktreeCounts.set(rootParent.id, (worktreeCounts.get(rootParent.id) ?? 0) + 1);
     if (!worktreesIn.has(rootParent.id)) hidden.add(id);
   }
 
   const groups = [...byWorkspace].filter(([id]) => eligible.has(id) && !hidden.has(id));
-  return { groups, workspaces, plain, worktreeCounts };
+  return { groups, workspaces, plain: plainShown, worktreeCounts, foldedWorkspaces, hiddenCounts };
 }
 
 function toggleWorkspace(current: ReadonlySet<string>, id: string): ReadonlySet<string> {
@@ -531,7 +565,11 @@ export function PeerGroup({
   results?: RemoteResults;
 }) {
   const { t } = useTranslation();
-  const [folded, setFolded] = useState(false);
+  const folds = useAgentViewStore((s) => s.folded);
+  const peerFoldKey = `peer:${peer.id}`;
+  const workspaceFoldKey = (id: string) => `peer-ws:${peer.id}:${id}`;
+  const dragging = useSessionDrag(peer.id);
+  const searching = query.trim() !== "";
   // The workspaces whose terminals with only their shell are shown, each
   // asked for on its own; not kept.
   const [terminalsIn, setTerminalsIn] = useState<ReadonlySet<string>>(() => new Set());
@@ -542,6 +580,13 @@ export function PeerGroup({
   const [pendingOrders, setPendingOrders] = useState<ReadonlyMap<string, readonly string[]>>(
     () => new Map(),
   );
+  const folded =
+    !searching &&
+    !dragging &&
+    pendingOrders.size === 0 &&
+    reorder?.drag?.id !== peer.id &&
+    reorder?.drag?.drop?.target !== peer.id &&
+    folds.has(peerFoldKey);
   const Chevron = folded ? ChevronRight : ChevronDown;
   const rawList = sessions?.status === "ready" ? sessions.list : null;
   const list =
@@ -554,16 +599,31 @@ export function PeerGroup({
   const root = useAgentViewStore((s) => s.root);
   // Where it lets this one open chats or terminals there, each workspace's heading has a +.
   const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
-  const canReorder = query.trim() === "" && peerServes(peer, "sessions.reorder");
-  const { groups, workspaces, plain, worktreeCounts } = workspaceGroups(list, {
-    query,
-    opens,
-    inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
-    worktreesIn,
-  });
+  const canReorder = !searching && peerServes(peer, "sessions.reorder");
+  const ids = new Set([
+    ...(list?.workspaces ?? []).map((workspace) => workspace.id),
+    ...(list?.sessions ?? []).map((session) => session.workspaceId),
+  ]);
+  const workspaceFolds = new Set([...ids].filter((id) => folds.has(workspaceFoldKey(id))));
+  const reordering = new Set(pendingOrders.keys());
+  if (dragging) reordering.add(dragging.workspaceId);
+  const { groups, workspaces, plain, worktreeCounts, foldedWorkspaces, hiddenCounts } =
+    workspaceGroups(list, {
+      query,
+      opens,
+      inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
+      worktreesIn,
+      folds: workspaceFolds,
+      reordering,
+    });
   const consents = usePeerConsents(peer.id, list?.consents);
-  const waiting =
-    (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length;
+  const counts = [
+    [
+      "attention",
+      (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length,
+    ],
+    ["running", list?.sessions.filter((s) => s.state === "running").length ?? 0],
+  ] as const;
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   useEffect(() => {
     if (!rawList) return;
@@ -650,7 +710,7 @@ export function PeerGroup({
         id={peer.id}
         reorder={reorder}
         expanded={!folded}
-        onToggle={() => setFolded((f) => !f)}
+        onToggle={() => useAgentViewStore.getState().toggleFolded(peerFoldKey)}
         className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 hover:bg-[var(--state-hover-bg)]"
       >
         <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
@@ -659,16 +719,23 @@ export function PeerGroup({
         <span className="min-w-0 truncate text-app-micro text-muted-foreground">
           {PLATFORMS[peer.platform] ?? peer.platform}
         </span>
-        {/* Folded, it still tells how many sessions there are and whether one needs the user. */}
         {folded && list && (
-          <span className="ml-auto flex shrink-0 items-center gap-1 text-app-micro whitespace-nowrap text-muted-foreground">
-            {waiting > 0 && (
-              <>
-                <StateGlyph state={GROUP_STATE.attention} className={GROUP_TINT.attention} />
-                <span className="sr-only">{t("agentView.remote.state.needs-you")}</span>
-              </>
+          <span className="ml-auto flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
+            {counts.map(
+              ([group, count]) =>
+                count > 0 && (
+                  <span
+                    key={group}
+                    className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
+                    title={t(`agentList.group.${group}`)}
+                    data-testid={`remote-peer-count-${group}`}
+                  >
+                    <StateGlyph state={GROUP_STATE[group]} still />
+                    <span className="sr-only">{t(`agentList.group.${group}`)} </span>
+                    {count}
+                  </span>
+                ),
             )}
-            {list.sessions.filter(listedByDefault).length}
           </span>
         )}
       </RemotePeerHeader>
@@ -709,9 +776,12 @@ export function PeerGroup({
                 groups.map(([workspaceId, rows]) => {
                   const pending = pendingOrders.get(workspaceId);
                   const ordered = pending ? reorderSubset(rows, pending, tabIdOf) : rows;
+                  const orderRows =
+                    rawList?.sessions.filter((session) => session.workspaceId === workspaceId) ??
+                    rows;
                   const reorder =
-                    canReorder && !pending && rows.filter(canReorderSession).length > 1
-                      ? reorderIn(workspaceId, rows)
+                    canReorder && !pending && orderRows.filter(canReorderSession).length > 1
+                      ? reorderIn(workspaceId, orderRows)
                       : undefined;
                   const terminals = plain.get(workspaceId) ?? [];
                   const unfolded = terminalsIn.has(workspaceId);
@@ -722,6 +792,8 @@ export function PeerGroup({
                   // after it), so its rows read as its own, as the phone shows them.
                   const parent = workspace?.parentId;
                   const hung = parent !== undefined && workspaces.has(parent) && headed.has(parent);
+                  const workspaceFolded = foldedWorkspaces.has(workspaceId);
+                  const parentFolded = parent !== undefined && foldedWorkspaces.has(parent);
                   return (
                     <div
                       key={workspaceId}
@@ -734,8 +806,20 @@ export function PeerGroup({
                       <WorkspaceHeading
                         name={names.get(workspaceId) ?? workspaceId}
                         workspace={workspace}
+                        fold={
+                          parentFolded
+                            ? undefined
+                            : {
+                                folded: workspaceFolded,
+                                hidden: hiddenCounts.get(workspaceId) ?? 0,
+                                toggle: () =>
+                                  useAgentViewStore
+                                    .getState()
+                                    .toggleFolded(workspaceFoldKey(workspaceId)),
+                              }
+                        }
                         worktrees={
-                          worktreeCount === undefined
+                          workspaceFolded || worktreeCount === undefined
                             ? undefined
                             : {
                                 count: worktreeCount,
@@ -898,18 +982,21 @@ type WorkspaceDisclosure = { count: number; open: boolean; toggle(): void };
 function WorkspaceHeading({
   name,
   workspace,
+  fold,
   worktrees,
   terminals,
   menu,
 }: {
   name: string;
   workspace: RemoteWorkspace | undefined;
+  fold?: { folded: boolean; hidden: number; toggle(): void };
   worktrees?: WorkspaceDisclosure;
   terminals?: WorkspaceDisclosure;
   menu?: ReactNode;
 }) {
   const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
+  const Chevron = fold?.folded ? ChevronRight : ChevronDown;
   const git = workspace?.git;
   const stands = git
     ? [
@@ -921,19 +1008,38 @@ function WorkspaceHeading({
         .filter(Boolean)
         .join(" ")
     : "";
+  const title = (
+    <>
+      <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate font-semibold text-app-micro text-foreground">{name}</span>
+    </>
+  );
   return (
     <div
       className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
       data-testid="remote-workspace"
     >
-      <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate font-semibold text-app-micro text-foreground">{name}</span>
+      {fold ? (
+        <button
+          type="button"
+          aria-expanded={!fold.folded}
+          onClick={fold.toggle}
+          className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) text-left outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring"
+          data-testid="remote-workspace-fold"
+        >
+          {title}
+          <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+        </button>
+      ) : (
+        <span className="flex min-w-0 items-center gap-1.5">{title}</span>
+      )}
       {/* The git status takes the space left by the name and controls. */}
       {stands && (
         <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
           {stands}
         </span>
       )}
+      {fold && fold.hidden > 0 && <HiddenSessionCount count={fold.hidden} />}
       {(worktrees || terminals || menu) && (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {worktrees && (

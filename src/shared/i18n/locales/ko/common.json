@@ -1928,7 +1928,8 @@
       "new_agent": "{{name}}에서 새 에이전트",
       "shown": "패널에 보이는 중",
       "held": "패널에 있음 (다른 탭 뒤)",
-      "failed": "실패"
+      "failed": "실패",
+      "hidden": "{{count}}개 숨김"
     },
     "pane": {
       "close": "패널 닫기",

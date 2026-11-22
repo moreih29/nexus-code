@@ -74,7 +74,7 @@ interface AgentViewState extends AgentLayout {
   peerOrderAccount: string | null;
   /** How the list groups its agents. */
   grouping: AgentListGrouping;
-  /** The list's groups the user folded ("status:<group>", "workspace:<id>"); the others are open. */
+  /** The list's folded groups, keyed by status, workspace, peer or peer-ws. */
   folded: ReadonlySet<string>;
   /** Restores what was stored, keeping only the agents `alive` knows. */
   hydrate(snapshot: AgentViewSnapshot | undefined, alive: (key: string) => boolean): void;

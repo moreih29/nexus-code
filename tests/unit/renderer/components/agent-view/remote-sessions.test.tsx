@@ -392,6 +392,118 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
+  test("folded computers show priority counts and expand for search or computer reordering", () => {
+    const state = agentView.useAgentViewStore.getInitialState();
+    const foldedGroups = new Set(["peer:d2", "peer-ws:d2:w1"]);
+    const view = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+      select({ ...state, folded: foldedGroups }),
+    );
+    const sessions = {
+      status: "ready" as const,
+      list: list([
+        session({ tabId: "active", title: "Working on review", state: "running" }),
+        session({ tabId: "ask1", title: "Review confirmation", state: "needs-you" }),
+        session({ tabId: "ask2", title: "Another request", state: "needs-you" }),
+        session({ tabId: "idle", title: "Idle review" }),
+      ]),
+    };
+    const render = (query = "", reorder?: PeerReorder) =>
+      renderToStaticMarkup(
+        <PeerGroup peer={peer} query={query} sessions={sessions} reorder={reorder} />,
+      );
+    try {
+      const folded = render();
+      expect(folded).toContain('aria-expanded="false"');
+      expect(folded).toContain('data-testid="remote-peer-count-attention"');
+      expect(folded).toContain('data-testid="remote-peer-count-running"');
+      expect(folded).toContain("</span>2</span>");
+      expect(folded).toContain("</span>1</span>");
+      expect(folded).not.toContain("Working on review");
+      expect(render("idle review")).toContain("Idle review");
+      expect(render("idle review")).not.toContain(">1 hidden<");
+      const dragging = render("", {
+        ids: ["d2", "d3"],
+        drag: { id: "d3", drop: { target: "d2", edge: "after" } },
+        setDrag: () => {},
+        move: () => {},
+      });
+      expect(dragging).toContain("Working on review");
+      expect(dragging).toContain("1 hidden");
+      expect(dragging).not.toContain("Idle review");
+    } finally {
+      view.mockRestore();
+    }
+  });
+
+  test("folded workspaces hide their quiet conversations and shells, including tasks", () => {
+    const workspaces = [
+      ...list([]).workspaces,
+      { id: "task", name: "Task branch", path: "/task", parentId: "w1" },
+    ];
+    const running = session({
+      workspaceId: "task",
+      tabId: "active",
+      title: "Task active",
+      state: "running",
+    });
+    const sessions = [
+      running,
+      session({ workspaceId: "task", tabId: "quiet-task", title: "Task idle" }),
+      session({ tabId: "ask", title: "Review confirmation", state: "needs-you" }),
+      session({ tabId: "quiet", title: "Project idle" }),
+      session({ tabId: "plain", title: "Project shell", kind: "terminal" }),
+    ];
+    const results = new RemoteResults();
+    const state = agentView.useAgentViewStore.getInitialState();
+    const foldedGroups = new Set(["peer-ws:d2:w1", "peer-ws:d2:task"]);
+    const view = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+      select({ ...state, folded: foldedGroups }),
+    );
+    const render = () =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={{ ...peer, serves: ["sessions", "sessions.reorder"] }}
+          query=""
+          results={results}
+          sessions={{ status: "ready", list: { workspaces, sessions } }}
+        />,
+      );
+    try {
+      const working = render();
+      expect(working).toContain("2 hidden");
+      expect(working).toContain("Task active");
+      expect(working).toContain("Review confirmation");
+      expect(working).toContain('draggable="true"');
+      for (const text of ["Task idle", "Project idle", "Project shell", "remote-terminals-toggle"])
+        expect(working).not.toContain(text);
+      const finished = { ...running, state: "new-result" as const, since: 10 };
+      sessions[0] = finished;
+      expect(render()).toContain("Task active");
+      results.markSeen([{ deviceId: peer.id, session: finished }]);
+      expect(render()).not.toContain("Task active");
+      expect(render()).toContain("3 hidden");
+
+      const expanded = workspaceGroups(
+        { workspaces, sessions },
+        {
+          query: "",
+          opens: false,
+          inPanel: () => false,
+          worktreesIn: new Set(),
+          folds: new Set(["w1", "task"]),
+          reordering: new Set(["task"]),
+        },
+      );
+      expect(expanded.foldedWorkspaces.size).toBe(0);
+      expect(expanded.groups.find(([id]) => id === "task")?.[1].map((row) => row.title)).toEqual([
+        "Task active",
+        "Task idle",
+      ]);
+    } finally {
+      view.mockRestore();
+    }
+  });
+
   test("a Korean row waiting for a reply uses the local attention label", async () => {
     const ko = i18next.cloneInstance({ lng: "ko" });
     await ko.changeLanguage("ko");
@@ -721,7 +833,7 @@ describe("the agent view's other computers", () => {
       />,
     );
     const chip = html.slice(
-      html.indexOf("<button", html.indexOf('data-testid="remote-workspace"')),
+      html.lastIndexOf("<button", html.indexOf('data-testid="remote-terminals-toggle"')),
     );
     const end = chip.indexOf("</button>");
     expect(chip.slice(0, end)).toContain("text-(--state-selected-indicator)");
@@ -1199,7 +1311,7 @@ describe("the agent view's other computers", () => {
     };
     const globals = globalThis as { document?: unknown };
     const originalDocument = globals.document;
-    globals.document ??= {};
+    globals.document ??= { addEventListener() {}, removeEventListener() {} };
     try {
       renderToStaticMarkup(
         <PeerGroup

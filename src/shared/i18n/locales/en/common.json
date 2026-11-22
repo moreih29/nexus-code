@@ -1928,7 +1928,8 @@
       "new_agent": "New agent in {{name}}",
       "shown": "Shown in a panel",
       "held": "In a panel, behind another tab",
-      "failed": "Failed"
+      "failed": "Failed",
+      "hidden": "{{count}} hidden"
     },
     "pane": {
       "close": "Close panel",

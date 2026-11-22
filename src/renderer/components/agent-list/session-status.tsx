@@ -146,6 +146,15 @@ export function FailureLabel() {
   );
 }
 
+export function HiddenSessionCount({ count }: { count: number }) {
+  const { t } = useTranslation();
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap tabular-nums text-muted-foreground">
+      {t("agentView.list.hidden", { count })}
+    </span>
+  );
+}
+
 /** The agent's name in a small monospace badge. */
 export function AgentBadge({ agent }: { agent: string | undefined }) {
   return (

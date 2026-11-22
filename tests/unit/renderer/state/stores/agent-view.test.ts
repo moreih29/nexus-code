@@ -298,20 +298,25 @@ describe("agent view store", () => {
     useAgentViewStore
       .getState()
       .hydrate(
-        { mode: "agents", root: leaf, activeLeafId: P1, folded: ["status:ended"] },
+        { mode: "agents", root: leaf, activeLeafId: P1, folded: ["status:ended", "peer:d2"] },
         () => true,
       );
-    expect([...useAgentViewStore.getState().folded]).toEqual(["status:ended"]);
+    expect([...useAgentViewStore.getState().folded]).toEqual(["status:ended", "peer:d2"]);
 
     useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    useAgentViewStore.getState().toggleFolded("peer-ws:d2:ws-a");
     await settle();
     expect((stored[0] as { agentView: { folded: unknown } }).agentView.folded).toEqual([
       "status:ended",
+      "peer:d2",
       "workspace:ws-a",
+      "peer-ws:d2:ws-a",
     ]);
 
     useAgentViewStore.getState().toggleFolded("status:ended");
+    useAgentViewStore.getState().toggleFolded("peer:d2");
     useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    useAgentViewStore.getState().toggleFolded("peer-ws:d2:ws-a");
     await settle();
     expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.folded");
   });
