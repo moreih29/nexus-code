@@ -126,7 +126,7 @@ nexus open README.md
 
 ## 설치
 
-- **macOS** (14 이상, Apple Silicon): `NexusCode-X.Y.Z-arm64.dmg`를 열고 앱을 `/Applications`로 옮기세요. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
+- **macOS** (14 이상, Apple Silicon): `NexusCode-arm64.dmg`를 열고 앱을 `/Applications`로 옮기세요. [다운로드](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.dmg)
 - **Windows** (11 이상, x64): Microsoft Store에서 설치하세요. ARM PC에서는 x64 에뮬레이션으로 실행합니다. 소스 제어에는 Git for Windows가 필요합니다. [Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD) · [Git for Windows](https://git-scm.com/downloads/win)
 - **Linux** (x64, arm64): `.deb`나 `.AppImage`를 받으세요. Ubuntu 24.04에서 확인했습니다. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
 
@@ -148,20 +148,20 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 | 배포판 | x64 | arm64 |
 |---|---|---|
-| Debian·Ubuntu | `NexusCode-X.Y.Z-amd64.deb` | `NexusCode-X.Y.Z-arm64.deb` |
-| 그 밖의 배포판 | `NexusCode-X.Y.Z-x86_64.AppImage` | `NexusCode-X.Y.Z-arm64.AppImage` |
+| Debian·Ubuntu | [`NexusCode-amd64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-amd64.deb) | [`NexusCode-arm64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.deb) |
+| 그 밖의 배포판 | [`NexusCode-x86_64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-x86_64.AppImage) | [`NexusCode-arm64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.AppImage) |
 
-Debian·Ubuntu에서는 내려받은 폴더에서 `.deb`를 설치하세요.
+Debian·Ubuntu에서는 내려받은 폴더에서 `.deb`를 설치하세요. arm64에서는 `NexusCode-arm64.deb`입니다.
 
 ```bash
-sudo apt install ./NexusCode-X.Y.Z-*.deb
+sudo apt install ./NexusCode-amd64.deb
 ```
 
-AppImage는 실행 권한을 준 뒤 여세요.
+AppImage는 실행 권한을 준 뒤 여세요. arm64에서는 `NexusCode-arm64.AppImage`입니다.
 
 ```bash
-chmod +x NexusCode-X.Y.Z-*.AppImage
-./NexusCode-X.Y.Z-*.AppImage
+chmod +x NexusCode-x86_64.AppImage
+./NexusCode-x86_64.AppImage
 ```
 
 Ubuntu 23.10 이상에서는 AppImage를 처음 실행하기 전에 AppArmor 프로필을 한 번 등록하세요. [AppArmor 프로필 등록 방법](docs/INSTALL.md#ubuntu-2310-이상에서-appimage-가-바로-종료될-때)
