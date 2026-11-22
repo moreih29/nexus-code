@@ -525,12 +525,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     settings,
     profile,
     instructions,
+    openedBy,
     from,
     user,
     allowDangerousMode,
   }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
+      ...(openedBy ? { openedBy } : {}),
       ...(instructions === undefined ? {} : { instructions }),
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
     });
@@ -976,7 +978,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.fork": async ({ workspaceId, tabId, itemKey }) => {
+  "chat.fork": async ({ workspaceId, tabId, itemKey, openedBy }) => {
     const target = await readableTab(workspaceId, tabId);
     const props = chatPropsOf(workspaceId, tabId);
     if (!props) throw new UiRequestError("that tab is gone");
@@ -992,6 +994,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
           type: "codex",
           props: chatPropsWithProfile(workspaceId, "codex", {
             cwd: props.cwd,
+            ...(openedBy ? { openedBy } : {}),
             fork,
             profileId: target.controller.profileId,
             chosen: target.controller.inheritedChoice(),
@@ -1036,6 +1039,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         type: "claude",
         props: chatPropsWithProfile(workspaceId, "claude", {
           cwd: props.cwd,
+          ...(openedBy ? { openedBy } : {}),
           ...(fork ? { fork } : {}),
           ...controller.inherited(),
         }),
@@ -1174,7 +1178,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };
   },
 
-  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly }) => {
+  "chat.resume": async ({ workspaceId, agent, sessionId, tabId, emptyOnly, openedBy }) => {
     const open = tabWithSession(workspaceId, agent, sessionId);
     if (open) return { tabId: open };
     const cwd = workspaceRoot(workspaceId);
@@ -1219,19 +1223,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       return { tabId };
     }
     // Its own profile's, the default too: not the one the workspace's rules would pick.
-    const profileId = { profileId: session.profileId };
+    const props = { cwd, profileId: session.profileId, ...(openedBy ? { openedBy } : {}) };
     const tab =
       agent === "claude"
         ? ({
             type: "claude",
-            props: chatPropsWithProfile(workspaceId, "claude", { cwd, sessionId, ...profileId }),
+            props: chatPropsWithProfile(workspaceId, "claude", { ...props, sessionId }),
           } as const)
         : ({
             type: "codex",
             props: chatPropsWithProfile(workspaceId, "codex", {
-              cwd,
+              ...props,
               threadId: sessionId,
-              ...profileId,
             }),
           } as const);
     // Behind what the window shows: whoever sits at this computer keeps their place.

@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { NumberSchema } from "../../../packages/remote-protocol/src/validation";
+import { CLI_CALLER_ID_MAX } from "../cli/protocol";
 
 /** Who sent a message through the nexus command, when an agent did. */
 export const RelaySenderSchema = z.object({
@@ -20,8 +21,8 @@ export const RelaySenderSchema = z.object({
   agent: z.enum(["claude", "codex"]).optional(),
   /** The tab's title when it sent the message. */
   name: z.string().max(200).optional(),
-  workspaceId: z.string().max(64).optional(),
-  tabId: z.string().max(64).optional(),
+  workspaceId: z.string().max(CLI_CALLER_ID_MAX).optional(),
+  tabId: z.string().max(CLI_CALLER_ID_MAX).optional(),
   /**
    * The user's other computer it was sent from, as it names itself; its
    * workspaceId and tabId are that computer's. Absent: this one.
@@ -36,6 +37,7 @@ export const RelaySenderSchema = z.object({
 });
 export type RelaySender = z.infer<typeof RelaySenderSchema>;
 
+/** Who opened a terminal or chat tab. `manager` is the agent from older versions. */
 export const TerminalOpenerSchema = RelaySenderSchema.extend({
   kind: RelaySenderSchema.shape.kind.exclude(["app"]),
 }).omit({ waits: true });

@@ -126,6 +126,7 @@ export type LimitResume = NonNullable<z.infer<typeof LimitResumeSchema>>;
 
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
+  openedBy: TerminalOpenerSchema.optional(),
   instructions: InstructionTextSchema.optional(),
   sessionId: z.string().max(128).optional(),
   fork: z
@@ -159,6 +160,7 @@ export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
  */
 export const CodexTabPropsSchema = z.object({
   cwd: z.string(),
+  openedBy: TerminalOpenerSchema.optional(),
   instructions: InstructionTextSchema.optional(),
   threadId: z.string().max(128).optional(),
   /** The thread it copies until the copy has its own id (/fork). */

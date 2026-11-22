@@ -1,5 +1,6 @@
 /** A task made behind the user's view: a plain shell opens no tab until the task is shown. */
 import { afterAll, beforeEach, expect, test } from "bun:test";
+import type { TerminalOpener } from "../../../../../src/shared/chat/relay";
 
 const globals = globalThis as { window?: unknown };
 const originalWindow = globals.window;
@@ -46,4 +47,19 @@ test("a command opens its terminal, which runs it once started", async () => {
   const tab = useTabsStore.getState().byWorkspace[task.id]?.[started.tabId];
   expect(tab?.type).toBe("terminal");
   expect(started.start).toEqual({ command: "codex" });
+});
+
+test.each([
+  { agent: "claude" },
+  { agent: "codex" },
+  { command: "codex" },
+] as const)("a task's first tab keeps its opener with start %j", async (start) => {
+  const openedBy: TerminalOpener = { kind: "tab", agent: "codex", tabId: "plan" };
+  const opened = await startTask("p", "pay", "", start, undefined, undefined, openedBy);
+  if (!("task" in opened) || opened.tabId === null) throw new Error("no tab opened");
+  const user = await startTask("p", "pay", "", start);
+  if (!("task" in user) || user.tabId === null) throw new Error("no tab opened");
+  const tabs = useTabsStore.getState().byWorkspace[task.id];
+  expect(tabs?.[opened.tabId]?.props).toHaveProperty("openedBy", openedBy);
+  expect(tabs?.[user.tabId]?.props).not.toHaveProperty("openedBy");
 });

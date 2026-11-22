@@ -2175,6 +2175,66 @@ describe("serving a chat's controls", () => {
   });
 
   test.each([
+    ["chat.new", { workspaceId: "w1", agent: "codex" }, "chat.open"],
+    ["chat.fork", tab, "chat.fork"],
+    ["chat.resume", { workspaceId: "w1", agent: "claude", sessionId: "s1" }, "chat.resume"],
+    ["worktree.new", { workspaceId: "w1", name: "review", prompt: "", show: false }, "task.create"],
+    [
+      "worktree.new",
+      { workspaceId: "w1", name: "review", prompt: "", show: false, start: { command: "codex" } },
+      "task.create",
+    ],
+  ] as const)("%s records an opener only when relayed from an agent", async (method, params, op) => {
+    const base = services();
+    const opened = jest.fn(async (_op: string, _args: unknown) => ({
+      tabId: "t9",
+      start: { agent: "codex" },
+    }));
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) =>
+        op === "tabs.list" ? base.ui("tabs.list", args) : opened(op, args),
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      deviceName: () => "MacBook",
+      controls: () => ({ chat: true, terminal: true }),
+    });
+    const sender = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "bw", tabId: "bt" };
+    await serve({ from: "d", method, params: { ...params, from: { ...sender, waits: true } } });
+    expect(opened).toHaveBeenLastCalledWith(
+      op,
+      expect.objectContaining({ openedBy: { ...sender, device: { id: "d", name: "MacBook" } } }),
+    );
+    await serve({ from: "d", method, params });
+    expect(opened.mock.lastCall?.[0]).toBe(op);
+    expect(opened.mock.lastCall?.[1]).not.toHaveProperty("openedBy");
+  });
+
+  test.each([
+    ["chat.new", { workspaceId: "w1", agent: "codex" }],
+    ["terminal.open", { workspaceId: "w1" }],
+    ["chat.send", { ...tab, text: "check the tests" }],
+  ] as const)("%s rejects oversized agent caller IDs before asking for consent", async (method, params) => {
+    const base = services();
+    const ui = jest.fn(base.ui);
+    const serve = serveWith(() => ({ ...base, ui }), {
+      agents: new AgentGate({ policy: () => "ask" }),
+    });
+    const from = { kind: "tab", agent: "codex", workspaceId: "bw", tabId: "bt" };
+    for (const field of ["workspaceId", "tabId"] as const) {
+      await expect(
+        serve({
+          from: "d",
+          method,
+          params: { ...params, from: { ...from, [field]: "x".repeat(65) } },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    }
+    expect(ui).not.toHaveBeenCalled();
+  });
+
+  test.each([
     ["allow", "deny", "/remote-control", false, true, false],
     ["ask", "once", "/RC", false, true, true],
     ["ask", "deny", "/remote-control", true, false, true],

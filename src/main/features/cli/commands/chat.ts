@@ -53,7 +53,7 @@ import {
   resolveDevice,
 } from "../remote";
 import { callerSandboxLevel, mayExecute, sandboxLevel } from "../sandbox";
-import { senderOf } from "../sender";
+import { openerOf, senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import {
   answerPeer,
@@ -512,7 +512,8 @@ const chatNew: CliCommand = {
           );
     const allowDangerousMode = delegated && settings.mode === CHAT_MODES[agent].dangerous;
     const setting = Object.keys(settings).length > 0;
-    const from = prompt !== "" ? await senderOf(ctx) : undefined;
+    const sender = await senderOf(ctx);
+    const openedBy = openerOf(sender);
     ctx.signal?.throwIfAborted();
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
@@ -522,7 +523,8 @@ const chatNew: CliCommand = {
         cwd,
         prompt,
         ...(instructions === undefined ? {} : { instructions }),
-        ...(from ? { from } : {}),
+        ...(sender && prompt !== "" ? { from: sender } : {}),
+        ...(openedBy ? { openedBy } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
         ...(allowDangerousMode ? { allowDangerousMode } : {}),

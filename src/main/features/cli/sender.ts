@@ -47,7 +47,7 @@ export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined
   return tab.openedBy;
 }
 
-/** The agent opening a terminal, as the tab keeps it: none when the user does. */
+/** The agent opening a tab, as the tab keeps it: none when the user does. */
 export function openerOf(sender: RelaySender | undefined): TerminalOpener | undefined {
   if (!sender || sender.kind === "app") return undefined;
   const { kind, waits: _waits, ...opener } = sender;

@@ -88,7 +88,7 @@ export interface CliTabInfo {
    * app started, so it has nothing to read or watch.
    */
   readonly unstarted?: boolean;
-  /** A terminal an agent opened: what runs nexus in it is that agent. */
+  /** The agent that opened this terminal or chat tab. */
   readonly openedBy?: TerminalOpener;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
@@ -811,7 +811,7 @@ export interface CliUiOps {
       show: boolean;
       allowTerminal?: boolean;
       openedBy?: TerminalOpener;
-      /** The terminal whose agent asks for the task. */
+      /** The tab that ran the local command to make the worktree. */
       createdBy?: { workspaceId: string; tabId: string };
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
@@ -838,6 +838,7 @@ export interface CliUiOps {
       /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
       instructions?: string;
+      openedBy?: TerminalOpener;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
       /**
@@ -967,6 +968,7 @@ export interface CliUiOps {
       sessionId: string;
       tabId?: string;
       emptyOnly?: true;
+      openedBy?: TerminalOpener;
     };
     result: { tabId: string };
   };
@@ -1128,7 +1130,7 @@ export interface CliUiOps {
    * with no item, all of it.
    */
   "chat.fork": {
-    args: { workspaceId: string; tabId: string; itemKey?: string };
+    args: { workspaceId: string; tabId: string; itemKey?: string; openedBy?: TerminalOpener };
     result: { tabId: string; draft?: string };
   };
   /** Sends a Claude tab's running command or subagent to the background, by its call's id. */

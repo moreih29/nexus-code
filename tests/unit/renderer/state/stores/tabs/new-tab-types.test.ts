@@ -210,6 +210,33 @@ function legacySnapshot(id: string): WorkspaceLayoutSnapshot {
   };
 }
 
+test.each([
+  "claude",
+  "codex",
+] as const)("restores %s chat openers and layouts saved without them", async (type) => {
+  const state = memoryState();
+  connectRenderer();
+  registerAppStateChannel(state, { listWorkspaces: () => [workspace] });
+  registerStatePersistence(fakeTimer());
+  const openedBy = {
+    kind: "tab" as const,
+    workspaceId,
+    tabId: "parent-tab",
+    device: { id: "d", name: "MacBook" },
+  };
+  const child = addTab({ type, props: { cwd: "/repo", openedBy } });
+  const manager = addTab({ type, props: { cwd: "/repo", openedBy: { kind: "manager" } } });
+  const legacy = addTab({ type, props: { cwd: "/repo" } });
+  useTabsStore.getState().setChatProfile(workspaceId, child, "office-profile");
+  expect(await flushStatePersistence()).toBe(true);
+  unregisterStatePersistence();
+  await restore();
+  const tabs = useTabsStore.getState().byWorkspace[workspaceId];
+  expect(tabs?.[child]).toMatchObject({ type, props: { openedBy, profileId: "office-profile" } });
+  expect(tabs?.[manager]).toMatchObject({ type, props: { openedBy: { kind: "manager" } } });
+  expect(tabs?.[legacy]?.props).toEqual({ cwd: "/repo" });
+});
+
 test("recovers only unambiguous legacy local external paths and repairs dropped tab references", async () => {
   connectRenderer();
   const remote = {

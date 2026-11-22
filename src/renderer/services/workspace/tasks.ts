@@ -65,9 +65,9 @@ export interface StartedTask {
  * that runs the command with `prompt` once it starts, which is when the
  * task's panel is mounted. A plain shell gets no tab here: the panel opens
  * one when the task is first shown, so a task made behind the user's view
- * runs nothing until then. `createdBy` is the terminal whose agent asked
- * for it, if one did; `from`, who sent the prompt then, as the agent's tab
- * shows it.
+ * runs nothing until then. `createdBy` is the tab that ran the local
+ * command. `from` is the agent that sent the prompt, and `openedBy` is
+ * the agent that opened the first tab.
  */
 export async function startTask(
   parentId: string,
@@ -92,7 +92,15 @@ export async function startTask(
   // A workspace that has a tab gets no terminal from its panel, so this tab
   // is the task's only one.
   if ("agent" in start) {
-    const tabId = openAgentTab(task.id, start.agent, task.rootPath, prompt, undefined, from);
+    const tabId = openAgentTab(
+      task.id,
+      start.agent,
+      task.rootPath,
+      prompt,
+      undefined,
+      from,
+      openedBy,
+    );
     return { task, tabId, start };
   }
   const command = start.command.trim();

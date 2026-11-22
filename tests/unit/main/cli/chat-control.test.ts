@@ -276,6 +276,12 @@ describe("chat fork", () => {
     expect(from.stdout).toContain("Its message was not sent");
     expect(from.stdout).toEndWith("\nAlso the logout\n");
     expect(calls(app, "chat.fork")).toEqual([TARGET, { ...TARGET, itemKey: "u3" }]);
+    const caller = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, ["chat", "fork", "eeee"], caller)).exitCode).toBe(0);
+    expect(calls(app, "chat.fork").at(-1)).toMatchObject({
+      ...TARGET,
+      openedBy: { kind: "terminal", agent: "claude", ...caller },
+    });
   });
 });
 
@@ -494,6 +500,12 @@ describe("chat history and chat resume", () => {
     expect(calls(app, "chat.resume")).toEqual([
       { workspaceId: APP, agent: "claude", sessionId: "71bc-2" },
     ]);
+    const caller = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, ["chat", "resume", "71bc"], caller)).exitCode).toBe(0);
+    expect(calls(app, "chat.resume").at(-1)).toMatchObject({
+      sessionId: "71bc-2",
+      openedBy: { kind: "terminal", agent: "claude", ...caller },
+    });
     expect((await nexus(app, ["chat", "resume", "9"])).stderr).toContain(
       "no past Claude conversation 9",
     );

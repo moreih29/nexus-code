@@ -66,6 +66,7 @@ export type { NoteTabProps };
 
 export interface ClaudeTabProps {
   cwd: string;
+  openedBy?: TerminalOpener;
   instructions?: string;
   /** The session the tab last had, to go on with once its program is gone. */
   sessionId?: string;
@@ -92,6 +93,7 @@ export interface ClaudeTabProps {
 
 export interface CodexTabProps {
   cwd: string;
+  openedBy?: TerminalOpener;
   instructions?: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
@@ -777,6 +779,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
           // tab takes the new profile's own, as its controller does.
           const props = {
             cwd: tab.props.cwd,
+            ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
             ...(tab.props.instructions !== undefined
               ? { instructions: tab.props.instructions }
               : {}),

@@ -9,6 +9,7 @@ import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/
 import {
   CliCancelSchema,
   type CliInvocation,
+  CliRequestRefSchema,
   CliRequestSchema,
   type CliResult,
 } from "../../../shared/cli/protocol";
@@ -411,7 +412,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const off = agentHost.on("cli.request", (payload) => {
     const parsed = CliRequestSchema.safeParse(payload);
     if (!parsed.success) {
-      log.warn("Dropped a malformed cli.request");
+      log.warn("Rejected a malformed cli.request");
+      const ref = CliRequestRefSchema.safeParse(payload);
+      if (ref.success) {
+        const { workspaceId, requestId } = ref.data;
+        void respond(workspaceId, requestId, {
+          stdout: "",
+          stderr: "nexus: invalid CLI request\n",
+          exitCode: 1,
+        }).catch(() => log.warn("Could not reply to a malformed cli.request"));
+      }
       return;
     }
     const { requestId, workspaceId, tabId, request, verified } = parsed.data;

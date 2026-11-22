@@ -77,8 +77,8 @@ export const WorkspaceTaskSchema = z.object({
   /** The worktree's top folder; the task opens the parent's subfolder of it. */
   worktreePath: z.string().min(1),
   /**
-   * The terminal whose agent made the task with `nexus worktree new`;
-   * absent for a task the user made in the app.
+   * The tab that ran the local command to make the worktree. It may be a
+   * terminal where the user ran `nexus worktree new`.
    */
   createdBy: z.object({ workspaceId: z.guid(), tabId: z.string().min(1) }).optional(),
 });

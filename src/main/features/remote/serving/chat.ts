@@ -5,13 +5,14 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../../packages/remote-protocol/src";
-import type { RelaySender } from "../../../../shared/chat/relay";
+import type { RelaySender, TerminalOpener } from "../../../../shared/chat/relay";
 import type { CliChatChoices } from "../../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../../i18n";
 import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import type { CliServices } from "../../cli/context";
+import { openerOf } from "../../cli/sender";
 import type { FsProvider } from "../../fs/bridge/provider";
 import type { Attachments } from "../attachments";
 import { folderIn } from "../files";
@@ -515,6 +516,7 @@ export async function newChat(
     ...(effort !== undefined ? { effort } : {}),
     ...(permissionMode !== undefined ? { mode: permissionMode } : {}),
   };
+  const openedBy = openerOf(relay);
   const opened = await services
     .ui(
       "chat.open",
@@ -527,6 +529,7 @@ export async function newChat(
         placement: { background: true },
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
         ...(profile !== undefined ? { profile } : {}),
+        ...(openedBy ? { openedBy } : {}),
         // An agent's prompt shows as its; its settings never the mode that lets everything run.
         ...(relay ? { from: relay } : { user: true }),
       },
@@ -631,10 +634,16 @@ export async function rewindChat(
 export async function forkChat(
   services: CliServices,
   { workspaceId, tabId, itemKey }: RpcParams<"chat.fork">,
+  openedBy?: TerminalOpener,
 ): Promise<RpcResult<"chat.fork">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return services
-    .ui("chat.fork", { workspaceId, tabId, ...(itemKey ? { itemKey } : {}) })
+    .ui("chat.fork", {
+      workspaceId,
+      tabId,
+      ...(itemKey ? { itemKey } : {}),
+      ...(openedBy ? { openedBy } : {}),
+    })
     .catch(chatFailure);
 }
 
@@ -682,6 +691,7 @@ export async function workChatMcp(
 export async function resumeChat(
   services: CliServices,
   { workspaceId, agent, sessionId, tabId, from }: RpcParams<"chat.resume">,
+  openedBy?: TerminalOpener,
 ): Promise<RpcResult<"chat.resume">> {
   if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
@@ -694,6 +704,7 @@ export async function resumeChat(
       sessionId,
       ...(tabId ? { tabId } : {}),
       ...(from ? { emptyOnly: true } : {}),
+      ...(openedBy ? { openedBy } : {}),
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);

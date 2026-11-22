@@ -994,7 +994,7 @@ async function localSessions(
           r.state.since ? ago(r.state.since, now) : "",
           r.state.message ? oneLine(r.state.message, 60) : "",
         ],
-        json: rowJson(ctx, r),
+        json: { ...rowJson(ctx, r), ...(r.tab.openedBy ? { openedBy: r.tab.openedBy } : {}) },
       })),
     ...(await chatRows(ctx, workspaces)).map((c) => ({
       workspace: c.workspace,
@@ -1021,6 +1021,7 @@ async function localSessions(
         ...(c.info.since !== undefined ? { since: c.info.since } : {}),
         ...(c.info.profile ? { profile: c.info.profile } : {}),
         ...(c.info.goal ? { goal: c.info.goal } : {}),
+        ...(c.tab.openedBy ? { openedBy: c.tab.openedBy } : {}),
       },
     })),
   ];

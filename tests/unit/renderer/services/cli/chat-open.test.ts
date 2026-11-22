@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as agentTab from "../../../../../src/renderer/services/chat/agent-tab";
 import { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
+import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import { emptyTabState, useChatStore } from "../../../../../src/renderer/services/chat/store";
 import { chatHandlers } from "../../../../../src/renderer/services/cli/chat-actions";
+import * as history from "../../../../../src/renderer/services/remote/history";
 import { useAgentProfilesStore } from "../../../../../src/renderer/state/stores/agent-profiles";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout/store";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
+import { defaultProfileId } from "../../../../../src/shared/agent-profiles/profiles";
+import type { TerminalOpener } from "../../../../../src/shared/chat/relay";
 import { WorkspaceMetaSchema } from "../../../../../src/shared/types/workspace";
 
 const workspace = WorkspaceMetaSchema.parse({
@@ -23,6 +27,11 @@ const args = {
   cwd: workspace.rootPath,
   placement: { background: true },
 };
+const opener: TerminalOpener = { kind: "tab", agent: "codex", name: "Plan", tabId: "plan" };
+
+function propsOf(tabId: string) {
+  return useTabsStore.getState().byWorkspace[workspace.id]?.[tabId]?.props;
+}
 
 let restore: () => void;
 beforeEach(() => {
@@ -39,6 +48,74 @@ beforeEach(() => {
   };
 });
 afterEach(() => restore());
+
+test.each([
+  "claude",
+  "codex",
+] as const)("a %s fork records its caller instead of the source tab's opener", async (agent) => {
+  const open = chatHandlers["chat.open"];
+  const { tabId } = await open({ ...args, agent, prompt: "", openedBy: opener });
+  expect(propsOf(tabId)).toHaveProperty("openedBy", opener);
+  const ref = { workspaceId: args.workspaceId, tabId };
+  const source = agentTab.agentTabController(ref.workspaceId, tabId);
+  if (!source) throw new Error("no source tab");
+  const opened =
+    source.agent === "claude"
+      ? spyOn(ChatController.prototype, "openToRead").mockResolvedValue(undefined)
+      : spyOn(CodexController.prototype, "open").mockResolvedValue(undefined);
+  const point =
+    source.agent === "claude"
+      ? spyOn(source.controller, "forkPoint").mockReturnValue({ sessionId: "original" })
+      : spyOn(source.controller, "forkPoint").mockReturnValue({ threadId: "original" });
+  const prepare = spyOn(CodexController.prototype, "prepareSend").mockResolvedValue(undefined);
+  const childIds: string[] = [];
+  try {
+    const fork = chatHandlers["chat.fork"];
+    const caller = { kind: "terminal" as const, agent: "claude" as const, tabId: "caller" };
+    const child = await fork({ ...ref, openedBy: caller });
+    childIds.push(child.tabId);
+    expect(propsOf(child.tabId)).toHaveProperty("openedBy", caller);
+    const user = await fork(ref);
+    childIds.push(user.tabId);
+    expect(propsOf(user.tabId)).not.toHaveProperty("openedBy");
+  } finally {
+    opened.mockRestore();
+    point.mockRestore();
+    prepare.mockRestore();
+    for (const id of [tabId, ...childIds]) {
+      agentTab.agentTabController(ref.workspaceId, id)?.controller.dispose();
+    }
+  }
+});
+
+test.each([
+  "claude",
+  "codex",
+] as const)("resuming %s records who opened a new tab and keeps the opener of an existing tab", async (agent) => {
+  const sessions = spyOn(
+    history,
+    agent === "claude" ? "claudeSessions" : "codexThreads",
+  ).mockResolvedValue(
+    ["past", "another"].map((sessionId) => ({
+      sessionId,
+      title: sessionId,
+      lastModified: 1,
+      profileId: defaultProfileId(agent),
+    })),
+  );
+  try {
+    const resume = chatHandlers["chat.resume"];
+    const ref = { workspaceId: args.workspaceId, agent };
+    const child = await resume({ ...ref, sessionId: "past", openedBy: opener });
+    expect(propsOf(child.tabId)).toHaveProperty("openedBy", opener);
+    const user = await resume({ ...ref, sessionId: "another" });
+    expect(propsOf(user.tabId)).not.toHaveProperty("openedBy");
+    expect(await resume({ ...ref, sessionId: "another", openedBy: opener })).toEqual(user);
+    expect(propsOf(user.tabId)).not.toHaveProperty("openedBy");
+  } finally {
+    sessions.mockRestore();
+  }
+});
 
 function mockClaudeForOpen(mode: string) {
   return spyOn(agentTab, "agentTabController").mockImplementation((_workspaceId, tabId) => {
