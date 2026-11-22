@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
+import koCommon from "../../../../../src/shared/i18n/locales/ko/common.json";
+import koSettings from "../../../../../src/shared/i18n/locales/ko/settings.json";
 import type { UpdateProgress, UpdateStatus } from "../../../../../src/shared/updates/status";
 
 // The Vite define the panel prints; Bun test has no bundler pass.
@@ -125,7 +127,7 @@ describe("AboutPanel updates", () => {
     const html = renderWithHost({ platform: "win32", windowsStore: true });
 
     expect(html).toContain("Version 1.2.3");
-    expect(html).toContain("Updates come from the Microsoft Store.");
+    expect(html).toContain("Updates from the Microsoft Store");
     expect(html).toContain("Open Microsoft Store");
     expect(html).not.toContain("Automatically check for updates");
     expect(html).not.toContain("Check for Updates");
@@ -141,7 +143,7 @@ describe("AboutPanel updates", () => {
   test("the version row says the app is up to date, and checks again", () => {
     const html = renderRow({ kind: "current", trigger: "manual", current: "1.2.3" });
     expect(html).toContain("Version 1.2.3");
-    expect(html).toContain("You&#x27;re on the latest version.");
+    expect(html).toContain("Up to date");
     expect(html).toContain("Check for Updates");
     // Before any check the version stands alone, with the check beside it.
     const unchecked = renderRow(null);
@@ -158,7 +160,7 @@ describe("AboutPanel updates", () => {
       releaseUrl: "https://example.invalid/r",
       canInstall: true,
     });
-    expect(html).toContain("Version 1.3.0 is available.");
+    expect(html).toContain("Version 1.3.0 available");
     expect(html).toContain(">Update<");
     expect(html).not.toContain("Check for Updates");
     // The release notes are the app's, above.
@@ -178,7 +180,9 @@ describe("AboutPanel updates", () => {
 
   test("the version row says a failed check in red", () => {
     const html = renderRow({ kind: "error", trigger: "manual", reason: "network" });
-    expect(html).toMatch(/<span class="[^"]*text-destructive[^"]*">Couldn&#x27;t check/);
+    expect(html).toMatch(
+      /<span class="[^"]*text-destructive[^"]*">Update check failed · Check your network connection\.</,
+    );
     expect(html).toContain("Check for Updates");
   });
 
@@ -198,7 +202,54 @@ describe("AboutPanel updates", () => {
   test("offers the restart once the update is staged", () => {
     const html = renderStatus({ kind: "ready", version: "1.3.0" });
 
-    expect(html).toContain("Version 1.3.0 is ready.");
+    expect(html).toContain("Version 1.3.0 ready · Installs when the app restarts");
     expect(html).toContain("Restart Now");
+  });
+});
+
+describe("the update wording", () => {
+  // Where an update stands reads on the About page, the title bar's update
+  // popover, the release notes, the Remote page and the toasts.
+  const ko: [string, string][] = [
+    ...Object.entries(koCommon.updates).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+    ["about.storeManaged", koSettings.about.storeManaged],
+  ];
+
+  test.each(ko)("ko %s puts no particle choice after a value", (_key, text) => {
+    expect(text).not.toMatch(/\}\}\S*\(/);
+  });
+
+  test.each(ko)("ko %s is a short phrase, or ends in what to do", (_key, text) => {
+    expect(text).not.toMatch(/니다/);
+    if (text.endsWith(".")) expect(text).toMatch(/세요\.$/);
+  });
+
+  test("words the version row in Korean", async () => {
+    const i18n = i18next.cloneInstance({ lng: "ko" });
+    await i18n.changeLanguage("ko");
+    const row = (status: UpdateStatus) =>
+      renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <VersionRow status={status} progress={null} storeManaged={false} />
+        </I18nextProvider>,
+      );
+    expect(row({ kind: "current", trigger: "manual", current: "1.2.3" })).toContain(
+      ">최신 버전 사용 중<",
+    );
+    expect(
+      row({
+        kind: "newer",
+        trigger: "manual",
+        current: "1.2.3",
+        latest: "1.3.0",
+        releaseUrl: "https://example.invalid/r",
+        canInstall: true,
+      }),
+    ).toContain(">버전 1.3.0 사용 가능<");
+    expect(row({ kind: "ready", version: "1.3.0" })).toContain(
+      ">버전 1.3.0 준비됨 · 앱을 다시 시작하면 설치<",
+    );
   });
 });
