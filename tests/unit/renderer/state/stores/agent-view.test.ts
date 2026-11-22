@@ -356,6 +356,19 @@ describe("agent view store", () => {
     expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.folded");
   });
 
+  it("restores a family fold saved on this device", async () => {
+    const key = `family:${A}`;
+    useAgentViewStore.getState().hydrate(undefined, () => true);
+    useAgentViewStore.getState().toggleFolded(key);
+    await settle();
+    const snapshot = AgentViewSnapshotSchema.parse((stored[0] as { agentView: unknown }).agentView);
+    __resetAgentViewForTests();
+    useAgentViewStore.getState().hydrate(snapshot, () => true);
+    expect(useAgentViewStore.getState().folded.has(key)).toBe(true);
+    useAgentViewStore.getState().toggleFolded(key);
+    expect(useAgentViewStore.getState().folded.has(key)).toBe(false);
+  });
+
   it("keeps valid saved folds and gives recent peer folds the remaining slots", async () => {
     const leaf = { kind: "leaf", id: P1, tabIds: [], activeTabId: null };
     const keys = Array.from({ length: 260 }, (_, i) =>

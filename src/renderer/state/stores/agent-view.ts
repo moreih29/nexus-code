@@ -79,7 +79,7 @@ interface AgentViewState extends AgentLayout {
   peerOrderAccount: string | null;
   /** How the list groups its agents. */
   grouping: AgentListGrouping;
-  /** The list's folded groups, keyed by status, workspace, peer or peer-ws. */
+  /** The list's folded groups, keyed by status, workspace, family, peer or peer-ws. */
   folded: ReadonlySet<string>;
   remoteSeen: RemoteSeen | undefined;
   updateRemoteSeen(accountKey: string, changes: ReadonlyMap<string, RemoteSeenResult | null>): void;

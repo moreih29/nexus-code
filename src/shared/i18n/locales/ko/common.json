@@ -1929,7 +1929,15 @@
       "shown": "패널에 보이는 중",
       "held": "패널에 있음 (다른 탭 뒤)",
       "failed": "실패",
-      "hidden": "{{count}}개 숨김"
+      "hidden": "{{count}}개 숨김",
+      "children": "하위 {{count}}",
+      "toggle_children": "하위 대화 접기 · 펼치기",
+      "idle_children": "대기 {{count}}",
+      "parent": "↳ {{name}}",
+      "parent_hint": "상위 대화 · {{name}}",
+      "closed_parent": "↳ {{name}} · 닫힘",
+      "remote_parent": "↳ {{device}} · {{name}}",
+      "moved_family": "↳ ‘{{name}}’ 아래 {{count}}"
     },
     "pane": {
       "close": "패널 닫기",

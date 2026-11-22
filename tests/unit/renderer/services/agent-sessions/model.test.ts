@@ -7,6 +7,7 @@ import {
   buildFamily,
   type FamilyInput,
 } from "../../../../../src/renderer/services/agent-sessions/model";
+import { buildAgents } from "../../../../../src/renderer/services/agent-view/agents";
 import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
@@ -86,6 +87,37 @@ function input(overrides: Partial<FamilyInput> = {}): FamilyInput {
 }
 
 describe("buildFamily", () => {
+  it("reads openers on chat and listed terminal tabs while leaving plain shells and app forks unlinked", () => {
+    const openedBy = { kind: "tab" as const, tabId: "parent", name: "Plan" };
+    const withOpener = (tab: Tab) => ({ ...tab, props: { ...tab.props, openedBy } }) as Tab;
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            parent: claudeTab("parent", "Plan"),
+            child: withOpener(codexTab("child", "Child")),
+            other: withOpener(claudeTab("other", "Other child")),
+            agent: withOpener(terminal("agent", "Codex")),
+            shell: withOpener(terminal("shell", "zsh")),
+            fork: {
+              ...claudeTab("fork", "App fork"),
+              props: { cwd: "/", fork: { sessionId: "original" } },
+            },
+          },
+        },
+        claudeByWorkspace: { [ROOT]: { agent: claude("running") } },
+      }),
+    );
+    const entries = family?.worktrees[0].sessions ?? [];
+    expect(entries.map(({ tabId, parent }) => [tabId, parent])).toEqual([
+      ["parent", undefined],
+      ["child", openedBy],
+      ["other", openedBy],
+      ["agent", openedBy],
+      ["fork", undefined],
+    ]);
+  });
+
   it("keeps Claude chat results authoritative while terminal Claude sessions keep their hooks", () => {
     const state = emptyTabState();
     const model = applyLine(state.model, {
@@ -357,4 +389,15 @@ describe("buildFamily", () => {
       ["up", "claude"],
     ]);
   });
+});
+
+it("keeps the previous sidebar row reference when another session changes state", () => {
+  const tabsByWorkspace = { [ROOT]: { a: claudeTab("a", "Plan"), b: claudeTab("b", "Tests") } };
+  const before = buildAgents(input({ tabsByWorkspace }));
+  const after = buildAgents(
+    input({ tabsByWorkspace, claudeByWorkspace: { [ROOT]: { b: claude("running") } } }),
+    before,
+  );
+  expect(after.byKey.get(`${ROOT}:a`)).toBe(before.byKey.get(`${ROOT}:a`));
+  expect(after.byKey.get(`${ROOT}:b`)?.session.phase).toBe("running");
 });

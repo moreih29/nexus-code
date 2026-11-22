@@ -16,18 +16,19 @@ import { sessionsInputNow } from "../agent-sessions/use-inbox";
 import { useChatStore } from "../chat/store";
 import { type Agents, buildAgents, sameAgents } from "./agents";
 
-function agentsNow(): Agents {
-  return buildAgents(sessionsInputNow(useTabActivityStore.getState().activity));
-}
-
 /** The agents, kept current while `enabled`; the last read otherwise. */
 export function useAgents(enabled = true): Agents {
-  const [agents, setAgents] = useState(agentsNow);
+  const [agents, setAgents] = useState(() =>
+    buildAgents(sessionsInputNow(useTabActivityStore.getState().activity)),
+  );
   useEffect(() => {
     if (!enabled) return;
     const update = (): void => {
-      const next = agentsNow();
-      setAgents((prev) => (sameAgents(prev, next) ? prev : next));
+      const input = sessionsInputNow(useTabActivityStore.getState().activity);
+      setAgents((prev) => {
+        const next = buildAgents(input, prev);
+        return sameAgents(prev, next) ? prev : next;
+      });
     };
     const stops = [
       useWorkspacesStore.subscribe(update),

@@ -4,6 +4,7 @@
  * worktrees, sessions and states.
  */
 
+import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { StatusEntry } from "../../../shared/claude/status";
 import {
   describeTerminal,
@@ -30,6 +31,10 @@ export interface AgentSession {
   readonly tabId: string;
   /** The tab's title. */
   readonly title: string;
+  /** The agent that opened the tab, as recorded when it was opened. */
+  readonly parent?: TerminalOpener;
+  /** The tab's opening time, including after restart. */
+  readonly openedAt?: number;
   /**
    * The kind of tab: a terminal, or a Claude or Codex tab, whose program
    * takes messages rather than keys.
@@ -229,6 +234,11 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
     const key = sessionKey(workspace.id, tab.id);
     const status = claude[tab.id];
     const chat = input.chats?.[key];
+    const opener =
+      (tab.type === "claude" || tab.type === "codex" || tab.type === "terminal") &&
+      tab.props.openedBy
+        ? { parent: tab.props.openedBy, openedAt: tab.openedAt }
+        : {};
     const hasTurns = Boolean(
       chat?.model.lastResult || chat?.model.items.some((item) => item.kind === "user"),
     );
@@ -240,6 +250,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         workspaceId: workspace.id,
         tabId: tab.id,
         title: tab.title,
+        ...opener,
         kind: "claude",
         agent: "claude",
         state,
@@ -260,6 +271,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         workspaceId: workspace.id,
         tabId: tab.id,
         title: tab.title,
+        ...opener,
         kind: "codex",
         agent: "codex",
         state: codex.state,
@@ -291,6 +303,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
       workspaceId: workspace.id,
       tabId: tab.id,
       title: tab.title,
+      ...opener,
       kind: "terminal",
       agent: terminal.agent,
       state,
@@ -324,6 +337,8 @@ export function buildFamily(input: FamilyInput): SessionFamily | null {
 const SESSION_FIELDS = [
   "key",
   "title",
+  "parent",
+  "openedAt",
   "kind",
   "agent",
   "state",
@@ -334,6 +349,13 @@ const SESSION_FIELDS = [
   "prompt",
   "hasTurns",
 ] as const satisfies readonly (keyof AgentSession)[];
+
+/** Whether a rebuilt session tells the same as the row already shown. */
+export function sameSession(a: AgentSession, b: AgentSession): boolean {
+  return (
+    a.limitWait?.at === b.limitWait?.at && SESSION_FIELDS.every((field) => a[field] === b[field])
+  );
+}
 
 /** Whether two builds of a family show the same. */
 export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): boolean {
@@ -346,11 +368,7 @@ export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): bo
       x.isRoot === y.isRoot &&
       x.branch === y.branch &&
       x.sessions.length === y.sessions.length &&
-      x.sessions.every(
-        (s, j) =>
-          s.limitWait?.at === y.sessions[j].limitWait?.at &&
-          SESSION_FIELDS.every((field) => s[field] === y.sessions[j][field]),
-      )
+      x.sessions.every((s, j) => sameSession(s, y.sessions[j]))
     );
   });
 }

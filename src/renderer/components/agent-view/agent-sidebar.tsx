@@ -9,21 +9,38 @@
 // the agent list's does. The grouping and the folded groups are kept across
 // restarts.
 
-import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
-import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
+import { CheckCheck, ChevronDown, ChevronRight, GitBranch, ListTree, Plus } from "lucide-react";
+import { type KeyboardEvent, memo, type ReactNode, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useStableHandlers } from "@/hooks/use-stable-handlers";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
-import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
-import { groupOf, listed, matchesQuery, type RowGroup } from "@/services/agent-sessions/rows";
+import type { AgentSession, SessionFamily } from "@/services/agent-sessions/model";
+import { compareStatusTime, type RowGroup } from "@/services/agent-sessions/rows";
+import {
+  familyFoldKey,
+  MAX_SESSION_INDENT,
+  type SessionCounts,
+  type SessionTreeNode,
+  searchSessionTree,
+  sessionChildren,
+  sessionTree,
+  treeSessions,
+} from "@/services/agent-sessions/session-tree";
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey, remoteSessionKey } from "@/services/agent-view/layout";
-import { moveKey, orderSessions } from "@/services/agent-view/order";
+import { orderSessions, reorderSubset } from "@/services/agent-view/order";
 import type { RemoteResults } from "@/services/agent-view/remote-results";
 import { showInAgentView } from "@/services/agent-view/show";
+import {
+  moveSessionRoot,
+  type SidebarWorktree,
+  statusTrees,
+  workspaceTrees,
+} from "@/services/agent-view/sidebar-tree";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { peerServes } from "@/services/remote/room";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
@@ -63,6 +80,7 @@ import {
   OpenRemoteSessionRow,
   RemoteSessions,
   type RemoteStatusSource,
+  type StatusRow,
   statusGroups,
 } from "./remote-sessions";
 import {
@@ -182,7 +200,7 @@ export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boole
 });
 
 /** Moves the focus from one agent's row to the next or previous one in the list, as shown. */
-function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
+export function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
   const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
   if (!keys.includes(event.key)) return;
   const here = event.target as HTMLElement;
@@ -260,16 +278,59 @@ export function StatusGroups({
 }: GroupsProps & { remote: readonly RemoteStatusSource[]; results: RemoteResults }) {
   const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
+  const order = useAgentViewStore((s) => s.order);
   const pending = useConsentIsPending();
-  const sessions = useMemo(
-    () => [...agents.byKey.values()].map((entry) => entry.session),
+  const tree = useMemo(
+    () => sessionTree([...agents.byKey.values()].map((entry) => entry.session)),
     [agents],
   );
   const searching = query.trim() !== "";
-  const { groups, consents } = statusGroups(sessions, remote, query, pending);
+  const local = useMemo(() => statusTrees(searchSessionTree(tree, query)), [tree, query]);
+  const { groups: remoteGroups, consents } = statusGroups([], remote, query, pending);
+  const groups = remoteGroups.map(({ group, rows: remoteRows }) => {
+    const key = `status:${group}`;
+    const rows: (LocalStatusTree | Extract<StatusRow, { kind: "remote" }>)[] = [
+      ...local[group].map(
+        (node): LocalStatusTree => ({ kind: "local", node, key: node.session.key }),
+      ),
+      ...remoteRows.filter((row) => row.kind === "remote"),
+    ];
+    const since = (row: (typeof rows)[number]) =>
+      row.kind === "local" ? row.node.since : row.session.since;
+    rows.sort((a, b) => compareStatusTime(group, since(a), since(b)));
+    const localRows = rows.filter((row) => row.kind === "local");
+    const ordered = orderSessions(localRows, order[key]);
+    return {
+      group,
+      key,
+      rows:
+        ordered === localRows
+          ? rows
+          : reorderSubset(
+              rows,
+              ordered.map((row) => row.key),
+              (row) =>
+                row.kind === "local"
+                  ? row.key
+                  : remoteSessionKey({ deviceId: row.peer.id, ...row.session }),
+            ),
+    };
+  });
+  const { reorder } = useStableHandlers<{ reorder: SessionReorder }>({
+    reorder(moved, target, edge) {
+      const group = groups.find(({ rows }) =>
+        rows.some((row) => row.kind === "local" && row.key === target),
+      );
+      if (!group) return;
+      const keys = group.rows.filter((row) => row.kind === "local").map((row) => row.key);
+      useAgentViewStore
+        .getState()
+        .setOrder(group.key, moveSessionRoot(keys, keys, moved, target, edge));
+    },
+  });
   if (
     agents.families.length === 0 &&
-    sessions.length === 0 &&
+    tree.length === 0 &&
     consents.length === 0 &&
     !remote.some(({ list }) => list.sessions.some(listedByDefault))
   )
@@ -278,7 +339,7 @@ export function StatusGroups({
     return <NoMatch />;
   return (
     <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
-      {groups.map(({ group, rows }) => {
+      {groups.map(({ group, key, rows }) => {
         const label = t(`agentList.group.${group}`);
         const cards = group === "attention" ? consents : [];
         const count = rows.length + cards.length;
@@ -295,7 +356,6 @@ export function StatusGroups({
             </section>
           );
         }
-        const key = `status:${group}`;
         // A search shows what it found, in folded groups too.
         const isFolded = !searching && folded.has(key);
         return (
@@ -337,8 +397,10 @@ export function StatusGroups({
                           hostReceipts: peerServes(row.peer, "sessions.markSeen"),
                         });
                       } else {
-                        const entry = agents.byKey.get(row.session.key);
-                        if (entry) local.push({ workspace: entry.workspace, session: row.session });
+                        for (const session of treeSessions([row.node])) {
+                          const entry = agents.byKey.get(session.key);
+                          if (entry) local.push({ workspace: entry.workspace, session });
+                        }
                       }
                     }
                     markRead(local);
@@ -364,11 +426,18 @@ export function StatusGroups({
             {!isFolded &&
               rows.map((row) => {
                 return row.kind === "local" ? (
-                  <AgentItem
-                    key={row.session.key}
-                    session={row.session}
-                    run={activity.get(row.session.key)}
-                    where={agents.byKey.get(row.session.key)}
+                  <SessionBranch
+                    key={row.key}
+                    node={row.node}
+                    last
+                    rootWorkspaceId={row.node.session.workspaceId}
+                    agents={agents}
+                    activity={activity}
+                    folded={folded}
+                    searching={searching}
+                    group={group}
+                    dragScope={key}
+                    onReorder={!searching && local[group].length > 1 ? reorder : undefined}
                   />
                 ) : (
                   <div
@@ -397,6 +466,8 @@ export function StatusGroups({
   );
 }
 
+type LocalStatusTree = { kind: "local"; key: string; node: SessionTreeNode };
+
 /** Marks every new result of the group read, as the inbox's "Mark new results read" does. */
 function MarkAllRead({ onMark }: { onMark: () => void }) {
   const { t } = useTranslation();
@@ -413,33 +484,44 @@ export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const folded = useAgentViewStore((s) => s.folded);
   const reordering = useSessionReordering();
 
-  const reorder: SessionReorder = (moved, target, edge) => {
-    const workspaceId = parseSessionKey(target)?.workspaceId;
-    const worktree = agents.families
-      .flatMap((family) => family.worktrees)
-      .find((each) => each.workspace.id === workspaceId);
-    if (!worktree || !workspaceId) return;
-    const view = useAgentViewStore.getState();
-    const keys = orderSessions(worktree.sessions, view.order[workspaceId]).map((each) => each.key);
-    view.setOrder(workspaceId, moveKey(keys, moved, target, edge));
-  };
-
   const searching = query.trim() !== "";
-  const groups = agents.families
-    .map((family) => ({
-      family,
-      worktrees: family.worktrees
-        .map((worktree) => ({
-          worktree,
-          sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
-            (session) => listed(session) && matchesQuery(session, query),
-          ),
-        }))
-        // A task shows with agents to list; the workspace itself does, for its + to start
-        // one, unless a search found none of its agents.
-        .filter(({ worktree, sessions }) => sessions.length > 0 || (worktree.isRoot && !searching)),
-    }))
-    .filter(({ worktrees }) => worktrees.length > 0);
+  const tree = useMemo(
+    () =>
+      sessionTree(
+        agents.families.flatMap((family) =>
+          family.worktrees.flatMap((worktree) => worktree.sessions),
+        ),
+      ),
+    [agents.families],
+  );
+  const roots = useMemo(() => searchSessionTree(tree, query), [tree, query]);
+  const groups = useMemo(
+    () => workspaceTrees(agents.families, roots, order, searching),
+    [agents.families, roots, order, searching],
+  );
+  const { reorder } = useStableHandlers<{ reorder: SessionReorder }>({
+    reorder(moved, target, edge) {
+      const workspaceId = parseSessionKey(target)?.workspaceId;
+      const placed = groups
+        .flatMap(({ worktrees }) => worktrees)
+        .find(({ worktree }) => worktree.workspace.id === workspaceId);
+      if (!placed || !workspaceId) return;
+      const view = useAgentViewStore.getState();
+      const keys = orderSessions(placed.worktree.sessions, view.order[workspaceId]).map(
+        (each) => each.key,
+      );
+      view.setOrder(
+        workspaceId,
+        moveSessionRoot(
+          keys,
+          placed.roots.map(({ session }) => session.key),
+          moved,
+          target,
+          edge,
+        ),
+      );
+    },
+  });
   if (groups.length === 0) return <NoMatch />;
 
   return groups.map(({ family, worktrees }) => {
@@ -450,6 +532,9 @@ export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
         family={family}
         worktrees={worktrees}
         folded={!searching && folded.has(key)}
+        folds={folded}
+        searching={searching}
+        agents={agents}
         reordering={reordering?.workspaceId}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
@@ -460,24 +545,26 @@ export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
 }
 
 /** How many of a workspace's agents wait on the user, run, or have a new result, the ones there are. */
-function StateSummary({ sessions }: { sessions: readonly AgentSession[] }) {
+function StateSummary({ counts, compact = false }: { counts: SessionCounts; compact?: boolean }) {
   const { t } = useTranslation();
-  const counts = SUMMED.map((group) => ({
-    group,
-    count: sessions.filter((session) => groupOf(session) === group).length,
-  })).filter(({ count }) => count > 0);
-  if (counts.length === 0) return null;
+  const shown = SUMMED.filter((group) => counts[group] > 0);
+  if (shown.length === 0) return null;
   return (
-    <span className="flex shrink-0 items-center gap-2 text-app-micro whitespace-nowrap tabular-nums">
-      {counts.map(({ group, count }) => (
+    <span
+      className={cn(
+        "flex shrink-0 items-center text-app-micro whitespace-nowrap tabular-nums",
+        compact ? "gap-1" : "gap-2",
+      )}
+    >
+      {shown.map((group) => (
         <span
           key={group}
           className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-          title={`${t(`agentList.group.${group}`)} ${count}`}
+          title={`${t(`agentList.group.${group}`)} ${counts[group]}`}
           data-testid="agent-sidebar-summary"
         >
           <StateGlyph state={GROUP_STATE[group]} />
-          {count}
+          {counts[group]}
         </span>
       ))}
     </span>
@@ -488,14 +575,20 @@ function FamilyGroup({
   family,
   worktrees,
   folded,
+  folds,
+  searching,
+  agents,
   reordering,
   onToggle,
   activity,
   onReorder,
 }: {
   family: SessionFamily;
-  worktrees: readonly { worktree: WorktreeEntry; sessions: readonly AgentSession[] }[];
+  worktrees: readonly SidebarWorktree[];
   folded: boolean;
+  folds: ReadonlySet<string>;
+  searching: boolean;
+  agents: Agents;
   reordering?: string;
   onToggle: () => void;
   activity: ActivityByKey;
@@ -503,11 +596,15 @@ function FamilyGroup({
 }) {
   const { t } = useTranslation();
   const root = family.root;
-  const all = worktrees.flatMap(({ sessions }) => sessions);
-  const hidden = folded
-    ? all.filter((session) => session.workspaceId !== reordering && groupOf(session) === "idle")
-        .length
-    : 0;
+  const counts = { attention: 0, running: 0, done: 0, idle: 0 };
+  let hidden = 0;
+  for (const { worktree, roots } of worktrees) {
+    for (const node of roots) {
+      if (folded && worktree.workspace.id !== reordering && node.group === "idle")
+        hidden += node.count + 1;
+    }
+    for (const session of treeSessions(roots)) counts[session.phase]++;
+  }
   const rootFolded = folded && root.id !== reordering;
   const update = useWorkspaceUpdate(root);
   const handoff = useContextMenuHandoff();
@@ -561,7 +658,7 @@ function FamilyGroup({
                 <WhereLabel workspace={root} />
                 <span className="flex-1" />
                 {hidden > 0 && <HiddenSessionCount count={hidden} />}
-                <StateSummary sessions={all} />
+                <StateSummary counts={counts} />
               </button>
             )}
             {!rename.renaming && <NewAgentMenu workspace={root} />}
@@ -575,12 +672,10 @@ function FamilyGroup({
           onColor={(color) => update({ color })}
         />
       </ContextMenuRoot>
-      {worktrees.map(({ worktree, sessions }) => {
+      {worktrees.map(({ worktree, roots, moved }) => {
         const foldedHere = folded && reordering !== worktree.workspace.id;
-        const visible = foldedHere
-          ? sessions.filter((session) => groupOf(session) !== "idle")
-          : sessions;
-        if (foldedHere && visible.length === 0) return null;
+        const visible = foldedHere ? roots.filter((node) => node.group !== "idle") : roots;
+        if (foldedHere && visible.length === 0 && moved.length === 0) return null;
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
           <div
@@ -593,7 +688,7 @@ function FamilyGroup({
               <div
                 className="flex h-6 min-w-0 items-center gap-1.5 pr-1 pl-2 text-app-micro text-muted-foreground"
                 onDragOver={
-                  onReorder && sessions.length > 1
+                  onReorder && roots.length > 1
                     ? (event) => hoverWorkspaceReorder(event, worktree.workspace.id)
                     : undefined
                 }
@@ -609,15 +704,30 @@ function FamilyGroup({
                 <NewAgentMenu workspace={worktree.workspace} />
               </div>
             )}
-            {visible.map((session) => (
-              <AgentItem
-                key={session.key}
-                session={session}
-                run={activity.get(session.key)}
-                onReorder={sessions.length > 1 ? onReorder : undefined}
+            {moved.map(({ key, title, count }) => (
+              <span
+                key={key}
+                className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
+                title={t("agentView.list.moved_family", { name: title, count })}
+                data-testid="agent-sidebar-moved"
+              >
+                {t("agentView.list.moved_family", { name: title, count })}
+              </span>
+            ))}
+            {visible.map((node) => (
+              <SessionBranch
+                key={node.session.key}
+                node={node}
+                last
+                rootWorkspaceId={worktree.workspace.id}
+                agents={agents}
+                activity={activity}
+                folded={folds}
+                searching={searching}
+                onReorder={roots.length > 1 ? onReorder : undefined}
               />
             ))}
-            {worktree.isRoot && sessions.length === 0 && (
+            {worktree.isRoot && roots.length === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
               </p>
@@ -626,6 +736,146 @@ function FamilyGroup({
         );
       })}
     </section>
+  );
+}
+
+interface SessionBranchProps {
+  node: SessionTreeNode;
+  last: boolean;
+  rootWorkspaceId: string;
+  agents: Agents;
+  activity: ActivityByKey;
+  folded: ReadonlySet<string>;
+  searching: boolean;
+  showIdleSubtree?: boolean;
+  group?: RowGroup;
+  dragScope?: string;
+  onReorder?: SessionReorder;
+}
+
+function SessionBranch({
+  node,
+  last,
+  rootWorkspaceId,
+  agents,
+  activity,
+  folded,
+  searching,
+  showIdleSubtree,
+  group,
+  dragScope,
+  onReorder,
+}: SessionBranchProps) {
+  const { t } = useTranslation();
+  const [idleOpen, setIdleOpen] = useState(false);
+  const { session, depth, count } = node;
+  const placed = agents.byKey.get(session.key);
+  const isRoot = depth === 0;
+  const reorder = isRoot ? onReorder : undefined;
+  const scope = dragScope ?? session.workspaceId;
+  const { edge, dropProps } = useSessionDrop({ key: session.key, workspaceId: scope }, reorder);
+  const collapsed = !searching && folded.has(familyFoldKey(session));
+  const { rows: visible, idle } = sessionChildren(node, {
+    folded: collapsed,
+    groupIdle: group !== undefined && !searching && !showIdleSubtree,
+    showIdle: idleOpen,
+  });
+  const content = (
+    <>
+      <AgentItem
+        session={session}
+        run={activity.get(session.key)}
+        where={group !== undefined ? placed : undefined}
+        group={group}
+        dragScope={scope}
+        draggable={isRoot}
+        branch={
+          session.workspaceId !== rootWorkspaceId ? placed?.workspace.task?.branch : undefined
+        }
+        parentName={
+          session.parent?.device || node.parentClosed || depth > MAX_SESSION_INDENT
+            ? node.parentName
+            : undefined
+        }
+        parentClosed={node.parentClosed}
+        familyCount={count}
+        collapsed={collapsed}
+        counts={collapsed ? node.counts : undefined}
+      />
+      {visible.map((child, index) => (
+        <SessionBranch
+          key={child.session.key}
+          node={child}
+          last={index === visible.length - 1 && idle === 0}
+          rootWorkspaceId={rootWorkspaceId}
+          agents={agents}
+          activity={activity}
+          folded={folded}
+          searching={searching}
+          showIdleSubtree={showIdleSubtree || (idleOpen && child.group === "idle")}
+          group={group}
+        />
+      ))}
+      {idle > 0 && (
+        <TreeLine indent={depth < MAX_SESSION_INDENT} last>
+          <button
+            type="button"
+            aria-expanded={idleOpen}
+            onClick={() => setIdleOpen(!idleOpen)}
+            className="flex h-6 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring"
+            data-testid="agent-sidebar-idle"
+          >
+            <StateGlyph state="idle" />
+            {t("agentView.list.idle_children", { count: idle })}
+            <FoldChevron folded={!idleOpen} />
+          </button>
+        </TreeLine>
+      )}
+    </>
+  );
+  if (reorder) {
+    return (
+      <div className="relative" {...dropProps}>
+        <SidebarDropIndicator edge={edge} />
+        {content}
+      </div>
+    );
+  }
+  if (isRoot || depth > MAX_SESSION_INDENT) return content;
+  return (
+    <TreeLine indent last={last}>
+      {content}
+    </TreeLine>
+  );
+}
+
+function TreeLine({
+  indent,
+  last,
+  children,
+}: {
+  indent: boolean;
+  last: boolean;
+  children: ReactNode;
+}) {
+  if (!indent) return children;
+  return (
+    <div className="relative pl-4" data-testid="agent-sidebar-tree-line">
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute top-0 left-1.5 border-border border-l",
+          last ? "h-4 w-2.5 rounded-bl-sm border-b" : "bottom-0",
+        )}
+      />
+      {!last && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-4 left-1.5 w-2.5 border-border border-t"
+        />
+      )}
+      {children}
+    </div>
   );
 }
 
@@ -701,25 +951,48 @@ const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: Work
 const AgentItem = memo(function AgentItem({
   session,
   run,
-  onReorder,
   where: placed,
+  group,
+  dragScope,
+  draggable,
+  branch,
+  parentName,
+  parentClosed,
+  familyCount,
+  collapsed,
+  counts,
 }: {
   session: AgentSession;
   /** What its hooks report, when they do. */
   run: SessionActivity | undefined;
-  /** Its place among its workspace's agents, dragged; none where the list is by state. */
-  onReorder?: SessionReorder;
-  /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
+  /** The workspace shown in the status list. */
   where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
+  group?: RowGroup;
+  dragScope: string;
+  draggable: boolean;
+  branch?: string;
+  parentName?: string;
+  parentClosed?: true;
+  familyCount: number;
+  collapsed: boolean;
+  counts?: SessionCounts;
 }) {
+  const { t } = useTranslation();
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
   const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
-  const dragRow = { key, workspaceId: session.workspaceId };
-  const { edge, dropProps } = useSessionDrop(dragRow, onReorder);
+  const device = session.parent?.device;
+  const parentLabel = !parentName
+    ? undefined
+    : device
+      ? t("agentView.list.remote_parent", { device: device.name || device.id, name: parentName })
+      : parentClosed
+        ? t("agentView.list.closed_parent", { name: parentName })
+        : t("agentView.list.parent", { name: parentName });
+  const preview = <RowLine session={session} facts={facts} />;
   return (
     <div
       className={cn(
@@ -734,21 +1007,21 @@ const AgentItem = memo(function AgentItem({
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
-      {...dropProps}
       data-testid="agent-sidebar-item"
       data-session-key={key}
     >
-      <SidebarDropIndicator edge={edge} />
       {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
-        draggable
+        draggable={draggable}
         aria-label={session.title}
         onClick={show}
         data-agent-row=""
-        onDragStart={(e) => startSessionDrag(e, dragRow)}
-        onDragEnd={endSessionDrag}
+        onDragStart={
+          draggable ? (e) => startSessionDrag(e, { key, workspaceId: dragScope }) : undefined
+        }
+        onDragEnd={draggable ? endSessionDrag : undefined}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-0.5">
@@ -760,7 +1033,7 @@ const AgentItem = memo(function AgentItem({
           {/* Its state at a glance, the glyph its filter has (running, waiting
               on the user, done, or idle), and for how long. */}
           <span className="flex shrink-0 items-center gap-1">
-            {!placed && session.state !== "error" && (
+            {group !== session.phase && session.state !== "error" && (
               <span
                 role="img"
                 aria-label={stateLabel(session)}
@@ -788,8 +1061,60 @@ const AgentItem = memo(function AgentItem({
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
-          {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
-          <RowLine session={session} facts={facts} />
+          {branch ? (
+            <span
+              className="inline-flex max-w-[45%] min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-muted-foreground"
+              title={branch}
+              data-testid="agent-sidebar-branch"
+            >
+              <GitBranch aria-hidden className="size-3 shrink-0" />
+              <span className="truncate">{branch}</span>
+            </span>
+          ) : (
+            placed && (
+              <WorkspaceTag
+                workspace={placed.workspace}
+                root={placed.root}
+                compact={familyCount > 0 || parentLabel !== undefined}
+              />
+            )
+          )}
+          {parentLabel ? (
+            <div className="flex min-w-0 grow basis-1/2 items-center gap-1.5 overflow-hidden">
+              <span
+                className={cn(
+                  "max-w-[60%] shrink-0 truncate text-muted-foreground",
+                  parentClosed && "opacity-70",
+                )}
+                title={
+                  parentClosed || device
+                    ? parentLabel
+                    : t("agentView.list.parent_hint", { name: parentName })
+                }
+                data-testid="agent-sidebar-parent"
+              >
+                {parentLabel}
+              </span>
+              {preview}
+            </div>
+          ) : (
+            preview
+          )}
+          {familyCount > 0 && (
+            <button
+              type="button"
+              className="pointer-events-auto ml-auto inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border border-border px-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+              aria-expanded={!collapsed}
+              title={t("agentView.list.toggle_children")}
+              onClick={() => useAgentViewStore.getState().toggleFolded(familyFoldKey(session))}
+              data-testid="agent-sidebar-fold-family"
+            >
+              <ListTree aria-hidden className="size-3" />
+              {t("agentView.list.children", { count: familyCount })}
+              <FoldChevron folded={collapsed} />
+            </button>
+          )}
+          {counts && <StateSummary counts={counts} compact />}
         </div>
         {session.kind !== "terminal" && (
           <GoalRowLine workspaceId={session.workspaceId} tabId={session.tabId} />
@@ -806,10 +1131,21 @@ const AgentItem = memo(function AgentItem({
 });
 
 /** The workspace an agent runs in, by its color and name, where the list is by state. */
-function WorkspaceTag({ workspace, root }: { workspace: WorkspaceMeta; root: WorkspaceMeta }) {
+function WorkspaceTag({
+  workspace,
+  root,
+  compact = false,
+}: {
+  workspace: WorkspaceMeta;
+  root: WorkspaceMeta;
+  compact?: boolean;
+}) {
   return (
     <span
-      className="flex max-w-[45%] shrink-0 items-center gap-1 text-muted-foreground"
+      className={cn(
+        "flex max-w-[45%] items-center gap-1 text-muted-foreground",
+        compact ? "min-w-0" : "shrink-0",
+      )}
       title={workspace.id === root.id ? root.name : `${root.name} · ${workspace.name}`}
       data-testid="agent-sidebar-workspace"
     >

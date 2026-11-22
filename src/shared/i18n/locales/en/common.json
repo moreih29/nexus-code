@@ -1929,7 +1929,15 @@
       "shown": "Shown in a panel",
       "held": "In a panel, behind another tab",
       "failed": "Failed",
-      "hidden": "{{count}} hidden"
+      "hidden": "{{count}} hidden",
+      "children": "{{count}} under it",
+      "toggle_children": "Fold or unfold its conversations",
+      "idle_children": "{{count}} idle",
+      "parent": "↳ {{name}}",
+      "parent_hint": "Parent · {{name}}",
+      "closed_parent": "↳ {{name}} · closed",
+      "remote_parent": "↳ {{device}} · {{name}}",
+      "moved_family": "↳ {{count}} under {{name}}"
     },
     "pane": {
       "close": "Close panel",

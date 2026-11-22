@@ -136,7 +136,7 @@ export const AgentViewSnapshotSchema = z.object({
   // How the list groups its agents: by their state, or by their workspace.
   // Absent, or one this version lacks = by state.
   grouping: z.string().max(32).optional().catch(undefined),
-  // The list's folded groups, keyed by status, workspace, peer or peer-ws.
+  // The list's folded groups, keyed by status, workspace, family, peer or peer-ws.
   folded: z.array(z.unknown()).transform(normalizeAgentViewFolds).optional().catch(undefined),
   remoteSeen: z
     .object({
