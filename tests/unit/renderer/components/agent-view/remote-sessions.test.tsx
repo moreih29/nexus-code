@@ -33,7 +33,7 @@ const {
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, peerServes, servingPeers } = room;
 
-describe("Other computers sign-in guidance", () => {
+describe("Other computers connection guidance", () => {
   const server = "https://nexus.example";
   const signedIn = {
     status: "signed-in" as const,
@@ -101,13 +101,26 @@ describe("Other computers sign-in guidance", () => {
   });
 
   test.each([
-    "off",
-    "connecting",
-    "waiting",
-  ] as const)("a signed-in account with no peers keeps the section hidden when the room is %s", (status) => {
+    ["off", "Connecting…"],
+    ["connecting", "Connecting…"],
+    ["waiting", "Disconnected · Reconnecting"],
+    ["online", "No connected computers · Open the app on another device"],
+  ] as const)("keeps the signed-in section visible when the room is %s", (status, message) => {
     readAccount.mockReturnValue(signedIn);
     readRoom.mockReturnValue({ status, peers: [] });
-    expect(renderToStaticMarkup(<RemoteSessions query="" />)).toBe("");
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain("Other computers");
+    expect(html).toContain(message);
+    expect(html).not.toContain("No sessions");
+  });
+
+  test("shows only the connection guidance before a list has been received", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status: "waiting", peers: [{ ...peer, online: false }] });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain("Disconnected · Reconnecting");
+    expect(html).not.toContain("Work PC");
+    expect(html).not.toContain("Loading…");
   });
 });
 
