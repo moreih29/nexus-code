@@ -84,6 +84,7 @@ test("peer choices keep their tabs and tree while local selection and persistenc
       COMMANDS.tabClose,
       COMMANDS.fileNew,
       COMMANDS.workspaceFocusNext,
+      COMMANDS.sessionNextWaiting,
       COMMANDS.workspaceSymbolSearch,
     ])
       executeCommand(command);

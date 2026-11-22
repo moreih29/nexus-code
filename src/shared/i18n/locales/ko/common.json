@@ -2075,6 +2075,7 @@
     "updateNeeded": "그 컴퓨터 앱 업데이트 필요",
     "connectionUnavailable": "그 컴퓨터에서 연결 안 됨",
     "truncated": "{{count, number}}개까지만",
-    "textPrefix": "일부만 · 앞 {{size}} KB"
+    "textPrefix": "일부만 · 앞 {{size}} KB",
+    "changes_one": "변경 {{count}}"
   }
 }

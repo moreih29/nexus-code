@@ -57,7 +57,8 @@ export function registerWorkspaceCommands(): Array<() => void> {
       useTaskUIStore.getState().openNewTask(parentId);
     }),
     registerCommand(COMMANDS.sessionNextWaiting, () => {
-      if (!usePeerWorkspaceStore.getState().active || isAgentViewShown()) goToNextWaiting();
+      if (usePeerWorkspaceStore.getState().active && !isAgentViewShown()) return;
+      return goToNextWaiting();
     }),
   ];
 }

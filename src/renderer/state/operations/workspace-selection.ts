@@ -12,8 +12,8 @@ type WorkspaceView = "workspace" | "preserve";
 /** Show a workspace in this window for a reveal or a restored selection. */
 export function focusWorkspace(id: string | null, view: WorkspaceView): void {
   if (view === "workspace") useAgentViewStore.getState().setMode("workspace");
-  useActiveStore.getState().setActiveWorkspaceId(id);
   usePeerWorkspaceStore.getState().clearSelection();
+  useActiveStore.getState().setActiveWorkspaceId(id);
 }
 
 /** Apply the user's workspace selection and send it to main for persistence and connection. */

@@ -105,7 +105,7 @@ export function PeerWorkspaceSection({
       {offline.map((peer) => (
         <div
           key={peer.id}
-          className="mx-2 flex h-[30px] items-center gap-1.5 pr-2 pl-[26px] text-app-ui-sm text-muted-foreground"
+          className="mx-2 flex h-[30px] items-center gap-1.5 pr-2 pl-6 text-app-ui-sm text-muted-foreground"
         >
           <PeerDeviceLabel peer={peer} />
           <span className="ml-auto shrink-0 text-app-micro">

@@ -33,7 +33,7 @@ import {
 
 const FOCUS_REFRESH_LIMIT = 20;
 
-type RefreshTree = (limit?: number) => void;
+type RefreshTree = (viewport?: { start: number; end: number }) => void;
 
 export function PeerFileTree({
   target,
@@ -105,28 +105,48 @@ export function PeerFileTree({
       }
     };
     readFolder.current = (key, path) => void load(key, path);
-    refreshTree.current = (limit = Number.POSITIVE_INFINITY) => {
+    refreshTree.current = (viewport) => {
       const current = usePeerWorkspaceStore.getState().views[id] ?? EMPTY_PEER_VIEW;
-      const open = peerTreeRows({
+      const rows = peerTreeRows({
         ...current,
         root,
         title: "",
         collapsedRoot: current.expanded.has(rootKey),
         errors: {},
-      })
-        .filter(
-          (row): row is PeerTreeEntry =>
-            row.kind === "entry" &&
-            row.node.type === "dir" &&
-            row.parent !== null &&
-            current.expanded.has(row.key),
-        )
-        .slice(0, limit - 1);
-      void load(rootKey, current.folders[rootKey]?.path ?? root);
-      for (const row of open) void load(row.key, row.path);
+      });
+      const folders = rows.filter(
+        (row): row is PeerTreeEntry =>
+          row.kind === "entry" &&
+          row.node.type === "dir" &&
+          (row.parent === null ? !current.expanded.has(rootKey) : current.expanded.has(row.key)),
+      );
+      if (!viewport) {
+        void load(rootKey, current.folders[rootKey]?.path ?? root);
+        for (const folder of folders) {
+          if (folder.parent !== null) void load(folder.key, folder.path);
+        }
+        return;
+      }
+
+      const byKey = new Map(folders.map((folder) => [folder.key, folder]));
+      const visible = new Set<string>();
+      for (const row of rows.slice(viewport.start, viewport.end)) {
+        const key = row.kind === "entry" ? row.key : row.folder;
+        if (byKey.has(key)) visible.add(key);
+        if (row.kind === "entry" && row.parent !== null) visible.add(row.parent);
+      }
+      for (const key of [...visible].slice(0, FOCUS_REFRESH_LIMIT)) {
+        const folder = byKey.get(key);
+        if (folder) void load(folder.key, folder.path);
+      }
     };
     const onFocus = () => {
-      if (document.visibilityState !== "hidden") refreshTree.current(FOCUS_REFRESH_LIMIT);
+      const element = scroll.current;
+      if (document.visibilityState === "hidden" || !element) return;
+      refreshTree.current({
+        start: Math.floor(element.scrollTop / ROW_HEIGHT_PX),
+        end: Math.ceil((element.scrollTop + element.clientHeight) / ROW_HEIGHT_PX),
+      });
     };
     refreshTree.current();
     window.addEventListener("focus", onFocus);
@@ -230,7 +250,7 @@ export function PeerFileTree({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-7 shrink-0 justify-end border-b border-border/50 px-1">
           <IconButton
-            label={t("files:fileTree.toolbar.refresh")}
+            label={t("files:fileTree.header.refresh")}
             size="sm"
             disabled={!canRead}
             onClick={() => refreshTree.current()}
