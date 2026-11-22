@@ -289,10 +289,14 @@ export function registerNotesChannel(opts: {
         const { workspaceId, noteId } = validateArgs(c.links.args, args);
         return ipcOk(await store.links(locationOf(workspaceId), noteId));
       },
+      linksOfConversation: async (args: unknown) => {
+        const tab = validateArgs(c.linksOfConversation.args, args);
+        return ipcOk(await store.linksOfConversation(locationOf(tab.workspaceId), tab));
+      },
       addLink: async (args: unknown) => {
-        const { workspaceId, noteId, link } = validateArgs(c.addLink.args, args);
+        const { workspaceId, noteId, link, touchExisting } = validateArgs(c.addLink.args, args);
         const location = locationOf(workspaceId);
-        const entry = await store.addLink(location, noteId, link);
+        const entry = await store.addLink(location, noteId, link, touchExisting);
         linksChanged(location.key, noteId);
         return ipcOk(entry);
       },

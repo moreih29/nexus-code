@@ -4,6 +4,7 @@
  */
 import type {
   NewNoteLink,
+  NoteConversation,
   NoteLink,
   NoteLinkPatch,
   NoteLinkTarget,
@@ -33,8 +34,14 @@ export const notesApi = {
     call(ipcCallResult("notes", "read", { workspaceId, noteId })) as Promise<NoteContent>,
   links: (workspaceId: string, noteId: string) =>
     call(ipcCallResult("notes", "links", { workspaceId, noteId })),
-  addLink: (workspaceId: string, noteId: string, link: NewNoteLink) =>
-    call(ipcCallResult("notes", "addLink", { workspaceId, noteId, link })),
+  linksOfConversation: (tab: NoteConversation) =>
+    call(ipcCallResult("notes", "linksOfConversation", tab)),
+  addLink: (
+    workspaceId: string,
+    noteId: string,
+    link: NewNoteLink,
+    touchExisting?: true | string,
+  ) => call(ipcCallResult("notes", "addLink", { workspaceId, noteId, link, touchExisting })),
   updateLink: (workspaceId: string, noteId: string, linkId: string, patch: NoteLinkPatch) =>
     call(ipcCallResult("notes", "updateLink", { workspaceId, noteId, linkId, patch })),
   updateLinksForTab: (tab: NoteLinkTarget & Pick<NoteLink, "agent">) =>

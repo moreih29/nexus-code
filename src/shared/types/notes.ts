@@ -6,6 +6,7 @@ import {
 } from "../../../packages/remote-protocol/src/validation";
 import {
   NewNoteLinkSchema,
+  NoteConversationSchema,
   NoteLinkIdSchema,
   NoteLinkPatchSchema,
   NoteLinkTargetSchema,
@@ -50,6 +51,13 @@ export const NoteSummarySchema = z.object({
     .optional(),
 });
 
+export const LinkedNoteSchema = z.object({
+  noteId: NoteIdSchema,
+  title: z.string(),
+  updatedAt: NonnegativeNumberSchema,
+});
+export type LinkedNote = z.infer<typeof LinkedNoteSchema>;
+
 export const NoteContentSchema = NoteSummarySchema.extend({
   doc: NoteDocSchema,
   dir: z.string(),
@@ -89,7 +97,12 @@ export const NotesArgs = {
   create: z.object({ ...ws, title: z.string().max(500).optional() }),
   read: z.object(note),
   links: z.object(note),
-  addLink: z.object({ ...note, link: NewNoteLinkSchema }),
+  linksOfConversation: NoteConversationSchema,
+  addLink: z.object({
+    ...note,
+    link: NewNoteLinkSchema,
+    touchExisting: z.union([z.literal(true), NoteLinkIdSchema]).optional(),
+  }),
   updateLink: z.union([
     z.object({ ...note, linkId: NoteLinkIdSchema, patch: NoteLinkPatchSchema }),
     z.object({ tab: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }) }),

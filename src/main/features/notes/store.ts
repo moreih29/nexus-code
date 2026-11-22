@@ -26,6 +26,7 @@ import {
   MAX_NOTE_LINK_BYTES,
   MAX_NOTE_LINKS,
   type NewNoteLink,
+  type NoteConversation,
   type NoteLink,
   type NoteLinkEntry,
   NoteLinkIdSchema,
@@ -61,6 +62,7 @@ import {
   type NoteSummary,
   SKETCH_ID_RE,
 } from "../../../shared/notes/types";
+import type { LinkedNote } from "../../../shared/types/notes";
 
 const log = createLogger("notes");
 
@@ -76,6 +78,54 @@ interface LinksFile {
   version: 1;
   conversations: Record<string, NoteLink>;
   summaries: Record<string, unknown>;
+}
+
+interface LinkIndex {
+  byConversation: Map<string, Set<string>>;
+  byNote: Map<string, Set<string>>;
+}
+
+function tabLinkKey({ workspaceId, tabId }: Pick<NoteConversation, "workspaceId" | "tabId">) {
+  return `tab:${workspaceId}:${tabId}`;
+}
+
+function indexNote(index: LinkIndex, noteId: string, links: readonly NoteLink[]) {
+  const keys = new Set<string>();
+  for (const link of links) {
+    keys.add(tabLinkKey(link));
+    if (link.session) keys.add(`session:${link.session}`);
+    for (const session of link.sessions ?? []) keys.add(`session:${session}`);
+  }
+  for (const key of index.byNote.get(noteId) ?? []) {
+    if (keys.has(key)) continue;
+    const notes = index.byConversation.get(key);
+    notes?.delete(noteId);
+    if (notes?.size === 0) index.byConversation.delete(key);
+  }
+  for (const key of keys) {
+    let notes = index.byConversation.get(key);
+    if (!notes) {
+      notes = new Set();
+      index.byConversation.set(key, notes);
+    }
+    notes.add(noteId);
+  }
+  if (keys.size) index.byNote.set(noteId, keys);
+  else index.byNote.delete(noteId);
+}
+
+function sameTab(link: NoteLink, tab: NoteConversation): boolean {
+  return (
+    link.agent === tab.agent && link.workspaceId === tab.workspaceId && link.tabId === tab.tabId
+  );
+}
+
+function sameSession(link: NoteLink, tab: NoteConversation): boolean {
+  return (
+    link.agent === tab.agent &&
+    tab.session !== undefined &&
+    (link.session === tab.session || link.sessions?.includes(tab.session) === true)
+  );
 }
 
 /** How long a file the note does not use is kept: one just written may be about to be. */
@@ -106,8 +156,9 @@ export class NotesStore {
   /** Serializes document updates by note folder. */
   private readonly documentTurns = new Map<string, Promise<void>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
+  /** Serializes index construction, link edits and deletions for a location. */
   private readonly linkTurns = new Map<string, Promise<void>>();
-  private readonly linkTargetTurns = new Map<string, Promise<void>>();
+  private readonly linkIndexes = new Map<string, LinkIndex>();
 
   constructor(
     /** The notes folder: <app data>/notes. */
@@ -195,8 +246,10 @@ export class NotesStore {
 
   async remove(location: NoteLocation, id: string): Promise<void> {
     const dir = this.noteDir(location, id);
-    await this.queueWrite(this.linkTurns, dir, async () => {
+    await this.queueWrite(this.linkTurns, location.key, async () => {
       if (await exists(dir)) await this.discard(dir);
+      const index = this.linkIndexes.get(location.key);
+      if (index) indexNote(index, id, []);
     });
   }
 
@@ -205,8 +258,66 @@ export class NotesStore {
     return Object.entries(file.conversations).map(([id, link]) => ({ id, link }));
   }
 
-  async addLink(location: NoteLocation, id: string, link: NewNoteLink): Promise<NoteLinkEntry> {
+  async linksOfConversation(location: NoteLocation, tab: NoteConversation): Promise<LinkedNote[]> {
+    return this.queueWrite(this.linkTurns, location.key, async () => {
+      const { byConversation } = await this.linkIndex(location);
+      const noteIds = new Set(byConversation.get(tabLinkKey(tab)));
+      if (tab.session) {
+        for (const id of byConversation.get(`session:${tab.session}`) ?? []) noteIds.add(id);
+      }
+      const notes: LinkedNote[] = [];
+      for (const noteId of noteIds) {
+        const dir = this.noteDir(location, noteId);
+        const file = await readLinks(dir);
+        const matches = Object.values(file.conversations).filter(
+          (link) => sameTab(link, tab) || sameSession(link, tab),
+        );
+        if (!matches.length) continue;
+        const note = await readNote(dir).catch(() => null);
+        if (note) {
+          const updatedAt = Math.max(...matches.map((link) => link.updatedAt));
+          notes.push({ noteId, title: note.title, updatedAt });
+        }
+      }
+      return notes.sort((a, b) => b.updatedAt - a.updatedAt || b.noteId.localeCompare(a.noteId));
+    });
+  }
+
+  private async linkIndex(location: NoteLocation): Promise<LinkIndex> {
+    const cached = this.linkIndexes.get(location.key);
+    if (cached) return cached;
+    const index: LinkIndex = { byConversation: new Map(), byNote: new Map() };
+    for (const noteId of await readdirSafe(this.locationDir(location))) {
+      if (!NOTE_ID_RE.test(noteId)) continue;
+      const file = await readLinks(this.noteDir(location, noteId));
+      indexNote(index, noteId, Object.values(file.conversations));
+    }
+    this.linkIndexes.set(location.key, index);
+    return index;
+  }
+
+  async addLink(
+    location: NoteLocation,
+    id: string,
+    link: NewNoteLink,
+    touchExisting?: true | string,
+  ): Promise<NoteLinkEntry> {
     return this.editLinks(location, id, async (file, dir) => {
+      if (touchExisting) {
+        const entries = Object.entries(file.conversations);
+        const existing =
+          entries.find(([, current]) => sameTab(current, link)) ??
+          entries.find(
+            ([linkId, current]) => linkId === touchExisting && sameSession(current, link),
+          );
+        if (existing) {
+          const [linkId, current] = existing;
+          const touched = { ...current, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+          file.conversations[linkId] = touched;
+          await writeLinks(dir, file);
+          return { id: linkId, link: touched };
+        }
+      }
       if (Object.keys(file.conversations).length >= MAX_NOTE_LINKS)
         throw new NoteError("bad-request", "Too many conversations linked to this note");
       const linkId = `l${randomBytes(8).toString("hex")}`;
@@ -237,27 +348,21 @@ export class NotesStore {
     { agent, ...tab }: NoteLinkTarget & Pick<NoteLink, "agent">,
     changed: (noteId: string) => void,
   ): Promise<void> {
-    const locationDir = this.locationDir(location);
-    await this.queueWrite(this.linkTargetTurns, locationDir, async () => {
-      for (const noteId of await readdirSafe(locationDir)) {
-        if (!NOTE_ID_RE.test(noteId)) continue;
+    const target = { agent, ...tab };
+    await this.queueWrite(this.linkTurns, location.key, async () => {
+      const index = await this.linkIndex(location);
+      for (const noteId of index.byConversation.get(tabLinkKey(tab)) ?? []) {
         const dir = this.noteDir(location, noteId);
-        await this.queueWrite(this.linkTurns, dir, async () => {
-          const file = await readLinks(dir);
-          let dirty = false;
-          for (const [id, link] of Object.entries(file.conversations)) {
-            if (
-              link.agent !== agent ||
-              link.tabId !== tab.tabId ||
-              link.workspaceId !== tab.workspaceId
-            )
-              continue;
-            if (patchLink(file, id, { ...tab, profileId: tab.profileId ?? null })) dirty = true;
-          }
-          if (!dirty || !(await exists(path.join(dir, "note.json")))) return;
-          await writeLinks(dir, file);
-          changed(noteId);
-        });
+        const file = await readLinks(dir);
+        let dirty = false;
+        for (const [id, link] of Object.entries(file.conversations)) {
+          if (!sameTab(link, target)) continue;
+          if (patchLink(file, id, { ...tab, profileId: tab.profileId ?? null })) dirty = true;
+        }
+        if (!dirty || !(await exists(path.join(dir, "note.json")))) continue;
+        await writeLinks(dir, file);
+        indexNote(index, noteId, Object.values(file.conversations));
+        changed(noteId);
       }
     });
   }
@@ -277,11 +382,15 @@ export class NotesStore {
     edit: (file: LinksFile, dir: string) => Promise<T>,
   ): Promise<T> {
     const dir = this.noteDir(location, id);
-    return this.queueWrite(this.linkTurns, dir, async () => {
+    return this.queueWrite(this.linkTurns, location.key, async () => {
       await readNote(dir).catch(() => {
         throw new NoteError("not-found", `no note ${id}`);
       });
-      return edit(await readLinks(dir), dir);
+      const file = await readLinks(dir);
+      const result = await edit(file, dir);
+      const index = this.linkIndexes.get(location.key);
+      if (index) indexNote(index, id, Object.values(file.conversations));
+      return result;
     });
   }
 
@@ -596,7 +705,10 @@ export class NotesStore {
   /** Removes every note of a location (by its key). */
   async removeLocation(key: string): Promise<void> {
     const dir = path.join(this.root, locationDirName(key));
-    if (await exists(dir)) await this.discard(dir);
+    await this.queueWrite(this.linkTurns, key, async () => {
+      if (await exists(dir)) await this.discard(dir);
+      this.linkIndexes.delete(key);
+    });
   }
 
   private async touchLocation(location: NoteLocation): Promise<void> {
