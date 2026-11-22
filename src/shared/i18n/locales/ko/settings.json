@@ -1083,7 +1083,6 @@
     "account": {
       "title": "NexusCode 계정",
       "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 봅니다",
-      "signedOut": "로그인하지 않음",
       "signInWith": {
         "apple": "Apple로 로그인",
         "google": "Google로 로그인",

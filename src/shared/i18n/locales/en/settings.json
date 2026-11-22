@@ -1083,7 +1083,6 @@
     "account": {
       "title": "NexusCode account",
       "description": "Sign in to see this computer's sessions from your other computers and phone",
-      "signedOut": "Not signed in",
       "signInWith": {
         "apple": "Sign in with Apple",
         "google": "Sign in with Google",

@@ -31,13 +31,7 @@ import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
-import {
-  SettingsGroup,
-  SettingsPage,
-  SettingsRow,
-  SettingsSection,
-  SettingsSwitch,
-} from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
 import { OutdatedGroup } from "./remote-outdated";
@@ -195,6 +189,9 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
+        // Signed out, the group's description and its sign-in buttons say so,
+        // with no label of their own: why the last sign-in failed, when it did,
+        // then a button for each provider.
         <>
           {failure && (
             <SignInNotice
@@ -203,20 +200,17 @@ export function AccountGroup({
               actions={noticeActions.length > 0 ? noticeActions : undefined}
             />
           )}
-          <SettingsSection label={t("remote.account.signedOut")}>
-            <div
-              className={cn(
-                "gap-2",
-                providers.includes("apple")
-                  ? "grid w-fit max-w-full"
-                  : "flex flex-wrap items-center",
-              )}
-            >
-              {providers.map((provider) => (
-                <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
-              ))}
-            </div>
-          </SettingsSection>
+          <div
+            data-testid="sign-in-buttons"
+            className={cn(
+              "gap-2",
+              providers.includes("apple") ? "grid w-fit max-w-full" : "flex flex-wrap items-center",
+            )}
+          >
+            {providers.map((provider) => (
+              <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
+            ))}
+          </div>
         </>
       )}
       {/* The released app's own server goes without saying. */}

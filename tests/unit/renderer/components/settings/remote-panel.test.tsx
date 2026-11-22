@@ -74,6 +74,18 @@ describe("the remote panel's account", () => {
     expect(html).toContain(`Server: ${server}`);
   });
 
+  test("signed out, the group's description and the sign-in buttons say so", () => {
+    const html = render({ status: "signed-out", server: SERVER });
+    // No label of its own above the buttons: the description, then the buttons.
+    expect(html).not.toContain("Not signed in");
+    const description = html.indexOf("Sign in to see this computer&#x27;s sessions");
+    expect(description).toBeGreaterThan(-1);
+    expect(description).toBeLessThan(html.indexOf('data-testid="sign-in-buttons"'));
+    expect(html.indexOf('data-testid="sign-in-buttons"')).toBeLessThan(
+      html.indexOf("Sign in with Google"),
+    );
+  });
+
   test("offers to check approval again alongside the provider buttons", () => {
     const state = { status: "signed-out", server, failure: "pending_approval" } as const;
     const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk(state));
@@ -87,8 +99,11 @@ describe("the remote panel's account", () => {
       expect(html).toContain("Approved accounts only for now");
       // Without the sign-in it is for (the app started anew), the body names none.
       expect(html).toContain("Once approved, sign in again with the same account.");
-      // The notice comes before the sign-in buttons.
-      expect(html.indexOf("Awaiting approval")).toBeLessThan(html.indexOf("Sign in with Google"));
+      // Under the group's description, the notice comes before the sign-in buttons.
+      expect(html.indexOf("Sign in to see")).toBeLessThan(html.indexOf("Awaiting approval"));
+      expect(html.indexOf("Awaiting approval")).toBeLessThan(
+        html.indexOf('data-testid="sign-in-buttons"'),
+      );
       expect(html).toContain("Sign in with Google");
       expect(html).toContain("Sign in with GitHub");
       const action = renderButton.mock.calls.find(([props]) => props.children === "Check Again");
