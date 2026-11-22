@@ -3,15 +3,23 @@ import { readFileSync } from "node:fs";
 import { createWindow } from "@mixmark-io/domino";
 import { createNodeFromContent, Editor, getSchema } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { history, undo } from "@tiptap/pm/history";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
+import { applyAnswerCard } from "../../../../../src/renderer/components/notes/editor/answer-card";
 import {
   NoteSummaryAttributes,
   NoteTaskItem,
 } from "../../../../../src/renderer/components/notes/editor/extensions";
 import { applyLineReport } from "../../../../../src/renderer/components/notes/editor/line-report";
+import { createNoteDocumentRevision } from "../../../../../src/renderer/services/notes/document-inbox";
+import {
+  answerCard,
+  answerCardBlocks,
+  withAnswerCard,
+} from "../../../../../src/shared/notes/answer-card";
 import {
   type LineReport,
   linkedTask,
@@ -113,7 +121,7 @@ test("lineReported merges in the open editor and preserves unsaved text and sele
   expect(state.doc.eq(main)).toBe(true);
   expect(state.doc.firstChild?.textContent).toBe("New Unsaved notes");
   expect(state.selection.from).toBe(3);
-  expect(applyLineReport(editor, report)).toBe(false);
+  expect(applyLineReport(editor, report)).toBe(true);
   expect(
     applyLineReport(editor, {
       ...report,
@@ -231,4 +239,112 @@ test("Enter midway through a result leaves the new task paragraph without report
   } finally {
     editor.destroy();
   }
+});
+
+test("a saved answer is a legacy-compatible quote with safe links, image alt text and code", () => {
+  const markdown = [
+    "# Check",
+    "",
+    "See ![diagram](file:///secret) and ![](https://example.com/photo.png).",
+    "",
+    "![Reference image][image]",
+    "",
+    "[image]: https://example.com/reference.png",
+    "",
+    "[OK](https://example.com/a(b)) · [bad](java&#x73;cript:alert%281%29)",
+    "",
+    "\\![link](https://example.com/image.png)",
+    "",
+    "<iframe src=https://example.com/>",
+    "",
+    "````ts",
+    "const fence = '```';",
+    "~~~",
+    "",
+    "",
+    "</code>",
+    "````",
+  ].join("\n");
+  const card = answerCard(linkId, answerCardBlocks(markdown, "Image"));
+  const saved = current.nodeFromJSON({ type: "doc", content: [card] });
+  saved.check();
+  const old = legacy.nodeFromJSON(saved.toJSON());
+  expect(old.firstChild?.attrs.nexusLink).toBeUndefined();
+  expect(old.textContent).toBe(saved.textContent);
+  expect(old.textContent).toContain("See diagram and Image.");
+  expect(old.textContent).toContain("Reference image");
+  expect(old.textContent).toContain("const fence = '```';\n~~~\n\n\n</code>");
+  const output = docToMarkdown(saved.toJSON());
+  expect(output).toContain("> # Check");
+  expect(output).toContain("[OK](https://example.com/a%28b%29) · bad");
+  expect(output).toContain(String.raw`\<iframe src=https://example.com/\>`);
+  expect(output).toContain(String.raw`\![link](https://example.com/image.png)`);
+  expect(output).toContain("> ~~~~ts");
+  expect(output).not.toContain(linkId);
+  expect(output).not.toContain("javascript:");
+  expect(output).not.toContain("file:///secret");
+  expect(output).not.toContain("photo.png");
+});
+
+test("a card append keeps local edits and selection, and is safe to apply twice", () => {
+  const card = answerCard(linkId, [paragraph("The answer")]);
+  let state = EditorState.create({ doc: current.nodeFromJSON(doc), plugins: [history()] });
+  const edit = state.tr.insertText("New ", 1);
+  state = state.apply(edit.setSelection(TextSelection.create(edit.doc, 3)));
+  const editor = {
+    get state() {
+      return state;
+    },
+    view: {
+      dispatch(tr: Transaction) {
+        state = state.apply(tr);
+      },
+    },
+  } as unknown as Editor;
+  expect(applyAnswerCard(editor, card)).toBe(true);
+  expect(applyAnswerCard(editor, card)).toBe(true);
+  expect(state.selection.from).toBe(3);
+  expect(state.doc.firstChild?.textContent).toBe("New Unsaved notes");
+  expect(state.doc.lastChild?.textContent).toBe("The answer");
+  expect(state.doc.toJSON()).toEqual(
+    current
+      .nodeFromJSON(
+        withAnswerCard(
+          { ...doc, content: [paragraph("New Unsaved notes"), ...(doc.content ?? []).slice(1)] },
+          card,
+        ),
+      )
+      .toJSON(),
+  );
+  expect(
+    undo(state, (tr) => {
+      state = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(state.doc.firstChild?.textContent).toBe("Unsaved notes");
+  expect(state.doc.lastChild?.textContent).toBe("The answer");
+});
+
+test("an unapplied card or line report keeps the disk merge base in place", () => {
+  const state = EditorState.create({ doc: current.nodeFromJSON(doc) });
+  const editor = { state, view: { dispatch: () => {} } } as unknown as Editor;
+  const card = answerCard(linkId, [paragraph("A card from disk")]);
+  const cardRevision = createNoteDocumentRevision(1);
+  cardRevision.apply(2, () => applyAnswerCard(editor, card));
+  cardRevision.apply(3, () => true);
+  expect(cardRevision.updatedAt).toBe(1);
+
+  const reportRevision = createNoteDocumentRevision(1);
+  reportRevision.apply(2, () => {
+    expect(reportRevision.updatedAt).toBe(1);
+    return true;
+  });
+  reportRevision.apply(3, () =>
+    applyLineReport(editor, {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Tests passed", at: 3 },
+    }),
+  );
+  expect(reportRevision.updatedAt).toBe(2);
 });

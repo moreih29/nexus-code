@@ -1,12 +1,8 @@
 import { NotebookPen } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { NoteConversation } from "../../../shared/notes/links";
 import type { LinkedNote } from "../../../shared/types/notes";
-import { notesApi } from "../../services/notes/api";
-import { noteLocation } from "../../services/notes/conversation";
+import { useChatNotes } from "../../services/notes/chat-notes";
 import { openConversationNote } from "../../services/notes/open-conversation-note";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -14,66 +10,18 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
-function useConversationNotes(
-  { workspaceId, tabId, agent, session }: NoteConversation,
-  visible: boolean,
-) {
-  const location = useWorkspacesStore(({ workspaces }) => {
-    const workspace = workspaces.find((item) => item.id === workspaceId);
-    return workspace && noteLocation(workspace, workspaces);
-  });
-  const key = JSON.stringify([workspaceId, tabId, agent, session, location]);
-  const [saved, setSaved] = useState<{ key: string; notes: LinkedNote[] }>();
-  useEffect(() => {
-    if (!visible || !location) return;
-    let revision = 0;
-    let current: LinkedNote[] | undefined;
-    const read = () => {
-      const request = ++revision;
-      void notesApi.linksOfConversation({ workspaceId, tabId, agent, session }).then(
-        (notes) => {
-          if (request !== revision) return;
-          current = notes;
-          setSaved({ key, notes });
-        },
-        () => {},
-      );
-    };
-    const stopLinks = notesApi.onLinksChanged((event) => {
-      if (event.locationKey === location) read();
-    });
-    const stopNotes = notesApi.onChanged((event) => {
-      if (
-        event.locationKey === location &&
-        event.change !== "created" &&
-        (!event.noteId || !current || current.some((note) => note.noteId === event.noteId))
-      ) {
-        read();
-      }
-    });
-    read();
-    return () => {
-      revision++;
-      stopLinks();
-      stopNotes();
-    };
-  }, [visible, location, key, workspaceId, tabId, agent, session]);
-  return saved?.key === key ? saved.notes : undefined;
-}
-
 /** The local Claude and Codex views are shared by both layouts. */
-export function ConversationNoteChip({
-  visible,
-  ...chat
-}: NoteConversation & { visible: boolean }) {
+export function ConversationNoteChip() {
   const { t } = useTranslation("notes");
-  const notes = useConversationNotes(chat, visible);
+  const scope = useChatNotes();
+  const notes = scope?.notes;
   const latest = notes?.[0];
-  if (!notes || !latest) return null;
+  if (!scope || !notes || !latest) return null;
   const multiple = notes.length > 1;
   const name = (note: LinkedNote) => note.title || t("panel.untitled");
   const label = t("conversations.fromNote", { title: name(latest) });
-  const open = (note: LinkedNote) => openConversationNote(chat.workspaceId, chat.tabId, note);
+  const open = (note: LinkedNote) =>
+    openConversationNote(scope.chat.workspaceId, scope.chat.tabId, note);
   const chip = (
     <button
       type="button"

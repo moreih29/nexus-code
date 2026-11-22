@@ -20,6 +20,7 @@ import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
+import { answerCard, withAnswerCard } from "../../../shared/notes/answer-card";
 import { withBlocks } from "../../../shared/notes/insert";
 import {
   isTaskLink,
@@ -41,7 +42,7 @@ import {
   NoteLinkSchema,
   type NoteLinkTarget,
 } from "../../../shared/notes/links";
-import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
+import { type DocNode, docToMarkdown, escapeText } from "../../../shared/notes/markdown";
 import {
   failedSummary,
   RecordingIdSchema,
@@ -178,6 +179,8 @@ interface SavedLineReport {
 export class NotesStore {
   /** Serializes document updates by note folder. */
   private readonly documentTurns = new Map<string, Promise<void>>();
+  /** Card revisions used to merge renderer snapshots still in flight. */
+  private readonly savedCards = new Map<string, Map<string, number>>();
   /** Latest report per link for merging renderer snapshots still in flight. */
   private readonly savedReports = new Map<string, Map<string, SavedLineReport>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
@@ -258,9 +261,23 @@ export class NotesStore {
     if (change.title !== undefined) note.title = change.title.slice(0, 500);
     if (change.doc !== undefined) {
       if (change.doc?.type !== "doc") throw new NoteError("bad-request", "not a document");
+      const previousDoc = note.doc;
       note.doc = change.doc;
       if (change.baseUpdatedAt !== undefined) {
         const base = change.baseUpdatedAt;
+        const cards = this.savedCards.get(dir);
+        if (cards) {
+          for (const block of previousDoc.content ?? []) {
+            const linkId = block.attrs?.nexusLink;
+            if (
+              block.type === "blockquote" &&
+              typeof linkId === "string" &&
+              (cards.get(linkId) ?? 0) > base
+            ) {
+              note.doc = withAnswerCard(note.doc, block);
+            }
+          }
+        }
         for (const saved of this.savedReports.get(dir)?.values() ?? []) {
           if (saved.updatedAt <= base) continue;
           note.doc = withLineReport(note.doc, {
@@ -281,6 +298,7 @@ export class NotesStore {
     await this.queueWrite(this.linkTurns, location.key, async () => {
       if (await exists(dir)) await this.discard(dir);
       this.savedReports.delete(dir);
+      this.savedCards.delete(dir);
       const index = this.linkIndexes.get(location.key);
       if (index) indexNote(index, id, []);
     });
@@ -481,10 +499,13 @@ export class NotesStore {
     touchExisting?: true | string,
   ): Promise<NoteLinkEntry> {
     return this.editLinks(location, id, async (file, dir) => {
-      if (touchExisting) {
+      if (touchExisting || link.kind === "mention") {
         const entries = Object.entries(file.conversations);
         const existing =
-          entries.find(([, current]) => sameTab(current, link)) ??
+          entries.find(
+            ([, current]) =>
+              sameTab(current, link) && (touchExisting || current.kind === link.kind),
+          ) ??
           entries.find(
             ([linkId, current]) => linkId === touchExisting && sameSession(current, link),
           );
@@ -496,14 +517,50 @@ export class NotesStore {
           return { id: linkId, link: touched };
         }
       }
-      if (Object.keys(file.conversations).length >= MAX_NOTE_LINKS)
-        throw new NoteError("bad-request", "Too many conversations linked to this note");
-      const linkId = `l${randomBytes(8).toString("hex")}`;
-      const now = Date.now();
-      const created = { ...link, createdAt: now, updatedAt: now };
-      file.conversations[linkId] = created;
+      const entry = newLinkEntry(file, link);
       await writeLinks(dir, file);
-      return { id: linkId, link: created };
+      return entry;
+    });
+  }
+
+  async saveAnswer(
+    location: NoteLocation,
+    noteId: string,
+    source: Omit<NewNoteLink, "kind"> & { messageId: string },
+    blocks: DocNode[],
+    documentWritten: (block: DocNode, updatedAt: number) => void,
+  ): Promise<void> {
+    await this.editLinks(location, noteId, async (file, dir) => {
+      const alreadySaved = Object.values(file.conversations).some(
+        (link) => link.kind === "card" && link.messageId === source.messageId,
+      );
+      if (alreadySaved) return;
+
+      const { id } = newLinkEntry(file, { ...source, kind: "card" });
+      const card = answerCard(id, blocks);
+      await writeLinks(dir, file);
+      let written = false;
+      try {
+        await this.queueWrite(this.documentTurns, dir, async () => {
+          const note = await readNote(dir);
+          const doc = withAnswerCard(note.doc, card);
+          await this.saveNote(location, noteId, dir, { doc }, (updatedAt) => {
+            written = true;
+            const cards = this.savedCards.get(dir) ?? new Map<string, number>();
+            cards.set(id, updatedAt);
+            this.savedCards.set(dir, cards);
+            documentWritten(card, updatedAt);
+          });
+        });
+      } catch (error) {
+        if (!written) {
+          delete file.conversations[id];
+          await writeLinks(dir, file);
+        } else {
+          this.refreshLinkIndex(location.key, noteId, file);
+        }
+        throw error;
+      }
     });
   }
 
@@ -910,6 +967,9 @@ export class NotesStore {
       for (const noteDir of this.savedReports.keys()) {
         if (path.dirname(noteDir) === dir) this.savedReports.delete(noteDir);
       }
+      for (const noteDir of this.savedCards.keys()) {
+        if (path.dirname(noteDir) === dir) this.savedCards.delete(noteDir);
+      }
     });
   }
 
@@ -1008,6 +1068,16 @@ function compactSummaries(file: LinksFile, summaries = summariesOf(file)): void 
   }
   file.summaries = Object.fromEntries(keep);
   file.summaryHistory = history.size ? [...history] : undefined;
+}
+
+function newLinkEntry(file: LinksFile, link: NewNoteLink): NoteLinkEntry {
+  if (Object.keys(file.conversations).length >= MAX_NOTE_LINKS)
+    throw new NoteError("bad-request", "Too many conversations linked to this note");
+  const id = `l${randomBytes(8).toString("hex")}`;
+  const now = Date.now();
+  const entry = { ...link, createdAt: now, updatedAt: now };
+  file.conversations[id] = entry;
+  return { id, link: entry };
 }
 
 function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
@@ -1131,7 +1201,7 @@ async function recordingSummary(dir: string): Promise<NoteRecordingSummary | und
 /** The note as Markdown: its title, then its body. */
 export function noteMarkdown(note: Pick<NoteFile, "title" | "doc">): string {
   const body = docToMarkdown(note.doc);
-  const title = note.title.trim();
+  const title = escapeText(note.title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim());
   return title ? `# ${title}\n\n${body}` : body;
 }
 

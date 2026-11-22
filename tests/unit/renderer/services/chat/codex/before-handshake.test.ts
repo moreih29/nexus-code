@@ -832,3 +832,56 @@ test("a failed Codex /new keeps the source history, queue, and saved thread", as
   expect(onTitle).not.toHaveBeenCalled();
   expect(onMoves).not.toHaveBeenCalled();
 });
+
+test.each([
+  ["0.170.0", true],
+  ["0.166.0", false],
+  [null, false],
+] as const)("Codex %s checks saved turns only when paged history is available", async (version, supported) => {
+  installedVersion = version;
+  const prototype = CodexController.prototype as unknown as {
+    write(this: Controller, message: Message): Promise<void>;
+  };
+  const write = prototype.write;
+  const wire = spyOn(prototype, "write").mockImplementation(async function (
+    this: Controller,
+    message: Message,
+  ) {
+    await write.call(this, message);
+    if (!message.id) return;
+    const threadId = (message.params as Message)?.threadId;
+    const turns = threadId === "saved" ? [{ id: "recorded-turn" }] : [];
+    const reply =
+      threadId === "missing"
+        ? { error: { code: -32600, message: "no rollout found" } }
+        : { result: { data: turns } };
+    this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } });
+  });
+  try {
+    expect(
+      await CodexController.savedThreadsWithTurns(
+        { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
+        ["missing", "saved", "empty"],
+      ),
+    ).toEqual(supported ? ["saved"] : []);
+    expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
+    expect(catalogCalls.at(-1)?.method).toBe("close");
+    const requests = catalogCalls
+      .filter(({ method }) => method === "send")
+      .map(({ args }) => args.message as Message);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "initialize",
+      "initialized",
+      ...(supported ? Array(3).fill("thread/turns/list") : []),
+    ]);
+    if (supported) {
+      expect(requests.at(-2)?.params).toEqual({
+        threadId: "saved",
+        itemsView: "notLoaded",
+        limit: 1,
+      });
+    }
+  } finally {
+    wire.mockRestore();
+  }
+});

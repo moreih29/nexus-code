@@ -18,6 +18,7 @@ import {
   conversationStatus,
   conversationTitle,
   historyWorkspace,
+  latestConversations,
   noteLocation,
   resolveConversation,
   tabLinkTarget,
@@ -26,6 +27,7 @@ import {
   conversationHistoryKey,
   readConversationHistory,
 } from "../../services/notes/conversation-history";
+import { storedTurnTarget, useStoredTurns } from "../../services/notes/stored-turns";
 import { useNoteLinks } from "../../services/notes/use-links";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
@@ -54,6 +56,10 @@ export function useNoteConversations(): ChipRows {
   return useContext(NoteConversations);
 }
 
+export function useNoteConversationList() {
+  return latestConversations(useNoteConversations());
+}
+
 export function NoteConversationLinks({
   note,
   isVisible,
@@ -73,7 +79,7 @@ export function NoteConversationLinks({
 
 export function ConversationChips() {
   const { t } = useTranslation("notes");
-  const rows = useNoteConversations();
+  const rows = useNoteConversationList();
   if (!rows.length) return null;
   return (
     <fieldset
@@ -83,8 +89,8 @@ export function ConversationChips() {
       <span className="mr-1 shrink-0 whitespace-nowrap text-app-micro text-muted-foreground @max-[240px]/note:hidden">
         {t("conversations.title")}
       </span>
-      {rows.map((props) => (
-        <ConversationChip key={props.entry.id} {...props} />
+      {rows.map(({ key, ...props }) => (
+        <ConversationChip key={key} {...props} />
       ))}
     </fieldset>
   );
@@ -125,7 +131,7 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       alive = false;
     };
   }, [isVisible, request, config]);
-  return rows.map(({ entry, resolution, key }) => {
+  const resolved = rows.map(({ entry, resolution, key }) => {
     const target =
       key && history[key]
         ? resolveConversation(entry.link, { ...stores, history: history[key] })
@@ -138,6 +144,7 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       entry,
       target,
       session,
+      savedTarget: storedTurnTarget(target, session),
       note,
       checking: Boolean(key && !history[key]),
       onUnavailable: (sessions: ListedSession[]) => {
@@ -145,6 +152,15 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       },
     };
   });
+  const found = useStoredTurns(
+    resolved.flatMap(({ savedTarget }) => (savedTarget ? [savedTarget] : [])),
+    isVisible,
+  );
+  return resolved.map(({ savedTarget, ...row }) => ({
+    ...row,
+    checking: row.checking || (savedTarget !== undefined && found === undefined),
+    hasStoredTurns: savedTarget !== undefined && found?.has(JSON.stringify(savedTarget)),
+  }));
 }
 
 const DOT_COLORS: Partial<Record<ConversationStatus, string>> = {
@@ -169,25 +185,31 @@ export function ConversationChip({
   target,
   session,
   checking,
+  hasStoredTurns,
   note,
   onUnavailable,
+  result = link.result,
   line = false,
+  card = false,
 }: {
   entry: NoteLinkEntry;
   target: ConversationResolution;
   session: AgentSession | undefined;
   checking: boolean;
+  hasStoredTurns?: boolean;
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
+  result?: NoteLinkEntry["link"]["result"];
   line?: boolean;
+  card?: boolean;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
-  const status = conversationStatus(target, session, link.result, checking);
+  const status = conversationStatus(target, session, result, { checking, hasStoredTurns, line });
   const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
   const branch =
     (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
-  const pr = link.result?.pr;
+  const pr = result?.pr;
   const Icon = link.agent === "claude" ? ClaudeIcon : CodexIcon;
   const time = session?.limitWait
     ? new Intl.DateTimeFormat(i18n.language || undefined, {
@@ -223,9 +245,34 @@ export function ConversationChip({
     }
   };
 
+  if (card) {
+    return (
+      <div
+        className="flex min-w-0 items-center gap-1.5 pb-1 text-app-micro text-muted-foreground"
+        data-testid="note-answer-card-header"
+      >
+        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate font-medium text-foreground" title={title}>
+          {title}
+        </span>
+        <span aria-hidden="true">·</span>
+        {statusIcon}
+        <span className="truncate">{label}</span>
+        <button
+          type="button"
+          className="ml-auto shrink-0 rounded-(--radius-control) px-1.5 py-0.5 hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-50"
+          disabled={opening || target.kind === "missing"}
+          onClick={() => void openConversation()}
+        >
+          {t("connections.openConversation")}
+        </button>
+      </div>
+    );
+  }
+
   const agent = t(`common:task.agents.${link.agent}`);
   const lineState =
-    target.kind === "missing" && !link.result
+    target.kind === "missing" && !result
       ? "text-muted-foreground"
       : (LINE_COLORS[status] ?? "text-muted-foreground");
   const chip = (
@@ -239,7 +286,7 @@ export function ConversationChip({
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
       onClick={target.kind === "missing" ? undefined : () => void openConversation()}
-      disabled={opening || (checking && !link.result)}
+      disabled={opening || (target.kind === "missing" && checking && !result)}
       data-testid={line ? "note-task-conversation-chip" : "note-conversation-chip"}
     >
       {line ? (

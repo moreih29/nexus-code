@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
-import { createLineReportInbox } from "../../../../../src/renderer/services/notes/report-inbox";
+import {
+  createNoteDocumentInbox,
+  type NoteDocumentEvent,
+} from "../../../../../src/renderer/services/notes/document-inbox";
 import type { NoteLineReported } from "../../../../../src/shared/types/notes";
 
 test("line reports wait for the editor and only reach the same note and location", () => {
-  const inbox = createLineReportInbox("local:/repo", "n1234567");
+  const inbox = createNoteDocumentInbox<NoteDocumentEvent>("local:/repo", "n1234567");
   const report: NoteLineReported = {
     locationKey: "local:/repo",
     noteId: "n1234567",
@@ -16,7 +19,12 @@ test("line reports wait for the editor and only reach the same note and location
   inbox.receive({ ...report, locationKey: "local:/other" });
   inbox.receive({ ...report, noteId: "n7654321" });
   inbox.receive(report);
-  inbox.receive({ ...report, updatedAt: 11 });
+  inbox.receive({
+    locationKey: report.locationKey,
+    noteId: report.noteId,
+    updatedAt: 11,
+    blocks: [],
+  });
   expect(seen).toEqual([]);
   const detach = inbox.attach(({ updatedAt }) => seen.push(updatedAt));
   expect(seen).toEqual([10, 11]);

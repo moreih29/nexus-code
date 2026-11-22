@@ -1,4 +1,9 @@
-import { MAX_LINK_TITLE, type NoteLink, type NoteLinkTarget } from "../../../shared/notes/links";
+import {
+  MAX_LINK_TITLE,
+  type NoteLink,
+  type NoteLinkEntry,
+  type NoteLinkTarget,
+} from "../../../shared/notes/links";
 import { type WorkspaceMeta, workspaceLocationKey } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
 import type { AgentSession } from "../agent-sessions/model";
@@ -94,6 +99,70 @@ export function resolveConversation(
   return { kind: "missing" };
 }
 
+interface ResolvedNoteLink {
+  entry: NoteLinkEntry;
+  target: ConversationResolution;
+}
+
+function openTarget(target: ConversationResolution) {
+  return target.kind === "open" || target.kind === "moved" ? target : undefined;
+}
+
+function resolvedSession({ entry, target }: ResolvedNoteLink): string | undefined {
+  if (target.kind === "resume") return target.session.sessionId;
+  const tab = openTarget(target)?.tab;
+  if (!tab) return entry.link.session;
+  return tab.type === "claude" ? tab.props.sessionId : tab.props.threadId;
+}
+
+function sameConversation(a: ResolvedNoteLink, b: ResolvedNoteLink): boolean {
+  const left = a.entry.link;
+  const right = b.entry.link;
+  if (left.agent !== right.agent) return false;
+  const leftOpen = openTarget(a.target);
+  const rightOpen = openTarget(b.target);
+  if (leftOpen && rightOpen) {
+    return leftOpen.workspace.id === rightOpen.workspace.id && leftOpen.tab.id === rightOpen.tab.id;
+  }
+  if (left.workspaceId === right.workspaceId && left.tabId === right.tabId) return true;
+  const session = resolvedSession(a);
+  return session !== undefined && session === resolvedSession(b);
+}
+
+function targetRank(target: ConversationResolution): number {
+  if (openTarget(target)) return 2;
+  return target.kind === "resume" ? 1 : 0;
+}
+
+/** Conversation lists share a chip while task and card widgets keep their own link IDs. */
+export function latestConversations<Row extends ResolvedNoteLink>(rows: readonly Row[]) {
+  // Prefer a target we can open. For equivalent targets, the newest link represents the group.
+  const candidates = rows
+    .map((row, index) => ({ row, index }))
+    .reverse()
+    .sort(
+      (a, b) =>
+        targetRank(b.row.target) - targetRank(a.row.target) ||
+        b.row.entry.link.updatedAt - a.row.entry.link.updatedAt ||
+        b.row.entry.link.createdAt - a.row.entry.link.createdAt,
+    );
+  const groups: { row: Row; index: number; links: Row[]; result: NoteLink["result"] }[] = [];
+  for (const { row, index } of candidates) {
+    const result = row.entry.link.result;
+    const group = groups.find(({ links }) => links.some((link) => sameConversation(link, row)));
+    if (!group) {
+      groups.push({ row, index, links: [row], result });
+      continue;
+    }
+    group.links.push(row);
+    group.index = Math.min(group.index, index);
+    if (result && (!group.result || result.at > group.result.at)) group.result = result;
+  }
+  return groups
+    .sort((a, b) => a.index - b.index)
+    .map(({ row, index, result }) => ({ ...row, key: rows[index].entry.id, result }));
+}
+
 export type ConversationStatus =
   | "running"
   | "attention"
@@ -111,26 +180,26 @@ export function conversationStatus(
   resolution: ConversationResolution,
   session: Pick<AgentSession, "state" | "hasTurns" | "limitWait"> | undefined,
   result: NoteLink["result"],
-  checking = false,
+  { checking = false, hasStoredTurns = false, line = false } = {},
 ): ConversationStatus {
-  if (resolution.kind === "open" || resolution.kind === "moved") {
+  const reported = result && (result.state === "done" ? "reported" : "failed");
+  if (openTarget(resolution)) {
+    const state = session?.state;
+    const active =
+      state === "running" || state === "busy"
+        ? "running"
+        : state === "permissionPending" || state === "needsInput"
+          ? "attention"
+          : undefined;
+    if (line && reported) return active ?? reported;
     if (session?.limitWait) return "limitWait";
-    switch (session?.state) {
-      case "running":
-      case "busy":
-        return "running";
-      case "permissionPending":
-      case "needsInput":
-        return "attention";
-      case "error":
-        return "failed";
-      case "completed":
-        return "completed";
-      default:
-        return session?.hasTurns ? "seen" : "idle";
-    }
+    if (active) return active;
+    if (state === "error") return "failed";
+    if (state === "completed") return "completed";
+    if (session?.hasTurns || hasStoredTurns) return "seen";
+    return checking ? "checking" : "idle";
   }
-  if (result) return result.state === "done" ? "reported" : "failed";
+  if (reported) return reported;
   if (resolution.kind === "resume") return "closed";
   return checking ? "checking" : "missing";
 }

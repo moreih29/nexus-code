@@ -61,7 +61,11 @@ function block(node: DocNode, indent: string): string {
     case "codeBlock": {
       const lang = typeof attrs.language === "string" ? attrs.language : "";
       const text = (node.content ?? []).map((t) => t.text ?? "").join("");
-      const fence = text.includes("```") ? "~~~" : "```";
+      const fence = text.includes("```")
+        ? "~".repeat(
+            (text.match(/~{3,}/g) ?? []).reduce((size, run) => Math.max(size, run.length + 1), 3),
+          )
+        : "```";
       return prefixLines(`${fence}${lang}\n${text}\n${fence}`, indent);
     }
     case "horizontalRule":
@@ -128,7 +132,11 @@ function inline(nodes: DocNode[] | undefined): string {
       else if (m.type === "strike") t = `~~${t}~~`;
     }
     const link = marks.find((m) => m.type === "link");
-    if (link) t = `[${t}](${linkTarget(str(link.attrs?.href))})`;
+    if (link) {
+      // A literal exclamation mark before a link must stay text, even across nodes.
+      if (out.endsWith("!")) out = `${out.slice(0, -1)}\\!`;
+      t = `[${t}](${linkTarget(str(link.attrs?.href))})`;
+    }
     out += t;
   }
   return out;

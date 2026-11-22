@@ -4,9 +4,10 @@
 // command that matches nothing says so, as the app's other pickers do; a
 // file search, answered later, shows only what it found.
 
-import { FileText, Folder, Slash } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { FileText, Folder, NotebookPen, Slash } from "lucide-react";
+import { Fragment, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import type { NoteChoice } from "../../services/notes/choices";
 import { cn } from "../../utils/cn";
 
 export interface CompletionItem {
@@ -16,7 +17,8 @@ export interface CompletionItem {
   hint?: string;
   /** Under it: a command's description. */
   detail?: string;
-  icon: "command" | "file" | "folder";
+  icon: "command" | "file" | "folder" | "note";
+  note?: NoteChoice;
 }
 
 interface CompletionMenuProps {
@@ -55,52 +57,78 @@ export function CompletionMenu({
       </div>
     );
   }
+  const hasNotes = items[0]?.icon === "note";
   return (
     <div
       ref={listRef}
       role="listbox"
-      aria-label={kind === "command" ? t("chat.composer.commands") : t("chat.composer.files")}
+      aria-label={
+        kind === "command"
+          ? t("chat.composer.commands")
+          : hasNotes
+            ? t("notes:connections.mentions")
+            : t("chat.composer.files")
+      }
       className="app-scrollbar absolute right-0 bottom-full left-0 z-30 mb-1 max-h-64 overflow-y-auto rounded-(--radius-raised) border border-border bg-popover py-1"
       data-testid="chat-completion"
     >
       {items.map((item, i) => {
-        const Icon = item.icon === "command" ? Slash : item.icon === "folder" ? Folder : FileText;
+        const Icon = { command: Slash, folder: Folder, file: FileText, note: NotebookPen }[
+          item.icon
+        ];
+        const section =
+          hasNotes && (i === 0 || (items[i - 1]?.icon === "note" && item.icon !== "note"));
         return (
-          // biome-ignore lint/a11y/useKeyWithClickEvents: the message box has the keys
-          <div
-            key={item.key}
-            role="option"
-            aria-selected={i === active}
-            data-index={i}
-            tabIndex={-1}
-            // The message box keeps the focus, and with it the caret.
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onPick(i)}
-            onMouseMove={() => i !== active && onHover(i)}
-            className={cn(
-              "flex cursor-pointer items-start gap-2 px-2 py-1 text-app-ui-sm",
-              i === active && "bg-[var(--state-hover-bg)]",
+          <Fragment key={item.note ? item.key : `completion:${item.key}`}>
+            {section && (
+              <div aria-hidden="true" className="px-2 pt-1 text-app-micro text-muted-foreground">
+                {item.note ? t("notes:panel.title") : t("chat.composer.files")}
+              </div>
             )}
-          >
-            <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-baseline gap-2">
-                <span
-                  className={cn("truncate", item.icon !== "command" && "font-mono text-app-micro")}
-                >
-                  {item.label}
-                </span>
-                {item.hint && (
-                  <span className="truncate text-app-micro text-muted-foreground">{item.hint}</span>
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: the message box has the keys */}
+            <div
+              role="option"
+              aria-selected={i === active}
+              data-index={i}
+              tabIndex={-1}
+              // The message box keeps the focus, and with it the caret.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onPick(i)}
+              onMouseMove={() => i !== active && onHover(i)}
+              className={cn(
+                "flex cursor-pointer items-start gap-2 px-2 py-1 text-app-ui-sm",
+                i === active && "bg-[var(--state-hover-bg)]",
+              )}
+            >
+              <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <span
+                    className={cn(
+                      "truncate",
+                      (item.icon === "file" || item.icon === "folder") &&
+                        "font-mono text-app-micro",
+                    )}
+                  >
+                    {item.label}
+                  </span>
+                  {item.hint && (
+                    <span className="truncate text-app-micro text-muted-foreground">
+                      {item.hint}
+                    </span>
+                  )}
+                </div>
+                {item.detail && (
+                  <div
+                    className="truncate text-app-micro text-muted-foreground"
+                    title={item.detail}
+                  >
+                    {item.detail}
+                  </div>
                 )}
               </div>
-              {item.detail && (
-                <div className="truncate text-app-micro text-muted-foreground" title={item.detail}>
-                  {item.detail}
-                </div>
-              )}
             </div>
-          </div>
+          </Fragment>
         );
       })}
     </div>

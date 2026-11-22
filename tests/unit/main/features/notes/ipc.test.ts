@@ -9,6 +9,7 @@ import { NoteError } from "../../../../../src/main/features/notes/store";
 import { trackAppWindow } from "../../../../../src/main/features/window/app-windows";
 import { linkedTask } from "../../../../../src/shared/notes/line-report";
 import type { NoteContent } from "../../../../../src/shared/notes/types";
+import { MAX_NOTE_ANSWER_BYTES } from "../../../../../src/shared/types/notes";
 import {
   createIpcPair,
   mockGetAllWebContents,
@@ -506,5 +507,144 @@ test.each([
     expect(notes.recording()).toBeUndefined();
   } finally {
     read.mockRestore();
+  }
+});
+
+test("saving an answer broadcasts the stored card and a stale autosave keeps the quote", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-card-ipc-"));
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  try {
+    const ipc = createIpcPair().window.ipc;
+    const location = notes.locationOf(id);
+    const open = await notes.store.create(location, "Review");
+    const caller = {
+      agent: "codex",
+      tabId: "tab",
+      session: "thread",
+      messageId: "turn",
+      cwd: "/workspace",
+      title: "Conversation",
+    } as const;
+    const request = {
+      workspaceId: id,
+      noteId: open.id,
+      markdown: "Answ\u202eer ![chart](file:///private).\n\n```txt\n\u2066data\u2069\n```",
+      imageAlt: "Image",
+      source: caller,
+    };
+    const results = await Promise.all([
+      ipc.call("notes", "saveAnswer", request),
+      ipc.call("notes", "saveAnswer", request),
+    ]);
+    expect(results[0]).toMatchObject({ ok: true, value: { noteId: open.id, saved: true } });
+    expect(results[1]).toMatchObject({ ok: true, value: { noteId: open.id, saved: false } });
+    expect(await notes.store.links(location, open.id)).toHaveLength(1);
+    const [{ id: linkId, link }] = await notes.store.links(location, open.id);
+    expect(link).toMatchObject({ ...caller, workspaceId: id, kind: "card" });
+    const stored = await notes.store.read(location, open.id);
+    const [card] = stored.doc.content ?? [];
+    expect(card).toMatchObject({ type: "blockquote", attrs: { nexusLink: linkId } });
+    expect(JSON.stringify(card)).not.toMatch(/\p{Cf}/u);
+    expect(broadcast).toHaveBeenCalledWith("notes", "blocksAdded", {
+      locationKey: location.key,
+      noteId: open.id,
+      updatedAt: stored.updatedAt,
+      blocks: [card],
+    });
+    const edited = { type: "paragraph", content: [{ type: "text", text: "Concurrent edit" }] };
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId: open.id,
+        doc: { type: "doc", content: [edited] },
+        baseUpdatedAt: open.updatedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await notes.store.read(location, open.id)).doc.content).toEqual([edited, card]);
+    expect(await fs.readFile(path.join(open.dir, "note.md"), "utf8")).toBe(
+      "# Review\n\nConcurrent edit\n\n> Answer chart.\n>\n> ```txt\n> data\n> ```\n",
+    );
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId: open.id,
+        doc: { type: "doc", content: [edited] },
+        baseUpdatedAt: stored.updatedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await notes.store.read(location, open.id)).doc.content).toEqual([edited]);
+
+    const newNote = await ipc.call("notes", "saveAnswer", {
+      workspaceId: id,
+      markdown: "New quote",
+      imageAlt: "Image",
+      source: caller,
+    });
+    expect(newNote).toMatchObject({
+      ok: true,
+      value: { noteId: expect.any(String), saved: true },
+    });
+    if (!newNote.ok) throw new Error("New note failed");
+    expect(newNote.value.noteId).not.toBe(open.id);
+    expect(await notes.store.list(location)).toHaveLength(2);
+  } finally {
+    notes.dispose();
+    broadcast.mockRestore();
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
+test("answer saves reject oversized text and remove new notes when the card write fails", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-card-failure-"));
+  await setupInMemoryRouter();
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  const rename = fs.rename;
+  let documentWrites = 0;
+  const failWrite = spyOn(fs, "rename").mockImplementation(async (from, to) => {
+    if (path.basename(String(to)) === "note.json" && ++documentWrites === 2)
+      throw new Error("Cannot store the card");
+    return rename(from, to);
+  });
+  try {
+    const ipc = createIpcPair().window.ipc;
+    const request = {
+      workspaceId: id,
+      imageAlt: "Image",
+      source: {
+        agent: "codex",
+        tabId: "tab",
+        messageId: "turn",
+        cwd: "/workspace",
+        title: "Conversation",
+      },
+    } as const;
+    expect(
+      await ipc.call("notes", "saveAnswer", {
+        ...request,
+        markdown: "한".repeat(Math.ceil(MAX_NOTE_ANSWER_BYTES / 3)),
+      }),
+    ).toMatchObject({ ok: false, kind: "invalid-args" });
+    expect(documentWrites).toBe(0);
+    expect(await ipc.call("notes", "saveAnswer", { ...request, markdown: "Answer" })).toMatchObject(
+      {
+        ok: false,
+      },
+    );
+    expect(documentWrites).toBe(2);
+    expect(await notes.store.list(notes.locationOf(id))).toEqual([]);
+  } finally {
+    failWrite.mockRestore();
+    notes.dispose();
+    await rm(userData, { recursive: true, force: true });
   }
 });

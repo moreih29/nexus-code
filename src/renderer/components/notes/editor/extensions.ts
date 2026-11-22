@@ -3,6 +3,7 @@ import { type AnyExtension, Extension } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extensions";
 import StarterKit from "@tiptap/starter-kit";
+import { NoteAnswerWidgets } from "./answer-card";
 import { NoteFile, NoteImage } from "./asset-nodes";
 import type { NoteHost } from "./host";
 import { Sketch } from "./sketch-node";
@@ -98,6 +99,7 @@ export function noteExtensions(
     NoteSummaryAttributes,
     NoteSummaryDivider,
     NoteTaskWidgets,
+    NoteAnswerWidgets,
     Placeholder.configure({ placeholder: options.placeholder }),
     Sketch.configure({ host }),
     NoteImage.configure({ host }),

@@ -188,6 +188,7 @@ import {
 } from "../types/entry-points";
 import {
   LinkedNoteSchema,
+  NoteAnswerResultSchema,
   NoteAssetSchema,
   NoteBlocksAddedSchema,
   NoteBlocksRemovedSchema,
@@ -675,6 +676,7 @@ const notesContracts = {
       undo: call(NotesArgs.undo, z.number().int().nonnegative()),
       dismiss: call(NotesArgs.dismiss, z.boolean()),
       addLink: call(NotesArgs.addLink, NoteLinkEntrySchema),
+      saveAnswer: call(NotesArgs.saveAnswer, NoteAnswerResultSchema),
       updateLink: call(NotesArgs.updateLink, z.void()),
       removeLink: call(NotesArgs.removeLink, z.void()),
       save: call(NotesArgs.save, NoteSummarySchema),

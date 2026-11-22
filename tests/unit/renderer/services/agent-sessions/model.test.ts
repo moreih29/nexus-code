@@ -401,3 +401,22 @@ it("keeps the previous sidebar row reference when another session changes state"
   expect(after.byKey.get(`${ROOT}:a`)).toBe(before.byKey.get(`${ROOT}:a`));
   expect(after.byKey.get(`${ROOT}:b`)?.session.phase).toBe("running");
 });
+
+it("counts a restored transcript even before the live model sees a turn", () => {
+  const state = emptyTabState();
+  const history = applyLine(state.model, {
+    seq: 1,
+    dir: "out",
+    message: {
+      type: "assistant",
+      message: { id: "past", content: [{ type: "text", text: "Past answer" }] },
+    },
+  });
+  const family = buildFamily(
+    input({
+      tabsByWorkspace: { [ROOT]: { c: claudeTab("c", "Claude") } },
+      chats: { [`${ROOT}:c`]: { ...state, history } },
+    }),
+  );
+  expect(family?.worktrees[0].sessions[0]).toMatchObject({ state: "idle", hasTurns: true });
+});
