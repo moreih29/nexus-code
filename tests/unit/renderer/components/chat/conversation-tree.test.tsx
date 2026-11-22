@@ -175,6 +175,12 @@ test("header dims a closed parent and keeps a remote parent inert even with a ma
     expect(gone).toContain("opacity-60");
     expect(gone).toContain(">↳ Old title · closed</span>");
     expect(gone).not.toContain("<button");
+    const unnamed = renderToStaticMarkup(
+      <ConversationParentChip opener={{ ...stored, name: "", tabId: "1a2b3c4d-missing" }} />,
+    );
+    expect(unnamed).toContain(">↳ Closed conversation</span>");
+    expect(unnamed).toContain("opacity-60");
+    expect(unnamed).not.toContain("1a2b3c4d");
     const remote = renderToStaticMarkup(
       <ConversationParentChip opener={{ ...stored, device: { id: "n", name: "Studio" } }} />,
     );
@@ -188,6 +194,10 @@ test("header dims a closed parent and keeps a remote parent inert even with a ma
 
 test("the workspace tab keeps its label and puts the opener name in its tooltip", () => {
   const { child, parent } = conversations();
+  const orphan = openCodexTab(other.id, {
+    cwd: other.rootPath,
+    openedBy: { kind: "tab", agent: "codex", tabId: "1a2b3c4d-missing" },
+  });
   const store = useCurrentTabsInServerRender();
   const glyph = spyOn(estimated, "useEstimatedTabGlyph").mockReturnValue(undefined);
   function renderTab(tab: typeof child, title: string) {
@@ -210,6 +220,9 @@ test("the workspace tab keeps its label and puts the opener name in its tooltip"
     expect(html).toContain('title="Review tests · Parent · Release checks"');
     expect(html).toContain(">Review tests</span>");
     expect(renderTab(parent, "Release checks")).toContain('title="Release checks"');
+    const closed = renderTab(orphan, "Follow-up");
+    expect(closed).toContain('title="Follow-up · Parent · Closed conversation"');
+    expect(closed).not.toContain("1a2b3c4d");
   } finally {
     glyph.mockRestore();
     store.mockRestore();

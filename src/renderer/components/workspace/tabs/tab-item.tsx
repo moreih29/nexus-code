@@ -404,7 +404,12 @@ const LocalTabItem = memo(function LocalTabItem({
     tab.type === "claude" || tab.type === "codex" || tab.type === "terminal"
       ? tab.props.openedBy
       : undefined;
-  const { name: parentName } = useSessionParent(opener);
+  const { name, open } = useSessionParent(opener);
+  const parentName =
+    name ||
+    (opener?.tabId && !opener.device && !open
+      ? t("agentView.list.closed_conversation")
+      : undefined);
   const parent =
     parentName && opener?.device
       ? `${opener.device.name || opener.device.id} · ${parentName}`

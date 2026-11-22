@@ -25,7 +25,7 @@ export function ConversationParentChip({ opener }: { opener?: TerminalOpener }) 
 
 function ParentChip({ opener }: { opener: TerminalOpener }) {
   const { name, open } = useSessionParent(opener);
-  const closed = !opener.device && !open;
+  const closed = !opener.device && !open && Boolean(opener.tabId || name);
   const parent = useParentCaption(name, opener.device, closed);
   if (!parent) return null;
   const className =

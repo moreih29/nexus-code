@@ -338,7 +338,9 @@ const SessionRow = memo(function SessionRow({
             activity={activity}
           />
         )}
-        {(count > 0 || node.parentName) && <SessionRelations node={node} collapsed={collapsed} />}
+        {(count > 0 || node.parentName || node.parentClosed) && (
+          <SessionRelations node={node} collapsed={collapsed} />
+        )}
       </div>
       {/* Above the row's own button, as the row's other buttons are. */}
       <AgentRows

@@ -120,7 +120,11 @@ export function useParentCaption(
   closed: boolean | undefined,
 ) {
   const { t } = useTranslation();
-  if (!name) return undefined;
+  if (!name) {
+    if (!closed) return undefined;
+    const label = t("agentView.list.parent", { name: t("agentView.list.closed_conversation") });
+    return { label, hint: label };
+  }
   const label = device
     ? t("agentView.list.remote_parent", { device: device.name || device.id, name })
     : closed
