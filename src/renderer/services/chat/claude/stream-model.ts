@@ -200,11 +200,16 @@ function applyOut(
       applyControlResponse(draft, message, seq, at);
       return;
     case "command_lifecycle": {
+      const uuid = str(message.command_uuid);
+      if (!uuid) return;
+      if (message.state === "started") {
+        startSent(draft, uuid, seq, at);
+        return;
+      }
       // A waiting message taken back before the CLI read it.
       if (message.state !== "cancelled") return;
-      const uuid = str(message.command_uuid);
       const index = draft.next.items.findIndex((item) => isWaiting(item) && item.sentUuid === uuid);
-      if (uuid && index >= 0) draft.removeItem(index);
+      if (index >= 0) draft.removeItem(index);
       return;
     }
     case "conversation_reset": {
@@ -231,6 +236,36 @@ function applyOut(
       }
       return;
     }
+  }
+}
+
+/**
+ * The CLI begins a message the app wrote, which it can no longer take back
+ * (cancel_async_message answers false from here). A message read during a
+ * turn is echoed first, and taken by then. A command written during a turn
+ * (/compact, /clear, a skill's) waits for the turn's end, then begins one of
+ * its own, which its result ends: Claude Code 2.1.325 says it started right
+ * after the turn's result, and echoes it only once it is done, after a
+ * compaction's "compacting" status and its boundary. One sent with
+ * priority "now" stops the turn and begins the same way.
+ */
+function startSent(draft: Draft, uuid: string, seq: number, at: number | undefined): void {
+  const m = draft.next;
+  const index = m.items.findIndex(
+    (item) => item.kind === "user" && item.state === "sent" && item.sentUuid === uuid,
+  );
+  if (index < 0) return;
+  const item = m.items[index] as UserItem;
+  if (item.queued) {
+    // It no longer waits above the box: it is read here, after what the turn did.
+    const { queued: _queued, ...read } = item;
+    draft.removeItem(index);
+    draft.push({ ...read, at: at ?? item.at });
+  }
+  if (!m.running && m.process === "running") {
+    m.running = true;
+    m.turn = { id: `claude-${seq}`, startedAt: at, outputTokens: 0, thinkingTokens: 0 };
+    noteTurnActivity(m, at);
   }
 }
 

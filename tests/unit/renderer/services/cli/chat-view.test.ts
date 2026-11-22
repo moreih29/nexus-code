@@ -291,6 +291,32 @@ describe("chatItemIndexOf", () => {
     const last = chatEntriesOf(tab, { subagents: true }).entries.at(-1);
     expect(last).toEqual({ i: 6, role: "user", text: "Also the logout", status: "unread" });
   });
+
+  it("no longer marks a command the agent began after the turn: chat unsend cannot take it", () => {
+    const lines: ChatLine[] = [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      { seq: 2, dir: "in", message: { type: "user", uuid: "u-1", message: { content: "go" } } },
+      {
+        seq: 3,
+        dir: "in",
+        message: { type: "user", uuid: "u-2", message: { content: "/compact" } },
+      },
+    ];
+    let model = lines.reduce((m, line) => applyLine(m, line), emptyModel());
+    expect(chatEntriesOf(chat(model)).entries.at(-1)).toMatchObject({ status: "unread" });
+    for (const message of [
+      { type: "result", subtype: "success" },
+      { type: "command_lifecycle", command_uuid: "u-2", state: "started" },
+    ]) {
+      model = applyLine(model, { seq: model.lastSeq + 1, dir: "out", message });
+    }
+    expect(chatEntriesOf(chat(model)).entries.at(-1)).toEqual({
+      i: 1,
+      role: "user",
+      text: "/compact",
+    });
+    expect(chatInfoOf("claude", chat(model), false).state).toBe("working");
+  });
 });
 
 describe("chatToolOf", () => {
