@@ -6,12 +6,16 @@
 
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { z } from "zod";
 import { SignInError } from "./errors";
+
+const SignupAccessSchema = z.enum(["pending", "rejected", "suspended", "closed"]);
 
 /** What the server sent the browser back with. */
 export interface Callback {
   code?: string;
   error?: string;
+  access?: z.infer<typeof SignupAccessSchema>;
   state: string | null;
 }
 
@@ -50,8 +54,16 @@ export async function listenForCallback(timeoutMs: number): Promise<LoopbackList
     }
     const code = url.searchParams.get("code") ?? undefined;
     const error = url.searchParams.get("error") ?? undefined;
+    const access = SignupAccessSchema.safeParse(url.searchParams.get("access")).data;
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(!!code && !error));
-    finish(() => settle?.resolve({ code, error, state: url.searchParams.get("state") }));
+    finish(() =>
+      settle?.resolve({
+        code,
+        error,
+        ...(access ? { access } : {}),
+        state: url.searchParams.get("state"),
+      }),
+    );
   });
   const timer = setTimeout(() => stop("timed-out"), timeoutMs);
   let done = false;

@@ -108,6 +108,13 @@ describe("Other computers connection guidance", () => {
     }
   });
 
+  test("shows the same approval status as Remote settings", () => {
+    readAccount.mockReturnValue({ status: "signed-out", server, failure: "pending_approval" });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain("Awaiting approval · Sign in the same way after approval");
+    expect(html).toContain(">Sign in<");
+  });
+
   test("hides the signed-out section during search", () => {
     expect(renderToStaticMarkup(<RemoteSessions query="some session" />)).toBe("");
   });
