@@ -4,6 +4,7 @@ import { goToNextWaiting } from "../../services/agent-sessions/use-inbox";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
+import { usePeerWorkspaceStore } from "../../state/stores/peer-workspace";
 import { useTaskUIStore } from "../../state/stores/task-ui";
 import {
   rootWorkspaceId,
@@ -21,6 +22,7 @@ import {
  * for the direction. A task counts as its parent's row.
  */
 export function cycleActiveWorkspace(delta: 1 | -1): void {
+  if (usePeerWorkspaceStore.getState().active) return;
   const all = useWorkspacesStore.getState().workspaces;
   const workspaces = visibleWorkspaces(all);
   if (workspaces.length === 0) return;

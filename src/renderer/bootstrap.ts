@@ -47,6 +47,7 @@ import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
+import { usePeerWorkspaceStore } from "./state/stores/peer-workspace";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -336,6 +337,13 @@ export async function bootstrapWorkspaces(): Promise<void> {
   if (useActiveStore.getState().activeWorkspaceId !== null) return;
   const currentList = useWorkspacesStore.getState().workspaces;
   const selected = restoredWorkspace(currentList, active.ok ? active.value : null);
+  const peer = usePeerWorkspaceStore.getState();
+  if (peer.active) {
+    if (peer.lastLocalId === null && selected) {
+      usePeerWorkspaceStore.setState({ lastLocalId: selected.id });
+    }
+    return;
+  }
   if (selected) focusWorkspace(selected.id, "preserve");
 }
 
