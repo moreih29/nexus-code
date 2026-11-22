@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { promises as fs } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -106,6 +107,79 @@ test("concurrent writes preserve each link, session order and the previous-sessi
       id: first.id,
       link: expect.objectContaining({ session: "s5", sessions: ["s7", "s6", "s4", "s3", "s2"] }),
     },
+  ]);
+});
+
+test("the reverse index loads existing links and reads only linked notes after warming", async () => {
+  const unrelated = await store.create(location, "Unrelated");
+  const entry = await store.addLink(location, note.id, { ...base, session: "before" });
+  await store.addLink(location, unrelated.id, { ...base, tabId: "unrelated" });
+  const reopened = new NotesStore(root);
+  expect(await reopened.linksOfConversation(location, base)).toEqual([
+    { noteId: note.id, title: "Note", updatedAt: entry.link.updatedAt },
+  ]);
+
+  const open = spyOn(fs, "open");
+  const read = spyOn(fs, "readFile");
+  try {
+    const unknown = { ...base, tabId: "unknown", session: "unknown" };
+    await reopened.updateLinksForTab(location, unknown, () => {});
+    expect(await reopened.linksOfConversation(location, unknown)).toEqual([]);
+    expect(open).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+
+    const changed: string[] = [];
+    await reopened.updateLinksForTab(location, { ...base, session: "after" }, (id) =>
+      changed.push(id),
+    );
+    expect(changed).toEqual([note.id]);
+    expect(open.mock.calls.filter(([, flags]) => flags === "r").map(([file]) => file)).toEqual([
+      path.join(note.dir, "links.json"),
+    ]);
+    for (const session of ["before", "after"]) {
+      expect(await reopened.linksOfConversation(location, { ...unknown, session })).toEqual([
+        expect.objectContaining({ noteId: note.id }),
+      ]);
+    }
+  } finally {
+    open.mockRestore();
+    read.mockRestore();
+  }
+});
+
+test("changes, deletions, and removing a location keep its reverse index current", async () => {
+  const other = await store.create(location, "Newer link");
+  const previous = { ...base, session: "previous" };
+  const [empty, first] = await Promise.all([
+    store.linksOfConversation(location, previous),
+    store.addLink(location, note.id, previous),
+  ]);
+  expect(empty).toEqual([]);
+  const second = await store.addLink(location, other.id, previous);
+  const touched = await store.addLink(location, other.id, { ...previous, title: "Ignored" }, true);
+  expect(touched).toEqual({
+    id: second.id,
+    link: { ...second.link, updatedAt: touched.link.updatedAt },
+  });
+  expect(touched.link.updatedAt).toBeGreaterThan(second.link.updatedAt);
+  expect((await store.linksOfConversation(location, previous)).map(({ noteId }) => noteId)).toEqual(
+    [other.id, note.id],
+  );
+
+  const moved = { ...base, tabId: "moved", session: "current" };
+  await store.updateLink(location, note.id, first.id, moved);
+  await store.remove(location, other.id);
+  expect(await store.linksOfConversation(location, moved)).toHaveLength(1);
+  expect(await store.linksOfConversation(location, base)).toEqual([]);
+  await store.removeLink(location, note.id, first.id);
+  expect(await store.linksOfConversation(location, moved)).toEqual([]);
+
+  await store.removeLocation(location.key);
+  const recreated = new NotesStore(root);
+  const restored = await recreated.create(location, "Restored");
+  await recreated.addLink(location, restored.id, base);
+  expect(await store.linksOfConversation(location, base)).toEqual([
+    expect.objectContaining({ noteId: restored.id }),
   ]);
 });
 

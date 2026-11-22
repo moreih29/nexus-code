@@ -502,6 +502,83 @@ describe("nexus agent-context", () => {
     }
   });
 
+  test("restores a linked note in verified Claude startup, resume and compact hooks", async () => {
+    const app = withDevices();
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const lookups: unknown[] = [];
+    app.services.notes.linksOfConversation = async (target) => {
+      lookups.push(target);
+      return [{ noteId: "n1234567", title: `Review\n\t\u202e${"x".repeat(300)}`, updatedAt: 1 }];
+    };
+    app.services.claudeInstructions = () => "User instructions";
+    for (const source of ["startup", "resume", "compact"]) {
+      const ctx = contextFor(app, ["agent-context", "--launch=test", "-"], {
+        workspaceId: APP,
+        tabId: CLAUDE_TAB,
+        verified: true,
+      });
+      const result = await runCli(CLI_COMMANDS, {
+        ...ctx,
+        invocation: {
+          ...ctx.invocation,
+          stdin: JSON.stringify({ hook_event_name: "SessionStart", source, session_id: sessionId }),
+        },
+      });
+      const text =
+        source === "compact"
+          ? JSON.parse(result.stdout).hookSpecificOutput.additionalContext
+          : result.stdout;
+      const line = text
+        .split("\n")
+        .find((part: string) => part.includes("nexus note read n1234567"));
+      expect(line).toBe(
+        `This conversation is linked to the note "Review ${"x".repeat(113)}" · nexus note read n1234567`,
+      );
+      expect(text).toContain("User instructions");
+    }
+    expect(lookups).toEqual(
+      Array(3).fill({ workspaceId: APP, tabId: CLAUDE_TAB, agent: "claude", session: sessionId }),
+    );
+    expect(
+      (
+        await nexus(app, ["agent-context", "--launch=test"], {
+          workspaceId: APP,
+          tabId: CLAUDE_TAB,
+        })
+      ).stdout,
+    ).not.toContain("n1234567");
+  });
+
+  test("adds the linked note to the existing Codex CLI guidance", async () => {
+    const app = withDevices();
+    const feature = setupCliFeature({
+      agentHost: { on: () => () => {} },
+      workspaceManager: { list: () => app.services.listWorkspaces() },
+      getWindow: () => null,
+      settings: () => ({ ...app.settings, enabled: true }),
+      remote: () => app.services.remote,
+      notes: {
+        ...app.services.notes,
+        linksOfConversation: async (target) => {
+          expect(target).toEqual({
+            workspaceId: APP,
+            tabId: "codex",
+            agent: "codex",
+            session: "thread",
+          });
+          return [{ noteId: "n1234567", title: "Review", updatedAt: 1 }];
+        },
+      },
+    } as unknown as SetupCliFeatureOptions);
+    try {
+      const context = await feature.agentContextForChat(APP, "codex", "thread");
+      expect(context?.status).toContain('note "Review" · nexus note read n1234567');
+      expect(context?.commands).toContain("nexus help");
+    } finally {
+      feature.dispose();
+    }
+  });
+
   test("tells a session that the user's notes are the app's", async () => {
     const app = withDevices();
     app.settings.agentContext = true;

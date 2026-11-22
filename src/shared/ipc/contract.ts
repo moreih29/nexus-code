@@ -182,6 +182,7 @@ import {
   FolderBookmarkSchema,
 } from "../types/entry-points";
 import {
+  LinkedNoteSchema,
   NoteAssetSchema,
   NoteBlocksAddedSchema,
   NoteChangedSchema,
@@ -657,6 +658,7 @@ const notesContracts = {
       create: call(NotesArgs.create, NoteContentSchema),
       read: call(NotesArgs.read, NoteContentSchema),
       links: call(NotesArgs.links, z.array(NoteLinkEntrySchema)),
+      linksOfConversation: call(NotesArgs.linksOfConversation, z.array(LinkedNoteSchema)),
       addLink: call(NotesArgs.addLink, NoteLinkEntrySchema),
       updateLink: call(NotesArgs.updateLink, z.void()),
       removeLink: call(NotesArgs.removeLink, z.void()),

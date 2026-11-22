@@ -884,6 +884,9 @@ app.whenReady().then(async () => {
     ports: portWatcher,
     forwards,
     notes: {
+      linksOfConversation: async (tab) =>
+        notesFeature?.store.linksOfConversation(notesFeature.locationOf(tab.workspaceId), tab) ??
+        [],
       list: (workspaceId) => {
         if (!notesFeature) throw new Error("notes are not ready");
         return notesFeature.store.list(notesFeature.locationOf(workspaceId));
@@ -941,7 +944,8 @@ app.whenReady().then(async () => {
       (stateService.getState().layoutByWorkspace?.[workspaceId]?.tabs ?? [])
         .filter((tab) => tab.type === "claude" || tab.type === "codex")
         .map((tab) => tab.id),
-    agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
+    agentContext: (workspaceId, tabId, session) =>
+      cliFeature?.agentContextForChat(workspaceId, tabId, session),
     instructions: (workspaceId, profile, session) =>
       instructionsFor(
         stateService.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,

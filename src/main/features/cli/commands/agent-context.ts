@@ -3,8 +3,10 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import type { NoteConversation } from "../../../../shared/notes/links";
+import { NOTE_ID_RE } from "../../../../shared/notes/types";
 import { instructionSessionId } from "../../chat/instructions";
-import { type CliServices, resolveWorkspace, shortId } from "../context";
+import { type CliNotes, type CliServices, resolveWorkspace, shortId } from "../context";
 import { type CliCommand, output } from "../registry";
 
 const agentContext: CliCommand = {
@@ -39,7 +41,18 @@ const agentContext: CliCommand = {
             phase: prompt ? "prompt" : restoresContext ? "restore" : "start",
           })
         : !launch && start && ctx.services.terminalClaudeInstructions?.(workspace.id, profile);
-    const text = [note, instructions].filter(Boolean).join("\n\n");
+    const linked =
+      note && launch && start && ctx.caller.verified === true
+        ? await linkedNoteGuidance(ctx.services.notes, {
+            workspaceId: workspace.id,
+            tabId: ctx.caller.tabId,
+            agent: "claude",
+            session: instructionSessionId(event.session_id),
+          })
+        : "";
+    const text = [[note, linked].filter(Boolean).join("\n"), instructions]
+      .filter(Boolean)
+      .join("\n\n");
     if (text && launch && (prompt || restoresContext)) {
       const result = {
         hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text },
@@ -66,6 +79,16 @@ function hookEvent(input: string | undefined): {
 export interface ChatAgentContext {
   status: string;
   commands: string;
+}
+
+export async function linkedNoteGuidance(notes: CliNotes, tab: NoteConversation): Promise<string> {
+  const [note] = await notes.linksOfConversation(tab).catch(() => []);
+  if (!note || !NOTE_ID_RE.test(note.noteId)) return "";
+  const cleanTitle = note.title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
+  const title = JSON.stringify(Array.from(cleanTitle).slice(0, 120).join("") || "Untitled note")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e");
+  return `This conversation is linked to the note ${title} · nexus note read ${note.noteId}`;
 }
 
 /** Reads the hosting app's settings and the chat's own workspace and tab. */

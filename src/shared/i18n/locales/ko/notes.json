@@ -79,9 +79,22 @@
     "codex": "새 Codex 대화",
     "message": "메시지",
     "defaultMessage": "이 노트를 읽고 작업을 시작해 줘.",
-    "hint": "에이전트는 nexus note read로 노트를 읽습니다. 파일은 복사하지 않습니다.",
+    "hint": "nexus note read로 읽기 · 파일 복사 없음",
     "send": "보내기",
-    "prompt": "{{message}}\n\n노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다."
+    "prompt": "{{message}}\n\n노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다.",
+    "existing": "기존 대화",
+    "linked": "이 노트와 연결",
+    "other": "이 워크스페이스의 다른 대화",
+    "noConversations": "열린 대화 없음",
+    "existingHint": "기존 대화로 보내기 · 노트와 연결 유지",
+    "sentQueued": "대화로 보냄 · 대기 중",
+    "sendError": "대화로 보내기 실패",
+    "phase": {
+      "running": "작업 중",
+      "attention": "응답 필요",
+      "done": "완료",
+      "idle": "대기"
+    }
   },
   "storage": {
     "heading": "노트 저장 공간",
@@ -252,7 +265,7 @@
     }
   },
   "conversations": {
-    "title": "이 노트로 시작한 대화",
+    "title": "연결된 대화",
     "claude": "Claude 대화",
     "codex": "Codex 대화",
     "running": "작업 중",
@@ -270,6 +283,7 @@
     "unlink": "연결 지우기",
     "saveError": "연결 저장 실패",
     "actionError": "대화 연결 작업 실패",
-    "noteSaveError": "노트 저장 실패"
+    "noteSaveError": "노트 저장 실패",
+    "fromNote": "노트 ‘{{title}}’"
   }
 }

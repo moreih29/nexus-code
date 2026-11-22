@@ -14,10 +14,12 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
+import type { LinkedNote } from "../../../shared/types/notes";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import type { ProfileConnections } from "../agent-profiles/connection-save";
@@ -223,6 +225,7 @@ export interface CliServices {
 
 /** A workspace's notes, as the nexus note commands read them. */
 export interface CliNotes {
+  linksOfConversation(tab: NoteConversation): Promise<LinkedNote[]>;
   /** Newest first. */
   list(workspaceId: string): Promise<NoteSummary[]>;
   /** Fails when there is no such note. */

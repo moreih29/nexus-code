@@ -80,6 +80,7 @@ import {
   remotePanelPartOf,
   SessionSidePanel,
 } from "../agent-view/remote-side-panel";
+import { ConversationNoteChip } from "../notes/conversation-note-chip";
 import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { CodexIcon } from "./agent-icons";
@@ -643,6 +644,13 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         status={{ agent: "codex", process: model.process, signedOut: model.signedOut }}
         onSignIn={signIn}
         onCheck={() => void controller.refreshAccount()}
+      />
+      <ConversationNoteChip
+        workspaceId={workspaceId}
+        tabId={tabId}
+        agent="codex"
+        session={props.threadId}
+        visible={isVisible}
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">

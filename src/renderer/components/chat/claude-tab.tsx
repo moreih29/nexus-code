@@ -89,6 +89,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
+import { ConversationNoteChip } from "../notes/conversation-note-chip";
 import { Banner, BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
@@ -697,6 +698,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         onRestart={() => void controller.restart()}
         onRetry={() => void controller.open()}
         className="shrink-0 pt-1"
+      />
+      <ConversationNoteChip
+        workspaceId={workspaceId}
+        tabId={tabId}
+        agent="claude"
+        session={props.sessionId}
+        visible={isVisible}
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
