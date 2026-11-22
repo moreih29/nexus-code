@@ -2076,6 +2076,11 @@
     "updateNeeded": "App update needed on that computer",
     "connectionUnavailable": "Disconnected on that computer",
     "truncated": "First {{count, number}} entries",
-    "textPrefix": "Partial file · First {{size}} KB"
+    "textPrefix": "Partial file · First {{size}} KB",
+    "searchFilters": "Search filters",
+    "searchInclude": "Include filenames or extensions",
+    "searchExclude": "Exclude filenames, extensions, or folders",
+    "searchInvalidFilters": "Invalid filters · Up to 32 comma-separated entries, 256 characters each",
+    "searchTruncated": "Partial results"
   }
 }

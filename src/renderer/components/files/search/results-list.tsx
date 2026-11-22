@@ -20,7 +20,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { revealEditorAt } from "@/services/editor/tabs";
+import type { SearchRange } from "../../../../shared/search/types";
 import type { FileGroup } from "../../../state/stores/search";
 import type { PathTreeNode } from "../../../utils/path-tree";
 import { buildPathTree } from "../../../utils/path-tree";
@@ -162,8 +162,7 @@ function toKeyboardRow(row: FlatRow, expandedDirs: ReadonlySet<string>): TreeKey
 // ---------------------------------------------------------------------------
 
 interface SearchResultsListProps {
-  workspaceId: string;
-  rootPath: string;
+  onOpenMatch: (relPath: string, range: SearchRange) => void;
   results: FileGroup[];
   onToggleGroup: (relPath: string) => void;
   /** When provided, tree mode is active. */
@@ -175,8 +174,7 @@ interface SearchResultsListProps {
 }
 
 export function SearchResultsList({
-  workspaceId,
-  rootPath,
+  onOpenMatch,
   results,
   onToggleGroup,
   viewMode = "list",
@@ -274,23 +272,10 @@ export function SearchResultsList({
         if (!group) return;
         const match = group.matches[idx];
         if (!match) return;
-        const absPath = rootPath.endsWith("/")
-          ? `${rootPath}${filePath}`
-          : `${rootPath}/${filePath}`;
-        revealEditorAt(
-          { workspaceId, filePath: absPath },
-          {
-            selection: {
-              startLineNumber: match.range.line + 1,
-              startColumn: match.range.startCol + 1,
-              endLineNumber: match.range.line + 1,
-              endColumn: match.range.endCol + 1,
-            },
-          },
-        );
+        onOpenMatch(filePath, match.range);
       }
     },
-    [results, rootPath, workspaceId],
+    [results, onOpenMatch],
   );
 
   const { onKeyDown: treeOnKeyDown, getRowProps } = useTreeKeyboard({
@@ -310,29 +295,8 @@ export function SearchResultsList({
   }
 
   function handleMatchClick(group: FileGroup, matchIdx: number) {
-    const relP = group.relPath;
     const match = group.matches[matchIdx];
-    if (!match) return;
-
-    const absPath = rootPath.endsWith("/") ? `${rootPath}${relP}` : `${rootPath}/${relP}`;
-
-    // revealEditorAt opens (or reveals) the tab and forwards the selection
-    // to the reveal-target registry as a single atomic call — the open and
-    // selection sides used to be two separate calls at every nav surface,
-    // which leaked the "queue may flush after mount" contract into every
-    // call site. See `services/editor/tabs/reveal-editor-at.ts` for the
-    // contract details.
-    revealEditorAt(
-      { workspaceId, filePath: absPath },
-      {
-        selection: {
-          startLineNumber: match.range.line + 1,
-          startColumn: match.range.startCol + 1,
-          endLineNumber: match.range.line + 1,
-          endColumn: match.range.endCol + 1,
-        },
-      },
-    );
+    if (match) onOpenMatch(group.relPath, match.range);
   }
 
   return (

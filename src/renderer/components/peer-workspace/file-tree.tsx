@@ -12,6 +12,7 @@ import {
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
 import { copyText } from "../../utils/clipboard";
+import { peerPathKey, peerRelativePath } from "../../utils/peer-path";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "../files/file-tree/metrics";
 import { FileTreeRow } from "../files/file-tree/row";
 import { FileTreeVirtualBody } from "../files/file-tree/virtual-body";
@@ -26,8 +27,6 @@ import {
   loadPeerFolder,
   type PeerFolderError,
   type PeerTreeEntry,
-  peerPathKey,
-  peerRelativePath,
   peerTreeRows,
 } from "./tree-model";
 

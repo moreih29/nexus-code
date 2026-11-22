@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import { type PeerWorkspace, peerWorkspaceId } from "../../../shared/fs/peer-url";
+import type { LineAt } from "../../services/chat/links";
+import { peerPathKey } from "../../utils/peer-path";
 
 export interface PeerWorkspaceTarget extends PeerWorkspace {
   accountKey: string;
@@ -12,6 +14,7 @@ export interface PeerWorkspaceTarget extends PeerWorkspace {
 export interface PeerFileTab {
   type: "peer.file";
   path: string;
+  at?: LineAt;
 }
 
 export interface PeerFolder {
@@ -49,7 +52,7 @@ interface PeerWorkspaceState {
   markMissing: (id: string) => void;
   clearSelection: () => void;
   setAccount: (key: string | null) => void;
-  openFile: (id: string, path: string) => void;
+  openFile: (id: string, path: string, at?: LineAt) => void;
   closeFile: (id: string, path: string) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
@@ -95,14 +98,20 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     clearSelection: () => set({ active: null, lastLocalId: null, missing: false }),
     setAccount: (accountKey) =>
       set((state) => (state.accountKey === accountKey ? state : { accountKey, views: {} })),
-    openFile: (id, path) =>
-      updateView(id, (view) => ({
-        ...view,
-        tabs: view.tabs.some((tab) => tab.path === path)
-          ? view.tabs
-          : [...view.tabs, { type: "peer.file", path }],
-        activePath: path,
-      })),
+    openFile: (id, path, at) =>
+      updateView(id, (view) => {
+        const key = peerPathKey(path);
+        const existing = view.tabs.find((tab) => peerPathKey(tab.path) === key);
+        if (!existing) {
+          const tab: PeerFileTab = { type: "peer.file", path, ...(at && { at }) };
+          return { ...view, tabs: [...view.tabs, tab], activePath: path };
+        }
+        return {
+          ...view,
+          tabs: at ? view.tabs.map((tab) => (tab === existing ? { ...tab, at } : tab)) : view.tabs,
+          activePath: existing.path,
+        };
+      }),
     closeFile: (id, path) =>
       updateView(id, (view) => {
         const index = view.tabs.findIndex((tab) => tab.path === path);

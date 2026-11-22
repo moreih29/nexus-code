@@ -325,6 +325,7 @@ export function App() {
               peerPanel={
                 activePeer ? (
                   <PeerFilesPanel
+                    key={JSON.stringify([peerTargetId(activePeer), activePeer.workspace.path])}
                     target={activePeer}
                     missing={peers.missing}
                     canRead={
