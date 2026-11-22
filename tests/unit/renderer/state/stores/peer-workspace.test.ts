@@ -17,6 +17,7 @@ import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout/store";
 import {
   type PeerWorkspaceTarget,
+  peerTabId,
   peerTargetId,
   usePeerWorkspaceStore,
 } from "../../../../../src/renderer/state/stores/peer-workspace";
@@ -24,7 +25,7 @@ import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useUIStore } from "../../../../../src/renderer/state/stores/ui";
 import { isWorkspaceSymbolPaletteOpen } from "../../../../../src/renderer/state/stores/workspace-symbol-palette";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
-import { ipcOk } from "../../../../../src/shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 import { COMMANDS } from "../../../../../src/shared/keybindings/commands";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
@@ -73,7 +74,7 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     store.openFile(id, "/w/a.txt");
     store.openFile(id, "/w/b.txt");
     store.openFile(id, "/w/a.txt");
-    store.closeFile(id, "/w/a.txt");
+    store.closeTab(id, "/w/a.txt");
     store.setFolder(id, "/w", { path: "/w", entries: [] });
     store.toggleFolder(id, "/w/src");
     expect(useActiveStore.getState().activeWorkspaceId).toBeNull();
@@ -130,4 +131,40 @@ test("a vanished workspace clears its view and restores the last existing local 
   expect(useActiveStore.getState().activeWorkspaceId).toBeNull();
   returnFromPeerWorkspace();
   expect(useActiveStore.getState().activeWorkspaceId).toBe(local);
+});
+
+test("file, staged comparison, and unstaged comparison tabs have separate identities", () => {
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  const change = { path: "a.txt", staged: "A", unstaged: "M" };
+  store.openFile(id, "/w/a.txt");
+  store.openDiff(id, change, "staged");
+  store.openDiff(id, change, "unstaged");
+  store.openDiff(id, change, "unstaged");
+  const view = usePeerWorkspaceStore.getState().views[id];
+  expect(view.tabs).toHaveLength(3);
+  const [file, staged, unstaged] = view.tabs.map(peerTabId);
+  expect(new Set([file, staged, unstaged]).size).toBe(3);
+  expect(view.activePath).toBe(unstaged);
+  store.closeTab(id, unstaged);
+  expect(usePeerWorkspaceStore.getState().views[id].activePath).toBe(staged);
+  store.selectTab(id, file);
+  expect(usePeerWorkspaceStore.getState().views[id].activePath).toBe(file);
+});
+
+test("shared Git status retains the last data on disconnect and clears it for a non-repository", () => {
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  const status = { branch: "main", ahead: 0, behind: 0, files: [] };
+  store.setGitResult(id, ipcOk(status));
+  store.setGitResult(id, ipcErr("unavailable", "disconnected"));
+  expect(usePeerWorkspaceStore.getState().views[id]).toMatchObject({
+    gitStatus: status,
+    gitError: "unavailable",
+  });
+  store.setGitResult(id, ipcErr("not-found", "no repository"));
+  expect(usePeerWorkspaceStore.getState().views[id]).toMatchObject({
+    gitStatus: undefined,
+    gitError: "not-found",
+  });
 });

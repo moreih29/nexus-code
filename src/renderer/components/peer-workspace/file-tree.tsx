@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { RefreshCw } from "lucide-react";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_LIST_ENTRIES } from "../../../../packages/remote-protocol/src/rpc";
 import { ipcCallResult } from "../../ipc/client";
@@ -23,6 +23,7 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
+import { changedPeerGitParents, peerGitDecorations } from "./git-tree";
 import {
   loadPeerFolder,
   type PeerFolderError,
@@ -32,16 +33,20 @@ import {
 
 const FOCUS_REFRESH_LIMIT = 20;
 
-type RefreshTree = (viewport?: { start: number; end: number }) => void;
+type RefreshTree = (
+  scope?: { start: number; end: number; queue: boolean } | { parents: ReadonlySet<string> },
+) => void;
 
 export function PeerFileTree({
   target,
   canRead,
   rejoin,
+  sessionHint,
 }: {
   target: PeerWorkspaceTarget;
   canRead: boolean;
   rejoin: number;
+  sessionHint: number;
 }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, workspace } = target;
@@ -49,6 +54,8 @@ export function PeerFileTree({
   const root = workspace.path;
   const view = usePeerWorkspaceStore((s) => s.views[id] ?? EMPTY_PEER_VIEW);
   const rootKey = peerPathKey(root);
+  const gitStatus = view.gitStatus;
+  const decorations = useMemo(() => peerGitDecorations(root, gitStatus), [root, gitStatus]);
   // The root starts expanded. Keep an explicit collapse in the same in-memory tree as the folders.
   const collapsedRoot = view.expanded.has(rootKey);
   const [errors, setErrors] = useState<Readonly<Record<string, PeerFolderError>>>({});
@@ -70,6 +77,13 @@ export function PeerFileTree({
 
   const readFolder = useRef<(key: string, path: string) => void>(() => {});
   const refreshTree = useRef<RefreshTree>(() => {});
+  const refreshVisible = useRef<() => void>(() => {});
+  const previousGit = useRef(gitStatus);
+  const previousSessionHint = useRef(sessionHint);
+  const currentErrors = useRef(errors);
+  useEffect(() => {
+    currentErrors.current = errors;
+  }, [errors]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a rejoin invalidates the in-flight reads
   useEffect(() => {
     if (!canRead) return;
@@ -77,8 +91,12 @@ export function PeerFileTree({
     const controller = new AbortController();
     const { signal } = controller;
     const inFlight = new Set<string>();
-    const load = async (key: string, path: string) => {
-      if (inFlight.has(key)) return;
+    const queued = new Set<string>();
+    const load = async (key: string, path: string, queue = false) => {
+      if (inFlight.has(key)) {
+        if (queue) queued.add(key);
+        return;
+      }
       inFlight.add(key);
       setPending(new Set(inFlight));
       const result = await loadPeerFolder(() =>
@@ -98,21 +116,23 @@ export function PeerFileTree({
       } else if (result.error === "missingWorkspace") {
         store.markMissing(id);
         refreshPeerSessions(deviceId);
+        return;
       } else {
         if (result.error === "missingFolder") store.setFolder(id, key, null);
         const error = result.error;
         setErrors((before) => ({ ...before, [key]: error }));
       }
+      if (queued.delete(key)) void load(key, path);
     };
     readFolder.current = (key, path) => void load(key, path);
-    refreshTree.current = (viewport) => {
+    refreshTree.current = (scope) => {
       const current = usePeerWorkspaceStore.getState().views[id] ?? EMPTY_PEER_VIEW;
       const rows = peerTreeRows({
         ...current,
         root,
         title: "",
         collapsedRoot: current.expanded.has(rootKey),
-        errors: {},
+        errors: currentErrors.current,
       });
       const folders = rows.filter(
         (row): row is PeerTreeEntry =>
@@ -120,34 +140,43 @@ export function PeerFileTree({
           row.node.type === "dir" &&
           (row.parent === null ? !current.expanded.has(rootKey) : current.expanded.has(row.key)),
       );
-      if (!viewport) {
+      if (!scope) {
         void load(rootKey, current.folders[rootKey]?.path ?? root);
         for (const folder of folders) {
           if (folder.parent !== null) void load(folder.key, folder.path);
         }
         return;
       }
+      if ("parents" in scope) {
+        for (const folder of folders) {
+          if (scope.parents.has(folder.key)) void load(folder.key, folder.path, true);
+        }
+        return;
+      }
 
       const byKey = new Map(folders.map((folder) => [folder.key, folder]));
       const visible = new Set<string>();
-      for (const row of rows.slice(viewport.start, viewport.end)) {
+      for (const row of rows.slice(scope.start, scope.end)) {
         const key = row.kind === "entry" ? row.key : row.folder;
         if (byKey.has(key)) visible.add(key);
         if (row.kind === "entry" && row.parent !== null) visible.add(row.parent);
       }
       for (const key of [...visible].slice(0, FOCUS_REFRESH_LIMIT)) {
         const folder = byKey.get(key);
-        if (folder) void load(folder.key, folder.path);
+        if (folder) void load(folder.key, folder.path, scope.queue);
       }
     };
-    const onFocus = () => {
+    const refreshViewport = (queue: boolean) => {
       const element = scroll.current;
       if (document.visibilityState === "hidden" || !element) return;
       refreshTree.current({
         start: Math.floor(element.scrollTop / ROW_HEIGHT_PX),
         end: Math.ceil((element.scrollTop + element.clientHeight) / ROW_HEIGHT_PX),
+        queue,
       });
     };
+    const onFocus = () => refreshViewport(false);
+    refreshVisible.current = () => refreshViewport(true);
     if (usePeerWorkspaceStore.getState().views[id]?.folders[rootKey]) onFocus();
     else void load(rootKey, root);
     window.addEventListener("focus", onFocus);
@@ -155,9 +184,25 @@ export function PeerFileTree({
       controller.abort();
       readFolder.current = () => {};
       refreshTree.current = () => {};
+      refreshVisible.current = () => {};
       window.removeEventListener("focus", onFocus);
     };
   }, [canRead, deviceId, id, rejoin, root, rootKey, workspaceId]);
+
+  useEffect(() => {
+    if (!canRead || previousSessionHint.current === sessionHint) return;
+    previousSessionHint.current = sessionHint;
+    refreshVisible.current();
+  }, [canRead, sessionHint]);
+
+  useEffect(() => {
+    if (!canRead || previousGit.current === gitStatus) return;
+    const previous = previousGit.current;
+    previousGit.current = gitStatus;
+    if (!previous) return;
+    const parents = changedPeerGitParents(root, previous, gitStatus);
+    if (parents.size > 0) refreshTree.current({ parents });
+  }, [canRead, gitStatus, root]);
 
   const activeIndex = Math.max(
     0,
@@ -176,7 +221,9 @@ export function PeerFileTree({
   function activate(row: PeerTreeEntry) {
     if (row.node.type === "dir") toggle(row);
     if (row.node.type === "file") {
-      const alreadyOpen = view.tabs.find((tab) => peerPathKey(tab.path) === row.key);
+      const alreadyOpen = view.tabs.find(
+        (tab) => tab.type === "peer.file" && peerPathKey(tab.path) === row.key,
+      );
       if (canRead || alreadyOpen) {
         usePeerWorkspaceStore.getState().openFile(id, alreadyOpen?.path ?? row.path);
       }
@@ -311,6 +358,10 @@ export function PeerFileTree({
                     isFocused={activeIndex === index}
                     isSelected={Boolean(current)}
                     isLoading={canRead && pending.has(row.key)}
+                    decoration={(row.node.type === "dir"
+                      ? decorations.folders
+                      : decorations.files
+                    ).get(row.key)}
                     onClick={() => {
                       scroll.current?.focus({ preventScroll: true });
                       setFocused(row.key);

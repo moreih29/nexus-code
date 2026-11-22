@@ -1,4 +1,4 @@
-import { Lock } from "lucide-react";
+import { FileDiff, GitBranch, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import {
   EMPTY_PEER_VIEW,
   type PeerFileTab,
   type PeerWorkspaceTarget,
+  peerTabId,
   peerTargetId,
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
@@ -17,6 +18,8 @@ import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-lo
 import { FileIcon } from "../files/file-tree/file-icon";
 import { EmptyState } from "../ui/empty-state";
 import { TabItem } from "../workspace/tabs/tab-item";
+import { PeerDiffTabBody } from "./diff-tab";
+import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 import { PeerDeviceIcon } from "./sidebar";
 
@@ -27,6 +30,7 @@ export function PeerWorkspacePanel({
   reachable,
   missing,
   updateNeeded,
+  gitUpdateNeeded,
   rejoin,
 }: {
   target: PeerWorkspaceTarget;
@@ -35,13 +39,14 @@ export function PeerWorkspacePanel({
   reachable: boolean;
   missing: boolean;
   updateNeeded: boolean;
+  gitUpdateNeeded: boolean;
   rejoin: number;
 }) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
   const view = usePeerWorkspaceStore((s) => s.views[id] ?? EMPTY_PEER_VIEW);
-  const open = usePeerWorkspaceStore((s) => s.openFile);
-  const close = usePeerWorkspaceStore((s) => s.closeFile);
+  const select = usePeerWorkspaceStore((s) => s.selectTab);
+  const close = usePeerWorkspaceStore((s) => s.closeTab);
   const banner =
     reach === "offline"
       ? t("peerWorkspace.offlineLast", { device: target.deviceName })
@@ -49,7 +54,12 @@ export function PeerWorkspacePanel({
         ? t("peerWorkspace.disconnectedLast")
         : null;
   const root = target.workspace.path;
-  const filenames = view.tabs.map(({ path }) => workspacePathParts(path, root).fileName);
+  const names = view.tabs.map((tab) =>
+    tab.type === "peer.diff"
+      ? peerGitDisplayPath(root, tab.path)
+      : { ...workspacePathParts(tab.path, root), outsideWorkspace: false },
+  );
+  const status = gitUpdateNeeded ? undefined : view.gitStatus;
 
   return (
     <div
@@ -77,18 +87,16 @@ export function PeerWorkspacePanel({
                 {banner}
               </div>
             )}
-            {updateNeeded ? (
+            {view.tabs.length === 0 ? (
               <EmptyState
-                title={t("peerWorkspace.updateNeeded")}
+                title={t(updateNeeded ? "peerWorkspace.updateNeeded" : "peerWorkspace.selectFile")}
                 tone="status"
                 className="flex-1"
               />
-            ) : view.tabs.length === 0 ? (
-              <EmptyState title={t("peerWorkspace.selectFile")} tone="status" className="flex-1" />
             ) : (
               <Tabs.Root
                 value={view.activePath === null ? "" : encodeURIComponent(view.activePath)}
-                onValueChange={(value) => open(id, decodeURIComponent(value))}
+                onValueChange={(value) => select(id, decodeURIComponent(value))}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <div className="app-scrollbar h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none]">
@@ -96,37 +104,76 @@ export function PeerWorkspacePanel({
                     aria-label={t("tabBar.open_tabs")}
                     className="flex h-full w-max items-center"
                   >
-                    {view.tabs.map(({ path }, index) => {
-                      const name = filenames[index];
-                      const duplicate = filenames.indexOf(name) !== filenames.lastIndexOf(name);
-                      const label = duplicate
-                        ? `${name} · ${workspacePathParts(path, root).directory.replace(/\/$/, "") || "."}`
-                        : name;
+                    {view.tabs.map((tab, index) => {
+                      const { fileName: name, directory, outsideWorkspace } = names[index];
+                      const isDiff = tab.type === "peer.diff";
+                      const duplicate = view.tabs.some(
+                        (other, at) =>
+                          index !== at &&
+                          other.type === tab.type &&
+                          names[at].fileName === name &&
+                          names[at].outsideWorkspace === outsideWorkspace,
+                      );
+                      const display = [
+                        name,
+                        duplicate ? directory.replace(/\/$/, "") || "." : null,
+                        outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
+                      const comparison = isDiff
+                        ? tab.side === "staged"
+                          ? "HEAD → INDEX"
+                          : "INDEX → WORKING"
+                        : null;
+                      const key = peerTabId(tab);
                       return (
                         <TabItem
-                          key={path}
+                          key={key}
                           readOnly
-                          value={encodeURIComponent(path)}
-                          label={label}
-                          icon={<FileIcon size="sm" kind="file" name={name} tone="sidebar" />}
-                          onClose={() => close(id, path)}
+                          value={encodeURIComponent(key)}
+                          label={comparison ? `${display} · ${comparison}` : display}
+                          icon={
+                            isDiff ? (
+                              <FileDiff className="size-3.5" />
+                            ) : (
+                              <FileIcon size="sm" kind="file" name={name} tone="sidebar" />
+                            )
+                          }
+                          onClose={() => close(id, key)}
                         />
                       );
                     })}
                   </Tabs.List>
                 </div>
-                {view.tabs.map(({ path, at }) => (
-                  <PeerFileTabBody
-                    key={path}
-                    id={id}
-                    path={path}
-                    root={root}
-                    at={at}
-                    selected={path === view.activePath}
-                    canRead={shown && reachable}
-                    rejoin={rejoin}
-                  />
-                ))}
+                {view.tabs.map((tab) => {
+                  const key = peerTabId(tab);
+                  const selected = key === view.activePath;
+                  return tab.type === "peer.diff" ? (
+                    <PeerDiffTabBody
+                      key={key}
+                      target={target}
+                      tab={tab}
+                      latest={status?.files.find((file) => file.path === tab.path)}
+                      selected={selected}
+                      canRead={shown && reachable && !gitUpdateNeeded}
+                      updateNeeded={gitUpdateNeeded}
+                      rejoin={rejoin}
+                    />
+                  ) : (
+                    <PeerFileTabBody
+                      key={key}
+                      id={id}
+                      path={tab.path}
+                      root={root}
+                      at={tab.at}
+                      selected={selected}
+                      canRead={shown && reachable && !updateNeeded}
+                      updateNeeded={updateNeeded}
+                      rejoin={rejoin}
+                    />
+                  );
+                })}
               </Tabs.Root>
             )}
           </>
@@ -144,6 +191,22 @@ export function PeerWorkspacePanel({
         <span className="shrink-0 text-[var(--state-warning-fg)]">
           {t("peerWorkspace.readOnly")}
         </span>
+        {status && (
+          <>
+            <span aria-hidden="true">·</span>
+            <GitBranch className="size-3 shrink-0" aria-hidden="true" />
+            <span className="truncate" title={status.branch ?? undefined}>
+              {status.branch ?? t("peerWorkspace.gitDetached")}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span
+              className="shrink-0"
+              title={status.truncated ? t("peerWorkspace.gitTruncated") : undefined}
+            >
+              {t("peerWorkspace.changes", { count: status.files.length })}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -156,6 +219,7 @@ function PeerFileTabBody({
   at,
   selected,
   canRead,
+  updateNeeded,
   rejoin,
 }: {
   id: string;
@@ -164,8 +228,10 @@ function PeerFileTabBody({
   at?: PeerFileTab["at"];
   selected: boolean;
   canRead: boolean;
+  updateNeeded: boolean;
   rejoin: number;
 }) {
+  const { t } = useTranslation();
   const show = selected && canRead;
   const [loaded, setLoaded] = useState(show);
   if (show && !loaded) setLoaded(true);
@@ -182,28 +248,32 @@ function PeerFileTabBody({
       value={encodeURIComponent(path)}
       className={cn("min-h-0 flex-1", !selected && "hidden")}
     >
-      {(loaded || show) && (
-        <FileLookBody
-          workspaceId={id}
-          path={path}
-          root={root}
-          at={at}
-          view={view}
-          peerFile={{
-            watch: show,
-            connection: rejoin,
-            toolbar: (
-              <>
-                <span className="flex min-w-0 flex-1 items-center text-app-ui-sm" title={path}>
-                  <span className="truncate text-muted-foreground">{directory}</span>
-                  <span className="truncate">{fileName}</span>
-                </span>
-                <FileLookControls path={path} view={view} />
-                <PeerReadOnlyBadge />
-              </>
-            ),
-          }}
-        />
+      {updateNeeded ? (
+        <EmptyState title={t("peerWorkspace.updateNeeded")} tone="status" className="h-full" />
+      ) : (
+        (loaded || show) && (
+          <FileLookBody
+            workspaceId={id}
+            path={path}
+            root={root}
+            at={at}
+            view={view}
+            peerFile={{
+              watch: show,
+              connection: rejoin,
+              toolbar: (
+                <>
+                  <span className="flex min-w-0 flex-1 items-center text-app-ui-sm" title={path}>
+                    <span className="truncate text-muted-foreground">{directory}</span>
+                    <span className="truncate">{fileName}</span>
+                  </span>
+                  <FileLookControls path={path} view={view} />
+                  <PeerReadOnlyBadge />
+                </>
+              ),
+            }}
+          />
+        )
       )}
     </Tabs.Content>
   );

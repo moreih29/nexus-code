@@ -22,6 +22,7 @@ const peerReads = new Set([
   "peerFilesRead",
   "peerFilesReadBytes",
   "peerGitDiff",
+  "peerGitStatus",
 ]);
 
 function modulePath(file: string, path: string): string | undefined {

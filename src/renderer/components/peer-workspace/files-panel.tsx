@@ -1,4 +1,4 @@
-import { Folder, Search } from "lucide-react";
+import { Folder, GitBranch, Search } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { KeptMounted } from "../ui/kept-mounted";
 import { PeerFileTree } from "./file-tree";
+import { PeerGitPanel } from "./git-panel";
 import { PeerSearchPanel } from "./search-panel";
 
 export function PeerFilesPanel({
@@ -15,15 +16,23 @@ export function PeerFilesPanel({
   canRead,
   updateNeeded,
   rejoin,
+  canReadGit,
+  gitUpdateNeeded,
+  refreshGit,
+  sessionHint,
 }: {
   target: PeerWorkspaceTarget;
   missing: boolean;
   canRead: boolean;
   updateNeeded: boolean;
   rejoin: number;
+  canReadGit: boolean;
+  gitUpdateNeeded: boolean;
+  refreshGit: () => void;
+  sessionHint: number;
 }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"tree" | "search">("tree");
+  const [mode, setMode] = useState<"tree" | "search" | "git">("tree");
   return (
     <>
       <div className="flex items-center gap-1 border-b border-border/50 px-2 py-2">
@@ -31,6 +40,7 @@ export function PeerFilesPanel({
           [
             { value: "tree", label: t("files:panel.tab.tree"), Icon: Folder },
             { value: "search", label: t("files:panel.tab.search"), Icon: Search },
+            { value: "git", label: t("files:git.panel.header.title"), Icon: GitBranch },
           ] as const
         ).map(({ value, label, Icon }) => (
           <Button
@@ -51,21 +61,37 @@ export function PeerFilesPanel({
           </Button>
         ))}
       </div>
-      {missing || updateNeeded ? (
-        <EmptyState
-          title={t(missing ? "peerWorkspace.missingWorkspace" : "peerWorkspace.updateNeeded")}
-          tone="status"
-        />
+      {missing ? (
+        <EmptyState title={t("peerWorkspace.missingWorkspace")} tone="status" />
       ) : (
         <>
-          <KeptMounted shown={mode === "tree"}>
-            <PeerFileTree target={target} canRead={canRead && mode === "tree"} rejoin={rejoin} />
-          </KeptMounted>
-          <KeptMounted shown={mode === "search"}>
-            <PeerSearchPanel
+          {updateNeeded ? (
+            mode !== "git" && <EmptyState title={t("peerWorkspace.updateNeeded")} tone="status" />
+          ) : (
+            <>
+              <KeptMounted shown={mode === "tree"}>
+                <PeerFileTree
+                  target={target}
+                  canRead={canRead && mode === "tree"}
+                  rejoin={rejoin}
+                  sessionHint={sessionHint}
+                />
+              </KeptMounted>
+              <KeptMounted shown={mode === "search"}>
+                <PeerSearchPanel
+                  target={target}
+                  canRead={canRead && mode === "search"}
+                  rejoin={rejoin}
+                />
+              </KeptMounted>
+            </>
+          )}
+          <KeptMounted shown={mode === "git"}>
+            <PeerGitPanel
               target={target}
-              canRead={canRead && mode === "search"}
-              rejoin={rejoin}
+              canRead={canReadGit && mode === "git"}
+              updateNeeded={gitUpdateNeeded}
+              refresh={refreshGit}
             />
           </KeptMounted>
         </>

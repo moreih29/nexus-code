@@ -2086,6 +2086,18 @@
     "quickOpen": "다른 컴퓨터 파일 빠른 열기",
     "quickOpenPlaceholder": "파일 이름 또는 경로",
     "quickOpenPrompt": "그 컴퓨터의 파일 이름 또는 경로",
-    "quickOpenEmpty": "일치하는 파일 없음"
+    "quickOpenEmpty": "일치하는 파일 없음",
+    "gitNoStageCommit": "스테이징 · 커밋 없음",
+    "gitUnstaged": "스테이징 안 된 변경 사항",
+    "gitDetached": "분리된 HEAD",
+    "gitDivergence": "앞섬 {{ahead}} · 뒤처짐 {{behind}}",
+    "gitTruncated": "파일 목록 일부만",
+    "gitNotRepository": "Git 저장소 아님",
+    "gitChangeMissing": "사라진 변경 사항",
+    "gitDiffLeft": "좌측 {{path}} ({{ref}})",
+    "gitDiffRight": "우측 {{path}} ({{ref}})",
+    "gitPatchOnly": "전체 비교 없음 · 바뀐 부분만",
+    "gitPatchTruncated": "바뀐 부분 일부만",
+    "gitOutsideWorkspace": "워크스페이스 밖"
   }
 }

@@ -88,6 +88,7 @@ export function App() {
   const peers = usePeerWorkbench(!sidebarHidden, !agentView);
   const activePeer = peers.active;
   const peerNeedsUpdate = peers.reachable && !peers.filesSupported;
+  const peerGitNeedsUpdate = peers.reachable && !peers.gitSupported;
   const foldedPeers = useWorkspaceSidebarFolds((s) => s.foldedPeers);
   const togglePeerFold = useWorkspaceSidebarFolds((s) => s.togglePeer);
 
@@ -344,6 +345,12 @@ export function App() {
                     }
                     updateNeeded={peerNeedsUpdate}
                     rejoin={peers.rejoin}
+                    canReadGit={
+                      !agentView && !filesPanelHidden && peers.reachable && peers.gitSupported
+                    }
+                    gitUpdateNeeded={peerGitNeedsUpdate}
+                    refreshGit={peers.refreshGit}
+                    sessionHint={peers.sessionHint}
                   />
                 ) : undefined
               }
@@ -372,6 +379,7 @@ export function App() {
                 reachable={peers.reachable}
                 missing={peers.missing}
                 updateNeeded={peerNeedsUpdate}
+                gitUpdateNeeded={peerGitNeedsUpdate}
                 rejoin={peers.rejoin}
               />
             )}

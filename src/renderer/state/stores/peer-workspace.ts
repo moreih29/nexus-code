@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import { type PeerWorkspace, peerWorkspaceId } from "../../../shared/fs/peer-url";
+import type { IpcResult } from "../../../shared/ipc/result";
 import type { LineAt } from "../../services/chat/links";
+import type {
+  PeerGitFile,
+  PeerGitSide,
+  PeerGitStatus,
+} from "../../services/remote/peer-git-status";
 import { peerPathKey } from "../../utils/peer-path";
 
 export interface PeerWorkspaceTarget extends PeerWorkspace {
@@ -17,6 +23,15 @@ export interface PeerFileTab {
   at?: LineAt;
 }
 
+export interface PeerDiffTab extends PeerGitFile {
+  type: "peer.diff";
+  side: PeerGitSide;
+}
+
+export function peerTabId(tab: PeerFileTab | PeerDiffTab): string {
+  return tab.type === "peer.file" ? tab.path : JSON.stringify([tab.type, tab.path, tab.side]);
+}
+
 export interface PeerFolder {
   path: string;
   entries: readonly { name: string; kind: "file" | "dir" | "link" }[];
@@ -24,10 +39,13 @@ export interface PeerFolder {
 }
 
 interface PeerWorkspaceView {
-  tabs: readonly PeerFileTab[];
+  tabs: readonly (PeerFileTab | PeerDiffTab)[];
+  /** File path or the comparison tab ID. */
   activePath: string | null;
   folders: Readonly<Record<string, PeerFolder>>;
   expanded: ReadonlySet<string>;
+  gitStatus?: PeerGitStatus;
+  gitError?: string;
 }
 
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
@@ -53,7 +71,10 @@ interface PeerWorkspaceState {
   clearSelection: () => void;
   setAccount: (key: string | null) => void;
   openFile: (id: string, path: string, at?: LineAt) => void;
-  closeFile: (id: string, path: string) => void;
+  openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
+  selectTab: (id: string, tabId: string) => void;
+  closeTab: (id: string, tabId: string) => void;
+  setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
 }
@@ -101,7 +122,9 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     openFile: (id, path, at) =>
       updateView(id, (view) => {
         const key = peerPathKey(path);
-        const existing = view.tabs.find((tab) => peerPathKey(tab.path) === key);
+        const existing = view.tabs.find(
+          (tab) => tab.type === "peer.file" && peerPathKey(tab.path) === key,
+        );
         if (!existing) {
           const tab: PeerFileTab = { type: "peer.file", path, ...(at && { at }) };
           return { ...view, tabs: [...view.tabs, tab], activePath: path };
@@ -112,19 +135,38 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
           activePath: existing.path,
         };
       }),
-    closeFile: (id, path) =>
+    openDiff: (id, change, side) =>
       updateView(id, (view) => {
-        const index = view.tabs.findIndex((tab) => tab.path === path);
+        const tab: PeerDiffTab = { ...change, type: "peer.diff", side };
+        const activePath = peerTabId(tab);
+        const index = view.tabs.findIndex((item) => peerTabId(item) === activePath);
+        const tabs = [...view.tabs];
+        if (index < 0) tabs.push(tab);
+        else tabs[index] = tab;
+        return { ...view, tabs, activePath };
+      }),
+    selectTab: (id, tabId) =>
+      updateView(id, (view) =>
+        view.tabs.some((tab) => peerTabId(tab) === tabId) ? { ...view, activePath: tabId } : view,
+      ),
+    closeTab: (id, tabId) =>
+      updateView(id, (view) => {
+        const index = view.tabs.findIndex((tab) => peerTabId(tab) === tabId);
         if (index === -1) return view;
-        const tabs = view.tabs.filter((tab) => tab.path !== path);
+        const tabs = view.tabs.filter((_, i) => i !== index);
+        const next = tabs[index] ?? tabs[index - 1];
         return {
           ...view,
           tabs,
-          activePath:
-            view.activePath === path
-              ? (tabs[index]?.path ?? tabs[index - 1]?.path ?? null)
-              : view.activePath,
+          activePath: view.activePath === tabId ? (next ? peerTabId(next) : null) : view.activePath,
         };
+      }),
+    setGitResult: (id, result) =>
+      updateView(id, (view) => {
+        if (result.ok) return { ...view, gitStatus: result.value, gitError: undefined };
+        if (view.gitError === result.kind) return view;
+        const keep = result.kind === "unavailable";
+        return { ...view, gitStatus: keep ? view.gitStatus : undefined, gitError: result.kind };
       }),
     setFolder: (id, key, folder) =>
       updateView(id, (view) => {
