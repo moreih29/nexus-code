@@ -57,6 +57,7 @@ export const SIGNUP_FAILURES = ["pending_approval", "rejected", "suspended", "cl
  *   an authenticated 403 not_invited also signs the account out, with
  *   suspended when the server gives that status;
  * - invalid_grant: the server would not trade the code (expired, or used);
+ * - rate_limited: the server took too many tries to trade a code (a 429);
  * - too_many_devices: the account has as many devices signed in as it may,
  *   so one is to be removed from another device before signing in again;
  * - mismatch: the browser came back for another sign-in;
@@ -72,6 +73,7 @@ export const SIGN_IN_FAILURES = [
   ...SIGNUP_FAILURES,
   "server_error",
   "invalid_grant",
+  "rate_limited",
   "too_many_devices",
   "mismatch",
   "unreachable",

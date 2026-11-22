@@ -64,6 +64,14 @@ describe("the remote panel's account", () => {
     expect(html).toContain(body);
   });
 
+  test("says to try a rate-limited sign-in again later", () => {
+    const html = render({ status: "signed-out", server, failure: "rate_limited" });
+    expect(html).toContain('role="alert" data-testid="sign-in-notice" data-failure="rate_limited"');
+    expect(html).toContain("Too many sign-in attempts");
+    expect(html).toContain("Sign in again later.");
+    expect(html).not.toContain("Approved accounts only");
+  });
+
   test.each([
     ["closed", "Signups paused"],
     ["not_invited", "Account not on the invite list"],

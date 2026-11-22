@@ -454,6 +454,7 @@ function failureOf(error: unknown): SignInFailure {
   if (error instanceof ServerError) {
     if (error.code === "invalid_grant") return "invalid_grant";
     if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
+    if (error.status === 429) return "rate_limited";
     return "failed";
   }
   if (error instanceof UnreachableError) return "unreachable";

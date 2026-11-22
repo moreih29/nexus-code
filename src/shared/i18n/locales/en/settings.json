@@ -1132,6 +1132,10 @@
           "title": "Sign-in expired",
           "body": "Sign in again."
         },
+        "rate_limited": {
+          "title": "Too many sign-in attempts",
+          "body": "Sign in again later."
+        },
         "too_many_devices": {
           "title": "Too many devices signed in",
           "body": "Remove a device you no longer use in another device's settings, then sign in again."

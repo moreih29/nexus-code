@@ -357,6 +357,7 @@ describe("the account", () => {
       [{ code: "c1" }, { tokenStatus: 400 }, "invalid_grant"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "conflict" }, "failed"],
+      [{ code: "c1" }, { tokenStatus: 429, tokenError: "rate_limited" }, "rate_limited"],
     ] as const;
     for (const [back, serverOptions, failure] of cases) {
       const store = memoryStore();
