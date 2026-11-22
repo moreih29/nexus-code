@@ -10,9 +10,11 @@ import { linkedTask } from "../../../../src/shared/notes/line-report";
 import type { NewNoteLink } from "../../../../src/shared/notes/links";
 import type { DocNode } from "../../../../src/shared/notes/markdown";
 import type { NoteLocation } from "../../../../src/shared/notes/types";
-import { APP, CLAUDE_TAB, contextFor, fakeApp, SHELL_TAB } from "./fake-services";
+import { API, APP, CLAUDE_TAB, contextFor, fakeApp, SHELL_TAB } from "./fake-services";
 
 const location: NoteLocation = { key: "local:/w/app", kind: "local", path: "/w/app", label: "App" };
+const otherLocation: NoteLocation = { ...location, key: "local:/w/api", path: "/w/api" };
+const locationOf = (workspaceId: string) => (workspaceId === API ? otherLocation : location);
 const conversation = { workspaceId: APP, tabId: CLAUDE_TAB, agent: "claude" } as const;
 const link: NewNoteLink = { ...conversation, cwd: "/w/app", kind: "line", title: "Review" };
 const text = (value: string): DocNode => ({
@@ -44,21 +46,27 @@ beforeEach(async () => {
   app.tabs[APP] = app.tabs[APP].map((tab) =>
     tab.id === CLAUDE_TAB ? { ...tab, type: "claude" } : tab,
   );
-  app.services.notes.linksOfConversation = (tab) => store.linksOfConversation(location, tab);
-  app.services.notes.reportTargets = (tab) => store.reportTargets(location, tab);
+  app.services.notes.linksOfConversation = (tab) =>
+    store.linksOfConversation(locationOf(tab.workspaceId), tab);
+  app.services.notes.reportTargets = (tab) => store.reportTargets(locationOf(tab.workspaceId), tab);
   app.services.notes.reportLine = (tab, note, report) =>
-    store.reportLine(location, tab, note, report);
+    store.reportLine(locationOf(tab.workspaceId), tab, note, report);
 });
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function report(args: string[], verified: boolean | null = true, tabId = CLAUDE_TAB) {
+function report(
+  args: string[],
+  verified: boolean | null = true,
+  tabId = CLAUDE_TAB,
+  workspaceId = APP,
+) {
   return runCli(
     CLI_COMMANDS,
     contextFor(app, ["note", "report", ...args], {
-      workspaceId: APP,
+      workspaceId,
       tabId,
       ...(verified !== null ? { verified } : {}),
     }),
@@ -132,10 +140,12 @@ test("multiple reports require a note or line and cannot target another tab's li
     "More than one linked to-do",
   );
   expect((await report(["--line", wrongId, "They are done"])).stderr).toContain("no linked to-do");
-  expect((await report(["nnotmine", "--line", firstId, "Wrong note"])).stderr).toContain(
-    "no linked note",
+  expect((await report([second.id, "--line", firstId, "Wrong note"])).stderr).toContain(
+    "no linked to-do",
   );
-  expect((await report(["Release plan", "--done", "First"])).exitCode).toBe(0);
+  expect((await report([first.id, "--done"])).stderr).toContain("missing <text>");
+  const firstPrefix = first.id.slice(0, -1);
+  expect((await report([firstPrefix, "--done", "First"])).exitCode).toBe(0);
   expect((await report(["--line", thirdId, "--done", "Third"])).exitCode).toBe(0);
   const secondDoc = (await store.read(location, second.id)).doc;
   expect(linkedTask(secondDoc, secondId)?.attrs?.checked).toBe(false);
@@ -199,4 +209,82 @@ test("the store rechecks ownership and the link before writing", async () => {
   await expect(store.reportLine(location, conversation, note.id, result)).rejects.toThrow(
     "No linked to-do",
   );
+});
+
+test("report keeps the first summary word even if it matches the note title", async () => {
+  const note = await store.create(location, "Done");
+  const { id } = await store.addLink(location, note.id, link);
+  await store.save(location, note.id, { doc: withTask(id) });
+  expect((await report(["Done", "with", "the migration"])).exitCode).toBe(0);
+  expect((await store.links(location, note.id))[0].link.result?.summary).toBe(
+    "Done with the migration",
+  );
+});
+
+test("ordinary first words that resemble a note ID stay in the summary", async () => {
+  const note = await store.create(location, "Done");
+  await store.addLink(location, note.id, link);
+  expect((await report(["Nothing", "else", "to fix"])).exitCode).toBe(0);
+  expect((await store.links(location, note.id))[0].link.result?.summary).toBe(
+    "Nothing else to fix",
+  );
+});
+
+test("report removes invisible formatting and rejects a PR URL with userinfo", async () => {
+  const note = await store.create(location, "Weekly");
+  const { id } = await store.addLink(location, note.id, link);
+  await store.save(location, note.id, { doc: withTask(id) });
+  const hidden = "Fixed \u202Egnp.exe\u202C \u200B\u2066files\u2069\u200F\u061C";
+  expect((await report(["--done", hidden])).exitCode).toBe(0);
+  const summary = "Fixed gnp.exe files";
+  expect((await store.links(location, note.id))[0].link.result?.summary).toBe(summary);
+  expect(linkedTask((await store.read(location, note.id)).doc, id)?.content?.[1]).toMatchObject(
+    text(summary),
+  );
+  for (const url of [
+    "https://github.com@evil.example/pull/1",
+    "http://:secret@example.test/pull/1",
+    "https://user:password@example.test/pull/1",
+  ]) {
+    const error = await report(["--pr", url, "Result"]);
+    expect(error.exitCode).toBe(2);
+    expect(error.stderr).toContain("username or password");
+  }
+  expect((await store.links(location, note.id))[0].link.result?.summary).toBe(summary);
+});
+
+test("a verified tab in another location cannot report using the same session or a known link ID", async () => {
+  const note = await store.create(location, "Shared name");
+  const { id } = await store.addLink(location, note.id, { ...link, session: "same-session" });
+  await store.save(location, note.id, { doc: withTask(id) });
+  app.tabs[API].push({
+    id: CLAUDE_TAB,
+    type: "claude",
+    session: "same-session",
+    title: "Caller",
+    shown: true,
+    groupId: "g3",
+  });
+  const result = await report([note.id, "--line", id, "--done", "Scoped"], true, CLAUDE_TAB, API);
+  expect(result.stderr).toContain("No linked to-do");
+  expect((await store.links(location, note.id))[0].link.result).toBeUndefined();
+  expect(linkedTask((await store.read(location, note.id)).doc, id)?.attrs?.checked).toBe(false);
+});
+
+test("a stale save merges the latest result and only the check it has not seen", async () => {
+  const note = await store.create(location, "Weekly");
+  const { id } = await store.addLink(location, note.id, link);
+  const doc = withTask(id);
+  const initial = await store.save(location, note.id, { doc });
+  expect((await report(["--done", "Passed"])).exitCode).toBe(0);
+  const done = await store.read(location, note.id);
+  expect((await report(["--failed", "Needs another run"])).exitCode).toBe(0);
+  const checkAndReport = async (baseUpdatedAt: number, checked: boolean) => {
+    await store.save(location, note.id, { doc, baseUpdatedAt });
+    const task = linkedTask((await store.read(location, note.id)).doc, id);
+    expect(task?.attrs?.checked).toBe(checked);
+    expect(task?.content?.[1]).toMatchObject(text("Needs another run"));
+  };
+  await checkAndReport(initial.updatedAt, true);
+  await checkAndReport(done.updatedAt, false);
 });

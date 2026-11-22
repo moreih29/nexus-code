@@ -337,12 +337,14 @@ export function registerNotesChannel(opts: {
   const reportLine: NotesFeature["reportLine"] = (tab, noteId, report) =>
     trackWrite(async () => {
       const location = locationOf(tab.workspaceId);
-      const updated = await store.reportLine(location, tab, noteId, report);
       const place = { locationKey: location.key, noteId };
-      broadcast("notes", "linksChanged", place);
-      broadcast("notes", "lineReported", { ...place, ...report });
-      if (updated) changed({ ...place, change: "saved" });
-      return updated;
+      return store.reportLine(location, tab, noteId, report, {
+        resultSaved: () => linksChanged(location.key, noteId),
+        documentWritten: (updatedAt) => {
+          broadcast("notes", "lineReported", { ...place, ...report, updatedAt });
+          changed({ ...place, change: "saved" });
+        },
+      });
     });
   const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
     trackWrite(async () => {
@@ -449,11 +451,11 @@ export function registerNotesChannel(opts: {
         return ipcOk(undefined);
       },
       save: async (args: unknown) => {
-        const { workspaceId, noteId, title, doc } = validateArgs(c.save.args, args);
+        const { workspaceId, noteId, title, doc, baseUpdatedAt } = validateArgs(c.save.args, args);
         const location = locationOf(workspaceId);
         const summary = await store.save(location, noteId, {
           ...(title !== undefined ? { title } : {}),
-          ...(doc !== undefined ? { doc: doc as never } : {}),
+          ...(doc !== undefined ? { doc: doc as never, baseUpdatedAt } : {}),
         });
         changed({ locationKey: location.key, noteId, change: "saved" });
         retitle(noteId, summary.title);

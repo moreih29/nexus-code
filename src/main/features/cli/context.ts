@@ -227,9 +227,7 @@ export interface CliServices {
 /** A workspace's notes, as the nexus note commands read them. */
 export interface CliNotes {
   linksOfConversation(tab: NoteConversation): Promise<LinkedNote[]>;
-  reportTargets(
-    tab: NoteConversation,
-  ): Promise<{ noteId: string; title: string; linkId: string }[]>;
+  reportTargets(tab: NoteConversation): Promise<{ noteId: string; linkId: string }[]>;
   reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
   /** Newest first. */
   list(workspaceId: string): Promise<NoteSummary[]>;

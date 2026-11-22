@@ -17,6 +17,7 @@ import type { NoteLineReported } from "../../../shared/types/notes";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { noteLocation } from "../../services/notes/conversation";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
+import { createLineReportInbox } from "../../services/notes/report-inbox";
 import {
   createNoteAutoSave,
   type NoteSaveState,
@@ -73,28 +74,13 @@ export function NoteEditor({
   const [note, setNote] = useState<NoteContent | null>(null);
   const [missing, setMissing] = useState(false);
 
-  const reports = useRef<NoteLineReported[]>([]);
-  const reportHandler = useRef<((event: NoteLineReported) => void) | undefined>(undefined);
   const location = useWorkspacesStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId);
     return workspace && noteLocation(workspace, s.workspaces);
   });
-  useLayoutEffect(() => {
-    if (!location) return;
-    return notesApi.onLineReported((event) => {
-      if (event.noteId !== noteId || event.locationKey !== location) return;
-      if (reportHandler.current) reportHandler.current(event);
-      else reports.current.push(event);
-    });
-  }, [location, noteId]);
+  const reports = useMemo(() => createLineReportInbox(location, noteId), [location, noteId]);
+  useLayoutEffect(() => notesApi.onLineReported(reports.receive), [reports]);
 
-  const receiveReport = useCallback((apply: (event: NoteLineReported) => void) => {
-    reportHandler.current = apply;
-    for (const event of reports.current.splice(0)) apply(event);
-    return () => {
-      reportHandler.current = undefined;
-    };
-  }, []);
   useEffect(() => {
     let alive = true;
     notesApi.read(workspaceId, noteId).then(
@@ -132,7 +118,7 @@ export function NoteEditor({
         tabId={tabId}
         note={note}
         isVisible={isVisible}
-        receiveReport={receiveReport}
+        receiveReport={reports.attach}
       />
     </NoteConversationLinks>
   );
@@ -202,6 +188,7 @@ function LoadedNote({
     };
   }, [nameTab]);
 
+  const reportBase = useRef(note.updatedAt);
   const { schedule, flush, discard } = useMemo(
     () => createNoteAutoSave((change) => notesApi.save(workspaceId, note.id, change), setSaveState),
     [workspaceId, note.id],
@@ -342,7 +329,7 @@ function LoadedNote({
       immediatelyRender: true,
       onUpdate: ({ editor: e }) => {
         const doc = e.getJSON() as DocNode;
-        schedule({ doc });
+        schedule({ doc, baseUpdatedAt: reportBase.current });
         const next = summaryTaskTimes(doc);
         setTaskTimes((previous) => (sameSummaryTaskTimes(previous, next) ? previous : next));
       },
@@ -388,7 +375,8 @@ function LoadedNote({
   useLayoutEffect(() => {
     if (!editor) return;
     return receiveReport((event) => {
-      if (editor.isDestroyed) return;
+      if (editor.isDestroyed || event.updatedAt <= reportBase.current) return;
+      reportBase.current = event.updatedAt;
       applyLineReport(editor, event);
     });
   }, [editor, receiveReport]);

@@ -71,6 +71,7 @@ import {
   type NoteFile,
   type NoteLocation,
   type NoteRecordingSummary,
+  type NoteSaveChange,
   type NoteStorageEntry,
   type NoteSummary,
   SKETCH_ID_RE,
@@ -168,9 +169,17 @@ export function newSketchId(now = Date.now()): string {
   return `s${now.toString(36)}${randomBytes(2).toString("hex")}`;
 }
 
+interface SavedLineReport {
+  report: LineReport;
+  updatedAt: number;
+  checkedAt?: number;
+}
+
 export class NotesStore {
   /** Serializes document updates by note folder. */
   private readonly documentTurns = new Map<string, Promise<void>>();
+  /** Latest report per link for merging renderer snapshots still in flight. */
+  private readonly savedReports = new Map<string, Map<string, SavedLineReport>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
   /** Serializes index construction, link edits and deletions for a location. */
   private readonly linkTurns = new Map<string, Promise<void>>();
@@ -231,11 +240,7 @@ export class NotesStore {
     return { ...summaryOf(note, await recordingSummary(dir)), doc: note.doc, dir };
   }
 
-  async save(
-    location: NoteLocation,
-    id: string,
-    change: { title?: string; doc?: DocNode },
-  ): Promise<NoteSummary> {
+  async save(location: NoteLocation, id: string, change: NoteSaveChange): Promise<NoteSummary> {
     const dir = this.noteDir(location, id);
     return this.queueWrite(this.documentTurns, dir, () => this.saveNote(location, id, dir, change));
   }
@@ -244,7 +249,8 @@ export class NotesStore {
     location: NoteLocation,
     id: string,
     dir: string,
-    change: { title?: string; doc?: DocNode },
+    change: NoteSaveChange,
+    onDocumentWritten?: (updatedAt: number) => void,
   ): Promise<NoteSummary> {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
@@ -253,9 +259,19 @@ export class NotesStore {
     if (change.doc !== undefined) {
       if (change.doc?.type !== "doc") throw new NoteError("bad-request", "not a document");
       note.doc = change.doc;
+      if (change.baseUpdatedAt !== undefined) {
+        const base = change.baseUpdatedAt;
+        for (const saved of this.savedReports.get(dir)?.values() ?? []) {
+          if (saved.updatedAt <= base) continue;
+          note.doc = withLineReport(note.doc, {
+            ...saved.report,
+            check: saved.checkedAt !== undefined && saved.checkedAt > base,
+          });
+        }
+      }
     }
     note.updatedAt = Math.max(Date.now(), note.updatedAt + 1);
-    await writeNote(dir, note);
+    await writeNote(dir, note, onDocumentWritten);
     await this.touchLocation(location);
     return summaryOf(note, await recordingSummary(dir));
   }
@@ -264,6 +280,7 @@ export class NotesStore {
     const dir = this.noteDir(location, id);
     await this.queueWrite(this.linkTurns, location.key, async () => {
       if (await exists(dir)) await this.discard(dir);
+      this.savedReports.delete(dir);
       const index = this.linkIndexes.get(location.key);
       if (index) indexNote(index, id, []);
     });
@@ -299,7 +316,6 @@ export class NotesStore {
         .filter(({ link }) => isTaskLink(link))
         .map(({ id }) => ({
           noteId: note.id,
-          title: note.title,
           linkId: id,
         })),
     );
@@ -335,7 +351,11 @@ export class NotesStore {
     tab: NoteConversation,
     noteId: string,
     report: LineReport,
-  ) {
+    announce?: {
+      resultSaved(): void;
+      documentWritten(updatedAt: number): void;
+    },
+  ): Promise<boolean> {
     return this.editLinks(location, noteId, async (file, dir) => {
       const link = file.conversations[report.linkId];
       if (!link || !isTaskLink(link) || !(sameTab(link, tab) || sameSession(link, tab))) {
@@ -343,11 +363,18 @@ export class NotesStore {
       }
       file.conversations[report.linkId] = { ...link, result: report.result };
       await writeLinks(dir, file);
+      announce?.resultSaved();
       return this.queueWrite(this.documentTurns, dir, async () => {
         const note = await readNote(dir);
         const doc = withLineReport(note.doc, report);
         if (doc === note.doc) return false;
-        await this.saveNote(location, noteId, dir, { doc });
+        await this.saveNote(location, noteId, dir, { doc }, (updatedAt) => {
+          const reports = this.savedReports.get(dir) ?? new Map<string, SavedLineReport>();
+          const checkedAt = report.check ? updatedAt : reports.get(report.linkId)?.checkedAt;
+          reports.set(report.linkId, { report, updatedAt, checkedAt });
+          this.savedReports.set(dir, reports);
+          announce?.documentWritten(updatedAt);
+        });
         return true;
       });
     });
@@ -880,6 +907,9 @@ export class NotesStore {
     await this.queueWrite(this.linkTurns, key, async () => {
       if (await exists(dir)) await this.discard(dir);
       this.linkIndexes.delete(key);
+      for (const noteDir of this.savedReports.keys()) {
+        if (path.dirname(noteDir) === dir) this.savedReports.delete(noteDir);
+      }
     });
   }
 
@@ -1111,8 +1141,13 @@ async function readNote(dir: string): Promise<NoteFile> {
   return note;
 }
 
-async function writeNote(dir: string, note: NoteFile): Promise<void> {
+async function writeNote(
+  dir: string,
+  note: NoteFile,
+  onDocumentWritten?: (updatedAt: number) => void,
+): Promise<void> {
   await writeAtomic(path.join(dir, "note.json"), `${JSON.stringify(note)}\n`);
+  onDocumentWritten?.(note.updatedAt);
   await writeAtomic(path.join(dir, "note.md"), noteMarkdown(note));
 }
 

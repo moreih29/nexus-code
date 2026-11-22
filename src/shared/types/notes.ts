@@ -118,7 +118,12 @@ export const NotesArgs = {
     z.object({ tab: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }) }),
   ]),
   removeLink: z.object({ ...note, linkId: NoteLinkIdSchema }),
-  save: z.object({ ...note, title: z.string().max(500).optional(), doc: NoteDocSchema.optional() }),
+  save: z.object({
+    ...note,
+    title: z.string().max(500).optional(),
+    doc: NoteDocSchema.optional(),
+    baseUpdatedAt: NonnegativeNumberSchema.optional(),
+  }),
   remove: z.object(note),
   prune: z.object(note),
   addFiles: z.object({ ...note, paths: z.array(z.string().min(1).max(4096)).min(1).max(100) }),
@@ -253,5 +258,6 @@ export const NoteLineReportedSchema = NoteLinksChangedSchema.extend({
   linkId: NoteLinkIdSchema,
   check: z.boolean(),
   result: NoteLinkResultSchema,
+  updatedAt: NonnegativeNumberSchema,
 });
 export type NoteLineReported = z.infer<typeof NoteLineReportedSchema>;

@@ -549,7 +549,7 @@ describe("nexus agent-context", () => {
     ).not.toContain("n1234567");
   });
 
-  test("adds the linked note to the existing Codex CLI guidance", async () => {
+  test("adds the linked note and to-do to the existing Codex CLI guidance", async () => {
     const app = withDevices();
     const feature = setupCliFeature({
       agentHost: { on: () => () => {} },
@@ -566,13 +566,15 @@ describe("nexus agent-context", () => {
             agent: "codex",
             session: "thread",
           });
-          return [{ noteId: "n1234567", title: "Review", updatedAt: 1 }];
+          return [{ noteId: "n1234567", title: "Review", line: "Run tests", updatedAt: 1 }];
         },
       },
     } as unknown as SetupCliFeatureOptions);
     try {
       const context = await feature.agentContextForChat(APP, "codex", "thread");
-      expect(context?.status).toContain('note "Review" · nexus note read n1234567');
+      expect(context?.status).toContain(
+        'to-do "Run tests" in the note "Review" · nexus note read n1234567 · when finished, use nexus note report',
+      );
       expect(context?.commands).toContain("nexus help");
     } finally {
       feature.dispose();

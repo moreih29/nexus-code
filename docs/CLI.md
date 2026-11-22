@@ -61,7 +61,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus note new [제목] [--show]` | 새 노트 만들기. `--show` 는 사용자 앞에 열기 |
 | `nexus note show <노트>` | 노트를 사용자 앞에 열기 |
 | `nexus note write <노트> <텍스트\|-> [--under 제목]` | 마크다운을 노트 끝에, `--under` 면 그 제목 아래 부분 끝에 덧붙이기 |
-| `nexus note report [<노트>] [--done\|--failed] [--line ID] [--pr URL] <텍스트...>` | 검증된 대화 탭에서 연결된 할 일에 결과 기록 · `--done`으로 체크 |
+| `nexus note report [<노트 ID>] [--done\|--failed] [--line ID] [--pr URL] <텍스트...>` | 검증된 대화 탭에서 연결된 할 일에 결과 기록 · `--done`으로 체크 |
 | `nexus note add <노트> <파일...> [--under 제목]` | 이 컴퓨터의 파일 넣기. 이미지(png, jpg, gif, webp)는 `screens/` 로 보이게, 그 밖은 `materials/` 로 첨부 |
 | `nexus note record [노트] [--pause\|--resume\|--stop]` | 노트에 녹음 시작, 또는 일시정지·재개·정지. 아무것도 없으면 지금 녹음 상태와 녹음할 수 있는지 |
 
