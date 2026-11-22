@@ -1,5 +1,5 @@
 import { boundedPeerFoldKey } from "../../../shared/types/agent-view";
-import type { AgentSession, SessionPhase } from "./model";
+import { type AgentSession, type SessionPhase, sessionParentName } from "./model";
 import { compareStatusTime, listed, matchesQuery, ROW_GROUPS } from "./rows";
 
 const MAX_PARENT_STEPS = 8;
@@ -80,7 +80,7 @@ export function sessionTree(sessions: readonly AgentSession[]): readonly Session
     }
     const opener = session.parent;
     const parent = opener?.tabId && !opener.device ? byTab.get(opener.tabId) : undefined;
-    const name = parent?.title || opener?.name || opener?.tabId?.slice(0, 8) || opener?.agent;
+    const name = sessionParentName(opener, parent?.title);
     return {
       session,
       children: branches,

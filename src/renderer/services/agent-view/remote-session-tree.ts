@@ -2,7 +2,11 @@ import type { RemoteSession, SessionState } from "../../../../packages/remote-pr
 import type { TerminalOpener } from "../../../shared/chat/relay";
 import type { AgentSession } from "../agent-sessions/model";
 import type { RowGroup } from "../agent-sessions/rows";
-import { searchSessionTree, sessionTree } from "../agent-sessions/session-tree";
+import {
+  type SessionTreeNode,
+  searchSessionTree,
+  sessionTree,
+} from "../agent-sessions/session-tree";
 import { remoteDisplayName } from "../remote/display-name";
 import { remoteSessionKey } from "./layout";
 
@@ -31,22 +35,16 @@ export function remoteSessionTree(
   for (const row of available) {
     rowsByTab.set(row.tabId, rowsByTab.has(row.tabId) ? undefined : row);
   }
-  const unlinkedParents = new Set<string>();
 
-  function openerOf(key: string, opener: RemoteSession["openedBy"]): TerminalOpener | undefined {
+  function openerOf(opener: RemoteSession["openedBy"]): TerminalOpener | undefined {
     if (!opener) return undefined;
     const { kind = "tab", agent, device } = opener;
     const parent = device ? undefined : rowsByTab.get(opener.tabId);
-    const name =
-      remoteDisplayName(parent?.title) ||
-      remoteDisplayName(opener.name) ||
-      remoteDisplayName(opener.tabId.slice(0, 8));
+    const name = remoteDisplayName(parent?.title) || remoteDisplayName(opener.name);
     if (device)
       return { ...opener, kind, name, device: { ...device, name: remoteDisplayName(device.name) } };
     const parentKey = parent && remoteSessionKey({ deviceId, ...parent });
     const tabId = parentKey && byKey.has(parentKey) ? parentKey : undefined;
-    // A hidden or ambiguous parent is in the listing, but cannot be a tree link.
-    if (!tabId && rowsByTab.has(opener.tabId)) unlinkedParents.add(key);
     return { kind, agent, name, tabId };
   }
 
@@ -55,7 +53,7 @@ export function remoteSessionTree(
     workspaceId: session.workspaceId,
     tabId: key,
     title: remoteDisplayName(session.title),
-    parent: openerOf(key, session.openedBy),
+    parent: openerOf(session.openedBy),
     kind: session.kind,
     agent: session.kind === "terminal" ? session.agent : session.kind,
     state: session.state === "ended" ? "exited" : session.state,
@@ -65,8 +63,11 @@ export function remoteSessionTree(
     message: session.last,
     prompt: undefined,
   }));
-  const roots = sessionTree(rows).map((node) =>
-    unlinkedParents.has(node.session.key) ? { ...node, parentClosed: undefined } : node,
-  );
+  const roots = sessionTree(rows).map((node): SessionTreeNode => {
+    const opener = byKey.get(node.session.key)?.openedBy;
+    if (!opener || opener.device || node.session.parent?.tabId) return node;
+    // A hidden or ambiguous parent is still in the listing.
+    return { ...node, parentClosed: rowsByTab.has(opener.tabId) ? undefined : true };
+  });
   return { byKey, roots: searchSessionTree(roots, query) };
 }

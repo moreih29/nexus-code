@@ -1,6 +1,8 @@
 import { expect, mock, spyOn, test } from "bun:test";
+import i18next from "i18next";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import { SessionRelations } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
 import {
@@ -258,6 +260,49 @@ function remoteWithOpener(opener: NonNullable<RemoteSession["openedBy"]>, selfId
     />,
   );
 }
+
+test.each([
+  ["en", "Closed conversation"],
+  ["ko", "닫힌 대화"],
+])("remote trees dim the unnamed closed parent in %s", async (language, label) => {
+  const missingId = "1a2b3c4d-missing";
+  const child = row("child", {
+    openedBy: { workspaceId: workspace.id, tabId: missingId, kind: "tab", agent: "codex" },
+  });
+  const list = { workspaces: [workspace], sessions: [child] };
+  const i18n = i18next.cloneInstance({ lng: language });
+  await i18n.changeLanguage(language);
+  for (const view of [
+    <PeerGroup key="workspace" peer={host} sessions={{ status: "ready", list }} query="" />,
+    <StatusGroups
+      key="status"
+      agents={emptyAgents}
+      activity={new Map()}
+      remote={[{ peer: host, list }]}
+      query=""
+      results={new RemoteResults()}
+    />,
+  ]) {
+    const html = renderToStaticMarkup(<I18nextProvider i18n={i18n}>{view}</I18nextProvider>);
+    expect(html).toContain(`data-testid="remote-session-parent">↳ ${label}</span>`);
+    expect(html).toMatch(/opacity-70"[^>]*data-testid="remote-session-parent"/);
+    expect(html).not.toContain(missingId.slice(0, 8));
+  }
+  expect(remoteSessionTree(host.id, [child], label).roots).toEqual([]);
+});
+
+test("a missing remote parent keeps its saved name, terminal agent or device reference", () => {
+  const opener = { workspaceId: workspace.id, tabId: "1a2b3c4d-missing" };
+  expect(remoteWithOpener({ ...opener, name: "Saved title" })).toContain(
+    'data-testid="remote-session-parent">↳ Saved title · closed</span>',
+  );
+  expect(remoteWithOpener({ ...opener, kind: "terminal", agent: "codex" })).toContain(
+    'data-testid="remote-session-parent">↳ codex · closed</span>',
+  );
+  expect(remoteWithOpener({ ...opener, device: { id: "studio", name: "Studio" } })).toContain(
+    'data-testid="remote-session-parent">↳ <bdi>Studio</bdi> · <bdi>1a2b3c4d</bdi></span>',
+  );
+});
 
 test.each([
   [workspace.id, "constructor"],

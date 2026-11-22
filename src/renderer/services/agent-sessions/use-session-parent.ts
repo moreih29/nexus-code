@@ -1,6 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import type { TerminalOpener } from "../../../shared/chat/relay";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
+import { sessionParentName } from "./model";
 
 function ownTab(
   byWorkspace: Readonly<Record<string, Record<string, Tab>>>,
@@ -35,6 +36,6 @@ export function useSessionParent(opener: TerminalOpener | undefined) {
   );
   return {
     open,
-    name: open?.title || opener?.name || tabId?.slice(0, 8) || opener?.agent,
+    name: sessionParentName(opener, open?.title),
   };
 }

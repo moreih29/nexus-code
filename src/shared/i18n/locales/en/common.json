@@ -1937,6 +1937,7 @@
       "parent": "↳ {{name}}",
       "parent_hint": "Parent · {{name}}",
       "closed_parent": "↳ {{name}} · closed",
+      "closed_conversation": "Closed conversation",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "This computer",
       "parent_closed_state": "closed",

@@ -87,7 +87,7 @@ function RemoteSessionRelations({
   );
   const WorkspaceIcon = task ? GitBranch : Folder;
   const { count, counts, session, parentClosed } = node;
-  if (!parentName && !count && !workspaceLabel) return null;
+  if (!parentName && !parentClosed && !count && !workspaceLabel) return null;
   return (
     <div className="flex min-w-0 items-center gap-1.5 px-2 pb-1 text-app-micro">
       {workspaceLabel && (
@@ -99,7 +99,7 @@ function RemoteSessionRelations({
           <span className="truncate">{workspaceLabel}</span>
         </span>
       )}
-      {parentName && (
+      {(parentName || parentClosed) && (
         <RemoteParentChip
           name={parentName}
           opener={session.parent}
@@ -126,7 +126,7 @@ function RemoteParentChip({
   closed,
   navigation,
 }: {
-  name: string;
+  name?: string;
   opener: SessionTreeNode["session"]["parent"];
   closed?: boolean;
   navigation?: RemoteTreeNavigation;
@@ -158,7 +158,8 @@ function RemoteParentChip({
     label.label
   );
   const { workspaceId, tabId } = opener ?? {};
-  const canOpenPeer = !self && navigation?.connected && peer?.online && workspaceId && tabId;
+  const canOpenPeer =
+    name && !self && navigation?.connected && peer?.online && workspaceId && tabId;
   const onClick =
     navigation?.connected && open
       ? () => showTerminal(open)

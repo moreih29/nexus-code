@@ -309,9 +309,9 @@ test("old layouts keep flat status order and row appearance", () => {
   expect(html).not.toContain('data-testid="agent-sidebar-tree-line"');
 });
 
-function workspaceList(view: "status" | "task", query = "") {
+function workspaceList(view: "status" | "task", query = "", sessions = local) {
   const common = {
-    family: agents().families[0]!,
+    family: agents(sessions).families[0]!,
     changes: new Map(),
     activity: new Map(),
     selection: null,
@@ -320,6 +320,25 @@ function workspaceList(view: "status" | "task", query = "") {
   };
   return view === "status" ? <StatusView {...common} /> : <TaskView {...common} waits={[]} />;
 }
+
+test("local trees dim the closed conversation label when the opener has no name", () => {
+  const missingId = "1a2b3c4d-missing";
+  const child = {
+    ...closed,
+    parent: { kind: "tab" as const, agent: "codex" as const, tabId: missingId },
+  };
+  for (const view of [
+    status("", [child]),
+    workspaceList("status", "", [child]),
+    workspaceList("task", "", [child]),
+    <WorkspaceGroups key="sidebar" agents={agents([child])} activity={new Map()} query="" />,
+  ]) {
+    const html = render(view);
+    expect(html).toMatch(/opacity-70"[^>]*>↳ Closed conversation<\/span>/);
+    expect(html).not.toContain(missingId.slice(0, 8));
+  }
+  expect(rows(render(status("Closed conversation", [child])))).toEqual([]);
+});
 
 function sessionKeys(html: string): string[] {
   return [...html.matchAll(/data-session-key="([^"]+)"/g)].map(([, key]) => key!);

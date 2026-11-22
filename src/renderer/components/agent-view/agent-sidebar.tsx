@@ -27,6 +27,7 @@ import {
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
+import { useSessionParent } from "@/services/agent-sessions/use-session-parent";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey } from "@/services/agent-view/layout";
 import { orderSessions, reorderSubset } from "@/services/agent-view/order";
@@ -892,7 +893,9 @@ const AgentItem = memo(function AgentItem({
   const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
-  const parent = useParentCaption(parentName, session.parent?.device, parentClosed);
+  const { open } = useSessionParent(parentClosed ? session.parent : undefined);
+  const closed = parentClosed && !open;
+  const parent = useParentCaption(open?.title || parentName, session.parent?.device, closed);
   const preview = <RowLine session={session} facts={facts} />;
   return (
     <div
@@ -985,7 +988,7 @@ const AgentItem = memo(function AgentItem({
               <span
                 className={cn(
                   "max-w-[60%] shrink-0 truncate text-muted-foreground",
-                  parentClosed && "opacity-70",
+                  closed && "opacity-70",
                 )}
                 title={parent.hint}
                 data-testid="agent-sidebar-parent"

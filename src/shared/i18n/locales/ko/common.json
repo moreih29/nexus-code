@@ -1937,6 +1937,7 @@
       "parent": "↳ {{name}}",
       "parent_hint": "상위 대화 · {{name}}",
       "closed_parent": "↳ {{name}} · 닫힘",
+      "closed_conversation": "닫힌 대화",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "이 컴퓨터",
       "parent_closed_state": "닫힘",
