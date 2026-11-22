@@ -160,7 +160,13 @@ export function latestConversations<Row extends ResolvedNoteLink>(rows: readonly
   }
   return groups
     .sort((a, b) => a.index - b.index)
-    .map(({ row, index, result }) => ({ ...row, key: rows[index].entry.id, result }));
+    .map(({ row, index, links, result }) => ({
+      ...row,
+      key: rows[index].entry.id,
+      result,
+      // Every link the one chip stands for, so removing it removes them all.
+      linkIds: links.map((link) => link.entry.id),
+    }));
 }
 
 export type ConversationStatus =

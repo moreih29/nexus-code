@@ -8,6 +8,7 @@ import { NoteSummaryAttributes } from "../../../../../src/renderer/components/no
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import * as navigation from "../../../../../src/renderer/services/agent-sessions/actions";
 import * as agentTab from "../../../../../src/renderer/services/chat/agent-tab";
+import { titleOf } from "../../../../../src/renderer/services/chat/tab-title";
 import * as placement from "../../../../../src/renderer/services/cli/placement";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
 import * as conversation from "../../../../../src/renderer/services/notes/send-to-conversation";
@@ -23,6 +24,7 @@ import * as tasks from "../../../../../src/renderer/services/workspace/tasks";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
+import { shownNoteText } from "../../../../../src/shared/notes/line-report";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
 const local = { location: { kind: "local", rootPath: "/repo" } } as WorkspaceMeta;
@@ -75,6 +77,21 @@ test("braces in titles, headings and the item stay quoted and leave the read com
   );
   expect(prompt).toContain(String.raw`Under "Actions \u007b\u007bid\u007d\u007d"`);
   expect(prompt).toContain("`nexus note read n1234567`");
+});
+
+test("people see a to-do prompt's quoted labels as written while the agent keeps the escapes", () => {
+  const text = 'Special <>:"/\\|?* {{chars}}.';
+  const prompt = noteTaskPrompt(text, "Plan <b>", "", "n1234567");
+  expect(prompt).toContain(
+    String.raw`To-do: "Special \u003c\u003e:\"/\\|?* \u007b\u007bchars\u007d\u007d."`,
+  );
+  const shown = shownNoteText(prompt);
+  expect(shown.split("\n")[0]).toBe(`To-do: "${text}"`);
+  expect(shown).toContain('Note "Plan <b>" · Read the full note with `nexus note read n1234567`.');
+  expect(shown).toContain('`nexus note report --done "one-line summary"');
+  expect(titleOf(prompt)).toBe(`To-do: "${text}"`);
+  // Text that is not a note prompt keeps its escapes.
+  expect(shownNoteText(String.raw`"\u003cb\u003e"`)).toBe(String.raw`"\u003cb\u003e"`);
 });
 
 const workspace = { ...local, id: "123e4567-e89b-12d3-a456-426614174000", rootPath: "/repo" };
