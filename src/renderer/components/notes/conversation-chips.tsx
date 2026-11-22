@@ -56,9 +56,11 @@ export function ConversationChips({ isVisible, ...note }: NotePlace & { isVisibl
   return (
     <fieldset
       aria-label={t("conversations.title")}
-      className="flex max-h-24 min-w-0 shrink-0 flex-wrap items-center gap-1.5 overflow-auto border-b border-border px-6 py-2 app-scrollbar"
+      className="flex max-h-24 min-w-0 shrink-0 flex-wrap items-center gap-1.5 overflow-x-hidden overflow-y-auto border-b border-border px-6 py-2 app-scrollbar @max-[240px]/note:px-2"
     >
-      <span className="mr-1 text-app-micro text-muted-foreground">{t("conversations.title")}</span>
+      <span className="mr-1 shrink-0 whitespace-nowrap text-app-micro text-muted-foreground @max-[240px]/note:hidden">
+        {t("conversations.title")}
+      </span>
       <LinkedConversations note={note} links={links} isVisible={isVisible} />
     </fieldset>
   );
@@ -176,9 +178,12 @@ function ConversationChip({
   const dotColor = DOT_COLORS[status];
   const statusIcon =
     status === "running" ? (
-      <Loader className="size-3 text-sky-500 motion-safe:animate-spin" aria-hidden="true" />
+      <Loader
+        className="size-3 shrink-0 text-sky-500 motion-safe:animate-spin"
+        aria-hidden="true"
+      />
     ) : dotColor ? (
-      <span className={cn("size-1.5 rounded-full", dotColor)} aria-hidden="true" />
+      <span className={cn("size-1.5 shrink-0 rounded-full", dotColor)} aria-hidden="true" />
     ) : null;
   const failed = () => showToast({ kind: "error", message: t("conversations.actionError") });
 
@@ -198,7 +203,7 @@ function ConversationChip({
     <button
       type="button"
       className={cn(
-        "inline-flex min-w-0 max-w-[min(100%,20rem)] items-center rounded-full border border-border px-2 py-0.5 text-app-micro hover:bg-[var(--state-hover-bg)]",
+        "inline-flex min-w-0 max-w-[min(100%,20rem)] items-center rounded-full border border-border px-2 py-0.5 text-left text-app-micro hover:bg-[var(--state-hover-bg)] @max-[240px]/note:w-full @max-[240px]/note:px-1.5",
         target.kind === "missing" ? "text-muted-foreground" : "text-foreground",
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
@@ -207,10 +212,10 @@ function ConversationChip({
       data-testid="note-conversation-chip"
     >
       <Icon className="mr-1 size-3 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 truncate">{title}</span>
+      <span className="min-w-0 truncate @max-[240px]/note:min-w-[4ch]">{title}</span>
       <span
         className={cn(
-          "shrink-0 text-muted-foreground",
+          "shrink-0 text-muted-foreground @max-[240px]/note:max-w-[calc(100%-4ch-1rem)] @max-[240px]/note:wrap-anywhere @max-[240px]/note:whitespace-normal",
           statusIcon ? "ml-1 flex items-center gap-1" : "whitespace-pre",
         )}
       >
