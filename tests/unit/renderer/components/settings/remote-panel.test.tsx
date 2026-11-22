@@ -30,7 +30,9 @@ describe("the remote panel's account", () => {
     const renderButton = spyOn(button, "Button");
     try {
       const html = render(state, ["google", "github"]);
-      expect(html).toContain("Awaiting approval · Sign in the same way after approval");
+      expect(html).toContain(
+        '<span class="text-muted-foreground" role="alert">Awaiting approval · Sign in the same way after approval</span>',
+      );
       expect(html).toContain("Sign in with Google");
       expect(html).toContain("Sign in with GitHub");
       const action = renderButton.mock.calls.find(([props]) => props.children === "Check Again");
@@ -44,7 +46,7 @@ describe("the remote panel's account", () => {
 
   test("links to the Store-listed support page for a suspended account", () => {
     const html = render({ status: "signed-out", server, failure: "suspended" });
-    expect(html).toContain("Account suspended");
+    expect(html).toContain('<span class="text-destructive" role="alert">Account suspended</span>');
     expect(html).toContain('href="https://github.com/moreih29/nexus-code/issues"');
     expect(html).toContain("Open Support Page");
     expect(html).not.toContain("Check Again");

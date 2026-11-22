@@ -192,7 +192,12 @@ export function AccountGroup({
           }
           description={
             failure && (
-              <span className="text-destructive" role="alert">
+              <span
+                className={
+                  failure === "pending_approval" ? "text-muted-foreground" : "text-destructive"
+                }
+                role="alert"
+              >
                 {t(`remote.account.failure.${failure}`)}
               </span>
             )
