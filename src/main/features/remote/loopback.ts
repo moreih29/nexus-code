@@ -1,16 +1,19 @@
 /**
  * The address the browser comes back to after the sign-in (RFC 8252's
  * loopback redirect): a server on 127.0.0.1, on a port the system picks,
- * that takes one /callback and closes.
+ * that takes one /callback and closes. Its page waits for the app to say how
+ * the sign-in ended (the code still to be traded), for a while.
  */
 
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resources, type SupportedLanguage } from "../../../shared/i18n";
 import {
   APPROVED_ONLY_FAILURES,
   type SignInFailure,
+  type SignInProvider,
   signInFailureTone,
+  signInProviderName,
 } from "../../../shared/remote/account";
 import { mainLanguage } from "../../i18n";
 import { SignInError } from "./errors";
@@ -73,12 +76,27 @@ export interface LoopbackListener {
    * sign-in is stopped ("cancelled").
    */
   readonly result: Promise<Callback>;
+  /**
+   * Tells the browser's page how the sign-in ended, which it waits for:
+   * signed in, or why not, as the app now shows it. `provider` is the
+   * sign-in a pending approval is for. Only the first is told.
+   */
+  report(outcome: "signed-in" | SignInFailure, provider?: SignInProvider): void;
   /** Stops waiting; the result rejects as cancelled. */
   close(): void;
 }
 
-/** What the page tells: the sign-in goes on in the app, or why it did not. */
-export type PageOutcome = "signed-in" | CallbackFailure;
+/**
+ * What the page tells: the sign-in went through, why it did not, or, when
+ * the app has not said in time, that the rest is in the app.
+ */
+export type PageOutcome = "signed-in" | "in-app" | Exclude<SignInFailure, "cancelled">;
+
+/**
+ * How long the page waits for the app to finish the sign-in (the code
+ * traded for a token) before it says to look in the app.
+ */
+export const PAGE_WAIT_MS = 10_000;
 
 /**
  * The page's headers: nothing kept or passed on, and nothing loaded or run
@@ -141,19 +159,44 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
+type AccountWords = (typeof resources)[SupportedLanguage]["settings"]["remote"]["account"];
+
+function pageWords(
+  outcome: PageOutcome,
+  words: AccountWords,
+  provider: SignInProvider | undefined,
+): { title: string; body: string } {
+  if (outcome === "signed-in") return words.browser.signedIn;
+  if (outcome === "in-app") return words.browser.continueInApp;
+  const name = outcome === "pending_approval" ? signInProviderName(provider) : undefined;
+  if (name === undefined) return words.failure[outcome];
+  const { title, bodyWithProvider } = words.failure.pending_approval;
+  return { title, body: bodyWithProvider.replace("{{provider}}", name) };
+}
+
 /**
  * The page the browser shows once it is back, in the app's language. Its
- * words are the app's own, picked by the outcome: nothing the server or the
+ * words are the app's own, picked by the outcome, with the name of a pending
+ * approval's sign-in from the app's own list: nothing the server or the
  * query sent is put in it.
  */
-export function page(outcome: PageOutcome, language: SupportedLanguage): string {
+export function page(
+  outcome: PageOutcome,
+  language: SupportedLanguage,
+  provider?: SignInProvider,
+): string {
   const words = resources[language].settings.remote.account;
-  const { title, body } = outcome === "signed-in" ? words.browser.signedIn : words.failure[outcome];
+  const { title, body } = pageWords(outcome, words, provider);
   const lead =
-    outcome !== "signed-in" && APPROVED_ONLY_FAILURES.includes(outcome)
+    outcome !== "signed-in" && outcome !== "in-app" && APPROVED_ONLY_FAILURES.includes(outcome)
       ? `<p class="lead">${escapeHtml(words.approvedOnly)}</p>`
       : "";
-  const tone = outcome === "signed-in" ? "success" : signInFailureTone(outcome);
+  const tone =
+    outcome === "signed-in"
+      ? "success"
+      : outcome === "in-app"
+        ? "info"
+        : signInFailureTone(outcome);
   const icon =
     outcome === "signed-in"
       ? ICONS.check
@@ -174,12 +217,14 @@ export function page(outcome: PageOutcome, language: SupportedLanguage): string 
 }
 
 /**
- * Listens for the browser to come back. `language` is read as it does, for
- * the page it is shown.
+ * Listens for the browser to come back. The callback is the result at once;
+ * its page waits for report(), up to `pageWaitMs`, and says to look in the
+ * app past that. `language` is read as the page is sent.
  */
 export async function listenForCallback(
   timeoutMs: number,
   language: () => SupportedLanguage = mainLanguage,
+  pageWaitMs: number = PAGE_WAIT_MS,
 ): Promise<LoopbackListener> {
   let settle: { resolve(c: Callback): void; reject(e: Error): void } | null = null;
   const result = new Promise<Callback>((resolve, reject) => {
@@ -187,6 +232,41 @@ export async function listenForCallback(
   });
   // Nothing waits on it until the sign-in does; a rejection then is not unhandled.
   result.catch(() => {});
+  let told: { outcome: PageOutcome; provider?: SignInProvider } | undefined;
+  /** The pages waiting to be told, each sent once it is. */
+  const waiting = new Set<() => void>();
+  const report = (outcome: "signed-in" | SignInFailure, provider?: SignInProvider) => {
+    if (told) return;
+    // The app stopped without an outcome of its own: the page leaves it to the app.
+    told = { outcome: outcome === "cancelled" ? "in-app" : outcome, provider };
+    const pages = [...waiting];
+    waiting.clear();
+    for (const send of pages) send();
+  };
+  const answer = (res: ServerResponse) => {
+    const send = (outcome: PageOutcome, provider?: SignInProvider) => {
+      if (res.headersSent || res.destroyed) return;
+      res.writeHead(200, PAGE_HEADERS).end(page(outcome, language(), provider));
+    };
+    if (told) {
+      send(told.outcome, told.provider);
+      return;
+    }
+    const sendTold = () => {
+      clearTimeout(wait);
+      if (told) send(told.outcome, told.provider);
+    };
+    const wait = setTimeout(() => {
+      waiting.delete(sendTold);
+      send("in-app");
+    }, pageWaitMs);
+    waiting.add(sendTold);
+    // The browser left before it was told.
+    res.once("close", () => {
+      clearTimeout(wait);
+      waiting.delete(sendTold);
+    });
+  };
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (req.method !== "GET" || url.pathname !== "/callback") {
@@ -196,7 +276,6 @@ export async function listenForCallback(
     const code = url.searchParams.get("code") ?? undefined;
     const error = url.searchParams.get("error") ?? undefined;
     const failure = callbackFailure(url.searchParams);
-    res.writeHead(200, PAGE_HEADERS).end(page(failure ?? "signed-in", language()));
     finish(() =>
       settle?.resolve({
         code,
@@ -205,6 +284,7 @@ export async function listenForCallback(
         state: url.searchParams.get("state"),
       }),
     );
+    answer(res);
   });
   const timer = setTimeout(() => stop("timed-out"), timeoutMs);
   let done = false;
@@ -226,6 +306,7 @@ export async function listenForCallback(
   return {
     redirectUri: `http://127.0.0.1:${port}/callback`,
     result,
+    report,
     close: () => stop("cancelled"),
   };
 }

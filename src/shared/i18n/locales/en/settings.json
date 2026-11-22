@@ -1158,6 +1158,10 @@
           "title": "Signed in",
           "body": "Go back to the NexusCode app."
         },
+        "continueInApp": {
+          "title": "Continue in the NexusCode app",
+          "body": "See how the sign-in went in the app."
+        },
         "closeTab": "You can close this tab"
       },
       "localOnly": "Local server only",

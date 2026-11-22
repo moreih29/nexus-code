@@ -1,7 +1,7 @@
 /**
  * The page the browser shows once it is back from the sign-in: the app's own
- * words for what the callback said, in the app's language, and nothing the
- * query sent.
+ * words for how the sign-in ended (it waits for the app, for a while), in the
+ * app's language, and nothing the query sent.
  */
 import { describe, expect, test } from "bun:test";
 import {
@@ -64,7 +64,17 @@ describe("the page", () => {
       false,
     ],
     ["server_error", ko.failure.server_error.title, ko.failure.server_error.body, false],
+    ["invalid_grant", ko.failure.invalid_grant.title, ko.failure.invalid_grant.body, false],
+    ["rate_limited", ko.failure.rate_limited.title, ko.failure.rate_limited.body, false],
+    [
+      "too_many_devices",
+      ko.failure.too_many_devices.title,
+      ko.failure.too_many_devices.body,
+      false,
+    ],
+    ["mismatch", ko.failure.mismatch.title, ko.failure.mismatch.body, false],
     ["failed", ko.failure.failed.title, ko.failure.failed.body, false],
+    ["in-app", ko.browser.continueInApp.title, ko.browser.continueInApp.body, false],
   ] as const)("says %s in the app's words", (outcome, title, body, approvedOnly) => {
     const html = page(outcome as PageOutcome, "ko");
     expect(html).toStartWith('<!doctype html><html lang="ko">');
@@ -90,6 +100,21 @@ describe("the page", () => {
     );
   });
 
+  test.each([
+    ["google", "ko", "승인되면 같은 Google 계정으로 다시 로그인하세요."],
+    ["apple", "ko", "승인되면 같은 Apple 계정으로 다시 로그인하세요."],
+    ["github", "en", "Once approved, sign in again with the same GitHub account."],
+    // The dev sign-in has no name to give, and an app started anew knows none.
+    ["dev", "ko", ko.failure.pending_approval.body],
+    [undefined, "en", en.failure.pending_approval.body],
+  ] as const)("names a pending approval's sign-in %s", (provider, language, body) => {
+    expect(page("pending_approval", language, provider)).toContain(`<p class="body">${body}</p>`);
+  });
+
+  test("names the sign-in for a pending approval alone", () => {
+    expect(page("closed", "en", "google")).toBe(page("closed", "en"));
+  });
+
   test("is in English when the app is", () => {
     const html = page("pending_approval", "en");
     expect(html).toContain('<html lang="en">');
@@ -113,7 +138,10 @@ describe("the page", () => {
 describe("the callback's answer", () => {
   test("sends the page with headers that keep it to itself", async () => {
     const listener = await listenForCallback(5_000, () => "ko");
-    const res = await fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    const shown = fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    expect(await listener.result).toEqual({ code: "c1", error: undefined, state: "s1" });
+    listener.report("signed-in");
+    const res = await shown;
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(res.headers.get("content-security-policy")).toBe(
@@ -121,7 +149,52 @@ describe("the callback's answer", () => {
     );
     expect(res.headers.get("content-type")).toBe(PAGE_HEADERS["content-type"]);
     expect(await res.text()).toBe(page("signed-in", "ko"));
-    expect(await listener.result).toEqual({ code: "c1", error: undefined, state: "s1" });
+  });
+
+  test("waits for the app to say how the sign-in ended", async () => {
+    const listener = await listenForCallback(5_000, () => "en");
+    let sent = false;
+    const shown = fetch(`${listener.redirectUri}?code=c1&state=s1`).then((res) => {
+      sent = true;
+      return res.text();
+    });
+    // The callback is the sign-in's at once; the page is not sent until told.
+    expect(await listener.result).toMatchObject({ code: "c1" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent).toBe(false);
+    listener.report("too_many_devices");
+    expect(await shown).toBe(page("too_many_devices", "en"));
+    // Shown again (a reload), it says the same at once; a later report changes nothing.
+    listener.report("signed-in");
+    const again = await fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    expect(await again.text()).toBe(page("too_many_devices", "en"));
+  });
+
+  test("says a pending approval's sign-in, as the app tells it", async () => {
+    const listener = await listenForCallback(5_000, () => "ko");
+    const shown = fetch(`${listener.redirectUri}?error=not_invited&access=pending&state=s1`);
+    await listener.result;
+    listener.report("pending_approval", "google");
+    const html = await (await shown).text();
+    expect(html).toBe(page("pending_approval", "ko", "google"));
+    expect(html).toContain("같은 Google 계정");
+  });
+
+  test("past the wait, leaves the rest to the app", async () => {
+    const listener = await listenForCallback(5_000, () => "ko", 30);
+    const res = await fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    expect(await res.text()).toBe(page("in-app", "ko"));
+    expect(await listener.result).toMatchObject({ code: "c1" });
+    // The app tells too late: the page already said to look there.
+    listener.report("signed-in");
+  });
+
+  test("leaves it to the app when the sign-in stopped without an outcome", async () => {
+    const listener = await listenForCallback(5_000, () => "en");
+    const shown = fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    await listener.result;
+    listener.report("cancelled");
+    expect(await (await shown).text()).toBe(page("in-app", "en"));
   });
 
   test("shows a status it does not know as a plain failure, and nothing of the query", async () => {
@@ -133,8 +206,10 @@ describe("the callback's answer", () => {
       error_description: "Your account <b>is</b> on hold",
       state: "s<i>1",
     });
-    const res = await fetch(`${listener.redirectUri}?${query}`);
-    const html = await res.text();
+    const shown = fetch(`${listener.redirectUri}?${query}`);
+    expect(await listener.result).toMatchObject({ failure: "failed" });
+    listener.report("failed");
+    const html = await (await shown).text();
     expect(html).toBe(page("failed", "en"));
     expect(html).not.toContain("alert(1)");
     expect(html).not.toContain("on hold");
@@ -146,10 +221,11 @@ describe("the callback's answer", () => {
     });
   });
 
-  test("shows the signup status the server sent", async () => {
+  test("gives the signup status the server sent", async () => {
     const listener = await listenForCallback(5_000, () => "ko");
-    const res = await fetch(`${listener.redirectUri}?error=not_invited&access=closed&state=s1`);
-    expect(await res.text()).toBe(page("closed", "ko"));
+    const shown = fetch(`${listener.redirectUri}?error=not_invited&access=closed&state=s1`);
     expect(await listener.result).toMatchObject({ failure: "closed", state: "s1" });
+    listener.report("closed");
+    expect(await (await shown).text()).toBe(page("closed", "ko"));
   });
 });

@@ -151,6 +151,7 @@ export class RemoteAccount {
    * Opens the server's sign-in in the browser, then trades its callback code
    * for this device's token. Without a provider, it retries a pending signup
    * or uses the default. A failed sign-in leaves the reason in the state.
+   * The browser's page waits for how it ended, and says the same.
    */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
     if (this.startingSignIn || this.signingIn || this.saved) return this.state();
@@ -168,6 +169,7 @@ export class RemoteAccount {
     this.failure = undefined;
     this.pendingProvider = undefined;
     this.changed();
+    let signedIn = false;
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
@@ -197,12 +199,14 @@ export class RemoteAccount {
       });
       const { token, user, device } = TokenResponseSchema.parse(answer);
       this.saved = { server: this.deps.server, token, user, device };
+      signedIn = true;
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
       if (this.failure === "pending_approval") this.pendingProvider = choice;
       log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      listener.report(signedIn ? "signed-in" : (this.failure ?? "failed"), this.pendingProvider);
       listener.close();
       this.signingIn = null;
       this.changed();

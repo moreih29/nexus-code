@@ -1158,6 +1158,10 @@
           "title": "로그인 완료",
           "body": "NexusCode 앱으로 돌아가세요."
         },
+        "continueInApp": {
+          "title": "NexusCode 앱에서 계속",
+          "body": "로그인 결과는 앱에서 확인하세요."
+        },
         "closeTab": "이 탭은 닫아도 됨"
       },
       "localOnly": "로컬 서버 전용",
