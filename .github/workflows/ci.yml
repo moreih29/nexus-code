@@ -113,6 +113,9 @@ jobs:
         # electron-vite build — produces the out/ directory.
         run: bun run build
 
+      - name: Smoke test the built state worker
+        run: node --test tests/smoke/state-writer.test.mjs
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

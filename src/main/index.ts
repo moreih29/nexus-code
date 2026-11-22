@@ -16,13 +16,12 @@ import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import {
-  findProfile,
-  profileKeyIds,
-  registerAgentProfilesChannel,
-} from "./features/agent-profiles";
+import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
 import { type ConnectionKeys, openConnectionKeys } from "./features/agent-profiles/connection-keys";
-import { createProfileConnections } from "./features/agent-profiles/connection-save";
+import {
+  createProfileConnections,
+  pruneProfileKeys,
+} from "./features/agent-profiles/connection-save";
 import { registerAppStateChannel } from "./features/app-state";
 import {
   getBrowserRegistry,
@@ -127,7 +126,7 @@ import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { installErrorSafetyNet } from "./infra/error-safety-net";
 import { startEventLoopMonitor } from "./infra/event-loop-monitor";
 import { broadcast, setupRouter } from "./infra/ipc-router";
-import { finishMainShutdown } from "./infra/main-shutdown";
+import { createQuitStateFlush, finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/platform/shell-path";
@@ -207,7 +206,10 @@ const userData = app.getPath("userData");
 
 const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
 const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"));
-const stateService = new StateService(path.join(userData, "state.json"));
+const stateService = new StateService(
+  path.join(userData, "state.json"),
+  path.join(__dirname, "state-writer.js"),
+);
 // Set once the app is ready (after the single-instance lock, so a second launch
 // does not take the first one's marker): notes a run that ended without a quit
 // line, and writes the quit line of this one.
@@ -462,13 +464,15 @@ function agentProfilesChanged(connectionChangedProfileId?: string): void {
     config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
     ...(connectionChangedProfileId ? { connectionChangedProfileId } : {}),
   });
-  pruneProfileKeys();
+  pruneDeletedProfileKeys();
 }
 
-function pruneProfileKeys(): void {
-  void profileConnectionKeys
-    ?.prune(() => profileKeyIds(stateService))
-    .catch((error) => logger.warn(`Could not remove deleted profile keys: ${String(error)}`));
+function pruneDeletedProfileKeys(): void {
+  if (profileConnectionKeys) {
+    void pruneProfileKeys(profileConnectionKeys, stateService).catch((error) =>
+      logger.warn(`Could not remove deleted profile keys: ${String(error)}`),
+    );
+  }
 }
 
 // Seed the browser-view key interceptor with persisted overrides so the
@@ -502,33 +506,24 @@ registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
-/**
- * The restart that installs an update may end the app before its will-quit
- * cleanup runs, which would leave the run marker behind and read as a crash at
- * the next start. So the quit line is written, and the marker removed, first.
- */
-function withQuitNote<T extends { quitAndInstall(): void }>(backend: T): T {
-  return {
-    ...backend,
-    quitAndInstall() {
-      currentRun?.quit(logger, "restart to install an update");
-      backend.quitAndInstall();
-    },
-  };
-}
-
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  prepareRestart: isMac() ? () => closePersistence.prepareUpdaterClose(getAppWindows()) : undefined,
   // A packaged macOS app, Linux AppImage or deb updates itself in place; any
   // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
-      ? withQuitNote(createElectronUpdateBackend(createLogger("updates")))
+      ? createElectronUpdateBackend(createLogger("updates"), {
+          prepareRestart: () => closePersistence.prepareUpdaterClose(getAppWindows()),
+          beforeInstall() {
+            // The native updater can end the process before will-quit.
+            stateService.flushNow();
+            currentRun?.quit(logger, "restart to install an update");
+          },
+        })
       : undefined,
 });
 
@@ -745,7 +740,7 @@ app.whenReady().then(async () => {
     profileConnectionKeys,
     profileConnections,
   );
-  pruneProfileKeys();
+  pruneDeletedProfileKeys();
 
   const awayAfterSeconds = 30;
   let screenLocked = false;
@@ -1101,8 +1096,17 @@ app.on("window-all-closed", () => {
 // agents, terminals and storage already torn down. will-quit fires only
 // once every window has closed.
 let quitReady = false;
+const flushStateBeforeQuit = createQuitStateFlush({
+  flush: () => stateService.flushNow(),
+  quit: () => app.quit(),
+  warn: (message) => logger.warn(message),
+  error: (message) => logger.error(message),
+});
 app.on("will-quit", (event) => {
-  if (quitReady) return;
+  if (quitReady) {
+    if (flushStateBeforeQuit(event)) currentRun?.quit(logger);
+    return;
+  }
   event.preventDefault();
   if (quitStarted) return;
   quitStarted = true;
@@ -1110,7 +1114,6 @@ app.on("will-quit", (event) => {
     .catch((error) => logger.error("App shutdown failed", error))
     .finally(() => {
       stopLoopMonitor?.();
-      currentRun?.quit(logger);
       quitReady = true;
       app.quit();
     });

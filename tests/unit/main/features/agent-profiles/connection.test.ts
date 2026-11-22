@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ConnectionKeys } from "../../../../../src/main/features/agent-profiles/connection-keys";
 import {
   claudeConnectionEnv,
@@ -15,6 +18,7 @@ import {
   discoveredModels,
   testConnection,
 } from "../../../../../src/main/features/agent-profiles/connection-probe";
+import { pruneProfileKeys } from "../../../../../src/main/features/agent-profiles/connection-save";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 import {
   ConnectionModelSchema,
@@ -30,8 +34,10 @@ import {
   type AgentProfile,
   AgentProfileSchema,
   AgentProfilesSchema,
+  EMPTY_AGENT_PROFILES,
   profilesOf,
 } from "../../../../../src/shared/agent-profiles/profiles";
+import { openTestState } from "../../../../helpers/test-state";
 
 const connection: CustomConnection = {
   method: "custom",
@@ -316,6 +322,46 @@ describe("profile connections", () => {
     expect((await keys.status(profile.id, target)).last4).toBeUndefined();
     await keys.prune(() => new Set());
     expect(await keys.get(profile.id, target)).toBeUndefined();
+  });
+
+  test("flushes profile removal before deleting its key and keeps the key on failure", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nexus-profile-prune-"));
+    const filePath = join(dir, "state.json");
+    const state = openTestState(filePath);
+    const storage = keptInMemory<Record<string, { target: string; key: string }>>();
+    const keys = new ConnectionKeys(storage, true);
+    const target = connectionKeyTarget("claude", connection);
+    const removed = {
+      ...profile,
+      id: "claude-prune-test",
+      name: "Prune test",
+      dir: "/profiles/prune-test",
+    };
+    await keys.saveProfile(removed, "prune-test-key", () => {
+      state.commitState({ agentProfiles: { ...EMPTY_AGENT_PROFILES, profiles: [removed] } });
+    });
+    state.setState({ agentProfiles: EMPTY_AGENT_PROFILES });
+    const flush = spyOn(state, "flushNow").mockImplementationOnce(() => {
+      throw new Error("state write failed");
+    });
+    const originalSave = storage.save.bind(storage);
+    const save = spyOn(storage, "save").mockImplementation(async (value) => {
+      expect(openTestState(filePath).getState().agentProfiles?.profiles).toEqual([]);
+      await originalSave(value);
+    });
+    try {
+      await expect(pruneProfileKeys(keys, state)).rejects.toThrow("state write failed");
+      expect(await keys.get(removed.id, target)).toBe("prune-test-key");
+      expect(save).not.toHaveBeenCalled();
+      await pruneProfileKeys(keys, state);
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(await keys.get(removed.id, target)).toBeUndefined();
+    } finally {
+      flush.mockRestore();
+      save.mockRestore();
+      state.flushNow();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("finds a dormant key only for the same profile, normalized URL and auth", async () => {

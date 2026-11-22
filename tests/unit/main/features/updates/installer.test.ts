@@ -15,7 +15,12 @@ function setup(
   {
     installAsksForPassword = false,
     prepareRestart,
-  }: { installAsksForPassword?: boolean; prepareRestart?: () => Promise<void> } = {},
+    quitAndInstall,
+  }: {
+    installAsksForPassword?: boolean;
+    prepareRestart?: () => Promise<void>;
+    quitAndInstall?: UpdateBackend["quitAndInstall"];
+  } = {},
 ) {
   const statuses: InstallStatus[] = [];
   const progress: { version: string; progress: DownloadProgress }[] = [];
@@ -28,6 +33,7 @@ function setup(
 
   const backend: UpdateBackend = {
     installAsksForPassword,
+    ...(prepareRestart && { prepareRestart }),
     check: async () => {
       calls.check += 1;
       return offered;
@@ -50,11 +56,11 @@ function setup(
     },
     quitAndInstall: () => {
       calls.quitAndInstall += 1;
+      return quitAndInstall?.();
     },
   };
   const installer = createUpdateInstaller({
     backend,
-    ...(prepareRestart && { prepareRestart }),
     onStatus: (status) => statuses.push(status),
     onProgress: (version, report) => progress.push({ version, progress: report }),
     releaseUrl: (version) => (version === null ? "releases" : `releases/v${version}`),
@@ -108,6 +114,21 @@ describe("createUpdateInstaller", () => {
     prepared.resolve();
     await restarting;
     expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("reports a state flush failure during the asynchronous updater handoff", async () => {
+    const t = setup("1.2.0", {
+      quitAndInstall: async () => {
+        throw new Error("Unable to save app state");
+      },
+    });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+    await t.installer.restart();
+    expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
   });
 
   it("reports the download's progress, then the check Squirrel.Mac runs on it", async () => {

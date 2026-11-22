@@ -14,10 +14,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GlobalStorage } from "../../../src/main/infra/storage/global-storage";
-import { StateService } from "../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-storage";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 import { closeTestDatabases, openTestDatabase } from "../../helpers/test-database";
+import { openTestState } from "../../helpers/test-state";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,14 +109,15 @@ describe("storage-restart — stateService + globalStorage combined restart scen
 
     // --- Session 1 ---
     const g1 = openGlobalStorage(globalDbPath);
-    const ss1 = new StateService(statePath);
+    const ss1 = openTestState(statePath);
     g1.addWorkspace(makeMeta(wsId, "/projects/nexus"));
     ss1.setState({ lastActiveWorkspaceId: wsId });
+    ss1.flushNow();
     g1.close();
 
     // --- Session 2 ---
     const g2 = openGlobalStorage(globalDbPath);
-    const ss2 = new StateService(statePath);
+    const ss2 = openTestState(statePath);
 
     const list = g2.listWorkspaces();
     const activeId = ss2.getState().lastActiveWorkspaceId;

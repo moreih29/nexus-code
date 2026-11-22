@@ -328,6 +328,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
+          "state-writer": resolve(__dirname, "src/main/infra/storage/state-writer.worker.ts"),
           // The voice print model's utility process (src/main/features/voice-print).
           "voice-print-host": resolve(__dirname, "src/main/features/voice-print/host.ts"),
         },

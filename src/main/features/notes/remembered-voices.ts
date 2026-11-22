@@ -186,12 +186,12 @@ export function openVoiceMemoryFile(
 
 export function registerRememberedVoices(
   userData: string,
-  state: Pick<StateService, "getState" | "setState">,
+  state: Pick<StateService, "getState" | "commitState">,
   createBox = electronSecretBox,
 ) {
   const prefs: Preferences = {
     read: () => state.getState().rememberedVoices ?? VoiceNameSettingsSchema.parse({}),
-    write: (rememberedVoices) => state.setState({ rememberedVoices }),
+    write: (rememberedVoices) => state.commitState({ rememberedVoices }),
   };
   const ready = createBox()
     .catch(() => null)

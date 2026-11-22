@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { migrateAppState } from "../../../../../src/main/infra/storage/app-state-migrations";
-import { StateService } from "../../../../../src/main/infra/storage/state-service";
+import { openTestState } from "../../../../helpers/test-state";
 
 const WS = "123e4567-e89b-12d3-a456-426614174000";
 const LEAF = "123e4567-e89b-12d3-a456-426614174001";
@@ -88,7 +88,7 @@ describe("StateService with an earlier version's state", () => {
         layoutByWorkspace: { [WS]: layoutWith("sessions") },
       }),
     );
-    const state = new StateService(filePath).getState();
+    const state = openTestState(filePath).getState();
     expect(state.agentListViewDefault).toBe("task");
     expect("agentListRatio" in state).toBe(false);
     expect(state.layoutByWorkspace?.[WS]?.tabs.map((tab) => tab.type)).toEqual(["terminal"]);

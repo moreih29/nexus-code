@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { registerAppStateChannel } from "../../../../../../src/main/features/app-state";
 import { ClosePersistence } from "../../../../../../src/main/features/window/close-persistence";
 import { setupRouter } from "../../../../../../src/main/infra/ipc-router";
-import { StateService } from "../../../../../../src/main/infra/storage/state-service";
+import type { StateService } from "../../../../../../src/main/infra/storage/state-service";
 import { type AppState, AppStateSchema } from "../../../../../../src/shared/types/app-state";
 import type { WorkspaceLayoutSnapshot } from "../../../../../../src/shared/types/layout";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 import type { TimerScheduler } from "../../../../../../src/shared/util/timer-scheduler";
+import { openTestState } from "../../../../../helpers/test-state";
 
 type Invoke = (
   event: { sender?: { id: number } },
@@ -253,6 +254,31 @@ test("does not hydrate tabs or layout for a workspace deleted since the last sav
   expect(useLayoutStore.getState().byWorkspace[workspaceId]).toBeDefined();
 });
 
+test("accepts a late layout update with invalid data for a removed workspace", async () => {
+  connectRenderer();
+  const removed = crypto.randomUUID();
+  const saved = legacySnapshot(workspaceId);
+  const state = memoryState();
+  registerAppStateChannel(state, { listWorkspaces: () => [workspace] });
+  const sender = { sender: { id: 1 } };
+  expect(
+    await invoke(sender, "appState", "set", {
+      sidebarWidth: 260,
+      layoutByWorkspace: { [removed]: { tabs: [] }, [workspaceId]: saved },
+    }),
+  ).toMatchObject({ ok: true });
+  expect(state.getState()).toMatchObject({
+    sidebarWidth: 260,
+    layoutByWorkspace: { [workspaceId]: saved },
+  });
+  expect(state.getState().layoutByWorkspace?.[removed]).toBeUndefined();
+  expect(
+    await invoke(sender, "appState", "set", {
+      layoutByWorkspace: { [workspaceId]: { tabs: [] } },
+    }),
+  ).toMatchObject({ ok: false });
+});
+
 test("closing flushes queued tab, split and browser URL changes after an older save without replacing another window's layout", async () => {
   const dir = mkdtempSync(join(tmpdir(), "nx-layout-close-"));
   const stateFile = join(dir, "app-state.json");
@@ -271,7 +297,7 @@ test("closing flushes queued tab, split and browser URL changes after an older s
       return finishWrite.promise;
     },
   });
-  const state = new StateService(stateFile);
+  const state = openTestState(stateFile);
   state.setState({ layoutByWorkspace: { [otherWorkspace.id]: otherSnapshot } });
   registerAppStateChannel(state, { listWorkspaces: () => [workspace, otherWorkspace] });
   const close = new ClosePersistence((warning) => warnings.push(warning), fakeTimer());
@@ -340,7 +366,8 @@ test("closing flushes queued tab, split and browser URL changes after an older s
     endBrowserView(browser, viewId);
 
     unregisterStatePersistence();
-    registerAppStateChannel(new StateService(stateFile), {
+    state.flushNow();
+    registerAppStateChannel(openTestState(stateFile), {
       listWorkspaces: () => [workspace, otherWorkspace],
     });
     await restore();

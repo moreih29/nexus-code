@@ -21,7 +21,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { autoUpdater as nativeUpdater } from "electron";
+import * as electron from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
 import { isLinux, isMac } from "../../infra/platform";
@@ -53,7 +53,10 @@ function isDebInstall(): boolean {
   }
 }
 
-export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
+export function createElectronUpdateBackend(
+  logger: Logger,
+  { prepareRestart, beforeInstall }: { prepareRestart(): Promise<void>; beforeInstall(): void },
+): UpdateBackend {
   const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
   const errorListeners: ((error: Error) => void)[] = [];
@@ -102,7 +105,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
   }
 
   if (isMac()) {
-    nativeUpdater.on("update-downloaded", () => {
+    electron.autoUpdater.on("update-downloaded", () => {
       for (const listener of stagedListeners) listener();
     });
   }
@@ -127,22 +130,23 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
     onError(listener) {
       errorListeners.push(listener);
     },
-    quitAndInstall() {
-      void load().then((updater) => {
-        if (!deb) {
-          updater.quitAndInstall();
-          return;
-        }
-        // One apt command installs the deb and any dependency it adds. The
-        // default dpkg -i runs a second elevated apt-get when it fails, so a
-        // cancelled password prompt would open another.
-        process.env[PACKAGE_MANAGER_ENV] = "apt";
-        try {
-          updater.quitAndInstall();
-        } finally {
-          delete process.env[PACKAGE_MANAGER_ENV];
-        }
-      });
+    prepareRestart,
+    async quitAndInstall() {
+      const updater = await load();
+      beforeInstall();
+      if (!deb) {
+        updater.quitAndInstall();
+        return;
+      }
+      // One apt command installs the deb and any dependency it adds. The
+      // default dpkg -i runs a second elevated apt-get when it fails, so a
+      // cancelled password prompt would open another.
+      process.env[PACKAGE_MANAGER_ENV] = "apt";
+      try {
+        updater.quitAndInstall();
+      } finally {
+        delete process.env[PACKAGE_MANAGER_ENV];
+      }
     },
   };
 }
