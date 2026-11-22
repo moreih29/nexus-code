@@ -140,6 +140,12 @@ export interface CliSessionChat {
   readonly waitingId?: string;
 }
 
+/** Where to continue a bounded sessions.snapshot reply. */
+export interface CliSessionsSnapshotCursor {
+  readonly workspace: number;
+  readonly tab: number;
+}
+
 /** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
 export type CliEditorView = "source" | "preview";
 
@@ -1267,20 +1273,22 @@ export interface CliUiOps {
     result: { unread: Record<string, Record<string, number>> };
   };
   /**
-   * What the remote sessions' list reads of the renderer, in one request:
+   * What the remote sessions' list reads of the renderer:
    * each of `workspaceIds`' tabs as tabs.list lists them with `agentOrder`
    * (none for a workspace that could not be read), each chat's state with
    * its tab, and sessions.results' map (none when it could not be read).
    * `revision`: the renderer's count of changes it was read at; while it
    * tells main no higher one (cli.sessionsChanged), a read again would
-   * tell the same.
+   * tell the same. Large lists continue from `next`, with the unread map
+   * only on the first page.
    */
   "sessions.snapshot": {
-    args: { workspaceIds: string[] };
+    args: { workspaceIds: string[]; cursor?: CliSessionsSnapshotCursor };
     result: {
       revision: number;
       workspaces: { tabs?: CliSessionTab[] }[];
       unread?: Record<string, Record<string, number>>;
+      next?: CliSessionsSnapshotCursor;
     };
   };
   "sessions.markSeen": {

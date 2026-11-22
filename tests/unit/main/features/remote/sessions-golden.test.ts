@@ -5,11 +5,20 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import type { SessionsUpdate } from "../../../../../packages/remote-protocol/src";
-import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
+import type {
+  CliServices,
+  PendingConsent,
+  SessionsRenderer,
+} from "../../../../../src/main/features/cli/context";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
+import {
+  MAX_SESSION_SNAPSHOT_TABS,
+  type SessionsSnapshotReaders,
+  sessionsSnapshot,
+} from "../../../../../src/renderer/services/cli/sessions-snapshot";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
-import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
+import { testSessionsRevision } from "../../../../helpers/sessions-snapshot";
 
 const LONG = `First line of a long answer\n\n${"word ".repeat(80)}\tend`;
 
@@ -61,7 +70,7 @@ const TABS: Record<string, Tab[]> = {
 };
 
 /** Each chat as chat.state (peek, includeWaitingId) tells it. */
-const CHATS: Record<string, Record<string, unknown>> = {
+const CHATS: Record<string, ReturnType<SessionsSnapshotReaders["peekChat"]>> = {
   "c-ask": {
     agent: "claude",
     state: "asking",
@@ -193,26 +202,37 @@ const CONSENTS: PendingConsent[] = [
   },
 ] as unknown as PendingConsent[];
 
-/** The renderer's answers, request by request, as the app was before batching. */
-async function rendererUi(op: string, args: Record<string, unknown>): Promise<unknown> {
-  if (op === "sessions.results") return { unread: UNREAD };
-  if (op === "tabs.list") {
-    const tabs = TABS[args.workspaceId as string];
+/** What the renderer reads of this fixed app state. */
+const readers: SessionsSnapshotReaders = {
+  readRevision: () => 1,
+  listTabs(workspaceId) {
+    const tabs = TABS[workspaceId];
     if (!tabs) throw new Error("not open");
-    return { tabs: tabs.map((tab) => ({ ...tab, groupId: "g", shown: false })) };
-  }
-  if (op === "chat.state") {
-    if (args.tabId === "c-broken") throw new Error("that tab is gone");
-    const info = CHATS[args.tabId as string];
-    if (!info) throw new Error(`no chat ${String(args.tabId)}`);
-    if (args.includeWaitingId) return info;
-    const { waitingId: _, ...rest } = info;
-    return rest;
-  }
-  throw new Error(`unexpected ${op}`);
-}
+    return tabs;
+  },
+  peekChat(_workspaceId, tabId) {
+    const info = CHATS[tabId];
+    if (!info) throw new Error(`no chat ${tabId}`);
+    return info;
+  },
+  readUnread: () => UNREAD,
+};
 
-function services(ui = rendererUi): CliServices {
+const recovered: SessionsSnapshotReaders = {
+  ...readers,
+  listTabs: (id) => (id === "w-gone" ? [] : readers.listTabs(id)),
+  peekChat(workspaceId, tabId) {
+    if (tabId === "c-broken") {
+      return { agent: "claude", state: "idle", message: "Fixed", since: 111 };
+    }
+    if (tabId === "o-work") return { agent: "codex", state: "idle", message: "Done", since: 112 };
+    return readers.peekChat(workspaceId, tabId);
+  },
+};
+
+function services(
+  snapshot: SessionsRenderer["snapshot"] = async (args) => sessionsSnapshot(args, readers),
+): CliServices {
   return {
     listWorkspaces: () => WORKSPACES,
     claudeStatus: (_w: string, tab: string) => CLAUDE[tab] ?? null,
@@ -223,7 +243,10 @@ function services(ui = rendererUi): CliServices {
         : [],
     claudeAgents: { list: (_w: string, tab: string) => AGENTS[tab] ?? [], stop: async () => false },
     consents: { list: () => CONSENTS, answer: async () => false },
-    ui: withSessionsSnapshot(ui),
+    ui: (op: string, args: Parameters<typeof snapshot>[0], timeoutMs: number) => {
+      if (op !== "sessions.snapshot") throw new Error(`unexpected ${op}`);
+      return snapshot(args, timeoutMs);
+    },
   } as unknown as CliServices;
 }
 
@@ -258,11 +281,8 @@ test("the sessions' list, its consents and its waiting requests stay as they wer
 });
 
 test("a watch is sent what it was before", async () => {
-  let ui = rendererUi;
-  const s = {
-    ...services(),
-    ui: withSessionsSnapshot((op: string, args: Record<string, unknown>) => ui(op, args)),
-  };
+  let source = readers;
+  const s = services(async (args) => sessionsSnapshot(args, source));
   const sent: SessionsUpdate[] = [];
   watches = new SessionWatches({
     snapshot: async (from) => {
@@ -283,22 +303,111 @@ test("a watch is sent what it was before", async () => {
   });
   const first = await watches.watch("phone");
   // The workspace and chat that failed to read read now; the codex chat finished.
-  ui = async (op, args) => {
-    if (op === "tabs.list" && args.workspaceId === "w-gone") return { tabs: [] };
-    if (op === "chat.state" && args.tabId === "c-broken") {
-      return { agent: "claude", state: "idle", message: "Fixed", since: 111 };
-    }
-    if (op === "chat.state" && args.tabId === "o-work") {
-      return { agent: "codex", state: "idle", message: "Done", since: 112 };
-    }
-    return rendererUi(op, args);
-  };
+  source = recovered;
   await watches.poll();
   await watches.poll();
   expect(sent).toHaveLength(1);
   const { watchId: _first, ...firstList } = first;
   const { watchId: _sent, ...update } = sent[0] as SessionsUpdate;
   expect(steady({ first: firstList, update })).toEqual(EXPECTED_WATCH);
+});
+
+test("push reads the same golden list and waiting requests from the watch's cached snapshot", async () => {
+  let reads = 0;
+  const s = {
+    ...services(),
+    sessionsRevision: testSessionsRevision(async (args) => {
+      reads++;
+      return sessionsSnapshot(args, recovered);
+    }),
+  };
+  const watched = await snapshotSessions(s, GIT, NOTES, "sessions.watch", "phone");
+  const push = await snapshotSessions(s, GIT, NOTES, "sessions.watch", undefined, true);
+  expect(reads).toBe(1);
+  expect(steady(await watched.forDevice(CONTROLS))).toEqual(EXPECTED_WATCH.update);
+  expect(steady(await push.forDevice(CONTROLS))).toEqual(EXPECTED_WATCH.update);
+  expect(push.waitingRequests).toEqual(EXPECTED.waitingRequests);
+});
+
+test("the renderer keeps whitespace-only messages and leaves a failed unread read absent", async () => {
+  const snapshot = sessionsSnapshot(
+    { workspaceIds: ["w-root", "w-gone", "w-chatfail"] },
+    {
+      ...readers,
+      peekChat: (workspaceId, tabId) => ({
+        ...readers.peekChat(workspaceId, tabId),
+        ...(tabId === "c-idle" ? { message: " \n\t " } : {}),
+      }),
+      readUnread() {
+        throw new Error("unread failed");
+      },
+    },
+  );
+  expect(snapshot.unread).toBeUndefined();
+  expect(snapshot.workspaces[0]?.tabs?.find(({ id }) => id === "c-idle")?.chat?.message).toBe("");
+  expect(snapshot.workspaces[0]?.tabs?.find(({ id }) => id === "x-dead")?.dead).toBe(true);
+  expect(snapshot.workspaces[0]?.tabs?.find(({ id }) => id === "x-cold")?.unstarted).toBe(true);
+  expect(snapshot.workspaces[1]?.tabs).toBeUndefined();
+  expect(snapshot.workspaces[2]?.tabs?.find(({ id }) => id === "c-broken")?.chat).toBeUndefined();
+});
+
+test("large renderer replies keep the tab cap without dropping ordered rows or shortening titles", async () => {
+  const title = "A title ".repeat(100);
+  const source = {
+    ...recovered,
+    listTabs(workspaceId: string) {
+      if (workspaceId !== "w-pin") return recovered.listTabs(workspaceId);
+      return [
+        ...recovered.listTabs(workspaceId),
+        ...Array.from({ length: MAX_SESSION_SNAPSHOT_TABS }, (_, i) => ({
+          id: `editor-${i}`,
+          type: "editor",
+          title: "editor",
+        })),
+        { id: "after-cap", type: "terminal", title },
+      ];
+    },
+  };
+  const sizes: number[] = [];
+  const s = services(async (args) => {
+    const snapshot = sessionsSnapshot(args, source);
+    sizes.push(
+      snapshot.workspaces.reduce((count, workspace) => count + (workspace.tabs?.length ?? 0), 0),
+    );
+    return snapshot;
+  });
+  const snapshot = await snapshotSessions(s, GIT, NOTES);
+  expect(sizes[0]).toBe(MAX_SESSION_SNAPSHOT_TABS);
+  expect(sizes).toHaveLength(2);
+  expect(snapshot.incompleteWorkspaces.size).toBe(0);
+  expect(snapshot.list.sessions[4]).toMatchObject({ tabId: "after-cap", title });
+  expect(snapshot.list.sessions[5]?.tabId).toBe("c-ask");
+});
+
+test("a renderer revision change during pagination leaves the split workspace incomplete", async () => {
+  const large = {
+    ...recovered,
+    listTabs(workspaceId: string) {
+      const tabs = recovered.listTabs(workspaceId);
+      return workspaceId === "w-root"
+        ? [
+            ...tabs,
+            ...Array.from({ length: MAX_SESSION_SNAPSHOT_TABS }, (_, i) => ({
+              id: `editor-${i}`,
+              type: "editor",
+              title: "editor",
+            })),
+          ]
+        : tabs;
+    },
+  };
+  const s = services(async (args) =>
+    sessionsSnapshot(args, { ...large, readRevision: () => (args.cursor ? 2 : 1) }),
+  );
+  const snapshot = await snapshotSessions(s, GIT, NOTES);
+  expect([...snapshot.incompleteWorkspaces]).toEqual(["w-root", "w-task", "w-gone", "w-chatfail"]);
+  expect(snapshot.list.sessions).toHaveLength(4);
+  expect(snapshot.list.sessions.every((row) => row.workspaceId === "w-pin")).toBe(true);
 });
 
 const EXPECTED = {

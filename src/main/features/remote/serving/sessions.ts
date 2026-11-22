@@ -10,7 +10,12 @@ import {
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../../shared/claude/activity";
-import type { CliChatState, CliSessionTab, CliUiOps } from "../../../../shared/cli/ui";
+import type {
+  CliChatState,
+  CliSessionsSnapshotCursor,
+  CliSessionTab,
+  CliUiOps,
+} from "../../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
@@ -250,12 +255,43 @@ async function readSnapshot(
   workspaceIds: string[],
   renderer: SessionsRenderer | undefined,
 ): Promise<SessionsSnapshot | undefined> {
-  const snapshot = await budget
-    .ui("sessions.snapshot", { workspaceIds }, undefined, renderer?.snapshot)
-    .catch(() => undefined);
-  if (renderer?.closed) return undefined;
-  if (snapshot && Number.isSafeInteger(snapshot.revision)) renderer?.saw(snapshot.revision);
-  return snapshot;
+  const ask = async (cursor?: CliSessionsSnapshotCursor) => {
+    if (renderer?.closed) return undefined;
+    const page = await budget
+      .ui(
+        "sessions.snapshot",
+        { workspaceIds, ...(cursor ? { cursor } : {}) },
+        undefined,
+        renderer?.snapshot,
+      )
+      .catch(() => undefined);
+    if (renderer?.closed) return undefined;
+    if (page && Number.isSafeInteger(page.revision)) renderer?.saw(page.revision);
+    return page;
+  };
+  const first = await ask();
+  if (!first?.next) return first;
+
+  const workspaces = [...first.workspaces];
+  let next: CliSessionsSnapshotCursor | undefined = first.next;
+  while (next) {
+    const { workspace, tab } = next;
+    const page = await ask(next);
+    if (renderer?.closed) return undefined;
+    if (!page || page.revision !== first.revision) {
+      // A split workspace only counts once every page of it was read at the same revision.
+      workspaces.length = workspace;
+      break;
+    }
+    if (tab > 0) {
+      const previous = workspaces[workspace]?.tabs;
+      const more = page.workspaces[0]?.tabs;
+      workspaces[workspace] = previous && more ? { tabs: [...previous, ...more] } : {};
+    }
+    workspaces.push(...page.workspaces.slice(tab > 0 ? 1 : 0));
+    next = page.next;
+  }
+  return { revision: first.revision, workspaces, unread: first.unread };
 }
 
 /**
@@ -420,7 +456,8 @@ export async function snapshotSessions(
   from?: string,
   includeWaitingIds = false,
 ) {
-  const budget = new ReadBudget(services, method, from);
+  // Continuation pages share the original renderer read's deadline.
+  const budget = new ReadBudget(services, method, from, RENDERER_READ_MAX_MS);
   const workspaces = ordered(services.listWorkspaces());
   // Read Git facts with the workspace snapshot. Waiting for tabs first would
   // let an old list recreate the cache entry for a workspace removed meanwhile.

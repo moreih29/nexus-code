@@ -11,14 +11,7 @@ import { allLeaves } from "@/state/stores/layout/helpers";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
-import type {
-  CliChatInfo,
-  CliSessionChat,
-  CliSessionTab,
-  CliTabInfo,
-  CliUiOp,
-} from "../../../shared/cli/ui";
-import { oneLine } from "../../../shared/remote/one-line";
+import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { acknowledgedResults, unreadResults } from "../agent-sessions/inbox";
 import { listed } from "../agent-sessions/rows";
 import { readSessionEvents, recordSessionEvents } from "../agent-sessions/session-events";
@@ -41,6 +34,7 @@ import { chatHandlers, peekChatInfo } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { noteHandlers } from "./note-actions";
 import { readSessionsRevision, startSessionsRevision } from "./sessions-revision";
+import { sessionsSnapshot } from "./sessions-snapshot";
 import { settingsHandlers } from "./settings";
 import { viewHandlers } from "./view-actions";
 
@@ -129,41 +123,6 @@ function unreadResultsMap(): Record<string, Record<string, number>> {
   return unread;
 }
 
-/** A chat's state as the remote sessions' list uses it, its texts on one line. */
-function sessionChat(info: CliChatInfo & { waitingId?: string }): CliSessionChat {
-  return {
-    state: info.state,
-    ...(info.since !== undefined ? { since: info.since } : {}),
-    // Kept when it is only white space: the list tells it as an empty line.
-    ...(info.message ? { message: oneLine(info.message) } : {}),
-    ...(info.profile ? { profile: info.profile } : {}),
-    ...(info.cwd ? { cwd: info.cwd } : {}),
-    ...(info.waiting
-      ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
-      : {}),
-    ...(info.limitResume ? { limitResume: info.limitResume } : {}),
-    ...(info.waitingId ? { waitingId: info.waitingId } : {}),
-  };
-}
-
-/** A tab as the remote sessions' list reads it, with a chat's state as chat.state peeks it. */
-function sessionTab(workspaceId: string, tab: CliTabInfo): CliSessionTab {
-  const listed: CliSessionTab = {
-    id: tab.id,
-    type: tab.type,
-    title: tab.title,
-    ...(tab.dead ? { dead: true } : {}),
-    ...(tab.unstarted ? { unstarted: true } : {}),
-  };
-  if (tab.type !== "claude" && tab.type !== "codex") return listed;
-  try {
-    return { ...listed, chat: sessionChat(peekChatInfo(workspaceId, tab.id, true)) };
-  } catch {
-    // The list leaves the chat out, and its workspace incomplete, until it reads.
-    return listed;
-  }
-}
-
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
     tabs: listTabs(workspaceId, agentOrder, includeSession),
@@ -202,23 +161,13 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
   "sessions.results": async () => ({ unread: unreadResultsMap() }),
-  "sessions.snapshot": async ({ workspaceIds }) => {
-    const revision = readSessionsRevision();
-    const workspaces = workspaceIds.map((workspaceId) => {
-      try {
-        return { tabs: listTabs(workspaceId, true).map((tab) => sessionTab(workspaceId, tab)) };
-      } catch {
-        return {};
-      }
-    });
-    let unread: Record<string, Record<string, number>> | undefined;
-    try {
-      unread = unreadResultsMap();
-    } catch {
-      // Main keeps the last map it read for a while.
-    }
-    return { revision, workspaces, ...(unread ? { unread } : {}) };
-  },
+  "sessions.snapshot": async (args) =>
+    sessionsSnapshot(args, {
+      readRevision: readSessionsRevision,
+      listTabs: (workspaceId) => listTabs(workspaceId, true),
+      peekChat: (workspaceId, tabId) => peekChatInfo(workspaceId, tabId, true),
+      readUnread: unreadResultsMap,
+    }),
   "sessions.markSeen": async ({ seen }) => {
     const results = acknowledgedResults(inboxNow(), seen);
     // A receipt can follow a listing before the session log's debounce has recorded completion.

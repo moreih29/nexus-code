@@ -5,25 +5,10 @@
  * renderer answers it the same way (services/cli/ui-requests.ts).
  */
 import type { SessionsRenderer, SessionsRevision } from "../../src/main/features/cli/context";
-import type { CliSessionChat, CliSessionTab } from "../../src/shared/cli/ui";
-import { oneLine } from "../../src/shared/remote/one-line";
+import { snapshotTab } from "../../src/renderer/services/cli/sessions-snapshot";
+import type { CliSessionTab } from "../../src/shared/cli/ui";
 
-/** A fake's answers: any request, any result. */
 type Ui = (op: any, args: any, timeoutMs?: number) => Promise<any>;
-
-function sessionChat(info: Record<string, unknown>): CliSessionChat {
-  const waiting = info.waiting as CliSessionChat["waiting"];
-  return {
-    state: info.state as CliSessionChat["state"],
-    ...(info.since !== undefined ? { since: info.since as number } : {}),
-    ...(info.message ? { message: oneLine(info.message as string) } : {}),
-    ...(info.profile ? { profile: info.profile as string } : {}),
-    ...(info.cwd ? { cwd: info.cwd as string } : {}),
-    ...(waiting ? { waiting: { kind: waiting.kind, text: oneLine(waiting.text) } } : {}),
-    ...(info.limitResume ? { limitResume: info.limitResume } : {}),
-    ...(info.waitingId ? { waitingId: info.waitingId as string } : {}),
-  } as CliSessionChat;
-}
 
 export function testSessionsRevision(snapshot: SessionsRenderer["snapshot"]): SessionsRevision & {
   saw(revision: number): void;
@@ -54,21 +39,14 @@ export function withSessionsSnapshot<T extends Ui>(ui: T, revision: () => number
       if (!listed) return {};
       const tabs = await Promise.all(
         (listed.tabs as CliSessionTab[]).map(async (tab): Promise<CliSessionTab> => {
-          const row: CliSessionTab = {
-            id: tab.id,
-            type: tab.type,
-            title: tab.title,
-            ...(tab.dead ? { dead: true } : {}),
-            ...(tab.unstarted ? { unstarted: true } : {}),
-          };
-          if (tab.type !== "claude" && tab.type !== "codex") return row;
+          if (tab.type !== "claude" && tab.type !== "codex") return snapshotTab(tab);
           const info = await ui("chat.state", {
             workspaceId,
             tabId: tab.id,
             peek: true,
             includeWaitingId: true,
           }).catch(() => undefined);
-          return info ? { ...row, chat: sessionChat(info) } : row;
+          return snapshotTab(tab, info);
         }),
       );
       return { tabs };
