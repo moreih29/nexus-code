@@ -84,8 +84,7 @@ beforeEach(() => {
     globalThis.document = { documentElement: new EventTarget() } as unknown as Document;
   }
   useEditorFontStore.getState().hydrate({});
-  useNotificationsStore.getState().setOsEnabled(true);
-  useNotificationsStore.getState().setRateLimitWarnings(true);
+  useNotificationsStore.getState().hydrate({});
   useAgentCliStore.getState().hydrate({});
   useChatFontStore.getState().hydrate({});
   usePreviewDefaultsStore.getState().hydrate({});
@@ -255,6 +254,44 @@ describe("settings.set", () => {
       'no setting "editor.size"; nexus settings list shows them',
     );
     expect(writes).toEqual([]);
+  });
+});
+
+describe("usage-limit resume settings", () => {
+  it.each([
+    ["chat.limitResumeDelayMinutes", "chatLimitResumeDelayMinutes", 1, 0, "61", "0..60"],
+    ["chat.limitResumeMaxTries", "chatLimitResumeMaxTries", 3, 10, "0", "1..10"],
+    ["chat.limitResumeDeadlineHours", "chatLimitResumeDeadlineHours", 12, 168, "169", "1..168"],
+  ] as const)("reads, sets and resets %s", async (key, field, initial, value, invalid, range) => {
+    expect(await get(key)).toMatchObject({ value: initial, changed: false });
+    expect((await set(key, String(value))).setting).toMatchObject({ value, changed: true });
+    await expect(set(key, invalid)).rejects.toThrow(`${key}: ${invalid} is not within ${range}`);
+    expect((await set(key, null)).setting).toMatchObject({ value: initial, changed: false });
+    expect(writes).toEqual([{ [field]: value }, { [field]: initial }]);
+  });
+
+  it("sets and reads a one-line message through the CLI commands", async () => {
+    const app = fakeApp();
+    app.uiAnswers.set("settings.list", (args: CliUiOps["settings.list"]["args"]) =>
+      settingsHandlers["settings.list"](args),
+    );
+    app.uiAnswers.set("settings.set", (args: CliUiOps["settings.set"]["args"]) =>
+      settingsHandlers["settings.set"](args),
+    );
+    const command = (...args: string[]) =>
+      runCli(CLI_COMMANDS, contextFor(app, ["settings", ...args]));
+    const key = "chat.limitResumeMessage";
+    expect((await command("set", key, "Continue the review")).exitCode).toBe(0);
+    expect((await command("get", key)).stdout).toBe("Continue the review\n");
+    await expect(set(key, "Continue\nfrom here")).rejects.toThrow(
+      "the message must be on one line",
+    );
+    expect((await command("set", key, "")).exitCode).toBe(0);
+    expect(await get(key)).toMatchObject({ value: "", changed: false });
+    expect(writes).toEqual([
+      { chatLimitResumeMessage: "Continue the review" },
+      { chatLimitResumeMessage: "" },
+    ]);
   });
 });
 

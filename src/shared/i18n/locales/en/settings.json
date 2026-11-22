@@ -646,7 +646,15 @@
     "limits": "Usage limits",
     "limitResume": {
       "label": "Resume automatically when the limit resets",
-      "description": "Subscription profiles · Sends a resume message 1 minute after the limit resets"
+      "description": "Subscription profiles · Automatic resume message after the limit resets",
+      "delay": "Delay after reset",
+      "minutes": "min",
+      "maxTries": "Maximum checks",
+      "checks": "checks",
+      "deadline": "Resume deadline",
+      "deadlineHint": "Not sent once this long has passed since the stop",
+      "hours": "hr",
+      "message": "Resume message"
     }
   },
   "profiles": {

@@ -145,6 +145,60 @@ describe("StateService", () => {
     expect(VoiceNamePreferencesSchema.parse({ suggest: false })).toEqual({ suggest: false });
   });
 
+  it("loads usage-limit resume defaults and persists independent setting changes", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const service = new StateService(filePath);
+    expect(service.getState()).toMatchObject({
+      chatLimitResume: true,
+      chatLimitResumeDelayMinutes: 1,
+      chatLimitResumeMaxTries: 3,
+      chatLimitResumeDeadlineHours: 12,
+      chatLimitResumeMessage: "",
+    });
+    const patch = ipcContract.appState.call.set.args;
+    service.setState(patch.parse({ chatLimitResumeDelayMinutes: 0, chatLimitResumeMaxTries: 10 }));
+    service.setState(
+      patch.parse({ chatLimitResumeDeadlineHours: 168, chatLimitResumeMessage: "Continue" }),
+    );
+    expect(new StateService(filePath).getState()).toMatchObject({
+      chatLimitResume: true,
+      chatLimitResumeDelayMinutes: 0,
+      chatLimitResumeMaxTries: 10,
+      chatLimitResumeDeadlineHours: 168,
+      chatLimitResumeMessage: "Continue",
+    });
+  });
+
+  it("rejects invalid usage-limit resume updates and restores defaults for invalid saved values", () => {
+    const patch = ipcContract.appState.call.set.args;
+    for (const input of [
+      { chatLimitResumeDelayMinutes: -1 },
+      { chatLimitResumeDelayMinutes: 61 },
+      { chatLimitResumeDelayMinutes: 0.5 },
+      { chatLimitResumeMaxTries: 0 },
+      { chatLimitResumeMaxTries: 11 },
+      { chatLimitResumeDeadlineHours: 0 },
+      { chatLimitResumeDeadlineHours: 169 },
+      { chatLimitResumeMessage: "First line\nSecond line" },
+    ]) {
+      expect(patch.safeParse(input).success).toBe(false);
+    }
+    const filePath = path.join(tmpDir, "state.json");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        chatLimitResume: false,
+        chatLimitResumeDelayMinutes: 90,
+        chatLimitResumeMaxTries: 7,
+      }),
+    );
+    expect(new StateService(filePath).getState()).toMatchObject({
+      chatLimitResume: false,
+      chatLimitResumeDelayMinutes: 1,
+      chatLimitResumeMaxTries: 7,
+    });
+  });
+
   it("backs up a state file that is not valid JSON", () => {
     const filePath = path.join(tmpDir, "state.json");
     fs.writeFileSync(filePath, "{ truncated", "utf8");

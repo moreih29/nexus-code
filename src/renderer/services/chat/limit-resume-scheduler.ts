@@ -12,7 +12,7 @@
  *   the profile, or a program started to ask); with none there either, the
  *   tab only says so.
  * - At the time, the plan's usage is asked again: a limit that still holds
- *   puts it off to the reset it tells now, up to MAX_TRIES.
+ *   puts it off to the reset it tells now, up to the configured attempt limit.
  * - Tabs of one profile go STAGGER_MS apart.
  * - A window that sends claims the message in localStorage, so another
  *   window with the same tab does not send it too.
@@ -118,6 +118,10 @@ function enabled(): boolean {
   return useNotificationsStore.getState().limitResume;
 }
 
+function options() {
+  return useNotificationsStore.getState().limitResumeOptions;
+}
+
 function setRecord(ref: ChatTabRef, record: LimitResume | undefined): void {
   useTabsStore.getState().setLimitResume(ref.workspaceId, ref.tabId, record);
   if (record) ref.record = record;
@@ -174,21 +178,25 @@ function reconcile(ref: ChatTabRef, now: number): LimitResume | undefined {
   const profile = profileOf(useAgentProfilesStore.getState().config, ref.agent, ref.profileId);
   const was = ref.record;
   const handledAt = handled.get(key);
-  const next = reconcileResume(was, {
-    agent: ref.agent,
-    ...(chat ? { model: chat.model } : {}),
-    ...(ref.session ? { session: ref.session } : {}),
-    subscription: isSubscription(profile),
-    enabled: enabled(),
-    now,
-    ...(handledAt !== undefined ? { handledAt } : {}),
-  });
+  const next = reconcileResume(
+    was,
+    {
+      agent: ref.agent,
+      ...(chat ? { model: chat.model } : {}),
+      ...(ref.session ? { session: ref.session } : {}),
+      subscription: isSubscription(profile),
+      enabled: enabled(),
+      now,
+      ...(handledAt !== undefined ? { handledAt } : {}),
+    },
+    options(),
+  );
   for (const record of [was, next]) {
     if (record) handled.set(key, Math.max(handled.get(key) ?? 0, record.stopAt));
   }
   if (next !== was) setRecord(ref, next);
   if (next?.state === "unknown") findReset(ref, next, now);
-  return next;
+  return ref.record;
 }
 
 /**
@@ -196,7 +204,7 @@ function reconcile(ref: ChatTabRef, now: number): LimitResume | undefined {
  * else asked once, for this stop.
  */
 function findReset(ref: ChatTabRef, record: LimitResume, now: number): void {
-  const known = withResetTime(record, planResetSince(ref, record.stopAt), now);
+  const known = withResetTime(record, planResetSince(ref, record.stopAt), now, options());
   if (known !== record) {
     setRecord(ref, known);
     return;
@@ -214,6 +222,7 @@ function findReset(ref: ChatTabRef, record: LimitResume, now: number): void {
         current.record,
         planResetSince(current, record.stopAt),
         Date.now(),
+        options(),
       );
       if (told !== current.record) setRecord(current, told);
     });
@@ -261,20 +270,18 @@ async function fire(ref: ChatTabRef, now: boolean): Promise<void> {
       const asking = Date.now();
       await limitResumeIo.askPlan(ref).catch(() => undefined);
       const current = tabRef(ref.workspaceId, ref.tabId);
-      if (
-        !current?.record ||
-        current.record.stopAt !== stopAt ||
-        !resumeDue(current.record, Date.now())
-      ) {
-        return;
-      }
+      if (current?.record?.stopAt !== stopAt) return;
+      const checkedAt = Date.now();
+      const record = reconcile(current, checkedAt);
+      if (!record || record.stopAt !== stopAt || !resumeDue(record, checkedAt)) return;
       const plan = usePlanUsageStore.getState().byKey[planKey];
       const fresh = plan?.fetchedAt !== undefined && plan.fetchedAt >= asking - FRESH_PLAN_MS;
       const step = afterRecheck(
-        current.record,
+        record,
         planBlockedUntil(plan, current.agent),
         fresh,
-        Date.now(),
+        checkedAt,
+        options(),
       );
       if (step !== "send") {
         setRecord(current, step);
@@ -286,21 +293,23 @@ async function fire(ref: ChatTabRef, now: boolean): Promise<void> {
     nextSlot.set(planKey, slot + STAGGER_MS);
     if (slot > Date.now()) await limitResumeIo.sleep(slot - Date.now());
     const current = tabRef(ref.workspaceId, ref.tabId);
-    const record = current?.record;
-    if (!current || !record || record.stopAt !== stopAt || record.state === "sent") return;
-    if (!now && record.state !== "waiting") return;
+    if (current?.record?.stopAt !== stopAt) return;
+    const sendingAt = Date.now();
+    const record = now ? current.record : reconcile(current, sendingAt);
+    if (!record || record.stopAt !== stopAt || record.state === "sent") return;
+    if (!now && !resumeDue(record, sendingAt)) return;
     if (!claim(current, record)) return;
-    setRecord(current, sentResume(record, Date.now()));
+    setRecord(current, sentResume(record, sendingAt));
     try {
       await limitResumeIo.send(
         current.workspaceId,
         current.tabId,
-        i18next.t("common:chat.limit_resume.prompt"),
+        options().chatLimitResumeMessage.trim() || i18next.t("common:chat.limit_resume.prompt"),
       );
     } catch {
       const after = tabRef(current.workspaceId, current.tabId);
       if (after?.record?.state === "sent" && after.record.stopAt === stopAt) {
-        setRecord(after, failedResume(record, Date.now()));
+        setRecord(after, failedResume(record, Date.now(), options()));
       }
     }
   } finally {

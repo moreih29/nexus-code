@@ -646,7 +646,15 @@
     "limits": "사용량 한도",
     "limitResume": {
       "label": "한도가 풀리면 자동으로 이어하기",
-      "description": "구독 프로필 · 한도 해제 1분 뒤 이어하기 메시지 자동 전송"
+      "description": "구독 프로필 · 한도가 풀리면 이어하기 메시지 자동 전송",
+      "delay": "해제 후 대기",
+      "minutes": "분",
+      "maxTries": "최대 확인",
+      "checks": "회",
+      "deadline": "이어하기 기한",
+      "deadlineHint": "멈춘 뒤 이 시간이 지나면 보내지 않음",
+      "hours": "시간",
+      "message": "이어하기 메시지"
     }
   },
   "profiles": {
