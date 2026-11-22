@@ -3,7 +3,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 import { z } from "zod";
-import type { SummaryError } from "../../../shared/notes/summary";
+import { type SummaryError, summaryDiagnostic } from "../../../shared/notes/summary";
 import {
   clockOf,
   peopleIn,
@@ -14,6 +14,7 @@ import {
 
 export const MAX_INPUT_CHARS = 400_000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const DIRECTION_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 const outputSchema = z.strictObject({
   summary: z.array(z.string().min(1).max(300)).max(7),
@@ -180,24 +181,20 @@ function plainNode(node: Nodes): string {
 }
 
 function plainText(text: string): string {
-  const tree = fromMarkdown(text, {
+  const tree = fromMarkdown(text.replace(DIRECTION_CONTROLS, ""), {
     extensions: [gfm()],
     mdastExtensions: [gfmFromMarkdown()],
   });
   return (
     plainNode(tree)
       // Parsed text can itself contain markup from escaped punctuation or entities.
+      .replace(DIRECTION_CONTROLS, "")
       .replace(/<\/?[a-z][^<>]*>|<!--[\s\S]*?-->/gi, "")
       .replace(/\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi, "")
       .replace(/[\p{Cc}\s]/gu, " ")
       .replace(/ +/g, " ")
       .trim()
   );
-}
-
-function safeDiagnostic(stderr: string): string | undefined {
-  if (!stderr.trim()) return undefined;
-  return Buffer.from(stderr).subarray(-4096).toString("utf8").trim();
 }
 
 function resetsAtOf(text: string, now: number): number | undefined {
@@ -231,17 +228,19 @@ export function parseSummaryResult(run: SummaryRunResult, now = Date.now()): Sum
   const parsed = resultEnvelope.safeParse(readJSON(run.stdout));
   const envelope = parsed.data;
   if (run.code !== 0 || !envelope || envelope.is_error || envelope.subtype !== "success") {
-    const detail = [
-      run.stderr,
-      envelope?.subtype,
-      envelope?.result,
-      ...(envelope?.errors ?? []),
-    ].join("\n");
-    if (/\b401\b|\/login\b|not logged in/i.test(detail)) return { error: { kind: "signed-out" } };
-    if (/\b429\b|\busage limit\b|\brate[_ -]limit(?:ed)?\b|you.ve hit your limit/i.test(detail)) {
+    const detail = [run.stderr, ...(envelope?.errors ?? [])].join("\n");
+    if (
+      /^(?:\s*Error:\s*)?(?:API Error:\s*401\b|Not logged in\b|Please run \/login\b)/im.test(detail)
+    )
+      return { error: { kind: "signed-out" } };
+    if (
+      /^(?:\s*Error:\s*)?(?:API Error:\s*429\b|Usage limit reached\b|You(?:'|’)ve hit your limit\b)/im.test(
+        detail,
+      )
+    ) {
       return { error: { kind: "limit", resetsAt: resetsAtOf(detail, now) } };
     }
-    return { error: { kind: "failed", message: safeDiagnostic(run.stderr) } };
+    return { error: { kind: "failed", message: summaryDiagnostic(run.stderr) } };
   }
   const output = outputSchema.safeParse(
     envelope.structured_output ?? (envelope.result ? readJSON(envelope.result) : null),

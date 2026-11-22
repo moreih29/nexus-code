@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { redactLogSecrets } from "../log/redact-secrets";
 import { RECORDING_ID_RE } from "./transcript";
 
 export const RecordingSummarySettingsSchema = z.object({
@@ -17,9 +18,18 @@ export const RecordingIdSchema = z.string().regex(RECORDING_ID_RE);
 export const SummaryModeSchema = z.enum(["auto", "retry", "rerun"]);
 export type SummaryMode = z.infer<typeof SummaryModeSchema>;
 
+/** Redact the full diagnostic before taking its UTF-8 tail. */
+export function summaryDiagnostic(text: string): string | undefined {
+  const redacted = redactLogSecrets(text).replace(/\bsk-[a-z0-9_-]+/gi, "[redacted]");
+  const bytes = new TextEncoder().encode(redacted);
+  let start = Math.max(0, bytes.length - 1024);
+  while ((bytes[start] & 0xc0) === 0x80) start++;
+  return new TextDecoder().decode(bytes.subarray(start)).trim() || undefined;
+}
+
 export const SummaryErrorSchema = z.object({
   kind: z.enum(["signed-out", "missing", "limit", "timeout", "interrupted", "too-long", "failed"]),
-  message: z.string().max(4096).optional(),
+  message: z.string().transform(summaryDiagnostic).optional(),
   resetsAt: z.number().nonnegative().optional(),
 });
 export type SummaryError = z.infer<typeof SummaryErrorSchema>;

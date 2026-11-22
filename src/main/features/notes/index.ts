@@ -22,7 +22,6 @@ import { broadcast, type CallContext, register, validateArgs } from "../../infra
 import { VoicePrints } from "../voice-print";
 import { NoteError, NotesStore } from "./store";
 import { NotesSummary, type NotesSummaryOptions, type SummaryTarget } from "./summary";
-import { localClaudeSummary } from "./summary-claude";
 
 const c = ipcContract.notes.call;
 const NOTE_WRITE_CALLS: readonly string[] = [
@@ -269,7 +268,7 @@ export function registerNotesChannel(opts: {
     settings: opts.summary?.settings ?? (() => DEFAULT_RECORDING_SUMMARY_SETTINGS),
     language: opts.summary?.language ?? (() => "en"),
     profile: opts.summary?.profile ?? (() => null),
-    runClaude: opts.summary?.runClaude ?? localClaudeSummary({}),
+    runClaude: opts.summary?.runClaude ?? (async () => ({ error: { kind: "missing" } })),
     append: ({ location, noteId }, blocks) => appendAtLocation(location, noteId, blocks),
     onState: (locationKey, noteId, recordingId, state) =>
       broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state }),

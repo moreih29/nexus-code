@@ -829,6 +829,7 @@ app.whenReady().then(async () => {
       language: () => stateService.getState().language ?? lang,
       profile: (id) => findProfile(stateService, id),
       runClaude: localClaudeSummary({
+        userData: app.getPath("userData"),
         connectionKey: async (id, target) => profileConnectionKeys?.get(id, target),
       }),
     },

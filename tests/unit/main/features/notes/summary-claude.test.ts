@@ -1,5 +1,7 @@
-import { expect, mock, test } from "bun:test";
-import { readdir, stat } from "node:fs/promises";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { localClaudeSummary } from "../../../../../src/main/features/notes/summary-claude";
 import {
   MAX_INPUT_CHARS,
@@ -10,6 +12,14 @@ import {
 } from "../../../../../src/main/features/notes/summary-text";
 import type { AgentChannel } from "../../../../../src/main/infra/agent/channel";
 import type { TranscriptRecording } from "../../../../../src/shared/notes/transcript";
+
+let userData: string;
+beforeEach(async () => {
+  userData = await mkdtemp(path.join(tmpdir(), "note-summary-user-data-"));
+});
+afterEach(async () => {
+  await rm(userData, { recursive: true, force: true });
+});
 
 const output = { summary: ["Three issues remain."], todos: [] };
 const result = (value: unknown, fields: Partial<SummaryRunResult> = {}): SummaryRunResult => ({
@@ -38,6 +48,7 @@ test("Claude receives only stdin and runs the real executable in a fresh folder 
   });
   const dispose = mock(() => {});
   const run = localClaudeSummary({
+    userData,
     openChannel: (dir) => {
       root = dir;
       return { call, dispose } as unknown as AgentChannel;
@@ -134,6 +145,7 @@ test("a missing or signed-out Claude never receives the transcript", async () =>
       return result(null, { code: 1, stdout: '{"loggedIn":false}' });
     });
     const run = localClaudeSummary({
+      userData,
       openChannel: () => ({ call, dispose() {} }) as unknown as AgentChannel,
     });
     expect(
@@ -164,6 +176,7 @@ test("canceling a Claude run sends its run ID to the private local agent", async
     return stopped.promise;
   });
   const run = localClaudeSummary({
+    userData,
     openChannel: () => ({ call, dispose() {} }) as unknown as AgentChannel,
   });
   const pending = run({
@@ -177,6 +190,94 @@ test("canceling a Claude run sends its run ID to the private local agent", async
   abort.abort();
   expect(await pending).toMatchObject({ error: { kind: "interrupted" } });
   expect(call.mock.calls[3]).toEqual(["chat.cancelRun", { runId: "run" }, { timeoutMs: 2000 }]);
+});
+
+test("an early cancel closes the private channel when no run is registered yet", async () => {
+  const started = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<SummaryRunResult>();
+  const abort = new AbortController();
+  const call = mock(async (method: string, params: Record<string, unknown>) => {
+    if (method === "lsp.findBinary") return { path: "/real/claude" };
+    if (params.runId === "run:status") return result(null, { stdout: '{"loggedIn":true}' });
+    if (method === "chat.cancelRun") return false;
+    started.resolve();
+    return stopped.promise;
+  });
+  const dispose = mock(() => stopped.resolve(result(null, { code: -1, canceled: true })));
+  const run = localClaudeSummary({
+    userData,
+    openChannel: () => ({ call, dispose }) as unknown as AgentChannel,
+  });
+  const pending = run({
+    runId: "run",
+    language: "ko",
+    stdin: "private transcript",
+    signal: abort.signal,
+    profile: { id: "qa", agent: "claude", dir: "", name: "", color: "" },
+  });
+  await started.promise;
+  abort.abort();
+  expect(await pending).toMatchObject({ error: { kind: "interrupted" } });
+  expect(dispose).toHaveBeenCalled();
+});
+
+test("the default profile preserves Claude's implicit directory or the app's override", async () => {
+  const previous = process.env.CLAUDE_CONFIG_DIR;
+  const call = mock(async (method: string, params: Record<string, unknown>) => {
+    if (method === "lsp.findBinary") return { path: "/real/claude" };
+    if (params.runId === "run:status") return result(null, { stdout: '{"loggedIn":true}' });
+    return result(output);
+  });
+  const run = localClaudeSummary({
+    userData,
+    openChannel: () => ({ call, dispose() {} }) as unknown as AgentChannel,
+  });
+  const input = {
+    runId: "run",
+    language: "en",
+    stdin: "private transcript",
+    signal: new AbortController().signal,
+    profile: { id: "claude-default", agent: "claude" as const, dir: "", name: "", color: "" },
+  };
+  try {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    expect(await run(input)).toEqual({ output });
+    expect(call.mock.calls[1][1].env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+    expect(call.mock.calls[2][1].env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+    process.env.CLAUDE_CONFIG_DIR = "/app-explicit-claude";
+    expect(await run(input)).toEqual({ output });
+    expect(call.mock.calls[4][1].env).toHaveProperty("CLAUDE_CONFIG_DIR", "/app-explicit-claude");
+    expect(call.mock.calls[5][1].env).toHaveProperty("CLAUDE_CONFIG_DIR", "/app-explicit-claude");
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previous;
+  }
+});
+
+test("the private temp root clears stale run directories before the first run", async () => {
+  const parent = path.join(userData, "note-summary-tmp");
+  await mkdir(path.join(parent, "summary-stale"), { recursive: true });
+  await mkdir(path.join(parent, "unrelated"));
+  let runDir = "";
+  const run = localClaudeSummary({
+    userData,
+    openChannel: (dir) => {
+      runDir = dir;
+      return { call: async () => ({ path: "" }), dispose() {} } as unknown as AgentChannel;
+    },
+  });
+  expect(
+    await run({
+      runId: "run",
+      language: "en",
+      stdin: "private transcript",
+      signal: new AbortController().signal,
+      profile: { id: "claude-default", agent: "claude", dir: "", name: "", color: "" },
+    }),
+  ).toMatchObject({ error: { kind: "missing" } });
+  expect(path.dirname(runDir)).toBe(parent);
+  expect(await readdir(parent)).toEqual(["unrelated"]);
+  if (process.platform !== "win32") expect((await stat(parent)).mode & 0o777).toBe(0o700);
 });
 
 test("reads schema-validated plain text from a Claude result", () => {
@@ -221,6 +322,26 @@ test("reads schema-validated plain text from a Claude result", () => {
   ).toMatchObject({ error: { kind: "failed", message: "Claude exceeded the output limit" } });
 });
 
+test("strips decoded HTML, references, autolinks and bidi controls while keeping emoji ZWJ", () => {
+  const controls = "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069";
+  expect(
+    parseSummaryResult(
+      result({
+        summary: [
+          "&lt;b&gt;Read&lt;/b&gt; [the report][ref] online www.example.com and mail qa@example.com now.\n\n[ref]: https://example.com/file",
+          `Keep 👩‍💻 ${controls}safe`,
+        ],
+        todos: [],
+      }),
+    ),
+  ).toEqual({
+    output: {
+      summary: ["Read the report online and mail now.", "Keep 👩‍💻 safe"],
+      todos: [],
+    },
+  });
+});
+
 test("classifies status, usage limits with reset times, timeout and interruption", () => {
   expect(parseSummaryResult(result(null, { code: 1, stderr: "API Error: 401" }))).toMatchObject({
     error: { kind: "signed-out" },
@@ -229,7 +350,7 @@ test("classifies status, usage limits with reset times, timeout and interruption
     type: "result",
     subtype: "error",
     is_error: true,
-    result: "429: usage limit, resets 2026-11-22T19:00:00+09:00",
+    errors: ["API Error: 429, resets 2026-11-22T19:00:00+09:00"],
   });
   expect(parseSummaryResult(result(null, { stdout: error }))).toEqual({
     error: { kind: "limit", resetsAt: Date.parse("2026-11-22T19:00:00+09:00") },
@@ -242,7 +363,42 @@ test("classifies status, usage limits with reset times, timeout and interruption
   });
   expect(
     parseSummaryResult(result(null, { code: 1, stderr: `${"a".repeat(4096)}end` })),
-  ).toMatchObject({ error: { kind: "failed", message: `${"a".repeat(4093)}end` } });
+  ).toMatchObject({ error: { kind: "failed", message: `${"a".repeat(1021)}end` } });
+});
+
+test("failure classification ignores model prose and numbers in unstructured stderr", () => {
+  const stdout = JSON.stringify({
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "API Error: 401. Please run /login. API Error: 429.",
+  });
+  expect(
+    parseSummaryResult(
+      result(null, {
+        stdout,
+        code: 1,
+        stderr: "Transcript references 401, 429, a usage limit and /login.",
+      }),
+    ),
+  ).toMatchObject({ error: { kind: "failed" } });
+});
+
+test("error diagnostics redact credentials before taking a UTF-8 tail", () => {
+  const stderr = [
+    `${"한".repeat(500)} 앞`,
+    "https://my-user:my-pass@example.com",
+    "Bearer my-bearer-token",
+    "failed with sk-your-secret",
+  ].join("\n");
+  const response = parseSummaryResult(result(null, { code: 1, stderr }));
+  expect(response).toHaveProperty("error.kind", "failed");
+  const message = "error" in response ? (response.error.message ?? "") : "";
+  expect(message).toContain("https://[redacted]@example.com");
+  expect(message).toContain("Bearer [redacted]");
+  expect(message).toContain("failed with [redacted]");
+  expect(message).not.toMatch(/my-user|my-pass|my-bearer-token|sk-your-secret|\uFFFD/);
+  expect(Buffer.byteLength(message)).toBeLessThanOrEqual(1024);
 });
 
 test("stdin uses speaker keys and the user's names and enforces the character limit", () => {

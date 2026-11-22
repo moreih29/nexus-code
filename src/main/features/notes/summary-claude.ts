@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { connectionKeyTarget } from "../../../shared/agent-profiles/connection";
-import { agentEnvValue, mergeAgentEnv } from "../../../shared/agent-profiles/env";
+import { agentEnvValue, mergeAgentEnv, profileDirectory } from "../../../shared/agent-profiles/env";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import { claudeStatusOf } from "../../../shared/agent-profiles/status";
 import type { SummaryError } from "../../../shared/notes/summary";
@@ -13,11 +12,12 @@ import {
 } from "../../infra/agent/channel/local-channel";
 import { resolveLocalAgentCommand } from "../../infra/agent/local-agent-resolver";
 import { claudeConnectionEnv } from "../agent-profiles/connection-launch";
-import { localProfileDir } from "../agent-profiles/local";
+import { expandHome } from "../agent-profiles/local";
 import { parseSummaryResult, type SummaryRunResult, summaryArgs } from "./summary-text";
 
 const RUN_TIMEOUT_MS = 15 * 60_000;
 const STATUS_TIMEOUT_MS = 20_000;
+const RUN_DIR_PREFIX = "summary-";
 const windows = process.platform === "win32";
 const hostEnvKeys = new Set([
   "HOME",
@@ -61,8 +61,12 @@ function summaryEnv(
       profileEnvKeys.has(windows ? name.toUpperCase() : name),
     ),
   );
+  const dir = profileDirectory(profile, windows);
   return mergeAgentEnv(windows, host, auth, claudeConnectionEnv(profile.connection, key), {
-    CLAUDE_CONFIG_DIR: localProfileDir(profile),
+    // Setting even the implicit ~/.claude path changes Claude's Keychain entry.
+    CLAUDE_CONFIG_DIR: dir
+      ? path.resolve(expandHome(dir))
+      : agentEnvValue(process.env, "CLAUDE_CONFIG_DIR", windows),
     PATH: cleanPath,
     ENABLE_CLAUDEAI_MCP_SERVERS: "false",
   });
@@ -82,15 +86,19 @@ function withError(kind: SummaryError["kind"], message?: string) {
 }
 
 export function localClaudeSummary(options: {
+  userData: string;
   connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   openChannel?: (rootPath: string) => AgentChannel;
 }): RunClaudeSummary {
   const open =
     options.openChannel ??
     ((rootPath) => createLocalChannel({ ...resolveLocalAgentCommand(), rootPath }));
+  const tempRoot = prepareTempRoot(options.userData);
+  // Startup cleanup runs even when summaries are off. A later run can report a setup failure.
+  void tempRoot.catch(() => {});
   return async ({ runId, profile, model, language, stdin, signal }) => {
     signal.throwIfAborted();
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "nexus-note-summary-"));
+    const cwd = await fs.mkdtemp(path.join(await tempRoot, RUN_DIR_PREFIX));
     let channel: AgentChannel | undefined;
     try {
       signal.throwIfAborted();
@@ -155,6 +163,20 @@ export function localClaudeSummary(options: {
   };
 }
 
+async function prepareTempRoot(userData: string): Promise<string> {
+  const dir = path.join(userData, "note-summary-tmp");
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const stat = await fs.lstat(dir);
+  if (!stat.isDirectory()) throw new Error("The recording summary temp path is not a directory");
+  if (!windows && (stat.mode & 0o777) !== 0o700) await fs.chmod(dir, 0o700);
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith(RUN_DIR_PREFIX)) {
+      await fs.rm(path.join(dir, entry.name), { recursive: true, force: true });
+    }
+  }
+  return dir;
+}
+
 function run(
   channel: AgentChannel,
   signal: AbortSignal,
@@ -173,8 +195,8 @@ function run(
     timeoutMs: params.timeoutMs + 5000,
   });
   const abort = () => {
-    // The cancel handler can reach an idle agent before the run goroutine.
-    // Closing this run's private channel also cancels its request context.
+    // A false reply can mean the cancel reached the agent before registration.
+    // The agent remembers the ID, and closing the private channel also cancels its context.
     void channel.call<boolean>("chat.cancelRun", { runId: params.runId }, { timeoutMs: 2000 }).then(
       (found) => {
         if (!found) channel.dispose();
