@@ -180,11 +180,22 @@ class ReadReceipts {
     }
   }
 
-  private reconcile(deviceId: string, sessions: readonly RemoteSession[]): void {
+  private reconcile(
+    deviceId: string,
+    sessions: readonly RemoteSession[],
+    incomplete: ReadonlySet<string>,
+    previouslyIncomplete?: ReadonlySet<string>,
+  ): void {
     const listing = new Map(sessions.map((row) => [remoteSessionKey({ deviceId, ...row }), row]));
     const changes: SeenChanges = new Map();
     for (const [key, saved] of this.saved.entries()) {
-      if (parseRemoteSessionKey(key)?.deviceId !== deviceId) continue;
+      const target = parseRemoteSessionKey(key);
+      if (
+        target?.deviceId !== deviceId ||
+        incomplete.has(target.workspaceId) ||
+        (previouslyIncomplete && !previouslyIncomplete.has(target.workspaceId))
+      )
+        continue;
       const row = listing.get(key);
       const upTo = row && hostResultTime(row);
       if (row && upTo !== undefined && upTo <= (receiptTime(saved) ?? -Infinity)) {
@@ -204,13 +215,16 @@ class ReadReceipts {
     let watch = current;
     if (!watch || watch.rejoin !== rejoin) {
       current?.stop();
-      let first = true;
+      let remaining: ReadonlySet<string> | undefined;
       const stop = observePeerSessions(deviceId, rejoin, (listing) => {
         if (listing.status !== "ready") return;
         this.acknowledged.delete(deviceId);
-        if (!first) return;
-        first = false;
-        this.reconcile(deviceId, listing.list.sessions);
+        if (remaining?.size === 0) return;
+        const incomplete = new Set(listing.list.incompleteWorkspaces);
+        this.reconcile(deviceId, listing.list.sessions, incomplete, remaining);
+        remaining = remaining
+          ? new Set([...remaining].filter((id) => incomplete.has(id)))
+          : incomplete;
       });
       watch = { rejoin, users: 0, stop };
       this.watches.set(deviceId, watch);

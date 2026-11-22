@@ -9,6 +9,7 @@ import {
   MAX_LISTED_NOTES,
   MAX_SESSION_AGENTS,
   RpcErrorCode,
+  SessionsUpdateSchema,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
@@ -292,13 +293,16 @@ describe("the sessions list's renderer deadline", () => {
         jest.advanceTimersByTime(2_000);
         await flush();
       }
-      const { incompleteWorkspaces } = await snapshot;
+      const { list, incompleteWorkspaces } = await snapshot;
       expect(tabReads).toContain("w2");
       expect(tabReads).not.toContain("w40");
       expect(chatReads).toEqual([]);
       expect(incompleteWorkspaces).toEqual(
         new Set(workspaces.filter(({ id }) => id !== "w3").map(({ id }) => id)),
       );
+      expect(
+        SessionsUpdateSchema.parse({ ...list, watchId: "watch" }).incompleteWorkspaces,
+      ).toEqual([...incompleteWorkspaces]);
     } finally {
       jest.useRealTimers();
     }

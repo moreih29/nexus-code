@@ -318,6 +318,7 @@ export async function snapshotSessions(
           return { ...row, state: "new-result", since };
         return row.state === "new-result" ? { ...row, state: "idle" } : row;
       }),
+    ...(incompleteWorkspaces.size > 0 ? { incompleteWorkspaces: [...incompleteWorkspaces] } : {}),
     ...(recording ? { recording } : {}),
   };
   const waitingRequests = includeWaitingIds

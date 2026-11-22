@@ -417,6 +417,8 @@ const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
   /** Since 0.12.1, a session this version cannot read (a kind or state it does not know) is left out. */
   sessions: readableList(RemoteSessionSchema),
+  /** Workspaces whose rows may be partial or retained from the last good watch snapshot. */
+  incompleteWorkspaces: z.array(z.string()).optional(),
   /**
    * The consent prompts waiting on the user, in the order they are asked;
    * absent before 0.3.0. Since 0.12.1, one this version cannot read is left out.

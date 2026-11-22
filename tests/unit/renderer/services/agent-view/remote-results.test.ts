@@ -158,6 +158,52 @@ describe("host read receipts", () => {
     }
   });
 
+  test("reconciles saved receipts once their workspace's listing is complete", async () => {
+    const previous = useAgentViewStore.getState();
+    const accountKey = "partial-receipts";
+    const key = remoteSessionKey({ deviceId: "mac", ...unread });
+    useAgentViewStore.setState({
+      peerOrderAccount: accountKey,
+      remoteSeen: { accountKey, entries: new Map([[key, { at: 12 }]]) },
+    });
+    let take: ((listing: room.PeerSessions) => void) | undefined;
+    const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, listener) => {
+      take = listener;
+      return () => {};
+    });
+    const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () => ipcOk({ marked: 1 }));
+    const stop = new RemoteResults(accountKey).watchReceipts("mac", 0);
+    const list = (sessions: RemoteSession[], incompleteWorkspaces?: string[]) =>
+      take?.({ status: "ready", list: { sessions, workspaces: [], incompleteWorkspaces } });
+    try {
+      list([], ["w1"]);
+      list([unread], ["w1"]);
+      expect(useAgentViewStore.getState().remoteSeen?.entries.get(key)).toEqual({ at: 12 });
+      expect(call).not.toHaveBeenCalled();
+      list([unread]);
+      await Promise.resolve();
+      expect(call.mock.calls).toEqual([
+        [
+          "remote",
+          "peerSessionsMarkSeen",
+          {
+            deviceId: "mac",
+            seen: [{ workspaceId: "w1", tabId: "t1", upTo: 10 }],
+          },
+        ],
+      ]);
+      expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
+    } finally {
+      stop();
+      observe.mockRestore();
+      call.mockRestore();
+      useAgentViewStore.setState({
+        remoteSeen: previous.remoteSeen,
+        peerOrderAccount: previous.peerOrderAccount,
+      });
+    }
+  });
+
   test("a focused visible pane can queue a newer result while the previous receipt is in flight", async () => {
     const { peerOrderAccount, remoteSeen } = useAgentViewStore.getState();
     const accountKey = "receipt-pane";
