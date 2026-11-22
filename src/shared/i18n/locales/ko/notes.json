@@ -354,6 +354,9 @@
     "sendSelection": "선택한 글 보내기",
     "selectionDefault": "이 부분을 봐 줘.",
     "selectionQuote": "노트 ‘{{title}}’에서 고른 글:",
-    "read": "노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다."
+    "read": "노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다.",
+    "saveAnswerError": "노트에 저장 실패",
+    "alreadySaved": "이미 저장됨",
+    "answerTooLong": "답변이 너무 김"
   }
 }

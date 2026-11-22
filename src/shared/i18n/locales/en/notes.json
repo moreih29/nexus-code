@@ -354,6 +354,9 @@
     "sendSelection": "Send selected text",
     "selectionDefault": "Take a look at this part.",
     "selectionQuote": "Selected text from the note ‘{{title}}’:",
-    "read": "Note ‘{{title}}’: read it with `nexus note read {{id}}`."
+    "read": "Note ‘{{title}}’: read it with `nexus note read {{id}}`.",
+    "saveAnswerError": "Couldn't save to note",
+    "alreadySaved": "Already saved",
+    "answerTooLong": "Answer too long"
   }
 }

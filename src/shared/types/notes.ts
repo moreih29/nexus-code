@@ -25,6 +25,17 @@ export const NoteDocSchema = z.looseObject({ type: z.literal("doc") });
 /** Most bytes of a pasted image, before base64. */
 export const MAX_NOTE_IMAGE_BYTES = 30 * 1024 * 1024;
 
+export const MAX_NOTE_ANSWER_BYTES = 1024 * 1024;
+
+export function answerFitsInNote(markdown: string): boolean {
+  return (
+    markdown.length <= MAX_NOTE_ANSWER_BYTES &&
+    new TextEncoder().encode(markdown).byteLength <= MAX_NOTE_ANSWER_BYTES
+  );
+}
+
+export const NoteAnswerResultSchema = z.object({ noteId: NoteIdSchema, saved: z.boolean() });
+
 /** Most bytes of one piece of a recording's audio, as it is written while recording. */
 export const MAX_RECORDING_CHUNK_BYTES = 8 * 1024 * 1024;
 /** The most audio a voice print is asked for: 10 s at 16 kHz. */
@@ -124,7 +135,7 @@ export const NotesArgs = {
       profileId: true,
       title: true,
     }).extend({ messageId: NewNoteLinkSchema.shape.messageId.unwrap() }),
-    markdown: z.string().min(1),
+    markdown: z.string().min(1).refine(answerFitsInNote),
     imageAlt: z.string().trim().min(1).max(100),
   }),
   updateLink: z.union([

@@ -1,6 +1,7 @@
 import { NotebookPen, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { answerFitsInNote } from "../../../shared/types/notes";
 import { notesApi } from "../../services/notes/api";
 import { chatNoteTarget, syncChatNoteLink } from "../../services/notes/chat-link";
 import { useChatNotes, useRecentChatNotes } from "../../services/notes/chat-notes";
@@ -37,23 +38,35 @@ export function SaveAnswerMenu({
   const untitled = t("panel.untitled");
   const choices = noteChoices(notes ?? [], recent ?? []);
   const save = async (noteId?: string) => {
+    if (!answerFitsInNote(markdown)) {
+      showToast({ kind: "error", message: t("connections.answerTooLong") });
+      return;
+    }
     setSaving(true);
     try {
       const target = chatNoteTarget(chat);
       if (!target) throw new Error("The conversation closed");
-      const id = await notesApi.saveAnswer(
+      const result = await notesApi.saveAnswer(
         chat.workspaceId,
         noteId,
         { ...target, messageId: answerId },
         markdown,
         t("connections.imageAlt"),
       );
+      if (!result.saved) {
+        showToast({ kind: "info", message: t("connections.alreadySaved") });
+        return;
+      }
       if (!noteId)
-        openConversationNote(chat.workspaceId, chat.tabId, { noteId: id, title: "", updatedAt: 0 });
+        openConversationNote(chat.workspaceId, chat.tabId, {
+          noteId: result.noteId,
+          title: "",
+          updatedAt: 0,
+        });
       showToast({ kind: "info", message: t("connections.savedAnswer") });
       await syncChatNoteLink(target);
     } catch {
-      showToast({ kind: "error", message: t("editor.saveError") });
+      showToast({ kind: "error", message: t("connections.saveAnswerError") });
     } finally {
       setSaving(false);
     }

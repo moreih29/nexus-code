@@ -468,7 +468,7 @@ export function registerNotesChannel(opts: {
             });
           }
         }
-        return ipcOk(noteId);
+        return ipcOk({ noteId, saved: written });
       },
       updateLink: async (args: unknown) => {
         const update = validateArgs(c.updateLink.args, args);

@@ -12,27 +12,32 @@ export function safeNoteUrl(value: unknown): string | undefined {
   return url.href.replace(/[()<>'"\\]/g, (char) => `%${char.charCodeAt(0).toString(16)}`);
 }
 
-function sanitizeBlock(node: DocNode): DocNode {
+function sanitizeBlock(node: DocNode): DocNode[] {
   const { attrs, marks, content } = node;
   const language = attrs?.language;
-  return {
-    ...node,
-    ...(node.type === "codeBlock" && typeof language === "string" && !/^[\w.+#-]+$/.test(language)
-      ? { attrs: { language: null } }
-      : {}),
-    ...(marks && {
-      marks: marks.flatMap((mark) => {
-        if (mark.type !== "link") return [mark];
-        const href = safeNoteUrl(mark.attrs?.href);
-        return href ? [{ type: "link", attrs: { href } }] : [];
+  const text = node.text?.replace(/\p{Cf}/gu, "");
+  if (node.type === "text" && !text) return [];
+  return [
+    {
+      ...node,
+      ...(text !== undefined && { text }),
+      ...(node.type === "codeBlock" && typeof language === "string" && !/^[\w.+#-]+$/.test(language)
+        ? { attrs: { language: null } }
+        : {}),
+      ...(marks && {
+        marks: marks.flatMap((mark) => {
+          if (mark.type !== "link") return [mark];
+          const href = safeNoteUrl(mark.attrs?.href);
+          return href ? [{ type: "link", attrs: { href } }] : [];
+        }),
       }),
-    }),
-    ...(content && { content: content.map(sanitizeBlock) }),
-  };
+      ...(content && { content: content.flatMap(sanitizeBlock) }),
+    },
+  ];
 }
 
 export function answerCardBlocks(markdown: string, imageAlt: string): DocNode[] {
-  return markdownToBlocks(markdown, imageAlt).map(sanitizeBlock);
+  return markdownToBlocks(markdown, imageAlt).flatMap(sanitizeBlock);
 }
 
 export function answerCard(linkId: string, content: DocNode[]): DocNode {

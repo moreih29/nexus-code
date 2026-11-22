@@ -531,6 +531,11 @@ export class NotesStore {
     documentWritten: (block: DocNode, updatedAt: number) => void,
   ): Promise<void> {
     await this.editLinks(location, noteId, async (file, dir) => {
+      const alreadySaved = Object.values(file.conversations).some(
+        (link) => link.kind === "card" && link.messageId === source.messageId,
+      );
+      if (alreadySaved) return;
+
       const { id } = newLinkEntry(file, { ...source, kind: "card" });
       const card = answerCard(id, blocks);
       await writeLinks(dir, file);
