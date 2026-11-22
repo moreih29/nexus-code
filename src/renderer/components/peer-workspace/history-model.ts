@@ -67,9 +67,8 @@ export function createPeerHistory({ deviceId, workspaceId }: PeerWorkspace) {
     for (const commit of page) entries.set(commit.hash, commit);
     set({
       commits: [...entries.values()],
-      // The server can cut a page to fit the frame without marking it. Only
-      // an empty response settles the end; skip actual rows even if deduped.
-      nextSkip: page.length > 0 ? skip + page.length : null,
+      // A short page ends the list. Full pages consume their offsets even when rows overlap.
+      nextSkip: page.length >= PAGE_SIZE ? skip + page.length : null,
       pending: false,
     });
   }

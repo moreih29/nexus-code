@@ -16,11 +16,10 @@ const commit = (n: number): PeerHistoryCommit => ({
 const page = (first: number, count: number) =>
   ipcOk({ commits: Array.from({ length: count }, (_, i) => commit(first + i)) });
 
-test("history asks for 50 rows at a time and advances by the rows received", async () => {
+test("history advances after a full page and stops after a short page", async () => {
   const call = spyOn(ipc, "ipcCallResult")
     .mockResolvedValueOnce(page(0, 50))
-    .mockResolvedValueOnce(page(49, 25))
-    .mockResolvedValueOnce(page(0, 0));
+    .mockResolvedValueOnce(page(49, 25));
   const history = createPeerHistory(peer);
   try {
     await history.resume(0);
@@ -30,14 +29,45 @@ test("history asks for 50 rows at a time and advances by the rows received", asy
     expect(call).toHaveBeenCalledTimes(1);
     await history.more();
     expect(history.getSnapshot().commits).toHaveLength(74);
-    // A short page may be a frame cut, and a duplicate still consumes an offset.
-    expect(history.getSnapshot().nextSkip).toBe(75);
-    await history.more();
     expect(history.getSnapshot().nextSkip).toBeNull();
     await history.more();
     expect(call.mock.calls.map(([channel, method, params]) => [channel, method, params])).toEqual(
-      [0, 50, 75].map((skip) => ["remote", "peerGitLog", { ...peer, limit: 50, skip }]),
+      [0, 50].map((skip) => ["remote", "peerGitLog", { ...peer, limit: 50, skip }]),
     );
+  } finally {
+    history.pause();
+    call.mockRestore();
+  }
+});
+
+test.each([0, 3])("history starts at the end if the first page has %i commits", async (count) => {
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValueOnce(page(0, count));
+  const history = createPeerHistory(peer);
+  try {
+    await history.resume(0);
+    expect(history.getSnapshot().commits).toHaveLength(count);
+    expect(history.getSnapshot().nextSkip).toBeNull();
+    await history.more();
+    expect(call).toHaveBeenCalledTimes(1);
+  } finally {
+    history.pause();
+    call.mockRestore();
+  }
+});
+
+test("an empty page ends history after a full page", async () => {
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(page(0, 50))
+    .mockResolvedValueOnce(page(50, 0));
+  const history = createPeerHistory(peer);
+  try {
+    await history.resume(0);
+    expect(history.getSnapshot().nextSkip).toBe(50);
+    await history.more();
+    expect(history.getSnapshot().commits).toHaveLength(50);
+    expect(history.getSnapshot().nextSkip).toBeNull();
+    await history.more();
+    expect(call).toHaveBeenCalledTimes(2);
   } finally {
     history.pause();
     call.mockRestore();
@@ -47,7 +77,7 @@ test("history asks for 50 rows at a time and advances by the rows received", asy
 test("refresh supersedes an in-flight page and starts at zero", async () => {
   const late = Promise.withResolvers<ReturnType<typeof page>>();
   const call = spyOn(ipc, "ipcCallResult")
-    .mockResolvedValueOnce(page(0, 1))
+    .mockResolvedValueOnce(page(0, 50))
     .mockImplementationOnce(() => late.promise)
     .mockResolvedValueOnce(page(100, 2));
   const history = createPeerHistory(peer);
@@ -63,7 +93,7 @@ test("refresh supersedes an in-flight page and starts at zero", async () => {
     expect(history.getSnapshot()).toMatchObject({
       commits: [commit(100), commit(101)],
       pending: false,
-      nextSkip: 2,
+      nextSkip: null,
     });
   } finally {
     history.pause();
@@ -132,19 +162,16 @@ test("when HEAD advances between pages, overlap is deduplicated and refresh pick
   const call = spyOn(ipc, "ipcCallResult")
     .mockResolvedValueOnce(ipcOk({ commits: base.slice(0, 50) }))
     .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(50, 100) }))
-    .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(56) }))
     .mockResolvedValueOnce(ipcOk({ commits: advanced.slice(0, 50) }));
   const history = createPeerHistory(peer);
   try {
     await history.resume(0);
     await history.more();
-    expect(history.getSnapshot()).toMatchObject({ commits: base, nextSkip: 56 });
-    await history.more();
     expect(history.getSnapshot()).toMatchObject({ commits: base, nextSkip: null });
     await history.refresh();
     expect(history.getSnapshot()).toMatchObject({ commits: advanced.slice(0, 50), nextSkip: 50 });
     expect(call.mock.calls.map(([, , args]) => args)).toEqual(
-      [0, 50, 56, 0].map((skip) => ({ ...peer, limit: 50, skip })),
+      [0, 50, 0].map((skip) => ({ ...peer, limit: 50, skip })),
     );
   } finally {
     history.pause();
