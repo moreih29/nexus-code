@@ -206,8 +206,8 @@ describe("the sessions list's renderer deadline", () => {
         answered = true;
       });
       await flush();
-      expect(reads).toEqual([{ op: "sessions.snapshot", timeoutMs: 8_000 }]);
-      jest.advanceTimersByTime(7_999);
+      expect(reads).toEqual([{ op: "sessions.snapshot", timeoutMs: 2_000 }]);
+      jest.advanceTimersByTime(1_999);
       await flush();
       expect(answered).toBe(false);
       jest.advanceTimersByTime(1);

@@ -4,26 +4,22 @@
  * before the renderer took it.
  */
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
-import type { CliServices, SessionsRevision } from "../../../../../src/main/features/cli/context";
+import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
+
+import { testSessionsRevision } from "../../../../helpers/sessions-snapshot";
 
 type Unread = Record<string, Record<string, number>>;
 
 function host() {
   let revision = 10;
-  let latest: number | undefined;
-  const revisions: SessionsRevision = {
-    latest: () => latest,
-    saw: (seen) => {
-      if (latest === undefined || seen > latest) latest = seen;
-    },
-  };
   /** The renderer's unread map now; markSeen takes what it covers out. */
   let unread: Unread | undefined = { w1: { t1: 50, t2: 70 } };
   let snapshotGate: Promise<void> | undefined;
   let markSeenGate: Promise<void> | undefined;
   let markSeenFails = false;
+  let markSeenTimeout: Promise<never> | undefined;
   let reads = 0;
   const services = {
     listWorkspaces: () => [{ id: "w1", name: "w1", rootPath: "/w1" }],
@@ -32,7 +28,6 @@ function host() {
     claudeAsks: () => [],
     claudeAgents: { list: () => [] },
     consents: { list: () => [] },
-    sessionsRevision: revisions,
     ui: async (
       op: string,
       args: { seen?: { workspaceId: string; tabId: string; upTo: number }[] },
@@ -59,29 +54,38 @@ function host() {
         };
       }
       if (op === "sessions.markSeen") {
-        await markSeenGate;
-        if (markSeenFails) throw new Error("the window did not answer");
-        let marked = 0;
-        for (const { workspaceId, tabId, upTo } of args.seen ?? []) {
-          const since = unread?.[workspaceId]?.[tabId];
-          if (since === undefined || since > upTo) continue;
-          delete unread?.[workspaceId]?.[tabId];
-          marked++;
-        }
-        // The renderer counts the change; main hears of it a little later.
-        revision++;
-        return { marked };
+        const fails = markSeenFails;
+        markSeenFails = false;
+        const apply = async () => {
+          await markSeenGate;
+          if (fails) throw new Error("the window did not answer");
+          let marked = 0;
+          for (const { workspaceId, tabId, upTo } of args.seen ?? []) {
+            const since = unread?.[workspaceId]?.[tabId];
+            if (since === undefined || since > upTo) continue;
+            delete unread?.[workspaceId]?.[tabId];
+            marked++;
+          }
+          // The renderer counts the change; main hears of it a little later.
+          revision++;
+          return { marked };
+        };
+        return markSeenTimeout ? Promise.race([apply(), markSeenTimeout]) : apply();
       }
       throw new Error(`unexpected ${op}`);
     },
   } as unknown as CliServices;
-  const serve = serveWith(() => services);
+  const revisions = testSessionsRevision((args, timeoutMs) =>
+    services.ui("sessions.snapshot", args, timeoutMs),
+  );
+  const withRevisions = { ...services, sessionsRevision: revisions };
+  const serve = serveWith(() => withRevisions);
   return {
-    services,
+    services: withRevisions,
     reads: () => reads,
-    markSeen: (tabId: string, upTo: number) =>
+    markSeen: (tabId: string, upTo: number, from = "phone") =>
       serve({
-        from: "phone",
+        from,
         method: "sessions.markSeen",
         params: { seen: [{ workspaceId: "w1", tabId, upTo }] },
       }),
@@ -105,6 +109,11 @@ function host() {
     },
     failMarkSeen: () => {
       markSeenFails = true;
+    },
+    timeOutMarkSeen: () => {
+      const timeout = Promise.withResolvers<never>();
+      markSeenTimeout = timeout.promise;
+      return () => timeout.reject(new Error("NexusCode's window did not answer"));
     },
     /** The renderer's unread map now, as when a result came back or was not taken. */
     setUnread: (next: Unread | undefined) => {
@@ -199,4 +208,37 @@ test("a receipt counts for a while only", async () => {
   jest.advanceTimersByTime(30_000);
   // The kept map is gone too: the rows read as their chats tell.
   expect(await states(app.services)).toEqual({ t1: "idle", t2: "idle" });
+});
+
+test("one device's failed receipt leaves the other device's receipt in place", async () => {
+  const app = host();
+  await states(app.services);
+  const release = app.holdMarkSeen();
+  const first = app.markSeen("t1", 50, "phone-1");
+  app.failMarkSeen();
+  const second = app.markSeen("t1", 80, "phone-2");
+  const secondFailed = second.catch((error) => error);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  release();
+  expect(await first).toEqual({ marked: 1 });
+  expect(await secondFailed).toBeInstanceOf(Error);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  expect(app.reads()).toBe(1);
+});
+
+test("a renderer that takes a timed-out receipt still clears the result on its next read", async () => {
+  const app = host();
+  const release = app.holdMarkSeen();
+  const expire = app.timeOutMarkSeen();
+  const marking = app.markSeen("t1", 50);
+  const failed = marking.catch((error) => error);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  jest.advanceTimersByTime(15_000);
+  expire();
+  expect(await failed).toBeInstanceOf(Error);
+  expect(await states(app.services)).toEqual({ t1: "new-result", t2: "new-result" });
+  release();
+  await Promise.resolve();
+  app.told();
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
 });

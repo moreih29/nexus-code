@@ -8,13 +8,14 @@ import { PhonePush } from "../../../../../src/main/features/remote/phone-push";
 import { servesWith } from "../../../../../src/main/features/remote/serving/common";
 import type { CliChange, CliChatWaiting } from "../../../../../src/shared/cli/ui";
 import type { PhonePushPolicy } from "../../../../../src/shared/types/app-state";
-import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
+import { testSessionsRevision, withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 const info = { signIn: ["google"], relay: null, voice: null };
 const phone = { id: "iphone", name: "iPhone", platform: "ios" };
 const android = { id: "android-phone", name: "Pixel", platform: "android" };
 const computer = { id: "desktop", name: "My desktop", platform: "darwin" };
 const pushInfo = { ...info, push: { version: 1, environments: ["production"] } };
+type ReadArgs = { includeWaitingId?: boolean; workspaceIds?: string[] };
 const consentChange = { kind: "chatInput", detail: "Please edit /private/project" } as const;
 const logResponse = { sent: 1, skipped: 0 };
 let push: PhonePush | undefined;
@@ -64,7 +65,7 @@ function setup(
   const send = mock(async (_body: PushSend, _signal: AbortSignal) => logResponse as unknown);
   const devices = mock(async () => options.devices ?? [phone]);
   const serverInfo = mock(async () => options.serverInfo ?? pushInfo);
-  const ui = mock(async (op: string, args: { includeWaitingId?: boolean }) => {
+  const ui = mock(async (op: string, args: ReadArgs) => {
     if (op === "sessions.results") return { unread: {} };
     if (op === "tabs.list") {
       return {
@@ -85,21 +86,16 @@ function setup(
       : { agent: "codex", state: "idle" };
   });
   let revision = 1;
-  let latest: number | undefined;
-  const revisions = {
-    latest: () => latest,
-    saw: (seen: number) => {
-      if (latest === undefined || seen > latest) latest = seen;
-    },
-  };
   let snapshots = 0;
   const snapshot = withSessionsSnapshot(ui, () => revision);
+  const read = (op: string, args: ReadArgs) => {
+    if (op === "sessions.snapshot") snapshots++;
+    return snapshot(op, args);
+  };
+  const revisions = testSessionsRevision((args) => read("sessions.snapshot", args));
   const services = {
     listWorkspaces: () => [{ id: "w", name: "Private workspace", rootPath: "/private/project" }],
-    ui: (op: string, args: never) => {
-      if (op === "sessions.snapshot") snapshots++;
-      return snapshot(op, args);
-    },
+    ui: read,
     ...(options.revisions ? { sessionsRevision: revisions } : {}),
     consents: { list: () => consents },
     activity: () => null,
@@ -468,13 +464,13 @@ describe("chat and terminal request notifications", () => {
     expect(app.send).toHaveBeenCalledTimes(1);
   });
 
-  test("reads the sessions again only when the renderer tells a change, and every ten seconds", async () => {
+  test("reuses the sessions read until the renderer changes or the cache expires", async () => {
     const app = setup({ revisions: true });
     await tick();
     const first = app.snapshots();
     expect(first).toBe(1);
-    // Checked every 3 seconds: the read stands until it is 10 seconds old.
-    await tick(9_000);
+    // The 3-second push poll refreshes the expired read at the nine-second tick.
+    await tick(6_000);
     expect(app.snapshots()).toBe(first);
     await tick(3_000);
     expect(app.snapshots()).toBe(first + 1);

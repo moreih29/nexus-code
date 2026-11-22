@@ -111,9 +111,18 @@ export interface WorkspaceMove {
  * (cli.sessionsChanged) or answered a sessions.snapshot with: a snapshot
  * read at it still tells what the renderer has.
  */
-export interface SessionsRevision {
-  latest(): number | undefined;
+export interface SessionsRenderer {
+  readonly latest: number | undefined;
+  readonly closed: boolean;
   saw(revision: number): void;
+  snapshot(
+    args: CliUiOps["sessions.snapshot"]["args"],
+    timeoutMs: number,
+  ): Promise<CliUiOps["sessions.snapshot"]["result"]>;
+}
+
+export interface SessionsRevision {
+  current(): SessionsRenderer | undefined;
 }
 
 /** The app as the commands see it. */

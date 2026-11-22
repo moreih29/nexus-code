@@ -14,12 +14,13 @@ import type { CliChatState, CliSessionTab, CliUiOps } from "../../../../shared/c
 import { describeTerminal, isAgentSession } from "../../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
-import type { CliServices, SessionsRevision } from "../../cli/context";
+import type { CliServices, SessionsRenderer, SessionsRevision } from "../../cli/context";
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
 import { RpcFailure } from "../room";
+import { SESSIONS_POLL_MS } from "../session-watches";
 import { oneLine, unavailable, workspaceOf } from "./common";
-import { ReadBudget } from "./read-budget";
+import { RENDERER_READ_MAX_MS, ReadBudget } from "./read-budget";
 
 /** A chat's state as the agent lists show it. */
 const CHAT_STATES: Record<CliChatState, SessionState> = {
@@ -89,7 +90,10 @@ function agentsField(
 const UNREAD_RESULTS_MAX_AGE_MS = 30_000;
 
 type UnreadResults = CliUiOps["sessions.results"]["result"]["unread"];
-const lastUnreadResults = new WeakMap<CliServices, { startedAt: number; unread: UnreadResults }>();
+const lastUnreadResults = new WeakMap<
+  CliServices | SessionsRenderer,
+  { startedAt: number; unread: UnreadResults }
+>();
 
 /**
  * The unread map a read started at `startedAt` gave, kept for the reads
@@ -97,19 +101,20 @@ const lastUnreadResults = new WeakMap<CliServices, { startedAt: number; unread: 
  * when the read of the map used started.
  */
 function unreadResults(
-  services: CliServices,
+  source: CliServices | SessionsRenderer | undefined,
   startedAt: number,
   unread: UnreadResults | undefined,
 ): { unread?: UnreadResults; readAt: number } {
-  const last = lastUnreadResults.get(services);
+  if (!source) return { unread, readAt: startedAt };
+  const last = lastUnreadResults.get(source);
   if (unread && (!last || startedAt >= last.startedAt)) {
-    lastUnreadResults.set(services, { startedAt, unread });
+    lastUnreadResults.set(source, { startedAt, unread });
     return { unread, readAt: startedAt };
   }
   if (last && performance.now() - last.startedAt < UNREAD_RESULTS_MAX_AGE_MS) {
     return { unread: last.unread, readAt: last.startedAt };
   }
-  lastUnreadResults.delete(services);
+  lastUnreadResults.delete(source);
   return { readAt: startedAt };
 }
 
@@ -209,10 +214,9 @@ function receiptCovers(
 }
 
 /**
- * How long a read of the renderer stands for it at most: a change it did
- * not tell main of is in the list within this.
+ * Leave time for the next watch poll and its renderer read within ten seconds.
  */
-export const SESSIONS_REREAD_MS = 10_000;
+export const SESSIONS_REREAD_MS = 10_000 - SESSIONS_POLL_MS - RENDERER_READ_MAX_MS;
 
 interface RendererRead {
   readonly tabs: readonly (readonly CliSessionTab[] | undefined)[];
@@ -223,9 +227,9 @@ interface RendererRead {
 
 type SessionsSnapshot = CliUiOps["sessions.snapshot"]["result"];
 
-/** The last whole read of the renderer, by its revision source. */
+/** The last whole read keyed by the revision record for its window's webContents id. */
 const lastReads = new WeakMap<
-  SessionsRevision,
+  SessionsRenderer,
   { key: string; revision: number; readAt: number; read: RendererRead }
 >();
 
@@ -241,44 +245,60 @@ function wholeRead(snapshot: SessionsSnapshot, workspaces: number): boolean {
   );
 }
 
+async function readSnapshot(
+  budget: ReadBudget,
+  workspaceIds: string[],
+  renderer: SessionsRenderer | undefined,
+): Promise<SessionsSnapshot | undefined> {
+  const snapshot = await budget
+    .ui("sessions.snapshot", { workspaceIds }, undefined, renderer?.snapshot)
+    .catch(() => undefined);
+  if (renderer?.closed) return undefined;
+  if (snapshot && Number.isSafeInteger(snapshot.revision)) renderer?.saw(snapshot.revision);
+  return snapshot;
+}
+
 /**
- * What the renderer tells of the workspaces, in one request within the
- * budget: each one's tabs (none for one that could not be read) and the
- * unread map. The last whole read stands while the renderer tells no
- * change and for SESSIONS_REREAD_MS at most.
+ * What the renderer tells of the workspaces within the budget: each one's
+ * tabs (none for one that could not be read) and the unread map. The last
+ * whole read stands until the renderer tells of a change or the cache expires.
  */
 async function readRenderer(
   services: CliServices,
   budget: ReadBudget,
   workspaceIds: string[],
 ): Promise<RendererRead> {
-  const revisions = services.sessionsRevision;
+  const renderer = services.sessionsRevision?.current();
   const key = workspaceIds.join("\n");
-  const last = revisions && lastReads.get(revisions);
+  const last = renderer && lastReads.get(renderer);
   if (
+    renderer &&
     last &&
     last.key === key &&
-    last.revision === revisions.latest() &&
+    last.revision === renderer.latest &&
     performance.now() - last.readAt < SESSIONS_REREAD_MS
   ) {
     return last.read;
   }
   const startedAt = performance.now();
-  const snapshot = await budget
-    .ui("sessions.snapshot", { workspaceIds }, budget.remaining())
-    .catch(() => undefined);
-  const { unread, readAt } = unreadResults(services, startedAt, snapshot?.unread);
+  const snapshot = await readSnapshot(budget, workspaceIds, renderer);
+  const source = services.sessionsRevision ? (renderer?.closed ? undefined : renderer) : services;
+  const { unread, readAt } = unreadResults(source, startedAt, snapshot?.unread);
   const read: RendererRead = {
     tabs: workspaceIds.map((_, index) => snapshot?.workspaces[index]?.tabs),
     unread,
     unreadAt: readAt,
   };
-  if (revisions && snapshot && Number.isSafeInteger(snapshot.revision)) {
-    revisions.saw(snapshot.revision);
-    // Only a whole one: what is missing is asked again at the next read.
-    if (wholeRead(snapshot, workspaceIds.length)) {
-      lastReads.set(revisions, { key, revision: snapshot.revision, readAt: startedAt, read });
-    }
+  // A later request may have finished while this one was in flight.
+  if (
+    renderer &&
+    !renderer.closed &&
+    snapshot &&
+    snapshot.revision === renderer.latest &&
+    startedAt >= (lastReads.get(renderer)?.readAt ?? -Infinity) &&
+    wholeRead(snapshot, workspaceIds.length)
+  ) {
+    lastReads.set(renderer, { key, revision: snapshot.revision, readAt: startedAt, read });
   }
   return read;
 }

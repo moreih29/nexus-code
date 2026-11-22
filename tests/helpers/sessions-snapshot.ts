@@ -4,6 +4,7 @@
  * chat.state with peek and includeWaitingId, sessions.results. The app's
  * renderer answers it the same way (services/cli/ui-requests.ts).
  */
+import type { SessionsRenderer, SessionsRevision } from "../../src/main/features/cli/context";
 import type { CliSessionChat, CliSessionTab } from "../../src/shared/cli/ui";
 import { oneLine } from "../../src/shared/remote/one-line";
 
@@ -22,6 +23,23 @@ function sessionChat(info: Record<string, unknown>): CliSessionChat {
     ...(info.limitResume ? { limitResume: info.limitResume } : {}),
     ...(info.waitingId ? { waitingId: info.waitingId as string } : {}),
   } as CliSessionChat;
+}
+
+export function testSessionsRevision(snapshot: SessionsRenderer["snapshot"]): SessionsRevision & {
+  saw(revision: number): void;
+} {
+  let latest: number | undefined;
+  const renderer: SessionsRenderer = {
+    get latest() {
+      return latest;
+    },
+    closed: false,
+    saw(revision) {
+      if (latest === undefined || revision > latest) latest = revision;
+    },
+    snapshot,
+  };
+  return { current: () => renderer, saw: renderer.saw };
 }
 
 /** `revision`: the renderer's count of changes, which a snapshot tells. */
