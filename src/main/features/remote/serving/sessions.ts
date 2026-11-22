@@ -93,20 +93,119 @@ const lastUnreadResults = new WeakMap<CliServices, { startedAt: number; unread: 
 
 /**
  * The unread map a read started at `startedAt` gave, kept for the reads
- * after it; when it gave none, the last one kept, for a while.
+ * after it; when it gave none, the last one kept, for a while. `readAt`:
+ * when the read of the map used started.
  */
 function unreadResults(
   services: CliServices,
   startedAt: number,
   unread: UnreadResults | undefined,
-): UnreadResults | undefined {
+): { unread?: UnreadResults; readAt: number } {
   const last = lastUnreadResults.get(services);
   if (unread && (!last || startedAt >= last.startedAt)) {
     lastUnreadResults.set(services, { startedAt, unread });
-    return unread;
+    return { unread, readAt: startedAt };
   }
-  if (last && performance.now() - last.startedAt < UNREAD_RESULTS_MAX_AGE_MS) return last.unread;
+  if (last && performance.now() - last.startedAt < UNREAD_RESULTS_MAX_AGE_MS) {
+    return { unread: last.unread, readAt: last.startedAt };
+  }
   lastUnreadResults.delete(services);
+  return { readAt: startedAt };
+}
+
+interface Receipt {
+  readonly upTo: number;
+  readonly requestedAt: number;
+  /** When the renderer took it; Infinity until it answers. */
+  takenAt: number;
+}
+
+/**
+ * Pending receipts are dropped after this even if the renderer never answers;
+ * a taken one is kept as long as an unread map read before it may be used.
+ */
+const RECEIPT_MAX_AGE_MS = UNREAD_RESULTS_MAX_AGE_MS;
+
+/**
+ * The read receipts other devices sent here (sessions.markSeen), by
+ * workspace and tab, for a short while: an unread map read before the
+ * renderer took one (a list being read as it came, a reused read, the map
+ * kept when a read fails) must not list what it covers as a new result
+ * again once the receipt is in.
+ */
+const receipts = new WeakMap<SessionsRevision, Map<string, Receipt[]>>();
+
+const receiptKey = (workspaceId: string, tabId: string) => `${workspaceId}\0${tabId}`;
+
+function liveReceipts(revisions: SessionsRevision): Map<string, Receipt[]> {
+  let byTab = receipts.get(revisions);
+  if (!byTab) {
+    byTab = new Map();
+    receipts.set(revisions, byTab);
+  }
+  const now = performance.now();
+  for (const [key, list] of byTab) {
+    const live = list.filter(
+      (r) =>
+        now - r.requestedAt < RECEIPT_MAX_AGE_MS ||
+        (Number.isFinite(r.takenAt) && now - r.takenAt < RECEIPT_MAX_AGE_MS),
+    );
+    if (live.length === 0) byTab.delete(key);
+    else if (live.length < list.length) byTab.set(key, live);
+  }
+  return byTab;
+}
+
+/**
+ * Keeps another device's receipts from now: the lists made while the
+ * renderer takes them, and those after from unread maps read before,
+ * leave what they cover read. `taken` once the renderer has; `failed`
+ * when it did not, and the receipts count for nothing.
+ */
+export function holdReceipts(
+  services: CliServices,
+  seen: RpcParams<"sessions.markSeen">["seen"],
+): { taken(): void; failed(): void } {
+  const revisions = services.sessionsRevision;
+  if (!revisions) return { taken() {}, failed() {} };
+  const byTab = liveReceipts(revisions);
+  const held = seen.map(({ workspaceId, tabId, upTo }) => {
+    const receipt: Receipt = { upTo, requestedAt: performance.now(), takenAt: Infinity };
+    const key = receiptKey(workspaceId, tabId);
+    byTab.set(key, [...(byTab.get(key) ?? []), receipt]);
+    return { key, receipt };
+  });
+  return {
+    taken() {
+      const now = performance.now();
+      for (const { receipt } of held) receipt.takenAt = now;
+    },
+    failed() {
+      for (const { key, receipt } of held) {
+        const rest = (byTab.get(key) ?? []).filter((r) => r !== receipt);
+        if (rest.length > 0) byTab.set(key, rest);
+        else byTab.delete(key);
+      }
+    },
+  };
+}
+
+/**
+ * Whether a receipt covers a tab's unread result at `since` in a map read
+ * at `readAt`: one read once the renderer had taken it tells for itself.
+ */
+function receiptCovers(
+  byTab: ReadonlyMap<string, readonly Receipt[]> | undefined,
+  workspaceId: string,
+  tabId: string,
+  since: number,
+  readAt: number,
+): boolean {
+  return (
+    byTab
+      ?.get(receiptKey(workspaceId, tabId))
+      ?.some((r) => since <= r.upTo && readAt <= r.takenAt) ?? false
+  );
 }
 
 /**
@@ -118,6 +217,8 @@ export const SESSIONS_REREAD_MS = 10_000;
 interface RendererRead {
   readonly tabs: readonly (readonly CliSessionTab[] | undefined)[];
   readonly unread: UnreadResults | undefined;
+  /** When the read of `unread` started. */
+  readonly unreadAt: number;
 }
 
 type SessionsSnapshot = CliUiOps["sessions.snapshot"]["result"];
@@ -166,9 +267,11 @@ async function readRenderer(
   const snapshot = await budget
     .ui("sessions.snapshot", { workspaceIds }, budget.remaining())
     .catch(() => undefined);
+  const { unread, readAt } = unreadResults(services, startedAt, snapshot?.unread);
   const read: RendererRead = {
     tabs: workspaceIds.map((_, index) => snapshot?.workspaces[index]?.tabs),
-    unread: unreadResults(services, startedAt, snapshot?.unread),
+    unread,
+    unreadAt: readAt,
   };
   if (revisions && snapshot && Number.isSafeInteger(snapshot.revision)) {
     revisions.saw(snapshot.revision);
@@ -349,6 +452,7 @@ export async function snapshotSessions(
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
   const unread = read.unread;
+  const taken = services.sessionsRevision && liveReceipts(services.sessionsRevision);
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
@@ -362,7 +466,8 @@ export async function snapshotSessions(
           !row.limitWait &&
           !row.waiting &&
           since !== undefined &&
-          Number.isFinite(since)
+          Number.isFinite(since) &&
+          !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
         )
           return { ...row, state: "new-result", since };
         return row.state === "new-result" ? { ...row, state: "idle" } : row;

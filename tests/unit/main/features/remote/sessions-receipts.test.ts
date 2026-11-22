@@ -1,0 +1,202 @@
+/**
+ * A read receipt another device sends (sessions.markSeen) leaves its result
+ * read in every list made after it comes, even one from an unread map read
+ * before the renderer took it.
+ */
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
+import type { CliServices, SessionsRevision } from "../../../../../src/main/features/cli/context";
+import { serveWith } from "../../../../../src/main/features/remote/serve";
+import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
+
+type Unread = Record<string, Record<string, number>>;
+
+function host() {
+  let revision = 10;
+  let latest: number | undefined;
+  const revisions: SessionsRevision = {
+    latest: () => latest,
+    saw: (seen) => {
+      if (latest === undefined || seen > latest) latest = seen;
+    },
+  };
+  /** The renderer's unread map now; markSeen takes what it covers out. */
+  let unread: Unread | undefined = { w1: { t1: 50, t2: 70 } };
+  let snapshotGate: Promise<void> | undefined;
+  let markSeenGate: Promise<void> | undefined;
+  let markSeenFails = false;
+  let reads = 0;
+  const services = {
+    listWorkspaces: () => [{ id: "w1", name: "w1", rootPath: "/w1" }],
+    claudeStatus: () => null,
+    activity: () => null,
+    claudeAsks: () => [],
+    claudeAgents: { list: () => [] },
+    consents: { list: () => [] },
+    sessionsRevision: revisions,
+    ui: async (
+      op: string,
+      args: { seen?: { workspaceId: string; tabId: string; upTo: number }[] },
+    ) => {
+      if (op === "sessions.snapshot") {
+        reads++;
+        // What the renderer has when it takes the request, sent once the test lets it.
+        const at = revision;
+        const map = unread && structuredClone(unread);
+        await snapshotGate;
+        return {
+          revision: at,
+          workspaces: [
+            {
+              tabs: ["t1", "t2"].map((id) => ({
+                id,
+                type: "claude",
+                title: id,
+                chat: { state: "idle", since: 1 },
+              })),
+            },
+          ],
+          ...(map ? { unread: map } : {}),
+        };
+      }
+      if (op === "sessions.markSeen") {
+        await markSeenGate;
+        if (markSeenFails) throw new Error("the window did not answer");
+        let marked = 0;
+        for (const { workspaceId, tabId, upTo } of args.seen ?? []) {
+          const since = unread?.[workspaceId]?.[tabId];
+          if (since === undefined || since > upTo) continue;
+          delete unread?.[workspaceId]?.[tabId];
+          marked++;
+        }
+        // The renderer counts the change; main hears of it a little later.
+        revision++;
+        return { marked };
+      }
+      throw new Error(`unexpected ${op}`);
+    },
+  } as unknown as CliServices;
+  const serve = serveWith(() => services);
+  return {
+    services,
+    reads: () => reads,
+    markSeen: (tabId: string, upTo: number) =>
+      serve({
+        from: "phone",
+        method: "sessions.markSeen",
+        params: { seen: [{ workspaceId: "w1", tabId, upTo }] },
+      }),
+    /** The renderer's sessionsChanged reaches main. */
+    told: () => revisions.saw(revision),
+    holdSnapshot() {
+      const gate = Promise.withResolvers<void>();
+      snapshotGate = gate.promise;
+      return () => {
+        snapshotGate = undefined;
+        gate.resolve();
+      };
+    },
+    holdMarkSeen() {
+      const gate = Promise.withResolvers<void>();
+      markSeenGate = gate.promise;
+      return () => {
+        markSeenGate = undefined;
+        gate.resolve();
+      };
+    },
+    failMarkSeen: () => {
+      markSeenFails = true;
+    },
+    /** The renderer's unread map now, as when a result came back or was not taken. */
+    setUnread: (next: Unread | undefined) => {
+      unread = next;
+    },
+  };
+}
+
+const states = async (services: CliServices) =>
+  Object.fromEntries(
+    (await snapshotSessions(services, undefined)).list.sessions.map((row) => [
+      row.tabId,
+      row.state,
+    ]),
+  );
+
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
+
+test("a list read before a receipt and made after it leaves the result read", async () => {
+  const app = host();
+  const release = app.holdSnapshot();
+  const list = states(app.services);
+  // The phone marks t1 read while the renderer's answer, from before, is on its way.
+  expect(await app.markSeen("t1", 50)).toEqual({ marked: 1 });
+  release();
+  expect(await list).toEqual({ t1: "idle", t2: "new-result" });
+});
+
+test("a list made while the renderer takes a receipt leaves the result read", async () => {
+  const app = host();
+  const release = app.holdMarkSeen();
+  const marking = app.markSeen("t1", 50);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  release();
+  await marking;
+});
+
+test("a reused read leaves the result read before the renderer tells of the change", async () => {
+  const app = host();
+  expect(await states(app.services)).toEqual({ t1: "new-result", t2: "new-result" });
+  await app.markSeen("t1", 50);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  expect(app.reads()).toBe(1);
+  app.told();
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  expect(app.reads()).toBe(2);
+});
+
+test("the unread map kept when a read fails leaves the result read", async () => {
+  const app = host();
+  await states(app.services);
+  await app.markSeen("t1", 50);
+  app.told();
+  app.setUnread(undefined);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  expect(app.reads()).toBe(2);
+});
+
+test("a receipt covers only up to its time, and a map read after the renderer took it", async () => {
+  const app = host();
+  const release = app.holdSnapshot();
+  const list = states(app.services);
+  await app.markSeen("t1", 49);
+  release();
+  expect(await list).toEqual({ t1: "new-result", t2: "new-result" });
+  // The renderer took it and still lists the result (as one at upTo it did not mark).
+  await app.markSeen("t2", 70);
+  jest.advanceTimersByTime(1);
+  app.told();
+  app.setUnread({ w1: { t2: 70 } });
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+});
+
+test("a receipt the renderer did not take leaves the result as it is", async () => {
+  const app = host();
+  const release = app.holdSnapshot();
+  const list = states(app.services);
+  app.failMarkSeen();
+  await expect(app.markSeen("t1", 50)).rejects.toThrow();
+  release();
+  expect(await list).toEqual({ t1: "new-result", t2: "new-result" });
+});
+
+test("a receipt counts for a while only", async () => {
+  const app = host();
+  await states(app.services);
+  await app.markSeen("t1", 50);
+  app.told();
+  app.setUnread(undefined);
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
+  jest.advanceTimersByTime(30_000);
+  // The kept map is gone too: the rows read as their chats tell.
+  expect(await states(app.services)).toEqual({ t1: "idle", t2: "idle" });
+});
