@@ -270,7 +270,7 @@ export function App() {
               toggle hides them: switching views reveals them, folds and
               scroll as they were, instead of building them again. */}
           <KeptMounted shown={!sidebarHidden && agentView}>
-            <AgentSidebar />
+            <AgentSidebar shown={!sidebarHidden && agentView} />
           </KeptMounted>
           <KeptMounted shown={!sidebarHidden && !agentView}>
             <Sidebar

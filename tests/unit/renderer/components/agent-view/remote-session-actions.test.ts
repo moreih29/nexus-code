@@ -211,6 +211,11 @@ describe("closing another computer's session", () => {
 
   test("a terminal running a program asks again, naming it, then closes it anyway", async () => {
     useRemoteViewStore.getState().open(terminal);
+    const view = useAgentViewStore.getState();
+    const account = "terminal-account";
+    view.setPeerOrderAccount(account);
+    view.updateRemoteSeen(account, new Map([[remoteSessionKey(terminal), { at: 10 }]]));
+    expect(useAgentViewStore.getState().remoteSeen?.entries.size).toBe(1);
     answers.peerTerminalClose = [running];
     expect(await closePeerSession(terminal)).toBe(true);
     expect(confirms.map((c) => c.title)).toEqual([
@@ -223,6 +228,7 @@ describe("closing another computer's session", () => {
       { deviceId: "d2", workspaceId: "w1", tabId: "t1", force: true },
     ]);
     expect(held()).toEqual([]);
+    expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
   });
 
   test("told no the second time, the terminal stays, and nothing is forced", async () => {

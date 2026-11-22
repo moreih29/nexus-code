@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:tes
 import { remoteFileKey } from "../../../../../src/shared/fs/remote-file-key";
 import { type IpcResult, ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
-import { AgentViewSnapshotSchema } from "../../../../../src/shared/types/agent-view";
+import {
+  AgentViewSnapshotSchema,
+  MAX_REMOTE_SEEN,
+} from "../../../../../src/shared/types/agent-view";
 
 const stored: unknown[] = [];
 let accountReply: Promise<IpcResult<RemoteAccountState>> | undefined;
@@ -293,26 +296,85 @@ describe("agent view store", () => {
     expect(useAgentViewStore.getState().grouping).toBe("status");
   });
 
+  it("persists the most recently marked remote results and restores them by account", async () => {
+    const view = useAgentViewStore.getState();
+    view.hydrate(undefined, () => true);
+    const key = (i: number) =>
+      remoteSessionKey({ deviceId: "mac", workspaceId: "w", tabId: `t${i}` });
+    const all = new Map(
+      Array.from({ length: MAX_REMOTE_SEEN }, (_, i) => [key(i), { at: i }] as const),
+    );
+    view.updateRemoteSeen(PEER_ORDER_ACCOUNT, all);
+    view.updateRemoteSeen(
+      PEER_ORDER_ACCOUNT,
+      new Map([
+        [key(0), { at: 500 }],
+        [key(500), { at: 501 }],
+      ]),
+    );
+    await flushAgentViewPersistence();
+    const snapshot = AgentViewSnapshotSchema.parse(
+      (stored.at(-1) as { agentView: unknown }).agentView,
+    );
+    __resetAgentViewForTests();
+    view.hydrate(snapshot, () => true);
+    const seen = useAgentViewStore.getState().remoteSeen;
+    expect(seen?.accountKey).toBe(PEER_ORDER_ACCOUNT);
+    expect(seen?.entries.size).toBe(MAX_REMOTE_SEEN);
+    expect(seen?.entries.has(key(1))).toBe(false);
+    expect(seen?.entries.get(key(0))).toEqual({ at: 500 });
+    expect(seen?.entries.get(key(500))).toEqual({ at: 501 });
+  });
+
   it("restores the folded groups, and stores them as they change; a second fold opens one again", async () => {
     const leaf = { kind: "leaf" as const, id: P1, tabIds: [], activeTabId: null };
     useAgentViewStore
       .getState()
       .hydrate(
-        { mode: "agents", root: leaf, activeLeafId: P1, folded: ["status:ended"] },
+        { mode: "agents", root: leaf, activeLeafId: P1, folded: ["status:ended", "peer:d2"] },
         () => true,
       );
-    expect([...useAgentViewStore.getState().folded]).toEqual(["status:ended"]);
+    expect([...useAgentViewStore.getState().folded]).toEqual(["status:ended", "peer:d2"]);
 
     useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    useAgentViewStore.getState().toggleFolded("peer-ws:d2:ws-a");
     await settle();
     expect((stored[0] as { agentView: { folded: unknown } }).agentView.folded).toEqual([
       "status:ended",
+      "peer:d2",
       "workspace:ws-a",
+      "peer-ws:d2:ws-a",
     ]);
 
     useAgentViewStore.getState().toggleFolded("status:ended");
+    useAgentViewStore.getState().toggleFolded("peer:d2");
     useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    useAgentViewStore.getState().toggleFolded("peer-ws:d2:ws-a");
     await settle();
     expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.folded");
+  });
+
+  it("keeps valid saved folds and gives recent peer folds the remaining slots", async () => {
+    const leaf = { kind: "leaf", id: P1, tabIds: [], activeTabId: null };
+    const keys = Array.from({ length: 260 }, (_, i) =>
+      i % 2 === 0 ? `peer:d${i}` : `peer-ws:d2:w${i}`,
+    );
+    const local = ["status:done", "workspace:local"];
+    const snapshot = AgentViewSnapshotSchema.parse({
+      mode: "agents",
+      root: leaf,
+      activeLeafId: P1,
+      folded: [...local, ...keys, `peer:${"x".repeat(201)}`, 7],
+    });
+    expect(snapshot.folded).toEqual([...local, ...keys.slice(-254)]);
+
+    const view = useAgentViewStore.getState();
+    view.hydrate(snapshot, () => true);
+    view.toggleFolded("peer-ws:d2:new");
+    await flushAgentViewPersistence();
+    const saved = AgentViewSnapshotSchema.parse(
+      (stored.at(-1) as { agentView: unknown }).agentView,
+    );
+    expect(saved.folded).toEqual([...local, ...keys.slice(-253), "peer-ws:d2:new"]);
   });
 });

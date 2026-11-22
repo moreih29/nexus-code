@@ -33,6 +33,8 @@ Schema 0.20.1 adds optional `status.phaseRevision` and `panel.limitResume.stopAt
 
 Schema 0.21.0 adds the `sessions.reorder` capability and RPC. Devices serve it alongside `sessions` for requests from people. Send `{ workspaceId, tabIds }` with up to 500 tab IDs. The host puts those tabs in the requested order in the slots they already occupy, skipping unknown and duplicate IDs, and returns `{}`. `sessions.list`, `sessions.watch` and `sessions.update` list each workspace's sessions in its agent sidebar order, followed by any remaining sessions in tab order.
 
+Schema 0.22.0 adds optional `failed: true` to session listings when the last turn ended in error. The session's `state` stays compatible with older readers.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.

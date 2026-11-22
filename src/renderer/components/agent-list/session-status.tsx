@@ -16,6 +16,7 @@ import {
   MessageCircleQuestion,
   TriangleAlert,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
@@ -133,6 +134,25 @@ export function useDurationLabel(since: number | undefined): string | null {
   const now = useSharedClock(durationClock);
   // A state that began after the last tick has lasted no time yet.
   return durationLabel(since, Math.max(now, since ?? 0));
+}
+
+/** A turn that ended with an error, shown beside its time. */
+export function FailureLabel() {
+  const { t } = useTranslation();
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap text-(--state-error-fg)">
+      {t("agentView.list.failed")}
+    </span>
+  );
+}
+
+export function HiddenSessionCount({ count }: { count: number }) {
+  const { t } = useTranslation();
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap tabular-nums text-muted-foreground">
+      {t("agentView.list.hidden", { count })}
+    </span>
+  );
 }
 
 /** The agent's name in a small monospace badge. */

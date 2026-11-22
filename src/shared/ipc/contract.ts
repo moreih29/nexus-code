@@ -2710,6 +2710,13 @@ const remoteContracts = {
         RPC_METHODS["sessions.reorder"].params.extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.reorder"].result,
       ),
+      /** A page of another device's session state changes. */
+      peerSessionEvents: call(
+        RPC_METHODS["events.read"].params
+          .pick({ since: true, limit: true })
+          .extend({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["events.read"].result,
+      ),
       /** A chat of another device's: its last items, or those before `before`. */
       peerChat: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),

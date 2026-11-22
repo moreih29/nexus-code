@@ -24,6 +24,7 @@ import {
   PushRegistrationSchema,
   PushSendResultSchema,
   PushSendSchema,
+  RemoteSessionSchema,
   RPC_METHODS,
   RpcIdSchema,
   RpcResponseSchema,
@@ -431,6 +432,17 @@ describe("the methods", () => {
         recording: { ...recording, recordedMs: -1 },
       }).success,
     ).toBe(false);
+  });
+
+  test("a failed session round-trips and readers on either schema keep its state", () => {
+    const before = { workspaceId: "w", tabId: "t", kind: "codex", title: "Review", state: "idle" };
+    const failed = { ...before, failed: true };
+    const result = RPC_METHODS["sessions.list"].result;
+    const wire = JSON.parse(JSON.stringify(result.parse({ workspaces: [], sessions: [failed] })));
+    expect(result.parse(wire).sessions).toEqual([failed]);
+    expect(RemoteSessionSchema.omit({ failed: true }).parse(wire.sessions[0])).toEqual(before);
+    expect(result.parse({ workspaces: [], sessions: [before] }).sessions).toEqual([before]);
+    expect(RemoteSessionSchema.safeParse({ ...before, failed: false }).success).toBe(false);
   });
 
   test("files.read gives a file's bytes piece by piece, at most a chunk at once", () => {

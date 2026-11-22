@@ -91,6 +91,33 @@ export const EndedAgentSnapshotSchema = z.object({
 });
 export type EndedAgentSnapshot = z.infer<typeof EndedAgentSnapshotSchema>;
 
+export const MAX_REMOTE_SEEN = 500;
+const RemoteSeenResultSchema = z.object({
+  at: z.number(),
+  undated: z.literal(true).optional(),
+  /** The quiet chat's listing timestamp when its open pane saw it. */
+  listedAt: z.number().nullable().optional(),
+});
+export type RemoteSeenResult = z.infer<typeof RemoteSeenResultSchema>;
+
+const MAX_FOLDS = 256;
+const MAX_FOLD_KEY_LENGTH = 200;
+
+/** Keep local folds and the latest peer folds, in the order they were stored. */
+export function normalizeAgentViewFolds(values: Iterable<unknown>): string[] {
+  const keys = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== "string" || value.length > MAX_FOLD_KEY_LENGTH) continue;
+    keys.delete(value);
+    keys.add(value);
+  }
+  for (const key of keys) {
+    if (keys.size <= MAX_FOLDS) break;
+    if (key.startsWith("peer:") || key.startsWith("peer-ws:")) keys.delete(key);
+  }
+  return [...keys].slice(-MAX_FOLDS);
+}
+
 export const AgentViewSnapshotSchema = z.object({
   mode: AgentViewModeSchema,
   root: AgentViewNodeSchema,
@@ -109,8 +136,16 @@ export const AgentViewSnapshotSchema = z.object({
   // How the list groups its agents: by their state, or by their workspace.
   // Absent, or one this version lacks = by state.
   grouping: z.string().max(32).optional().catch(undefined),
-  // The list's groups the user folded: "status:<group>" or
-  // "workspace:<workspace id>". Absent = every group open.
-  folded: z.array(z.string().max(200)).max(256).optional().catch(undefined),
+  // The list's folded groups, keyed by status, workspace, peer or peer-ws.
+  folded: z.array(z.unknown()).transform(normalizeAgentViewFolds).optional().catch(undefined),
+  remoteSeen: z
+    .object({
+      accountKey: z.string(),
+      entries: z
+        .array(z.tuple([z.string().startsWith("remote:").max(200), RemoteSeenResultSchema]))
+        .max(MAX_REMOTE_SEEN),
+    })
+    .optional()
+    .catch(undefined),
 });
 export type AgentViewSnapshot = z.infer<typeof AgentViewSnapshotSchema>;
