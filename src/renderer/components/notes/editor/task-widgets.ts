@@ -23,6 +23,29 @@ const checklists = new WeakMap<Element, ChecklistWidget>();
 const key = new PluginKey<DecorationSet>("noteTasks");
 const selector = "[data-note-task-widget]";
 let widgetId = 0;
+const listeners = new Set<() => void>();
+let notifying = false;
+
+/**
+ * ProseMirror can build a widget's DOM again without a transaction (a full
+ * redraw when node views or other props change, as when the editor is mounted).
+ * Listeners hear of new widget DOM once it is in the document.
+ */
+export function onWidgetsCreated(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function created() {
+  if (notifying) return;
+  notifying = true;
+  queueMicrotask(() => {
+    notifying = false;
+    for (const listener of listeners) listener();
+  });
+}
 
 export function taskWidgets(view: EditorView): TaskWidget[] {
   return Array.from(view.dom.querySelectorAll(selector)).flatMap((dom) => {
@@ -51,6 +74,7 @@ function decorations(doc: ProseMirrorNode, previous = DecorationSet.empty): Deco
               const dom = document.createElement("div");
               dom.dataset.noteChecklist = String(++widgetId);
               checklists.set(dom, { dom, listPos });
+              created();
               return dom;
             },
             { checklist: true, side: 1, stopEvent: () => true, ignoreSelection: true },
@@ -112,6 +136,7 @@ function decorations(doc: ProseMirrorNode, previous = DecorationSet.empty): Deco
               if ($at.depth >= 2 && $at.node(-1).type.name === "taskItem") return $at.before(-1);
             },
           });
+          created();
           return dom;
         },
         { attrs, side: 1, stopEvent: () => true, ignoreSelection: true },

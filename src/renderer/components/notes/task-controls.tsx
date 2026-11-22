@@ -35,7 +35,12 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
 import { ConversationChip, type NotePlace, useNoteConversations } from "./conversation-chips";
-import { checklistWidgets, type TaskWidget, taskWidgets } from "./editor/task-widgets";
+import {
+  checklistWidgets,
+  onWidgetsCreated,
+  type TaskWidget,
+  taskWidgets,
+} from "./editor/task-widgets";
 import { ConversationDestinations, useDestinations } from "./send-to-agent";
 import type { TranscriptJump } from "./transcript-rows";
 
@@ -100,8 +105,10 @@ export function NoteTaskControls({
     };
     sync();
     editor.on("transaction", sync);
+    const stop = onWidgetsCreated(sync);
     return () => {
       editor.off("transaction", sync);
+      stop();
     };
   }, [editor, canCreateTasks, failures]);
 
