@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const forbidden = [
   "services/fs-mutations",
@@ -12,7 +13,7 @@ const forbidden = [
 
 test("peer workspace components have no imports from local write paths", () => {
   const root = new URL("../../../../../src/renderer/components/peer-workspace/", import.meta.url);
-  const files = [...new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: root.pathname })];
+  const files = [...new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: fileURLToPath(root) })];
   expect(files.length).toBeGreaterThan(0);
   for (const file of files) {
     const source = readFileSync(new URL(file, root), "utf8");
