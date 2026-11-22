@@ -123,6 +123,7 @@ import {
 import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
+import { NoteLinkEntrySchema } from "../notes/links";
 import { TranscriptFileSchema } from "../notes/transcript";
 import {
   VoiceNameLearnArgsSchema,
@@ -185,6 +186,7 @@ import {
   NoteBlocksAddedSchema,
   NoteChangedSchema,
   NoteContentSchema,
+  NoteLinksChangedSchema,
   NotePhotoAddedSchema,
   NoteStorageEntrySchema,
   NoteSummarySchema,
@@ -654,6 +656,10 @@ const notesContracts = {
       list: call(NotesArgs.list, z.array(NoteSummarySchema)),
       create: call(NotesArgs.create, NoteContentSchema),
       read: call(NotesArgs.read, NoteContentSchema),
+      links: call(NotesArgs.links, z.array(NoteLinkEntrySchema)),
+      addLink: call(NotesArgs.addLink, NoteLinkEntrySchema),
+      updateLink: call(NotesArgs.updateLink, z.void()),
+      removeLink: call(NotesArgs.removeLink, z.void()),
       save: call(NotesArgs.save, NoteSummarySchema),
       /** Clears away the files the note's document no longer uses; what it cleared. */
       prune: call(NotesArgs.prune, z.array(z.string())),
@@ -695,6 +701,7 @@ const notesContracts = {
     },
     listen: {
       changed: listen(NoteChangedSchema),
+      linksChanged: listen(NoteLinksChangedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
       /** An agent put blocks into a note: an editor open on it does too. */

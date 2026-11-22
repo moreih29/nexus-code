@@ -4,6 +4,12 @@ import {
   NonnegativeNumberSchema,
   NumberSchema,
 } from "../../../packages/remote-protocol/src/validation";
+import {
+  NewNoteLinkSchema,
+  NoteLinkIdSchema,
+  NoteLinkPatchSchema,
+  NoteLinkTargetSchema,
+} from "../notes/links";
 import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptEditSchema } from "../notes/transcript";
 import { NOTE_ID_RE, SKETCH_ID_RE } from "../notes/types";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -82,6 +88,13 @@ export const NotesArgs = {
   list: z.object(ws),
   create: z.object({ ...ws, title: z.string().max(500).optional() }),
   read: z.object(note),
+  links: z.object(note),
+  addLink: z.object({ ...note, link: NewNoteLinkSchema }),
+  updateLink: z.union([
+    z.object({ ...note, linkId: NoteLinkIdSchema, patch: NoteLinkPatchSchema }),
+    z.object({ tab: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }) }),
+  ]),
+  removeLink: z.object({ ...note, linkId: NoteLinkIdSchema }),
   save: z.object({ ...note, title: z.string().max(500).optional(), doc: NoteDocSchema.optional() }),
   remove: z.object(note),
   prune: z.object(note),
@@ -163,6 +176,9 @@ export const NoteChangedSchema = z.object({
   change: z.enum(["created", "saved", "removed"]),
 });
 export type NoteChanged = z.infer<typeof NoteChangedSchema>;
+
+export const NoteLinksChangedSchema = z.object({ locationKey: z.string(), noteId: NoteIdSchema });
+export type NoteLinksChanged = z.infer<typeof NoteLinksChangedSchema>;
 
 /** A photo another device put into a note (notes.attach), for the windows that have it open. */
 export const NotePhotoAddedSchema = z.object({
