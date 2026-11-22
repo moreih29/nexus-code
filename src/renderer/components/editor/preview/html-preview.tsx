@@ -85,6 +85,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { PANE_FRAME_FOCUS_EVENT } from "@/utils/pane-activation";
 import { isWithinWorkspace, relPath } from "@/utils/path";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
 import { ipcCallResult } from "../../../ipc/client";
@@ -143,6 +144,11 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 </style>
 <script>
 (function () {
+  // Moving between previews can leave the parent window blurred throughout.
+  window.addEventListener('focus', function () {
+    parent.postMessage({ nexusHtmlPreview: 'focus' }, '*');
+  });
+
   // The page's own window.open asks the host too, as its links do: the
   // sandbox lets it open nothing itself.
   try {
@@ -439,8 +445,7 @@ export function HtmlPreview({
     ),
   );
 
-  // Scroll reports from the preamble. Only messages whose source is OUR
-  // iframe's window are accepted; the payload is reduced to two numbers.
+  // Only accept messages from this preview's iframe.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const el = iframeRef.current;
@@ -457,6 +462,9 @@ export function HtmlPreview({
         href?: unknown;
       };
       switch (msg.nexusHtmlPreview) {
+        case "focus":
+          el.dispatchEvent(new Event(PANE_FRAME_FOCUS_EVENT, { bubbles: true }));
+          return;
         case "find": {
           const total = Number(msg.total);
           const current = Number(msg.current);
