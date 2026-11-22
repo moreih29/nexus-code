@@ -4,8 +4,7 @@
 // over standalone glyphs (e.g. Code, Globe, Palette) because they share
 // a common file-outline silhouette — the inner glyph hints type while
 // the outer shape stays consistent across the tree, which keeps the
-// dense list visually quiet (matches the "restraint through warmth"
-// principle in .nexus/context/design.md).
+// dense list visually quiet.
 //
 // Color and stroke are applied at the call site (file-tree-row) so this
 // module stays a pure mapping table.
