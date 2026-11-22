@@ -394,16 +394,23 @@ function PeerTextBody({
     return <EmptyState title={message} tone="status" className="h-full" />;
   }
   if (read.truncated) {
+    let outsidePreview = false;
+    if (at?.line !== undefined) {
+      const lines = read.text.split(/\r\n?|\n/);
+      outsidePreview = at.line > lines.length || (at.line === lines.length && lines.at(-1) === "");
+    }
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div
           role="status"
           className="shrink-0 border-b border-border px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
         >
-          {t("peerWorkspace.textPrefix", { size: MAX_READ_BYTES / 1024 })}
+          {outsidePreview
+            ? t("peerWorkspace.textPrefixOutsideLine")
+            : t("peerWorkspace.textPrefix", { size: MAX_READ_BYTES / 1024 })}
         </div>
         <div className="min-h-0 flex-1">
-          <PeerSource path={path} text={read.text} at={at} />
+          <PeerSource path={path} text={read.text} at={outsidePreview ? undefined : at} />
         </div>
       </div>
     );

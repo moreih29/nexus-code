@@ -34,6 +34,7 @@ import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
+import { PEER_READ_METHODS, peerReadCalls } from "./peer-read-calls";
 import { PhonePush, type PhonePushActivity } from "./phone-push";
 import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
@@ -224,7 +225,7 @@ export async function registerRemoteChannel(options: {
     return room;
   };
   const peerFiles = new PeerFileReads((deviceId, params, signal) =>
-    inRoom().request(deviceId, "files.read", params, undefined, signal),
+    inRoom().request(deviceId, PEER_READ_METHODS.peerFilesRead, params, undefined, signal),
   );
   // The chats other devices watch here, told through the room.
   const watches = new ChatWatches({
@@ -736,14 +737,7 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatImage.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.image", params));
       },
-      peerFilesList: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerFilesList.args, args);
-        return askPeer(() => inRoom().request(deviceId, "files.list", params));
-      },
-      peerFilesFind: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerFilesFind.args, args);
-        return askPeer(() => inRoom().request(deviceId, "files.find", params));
-      },
+      ...peerReadCalls(inRoom, askPeer),
       peerFilesRead: (args: unknown, ctx?: CallContext) => {
         const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(
           c.peerFilesRead.args,
@@ -774,10 +768,6 @@ export async function registerRemoteChannel(options: {
             ctx?.signal,
           ),
         );
-      },
-      peerGitDiff: (args: unknown) => {
-        const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
-        return askPeer(() => inRoom().request(deviceId, "git.diff", params));
       },
       peerHistory: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerHistory.args, args);

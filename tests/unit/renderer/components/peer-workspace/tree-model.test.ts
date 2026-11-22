@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
 import {
   loadPeerFolder,
-  peerPathKey,
-  peerRelativePath,
   peerTreeRows,
 } from "../../../../../src/renderer/components/peer-workspace/tree-model";
+import { peerPathKey, peerRelativePath } from "../../../../../src/renderer/utils/peer-path";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
 test("truncated directories and symlinks remain visible without expanding links", async () => {

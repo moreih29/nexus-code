@@ -13,6 +13,8 @@ export interface CommandPaletteFrameProps<TItem extends PaletteItem> {
   dimmed?: boolean;
   emptyQueryMessage: string;
   noResultsMessage: string;
+  errorMessage?: string;
+  maxQueryLength?: number;
   onQueryChange?: (query: string) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   /**
@@ -40,6 +42,8 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   dimmed = false,
   emptyQueryMessage,
   noResultsMessage,
+  errorMessage,
+  maxQueryLength,
   onQueryChange,
   onKeyDown,
   onOverlayClick,
@@ -90,6 +94,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
             ref={inputRef}
             id={inputId}
             value={query}
+            maxLength={maxQueryLength}
             onChange={(event) => onQueryChange?.(event.target.value)}
             role="combobox"
             aria-expanded="true"
@@ -175,6 +180,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
               query={query}
               emptyQueryMessage={emptyQueryMessage}
               noResultsMessage={noResultsMessage}
+              errorMessage={errorMessage}
             />
           )}
         </div>
@@ -193,11 +199,13 @@ function PaletteStatusMessage({
   query,
   emptyQueryMessage,
   noResultsMessage,
+  errorMessage,
 }: {
   status: Exclude<PaletteViewStatus, "closed" | "results">;
   query: string;
   emptyQueryMessage: string;
   noResultsMessage: string;
+  errorMessage?: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const message = (() => {
@@ -213,7 +221,7 @@ function PaletteStatusMessage({
       case "empty":
         return noResultsMessage;
       case "error":
-        return t("palette.search_failed");
+        return errorMessage ?? t("palette.search_failed");
     }
   })();
 

@@ -10,6 +10,7 @@ import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { PeerFilesPanel } from "./components/peer-workspace/files-panel";
 import { PeerWorkspacePanel } from "./components/peer-workspace/panel";
+import { PeerQuickOpen } from "./components/peer-workspace/quick-open";
 import { usePeerWorkbench } from "./components/peer-workspace/room";
 import { PeerWorkspaceSection } from "./components/peer-workspace/sidebar";
 import { PeerWorkspaceTitle } from "./components/peer-workspace/title";
@@ -259,6 +260,16 @@ export function App() {
           }
         />
         <GlobalRoots />
+        {activePeer && !agentView && (
+          <PeerQuickOpen
+            key={peerTargetId(activePeer)}
+            target={activePeer}
+            reach={peers.reach}
+            canRead={peers.reachable && peers.filesSupported}
+            missing={peers.missing}
+            updateNeeded={peerNeedsUpdate}
+          />
+        )}
         <AddWorkspaceDialog
           open={addWorkspaceOpen}
           onClose={handleCloseAddWorkspace}
@@ -325,6 +336,7 @@ export function App() {
               peerPanel={
                 activePeer ? (
                   <PeerFilesPanel
+                    key={JSON.stringify([peerTargetId(activePeer), activePeer.workspace.path])}
                     target={activePeer}
                     missing={peers.missing}
                     canRead={

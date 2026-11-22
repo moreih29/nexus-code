@@ -9,6 +9,11 @@ import type { TFunction } from "i18next";
  */
 const AGENT_PATTERN_LEAD = /^Invalid search pattern "(?:[^"\\]|\\.)*": (?:error parsing regexp: )?/;
 
+export function unsupportedSearchPatternReason(message: string): string | undefined {
+  const lead = AGENT_PATTERN_LEAD.exec(message);
+  return lead ? message.slice(lead[0].length) : undefined;
+}
+
 /**
  * Text for a failed search: a localized line for a pattern the agent cannot
  * use, keeping the engine's reason, and the generic failure line when there
@@ -16,7 +21,7 @@ const AGENT_PATTERN_LEAD = /^Invalid search pattern "(?:[^"\\]|\\.)*": (?:error 
  */
 export function searchErrorText(message: string | undefined, t: TFunction): string {
   if (!message) return t("search.state.error");
-  const lead = AGENT_PATTERN_LEAD.exec(message);
-  if (lead) return t("search.unsupportedRegex", { error: message.slice(lead[0].length) });
+  const reason = unsupportedSearchPatternReason(message);
+  if (reason !== undefined) return t("search.unsupportedRegex", { error: reason });
   return message;
 }

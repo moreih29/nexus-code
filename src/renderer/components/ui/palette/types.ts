@@ -30,6 +30,9 @@ export interface PaletteSource<TItem extends PaletteItem = PaletteItem> {
   placeholder: string;
   emptyQueryMessage: string;
   noResultsMessage: string;
+  maxQueryLength?: number;
+  /** A source can supply a localized error for a known failure. */
+  errorMessage?: (error: unknown) => string | undefined;
   /**
    * When true, the controller invokes `search` for empty queries — including
    * the initial open — instead of short-circuiting to `idle`. The empty-query

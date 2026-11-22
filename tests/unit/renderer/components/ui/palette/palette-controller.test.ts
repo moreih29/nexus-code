@@ -248,6 +248,28 @@ describe("flush()", () => {
     expect(result.items[0]?.id).toBe("main");
   });
 
+  it("still awaits the current query if an aborted search settles first", async () => {
+    const scheduler = new FakeScheduler();
+    const earlier = Promise.withResolvers<PaletteItem[]>();
+    const later = Promise.withResolvers<PaletteItem[]>();
+    const controller = new PaletteSearchController(
+      source((query) => (query === "before" ? earlier.promise : later.promise)),
+      () => {},
+      scheduler,
+    );
+
+    controller.setQuery("before");
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    controller.setQuery("after");
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    earlier.resolve([item("before")]);
+    await flushMicrotasks();
+
+    const accepted = controller.flush();
+    later.resolve([item("after")]);
+    expect((await accepted).items).toEqual([item("after")]);
+  });
+
   it("returns the current lastSnapshot if neither debounce nor in-flight is active", async () => {
     const scheduler = new FakeScheduler();
     const search = mock(async () => [item("Alpha")]);

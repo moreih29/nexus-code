@@ -1,7 +1,6 @@
-import { isDrivePath, toNativeDrivePath, toSlashPath } from "../../../shared/fs/drive-path";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { PeerFolder } from "../../state/stores/peer-workspace";
-import { workspacePathParts } from "../../utils/path";
+import { joinPeerPath, peerPathKey } from "../../utils/peer-path";
 
 export type PeerFolderError =
   | "missingWorkspace"
@@ -21,23 +20,6 @@ export function peerFolderError(kind: string, message: string): PeerFolderError 
     default:
       return "connectionUnavailable";
   }
-}
-
-export function peerPathKey(path: string): string {
-  return isDrivePath(path)
-    ? toSlashPath(path).replace(/\/+$/, "").toLowerCase()
-    : path.replace(/\/+$/, "") || "/";
-}
-
-export function peerRelativePath(path: string, root: string): string {
-  if (peerPathKey(path) === peerPathKey(root)) return ".";
-  const { directory, fileName } = workspacePathParts(path, root);
-  return directory + fileName;
-}
-
-function peerChildPath(folder: string, name: string): string {
-  if (isDrivePath(folder)) return `${toNativeDrivePath(folder).replace(/\\+$/, "")}\\${name}`;
-  return `${folder.replace(/\/+$/, "")}/${name}`;
 }
 
 export async function loadPeerFolder(
@@ -99,7 +81,7 @@ export function peerTreeRows({
     if (status) rows.push({ kind: status, key: `${status}:${key}`, folder: key, depth: depth + 1 });
     if (!folder) return;
     for (const child of folder.entries) {
-      const path = peerChildPath(folder.path, child.name);
+      const path = joinPeerPath(folder.path, child.name);
       visit({
         kind: "entry",
         path,

@@ -6,6 +6,7 @@ import type { PeerReach } from "../../services/remote/room";
 import { returnFromPeerWorkspace } from "../../state/operations/workspace-selection";
 import {
   EMPTY_PEER_VIEW,
+  type PeerFileTab,
   type PeerWorkspaceTarget,
   peerTargetId,
   usePeerWorkspaceStore,
@@ -114,12 +115,13 @@ export function PeerWorkspacePanel({
                     })}
                   </Tabs.List>
                 </div>
-                {view.tabs.map(({ path }) => (
+                {view.tabs.map(({ path, at }) => (
                   <PeerFileTabBody
                     key={path}
                     id={id}
                     path={path}
                     root={root}
+                    at={at}
                     selected={path === view.activePath}
                     canRead={shown && reachable}
                     rejoin={rejoin}
@@ -151,6 +153,7 @@ function PeerFileTabBody({
   id,
   path,
   root,
+  at,
   selected,
   canRead,
   rejoin,
@@ -158,6 +161,7 @@ function PeerFileTabBody({
   id: string;
   path: string;
   root: string;
+  at?: PeerFileTab["at"];
   selected: boolean;
   canRead: boolean;
   rejoin: number;
@@ -165,7 +169,12 @@ function PeerFileTabBody({
   const show = selected && canRead;
   const [loaded, setLoaded] = useState(show);
   if (show && !loaded) setLoaded(true);
-  const view = useFileLookView(path, {});
+  const view = useFileLookView(path, { at });
+  const [lastLocation, setLastLocation] = useState(at);
+  if (at !== lastLocation) {
+    setLastLocation(at);
+    if (at) view.setMode("raw");
+  }
   const { directory, fileName } = workspacePathParts(path, root);
   return (
     <Tabs.Content
@@ -178,6 +187,7 @@ function PeerFileTabBody({
           workspaceId={id}
           path={path}
           root={root}
+          at={at}
           view={view}
           peerFile={{
             watch: show,

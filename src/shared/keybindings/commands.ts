@@ -70,6 +70,7 @@ export const COMMANDS = {
 
   // Workspace navigation
   workspaceSymbolSearch: "workspace.symbolSearch",
+  peerWorkspaceQuickOpen: "workspace.peerQuickOpen",
   // Cycle the active workspace one slot up/down in the sidebar order
   // (pinned rows float above unpinned; wrap-around at both ends).
   workspaceFocusPrev: "workspace.focusPrev",

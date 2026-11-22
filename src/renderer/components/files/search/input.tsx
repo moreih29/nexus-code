@@ -15,6 +15,7 @@ import { SearchOptionsToggles } from "./options-toggles";
 interface SearchInputProps {
   inputRef: React.RefObject<HTMLInputElement | null>;
   value: string;
+  maxLength?: number;
   options: SearchOptions;
   regexError: string | null;
   onChange: (value: string) => void;
@@ -37,6 +38,7 @@ interface SearchInputProps {
 export function SearchInput({
   inputRef,
   value,
+  maxLength,
   options,
   regexError,
   onChange,
@@ -81,6 +83,7 @@ export function SearchInput({
             type="search"
             placeholder={t("search.placeholder")}
             value={value}
+            maxLength={maxLength}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             className="flex-1 min-w-0 bg-transparent px-2 py-1 text-app-body outline-none placeholder:text-muted-foreground"

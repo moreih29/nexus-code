@@ -2076,6 +2076,16 @@
     "connectionUnavailable": "그 컴퓨터에서 연결 안 됨",
     "truncated": "{{count, number}}개까지만",
     "textPrefix": "일부만 · 앞 {{size}} KB",
-    "changes_one": "변경 {{count}}"
+    "textPrefixOutsideLine": "일부만 · 이 줄은 범위 밖",
+    "changes_one": "변경 {{count}}",
+    "searchFilters": "검색 필터",
+    "searchInclude": "포함할 파일 이름 또는 확장자",
+    "searchExclude": "제외할 파일 이름, 확장자 또는 폴더",
+    "searchInvalidFilters": "잘못된 필터 · 쉼표로 구분, 최대 32개, 항목당 256자",
+    "searchTruncated": "일부 결과",
+    "quickOpen": "다른 컴퓨터 파일 빠른 열기",
+    "quickOpenPlaceholder": "파일 이름 또는 경로",
+    "quickOpenPrompt": "그 컴퓨터의 파일 이름 또는 경로",
+    "quickOpenEmpty": "일치하는 파일 없음"
   }
 }
