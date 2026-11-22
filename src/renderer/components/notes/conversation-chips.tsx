@@ -29,6 +29,7 @@ import {
   readConversationHistory,
 } from "../../services/notes/conversation-history";
 import { loadedAnswerOf } from "../../services/notes/live-answer";
+import { noteTime } from "../../services/notes/note-time";
 import {
   readStoredAnswer,
   storedTurnTarget,
@@ -300,12 +301,7 @@ export function ConversationChip({
   if (card) {
     const live = link.kind === "live";
     const snapshot = link.lastAnswer;
-    const displayTime = live
-      ? new Intl.DateTimeFormat(i18n.language || undefined, {
-          dateStyle: "short",
-          timeStyle: "short",
-        }).format(snapshot?.at ?? link.createdAt)
-      : "";
+    const displayTime = live ? noteTime(snapshot?.at ?? link.createdAt) : "";
     const heading = (
       <div
         className="flex min-w-0 items-center gap-1.5 pb-1 text-app-micro text-muted-foreground"
@@ -419,11 +415,15 @@ export function ConversationChip({
   if (target.kind !== "missing") {
     if (!header) return chip;
     return (
-      <span className="inline-flex min-w-0 items-center gap-0.5">
+      <span className="group relative inline-flex min-w-0 items-center">
         {chip}
         <DropdownMenuRoot>
           <DropdownMenuTrigger>
-            <IconButton label={t("connections.conversationActions")} size="xs">
+            <IconButton
+              label={t("connections.conversationActions")}
+              size="xs"
+              className="pointer-events-none absolute end-0 top-1/2 -translate-y-1/2 rounded-full bg-background opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+            >
               <MoreHorizontal className="size-3.5" aria-hidden="true" />
             </IconButton>
           </DropdownMenuTrigger>
