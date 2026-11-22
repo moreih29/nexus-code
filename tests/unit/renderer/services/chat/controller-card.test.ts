@@ -73,9 +73,11 @@ describe("a Codex tab's card", () => {
 
   test("closes with /new", async () => {
     const c = codex();
+    const session = c.sandboxSession;
     expect(c.state.card?.title).toBe("/status");
     await c.newThread();
     expect(c.state.card).toBeUndefined();
+    expect(c.sandboxSession).not.toBe(session);
   });
 
   test("closes as another thread goes on in the tab", async () => {
@@ -98,13 +100,16 @@ describe("a Claude tab's card", () => {
 
   test("closes as another session goes on in the tab", async () => {
     const c = claude();
+    const session = c.sandboxSession;
     expect(c.state.card?.title).toBe("/status");
     await c.resumeSession("other");
     expect(c.state.card).toBeUndefined();
+    expect(c.sandboxSession).not.toBe(session);
   });
 
   test("closes with /clear", () => {
     const c = claude();
+    const session = c.sandboxSession;
     const lastSeq = c.state.model.lastSeq;
     const lines = [
       {
@@ -117,6 +122,7 @@ describe("a Claude tab's card", () => {
     c.flushNow();
     expect(c.state.model.clears).toBe(1);
     expect(c.state.card).toBeUndefined();
+    expect(c.sandboxSession).not.toBe(session);
   });
 
   test("stays while the session goes on", () => {

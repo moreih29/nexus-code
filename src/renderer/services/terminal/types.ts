@@ -77,6 +77,8 @@ export interface TerminalInputCheckpoint {
 }
 
 export interface TerminalController {
+  /** Identity of the current shell for sandbox consent. Replaced when a new shell starts. */
+  readonly sandboxSession: string | null;
   /**
    * Re-rasterize the visible viewport from xterm's in-memory line buffer.
    * Call after the underlying DOM container is moved (e.g. createPortal

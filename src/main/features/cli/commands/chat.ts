@@ -394,6 +394,7 @@ async function mayLoosen(
       kind: "chatMode",
       detail: `${name} (${from} → ${to})`,
       ...(body ? { body } : {}),
+      eachTime: true,
     },
     { level: sandboxLevel(agent, to), alwaysAsk: !delegated, skipWorkspacePolicy: true },
   );
@@ -1168,7 +1169,7 @@ async function mayAnswer(
         fromWorkspaceId: ctx.caller.workspaceId,
         fromTabId: ctx.caller.tabId,
         toWorkspaceId: workspace.id,
-        change,
+        change: { ...change, eachTime: true },
       },
       ctx.signal,
     );

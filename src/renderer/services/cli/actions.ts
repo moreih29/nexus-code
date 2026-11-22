@@ -140,6 +140,7 @@ export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
     | "tabs.list"
+    | "tab.sandboxSession"
     | "terminal.read"
     | "terminal.watch"
     | "terminal.unwatch"

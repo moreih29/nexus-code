@@ -371,6 +371,7 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 
 class XtermTerminalController implements TerminalController {
   private disposed = false;
+  private sandboxSessionId = crypto.randomUUID();
   /** The local shell main started, if it said; a remote terminal has none. */
   private shellPath: string | undefined;
   /** Whether the shell is PowerShell, whose PSReadLine pastes on ^V (see the key handler). */
@@ -653,6 +654,10 @@ class XtermTerminalController implements TerminalController {
     this.term = null;
   }
 
+  get sandboxSession(): string | null {
+    return this.disposed ? null : this.sandboxSessionId;
+  }
+
   async reopen(): Promise<void> {
     if (this.disposed) throw new Error("terminal disposed");
     const term = this.term;
@@ -671,6 +676,7 @@ class XtermTerminalController implements TerminalController {
 
   /** Takes in what main reports about the shell that started. */
   private noteSpawned(result: SpawnedSession): void {
+    this.sandboxSessionId = crypto.randomUUID();
     if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
       this.shellPath = result.shellPath;

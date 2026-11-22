@@ -507,6 +507,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const closeRefused: FakeApp["closeRefused"] = new Map();
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
+    sandboxSession: (workspaceId, tabId) => ui("tab.sandboxSession", { workspaceId, tabId }),
     ask: async (request) => {
       asked.push(request);
       return answers.shift() ?? "deny";
@@ -610,6 +611,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "tabs.list") {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
+    }
+    if (op === "tab.sandboxSession") {
+      const { workspaceId, tabId } = args as CliUiOps["tab.sandboxSession"]["args"];
+      const tab = tabs[workspaceId]?.find((tab) => tab.id === tabId);
+      return (tab && !tab.dead ? tabId : null) as CliUiOps[K]["result"];
     }
     if (op === "terminal.read") {
       const { tabId, lines } = args as CliUiOps["terminal.read"]["args"];

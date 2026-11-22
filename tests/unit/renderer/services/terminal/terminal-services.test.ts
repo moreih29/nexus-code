@@ -1203,6 +1203,27 @@ describe("services/terminal controller replay", () => {
 describe("services/terminal controller reopen", () => {
   beforeEach(resetIpc);
 
+  it("changes the sandbox consent scope when the shell reopens", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-reopen-sandbox",
+        cwd: "/workspace/original",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+
+    const session = controller.sandboxSession;
+    await controller.reopen();
+    expect(controller.sandboxSession).not.toBe(session);
+    controller.dispose();
+    expect(controller.sandboxSession).toBeNull();
+  });
+
   it("surfaces reopen spawn failure so the view can swap to retry copy", async () => {
     const harness = makeTerminalControllerDeps(() => Promise.reject(new Error("agent down")));
     const controller = createTerminalController(

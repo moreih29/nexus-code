@@ -176,6 +176,30 @@ describe("answering one from another device", () => {
     expect(answered).toEqual([{ id: "c1", answer: "session", by: "iPhone" }]);
   });
 
+  test("offers until restart for eligible sandbox prompts and accepts the remote answer", async () => {
+    const sandbox = { kind: "sandboxExecution", terminal: true } as const;
+    const { services, answered } = setup([
+      pendingOf("scope", { change: sandbox }),
+      pendingOf("once", { change: { ...sandbox, eachTime: true } }),
+    ]);
+    expect((await remoteConsents(services, both)).map((c) => c.eachTime)).toEqual([false, true]);
+    await expect(
+      answerConsent(
+        services,
+        phone,
+        { chat: true, terminal: false },
+        { id: "scope", answer: "session" },
+      ),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    await expect(
+      answerConsent(services, phone, both, { id: "once", answer: "session" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(await answerConsent(services, phone, both, { id: "scope", answer: "session" })).toEqual(
+      {},
+    );
+    expect(answered).toEqual([{ id: "scope", answer: "session", by: "iPhone" }]);
+  });
+
   test("one answered or run out since is not found", async () => {
     const { services } = setup([]);
     await expect(
