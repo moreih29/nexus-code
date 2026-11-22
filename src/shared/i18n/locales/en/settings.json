@@ -1159,8 +1159,8 @@
           "body": "Go back to the NexusCode app."
         },
         "continueInApp": {
-          "title": "Continue in the NexusCode app",
-          "body": "See how the sign-in went in the app."
+          "title": "Sign-in in progress",
+          "body": "Check the result in the NexusCode app."
         },
         "closeTab": "You can close this tab"
       },
