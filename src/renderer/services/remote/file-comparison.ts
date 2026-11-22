@@ -1,6 +1,7 @@
 import type { DiffHunk } from "../../../../packages/remote-protocol/src/rpc";
 import type { RemoteFileRef } from "../../../shared/fs/remote-file-key";
 import { ipcCallResult } from "../../ipc/client";
+import { peerGitPaths } from "./peer-git-paths";
 
 /**
  * The file before the changes `hunks` tell, from the file as it is now:
@@ -53,16 +54,27 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
 export async function readRemoteFileBefore(
   file: RemoteFileRef,
   tabId: string,
+  workspaceRoot: string,
   signal?: AbortSignal,
 ): Promise<string | null | undefined> {
   const kept = await ipcCallResult("remote", "peerChatOriginal", { ...file, tabId }, { signal });
   if (kept.ok) return kept.value.before;
   if (signal?.aborted) return undefined;
+  const { deviceId, workspaceId } = file;
+  const peer = { deviceId, workspaceId };
+  const status = await ipcCallResult("remote", "peerGitStatus", peer, { signal }).catch(
+    () => undefined,
+  );
+  if (signal?.aborted) return undefined;
+  const git = status?.ok ? status.value : undefined;
+  const path = peerGitPaths(workspaceRoot, git?.topLevel).toGit(file.path, git?.files ?? []);
+  if (!path) return undefined;
   const [diff, read] = await Promise.all([
-    ipcCallResult("remote", "peerGitDiff", file, { signal }),
+    ipcCallResult("remote", "peerGitDiff", { ...peer, path }, { signal }),
     ipcCallResult("remote", "peerFilesRead", file, { signal }),
   ]);
-  if (!diff.ok || diff.value.binary || diff.value.hunks.length === 0) return undefined;
+  if (!diff.ok || diff.value.binary || diff.value.truncated || diff.value.hunks.length === 0)
+    return undefined;
   if (!read.ok || read.value.kind !== "text" || read.value.truncated) return undefined;
   return beforeOfHunks(diff.value.hunks, read.value.text) ?? undefined;
 }

@@ -61,13 +61,13 @@ export function PeerWorkspacePanel({
         ? t("peerWorkspace.disconnectedLast")
         : null;
   const root = target.workspace.path;
+  const status = gitUpdateNeeded ? undefined : view.gitStatus;
   const names = view.tabs.map((tab) => {
     if (tab.type === "peer.commit" || tab.type === "peer.session") return null;
     return tab.type === "peer.diff"
-      ? peerGitDisplayPath(root, tab.path)
+      ? peerGitDisplayPath(root, tab.path, status?.topLevel)
       : { ...workspacePathParts(tab.path, root), outsideWorkspace: false };
   });
-  const status = gitUpdateNeeded ? undefined : view.gitStatus;
   const canReadGit = shown && reachable && !gitUpdateNeeded;
 
   return (
@@ -240,6 +240,7 @@ export function PeerWorkspacePanel({
                     target={target}
                     tab={tab}
                     latest={status?.files.find((file) => file.path === tab.path)}
+                    topLevel={status?.topLevel}
                     selected={selected}
                     canRead={canReadGit}
                     updateNeeded={gitUpdateNeeded}

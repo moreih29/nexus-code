@@ -31,7 +31,12 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
   useEffect(() => {
     if (connection === null || before !== undefined || !compareFrom) return;
     const abort = new AbortController();
-    void readRemoteFileBefore({ deviceId, workspaceId, path }, compareFrom, abort.signal).then(
+    void readRemoteFileBefore(
+      { deviceId, workspaceId, path },
+      compareFrom,
+      workspaceRoot,
+      abort.signal,
+    ).then(
       (original) => {
         const store = useAgentViewStore.getState();
         const current = store.remoteFiles.get(key);
@@ -47,7 +52,7 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
       () => {},
     );
     return () => abort.abort();
-  }, [before, compareFrom, connection, deviceId, key, path, workspaceId]);
+  }, [before, compareFrom, connection, deviceId, key, path, workspaceId, workspaceRoot]);
 
   return (
     <div

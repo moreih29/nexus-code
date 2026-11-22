@@ -1,3 +1,4 @@
+import { peerGitPaths } from "../../services/remote/peer-git-paths";
 import { isPeerGitConflict, type PeerGitStatus } from "../../services/remote/peer-git-status";
 import { peerPathKey, peerSearchResultPath } from "../../utils/peer-path";
 import {
@@ -11,9 +12,10 @@ export function peerGitDecorations(root: string, status: PeerGitStatus | undefin
   const files = new Map<string, GitDecorationKind>();
   const folders = new Map<string, GitDecorationKind>();
   const rootKey = peerPathKey(root);
+  const paths = peerGitPaths(root, status?.topLevel);
 
   function mark(relative: string, kind: GitDecorationKind) {
-    const path = peerSearchResultPath(root, relative);
+    const path = paths.toWorkspace(relative)?.absolute;
     if (!path) return;
     const key = peerPathKey(path);
     const existing = files.get(key);
@@ -32,15 +34,16 @@ export function peerGitDecorations(root: string, status: PeerGitStatus | undefin
 }
 
 function pathsOf(root: string, status: PeerGitStatus | undefined) {
-  const paths = new Map<string, string>();
+  const mapped = new Map<string, string>();
+  const paths = peerGitPaths(root, status?.topLevel);
   for (const { path, oldPath } of status?.files ?? []) {
-    for (const relative of [path, oldPath]) {
-      if (!relative) continue;
-      const absolute = peerSearchResultPath(root, relative);
-      if (absolute) paths.set(peerPathKey(absolute), relative);
+    for (const gitPath of [path, oldPath]) {
+      if (!gitPath) continue;
+      const file = paths.toWorkspace(gitPath);
+      if (file?.absolute && file.relative) mapped.set(peerPathKey(file.absolute), file.relative);
     }
   }
-  return paths;
+  return mapped;
 }
 
 /** Immediate parents of paths added to or removed from the Git file set. */

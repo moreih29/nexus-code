@@ -1,14 +1,15 @@
+import { peerGitPaths } from "../../services/remote/peer-git-paths";
 import { basename } from "../../utils/path";
-import { peerSearchResultPath } from "../../utils/peer-path";
 
 /** Display paths separately from the repository-relative keys used by Git RPCs. */
-export function peerGitDisplayPath(root: string, gitPath: string) {
-  const outsideWorkspace = peerSearchResultPath(root, gitPath) === null;
-  const fileName = basename(gitPath);
+export function peerGitDisplayPath(root: string, gitPath: string, topLevel?: string) {
+  const relative = peerGitPaths(root, topLevel).toWorkspace(gitPath)?.relative;
+  const path = relative ?? gitPath;
+  const fileName = basename(path);
   return {
-    path: gitPath,
+    path,
     fileName,
-    directory: gitPath.slice(0, -fileName.length),
-    outsideWorkspace,
+    directory: path.slice(0, -fileName.length),
+    outsideWorkspace: relative == null,
   };
 }

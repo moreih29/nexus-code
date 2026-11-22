@@ -1,6 +1,7 @@
 import type { DiffHunk, RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import { ipcCallResult } from "../../ipc/client";
 import { beforeOfHunks } from "../../services/remote/file-comparison";
+import { peerGitPaths } from "../../services/remote/peer-git-paths";
 import {
   isPeerGitConflict,
   type PeerGitFile,
@@ -8,7 +9,6 @@ import {
 } from "../../services/remote/peer-git-status";
 import { type PeerText, readPeerWorkspaceText } from "../../services/remote/peer-workspace";
 import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
-import { peerSearchResultPath } from "../../utils/peer-path";
 
 type GitPatch = RpcResult<"git.diff">;
 
@@ -65,14 +65,15 @@ export async function loadPeerDiff(
   change: PeerGitFile,
   side: PeerGitSide,
   signal: AbortSignal,
+  topLevel?: string,
 ): Promise<PeerDiffView> {
   const denied: PeerDiffView = {
     kind: "patch",
     patch: { path: change.path, hunks: [] },
     permissionDenied: true,
   };
-  const path = peerSearchResultPath(target.workspace.path, change.path);
-  if (!path) return denied;
+  const file = peerGitPaths(target.workspace.path, topLevel).toWorkspace(change.path);
+  if (!file) return denied;
   const peer = { deviceId: target.deviceId, workspaceId: target.workspaceId };
   const args = { ...peer, path: change.path };
   const readPatch = (staged: boolean) =>
@@ -85,6 +86,8 @@ export async function loadPeerDiff(
 
   const patch = reply.value;
   const partial = { kind: "patch", patch } as const;
+  const path = file.absolute;
+  if (!path) return { ...partial, permissionDenied: true };
   if (!hasFullPatch(patch) || isPeerGitConflict(change)) return partial;
   try {
     const stagedDeletion = side === "staged" && change.staged === "D";

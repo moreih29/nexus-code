@@ -55,3 +55,35 @@ test("only the immediate parents of paths added to or removed from the Git file 
     new Set(["d:/project/old/deep", "d:/project/src/new", "d:/project"]),
   );
 });
+
+test("a nested workspace decorates and refreshes only its own Git paths, including rename sources", () => {
+  const topLevel = "/repo";
+  const root = "/repo/packages/app";
+  const before = { ...status([{ path: "packages/app/old/removed.ts", staged: "D" }]), topLevel };
+  const after = {
+    ...status([
+      { path: "packages/app/src/new.ts", oldPath: "packages/app/lib/old.ts", staged: "R" },
+      { path: "packages/app-extra/src/new.ts", staged: "A" },
+      { path: "src/new.ts", staged: "A" },
+      { path: "packages/shared/new.ts", oldPath: "packages/app/moved.ts", staged: "R" },
+    ]),
+    topLevel,
+  };
+  const { files, folders } = peerGitDecorations(root, after);
+  expect(files).toEqual(
+    new Map([
+      [`${root}/src/new.ts`, "renamed"],
+      [`${root}/lib/old.ts`, "renamed"],
+      [`${root}/moved.ts`, "renamed"],
+    ]),
+  );
+  expect(folders).toEqual(
+    new Map([
+      [`${root}/src`, "renamed"],
+      [`${root}/lib`, "renamed"],
+    ]),
+  );
+  expect(changedPeerGitParents(root, before, after)).toEqual(
+    new Set([`${root}/old`, `${root}/src`, `${root}/lib`, root]),
+  );
+});

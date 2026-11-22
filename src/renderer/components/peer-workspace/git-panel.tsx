@@ -63,6 +63,8 @@ function PeerGitChanges({
     (state) => state.views[id] ?? EMPTY_PEER_VIEW,
   );
   const openDiff = usePeerWorkspaceStore((state) => state.openDiff);
+  const display = (path: string) =>
+    peerGitDisplayPath(target.workspace.path, path, gitStatus?.topLevel);
   const upgrade = updateNeeded || gitError === "unsupported";
   const error = upgrade
     ? t("peerWorkspace.updateNeeded")
@@ -142,7 +144,6 @@ function PeerGitChanges({
                   {label} <span className="rounded bg-muted px-1">{files.length}</span>
                 </summary>
                 {files.map((file) => {
-                  const display = (path: string) => peerGitDisplayPath(target.workspace.path, path);
                   const { path, fileName: name, directory, outsideWorkspace } = display(file.path);
                   const old = file.oldPath ? display(file.oldPath) : null;
                   const scope = outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null;
