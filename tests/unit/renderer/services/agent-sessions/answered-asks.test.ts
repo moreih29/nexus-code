@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   markAnswered,
   resetAnsweredAsks,
@@ -14,6 +14,8 @@ const shown = () =>
   unansweredAsks(session, asks, useAnsweredAsksStore.getState().keys).map((each) => each.id);
 
 beforeEach(resetAnsweredAsks);
+// Timed cases run on fake timers: real ones step by about 15.6 ms on Windows.
+afterEach(() => jest.useRealTimers());
 
 describe("a request answered from the app", () => {
   test("leaves at once; the others stay", () => {
@@ -27,20 +29,24 @@ describe("a request answered from the app", () => {
     expect(shown()).toEqual(["a", "b"]);
   });
 
-  test("shows again if polls still list it a while later", async () => {
+  test("shows again if polls still list it a while later", () => {
+    jest.useFakeTimers();
     markAnswered(session, "a", 20);
     expect(shown()).toEqual(["b"]);
-    await Bun.sleep(40);
+    jest.advanceTimersByTime(19);
+    expect(shown()).toEqual(["b"]);
+    jest.advanceTimersByTime(1);
     expect(shown()).toEqual(["a", "b"]);
   });
 
-  test("answered again, waits the while again", async () => {
+  test("answered again, waits the while again", () => {
+    jest.useFakeTimers();
     markAnswered(session, "a", 30);
-    await Bun.sleep(15);
+    jest.advanceTimersByTime(15);
     markAnswered(session, "a", 30);
-    await Bun.sleep(20);
+    jest.advanceTimersByTime(20);
     expect(shown()).toEqual(["b"]);
-    await Bun.sleep(30);
+    jest.advanceTimersByTime(10);
     expect(shown()).toEqual(["a", "b"]);
   });
 

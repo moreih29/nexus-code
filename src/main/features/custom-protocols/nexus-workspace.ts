@@ -258,7 +258,9 @@ export function buildNexusWorkspaceHandler(
       return serveViaAgent(workspaceManager, workspaceId, relPath, req.headers.get("range"));
     }
 
-    const rootPath = meta.location.rootPath;
+    // A root saved with "/" on Windows (C:/repo) is compared in the form
+    // path.resolve gives the file path below (C:\repo), or no file matches.
+    const rootPath = path.resolve(meta.location.rootPath);
 
     // Step 4 — path traversal guard (.. escape).
     // Normalise with path.resolve so ".." segments are collapsed before the
