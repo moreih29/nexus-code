@@ -30,6 +30,172 @@ const complete: SessionEvent = {
   to: "completed",
 };
 
+const unread: RemoteSession = { ...chat, state: "new-result", since: 10 };
+
+describe("host read receipts", () => {
+  test.each([
+    ["a listed result", unread, "new-result"],
+    ["a result without its time", { ...unread, since: undefined }, "idle"],
+    ["a failed turn", { ...unread, failed: true }, "idle"],
+    ["an idle chat with completion history", chat, "idle"],
+  ] as const)("uses the listing for %s", (_label, row, state) => {
+    const results = new RemoteResults();
+    results.applyPage("mac", { events: [complete], cursor: 1, more: false });
+    expect(results.session("mac", row, true, true)).toMatchObject({ state });
+  });
+
+  test("batches visible successes per capable host and hides through the next listing after an ack", async () => {
+    const results = new RemoteResults();
+    const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () => ipcOk({ marked: 2 }));
+    let take: ((listing: room.PeerSessions) => void) | undefined;
+    const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, listener) => {
+      take = listener;
+      return () => {};
+    });
+    const list = (...sessions: RemoteSession[]) =>
+      take?.({ status: "ready", list: { sessions, workspaces: [] } });
+    const stop = results.watchReceipts("mac", 0);
+    const second = { ...unread, tabId: "second", since: 11 };
+    const newer = { ...unread, since: 12 };
+    try {
+      list(unread, second);
+      results.markSeen([
+        { deviceId: "mac", session: unread, hostReceipts: true },
+        { deviceId: "mac", session: second, hostReceipts: true },
+        { deviceId: "mac", session: { ...unread, failed: true }, hostReceipts: true },
+        { deviceId: "older", session: unread },
+      ]);
+      expect(call.mock.calls).toEqual([
+        [
+          "remote",
+          "peerSessionsMarkSeen",
+          {
+            deviceId: "mac",
+            seen: [
+              { workspaceId: "w1", tabId: "t1", upTo: 10 },
+              { workspaceId: "w1", tabId: "second", upTo: 11 },
+            ],
+          },
+        ],
+      ]);
+      list(unread, second);
+      expect(results.session("mac", unread, true, true).state).toBe("idle");
+      expect(results.session("mac", newer, true, true)).toBe(newer);
+      expect(results.session("older", unread).state).toBe("idle");
+      await Promise.resolve();
+      expect(results.session("mac", unread, true, true).state).toBe("idle");
+      list(unread);
+      expect(results.session("mac", unread, true, true)).toBe(unread);
+      list(chat);
+      expect(results.session("mac", chat, true, true)).toBe(chat);
+    } finally {
+      stop();
+      observe.mockRestore();
+      call.mockRestore();
+    }
+  });
+
+  test("migrates matching saved times and retries only on a fresh connection after failure", async () => {
+    const { remoteSeen, peerOrderAccount } = useAgentViewStore.getState();
+    const accountKey = "receipt-migration";
+    const candidates = [
+      { tabId: "t1", saved: { at: 10 }, send: true },
+      { tabId: "after", saved: { at: 15, listedAt: 9 }, send: true },
+      { tabId: "before", saved: { at: 8 }, send: false },
+      { tabId: "undated", saved: { at: 0, undated: true }, send: false },
+      { tabId: "listed", saved: { at: 0, listedAt: 10 }, send: false },
+    ] as const;
+    const entries = new Map(
+      candidates.map(({ tabId, saved }) => [
+        remoteSessionKey({ deviceId: "mac", ...chat, tabId }),
+        saved,
+      ]),
+    );
+    useAgentViewStore.setState({
+      peerOrderAccount: accountKey,
+      remoteSeen: { accountKey, entries },
+    });
+    const listed = candidates.map(({ tabId }) => ({ ...unread, tabId }));
+    let publish = () => {};
+    const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, take) => {
+      publish = () => take({ status: "ready", list: { sessions: listed, workspaces: [] } });
+      publish();
+      return () => {};
+    });
+    let online = false;
+    const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () =>
+      online ? ipcOk({ marked: 2 }) : ipcErr("unavailable", "disconnected"),
+    );
+    const results = new RemoteResults(accountKey);
+    let stop = () => {};
+    try {
+      stop = results.watchReceipts("mac", 0);
+      await Promise.resolve();
+      publish();
+      expect(call).toHaveBeenCalledTimes(1);
+      expect(useAgentViewStore.getState().remoteSeen?.entries.size).toBe(2);
+      expect(results.session("mac", unread, true, true).state).toBe("idle");
+      stop();
+      online = true;
+      stop = results.watchReceipts("mac", 1);
+      await Promise.resolve();
+      const seen = candidates
+        .filter(({ send }) => send)
+        .map(({ tabId }) => ({
+          workspaceId: "w1",
+          tabId,
+          upTo: 10,
+        }));
+      expect(call.mock.calls).toEqual(
+        Array(2).fill(["remote", "peerSessionsMarkSeen", { deviceId: "mac", seen }]),
+      );
+      expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
+    } finally {
+      stop();
+      observe.mockRestore();
+      call.mockRestore();
+      useAgentViewStore.setState({ remoteSeen, peerOrderAccount });
+    }
+  });
+
+  test("a focused visible pane can queue a newer result while the previous receipt is in flight", async () => {
+    const { peerOrderAccount, remoteSeen } = useAgentViewStore.getState();
+    const accountKey = "receipt-pane";
+    const results = new RemoteResults(accountKey);
+    useAgentViewStore.setState({ peerOrderAccount: accountKey, remoteSeen: undefined });
+    const first = Promise.withResolvers<ReturnType<typeof ipcOk<{ marked: number }>>>();
+    const second = Promise.withResolvers<ReturnType<typeof ipcOk<{ marked: number }>>>();
+    const call = spyOn(ipc, "ipcCallResult")
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const newer = { ...unread, since: 20 };
+    try {
+      markVisibleRemoteResult(accountKey, "mac", unread, false, true, true);
+      markVisibleRemoteResult(accountKey, "mac", unread, true, false, true);
+      expect(call).not.toHaveBeenCalled();
+      markVisibleRemoteResult(accountKey, "mac", unread, true, true, true);
+      expect(results.session("mac", newer, true, true)).toBe(newer);
+      markVisibleRemoteResult(accountKey, "mac", newer, true, true, true);
+      expect(call).toHaveBeenCalledTimes(1);
+      first.resolve(ipcOk({ marked: 0 }));
+      await Promise.resolve();
+      expect(call.mock.calls[1]?.[2]).toEqual({
+        deviceId: "mac",
+        seen: [{ workspaceId: "w1", tabId: "t1", upTo: 20 }],
+      });
+      expect(useAgentViewStore.getState().remoteSeen?.entries.values().next().value).toEqual({
+        at: 20,
+      });
+      second.resolve(ipcOk({ marked: 1 }));
+      await Promise.resolve();
+      expect(useAgentViewStore.getState().remoteSeen).toBeUndefined();
+    } finally {
+      call.mockRestore();
+      useAgentViewStore.setState({ peerOrderAccount, remoteSeen });
+    }
+  });
+});
+
 test("the watch resumes at the last cursor and replaces history after a host restart", async () => {
   const results = new RemoteResults();
   let page: RpcResult<"events.read"> = {

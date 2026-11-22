@@ -1,13 +1,23 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import type { RemoteSession, RpcResult } from "../../../../packages/remote-protocol/src/rpc";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  MAX_MARK_SEEN,
+  type RemoteSession,
+  type RpcParams,
+  type RpcResult,
+} from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RemoteSeenResult } from "../../../shared/types/agent-view";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult } from "../../ipc/client";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
-import { observePeerSessions } from "../remote/room";
-import { remoteSessionKey } from "./layout";
+import {
+  observePeerSessions,
+  peerServes,
+  refreshPeerSessions,
+  useRemoteRoom,
+} from "../remote/room";
+import { parseRemoteSessionKey, remoteSessionKey } from "./layout";
 
 type EventPage = RpcResult<"events.read">;
 type ResultState = { at: number; outcome?: "completed" | "error"; message?: string };
@@ -15,6 +25,7 @@ type PendingResult = { at: number; seen?: true };
 type SeenChanges = Map<string, RemoteSeenResult | null>;
 type SeenResults = {
   get(key: string): RemoteSeenResult | undefined;
+  entries(): Iterable<readonly [string, RemoteSeenResult]>;
   update(changes: SeenChanges): void;
 };
 
@@ -29,6 +40,7 @@ function memorySeen(): SeenResults {
   const entries = new Map<string, RemoteSeenResult>();
   return {
     get: (key) => entries.get(key),
+    entries: () => entries,
     update: (changes) => {
       for (const [key, value] of changes) {
         if (value === null) entries.delete(key);
@@ -43,6 +55,10 @@ function savedSeen(accountKey: string): SeenResults {
     get(key) {
       const { remoteSeen } = useAgentViewStore.getState();
       return remoteSeen?.accountKey === accountKey ? remoteSeen.entries.get(key) : undefined;
+    },
+    entries() {
+      const { remoteSeen } = useAgentViewStore.getState();
+      return remoteSeen?.accountKey === accountKey ? remoteSeen.entries : [];
     },
     update(changes) {
       if (changes.size > 0) useAgentViewStore.getState().updateRemoteSeen(accountKey, changes);
@@ -60,7 +76,164 @@ const PAGE_SIZE = 200;
 const MAX_PAGES = 5;
 const READ_INTERVAL_MS = 4000;
 
-/** Viewing or clearing an outcome affects this account's sidebar on this device only. */
+const RECEIPTS = "sessions.markSeen";
+type Receipt = RpcParams<typeof RECEIPTS>["seen"][number];
+type ResultRow = { deviceId: string; session: RemoteSession; hostReceipts?: boolean };
+
+function hostResultTime(row: RemoteSession): number | undefined {
+  const { since } = row;
+  if (
+    row.state === "new-result" &&
+    !row.failed &&
+    !row.limitWait &&
+    !row.waiting &&
+    since !== undefined &&
+    Number.isFinite(since)
+  )
+    return since;
+}
+
+function receiptTime(saved: RemoteSeenResult | undefined): number | undefined {
+  if (saved && !saved.undated && saved.at > 0) return saved.at;
+}
+
+interface ReceiptWatch {
+  rejoin: number;
+  users: number;
+  stop(): void;
+}
+
+/** The sidebar and any open panes share the account's receipts to each host. */
+class ReadReceipts {
+  private readonly watches = new Map<string, ReceiptWatch>();
+  private readonly waiting = new Map<string, Map<string, Receipt>>();
+  private readonly sending = new Set<string>();
+  private readonly acknowledged = new Map<string, Map<string, number>>();
+
+  constructor(private readonly saved: SeenResults) {}
+
+  hides(deviceId: string, key: string, since: number): boolean {
+    return (
+      since <= (receiptTime(this.saved.get(key)) ?? -Infinity) ||
+      since <= (this.acknowledged.get(deviceId)?.get(key) ?? -Infinity)
+    );
+  }
+
+  mark(rows: readonly ResultRow[]): void {
+    const changes: SeenChanges = new Map();
+    const devices = new Set<string>();
+    for (const { deviceId, session } of rows) {
+      const upTo = hostResultTime(session);
+      const key = remoteSessionKey({ deviceId, ...session });
+      if (
+        upTo === undefined ||
+        upTo <= (changes.get(key)?.at ?? -Infinity) ||
+        this.hides(deviceId, key, upTo)
+      )
+        continue;
+      const { workspaceId, tabId } = session;
+      changes.set(key, { at: upTo });
+      this.enqueue(deviceId, key, { workspaceId, tabId, upTo });
+      devices.add(deviceId);
+    }
+    this.saved.update(changes);
+    for (const deviceId of devices) void this.send(deviceId);
+  }
+
+  private enqueue(deviceId: string, key: string, receipt: Receipt): void {
+    let pending = this.waiting.get(deviceId);
+    if (!pending) {
+      pending = new Map();
+      this.waiting.set(deviceId, pending);
+    }
+    if ((pending.get(key)?.upTo ?? -Infinity) < receipt.upTo) pending.set(key, receipt);
+  }
+
+  private async send(deviceId: string): Promise<void> {
+    const pending = this.waiting.get(deviceId);
+    if (!pending?.size || this.sending.has(deviceId)) return;
+    const batch = [...pending].slice(0, MAX_MARK_SEEN);
+    for (const [key] of batch) pending.delete(key);
+    this.sending.add(deviceId);
+    try {
+      const result = await ipcCallResult("remote", "peerSessionsMarkSeen", {
+        deviceId,
+        seen: batch.map(([, receipt]) => receipt),
+      });
+      if (!result.ok) return;
+      const acknowledged = this.acknowledged.get(deviceId) ?? new Map<string, number>();
+      this.acknowledged.set(deviceId, acknowledged);
+      const changes: SeenChanges = new Map();
+      for (const [key, { upTo }] of batch) {
+        acknowledged.set(key, upTo);
+        if (receiptTime(this.saved.get(key)) === upTo) changes.set(key, null);
+        if (pending.get(key)?.upTo === upTo) pending.delete(key);
+      }
+      this.saved.update(changes);
+      refreshPeerSessions(deviceId);
+    } catch {
+      // The undelivered receipts remain saved for the next connection.
+    } finally {
+      this.sending.delete(deviceId);
+      if (pending.size > 0) void this.send(deviceId);
+      else this.waiting.delete(deviceId);
+    }
+  }
+
+  private reconcile(deviceId: string, sessions: readonly RemoteSession[]): void {
+    const listing = new Map(sessions.map((row) => [remoteSessionKey({ deviceId, ...row }), row]));
+    const changes: SeenChanges = new Map();
+    for (const [key, saved] of this.saved.entries()) {
+      if (parseRemoteSessionKey(key)?.deviceId !== deviceId) continue;
+      const row = listing.get(key);
+      const upTo = row && hostResultTime(row);
+      if (row && upTo !== undefined && upTo <= (receiptTime(saved) ?? -Infinity)) {
+        const { workspaceId, tabId } = row;
+        changes.set(key, { at: upTo });
+        this.enqueue(deviceId, key, { workspaceId, tabId, upTo });
+      } else {
+        changes.set(key, null);
+      }
+    }
+    this.saved.update(changes);
+    void this.send(deviceId);
+  }
+
+  watch(deviceId: string, rejoin: number): () => void {
+    const current = this.watches.get(deviceId);
+    let watch = current;
+    if (!watch || watch.rejoin !== rejoin) {
+      current?.stop();
+      let first = true;
+      const stop = observePeerSessions(deviceId, rejoin, (listing) => {
+        if (listing.status !== "ready") return;
+        this.acknowledged.delete(deviceId);
+        if (!first) return;
+        first = false;
+        this.reconcile(deviceId, listing.list.sessions);
+      });
+      watch = { rejoin, users: 0, stop };
+      this.watches.set(deviceId, watch);
+    }
+    watch.users++;
+    return () => {
+      watch.users--;
+      if (watch.users > 0 || this.watches.get(deviceId) !== watch) return;
+      this.watches.delete(deviceId);
+      watch.stop();
+    };
+  }
+}
+
+let accountReceipts: { key: string; receipts: ReadReceipts } | undefined;
+
+function receiptsFor(accountKey: string): ReadReceipts {
+  if (accountReceipts?.key !== accountKey)
+    accountReceipts = { key: accountKey, receipts: new ReadReceipts(savedSeen(accountKey)) };
+  return accountReceipts.receipts;
+}
+
+/** Both receipt-aware hosts and older hosts feed the remote sidebar's result rows. */
 export class RemoteResults {
   private readonly changes = createListenerBus();
   private readonly history = new Map<string, Map<string, ResultState>>();
@@ -70,6 +243,7 @@ export class RemoteResults {
   private readonly running = new Map<string, Set<string>>();
   private readonly pending = new Map<string, Map<string, PendingResult>>();
   private readonly seen: SeenResults;
+  private readonly receipts: ReadReceipts;
   private revision = 0;
 
   subscribe = this.changes.subscribe;
@@ -77,6 +251,11 @@ export class RemoteResults {
 
   constructor(accountKey: string | null = null) {
     this.seen = accountKey === null ? memorySeen() : savedSeen(accountKey);
+    this.receipts = accountKey === null ? new ReadReceipts(this.seen) : receiptsFor(accountKey);
+  }
+
+  watchReceipts(deviceId: string, rejoin: number): () => void {
+    return this.receipts.watch(deviceId, rejoin);
   }
 
   private changed() {
@@ -221,7 +400,22 @@ export class RemoteResults {
   }
 
   /** Use the live state first. Older listings report quiet chats as idle even after a result. */
-  session(deviceId: string, row: RemoteSession, reportsFailure = false): RemoteSession {
+  session(
+    deviceId: string,
+    row: RemoteSession,
+    reportsFailure = false,
+    hostReceipts = false,
+  ): RemoteSession {
+    if (hostReceipts) {
+      const since = hostResultTime(row);
+      if (
+        row.state !== "new-result" ||
+        (since !== undefined &&
+          !this.receipts.hides(deviceId, remoteSessionKey({ deviceId, ...row }), since))
+      )
+        return row;
+      return { ...row, state: "idle" };
+    }
     if (
       row.state === "running" ||
       row.state === "needs-you" ||
@@ -264,11 +458,12 @@ export class RemoteResults {
     changes.set(key, value);
   }
 
-  markSeen(rows: readonly { deviceId: string; session: RemoteSession }[]) {
+  markSeen(rows: readonly ResultRow[]) {
+    this.receipts.mark(rows.filter((row) => row.hostReceipts));
     let pendingChanged = false;
     const changes: SeenChanges = new Map();
-    for (const { deviceId, session } of rows) {
-      if (session.state !== "new-result" || session.failed) continue;
+    for (const { deviceId, session, hostReceipts } of rows) {
+      if (hostReceipts || session.state !== "new-result" || session.failed) continue;
       const key = remoteSessionKey({ deviceId, ...session });
       const waiting = this.pending.get(deviceId)?.get(key);
       if (waiting && !this.history.get(deviceId)?.get(key)?.outcome) {
@@ -295,8 +490,13 @@ export function markVisibleRemoteResult(
   session: RemoteSession | undefined,
   visible: boolean,
   focused: boolean,
+  hostReceipts = false,
 ) {
   if (!visible || !session) return;
+  if (hostReceipts) {
+    if (focused) receiptsFor(accountKey).mark([{ deviceId, session }]);
+    return;
+  }
   const key = remoteSessionKey({ deviceId, ...session });
   const seen = savedSeen(accountKey);
   const before = seen.get(key);
@@ -332,10 +532,19 @@ export function useRemotePaneSeen(
 ) {
   const accountKey = useAgentViewStore((s) => s.peerOrderAccount);
   const focused = useAppFocusStore((s) => s.focused);
+  const room = useRemoteRoom();
+  const peer = room?.peers.find((p) => p.id === deviceId);
+  const hostReceipts = peerServes(peer, RECEIPTS);
+  const online = room?.status === "online" && peer?.online === true;
+  const rejoin = peer?.rejoins ?? 0;
+  useEffect(() => {
+    if (accountKey !== null && hostReceipts && online && visible)
+      return receiptsFor(accountKey).watch(deviceId, rejoin);
+  }, [accountKey, deviceId, hostReceipts, online, rejoin, visible]);
   useEffect(() => {
     if (accountKey !== null)
-      markVisibleRemoteResult(accountKey, deviceId, session, visible, focused);
-  }, [accountKey, deviceId, focused, session, visible]);
+      markVisibleRemoteResult(accountKey, deviceId, session, visible, focused, hostReceipts);
+  }, [accountKey, deviceId, focused, hostReceipts, session, visible]);
 }
 
 export function watchResults(results: RemoteResults, deviceId: string, rejoin: number) {
@@ -410,14 +619,17 @@ export function useRemoteResults(
   shown: boolean,
   accountKey: string | null,
 ): RemoteResults {
-  const [results] = useState(() => new RemoteResults(accountKey));
+  const results = useMemo(() => new RemoteResults(accountKey), [accountKey]);
   useAgentViewStore((state) => state.remoteSeen);
   useSyncExternalStore(results.subscribe, results.snapshot, results.snapshot);
-  const connections = JSON.stringify(peers.map(({ id, rejoins }) => [id, rejoins ?? 0]));
+  const connections = JSON.stringify(
+    peers.map((peer) => [peer.id, peer.rejoins ?? 0, peerServes(peer, RECEIPTS)]),
+  );
   useEffect(() => {
     if (!shown) return;
-    const stops = (JSON.parse(connections) as [string, number][]).map(([id, rejoin]) =>
-      watchResults(results, id, rejoin),
+    const stops = (JSON.parse(connections) as [string, number, boolean][]).map(
+      ([id, rejoin, receipts]) =>
+        receipts ? results.watchReceipts(id, rejoin) : watchResults(results, id, rejoin),
     );
     return () => {
       for (const stop of stops) stop();

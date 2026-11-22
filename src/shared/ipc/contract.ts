@@ -2724,6 +2724,11 @@ const remoteContracts = {
         RPC_METHODS["sessions.reorder"].params.extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.reorder"].result,
       ),
+      /** Acknowledges the listed results the user saw on this device. */
+      peerSessionsMarkSeen: call(
+        RPC_METHODS["sessions.markSeen"].params.extend({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.markSeen"].result,
+      ),
       /** A page of another device's session state changes. */
       peerSessionEvents: call(
         RPC_METHODS["events.read"].params

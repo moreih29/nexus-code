@@ -25,6 +25,7 @@ import { moveKey, orderSessions } from "@/services/agent-view/order";
 import type { RemoteResults } from "@/services/agent-view/remote-results";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
+import { peerServes } from "@/services/remote/room";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
 import { useUIStore } from "@/state/stores/ui";
@@ -330,7 +331,11 @@ export function StatusGroups({
                     const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
                     for (const row of rows) {
                       if (row.kind === "remote") {
-                        remote.push({ deviceId: row.peer.id, session: row.session });
+                        remote.push({
+                          deviceId: row.peer.id,
+                          session: row.session,
+                          hostReceipts: peerServes(row.peer, "sessions.markSeen"),
+                        });
                       } else {
                         const entry = agents.byKey.get(row.session.key);
                         if (entry) local.push({ workspace: entry.workspace, session: row.session });
