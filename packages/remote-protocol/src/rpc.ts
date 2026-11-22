@@ -245,6 +245,8 @@ export const RemoteSessionSchema = z.object({
   kind: z.enum(["claude", "codex", "terminal"]),
   title: z.string(),
   state: SessionStateSchema,
+  /** The last turn ended in error. Keep state as before for older readers. Since 0.22.0. */
+  failed: z.literal(true).optional(),
   /** When it came to that state, in Unix milliseconds. */
   since: NumberSchema.optional(),
   /** The last thing it said, a line. */

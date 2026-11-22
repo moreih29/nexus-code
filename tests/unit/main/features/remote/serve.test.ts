@@ -447,6 +447,27 @@ describe("serving a chat's claude -p runs", () => {
 });
 
 describe("serving the sessions", () => {
+  test("flags a failed chat and terminal hook without changing their session state", async () => {
+    const base = services();
+    const ui = (async (op, args) => {
+      if (op === "chat.state" && args.tabId === "t1") {
+        return { agent: "claude", state: "error", message: "Turn failed", since: 15 };
+      }
+      return base.ui(op, args);
+    }) as CliServices["ui"];
+    const { sessions } = await listSessions({
+      ...base,
+      ui,
+      claudeStatus: (_workspace, tab) => (tab === "t2" ? { status: "error", since: 16 } : null),
+    });
+    expect(sessions.filter((session) => session.failed)).toMatchObject([
+      { tabId: "t1", state: "idle", failed: true },
+      { tabId: "t2", state: "idle", failed: true },
+    ]);
+    expect(sessions.find((session) => session.tabId === "t4")).not.toHaveProperty("failed");
+    expect(sessions.find((session) => session.tabId === "t5")).not.toHaveProperty("failed");
+  });
+
   test("uses agent order for the list and broadcasts a reorder-only update to watchers", async () => {
     const base = services();
     const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
