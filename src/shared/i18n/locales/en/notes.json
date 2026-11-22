@@ -250,5 +250,26 @@
       "network": "The server could not be reached. Try again in a moment.",
       "failed": "It could not be transcribed again."
     }
+  },
+  "conversations": {
+    "title": "Conversations started from this note",
+    "claude": "Claude conversation",
+    "codex": "Codex conversation",
+    "running": "Working",
+    "attention": "Needs you",
+    "failed": "Failed",
+    "completed": "Done",
+    "seen": "Done",
+    "idle": "Idle",
+    "limitWait": "Limit wait · {{time}}",
+    "closed": "Closed",
+    "missing": "Conversation unavailable",
+    "checking": "Checking conversation",
+    "task": "Task · {{branch}}",
+    "openPr": "Open PR",
+    "unlink": "Remove link",
+    "saveError": "Link save failed",
+    "actionError": "Conversation link action failed",
+    "noteSaveError": "Note save failed"
   }
 }

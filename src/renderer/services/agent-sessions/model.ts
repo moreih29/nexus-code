@@ -52,6 +52,8 @@ export interface AgentSession {
   readonly message: string | undefined;
   /** The last prompt the user gave Claude. */
   readonly prompt: string | undefined;
+  /** Whether the chat has any turns in the conversation it displays. */
+  readonly hasTurns?: boolean;
   /**
    * A Claude or Codex tab the plan's usage limit stopped, which the app goes
    * on in at `at` (Unix ms) once the limit resets (services/chat/limit-resume).
@@ -226,8 +228,12 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
   for (const tab of Object.values(tabs)) {
     const key = sessionKey(workspace.id, tab.id);
     const status = claude[tab.id];
+    const chat = input.chats?.[key];
+    const hasTurns = Boolean(
+      chat?.model.lastResult || chat?.model.items.some((item) => item.kind === "user"),
+    );
     if (tab.type === "claude") {
-      const streamed = claudeChatStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      const streamed = claudeChatStateOf(chat, seen[tab.id], key === input.viewing);
       const state = streamed?.state ?? status?.status ?? "idle";
       sessions.push({
         key,
@@ -242,12 +248,13 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: streamed ? streamed.since : status?.since,
         message: streamed ? streamed.message : status?.message,
         prompt: streamed?.prompt ?? status?.prompt,
+        hasTurns,
         ...limitWaitOf(tab.props.limitResume),
       });
       continue;
     }
     if (tab.type === "codex") {
-      const codex = codexStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      const codex = codexStateOf(chat, seen[tab.id], key === input.viewing);
       sessions.push({
         key,
         workspaceId: workspace.id,
@@ -261,6 +268,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: codex.since,
         message: codex.message,
         prompt: codex.prompt,
+        hasTurns,
         ...limitWaitOf(tab.props.limitResume),
       });
       continue;
@@ -324,6 +332,7 @@ const SESSION_FIELDS = [
   "since",
   "message",
   "prompt",
+  "hasTurns",
 ] as const satisfies readonly (keyof AgentSession)[];
 
 /** Whether two builds of a family show the same. */
@@ -337,7 +346,11 @@ export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): bo
       x.isRoot === y.isRoot &&
       x.branch === y.branch &&
       x.sessions.length === y.sessions.length &&
-      x.sessions.every((s, j) => SESSION_FIELDS.every((field) => s[field] === y.sessions[j][field]))
+      x.sessions.every(
+        (s, j) =>
+          s.limitWait?.at === y.sessions[j].limitWait?.at &&
+          SESSION_FIELDS.every((field) => s[field] === y.sessions[j][field]),
+      )
     );
   });
 }

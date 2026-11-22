@@ -4,6 +4,7 @@
  *   notes/<location dir>/location.json        where the workspace's folder is
  *   notes/<location dir>/<note id>/note.json  the note (its editor document)
  *   notes/<location dir>/<note id>/note.md    the same as Markdown, for agents
+ *   notes/<location dir>/<note id>/links.json the note's linked conversations
  *   notes/<location dir>/<note id>/sketches/  <sketch id>.excalidraw and .svg
  *   notes/<location dir>/<note id>/materials/ files put into the note
  *   notes/<location dir>/<note id>/screens/   pasted images
@@ -17,8 +18,21 @@ import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import { withBlocks } from "../../../shared/notes/insert";
+import {
+  MAX_EARLIER_SESSIONS,
+  MAX_NOTE_LINK_BYTES,
+  MAX_NOTE_LINKS,
+  type NewNoteLink,
+  type NoteLink,
+  type NoteLinkEntry,
+  NoteLinkIdSchema,
+  type NoteLinkPatch,
+  NoteLinkSchema,
+  type NoteLinkTarget,
+} from "../../../shared/notes/links";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
   EMPTY_TRANSCRIPT,
@@ -51,6 +65,18 @@ import {
 const log = createLogger("notes");
 
 const EMPTY_DOC: DocNode = { type: "doc", content: [{ type: "paragraph" }] };
+const LINKS_JSON = "links.json";
+const LinksFileSchema = z.object({
+  version: z.literal(1),
+  conversations: z.record(z.string(), z.unknown()),
+  summaries: z.record(z.string(), z.unknown()).catch({}),
+});
+
+interface LinksFile {
+  version: 1;
+  conversations: Record<string, NoteLink>;
+  summaries: Record<string, unknown>;
+}
 
 /** How long a file the note does not use is kept: one just written may be about to be. */
 export const PRUNE_AFTER_MS = 10 * 60 * 1000;
@@ -80,6 +106,8 @@ export class NotesStore {
   /** Serializes document updates by note folder. */
   private readonly documentTurns = new Map<string, Promise<void>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
+  private readonly linkTurns = new Map<string, Promise<void>>();
+  private readonly linkTargetTurns = new Map<string, Promise<void>>();
 
   constructor(
     /** The notes folder: <app data>/notes. */
@@ -167,8 +195,94 @@ export class NotesStore {
 
   async remove(location: NoteLocation, id: string): Promise<void> {
     const dir = this.noteDir(location, id);
-    if (!(await exists(dir))) return;
-    await this.discard(dir);
+    await this.queueWrite(this.linkTurns, dir, async () => {
+      if (await exists(dir)) await this.discard(dir);
+    });
+  }
+
+  async links(location: NoteLocation, id: string): Promise<NoteLinkEntry[]> {
+    const file = await readLinks(this.noteDir(location, id));
+    return Object.entries(file.conversations).map(([id, link]) => ({ id, link }));
+  }
+
+  async addLink(location: NoteLocation, id: string, link: NewNoteLink): Promise<NoteLinkEntry> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (Object.keys(file.conversations).length >= MAX_NOTE_LINKS)
+        throw new NoteError("bad-request", "Too many conversations linked to this note");
+      const linkId = `l${randomBytes(8).toString("hex")}`;
+      const now = Date.now();
+      const created = { ...link, createdAt: now, updatedAt: now };
+      file.conversations[linkId] = created;
+      await writeLinks(dir, file);
+      return { id: linkId, link: created };
+    });
+  }
+
+  async updateLink(
+    location: NoteLocation,
+    id: string,
+    linkId: string,
+    patch: NoteLinkPatch,
+  ): Promise<boolean> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (!patchLink(file, linkId, patch)) return false;
+      await writeLinks(dir, file);
+      return true;
+    });
+  }
+
+  /** A chat can receive its session while its note is closed, even after an app restart. */
+  async updateLinksForTab(
+    location: NoteLocation,
+    { agent, ...tab }: NoteLinkTarget & Pick<NoteLink, "agent">,
+    changed: (noteId: string) => void,
+  ): Promise<void> {
+    const locationDir = this.locationDir(location);
+    await this.queueWrite(this.linkTargetTurns, locationDir, async () => {
+      for (const noteId of await readdirSafe(locationDir)) {
+        if (!NOTE_ID_RE.test(noteId)) continue;
+        const dir = this.noteDir(location, noteId);
+        await this.queueWrite(this.linkTurns, dir, async () => {
+          const file = await readLinks(dir);
+          let dirty = false;
+          for (const [id, link] of Object.entries(file.conversations)) {
+            if (
+              link.agent !== agent ||
+              link.tabId !== tab.tabId ||
+              link.workspaceId !== tab.workspaceId
+            )
+              continue;
+            if (patchLink(file, id, { ...tab, profileId: tab.profileId ?? null })) dirty = true;
+          }
+          if (!dirty || !(await exists(path.join(dir, "note.json")))) return;
+          await writeLinks(dir, file);
+          changed(noteId);
+        });
+      }
+    });
+  }
+
+  async removeLink(location: NoteLocation, id: string, linkId: string): Promise<boolean> {
+    return this.editLinks(location, id, async (file, dir) => {
+      if (!Object.hasOwn(file.conversations, linkId)) return false;
+      delete file.conversations[linkId];
+      await writeLinks(dir, file);
+      return true;
+    });
+  }
+
+  private editLinks<T>(
+    location: NoteLocation,
+    id: string,
+    edit: (file: LinksFile, dir: string) => Promise<T>,
+  ): Promise<T> {
+    const dir = this.noteDir(location, id);
+    return this.queueWrite(this.linkTurns, dir, async () => {
+      await readNote(dir).catch(() => {
+        throw new NoteError("not-found", `no note ${id}`);
+      });
+      return edit(await readLinks(dir), dir);
+    });
   }
 
   /** Copies a file into the note's materials/, under a name not taken yet. */
@@ -466,6 +580,7 @@ export class NotesStore {
         entry.updatedAt = Math.max(entry.updatedAt, note.updatedAt);
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.json"));
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.md"));
+        entry.bytes.text += await sizeOf(path.join(noteDir, LINKS_JSON));
         entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_JSON));
         entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_MD));
         entry.bytes.recordings += await sizeOf(path.join(noteDir, NOTE_DIRS.recordings));
@@ -501,6 +616,67 @@ export class NotesStore {
     }
     await fs.rm(dir, { recursive: true, force: true });
   }
+}
+
+async function readLinks(dir: string): Promise<LinksFile> {
+  const empty: LinksFile = { version: 1, conversations: {}, summaries: {} };
+  try {
+    const handle = await fs.open(path.join(dir, LINKS_JSON), "r");
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > MAX_NOTE_LINK_BYTES) return empty;
+      const bytes = await handle.readFile();
+      if (bytes.length > MAX_NOTE_LINK_BYTES) return empty;
+      const file = LinksFileSchema.safeParse(JSON.parse(bytes.toString("utf8")));
+      if (!file.success) return empty;
+      empty.summaries = file.data.summaries;
+      let count = 0;
+      for (const [id, value] of Object.entries(file.data.conversations)) {
+        if (!NoteLinkIdSchema.safeParse(id).success) continue;
+        const link = NoteLinkSchema.safeParse(value);
+        if (!link.success) continue;
+        empty.conversations[id] = link.data;
+        if (++count === MAX_NOTE_LINKS) break;
+      }
+      return empty;
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT")
+      return empty;
+    throw error;
+  }
+}
+
+async function writeLinks(dir: string, file: LinksFile): Promise<void> {
+  const data = `${JSON.stringify(file)}\n`;
+  if (Buffer.byteLength(data) > MAX_NOTE_LINK_BYTES)
+    throw new NoteError("bad-request", "The note's linked conversations exceed 256 KB");
+  await writeAtomic(path.join(dir, LINKS_JSON), data);
+}
+
+function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
+  if (!Object.hasOwn(file.conversations, id)) return false;
+  const current = file.conversations[id];
+  const { profileId, session, ...target } = patch;
+  const next = { ...current, ...target };
+  if (profileId === null) delete next.profileId;
+  else if (profileId !== undefined) next.profileId = profileId;
+  if (session !== undefined && session !== current.session) {
+    next.session = session;
+    const previous = current.session
+      ? [current.session, ...(current.sessions ?? [])]
+      : current.sessions;
+    if (previous) {
+      next.sessions = [...new Set(previous)]
+        .filter((id) => id !== session)
+        .slice(0, MAX_EARLIER_SESSIONS);
+    }
+  }
+  if (isDeepStrictEqual(next, current)) return false;
+  file.conversations[id] = { ...next, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+  return true;
 }
 
 /** What a note has in it, counted from its document. */

@@ -40,6 +40,7 @@ import {
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
+import { ConversationChips } from "./conversation-chips";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
 import { RecordControls } from "./record-controls";
@@ -53,10 +54,12 @@ export function NoteEditor({
   workspaceId,
   tabId,
   noteId,
+  isVisible,
 }: {
   workspaceId: string;
   tabId: string;
   noteId: string;
+  isVisible: boolean;
 }) {
   const { t } = useTranslation("notes");
   const [note, setNote] = useState<NoteContent | null>(null);
@@ -92,17 +95,19 @@ export function NoteEditor({
         {t("editor.loading")}
       </div>
     );
-  return <LoadedNote workspaceId={workspaceId} tabId={tabId} note={note} />;
+  return <LoadedNote workspaceId={workspaceId} tabId={tabId} note={note} isVisible={isVisible} />;
 }
 
 function LoadedNote({
   workspaceId,
   tabId,
   note,
+  isVisible,
 }: {
   workspaceId: string;
   tabId: string;
   note: NoteContent;
+  isVisible: boolean;
 }) {
   const { t } = useTranslation("notes");
   // The title as typed. The input keeps it itself: a key typed there draws
@@ -479,9 +484,7 @@ function LoadedNote({
             cwd={workspace?.rootPath ?? ""}
             noteId={note.id}
             title={titleNow}
-            beforeSend={async () => {
-              await flush();
-            }}
+            beforeSend={flush}
             trigger={
               <button
                 type="button"
@@ -521,6 +524,12 @@ function LoadedNote({
           </DropdownMenuRoot>
         </div>
       </div>
+      <ConversationChips
+        workspaceId={workspaceId}
+        noteId={note.id}
+        tabId={tabId}
+        isVisible={isVisible}
+      />
       {/* The transcript beside the text where the tab is wide, under it where it is narrow. */}
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}

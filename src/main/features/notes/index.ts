@@ -25,6 +25,9 @@ const c = ipcContract.notes.call;
 const NOTE_WRITE_CALLS: readonly string[] = [
   "create",
   "save",
+  "addLink",
+  "updateLink",
+  "removeLink",
   "prune",
   "remove",
   "addFiles",
@@ -188,6 +191,8 @@ export function registerNotesChannel(opts: {
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
+  const linksChanged = (locationKey: string, noteId: string) =>
+    broadcast("notes", "linksChanged", { locationKey, noteId });
   // Beside the main bundle (electron.vite.config.ts).
   const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
 
@@ -279,6 +284,37 @@ export function registerNotesChannel(opts: {
       read: async (args: unknown) => {
         const { workspaceId, noteId } = validateArgs(c.read.args, args);
         return ipcOk(await store.read(locationOf(workspaceId), noteId));
+      },
+      links: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.links.args, args);
+        return ipcOk(await store.links(locationOf(workspaceId), noteId));
+      },
+      addLink: async (args: unknown) => {
+        const { workspaceId, noteId, link } = validateArgs(c.addLink.args, args);
+        const location = locationOf(workspaceId);
+        const entry = await store.addLink(location, noteId, link);
+        linksChanged(location.key, noteId);
+        return ipcOk(entry);
+      },
+      updateLink: async (args: unknown) => {
+        const update = validateArgs(c.updateLink.args, args);
+        if ("tab" in update) {
+          const location = locationOf(update.tab.workspaceId);
+          await store.updateLinksForTab(location, update.tab, (noteId) =>
+            linksChanged(location.key, noteId),
+          );
+        } else {
+          const location = locationOf(update.workspaceId);
+          if (await store.updateLink(location, update.noteId, update.linkId, update.patch))
+            linksChanged(location.key, update.noteId);
+        }
+        return ipcOk(undefined);
+      },
+      removeLink: async (args: unknown) => {
+        const { workspaceId, noteId, linkId } = validateArgs(c.removeLink.args, args);
+        const location = locationOf(workspaceId);
+        if (await store.removeLink(location, noteId, linkId)) linksChanged(location.key, noteId);
+        return ipcOk(undefined);
       },
       save: async (args: unknown) => {
         const { workspaceId, noteId, title, doc } = validateArgs(c.save.args, args);
@@ -481,6 +517,7 @@ export function registerNotesChannel(opts: {
     }),
     listen: {
       changed: {},
+      linksChanged: {},
     },
   });
 

@@ -126,6 +126,65 @@ test("a missing note or workspace is a recoverable IPC result", async () => {
   }
 });
 
+test("a task's linked chat updates the parent's note and broadcasts link changes", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-links-ipc-"));
+  const taskId = "123e4567-e89b-12d3-a456-426614174001";
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [
+        { id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } },
+        {
+          id: taskId,
+          name: "Task",
+          task: { parentId: id },
+          location: { kind: "local", rootPath: "/task" },
+        },
+      ] as never,
+  });
+  try {
+    const parent = notes.locationOf(id);
+    const { id: noteId } = await notes.store.create(parent, "Shared note");
+    const ipc = createIpcPair().window.ipc;
+    const other = createIpcPair().window.ipc;
+    const tab = { agent: "codex", workspaceId: taskId, tabId: "tab", cwd: "/task", title: "Title" };
+    const result = await ipc.call("notes", "addLink", {
+      workspaceId: taskId,
+      noteId,
+      link: { ...tab, kind: "note" },
+    });
+    expect(result).toMatchObject({ ok: true });
+    const [{ id: linkId }] = await notes.store.links(parent, noteId);
+    expect(
+      await ipc.call("notes", "updateLink", { tab: { ...tab, session: "thread" } }),
+    ).toMatchObject({ ok: true });
+    expect(await other.call("notes", "links", { workspaceId: id, noteId })).toMatchObject({
+      ok: true,
+      value: [{ id: linkId, link: { workspaceId: taskId, session: "thread" } }],
+    });
+    expect(
+      await other.call("notes", "removeLink", { workspaceId: id, noteId, linkId }),
+    ).toMatchObject({ ok: true });
+    expect(await ipc.call("notes", "links", { workspaceId: taskId, noteId })).toMatchObject({
+      ok: true,
+      value: [],
+    });
+    expect(broadcast.mock.calls).toEqual(
+      Array.from({ length: 3 }, () => [
+        "notes",
+        "linksChanged",
+        { locationKey: parent.key, noteId },
+      ]),
+    );
+  } finally {
+    broadcast.mockRestore();
+    notes.dispose();
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
 test.each([
   "stopped",
   "closed",
