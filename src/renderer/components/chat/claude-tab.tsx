@@ -965,6 +965,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           onOpenBeside={(path, { at }) => {
             setLook(null);
             placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
+            return true;
           }}
           onOpenTab={(path, at) => {
             setLook(null);

@@ -63,6 +63,7 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
   const rejoin = peer?.rejoins ?? 0;
   const gitTarget = selection ? peerTargetId(selection) : null;
   const deviceId = selection?.deviceId;
+  const deviceName = peer?.name;
   const workspaceId = selection?.workspaceId;
   const root = selection?.workspace.path;
   const refresh = useRef<(() => void) | null>(null);
@@ -87,9 +88,24 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     );
     refresh.current = watch.refresh;
     const off = observePeerSessions(deviceId, rejoin, (sessions) => {
-      if (sessions.status === "ready") {
-        const { sessions: listed, incompleteWorkspaces } = sessions.list;
-        watch.updateSessions(listed, incompleteWorkspaces?.includes(workspaceId));
+      if (sessions.status !== "ready") return;
+      const { workspaces, sessions: listed, incompleteWorkspaces } = sessions.list;
+      const incomplete = incompleteWorkspaces?.includes(workspaceId) ?? false;
+      watch.updateSessions(listed, incomplete);
+      const workspace = workspaces.find(({ id }) => id === workspaceId);
+      const state = usePeerWorkspaceStore.getState();
+      const target = state.active;
+      if (
+        workspace &&
+        target &&
+        peerTargetId(target) === gitTarget &&
+        target.accountKey === accountKey
+      ) {
+        state.syncSessions(
+          { ...target, workspace, deviceName: deviceName ?? target.deviceName },
+          listed,
+          incomplete,
+        );
       }
     });
     return () => {
@@ -100,6 +116,7 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
   }, [
     accountKey,
     deviceId,
+    deviceName,
     gitSupported,
     gitTarget,
     missing,
@@ -137,6 +154,7 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     offline,
     lists,
     active: selection,
+    peer: reachable ? peer : undefined,
     missing,
     reach,
     reachable,

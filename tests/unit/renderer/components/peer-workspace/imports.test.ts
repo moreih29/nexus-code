@@ -26,6 +26,12 @@ const peerReads = new Set([
   "peerGitShow",
   "peerGitStatus",
 ]);
+const sessionImports = new Map<string, string>([
+  ["components/agent-view/remote-new-menu", "panel.tsx"],
+  ["components/agent-view/remote-pane", "session-tab.tsx"],
+  ["components/agent-view/remote-session-host", "session-tab.tsx"],
+  ["components/agent-view/remote-sessions", "sessions-panel.tsx"],
+]);
 
 function modulePath(file: string, path: string): string | undefined {
   const resolved = path.startsWith("@/")
@@ -63,6 +69,12 @@ function peerReadViolations(file: string, source: string): string[] {
     if (path === undefined) return;
     const normalized = modulePath(file, path);
     if (forbidden.some((entry) => normalized === entry || normalized?.startsWith(`${entry}/`))) {
+      violations.push(`imports ${path}`);
+    }
+    if (
+      normalized?.startsWith("components/agent-view/remote-") &&
+      sessionImports.get(normalized) !== relative(workbench, file)
+    ) {
       violations.push(`imports ${path}`);
     }
   }
@@ -103,7 +115,7 @@ function peerReadViolations(file: string, source: string): string[] {
   return violations;
 }
 
-test("peer workspace components can import only allowed modules and call only peer read IPCs", () => {
+test("peer workspace components use named session gateways and only call peer read IPC directly", () => {
   const files = [...new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: workbench })];
   expect(files.length).toBeGreaterThan(0);
   for (const path of files) {
@@ -132,5 +144,37 @@ test("the peer read guard detects local imports and direct IPC writes", () => {
     'calls ipc.ipcCallResult("remote", "peerChatUploadBegin")',
     'calls ipcCallResult("fs", "write")',
     'calls ipcCallResult("remote", method)',
+  ]);
+});
+
+test("only the designated peer workspace files can host the existing session controls", () => {
+  const component = (name: string) => resolve(workbench, name);
+  expect(
+    peerReadViolations(
+      component("session-tab.tsx"),
+      'import { RemoteSessionPane } from "../agent-view/remote-pane"',
+    ),
+  ).toEqual([]);
+  expect(
+    peerReadViolations(
+      component("panel.tsx"),
+      'import { RemoteNewMenu } from "../agent-view/remote-new-menu"',
+    ),
+  ).toEqual([]);
+  expect(
+    peerReadViolations(
+      component("session-tab.tsx"),
+      `import { RemoteNewMenu } from "../agent-view/remote-new-menu";
+       import { closePeerSession } from "../agent-view/remote-session-actions";
+       import { PeerConsentCard } from "../agent-view/remote-consents";
+       ipcCallResult("remote", "peerChatAnswer", {});
+       ipcCallResult("remote", "peerTerminalOpen", {});`,
+    ),
+  ).toEqual([
+    "imports ../agent-view/remote-new-menu",
+    "imports ../agent-view/remote-session-actions",
+    "imports ../agent-view/remote-consents",
+    'calls ipcCallResult("remote", "peerChatAnswer")',
+    'calls ipcCallResult("remote", "peerTerminalOpen")',
   ]);
 });

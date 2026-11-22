@@ -9,14 +9,16 @@
 
 import type { TFunction } from "i18next";
 import { Square } from "lucide-react";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
+import { refreshPeerSessions } from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { ProfileDot } from "../agent-profiles/profile-badge";
 import { Popover } from "../ui/popover";
 import { showToast } from "../ui/toast";
+import { RemoteSessionHostContext } from "./remote-session-host";
 
 /**
  * A profile of that computer's as this app names it: its unnamed default
@@ -53,6 +55,7 @@ export function RemoteProfileChip({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  const host = useContext(RemoteSessionHostContext);
   const [open, setOpen] = useState(false);
   const [others, setOthers] = useState<PeerProfile[] | null>(null);
   const name = target.profile;
@@ -82,7 +85,8 @@ export function RemoteProfileChip({
         showToast({ kind: "error", message: result.message });
         return;
       }
-      useRemoteViewStore.getState().setProfile(remoteSessionKey(target), result.value.to);
+      if (host) refreshPeerSessions(target.deviceId);
+      else useRemoteViewStore.getState().setProfile(remoteSessionKey(target), result.value.to);
       if (!fresh)
         showToast({
           kind: "info",

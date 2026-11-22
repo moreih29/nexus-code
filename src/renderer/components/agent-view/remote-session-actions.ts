@@ -15,7 +15,11 @@ import { forgetRemoteResult } from "../../services/agent-view/remote-results";
 import { forgetPeerSubmissions } from "../../services/remote/peer-submissions";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import {
+  type OpenRemoteSession,
+  openRemoteSession,
+  type RemoteTarget,
+} from "../../state/stores/remote-view";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import { showToast } from "../ui/toast";
 
@@ -71,6 +75,7 @@ export async function newPeerChat(
   where: PeerWorkspaceRef,
   agent: "claude" | "codex",
   profile?: { id: string; name: string },
+  open: OpenRemoteSession = openRemoteSession,
 ): Promise<boolean> {
   const result = await ipcCallResult("remote", "peerChatNew", {
     deviceId: where.deviceId,
@@ -84,7 +89,7 @@ export async function newPeerChat(
   }
   // It opened, though something asked of it was not set: said, and shown all the same.
   if (result.value.error) failed(result.value.error);
-  useRemoteViewStore.getState().open({
+  open({
     ...where,
     tabId: result.value.tabId,
     kind: agent,
@@ -104,6 +109,7 @@ export async function newPeerChat(
 export async function newPeerTerminal(
   where: PeerWorkspaceRef,
   shell?: { id: string; name: string },
+  open: OpenRemoteSession = openRemoteSession,
 ): Promise<boolean> {
   const result = await ipcCallResult("remote", "peerTerminalOpen", {
     deviceId: where.deviceId,
@@ -114,7 +120,7 @@ export async function newPeerTerminal(
     failed(result.message);
     return false;
   }
-  useRemoteViewStore.getState().open({
+  open({
     ...where,
     tabId: result.value.tabId,
     kind: "terminal",

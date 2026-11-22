@@ -13,7 +13,11 @@ import { ipcCallResult } from "../../ipc/client";
 import type { ChatController } from "../../services/chat/claude/controller";
 import type { ImageBlock, UserItem } from "../../services/chat/model";
 import { putPeerDraft } from "../../services/remote/peer-drafts";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import {
+  type OpenRemoteSession,
+  openRemoteSession,
+  type RemoteTarget,
+} from "../../state/stores/remote-view";
 import { showToast } from "../ui/toast";
 
 async function answerOf<T>(sent: Promise<IpcResult<T>>): Promise<T> {
@@ -79,6 +83,7 @@ export async function forkPeerChat(
   itemKey?: string,
   /** The selected user prompt, including the images still on its parent. */
   user?: Pick<UserItem, "text" | "images">,
+  open: OpenRemoteSession = openRemoteSession,
 ): Promise<void> {
   const ref = { deviceId: target.deviceId, workspaceId: target.workspaceId, tabId: target.tabId };
   try {
@@ -90,7 +95,7 @@ export async function forkPeerChat(
     if (text || images.length > 0) {
       putPeerDraft({ ...ref, tabId: forked.tabId }, text ?? "", images);
     }
-    useRemoteViewStore.getState().open({ ...target, tabId: forked.tabId, state: "idle" });
+    open({ ...target, tabId: forked.tabId, state: "idle" });
   } catch (error) {
     showToast({
       kind: "error",

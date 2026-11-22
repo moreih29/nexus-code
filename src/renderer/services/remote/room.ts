@@ -48,10 +48,10 @@ export function usePeerReach(deviceId: string): PeerReach {
  * chat.control, as the user there allowed it. Taken as yes until its hello
  * says otherwise.
  */
-export function usePeerControls(deviceId: string): boolean {
+export function usePeerControls(deviceId: string, assumeControl = true): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
-  return serves ? serves.includes("chat.control") : true;
+  return serves?.includes("chat.control") ?? assumeControl;
 }
 
 /**
