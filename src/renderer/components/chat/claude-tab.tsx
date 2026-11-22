@@ -3,7 +3,7 @@
 // connection, so the view only reads what its controller has.
 
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
@@ -855,7 +855,14 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             model={state.model}
             onRetry={(text) => controller.send(text)}
           />
-          <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
+          {isVisible && state.model.sessionId && (
+            <TwinBanner
+              key={state.model.sessionId}
+              workspaceId={workspaceId}
+              tabId={tabId}
+              sessionId={state.model.sessionId}
+            />
+          )}
           <Composer
             instructionsTab={instructionsTab}
             controller={controller}
@@ -1001,21 +1008,21 @@ function forkFrom(
 }
 
 /** Warns that the session is open in a terminal tab too, where going on forks it. */
-function TwinBanner({
+const TwinBanner = memo(function TwinBanner({
   workspaceId,
   tabId,
   sessionId,
 }: {
   workspaceId: string;
   tabId: string;
-  sessionId: string | undefined;
+  sessionId: string;
 }) {
   const { t } = useTranslation();
   const twin = useTerminalTwin(workspaceId, tabId, sessionId);
   const { dismiss, dismissed } = useBannerDismissal(
     ["chat-terminal-twin", workspaceId, tabId, sessionId],
     twin ? [twin] : undefined,
-    true,
+    twin !== undefined,
   );
   if (!twin || dismissed) return null;
   return (
@@ -1028,4 +1035,4 @@ function TwinBanner({
       />
     </div>
   );
-}
+});
