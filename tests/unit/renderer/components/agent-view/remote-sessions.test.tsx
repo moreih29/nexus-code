@@ -226,11 +226,11 @@ describe("the agent view's other computers", () => {
       device: { id: "d1", name: "Mac", platform: "darwin" },
     };
     const peers = [
-      { ...peer, id: "desk", name: "Desk PC" },
-      { ...peer, id: "home", name: "Home PC", online: false },
-      { ...peer, id: "laptop", name: "Laptop" },
-      { ...peer, id: "office", name: "Office PC", online: false },
       { ...peer, id: "new", name: "New PC" },
+      { ...peer, id: "office", name: "Office PC", online: false },
+      { ...peer, id: "laptop", name: "Laptop" },
+      { ...peer, id: "home", name: "Home PC", online: false },
+      { ...peer, id: "desk", name: "Desk PC" },
     ];
     const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({ status: "online", peers });
     const readAccount = spyOn(account, "useRemoteAccount").mockReturnValue(signedIn);

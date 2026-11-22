@@ -53,9 +53,27 @@ describe("the list's order", () => {
 });
 
 describe("the other computers' order", () => {
-  const peers = ["mac", "pc", "laptop", "office", "new", "newer"].map((id) => ({ id }));
   const saved = ["laptop", "removed", "pc", "office", "mac"];
   const online = ["pc", "mac", "new"];
+  const peers = ["mac", "pc", "laptop", "office", "new", "newer"].map((id) => ({
+    id,
+    name: id,
+    online: online.includes(id),
+  }));
+
+  it("defaults to online first and names within each group", () => {
+    const expected = ["mac", "new", "pc", "laptop", "newer", "office"];
+    expect(orderPeers(peers, undefined).map((peer) => peer.id)).toEqual(expected);
+    expect(orderPeers(peers, []).map((peer) => peer.id)).toEqual(expected);
+    expect(movePeer(peers, [], online, "pc", "new", "before")).toEqual([
+      "mac",
+      "pc",
+      "new",
+      "laptop",
+      "newer",
+      "office",
+    ]);
+  });
 
   it("follows the stored IDs and appends new computers in room order", () => {
     expect(orderPeers(peers, saved).map((peer) => peer.id)).toEqual([
@@ -66,7 +84,6 @@ describe("the other computers' order", () => {
       "new",
       "newer",
     ]);
-    expect(orderPeers(peers, [])).toBe(peers);
   });
 
   it("swaps adjacent online computers and keeps the offline slots", () => {

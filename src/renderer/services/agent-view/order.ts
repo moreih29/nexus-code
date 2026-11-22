@@ -1,7 +1,9 @@
 /**
  * The order of the agent view's list: session keys by workspace or task,
- * and device IDs for the other computers. New rows come at the end.
+ * and device IDs for the other computers. New rows come after saved rows.
  */
+
+import type { RoomPeer } from "../../../shared/remote/room";
 
 /** The orders by workspace id. */
 export type AgentOrder = Readonly<Record<string, readonly string[]>>;
@@ -18,11 +20,17 @@ export function orderSessions<T extends { readonly key: string }>(
   return orderRows(sessions, order, (session) => session.key);
 }
 
-export function orderPeers<T extends { readonly id: string }>(
+type OrderedPeer = Pick<RoomPeer, "id" | "name" | "online">;
+
+/** Default to online first and names within each group until the user sets an order. */
+export function orderPeers<T extends OrderedPeer>(
   peers: readonly T[],
   order: readonly string[] | undefined,
 ): readonly T[] {
-  return orderRows(peers, order, (peer) => peer.id);
+  if (order?.length) return orderRows(peers, order, (peer) => peer.id);
+  return peers.toSorted(
+    (a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name),
+  );
 }
 
 function orderRows<T>(
@@ -57,7 +65,7 @@ export function moveKey(
 
 /** Move among online slots, using the room roster to drop removed IDs. */
 export function movePeer(
-  peers: readonly { readonly id: string }[],
+  peers: readonly OrderedPeer[],
   order: readonly string[],
   online: readonly string[],
   moved: string,
