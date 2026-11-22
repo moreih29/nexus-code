@@ -73,45 +73,64 @@ test("closed, remote and unparented tabs stay at the top", () => {
   const oldLayout = session("legacy");
   const appFork = session("app-fork");
   const closed = session("closed", { parent: opener("missing", "Last title") });
-  const brokenChain = session("broken-chain", { parent: opener("closed") });
   const peer = session("peer", {
     parent: { ...opener("parent", "Peer title"), device: { id: "d1", name: "Office" } },
   });
-  const result = sessionTree([parent, oldLayout, appFork, closed, brokenChain, peer]);
-  expect(result.map((node) => node.session)).toEqual([
-    parent,
-    oldLayout,
-    appFork,
-    closed,
-    brokenChain,
-    peer,
-  ]);
+  const result = sessionTree([parent, oldLayout, appFork, closed, peer]);
+  expect(result.map((node) => node.session)).toEqual([parent, oldLayout, appFork, closed, peer]);
   expect(result[3]).toMatchObject({ parentName: "Last title", parentClosed: true });
+  expect(result[4]?.parentName).toBe("Peer title");
   expect(result[4]).not.toHaveProperty("parentClosed");
-  expect(result[5]?.parentName).toBe("Peer title");
-  expect(result[5]).not.toHaveProperty("parentClosed");
 });
 
-test("breaks cycles, skips ended terminals and stops walking after eight parent links", () => {
+test("a grandchild stays with its parent when the grandparent closes", () => {
+  const grandparent = session("grandparent", { title: "Last title" });
+  const parent = session("parent", { parent: opener(grandparent.tabId, grandparent.title) });
+  const child = session("child", { parent: opener(parent.tabId), phase: "attention" });
+  expect(sessionTree([child, parent, grandparent]).map(({ session }) => session)).toEqual([
+    grandparent,
+  ]);
+  const result = sessionTree([child, parent]);
+  expect(result).toHaveLength(1);
+  expect(result[0]).toMatchObject({
+    session: parent,
+    parentName: "Last title",
+    parentClosed: true,
+    count: 1,
+    group: "attention",
+    children: [{ session: child, depth: 1, parentName: parent.title }],
+  });
+  expect(result[0]?.children[0]).not.toHaveProperty("parentClosed");
+});
+
+test("breaks cycles and treats a terminal that ended as missing", () => {
   const a = session("a", { parent: opener("b") });
   const b = session("b", { parent: opener("a") });
+  const descendant = session("descendant", { parent: opener("a") });
   const self = session("self", { parent: opener("self") });
   const ended = session("ended", { kind: "terminal", state: "exited" });
   const orphan = session("orphan", { parent: opener("ended") });
-  expect(sessionTree([a, b, self, ended, orphan]).map(({ session }) => session)).toEqual([
-    a,
-    b,
-    self,
-    orphan,
+  expect(
+    sessionTree([a, b, descendant, self, ended, orphan]).map(({ session }) => session),
+  ).toEqual([a, b, descendant, self, orphan]);
+});
+
+test.each([
+  false,
+  true,
+])("the ninth listed parent link is cut with missing top opener = %s", (missingOpener) => {
+  const root = session("node0", missingOpener ? { parent: opener("gone") } : {});
+  const chain = [
+    root,
+    ...Array.from({ length: 9 }, (_, i) => session(`node${i + 1}`, { parent: opener(`node${i}`) })),
+  ];
+  const result = sessionTree(chain);
+  expect(result.map(({ session, depth }) => [session.tabId, depth])).toEqual([
+    ["node0", 0],
+    ["node9", 0],
   ]);
-  const chain = Array.from({ length: 10 }, (_, i) =>
-    session(`node${i}`, i ? { parent: opener(`node${i - 1}`) } : {}),
-  );
-  const [family, overflow] = sessionTree(chain);
-  expect(family?.count).toBe(8);
-  expect(overflow?.session.tabId).toBe("node9");
-  expect(overflow?.depth).toBe(0);
-  expect([...treeSessions([family!])]).toEqual(chain.slice(0, 9));
+  expect(result[0]?.count).toBe(8);
+  expect([...treeSessions(result)]).toEqual(chain);
 });
 
 test("groups by the most urgent descendant, keeps tree search context and discloses idle rows in opening order", () => {

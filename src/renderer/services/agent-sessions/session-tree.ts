@@ -32,17 +32,21 @@ export function sessionTree(sessions: readonly AgentSession[]): readonly Session
   const roots: AgentSession[] = [];
 
   for (const session of visible) {
+    let parentId: string | undefined;
     let current = session;
     const visited = new Set([session.tabId]);
     while (current.parent?.tabId && !current.parent.device) {
       const next = byTab.get(current.parent.tabId);
-      if (!next || visited.has(next.tabId) || visited.size > MAX_PARENT_STEPS) break;
+      // The highest tab still in the list is the root when its opener is gone.
+      if (!next) break;
+      if (visited.has(next.tabId) || visited.size > MAX_PARENT_STEPS) {
+        parentId = undefined;
+        break;
+      }
+      parentId ??= next.tabId;
       visited.add(next.tabId);
       current = next;
     }
-    // A chain must end at a root on this computer. An unresolved chain starts here.
-    const resolved = !current.parent?.tabId || current.parent.device !== undefined;
-    const parentId = resolved && current !== session ? session.parent?.tabId : undefined;
     if (!parentId) {
       roots.push(session);
       continue;
