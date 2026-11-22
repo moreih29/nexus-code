@@ -41,6 +41,7 @@ export function snapshotTab(tab: Omit<CliSessionTab, "chat">, chat?: ChatInfo): 
     title: tab.title,
     ...(tab.dead ? { dead: true } : {}),
     ...(tab.unstarted ? { unstarted: true } : {}),
+    ...(tab.openedBy ? { openedBy: tab.openedBy } : {}),
     ...(chat ? { chat: sessionChat(chat) } : {}),
   };
 }

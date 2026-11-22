@@ -120,6 +120,7 @@ export interface CliSessionTab {
   readonly title: string;
   readonly dead?: boolean;
   readonly unstarted?: boolean;
+  readonly openedBy?: TerminalOpener;
   /** A Claude or Codex tab's state; none when it could not be read. */
   readonly chat?: CliSessionChat;
 }

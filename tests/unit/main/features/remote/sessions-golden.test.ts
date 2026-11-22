@@ -4,12 +4,17 @@
  * may not.
  */
 import { afterEach, expect, test } from "bun:test";
-import type { SessionsUpdate } from "../../../../../packages/remote-protocol/src";
+import {
+  MAX_FRAME_BYTES,
+  RPC_METHODS,
+  type SessionsUpdate,
+} from "../../../../../packages/remote-protocol/src";
 import type {
   CliServices,
   PendingConsent,
   SessionsRenderer,
 } from "../../../../../src/main/features/cli/context";
+import { sealMessage } from "../../../../../src/main/features/remote/seal";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import {
@@ -17,6 +22,7 @@ import {
   type SessionsSnapshotReaders,
   sessionsSnapshot,
 } from "../../../../../src/renderer/services/cli/sessions-snapshot";
+import type { TerminalOpener } from "../../../../../src/shared/chat/relay";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 import { testSessionsRevision } from "../../../../helpers/sessions-snapshot";
 
@@ -37,13 +43,41 @@ const WORKSPACES = [
   { id: "w-chatfail", name: "chatfail", rootPath: "/src/chatfail", pinned: false, sortOrder: 3 },
 ];
 
-type Tab = { id: string; type: string; title: string; dead?: true; unstarted?: true };
+type Tab = {
+  id: string;
+  type: string;
+  title: string;
+  dead?: true;
+  unstarted?: true;
+  openedBy?: TerminalOpener;
+};
+
+const CHAT_OPENER = {
+  workspaceId: "peer-workspace",
+  tabId: "peer-opener",
+  kind: "terminal",
+  agent: "codex",
+  name: `${"a".repeat(119)}😀tail`,
+  device: { id: "peer-device", name: `${"한".repeat(118)}😀tail` },
+} as const;
+const TERMINAL_OPENER = {
+  workspaceId: "w-root",
+  tabId: "c-ask",
+  kind: "tab",
+  agent: "claude",
+  name: "Asks",
+} as const;
+const CLIPPED_OPENER = {
+  ...CHAT_OPENER,
+  name: "a".repeat(119),
+  device: { id: "peer-device", name: `${"한".repeat(118)}😀` },
+};
 
 /** Each workspace's tabs as the renderer lists them for the remote list (agent order). */
 const TABS: Record<string, Tab[]> = {
   "w-root": [
-    { id: "c-ask", type: "claude", title: "Asks" },
-    { id: "x-perm", type: "terminal", title: "claude" },
+    { id: "c-ask", type: "claude", title: "Asks", openedBy: CHAT_OPENER },
+    { id: "x-perm", type: "terminal", title: "claude", openedBy: TERMINAL_OPENER },
     { id: "c-idle", type: "claude", title: "Idle unread" },
     { id: "e-1", type: "editor", title: "a.ts" },
     { id: "c-err", type: "claude", title: "Failed" },
@@ -60,7 +94,12 @@ const TABS: Record<string, Tab[]> = {
     { id: "x-quiet", type: "terminal", title: "quiet codex" },
   ],
   "w-task": [
-    { id: "o-idle", type: "codex", title: "Codex idle" },
+    {
+      id: "o-idle",
+      type: "codex",
+      title: "Codex idle",
+      openedBy: { kind: "manager", workspaceId: "manager", tabId: "old-manager" },
+    },
     { id: "c-plan", type: "claude", title: "Plan" },
   ],
   "w-chatfail": [
@@ -264,6 +303,45 @@ function steady<T>(value: T): T {
 
 let watches: SessionWatches | undefined;
 afterEach(() => watches?.dropAll());
+
+test("500 sessions with full-length opener metadata fit in a sealed frame", async () => {
+  const workspaceId = "w".repeat(64);
+  const result = RPC_METHODS["sessions.watch"].result.parse({
+    watchId: "watch",
+    workspaces: [{ id: workspaceId, name: "Project", path: "/repo" }],
+    sessions: Array.from({ length: 500 }, (_, i) => ({
+      workspaceId,
+      tabId: `session-${i}`.padEnd(64, "t"),
+      kind: "claude",
+      title: "Long-running project review",
+      state: "running",
+      since: i,
+      last: "word ".repeat(40),
+      openedBy: {
+        workspaceId: "p".repeat(64),
+        tabId: "t".repeat(64),
+        kind: "tab",
+        agent: "codex",
+        name: "界".repeat(120),
+        device: { id: "d".repeat(64), name: "한".repeat(120) },
+      },
+    })),
+  });
+  expect(result.sessions).toHaveLength(500);
+  expect(result.sessions.every((row) => row.openedBy?.device?.name.length === 120)).toBe(true);
+  const frame = await sealMessage({
+    room: { kid: 0, key: new Uint8Array(32) },
+    from: "host",
+    to: "client",
+    seq: 1,
+    envelope: {
+      epoch: "A".repeat(22),
+      peer: "B".repeat(22),
+      message: { jsonrpc: "2.0", id: 1, result },
+    },
+  });
+  expect(Buffer.byteLength(JSON.stringify(frame), "utf8")).toBeLessThan(MAX_FRAME_BYTES);
+});
 
 test("the sessions' list, its consents and its waiting requests stay as they were", async () => {
   const s = services();
@@ -493,6 +571,7 @@ const EXPECTED = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -518,6 +597,7 @@ const EXPECTED = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,
@@ -767,6 +847,7 @@ const EXPECTED_WATCH = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -792,6 +873,7 @@ const EXPECTED_WATCH = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,
@@ -1027,6 +1109,7 @@ const EXPECTED_WATCH = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -1052,6 +1135,7 @@ const EXPECTED_WATCH = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,

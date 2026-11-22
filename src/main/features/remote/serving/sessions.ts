@@ -1,6 +1,7 @@
 import {
   MAX_AGENT_DESCRIPTION,
   MAX_SESSION_AGENTS,
+  MAX_SESSION_OPENER_NAME,
   type RemoteSession,
   type RemoteSessionAgent,
   type RemoteWorkspace,
@@ -339,6 +340,25 @@ async function readRenderer(
   return read;
 }
 
+function clipOpenerName(name: string): string {
+  return name.slice(0, MAX_SESSION_OPENER_NAME).replace(/[\uD800-\uDBFF]$/u, "");
+}
+
+function openerField(opener: CliSessionTab["openedBy"]): Pick<RemoteSession, "openedBy"> {
+  if (!opener?.workspaceId || !opener.tabId || opener.kind === "manager") return {};
+  const { workspaceId, tabId, kind, agent, name, device } = opener;
+  return {
+    openedBy: {
+      workspaceId,
+      tabId,
+      kind,
+      ...(agent === undefined ? {} : { agent }),
+      ...(name === undefined ? {} : { name: clipOpenerName(name) }),
+      ...(device ? { device: { id: device.id, name: clipOpenerName(device.name) } } : {}),
+    },
+  };
+}
+
 function chatSession(
   services: CliServices,
   workspaceId: string,
@@ -367,6 +387,7 @@ function chatSession(
       ? { limitWait: { at: info.limitResume.at } }
       : {}),
     ...agentsField(services, workspaceId, tab.id),
+    ...openerField(tab.openedBy),
   };
   return { row, ...(row.waiting && info.waitingId ? { waitingId: info.waitingId } : {}) };
 }
@@ -404,6 +425,7 @@ function terminalSession(
         }
       : {}),
     ...(tab.dead ? {} : agentsField(services, workspaceId, tab.id)),
+    ...openerField(tab.openedBy),
   };
 }
 

@@ -490,6 +490,51 @@ describe("the methods", () => {
     expect(RemoteSessionSchema.safeParse({ ...before, failed: false }).success).toBe(false);
   });
 
+  test("opener metadata is additive on lists and watches and invalid metadata leaves the session", () => {
+    const row = { workspaceId: "w", tabId: "t", kind: "codex", title: "Review", state: "idle" };
+    const openedBy = {
+      workspaceId: "p",
+      tabId: "opener",
+      kind: "terminal",
+      agent: "claude",
+      name: "Prepare release",
+      device: { id: "d", name: "Studio" },
+    };
+    const list = RPC_METHODS["sessions.list"].result;
+    const watch = RPC_METHODS["sessions.watch"].result;
+    const wire = JSON.parse(
+      JSON.stringify({ workspaces: [], sessions: [row, { ...row, openedBy }] }),
+    );
+    expect(list.parse(wire).sessions).toEqual([row, { ...row, openedBy }]);
+    expect(watch.parse({ ...wire, watchId: "w1" }).sessions).toEqual([row, { ...row, openedBy }]);
+    const legacy = RemoteSessionSchema.omit({ openedBy: true });
+    expect(legacy.parse(wire.sessions[1])).toEqual(row);
+    for (const invalid of [
+      null,
+      "opener",
+      { ...openedBy, workspaceId: "w".repeat(65) },
+      { ...openedBy, tabId: "t".repeat(65) },
+      { ...openedBy, name: "a".repeat(121) },
+      { ...openedBy, device: { id: "d".repeat(65), name: "Studio" } },
+      { ...openedBy, device: { id: "d", name: "a".repeat(121) } },
+    ]) {
+      const sessions = list.parse({
+        workspaces: [],
+        sessions: [{ ...row, openedBy: invalid }],
+      }).sessions;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject(row);
+      expect(sessions[0]?.openedBy).toBeUndefined();
+    }
+    const result = RemoteSessionSchema.parse({
+      ...row,
+      openedBy: { ...openedBy, kind: "unknown", agent: "unknown" },
+    });
+    expect(result.openedBy).toMatchObject({ tabId: openedBy.tabId, name: openedBy.name });
+    expect(result.openedBy?.kind).toBeUndefined();
+    expect(result.openedBy?.agent).toBeUndefined();
+  });
+
   test("files.read gives a file's bytes piece by piece, at most a chunk at once", () => {
     const read = RPC_METHODS["files.read"];
     const ask = (more: object) =>
