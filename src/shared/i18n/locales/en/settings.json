@@ -1149,7 +1149,7 @@
           "body": "Check your network, then try again."
         },
         "failed": {
-          "title": "Sign-in didn't finish",
+          "title": "Sign-in failed",
           "body": "Sign in again."
         }
       },
