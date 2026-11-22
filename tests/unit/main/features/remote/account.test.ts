@@ -17,6 +17,11 @@ import {
 } from "../../../../../src/main/features/remote/loopback";
 import { challengeOf } from "../../../../../src/main/features/remote/pkce";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
+import {
+  DEV_SERVER,
+  SERVER as RELEASED_SERVER,
+  remoteWays,
+} from "../../../../../src/main/features/remote/server";
 
 import { askTicket } from "../../../../../src/main/features/remote/ticket";
 import { oversizedResponse } from "../../../../helpers/http-fixtures";
@@ -269,6 +274,128 @@ describe("the way to the server", () => {
         body: payload,
       })),
     );
+  });
+});
+
+describe("the released app's server", () => {
+  const PROXY_HOST = "api.nexuscode.gradiendo.com";
+  const DIRECT_HOST = "cloud.nexuscode.gradiendo.com";
+  const FALLBACK_HOST = "nexus-cloud.moreih29.workers.dev";
+  const saved = { server: RELEASED_SERVER, token: "tok", user, device };
+  /** The server at every address, with the hosts that cannot be reached. */
+  function reachedAt(down: string[] = []) {
+    const server = fakeServer();
+    const fetchFn = (async (input: URL | string, init?: RequestInit) => {
+      if (down.includes(new URL(String(input)).host)) throw new TypeError("fetch failed");
+      return server.fetchFn(input, init);
+    }) as typeof fetch;
+    return { server, fetchFn };
+  }
+
+  test("signs in at its own domain, asks through the proxy, and keeps the name signed in to", async () => {
+    const { server, fetchFn } = reachedAt();
+    const { opened, openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const store = memoryStore();
+    const account = new RemoteAccount({
+      server: RELEASED_SERVER,
+      ...remoteWays({}, true, RELEASED_SERVER),
+      store,
+      openExternal,
+      fetch: fetchFn,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toMatchObject({ status: "signed-in", server: RELEASED_SERVER });
+    expect(opened[0]?.host).toBe(DIRECT_HOST);
+    expect(opened[0]?.pathname).toBe("/auth/google/start");
+    expect(server.requests.map((r) => [r.path, r.host])).toEqual([["/auth/token", PROXY_HOST]]);
+    expect(store.value?.server).toBe(RELEASED_SERVER);
+  });
+
+  test("a sign-in kept from before the domain is still signed in", async () => {
+    const { server, fetchFn } = reachedAt();
+    const account = new RemoteAccount({
+      server: RELEASED_SERVER,
+      ...remoteWays({}, true, RELEASED_SERVER),
+      store: memoryStore({ ...saved, server: "https://nexus-cloud.moreih29.workers.dev" }),
+      openExternal: async () => {},
+      fetch: fetchFn,
+    });
+    await account.restore();
+    expect(account.state()).toMatchObject({ status: "signed-in", server: RELEASED_SERVER });
+    expect(await account.devices()).toHaveLength(1);
+    expect(server.requests.map((r) => [r.host, r.auth])).toEqual([[PROXY_HOST, "Bearer tok"]]);
+  });
+
+  test("goes straight to its domain when the proxy cannot be reached, then to its old name", async () => {
+    let now = 0;
+    const down = [PROXY_HOST, DIRECT_HOST];
+    const { server, fetchFn } = reachedAt(down);
+    const asked: string[] = [];
+    const account = new RemoteAccount({
+      server: RELEASED_SERVER,
+      ...remoteWays({}, true, RELEASED_SERVER),
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: (async (input: URL | string, init?: RequestInit) => {
+        asked.push(new URL(String(input)).host);
+        return fetchFn(input, init);
+      }) as typeof fetch,
+      now: () => now,
+    });
+    await account.restore();
+    // One request tries each way once, in order.
+    expect(await account.devices()).toHaveLength(1);
+    expect(asked).toEqual([PROXY_HOST, DIRECT_HOST, FALLBACK_HOST]);
+    expect(server.requests.map((r) => [r.host, r.auth])).toEqual([[FALLBACK_HOST, "Bearer tok"]]);
+    // The next goes by the old name alone, until the others are tried again.
+    await account.devices();
+    expect(asked.slice(3)).toEqual([FALLBACK_HOST]);
+    now = 5 * 60_000;
+    down.splice(0);
+    await account.devices();
+    expect(asked.slice(4)).toEqual([PROXY_HOST]);
+  });
+
+  test("a request that reaches no way fails once, having tried each", async () => {
+    const asked: string[] = [];
+    const account = new RemoteAccount({
+      server: RELEASED_SERVER,
+      ...remoteWays({}, true, RELEASED_SERVER),
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: (async (input: URL | string) => {
+        asked.push(new URL(String(input)).host);
+        throw new TypeError("fetch failed");
+      }) as typeof fetch,
+      now: () => 0,
+    });
+    await account.restore();
+    await expect(account.devices()).rejects.toThrow("did not answer");
+    expect(asked).toEqual([PROXY_HOST, DIRECT_HOST, FALLBACK_HOST]);
+  });
+
+  test("a development server is signed in to and asked at its own address", async () => {
+    const { server, fetchFn } = reachedAt();
+    const { opened, openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const store = memoryStore();
+    const account = new RemoteAccount({
+      server: DEV_SERVER,
+      ...remoteWays({}, false, DEV_SERVER),
+      store,
+      openExternal,
+      fetch: fetchFn,
+    });
+    accounts.push(account);
+    expect((await account.signIn()).status).toBe("signed-in");
+    expect(opened[0]?.origin).toBe(DEV_SERVER);
+    expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787"]);
+    expect(store.value?.server).toBe(DEV_SERVER);
   });
 });
 

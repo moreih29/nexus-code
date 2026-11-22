@@ -23,9 +23,9 @@ Partner Center → 제품 관리 → 제품 ID 의 값이 `electron-builder.yml`
 | 칸 | 값 |
 |---|---|
 | 범주 | 개발자 도구 |
-| 개인정보처리방침 URL | `https://github.com/moreih29/nexus-code/blob/main/docs/PRIVACY.md` |
-| 웹 사이트 | `https://github.com/moreih29/nexus-code` |
-| 지원 연락처 | `https://github.com/moreih29/nexus-code/issues` |
+| 개인정보처리방침 URL | `https://nexuscode.gradiendo.com/privacy/` |
+| 웹 사이트 | `https://nexuscode.gradiendo.com/` |
+| 지원 연락처 | `https://nexuscode.gradiendo.com/support/` |
 | 시스템 요구 사항 (하드웨어) | 최소: 키보드, 마우스 |
 | 추가 시스템 요구 사항 | 최소: `Git for Windows (source control)` |
 | 제품 선언 | 기본값 그대로 |

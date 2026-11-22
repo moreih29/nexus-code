@@ -108,6 +108,16 @@ export const APPROVED_ONLY_FAILURES: readonly SignInFailure[] = [
 ];
 
 /**
+ * The failures support's section on signing in and signup approval
+ * explains: those above, and a request turned down. The notice in Settings
+ * and the browser's page link to it.
+ */
+export const SIGN_IN_HELP_FAILURES: readonly SignInFailure[] = [
+  ...APPROVED_ONLY_FAILURES,
+  "rejected",
+];
+
+/**
  * How a failed sign-in is shown: waiting (on an approval, or the user's
  * own cancel), a step to take, or an account stopped.
  */

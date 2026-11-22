@@ -13,9 +13,12 @@ import {
   page,
 } from "../../../../../src/main/features/remote/loopback";
 import { resources } from "../../../../../src/shared/i18n";
+import { SIGN_IN_HELP_FAILURES } from "../../../../../src/shared/remote/account";
 
 const ko = resources.ko.settings.remote.account;
 const en = resources.en.settings.remote.account;
+const SIGN_IN_HELP_KO = "https://nexuscode.gradiendo.com/support/#sign-in";
+const SIGN_IN_HELP_EN = "https://nexuscode.gradiendo.com/en/support/#sign-in";
 
 /** The page's visible text, tags dropped. */
 const textOf = (html: string) =>
@@ -99,8 +102,11 @@ describe("the page", () => {
     expect(html).toContain(ko.browser.closeTab);
     expect(html.includes(ko.approvedOnly)).toBe(approvedOnly);
     expect(html).not.toContain("<script");
-    // Everything it shows is the app's own: no address, no link, no image to load.
-    expect(html).not.toMatch(/(?:src|href)=/);
+    // Everything it shows is the app's own: no address, no image to load, and no link but
+    // support's for a failure it explains, at the app's own address.
+    const help = (SIGN_IN_HELP_FAILURES as readonly string[]).includes(outcome);
+    expect(html.match(/(?:src|href)=/g) ?? []).toHaveLength(help ? 1 : 0);
+    expect(html.includes(`<a href="${SIGN_IN_HELP_KO}"`)).toBe(help);
   });
 
   test("has these words, title first, in the order the eye reads them", () => {
@@ -111,9 +117,33 @@ describe("the page", () => {
         ko.failure.pending_approval.title,
         ko.approvedOnly,
         ko.failure.pending_approval.body,
+        ko.learnMore,
         ko.browser.closeTab,
       ].join(" "),
     );
+  });
+
+  test.each([
+    ["pending_approval", "ko", SIGN_IN_HELP_KO, "자세히"],
+    ["closed", "en", SIGN_IN_HELP_EN, "Learn more"],
+    ["not_invited", "ko", SIGN_IN_HELP_KO, "자세히"],
+    ["rejected", "en", SIGN_IN_HELP_EN, "Learn more"],
+  ] as const)("links %s to support's sign-in section in %s", (outcome, language, url, label) => {
+    const html = page(outcome, language);
+    // A new tab the page does not reach back into, and no script to open it.
+    expect(html).toContain(
+      `<p class="more"><a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a></p>`,
+    );
+    expect(html).not.toContain("<script");
+  });
+
+  test.each([
+    "signed-in",
+    "in-app",
+    "suspended",
+    "too_many_devices",
+  ] as const)("does not link %s", (outcome) => {
+    expect(page(outcome, "en")).not.toContain("<a ");
   });
 
   test.each([
@@ -165,6 +195,24 @@ describe("the callback's answer", () => {
     );
     expect(res.headers.get("content-type")).toBe(PAGE_HEADERS["content-type"]);
     expect(await res.text()).toBe(page("signed-in", "ko"));
+  });
+
+  test("keeps those headers on a page with support's link, which they let open", async () => {
+    const listener = await listenForCallback(5_000, () => "en");
+    const shown = fetch(`${listener.redirectUri}?error=not_invited&access=rejected`);
+    await listener.result.catch(() => {});
+    listener.report("rejected");
+    const res = await shown;
+    expect(
+      Object.fromEntries(Object.keys(PAGE_HEADERS).map((h) => [h, res.headers.get(h)])),
+    ).toEqual(PAGE_HEADERS);
+    // No directive governs where the page goes, so the link opens.
+    expect(PAGE_HEADERS["content-security-policy"]).not.toMatch(/navigate-to|form-action|sandbox/);
+    const html = await res.text();
+    expect(html).toBe(page("rejected", "en"));
+    expect(html).toContain(
+      `<a href="${SIGN_IN_HELP_EN}" target="_blank" rel="noopener noreferrer">`,
+    );
   });
 
   test("waits for the app to say how the sign-in ended", async () => {

@@ -16,11 +16,13 @@ import {
   MAX_DEVICE_ALIAS,
   type RemoteAccountState,
   type RemoteDeviceInfo,
+  SIGN_IN_HELP_FAILURES,
   SIGN_IN_PROVIDERS,
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
+import { siteUrl } from "../../../../shared/site";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult } from "../../../ipc/client";
 import { useRemoteAccount } from "../../../services/remote/account";
@@ -29,13 +31,7 @@ import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
-import {
-  SettingsGroup,
-  SettingsPage,
-  SettingsRow,
-  SettingsSection,
-  SettingsSwitch,
-} from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
 import { OutdatedGroup } from "./remote-outdated";
@@ -53,9 +49,6 @@ const iconButtonClass = cn(
 
 const tagClass =
   "shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground";
-
-/** The support contact listed for the app in the Store. */
-const SUPPORT_PAGE_URL = "https://github.com/moreih29/nexus-code/issues";
 
 const PLATFORMS: Record<string, string> = {
   darwin: "macOS",
@@ -135,7 +128,7 @@ export function AccountGroup({
   unreachable?: boolean;
   onRetry?: () => void;
 }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
   const signIn = (provider?: SignInProvider) =>
     void ipcCallResult("remote", "signIn", provider ? { provider } : undefined);
@@ -149,6 +142,8 @@ export function AccountGroup({
       : unreachable
         ? "unreachable"
         : undefined;
+  // Support's section on signing in and signup approval, in the app's language.
+  const signInHelp = siteUrl("signIn", i18n.language);
   const noticeActions = [
     failure === "pending_approval" && (
       <Button key="check" variant="outline" size="sm" onClick={() => signIn()}>
@@ -157,8 +152,15 @@ export function AccountGroup({
     ),
     failure === "suspended" && (
       <Button key="support" variant="outline" size="sm" asChild>
-        <a href={SUPPORT_PAGE_URL} target="_blank" rel="noopener noreferrer">
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
           {t("remote.account.openSupportPage")}
+        </a>
+      </Button>
+    ),
+    failure !== undefined && SIGN_IN_HELP_FAILURES.includes(failure) && (
+      <Button key="help" variant="link" size="sm" className="px-0" asChild>
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
+          {t("remote.account.learnMore")}
         </a>
       </Button>
     ),
@@ -187,6 +189,9 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
+        // Signed out, the group's description and its sign-in buttons say so,
+        // with no label of their own: why the last sign-in failed, when it did,
+        // then a button for each provider.
         <>
           {failure && (
             <SignInNotice
@@ -195,20 +200,17 @@ export function AccountGroup({
               actions={noticeActions.length > 0 ? noticeActions : undefined}
             />
           )}
-          <SettingsSection label={t("remote.account.signedOut")}>
-            <div
-              className={cn(
-                "gap-2",
-                providers.includes("apple")
-                  ? "grid w-fit max-w-full"
-                  : "flex flex-wrap items-center",
-              )}
-            >
-              {providers.map((provider) => (
-                <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
-              ))}
-            </div>
-          </SettingsSection>
+          <div
+            data-testid="sign-in-buttons"
+            className={cn(
+              "gap-2",
+              providers.includes("apple") ? "grid w-fit max-w-full" : "flex flex-wrap items-center",
+            )}
+          >
+            {providers.map((provider) => (
+              <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
+            ))}
+          </div>
         </>
       )}
       {/* The released app's own server goes without saying. */}

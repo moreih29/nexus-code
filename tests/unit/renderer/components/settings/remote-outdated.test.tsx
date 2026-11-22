@@ -31,7 +31,7 @@ describe("the update a server that no longer takes this version asks for", () =>
 
   test("from the Microsoft Store: the store updates it, and opens from here", () => {
     const html = render(true);
-    expect(html).toContain("Updates come from the Microsoft Store.");
+    expect(html).toContain("Updates from the Microsoft Store");
     expect(html).toContain("Open Microsoft Store");
     expect(html).not.toContain("Check for Updates");
   });

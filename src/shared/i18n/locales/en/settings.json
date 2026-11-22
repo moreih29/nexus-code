@@ -388,9 +388,12 @@
       "label": "Automatically check for updates",
       "description": "Every few hours while the app runs"
     },
+    "updates": {
+      "title": "Updates"
+    },
     "checkNow": "Check for Updates",
     "checking": "Checking…",
-    "storeManaged": "Updates come from the Microsoft Store.",
+    "storeManaged": "Updates from the Microsoft Store",
     "openStore": "Open Microsoft Store",
     "logs": {
       "title": "Logs",
@@ -401,7 +404,13 @@
     },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
-    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
+    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
+    "links": {
+      "title": "Links",
+      "website": "Website",
+      "support": "Support",
+      "privacy": "Privacy Policy"
+    }
   },
   "keybindings": {
     "searchPlaceholder": "Search commands",
@@ -1078,7 +1087,6 @@
     "account": {
       "title": "NexusCode account",
       "description": "Sign in to see this computer's sessions from your other computers and phone",
-      "signedOut": "Not signed in",
       "signInWith": {
         "apple": "Sign in with Apple",
         "google": "Sign in with Google",
@@ -1167,7 +1175,8 @@
       "localOnly": "Local server only",
       "retry": "Try again",
       "checkAgain": "Check Again",
-      "openSupportPage": "Open Support Page"
+      "openSupportPage": "Open Support Page",
+      "learnMore": "Learn more"
     },
     "devices": {
       "title": "Devices",

@@ -268,7 +268,7 @@ export class VoiceSessions {
         });
       });
       socket.on("error", (error) => {
-        // Not reached before it answered: the next try goes straight when it was the proxy.
+        // Not reached before it answered: the next try goes by the next way, when there is one.
         if (!settled) account.route.unreachable(url.toString());
         settle(failed("network", error.message));
       });

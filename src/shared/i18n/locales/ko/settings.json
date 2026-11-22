@@ -388,9 +388,12 @@
       "label": "자동으로 업데이트 확인",
       "description": "켜져 있는 동안 몇 시간마다 확인"
     },
+    "updates": {
+      "title": "업데이트"
+    },
     "checkNow": "업데이트 확인",
     "checking": "확인 중…",
-    "storeManaged": "업데이트는 Microsoft Store에서 받습니다.",
+    "storeManaged": "Microsoft Store에서 업데이트",
     "openStore": "Microsoft Store 열기",
     "logs": {
       "title": "로그",
@@ -401,7 +404,13 @@
     },
     "releaseNotes": "릴리스 노트",
     "downloadProgress": "업데이트 다운로드 진행률",
-    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
+    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
+    "links": {
+      "title": "링크",
+      "website": "웹사이트",
+      "support": "지원",
+      "privacy": "개인정보처리방침"
+    }
   },
   "keybindings": {
     "searchPlaceholder": "커맨드 검색",
@@ -1078,7 +1087,6 @@
     "account": {
       "title": "NexusCode 계정",
       "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 봅니다",
-      "signedOut": "로그인하지 않음",
       "signInWith": {
         "apple": "Apple로 로그인",
         "google": "Google로 로그인",
@@ -1167,7 +1175,8 @@
       "localOnly": "로컬 서버 전용",
       "retry": "다시 시도",
       "checkAgain": "다시 확인",
-      "openSupportPage": "지원 페이지 열기"
+      "openSupportPage": "지원 페이지 열기",
+      "learnMore": "자세히"
     },
     "devices": {
       "title": "기기",
