@@ -105,7 +105,7 @@ export interface AssistantItem {
   kind: "assistant";
   key: string;
   messageId: string;
-  /** Claude's turn, which can contain several assistant messages. */
+  /** The turn this message belongs to, which can contain several messages. */
   turnId?: string;
   uuid?: string;
   blocks: AssistantBlock[];
@@ -379,6 +379,7 @@ export interface AccountInfo {
 export interface ResultInfo {
   subtype: string;
   isError: boolean;
+  turnId?: string;
   durationMs?: number;
   numTurns?: number;
   costUsd?: number;

@@ -368,10 +368,10 @@
     "alreadySaved": "이미 저장됨",
     "answerTooLong": "답변이 너무 김",
     "insertLiveCard": "노트에 카드 넣기",
-    "conversationActions": "대화 메뉴",
+    "insertCard": "카드 넣기",
     "liveAlreadyExists": "이미 있음",
     "liveQuestion": "질문 1 · 대화에서 답하기",
-    "liveFiles_one": "파일 {{count}}개",
-    "liveFiles_other": "파일 {{count}}개"
+    "liveFiles_one": "변경 파일 {{count}}개",
+    "liveFiles_other": "변경 파일 {{count}}개"
   }
 }

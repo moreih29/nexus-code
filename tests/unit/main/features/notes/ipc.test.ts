@@ -686,12 +686,12 @@ test("adding a live card publishes its block and turns only update live links", 
     expect(
       await ipc.call("notes", "updateLiveAnswer", {
         tab: source,
-        lastAnswer: { at: 100, text: "The \u202elatest\u202c answer", files: 1 },
+        lastAnswer: { at: 100, text: "The \u202elatest\u202c answer", turnFiles: 1 },
       }),
     ).toMatchObject({ ok: true });
     const [mention, live] = await notes.store.links(location, note.id);
     expect(mention.link.lastAnswer).toBeUndefined();
-    expect(live.link.lastAnswer).toEqual({ text: "The latest answer", at: 100, files: 1 });
+    expect(live.link.lastAnswer).toEqual({ text: "The latest answer", at: 100, turnFiles: 1 });
     expect(broadcast).toHaveBeenCalledWith("notes", "linksChanged", {
       locationKey: location.key,
       noteId: note.id,

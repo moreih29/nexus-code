@@ -533,6 +533,11 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     m.streaming = { ...m.streaming, blocks: {} };
   if (blocks.length === 0) return;
 
+  // Claude can start answering a task notification without echoing a prompt.
+  if (draft.matchSentInputs && m.process === "running" && !m.turn) {
+    m.running = true;
+    m.turn = { id: `claude-${seq}`, startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+  }
   const items = m.items;
   for (let i = items.length - 1; i >= 0 && i >= items.length - 8; i--) {
     const item = items[i];
@@ -822,6 +827,7 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
   m.lastResult = {
     subtype,
     isError,
+    ...(turnId ? { turnId } : {}),
     durationMs: num(message.duration_ms),
     numTurns: num(message.num_turns),
     costUsd: num(message.total_cost_usd),

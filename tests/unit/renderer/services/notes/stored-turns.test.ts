@@ -119,15 +119,55 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
       profileId: "profile",
       cursor: "older",
     });
-    expect(await readStoredAnswer(moved[2])).toEqual({ text: "Codex answer", at: 2000 });
-    expect(
-      await readStoredAnswer(["codex", "workspace", "/repo", null, "uncached"]),
-    ).toBeUndefined();
     expect(codex).toHaveBeenCalledTimes(1);
     expect(codex).toHaveBeenCalledWith(
       { workspaceId: "workspace", cwd: "/repo", profileId: undefined },
       ["saved", "unwritten"],
     );
+    codex.mockResolvedValue(
+      new Map([
+        [
+          "saved",
+          [
+            {
+              status: "completed",
+              completedAt: 2,
+              itemsView: "full",
+              items: [
+                {
+                  type: "fileChange",
+                  id: "patch",
+                  status: "completed",
+                  changes: [
+                    { path: "one.ts", kind: { type: "add" } },
+                    { path: "one.ts", kind: { type: "update" } },
+                    { path: "two.ts", kind: { type: "delete" } },
+                  ],
+                },
+                {
+                  type: "fileChange",
+                  id: "failed-patch",
+                  status: "failed",
+                  changes: [{ path: "failed.ts", kind: { type: "add" } }],
+                },
+                { type: "agentMessage", id: "answer", text: "Codex answer" },
+              ],
+            },
+          ],
+        ],
+      ]),
+    );
+    const preview = { text: "Codex answer", at: 2000, turnFiles: 2 };
+    expect(await Promise.all([readStoredAnswer(moved[2]), readStoredAnswer(moved[2])])).toEqual([
+      preview,
+      preview,
+    ]);
+    expect(codex).toHaveBeenCalledTimes(2);
+    expect(codex.mock.calls[1]).toEqual([
+      { workspaceId: "moved-workspace", cwd: "/moved", profileId: undefined },
+      ["saved"],
+      "full",
+    ]);
   } finally {
     transcript.mockRestore();
     codex.mockRestore();
@@ -247,7 +287,7 @@ test("a Codex turn probe without summary support keeps the turn with an empty ca
   try {
     expect(await readStoredTurns([target])).toEqual(new Set([JSON.stringify(target)]));
     expect(await readStoredAnswer(target)).toBeUndefined();
-    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe).toHaveBeenCalledTimes(2);
   } finally {
     probe.mockRestore();
   }

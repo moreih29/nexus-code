@@ -48,7 +48,7 @@ import {
 import { showToast } from "../ui/toast";
 import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
 import { NoteAnswerCards } from "./answer-cards";
-import { ConversationChips, NoteConversationLinks } from "./conversation-chips";
+import { ConversationChips, NoteCardInsertMenu, NoteConversationLinks } from "./conversation-chips";
 import { applyAnswerCard } from "./editor/answer-card";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
@@ -607,6 +607,7 @@ function LoadedNote({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <NoteCardInsertMenu />
               <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
                 <span className="flex items-center gap-2">
                   <FolderOpen className="size-3.5" aria-hidden="true" />

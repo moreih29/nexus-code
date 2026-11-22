@@ -319,7 +319,7 @@ test("live cards append once and reload their latest plain-text snapshot without
   await reopened.updateLiveAnswer(
     location,
     { ...source, tabId: "reopened" },
-    { text: "Newest <b>answer</b>", at: 20, files: 2 },
+    { text: "Newest <b>answer</b>", at: 20, turnFiles: 2 },
     (id) => notify.push(id),
   );
   await reopened.updateLiveAnswer(location, source, { text: "Late arrival", at: 11 }, (id) =>
@@ -329,12 +329,28 @@ test("live cards append once and reload their latest plain-text snapshot without
   expect((await new NotesStore(root).links(location, note.id))[0].link.lastAnswer).toEqual({
     text: "Newest <b>answer</b>",
     at: 20,
-    files: 2,
+    turnFiles: 2,
   });
   expect((await reopened.read(location, note.id)).updatedAt).toBe(saved.updatedAt);
   expect(await readFile(path.join(note.dir, "note.md"), "utf8")).toBe(
     "# Note\n\n> Review \\[logs\\]\n",
   );
+
+  for (const fields of [{ files: 21 }, { turnFiles: "invalid" }]) {
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        conversations: {
+          [id]: { ...link, lastAnswer: { text: "Old preview", at: 22, ...fields } },
+        },
+      }),
+    );
+    expect((await reopened.links(location, note.id))[0].link.lastAnswer).toEqual({
+      text: "Old preview",
+      at: 22,
+    });
+  }
 
   await writeFile(
     file,

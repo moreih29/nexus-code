@@ -1,19 +1,23 @@
 import { expect, spyOn, test } from "bun:test";
-import type { ComponentProps } from "react";
+import { act, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ConversationChip,
   ConversationChips,
+  NoteCardInsertMenu,
   NoteConversationLinks,
   useNoteConversations,
 } from "../../../../../src/renderer/components/notes/conversation-chips";
+import * as contextMenu from "../../../../../src/renderer/components/ui/context-menu";
 import * as dropdown from "../../../../../src/renderer/components/ui/dropdown-menu";
+import * as toast from "../../../../../src/renderer/components/ui/toast";
 import { chatKey, useChatStore } from "../../../../../src/renderer/services/chat/store";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
 import { noteTime } from "../../../../../src/renderer/services/notes/note-time";
 import * as storedTurns from "../../../../../src/renderer/services/notes/stored-turns";
 import * as noteLinks from "../../../../../src/renderer/services/notes/use-links";
 import type { NoteLink } from "../../../../../src/shared/notes/links";
+import { withTestDom } from "../../../../helpers/test-dom";
 
 function LinkedWidgets() {
   return useNoteConversations().map(({ entry }) => <span key={entry.id} data-link={entry.id} />);
@@ -86,12 +90,7 @@ test("a restored open tab gives the note header quiet completion and the task ch
   const header = renderToStaticMarkup(<ConversationChip {...props} header />);
   expect(header).toContain(" · Done");
   expect(header).not.toContain("PR #1");
-  const menu = header.match(/<button[^>]*aria-label="Conversation menu"[^>]*>/)?.[0];
-  expect(menu).toContain("absolute end-0");
-  expect(menu).toContain("opacity-0");
-  expect(menu).toContain("group-hover:opacity-100");
-  expect(menu).toContain("group-focus-within:opacity-100");
-  expect(menu).not.toContain('tabindex="-1"');
+  expect(header.match(/<button/g)).toHaveLength(1);
   const line = renderToStaticMarkup(<ConversationChip {...props} line />);
   expect(line).toContain("Done · PR #1");
 });
@@ -104,7 +103,11 @@ test("live cards show saved answers as text and offer to answer an active questi
         ...link,
         kind: "live",
         result: undefined,
-        lastAnswer: { text: '<img src="bad"> [link](javascript:bad)', at: 1700000000000, files: 2 },
+        lastAnswer: {
+          text: '<img src="bad"> [link](javascript:bad)',
+          at: 1700000000000,
+          turnFiles: 2,
+        },
       },
     },
     target: { kind: "missing" },
@@ -115,9 +118,10 @@ test("live cards show saved answers as text and offer to answer an active questi
   };
   const restored = renderToStaticMarkup(<ConversationChip {...props} card />);
   expect(restored).toContain("&lt;img");
+  expect(restored).toContain("&gt; link</p>");
   expect(restored).not.toContain("<img");
   expect(restored).not.toContain("<a ");
-  expect(restored).toContain("2 files");
+  expect(restored).toContain("2 files changed");
   expect(restored).not.toContain("Answer in conversation");
   const waiting = renderToStaticMarkup(
     <ConversationChip
@@ -128,6 +132,29 @@ test("live cards show saved answers as text and offer to answer an active questi
     />,
   );
   expect(waiting).toContain("1 question · Answer in conversation");
+  expect(waiting).not.toContain("files changed");
+  const running = renderToStaticMarkup(
+    <ConversationChip
+      {...props}
+      card
+      target={openTab}
+      session={{ state: "running" } as NonNullable<typeof props.session>}
+    />,
+  );
+  expect(running).not.toContain("files changed");
+  const snapshot = props.entry.link.lastAnswer;
+  if (!snapshot) throw new Error("Missing test snapshot");
+  const zero = renderToStaticMarkup(
+    <ConversationChip
+      {...props}
+      card
+      entry={{
+        ...props.entry,
+        link: { ...props.entry.link, lastAnswer: { ...snapshot, turnFiles: 0 } },
+      }}
+    />,
+  );
+  expect(zero).not.toContain("files changed");
 });
 
 test("the card uses the notes list's timestamp for today's time and earlier dates", () => {
@@ -157,7 +184,7 @@ test("the card uses the notes list's timestamp for today's time and earlier date
   }
 });
 
-test("the insert action saves the loaded answer first and falls back to the stored preview", async () => {
+test("right-click opens the chip menu and inserts loaded or stored answers", async () => {
   const props: ComponentProps<typeof ConversationChip> = {
     entry: { id: "l1234567", link },
     target: openTab,
@@ -167,16 +194,10 @@ test("the insert action saves the loaded answer first and falls back to the stor
     onUnavailable: () => {},
     header: true,
   };
-  const root = spyOn(dropdown, "DropdownMenuRoot").mockImplementation(({ children }) => (
+  const content = spyOn(contextMenu, "ContextMenuContent").mockImplementation(({ children }) => (
     <>{children}</>
   ));
-  const trigger = spyOn(dropdown, "DropdownMenuTrigger").mockImplementation(({ children }) => (
-    <>{children}</>
-  ));
-  const content = spyOn(dropdown, "DropdownMenuContent").mockImplementation(({ children }) => (
-    <>{children}</>
-  ));
-  const item = spyOn(dropdown, "DropdownMenuItem").mockReturnValue(null);
+  const item = spyOn(contextMenu, "ContextMenuAction").mockReturnValue(null);
   const stored = spyOn(storedTurns, "readStoredAnswer").mockResolvedValue({
     text: "Persisted answer",
     at: 42,
@@ -199,23 +220,90 @@ test("the insert action saves the loaded answer first and falls back to the stor
         ],
       },
     }));
-    renderToStaticMarkup(<ConversationChip {...props} />);
-    item.mock.calls[0][0].onSelect?.();
-    expect(stored).not.toHaveBeenCalled();
-    expect(saved.mock.calls[0][3]).toEqual({ text: "Loaded answer", at: 43 });
+    await withTestDom(async (host, root) => {
+      await act(async () => root.render(<ConversationChip {...props} />));
+      const chip = host.querySelector('[data-testid="note-conversation-chip"]')!;
+      expect(chip.getAttribute("data-state")).toBe("closed");
+      await act(async () => {
+        const event = document.createEvent("MouseEvent");
+        event.initEvent("contextmenu", true, true);
+        chip.dispatchEvent(event);
+      });
+      expect(chip.getAttribute("data-state")).toBe("open");
+      const action = item.mock.lastCall?.[0];
+      expect(action?.children).toBe("Add card to note");
+      await act(async () => action?.onSelect());
+      expect(stored).not.toHaveBeenCalled();
+      expect(saved.mock.calls[0][3]).toEqual({ text: "Loaded answer", at: 43 });
 
-    useChatStore.getState().remove(key);
-    const finished = Promise.withResolvers<void>();
-    saved.mockImplementation(async () => {
-      finished.resolve();
-      return true;
+      useChatStore.getState().remove(key);
+      await act(async () => action?.onSelect());
+      expect(stored).toHaveBeenCalledWith([
+        "codex",
+        link.workspaceId,
+        link.cwd,
+        null,
+        link.session,
+      ]);
+      expect(saved.mock.calls[1][3]).toEqual({ text: "Persisted answer", at: 42 });
     });
-    item.mock.calls[0][0].onSelect?.();
-    await finished.promise;
-    expect(stored).toHaveBeenCalledWith(["codex", link.workspaceId, link.cwd, null, link.session]);
-    expect(saved.mock.calls[1][3]).toEqual({ text: "Persisted answer", at: 42 });
   } finally {
     useChatStore.getState().remove(key);
-    for (const spy of [root, trigger, content, item, stored, saved]) spy.mockRestore();
+    for (const spy of [content, item, stored, saved]) spy.mockRestore();
+  }
+});
+
+test("the note menu lists linked conversations with their status and handles an existing card", async () => {
+  const links = spyOn(noteLinks, "useNoteLinks").mockReturnValue([]);
+  const sub = spyOn(dropdown, "DropdownMenuSub").mockImplementation(({ children }) => (
+    <>{children}</>
+  ));
+  const trigger = spyOn(dropdown, "DropdownMenuSubTrigger").mockImplementation(({ children }) => (
+    <button type="button">{children}</button>
+  ));
+  const content = spyOn(dropdown, "DropdownMenuSubContent").mockImplementation(({ children }) => (
+    <>{children}</>
+  ));
+  const item = spyOn(dropdown, "DropdownMenuItem").mockImplementation(({ children }) => (
+    <button type="button">{children}</button>
+  ));
+  const stored = spyOn(storedTurns, "readStoredAnswer").mockResolvedValue(undefined);
+  const saved = spyOn(notesApi, "saveLiveCard").mockResolvedValue(false);
+  const notify = spyOn(toast, "showToast").mockReturnValue(1);
+  const render = () =>
+    renderToStaticMarkup(
+      <NoteConversationLinks
+        note={{ workspaceId: link.workspaceId, noteId: "n1234567", tabId: "note-tab" }}
+        isVisible={false}
+      >
+        <NoteCardInsertMenu />
+      </NoteConversationLinks>,
+    );
+  try {
+    expect(render()).toBe("");
+    links.mockReturnValue([
+      { id: "l1234567", link },
+      { id: "l1234568", link: { ...link, kind: "live", updatedAt: 4, result: undefined } },
+    ]);
+    const markup = render();
+    expect(markup).toContain("Add card");
+    expect(markup).toContain(link.title);
+    expect(markup).toContain("Done · PR #1");
+    expect(item).toHaveBeenCalledTimes(1);
+    expect(item.mock.lastCall?.[0].disabled).toBe(false);
+    const notified = Promise.withResolvers<void>();
+    notify.mockImplementation(() => {
+      notified.resolve();
+      return 1;
+    });
+    item.mock.lastCall?.[0].onSelect?.();
+    await notified.promise;
+    expect(notify).toHaveBeenCalledWith({
+      kind: "info",
+      message: "Already in note",
+    });
+  } finally {
+    for (const spy of [links, sub, trigger, content, item, stored, saved, notify])
+      spy.mockRestore();
   }
 });

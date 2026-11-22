@@ -920,6 +920,7 @@ export class CodexController {
   static async savedThreadTurns(
     target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">,
     threadIds: readonly string[],
+    itemsView: "summary" | "full" = "summary",
   ): Promise<Map<string, unknown[]>> {
     const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
     const found = new Map<string, unknown[]>();
@@ -929,16 +930,13 @@ export class CodexController {
         return found;
       for (const threadId of threadIds) {
         try {
-          const summary = await controller
-            .request("thread/turns/list", {
-              threadId,
-              itemsView: "summary",
-              limit: 1,
-            })
-            .catch(() => undefined);
-          if (summary) {
-            if (Array.isArray(summary.data) && summary.data.length > 0)
-              found.set(threadId, summary.data);
+          const read = (view: typeof itemsView) =>
+            controller
+              .request("thread/turns/list", { threadId, itemsView: view, limit: 1 })
+              .catch(() => undefined);
+          const page = (await read(itemsView)) ?? (itemsView === "full" && (await read("summary")));
+          if (page) {
+            if (Array.isArray(page.data) && page.data.length > 0) found.set(threadId, page.data);
             continue;
           }
           // Preserve the completion chip on servers that only support the existence check.
