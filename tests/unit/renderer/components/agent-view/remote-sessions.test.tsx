@@ -4,7 +4,10 @@ import type { ComponentProps, DragEvent, MouseEvent, ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
-import { StatusGroups } from "../../../../../src/renderer/components/agent-view/agent-sidebar";
+import {
+  StatusGroups,
+  WorkspaceGroups,
+} from "../../../../../src/renderer/components/agent-view/agent-sidebar";
 import {
   type PeerReorder,
   peerOrderMenu,
@@ -24,6 +27,7 @@ import * as agentView from "../../../../../src/renderer/state/stores/agent-view"
 import { useNotificationsStore } from "../../../../../src/renderer/state/stores/notifications";
 import { useSettingsUIStore } from "../../../../../src/renderer/state/stores/settings-ui";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
+import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
 const {
   HungTerminals,
@@ -264,6 +268,18 @@ const localSession = (over: Partial<AgentSession>): AgentSession => ({
   ...over,
 });
 
+const localWorkspace = (id: string, name: string): WorkspaceMeta => ({
+  id,
+  name,
+  rootPath: `/${id}`,
+  location: { kind: "local", rootPath: `/${id}` },
+  color: "auto",
+  pinned: false,
+  tabs: [],
+  sortOrder: 0,
+  pinnedSortOrder: 0,
+});
+
 describe("status grouping across computers", () => {
   const sources = [
     {
@@ -332,7 +348,7 @@ describe("status grouping across computers", () => {
   });
 
   test("renders cards first and counts them with local and remote rows", () => {
-    const workspace = { id: "local", name: "Local project", rootPath: "/local" };
+    const workspace = localWorkspace("local", "Local project");
     const localRow = local[0]!;
     const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue(NO_FACTS);
     try {
@@ -358,6 +374,82 @@ describe("status grouping across computers", () => {
       expect(html).toContain('data-testid="agent-sidebar-mark-read"');
     } finally {
       facts.mockRestore();
+    }
+  });
+});
+
+describe("local workspace grouping", () => {
+  test("keeps active and unread rows in folds and opens them for search and reordering", () => {
+    const root = localWorkspace("local", "Local project");
+    const task = localWorkspace("task", "Review task");
+    const local = [
+      localSession({ title: "Local failed", state: "error" }),
+      localSession({ key: "local:idle", title: "Local idle", state: "idle", phase: "idle" }),
+    ];
+    const working = localSession({
+      key: "task:working",
+      title: "Task working",
+      workspaceId: "task",
+      state: "running",
+      phase: "running",
+    });
+    const taskRows = [
+      working,
+      localSession({
+        key: "task:idle",
+        title: "Task idle",
+        workspaceId: "task",
+        state: "idle",
+        phase: "idle",
+      }),
+    ];
+    const family = {
+      root,
+      worktrees: [
+        { workspace: root, isRoot: true, branch: undefined, sessions: local },
+        { workspace: task, isRoot: false, branch: "review", sessions: taskRows },
+      ],
+    };
+    const render = (query = "") =>
+      renderToStaticMarkup(
+        <WorkspaceGroups
+          query={query}
+          activity={new Map()}
+          agents={{ families: [family], byKey: new Map() }}
+        />,
+      );
+    const state = agentView.useAgentViewStore.getInitialState();
+    const folded = new Set(["workspace:local"]);
+    const view = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+      select({ ...state, folded }),
+    );
+    const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue(NO_FACTS);
+    const dragging = spyOn(sessionDrop, "useSessionDrag").mockReturnValue(null);
+    try {
+      const workingHtml = render();
+      expect(workingHtml).toContain('aria-expanded="false"');
+      expect(workingHtml).toContain(">2 hidden<");
+      expect(workingHtml).toContain("Task working");
+      expect(workingHtml).toContain('text-(--state-error-fg)">Failed</span>');
+      expect(workingHtml).not.toContain("Local idle");
+      expect(workingHtml).not.toContain("Task idle");
+      taskRows[0] = { ...working, state: "completed", phase: "done" };
+      expect(render()).toContain("Task working");
+      taskRows[0] = { ...working, state: "idle", phase: "idle" };
+      expect(render()).not.toContain("Task working");
+      expect(render()).toContain(">3 hidden<");
+
+      const found = render("Task idle");
+      expect(found).toContain('aria-expanded="true"');
+      expect(found).toContain("Task idle");
+      expect(found).not.toContain("Local idle");
+      dragging.mockReturnValue({ key: "task:working", workspaceId: "task" });
+      expect(render()).toContain("Local idle");
+      expect(render()).toContain("Task idle");
+    } finally {
+      facts.mockRestore();
+      view.mockRestore();
+      dragging.mockRestore();
     }
   });
 });

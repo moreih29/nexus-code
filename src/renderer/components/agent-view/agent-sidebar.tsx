@@ -35,6 +35,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
 import {
   FailureLabel,
+  HiddenSessionCount,
   StateGlyph,
   stateLabel,
   useDurationLabel,
@@ -66,6 +67,7 @@ import {
   endSessionDrag,
   type SessionReorder,
   startSessionDrag,
+  useSessionDrag,
   useSessionDrop,
 } from "./session-drop";
 import { SidebarDropIndicator } from "./sidebar-drop";
@@ -383,9 +385,10 @@ function MarkAllRead({ onMark }: { onMark: () => void }) {
 }
 
 /** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
-function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
+export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
+  const dragging = useSessionDrag();
 
   const reorder: SessionReorder = (moved, target, edge) => {
     const workspaceId = parseSessionKey(target)?.workspaceId;
@@ -418,13 +421,15 @@ function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
 
   return groups.map(({ family, worktrees }) => {
     const key = `workspace:${family.root.id}`;
+    const reordering = worktrees.some(
+      ({ worktree }) => worktree.workspace.id === dragging?.workspaceId,
+    );
     return (
       <FamilyGroup
         key={family.root.id}
         family={family}
         worktrees={worktrees}
-        // A search shows what it found, in folded workspaces too.
-        folded={!searching && folded.has(key)}
+        folded={!searching && !reordering && folded.has(key)}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
         onReorder={searching ? undefined : reorder}
@@ -476,6 +481,7 @@ function FamilyGroup({
   const { t } = useTranslation();
   const root = family.root;
   const all = worktrees.flatMap(({ sessions }) => sessions);
+  const hidden = folded ? all.filter((session) => groupOf(session) === "idle").length : 0;
   const update = useWorkspaceUpdate(root);
   const handoff = useContextMenuHandoff();
   const rename = useWorkspaceRename(root, update);
@@ -522,6 +528,7 @@ function FamilyGroup({
                 </span>
                 <WhereLabel workspace={root} />
                 <span className="flex-1" />
+                {hidden > 0 && <HiddenSessionCount count={hidden} />}
                 <StateSummary sessions={all} />
               </button>
             )}
@@ -536,8 +543,12 @@ function FamilyGroup({
           onColor={(color) => update({ color })}
         />
       </ContextMenuRoot>
-      {!folded &&
-        worktrees.map(({ worktree, sessions }) => (
+      {worktrees.map(({ worktree, sessions }) => {
+        const visible = folded
+          ? sessions.filter((session) => groupOf(session) !== "idle")
+          : sessions;
+        if (folded && visible.length === 0) return null;
+        return (
           <div
             key={worktree.workspace.id}
             className={cn("flex flex-col", !worktree.isRoot && "ml-3")}
@@ -555,7 +566,7 @@ function FamilyGroup({
                 <NewAgentMenu workspace={worktree.workspace} />
               </div>
             )}
-            {sessions.map((session) => (
+            {visible.map((session) => (
               <AgentItem
                 key={session.key}
                 session={session}
@@ -569,7 +580,8 @@ function FamilyGroup({
               </p>
             )}
           </div>
-        ))}
+        );
+      })}
     </section>
   );
 }
