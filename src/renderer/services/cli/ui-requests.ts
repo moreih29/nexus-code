@@ -174,6 +174,27 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...viewHandlers,
 };
 
+/**
+ * Requests that only read: nothing on screen moves, so the keyboard stays
+ * where it is without the frames of checks restoreFocus schedules. The
+ * remote sessions' list reads some of them every second.
+ */
+const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
+  "tabs.list",
+  "terminal.read",
+  "terminal.shells",
+  "tab.sandboxSession",
+  "events.read",
+  "sessions.results",
+  "chat.state",
+  "chat.read",
+  "chat.page",
+  "layout.get",
+  "panels.get",
+  "agentView.get",
+  "problems.list",
+]);
+
 /** Removes the cli:uiRequest listener installed last, if it is still there. */
 let stopListening: (() => void) | null = null;
 
@@ -187,7 +208,7 @@ import.meta.hot?.dispose(() => stopListening?.());
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
- * focus (see ../keep-focus).
+ * focus (see ../keep-focus). One that only reads cannot drop it.
  */
 export function startCliUiListener(ready: Promise<void>): () => void {
   // One listener, however often the app boots: a second would carry out
@@ -199,7 +220,7 @@ export function startCliUiListener(ready: Promise<void>): () => void {
       try {
         await ready;
         const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
-        const held = focusHolder();
+        const held = READ_ONLY_OPS.has(op) ? null : focusHolder();
         if (!handler) throw new UiRequestError(`unknown request ${op}`);
         const value = await handler(args as never).finally(() => restoreFocus(held));
         await ipcCallResult("cli", "uiRespond", { requestId, ok: true, value });

@@ -430,3 +430,29 @@ test("a tab that is not a terminal is not waited for", async () => {
 test("a terminal's view that does not mount in time gives up", async () => {
   expect(await whenTerminalController("never", 10)).toBeUndefined();
 });
+
+test("a request that only reads schedules no focus checks; one that may move tabs does", async () => {
+  const doc = globals.document as { activeElement: unknown; body: unknown };
+  const before = doc.activeElement;
+  const frames: unknown[] = [];
+  const raf = (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (run: unknown) => {
+    frames.push(run);
+    return frames.length;
+  };
+  // The composer the user types in holds the keyboard.
+  doc.activeElement = { isConnected: true, focus: () => {}, closest: () => null };
+  const stop = startCliUiListener(Promise.resolve());
+  try {
+    await answerTo("r-read-tabs", "tabs.list", { workspaceId: "ws-none" });
+    await answerTo("r-read-events", "events.read", { limit: 1 });
+    await answerTo("r-read-chat", "chat.state", { workspaceId: "ws-none", tabId: "t", peek: true });
+    expect(frames).toHaveLength(0);
+    await answerTo("r-rename", "tab.rename", { workspaceId: "ws-none", tabId: "t", title: "x" });
+    expect(frames).toHaveLength(1);
+  } finally {
+    stop();
+    doc.activeElement = before;
+    (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = raf;
+  }
+});
