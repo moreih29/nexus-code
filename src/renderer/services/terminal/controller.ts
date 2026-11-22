@@ -27,6 +27,7 @@ import {
 } from "./buffer-ansi";
 import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
+import { requestTerminalReopen } from "./reopen-requests";
 import type {
   PtyClient,
   PtyClientOptions,
@@ -372,6 +373,8 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 class XtermTerminalController implements TerminalController {
   private disposed = false;
   private sandboxSessionId = crypto.randomUUID();
+  /** A held Enter that began on an ended terminal must not type in the new shell. */
+  private reopenEnterHeld = false;
   /** The local shell main started, if it said; a remote terminal has none. */
   private shellPath: string | undefined;
   /** Whether the shell is PowerShell, whose PSReadLine pastes on ^V (see the key handler). */
@@ -1059,6 +1062,26 @@ class XtermTerminalController implements TerminalController {
       //   and bring the stuck bug back. (Duplicates in the 4 nav cases were removed, confirmed with a real xterm 6.0.0 replay harness.)
       if (event.isComposing && event.keyCode === 91) return false;
       if (event.isComposing || event.keyCode === 229) return true;
+
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.defaultPrevented
+      ) {
+        const { workspaceId, tabId } = this.options;
+        const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+        const ended = tab?.type === "terminal" && Boolean(tab.props.dead);
+        if (!event.repeat) this.reopenEnterHeld = ended;
+        if (ended || this.reopenEnterHeld) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) requestTerminalReopen(workspaceId, tabId);
+          return false;
+        }
+      }
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
         const selection = term.getSelection();

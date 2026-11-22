@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
 import { ipcListen } from "@/ipc/client";
-import { registerTabFocusTarget } from "@/services/tab-focus";
+import { registerTabFocusTarget, requestTabFocus } from "@/services/tab-focus";
 import { createTerminalController } from "@/services/terminal";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
 import { registerTerminalController } from "@/services/terminal/terminal-registry";
@@ -174,6 +174,7 @@ export function TerminalView({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
+  const reopenPending = useRef(false);
   const [reopen, setReopen] = useState({ pending: false });
 
   // ---------------------------------------------------------------------------
@@ -290,7 +291,6 @@ export function TerminalView({
         setShowInputHint(false);
         setShowRestoredFlash(false);
         useTabsStore.getState().setTerminalDead(workspaceId, tabId, true);
-        setReopen({ pending: false });
       },
     });
     controllerRef.current = controller;
@@ -324,7 +324,10 @@ export function TerminalView({
   }, [isHeld]);
 
   const handleReopen = useCallback(async (): Promise<void> => {
-    if (reopen.pending) return;
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (reopenPending.current || tab?.type !== "terminal" || !tab.props.dead) return;
+    const ended = tab.props;
+    reopenPending.current = true;
     setReopen({ pending: true });
     try {
       const controller = controllerRef.current;
@@ -332,27 +335,19 @@ export function TerminalView({
       await controller.reopen();
       useTabsStore.getState().setTerminalDead(workspaceId, tabId, false);
     } catch {
-      if (endedTerminal) reopenFailures.set(endedTerminal, failures + 1);
+      reopenFailures.set(ended, (reopenFailures.get(ended) ?? 0) + 1);
     } finally {
+      reopenPending.current = false;
       setReopen({ pending: false });
     }
-  }, [endedTerminal, failures, reopen.pending, workspaceId, tabId]);
-
-  // Keep a stable ref to the latest handler so the subscription below does not
-  // need to re-subscribe every time reopenState changes. Without this, a state
-  // transition (idle → reopening) would momentarily leave no subscriber, and
-  // any external "Reopen all" that arrives during that gap would be silently
-  // dropped.
-  const handleReopenRef = useRef(handleReopen);
-  useEffect(() => {
-    handleReopenRef.current = handleReopen;
-  });
-
-  useEffect(() => {
-    return subscribeTerminalReopenRequest(workspaceId, tabId, () => {
-      void handleReopenRef.current();
-    });
   }, [workspaceId, tabId]);
+
+  useEffect(() => {
+    // Enter in xterm and the workspace's Reopen All both use this path.
+    return subscribeTerminalReopenRequest(workspaceId, tabId, () => {
+      void handleReopen();
+    });
+  }, [workspaceId, tabId, handleReopen]);
 
   // Refresh xterm whenever the DOM was reparented or visibility flipped
   // back to true. `ownerLeafId` is read by the effect indirectly: when the
@@ -379,7 +374,17 @@ export function TerminalView({
     activeBanner = (
       <DeadTerminalBanner
         message={terminalEndedMessage(reopenState)}
-        dismiss={reopenState === "reopening" ? undefined : endedNotice.dismiss}
+        dismiss={
+          reopenState === "reopening"
+            ? undefined
+            : {
+                label: endedNotice.dismiss.label,
+                onDismiss: () => {
+                  endedNotice.dismiss.onDismiss();
+                  requestTabFocus(tabId);
+                },
+              }
+        }
         actionLabel={
           reopenState === "failed"
             ? t("action.retry")
@@ -389,6 +394,7 @@ export function TerminalView({
         }
         actionDisabled={reopenState === "reopening"}
         onReopen={() => {
+          requestTabFocus(tabId);
           void handleReopen();
         }}
       />
