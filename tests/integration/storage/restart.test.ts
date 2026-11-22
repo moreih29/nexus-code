@@ -112,6 +112,7 @@ describe("storage-restart — stateService + globalStorage combined restart scen
     const ss1 = new StateService(statePath);
     g1.addWorkspace(makeMeta(wsId, "/projects/nexus"));
     ss1.setState({ lastActiveWorkspaceId: wsId });
+    ss1.flushNow();
     g1.close();
 
     // --- Session 2 ---

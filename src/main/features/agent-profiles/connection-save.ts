@@ -150,7 +150,7 @@ export function createProfileConnections(
                 scope: { kind: "profile", id: next.id },
                 text: instructions,
               });
-        state.setState({
+        state.commitState({
           agentProfiles: withProfile(agentProfiles, next),
           ...(agentInstructions ? { agentInstructions } : {}),
         });

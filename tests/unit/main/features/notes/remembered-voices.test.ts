@@ -169,7 +169,7 @@ test.each([
     dir,
     {
       getState: () => state,
-      setState: (next: Partial<AppState>) => {
+      commitState: (next: Partial<AppState>) => {
         state = { ...state, ...next };
       },
     },

@@ -340,6 +340,7 @@ test("closing flushes queued tab, split and browser URL changes after an older s
     endBrowserView(browser, viewId);
 
     unregisterStatePersistence();
+    state.flushNow();
     registerAppStateChannel(new StateService(stateFile), {
       listWorkspaces: () => [workspace, otherWorkspace],
     });

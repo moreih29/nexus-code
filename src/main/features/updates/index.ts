@@ -333,8 +333,8 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // We implement it by patching mergeState/setState to call our hook.
   // That avoids modifying StateService itself.
   const originalSetState = stateService.setState.bind(stateService);
-  stateService.setState = function patchedSetState(partial) {
-    originalSetState(partial);
+  stateService.setState = function patchedSetState(partial, mergeLayouts) {
+    originalSetState(partial, mergeLayouts);
     if ("updateChannel" in partial) {
       const newChannel = stateService.getState().updateChannel ?? "stable";
       if (newChannel !== lastKnownChannel) {

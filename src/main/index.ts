@@ -206,7 +206,10 @@ const userData = app.getPath("userData");
 
 const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
 const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"));
-const stateService = new StateService(path.join(userData, "state.json"));
+const stateService = new StateService(
+  path.join(userData, "state.json"),
+  path.join(__dirname, "state-writer.js"),
+);
 // Set once the app is ready (after the single-instance lock, so a second launch
 // does not take the first one's marker): notes a run that ended without a quit
 // line, and writes the quit line of this one.
@@ -466,7 +469,11 @@ function agentProfilesChanged(connectionChangedProfileId?: string): void {
 
 function pruneProfileKeys(): void {
   void profileConnectionKeys
-    ?.prune(() => profileKeyIds(stateService))
+    ?.prune(() => {
+      // A restart can still load a removed profile until its removal is durable.
+      stateService.flushNow();
+      return profileKeyIds(stateService);
+    })
     .catch((error) => logger.warn(`Could not remove deleted profile keys: ${String(error)}`));
 }
 
