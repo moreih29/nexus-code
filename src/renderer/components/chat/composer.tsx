@@ -267,7 +267,8 @@ export const Composer = memo(function Composer({
   // unless the tab says something of its own there.
   const hint = placeholder ?? composerHint(t, running, program);
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
-  const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
+  // Not one the program began (a /compact after the turn): that would stop it.
+  const held = running && model.items.some(isWaiting);
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
   const waiting = useMemo(
     () => withRelayed(model.items.filter(isWaiting), relayed).filter(isWaiting),
