@@ -189,22 +189,26 @@ export function SendToAgent({
       trigger={trigger}
       side="bottom"
       align="end"
-      className="w-80"
+      className="w-112 max-w-[calc(100vw-1rem)]"
       testId="note-agent-popover"
     >
       <div className="flex flex-col gap-3 p-3">
         <b className="text-app-body font-semibold text-foreground">{t("agent.title")}</b>
         <div className="flex flex-col gap-1.5">
           <span className="text-app-micro text-muted-foreground">{t("agent.destination")}</span>
-          <fieldset aria-label={t("agent.destination")} className="flex gap-1.5">
+          <fieldset
+            aria-label={t("agent.destination")}
+            className="grid min-w-0 grid-cols-3 gap-1.5"
+          >
             {(["claude", "codex", "existing"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
                 aria-pressed={destination === option}
+                title={t(`agent.${option}`)}
                 onClick={() => setDestination(option)}
                 className={cn(
-                  "flex-1 rounded-(--radius-control) border px-2 py-1.5 text-app-ui-sm",
+                  "min-w-0 truncate rounded-(--radius-control) border px-1.5 py-1.5 text-app-ui-sm",
                   destination === option
                     ? "border-ring bg-[var(--sidebar-item-selected-bg)] text-foreground"
                     : "border-border text-muted-foreground hover:bg-[var(--state-hover-bg)]",
@@ -218,7 +222,7 @@ export function SendToAgent({
         {existing && (
           <fieldset
             aria-label={t("agent.existing")}
-            className="max-h-48 overflow-y-auto rounded-(--radius-control) border border-border app-scrollbar"
+            className="max-h-48 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-(--radius-control) border border-border app-scrollbar"
           >
             {destinations.length ? (
               ([true, false] as const).map((linked) => {
@@ -295,7 +299,7 @@ function DestinationRow({
       aria-pressed={selected}
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-app-ui-sm",
+        "flex w-full min-w-0 items-center gap-1.5 px-2 py-1.5 text-left text-app-ui-sm",
         selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",
       )}
     >
@@ -303,7 +307,7 @@ function DestinationRow({
       <span className="min-w-0 flex-1 truncate" title={session.title}>
         {session.title}
       </span>
-      <span className="shrink-0 text-app-micro text-muted-foreground">
+      <span className="shrink-0 whitespace-nowrap text-app-micro text-muted-foreground">
         {t(`agent.phase.${phase}`)}
       </span>
     </button>
