@@ -121,11 +121,12 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
-  test("one asked about each time is not answered until restart", () => {
+  test("one asked about each time offers Don't allow and Allow", () => {
     const html = card(consent({ eachTime: true }));
+    expect(html).toContain("Don&#x27;t allow</button>");
     expect(html).not.toContain("Allow until restart");
-    expect(html).toContain("Allow once");
-    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow once/);
+    expect(html).not.toContain("Allow once");
+    expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow<\/button>/);
   });
 
   test("sandbox approval offers the same choices in the same order", () => {
@@ -139,7 +140,7 @@ describe("what another computer's consent prompt says", () => {
   test("one this computer may not answer says where to, with no answers", () => {
     const html = card(consent({ answerable: false }));
     expect(html).toContain("Answer it on Work PC");
-    expect(html).not.toContain("Allow once");
+    expect(html).not.toContain("<button");
   });
 
   test("one run out is gone", () => {

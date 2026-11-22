@@ -166,7 +166,11 @@ export function RemoteConsentCard({
         <span className="flex flex-wrap justify-end gap-2">
           {button("deny", t("agentCli.consent.deny"), "ghost")}
           {!consent.eachTime && button("session", t("agentCli.consent.session"), "outline")}
-          {button("once", t("agentCli.consent.once"), "default")}
+          {button(
+            "once",
+            t(consent.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once"),
+            "default",
+          )}
         </span>
       ) : (
         <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">

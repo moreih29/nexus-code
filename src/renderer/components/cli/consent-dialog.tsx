@@ -67,9 +67,10 @@ export function settleCliConsent(
   if (!pending || (answer === "session" && pending.prompt.change.eachTime)) return false;
   settle(pending, answer);
   if (by) {
+    const toastAnswer = answer === "once" && pending.prompt.change.eachTime ? "allow" : answer;
     showToast({
       kind: "info",
-      message: i18next.t(`settings:agentCli.consent.answered_${answer}`, { device: by }),
+      message: i18next.t(`settings:agentCli.consent.answered_${toastAnswer}`, { device: by }),
     });
   }
   return true;
@@ -214,7 +215,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        {!prompt?.change.eachTime && (
+        {!change?.eachTime && (
           <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
             {t("agentCli.consent.session")}
           </Button>
@@ -225,7 +226,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           className={CONSENT_CONFIRM_BUTTON_CLASS}
           onClick={() => active && settle(active, "once")}
         >
-          {t("agentCli.consent.once")}
+          {t(change?.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once")}
         </Button>
       </div>
     </Dialog>

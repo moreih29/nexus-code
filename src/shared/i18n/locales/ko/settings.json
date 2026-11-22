@@ -293,6 +293,7 @@
       "destination": "{{to}}에서 ",
       "deny": "허용 안 함",
       "session": "재시작 전까지 허용",
+      "allow": "허용",
       "once": "이번만 허용",
       "timeout": "{{seconds}}초 안에 답하지 않으면 거절됩니다.",
       "action": {
@@ -366,6 +367,7 @@
       "record_title": "에이전트가 녹음을 시작하도록 허용할까요?",
       "remote_title": "다른 컴퓨터의 에이전트가 이 컴퓨터를 변경하도록 허용할까요?",
       "remote_description": "{{device}} 컴퓨터의 \"{{tab}}\"이(가) {{destination}}{{action}} 하려고 합니다.",
+      "answered_allow": "{{device}}에서 허용했습니다.",
       "answered_once": "{{device}}에서 이번만 허용했습니다.",
       "answered_session": "{{device}}에서 재시작 전까지 허용했습니다.",
       "answered_deny": "{{device}}에서 거절했습니다.",
