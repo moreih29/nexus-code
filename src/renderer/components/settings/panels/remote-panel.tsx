@@ -191,6 +191,7 @@ export function AccountGroup({
           {failure && (
             <SignInNotice
               failure={failure}
+              provider={state.status === "signed-out" ? state.provider : undefined}
               actions={noticeActions.length > 0 ? noticeActions : undefined}
             />
           )}

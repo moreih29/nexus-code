@@ -397,7 +397,13 @@ describe("the account", () => {
       fetch: server.fetchFn,
     });
     accounts.push(account);
-    expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
+    expect(await account.signIn()).toEqual({
+      status: "signed-out",
+      server: SERVER,
+      failure,
+      // A pending approval keeps its sign-in, the same to sign in again with.
+      ...(failure === "pending_approval" ? { provider: "google" } : {}),
+    });
     expect(store.value).toBeNull();
     expect(server.requests).toEqual([]);
   });
@@ -453,7 +459,12 @@ describe("the account", () => {
       fetch: fakeServer().fetchFn,
     });
     accounts.push(account);
-    const pending = { status: "signed-out", server: SERVER, failure: "pending_approval" };
+    const pending = {
+      status: "signed-out",
+      server: SERVER,
+      failure: "pending_approval",
+      provider: "github",
+    };
     expect(await account.signIn("github")).toEqual(pending);
     expect(await account.signIn()).toEqual(pending);
 

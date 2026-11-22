@@ -14,7 +14,9 @@ import {
   APPROVED_ONLY_FAILURES,
   type SignInFailure,
   type SignInFailureTone,
+  type SignInProvider,
   signInFailureTone,
+  signInProviderName,
 } from "../../../../shared/remote/account";
 import { bannerColorClass } from "../../ui/banner";
 
@@ -30,11 +32,14 @@ const ICON_TONE: Record<SignInFailureTone, string> = {
 
 export function SignInNotice({
   failure,
+  provider,
   compact = false,
   actions,
   dismiss,
 }: {
   failure: ShownSignInFailure;
+  /** The sign-in a pending approval is for: its body names it, to sign in again with. */
+  provider?: SignInProvider;
   /** The narrow list's: the title and one line, the approved-only line when there is one. */
   compact?: boolean;
   actions?: ReactNode;
@@ -44,6 +49,7 @@ export function SignInNotice({
   const tone = signInFailureTone(failure);
   const approvedOnly = APPROVED_ONLY_FAILURES.includes(failure);
   const Icon = failure === "pending_approval" ? Clock : tone === "info" ? Info : CircleAlert;
+  const providerName = failure === "pending_approval" ? signInProviderName(provider) : undefined;
   return (
     <div
       role={tone === "info" ? "status" : "alert"}
@@ -73,7 +79,11 @@ export function SignInNotice({
         )}
         {!(compact && approvedOnly) && (
           <p className="text-app-ui-sm text-muted-foreground">
-            {t(`remote.account.failure.${failure}.body`)}
+            {providerName
+              ? t("remote.account.failure.pending_approval.bodyWithProvider", {
+                  provider: providerName,
+                })
+              : t(`remote.account.failure.${failure}.body`)}
           </p>
         )}
         {actions && (

@@ -134,7 +134,12 @@ export class RemoteAccount {
       return { status: "signed-in", server, user: this.saved.user, device: this.saved.device };
     }
     if (this.signingIn) return { status: "signing-in", server };
-    return { status: "signed-out", server, ...(this.failure ? { failure: this.failure } : {}) };
+    return {
+      status: "signed-out",
+      server,
+      ...(this.failure ? { failure: this.failure } : {}),
+      ...(this.pendingProvider ? { provider: this.pendingProvider } : {}),
+    };
   }
 
   /** The session token, while signed in. */

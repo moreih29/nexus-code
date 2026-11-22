@@ -40,7 +40,8 @@ describe("the remote panel's account", () => {
       );
       expect(html).toContain("Awaiting approval");
       expect(html).toContain("Approved accounts only for now");
-      expect(html).toContain("Once approved, sign in again the same way.");
+      // Without the sign-in it is for (the app started anew), the body names none.
+      expect(html).toContain("Once approved, sign in again with the same account.");
       // The notice comes before the sign-in buttons.
       expect(html.indexOf("Awaiting approval")).toBeLessThan(html.indexOf("Sign in with Google"));
       expect(html).toContain("Sign in with Google");
@@ -52,6 +53,15 @@ describe("the remote panel's account", () => {
       renderButton.mockRestore();
       call.mockRestore();
     }
+  });
+
+  test.each([
+    ["google", "Once approved, sign in again with the same Google account."],
+    ["apple", "Once approved, sign in again with the same Apple account."],
+    ["dev", "Once approved, sign in again with the same account."],
+  ] as const)("names the sign-in a pending approval is for: %s", (provider, body) => {
+    const html = render({ status: "signed-out", server, failure: "pending_approval", provider });
+    expect(html).toContain(body);
   });
 
   test.each([

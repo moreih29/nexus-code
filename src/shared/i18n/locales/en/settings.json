@@ -1109,11 +1109,12 @@
         },
         "pending_approval": {
           "title": "Awaiting approval",
-          "body": "Once approved, sign in again the same way."
+          "body": "Once approved, sign in again with the same account.",
+          "bodyWithProvider": "Once approved, sign in again with the same {{provider}} account."
         },
         "rejected": {
           "title": "Signup request not approved",
-          "body": "Request again after 30 days"
+          "body": "Request again after 30 days."
         },
         "suspended": {
           "title": "Account suspended",
@@ -1133,7 +1134,7 @@
         },
         "too_many_devices": {
           "title": "Too many devices signed in",
-          "body": "Remove a device you no longer use in Settings › Remote on another device, then sign in again."
+          "body": "Remove a device you no longer use in another device's settings, then sign in again."
         },
         "mismatch": {
           "title": "Reply from another sign-in",

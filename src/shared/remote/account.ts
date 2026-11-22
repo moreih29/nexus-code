@@ -81,6 +81,21 @@ export const SignInFailureSchema = z.enum(SIGN_IN_FAILURES);
 export type SignInFailure = z.infer<typeof SignInFailureSchema>;
 
 /**
+ * The sign-ins' names as the user knows them, the same in every language;
+ * the dev sign-in has none.
+ */
+const SIGN_IN_PROVIDER_NAMES: Partial<Record<SignInProvider, string>> = {
+  apple: "Apple",
+  google: "Google",
+  github: "GitHub",
+};
+
+/** The name of a sign-in to put in a sentence; undefined for one without (or none known). */
+export function signInProviderName(provider: SignInProvider | undefined): string | undefined {
+  return provider ? SIGN_IN_PROVIDER_NAMES[provider] : undefined;
+}
+
+/**
  * The failures that come of the server taking approved accounts only; they
  * say so in a line of their own (`remote.account.approvedOnly`).
  */
@@ -104,14 +119,16 @@ export function signInFailureTone(failure: SignInFailure): SignInFailureTone {
 
 /**
  * Where the account stands: signed out (with why the last sign-in failed,
- * if it did), signing in (the browser is open on the server's sign-in),
- * or signed in.
+ * if it did, and the sign-in a pending approval is for: the server knows
+ * the account by it), signing in (the browser is open on the server's
+ * sign-in), or signed in.
  */
 export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("signed-out"),
     server: z.string(),
     failure: SignInFailureSchema.optional(),
+    provider: SignInProviderSchema.optional(),
   }),
   z.object({ status: z.literal("signing-in"), server: z.string() }),
   z.object({
