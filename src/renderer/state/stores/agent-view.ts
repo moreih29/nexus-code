@@ -13,6 +13,7 @@ import {
   type AgentViewMode,
   type AgentViewSnapshot,
   MAX_REMOTE_SEEN,
+  normalizeAgentViewFolds,
   type RemoteFileSnapshot,
   type RemoteSeenResult,
 } from "../../../shared/types/agent-view";
@@ -211,7 +212,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         order: orderFromStore(snapshot.order, alive),
         peerOrder: snapshot.peerOrder,
         grouping: groupingFromStore(snapshot.grouping),
-        folded: new Set(snapshot.folded ?? []),
+        folded: new Set(normalizeAgentViewFolds(snapshot.folded ?? [])),
         remoteSeen: remoteSeen && {
           accountKey: remoteSeen.accountKey,
           entries: new Map(remoteSeen.entries),
@@ -315,7 +316,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     const next = new Set(get().folded);
     if (next.has(group)) next.delete(group);
     else next.add(group);
-    set({ folded: next });
+    set({ folded: new Set(normalizeAgentViewFolds(next)) });
     schedulePersist();
   },
 

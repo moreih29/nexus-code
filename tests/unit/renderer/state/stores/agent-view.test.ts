@@ -353,4 +353,28 @@ describe("agent view store", () => {
     await settle();
     expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.folded");
   });
+
+  it("keeps valid saved folds and gives recent peer folds the remaining slots", async () => {
+    const leaf = { kind: "leaf", id: P1, tabIds: [], activeTabId: null };
+    const keys = Array.from({ length: 260 }, (_, i) =>
+      i % 2 === 0 ? `peer:d${i}` : `peer-ws:d2:w${i}`,
+    );
+    const local = ["status:done", "workspace:local"];
+    const snapshot = AgentViewSnapshotSchema.parse({
+      mode: "agents",
+      root: leaf,
+      activeLeafId: P1,
+      folded: [...local, ...keys, `peer:${"x".repeat(201)}`, 7],
+    });
+    expect(snapshot.folded).toEqual([...local, ...keys.slice(-254)]);
+
+    const view = useAgentViewStore.getState();
+    view.hydrate(snapshot, () => true);
+    view.toggleFolded("peer-ws:d2:new");
+    await flushAgentViewPersistence();
+    const saved = AgentViewSnapshotSchema.parse(
+      (stored.at(-1) as { agentView: unknown }).agentView,
+    );
+    expect(saved.folded).toEqual([...local, ...keys.slice(-253), "peer-ws:d2:new"]);
+  });
 });
