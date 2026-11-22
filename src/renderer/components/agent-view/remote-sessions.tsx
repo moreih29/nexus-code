@@ -605,6 +605,7 @@ export function PeerGroup({
                       consent={consent}
                       deviceId={peer.id}
                       device={peer.name}
+                      sessions={sessions.list.sessions}
                       workspaceName={
                         names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
                       }

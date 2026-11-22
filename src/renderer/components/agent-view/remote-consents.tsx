@@ -17,7 +17,11 @@ import i18next, { type TFunction } from "i18next";
 import { ShieldQuestion } from "lucide-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import type { ConsentAnswer, RemoteConsent } from "../../../../packages/remote-protocol/src/rpc";
+import type {
+  ConsentAnswer,
+  RemoteConsent,
+  RemoteSession,
+} from "../../../../packages/remote-protocol/src/rpc";
 import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
@@ -65,17 +69,20 @@ export function PeerConsentCard({
   deviceId,
   device,
   workspaceName,
+  sessions,
 }: {
   consent: RemoteConsent;
   deviceId: string;
   device: string;
   workspaceName: string;
+  sessions: readonly RemoteSession[] | undefined;
 }) {
   return (
     <RemoteConsentCard
       consent={consent}
       device={device}
       workspaceName={workspaceName}
+      sessions={sessions}
       onAnswer={(answer) =>
         ipcCallResult("remote", "peerConsentAnswer", { deviceId, id: consent.id, answer })
       }
@@ -109,6 +116,7 @@ export function consentSentenceOf(
   t: TFunction<"settings">,
   consent: RemoteConsent,
   to: string,
+  sessions?: readonly RemoteSession[],
 ): string {
   const { from } = consent;
   const action = consentActionOf(t, consent.change);
@@ -117,11 +125,13 @@ export function consentSentenceOf(
     const destination = namesTarget ? "" : t("agentCli.consent.destination", { to });
     return t("agentCli.consent.manager_description", { destination, action });
   }
+  const kind = sessions?.find((session) => consentFromChat(consent, session))?.kind;
   return describeConsent(
     t,
     {
       fromWorkspace: from.workspaceName ?? from.workspaceId.slice(0, 8),
       fromTab: from.name ?? from.tabId.slice(0, 8),
+      ...(kind === "claude" || kind === "codex" ? { fromAgent: kind } : {}),
       ...(from.device ? { fromDevice: from.device.name } : {}),
       toWorkspace: to,
       sameWorkspace: !from.device && from.workspaceId === consent.workspaceId,
@@ -136,6 +146,7 @@ export function RemoteConsentCard({
   consent,
   device,
   workspaceName,
+  sessions,
   onAnswer,
   onSettled,
 }: {
@@ -144,6 +155,8 @@ export function RemoteConsentCard({
   device: string;
   /** The name of its workspace the prompt would change. */
   workspaceName: string;
+  /** The serving computer's sessions, which identify the asking tab. */
+  sessions?: readonly RemoteSession[] | undefined;
   /** Sends the answer there. */
   onAnswer: (answer: ConsentAnswer) => Promise<IpcResult<unknown>>;
   /** Answered here, or found answered there: every view leaves it out. */
@@ -210,7 +223,7 @@ export function RemoteConsentCard({
         <span>{title}</span>
       </span>
       <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
-        {consentSentenceOf(t, consent, workspaceName)}
+        {consentSentenceOf(t, consent, workspaceName, sessions)}
       </p>
       {body && (
         // What an answer lets run, whole: its first line can hide the rest.

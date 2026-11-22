@@ -1098,6 +1098,17 @@ describe("the agent view's other computers", () => {
                 eachTime: false,
                 answerable: true,
               },
+              {
+                id: "c2",
+                at: 0,
+                expiresAt: 60_000,
+                expiresInMs: 30_000,
+                from: { workspaceId: "w1", workspaceName: "api", tabId: "t1", name: "Review" },
+                workspaceId: "w2",
+                change: { kind: "chatInput", detail: "Build", body: "Run tests" },
+                eachTime: false,
+                answerable: true,
+              },
             ],
           },
         }}
@@ -1105,6 +1116,7 @@ describe("the agent view's other computers", () => {
     );
     expect(html).toContain('data-testid="remote-consent"');
     expect(html).toContain("asks to send a message to the tab &quot;Review&quot; in web.");
+    expect(html).toContain("The Claude tab &quot;Review&quot; in api asks to");
     expect(html.indexOf("remote-consent")).toBeLessThan(html.indexOf("remote-workspace"));
   });
 

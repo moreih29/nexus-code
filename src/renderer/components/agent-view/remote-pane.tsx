@@ -537,6 +537,7 @@ function RemoteChatView({
           consent={controls ? consent : { ...consent, answerable: false }}
           deviceId={deviceId}
           device={target.deviceName}
+          sessions={list?.sessions}
           workspaceName={
             list?.workspaces.find((workspace) => workspace.id === consent.workspaceId)?.name ??
             consent.workspaceId.slice(0, 8)
