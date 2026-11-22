@@ -221,9 +221,5 @@ export function PeerCommitFilePatch({
     );
   }
   const { binary, truncated, hunks } = result.value;
-  return (
-    <div className={cn("flex min-w-0 flex-col", hunks.length > 0 && "h-64")}>
-      <PeerPatchView hunks={hunks} binary={binary} truncated={truncated} />
-    </div>
-  );
+  return <PeerPatchView hunks={hunks} binary={binary} truncated={truncated} embedded />;
 }

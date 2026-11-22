@@ -91,13 +91,26 @@ test("file errors and partial and binary patches stay in their own commit file s
     expect(markup.match(/id="gone".*?<\/section>/s)?.[0]).toContain("Change no longer available");
     expect(markup.match(/id="forbidden".*?<\/section>/s)?.[0]).toContain("Permission denied");
     const partialSection = markup.match(/id="partial".*?<\/section>/s)?.[0];
-    expect(partialSection).toContain("Full comparison unavailable · Changed sections only");
+    expect(markup).not.toContain("Full comparison unavailable · Changed sections only");
     expect(partialSection).toContain("Partial patch");
     expect(markup.match(/id="binary".*?<\/section>/s)?.[0]).toContain("Cannot display binary file");
     expect(markup).not.toContain("the server's private paths");
   } finally {
     call.mockRestore();
   }
+});
+
+test.each([1, 50])("a commit patch with %i changed lines grows up to a scroll cap", (count) => {
+  const lines = Array.from({ length: count }, (_, i) => `+line ${i}`);
+  const result = ipcOk({
+    path: "a.ts",
+    hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: count, lines }],
+  });
+  const markup = renderToStaticMarkup(<PeerCommitFilePatch result={result} canRead />);
+  expect(markup).toContain("overflow-auto max-h-64");
+  expect(markup).toContain(`height:${(count + 1) * 24}px`);
+  expect(markup).not.toMatch(/\sh-64(?:\s|")/);
+  expect(markup).not.toContain("Full comparison unavailable");
 });
 
 test("closing a commit tab or switching peer ignores late detail and patch responses", async () => {
