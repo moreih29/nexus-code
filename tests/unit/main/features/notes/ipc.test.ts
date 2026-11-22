@@ -611,7 +611,7 @@ test("answer saves reject oversized text and remove new notes when the card writ
   const rename = fs.rename;
   let documentWrites = 0;
   const failWrite = spyOn(fs, "rename").mockImplementation(async (from, to) => {
-    if (String(to).endsWith("/note.json") && ++documentWrites === 2)
+    if (path.basename(String(to)) === "note.json" && ++documentWrites === 2)
       throw new Error("Cannot store the card");
     return rename(from, to);
   });
