@@ -2098,6 +2098,7 @@
     "gitDiffRight": "Right {{path}} ({{ref}})",
     "gitPatchOnly": "Full comparison unavailable · Changed sections only",
     "gitPatchTruncated": "Partial patch",
-    "gitOutsideWorkspace": "Outside workspace"
+    "gitOutsideWorkspace": "Outside workspace",
+    "gitCommitMissing": "Commit unavailable"
   }
 }

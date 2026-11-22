@@ -28,8 +28,23 @@ export interface PeerDiffTab extends PeerGitFile {
   side: PeerGitSide;
 }
 
-export function peerTabId(tab: PeerFileTab | PeerDiffTab): string {
-  return tab.type === "peer.file" ? tab.path : JSON.stringify([tab.type, tab.path, tab.side]);
+export interface PeerCommitTab {
+  type: "peer.commit";
+  hash: string;
+  subject: string;
+}
+
+type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab;
+
+export function peerTabId(tab: PeerWorkspaceTab): string {
+  switch (tab.type) {
+    case "peer.file":
+      return tab.path;
+    case "peer.diff":
+      return JSON.stringify([tab.type, tab.path, tab.side]);
+    case "peer.commit":
+      return JSON.stringify([tab.type, tab.hash]);
+  }
 }
 
 export interface PeerFolder {
@@ -39,8 +54,8 @@ export interface PeerFolder {
 }
 
 interface PeerWorkspaceView {
-  tabs: readonly (PeerFileTab | PeerDiffTab)[];
-  /** File path or the comparison tab ID. */
+  tabs: readonly PeerWorkspaceTab[];
+  /** File path or the Git tab ID. */
   activePath: string | null;
   folders: Readonly<Record<string, PeerFolder>>;
   expanded: ReadonlySet<string>;
@@ -72,6 +87,7 @@ interface PeerWorkspaceState {
   setAccount: (key: string | null) => void;
   openFile: (id: string, path: string, at?: LineAt) => void;
   openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
+  openCommit: (id: string, commit: Pick<PeerCommitTab, "hash" | "subject">) => void;
   selectTab: (id: string, tabId: string) => void;
   closeTab: (id: string, tabId: string) => void;
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
@@ -86,6 +102,17 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
     const previous = state.views[id] ?? EMPTY_PEER_VIEW;
     const view = update(previous);
     if (view !== previous) set({ views: { ...state.views, [id]: view } });
+  }
+
+  function openGitTab(id: string, tab: PeerDiffTab | PeerCommitTab) {
+    updateView(id, (view) => {
+      const activePath = peerTabId(tab);
+      const index = view.tabs.findIndex((item) => peerTabId(item) === activePath);
+      const tabs = [...view.tabs];
+      if (index < 0) tabs.push(tab);
+      else tabs[index] = tab;
+      return { ...view, tabs, activePath };
+    });
   }
 
   return {
@@ -123,7 +150,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       updateView(id, (view) => {
         const key = peerPathKey(path);
         const existing = view.tabs.find(
-          (tab) => tab.type === "peer.file" && peerPathKey(tab.path) === key,
+          (tab): tab is PeerFileTab => tab.type === "peer.file" && peerPathKey(tab.path) === key,
         );
         if (!existing) {
           const tab: PeerFileTab = { type: "peer.file", path, ...(at && { at }) };
@@ -135,16 +162,8 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
           activePath: existing.path,
         };
       }),
-    openDiff: (id, change, side) =>
-      updateView(id, (view) => {
-        const tab: PeerDiffTab = { ...change, type: "peer.diff", side };
-        const activePath = peerTabId(tab);
-        const index = view.tabs.findIndex((item) => peerTabId(item) === activePath);
-        const tabs = [...view.tabs];
-        if (index < 0) tabs.push(tab);
-        else tabs[index] = tab;
-        return { ...view, tabs, activePath };
-      }),
+    openDiff: (id, change, side) => openGitTab(id, { ...change, type: "peer.diff", side }),
+    openCommit: (id, { hash, subject }) => openGitTab(id, { type: "peer.commit", hash, subject }),
     selectTab: (id, tabId) =>
       updateView(id, (view) =>
         view.tabs.some((tab) => peerTabId(tab) === tabId) ? { ...view, activePath: tabId } : view,

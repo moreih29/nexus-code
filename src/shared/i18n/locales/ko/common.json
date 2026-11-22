@@ -2098,6 +2098,7 @@
     "gitDiffRight": "우측 {{path}} ({{ref}})",
     "gitPatchOnly": "전체 비교 없음 · 바뀐 부분만",
     "gitPatchTruncated": "바뀐 부분 일부만",
-    "gitOutsideWorkspace": "워크스페이스 밖"
+    "gitOutsideWorkspace": "워크스페이스 밖",
+    "gitCommitMissing": "커밋 없음"
   }
 }
