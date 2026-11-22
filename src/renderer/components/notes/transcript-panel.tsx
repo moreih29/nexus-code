@@ -45,6 +45,10 @@ import {
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
 import {
+  type RecordingSummaries,
+  summarizeSavedRecording,
+} from "../../services/notes/use-summaries";
+import {
   currentVoiceSuggestions,
   dismissVoiceSuggestions,
   hasVoiceAudio,
@@ -57,9 +61,11 @@ import {
 } from "../../services/notes/voice-memory";
 import { useUIStore } from "../../state/stores/ui";
 import { Button } from "../ui/button";
+import { showConfirmDialog } from "../ui/confirm-dialog";
 import type { DropdownMenuPoint } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
 import { consentToVoiceMemory, SpeakerNameDialog } from "./speaker-name-dialog";
+import { type SummaryTaskTimes, summaryTaskRows } from "./summary-task-times";
 import { LineMoveMenu, LineRow, type LineTarget, PartialRow } from "./transcript-line";
 import { PickedSpeaker, RecordingHeading } from "./transcript-recording";
 import {
@@ -101,11 +107,17 @@ interface Moving {
 export const TranscriptPanel = memo(function TranscriptPanel({
   workspaceId,
   noteId,
+  summaries,
+  taskTimes,
+  flushNote,
   onQuote,
   onClose,
 }: {
   workspaceId: string;
   noteId: string;
+  summaries: RecordingSummaries;
+  taskTimes: SummaryTaskTimes;
+  flushNote: () => Promise<boolean>;
   /** Puts a line into the note, as a quote. */
   onQuote: (quote: TranscriptQuote) => void;
   onClose: () => void;
@@ -128,6 +140,24 @@ export const TranscriptPanel = memo(function TranscriptPanel({
 
   const recordings = file?.recordings ?? NO_RECORDINGS;
   const read = useMemo(() => readRecordings(recordings), [recordings]);
+  const taskRows = useMemo(() => summaryTaskRows(read, taskTimes), [read, taskTimes]);
+  const rerun = useCallback(
+    async (recordingId: string) => {
+      const confirmed = await showConfirmDialog({
+        title: t("summary.rerun"),
+        description: t("summary.rerunConfirm"),
+        confirmLabel: t("summary.rerun"),
+      });
+      if (!confirmed) return;
+      try {
+        if (!(await flushNote())) throw new Error("Note save failed");
+        await summarizeSavedRecording(workspaceId, noteId, recordingId, "rerun");
+      } catch {
+        showToast({ kind: "error", message: t("summary.actionFailed") });
+      }
+    },
+    [flushNote, noteId, t, workspaceId],
+  );
   const offered = useVoiceMemory((s) => s.byRecording);
   const suggestions = useMemo(
     () =>
@@ -566,6 +596,9 @@ export const TranscriptPanel = memo(function TranscriptPanel({
                     suggestions={suggestions.get(row.recording.id) ?? NO_VOICE_SUGGESTIONS}
                     narrowed={narrowed}
                     lit={lit === row.key}
+                    summaryTask={taskRows.has(row.key)}
+                    summarizing={summaries[row.recording.id]?.state === "running"}
+                    onRerun={rerun}
                     unnamed={unnamed}
                     onPick={pick}
                     onRename={rename}
@@ -619,6 +652,9 @@ function Row({
   suggestions,
   narrowed,
   lit,
+  summaryTask,
+  summarizing,
+  onRerun,
   unnamed,
   onPick,
   onRename,
@@ -638,6 +674,9 @@ function Row({
   suggestions: readonly VoiceNameSuggestion[];
   narrowed: boolean;
   lit: boolean;
+  summaryTask: boolean;
+  summarizing: boolean;
+  onRerun: (recordingId: string) => void;
   unnamed: (key: string) => string;
   onPick: (recordingId: string, person: string) => void;
   onRename: (recordingId: string, keys: readonly string[]) => void;
@@ -660,6 +699,8 @@ function Row({
           recording={recording}
           cast={cast}
           live={live}
+          summarizing={summarizing}
+          onRerun={onRerun}
           first={first}
           picked={person || null}
           suggestions={suggestions}
@@ -687,6 +728,7 @@ function Row({
           marks={row.marks}
           narrowed={narrowed}
           lit={lit}
+          summaryTask={summaryTask}
           onSpeaker={onSpeaker}
           onQuote={onQuote}
           onShowInWhole={onShowInWhole}

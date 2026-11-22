@@ -7,6 +7,7 @@ import { NoteFile, NoteImage } from "./asset-nodes";
 import type { NoteHost } from "./host";
 import { Sketch } from "./sketch-node";
 import { SlashMenu, type SlashMenuOptions } from "./slash-menu";
+import { NoteSummaryDivider } from "./summary-divider";
 
 const summaryAttribute = {
   default: null,
@@ -61,6 +62,7 @@ export function noteExtensions(
     TaskList,
     TaskItem.configure({ nested: true }),
     NoteSummaryAttributes,
+    NoteSummaryDivider,
     Placeholder.configure({ placeholder: options.placeholder }),
     Sketch.configure({ host }),
     NoteImage.configure({ host }),

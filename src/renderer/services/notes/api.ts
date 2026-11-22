@@ -20,6 +20,7 @@ import type {
   NoteLinksChanged,
   NotePhotoAdded,
   NoteSummaryChanged,
+  NoteSummaryCompleted,
 } from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
@@ -41,6 +42,8 @@ export const notesApi = {
     call(ipcCallResult("notes", "linksOfConversation", tab)),
   summaries: (workspaceId: string, noteId: string) =>
     call(ipcCallResult("notes", "summaries", { workspaceId, noteId })),
+  summaryVisibility: (workspaceId: string, noteId: string, tabId: string, visible: boolean) =>
+    call(ipcCallResult("notes", "summaryVisibility", { workspaceId, noteId, tabId, visible })),
   summarize: (workspaceId: string, noteId: string, recordingId: string, mode?: SummaryMode) =>
     call(ipcCallResult("notes", "summarize", { workspaceId, noteId, recordingId, mode })),
   cancelSummary: (workspaceId: string, noteId: string, recordingId: string) =>
@@ -51,6 +54,8 @@ export const notesApi = {
     call(ipcCallResult("notes", "dismiss", { workspaceId, noteId, recordingId })),
   onSummaryChanged: (cb: (event: NoteSummaryChanged) => void): (() => void) =>
     ipcListen("notes", "summaryChanged", cb),
+  onSummaryCompleted: (cb: (event: NoteSummaryCompleted) => void): (() => void) =>
+    ipcListen("notes", "summaryCompleted", cb),
   onBlocksRemoved: (cb: (event: NoteBlocksRemoved) => void): (() => void) =>
     ipcListen("notes", "blocksRemoved", cb),
   addLink: (

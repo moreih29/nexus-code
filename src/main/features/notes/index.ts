@@ -20,6 +20,7 @@ import {
 } from "../../../shared/types/workspace";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import { VoicePrints } from "../voice-print";
+import { getActiveAppWindow, getAppWindows } from "../window/app-windows";
 import { NoteError, NotesStore } from "./store";
 import { NotesSummary, type NotesSummaryOptions, type SummaryTarget } from "./summary";
 
@@ -202,6 +203,46 @@ export function registerNotesChannel(opts: {
     broadcast("notes", "linksChanged", { locationKey, noteId });
   // Beside the main bundle (electron.vite.config.ts).
   const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
+  const visibleNotes = new Map<number, Map<string, string>>();
+  const noteKey = (locationKey: string, noteId: string) => JSON.stringify([locationKey, noteId]);
+  const isWindowVisible = (win: BrowserWindow) => win.isVisible() && !win.isMinimized();
+  const isNoteVisible = (key: string) =>
+    getAppWindows().some(
+      (win) =>
+        isWindowVisible(win) &&
+        Array.from(visibleNotes.get(win.webContents.id)?.values() ?? []).includes(key),
+    );
+  const notifySummary = async (
+    locationKey: string,
+    noteId: string,
+    runId: string,
+    todos: number,
+  ) => {
+    const key = noteKey(locationKey, noteId);
+    if (isNoteVisible(key)) return;
+    const workspaces = opts.workspaces();
+    const matchesLocation = (item: WorkspaceMeta) =>
+      noteLocationOf(item, workspaces).key === locationKey;
+    const workspace =
+      workspaces.find((item) => !item.task && matchesLocation(item)) ??
+      workspaces.find(matchesLocation);
+    if (!workspace || !getActiveAppWindow()) return;
+    const { title } = await store.read(noteLocationOf(workspace, workspaces), noteId);
+    if (isNoteVisible(key)) return;
+    // Deliver the toast to a single app window, even though the banner is broadcast to all.
+    const active = getActiveAppWindow();
+    const destination =
+      active && isWindowVisible(active)
+        ? active
+        : (getAppWindows().find(isWindowVisible) ?? active);
+    destination?.webContents.send("ipc:event", "notes", "summaryCompleted", {
+      workspaceId: workspace.id,
+      noteId,
+      title,
+      runId,
+      todos,
+    });
+  };
 
   // The windows' recorders, by window: what each told last.
   const recordings = new Map<number, NoteRecording>();
@@ -270,8 +311,12 @@ export function registerNotesChannel(opts: {
     profile: opts.summary?.profile ?? (() => null),
     runClaude: opts.summary?.runClaude ?? (async () => ({ error: { kind: "missing" } })),
     append: ({ location, noteId }, blocks) => appendAtLocation(location, noteId, blocks),
-    onState: (locationKey, noteId, recordingId, state) =>
-      broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state }),
+    onState: (locationKey, noteId, recordingId, state) => {
+      broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state });
+      if (state.state === "done" && !state.seen) {
+        void notifySummary(locationKey, noteId, state.runId, state.todos).catch(() => {});
+      }
+    },
     onRemoved: ({ location, noteId }, origin) => {
       broadcast("notes", "blocksRemoved", { locationKey: location.key, noteId, origin });
       changed({ locationKey: location.key, noteId, change: "saved" });
@@ -332,6 +377,26 @@ export function registerNotesChannel(opts: {
       summaries: async (args: unknown) => {
         const { workspaceId, noteId } = validateArgs(c.summaries.args, args);
         return ipcOk(await summary.states(locationOf(workspaceId), noteId));
+      },
+      summaryVisibility: (args: unknown, ctx) => {
+        const { workspaceId, noteId, tabId, visible } = validateArgs(
+          c.summaryVisibility.args,
+          args,
+        );
+        const sender = ctx?.sender;
+        if (!sender || sender.isDestroyed()) return ipcOk(undefined);
+        const tabs = visibleNotes.get(sender.id);
+        if (!visible) {
+          tabs?.delete(tabId);
+        } else {
+          const key = noteKey(locationOf(workspaceId).key, noteId);
+          if (tabs) tabs.set(tabId, key);
+          else {
+            visibleNotes.set(sender.id, new Map([[tabId, key]]));
+            sender.once("destroyed", () => visibleNotes.delete(sender.id));
+          }
+        }
+        return ipcOk(undefined);
       },
       summarize: async (args: unknown) => {
         const request = validateArgs(c.summarize.args, args);
@@ -573,6 +638,7 @@ export function registerNotesChannel(opts: {
       changed: {},
       linksChanged: {},
       summaryChanged: {},
+      summaryCompleted: {},
       blocksAdded: {},
       blocksRemoved: {},
     },
@@ -593,6 +659,7 @@ export function registerNotesChannel(opts: {
     },
     dispose: () => {
       summary.dispose();
+      visibleNotes.clear();
       pendingRecordings.clear();
       recordings.clear();
       voicePrints.stop();

@@ -197,6 +197,7 @@ import {
   NotePhotoAddedSchema,
   NoteStorageEntrySchema,
   NoteSummaryChangedSchema,
+  NoteSummaryCompletedSchema,
   NoteSummarySchema,
   NotesArgs,
 } from "../types/notes";
@@ -667,6 +668,7 @@ const notesContracts = {
       links: call(NotesArgs.links, z.array(NoteLinkEntrySchema)),
       linksOfConversation: call(NotesArgs.linksOfConversation, z.array(LinkedNoteSchema)),
       summaries: call(NotesArgs.summaries, RecordingSummariesSchema),
+      summaryVisibility: call(NotesArgs.summaryVisibility, z.void()),
       summarize: call(NotesArgs.summarize, RecordingSummarySchema.nullable()),
       cancel: call(NotesArgs.cancel, z.boolean()),
       undo: call(NotesArgs.undo, z.number().int().nonnegative()),
@@ -717,6 +719,7 @@ const notesContracts = {
       changed: listen(NoteChangedSchema),
       linksChanged: listen(NoteLinksChangedSchema),
       summaryChanged: listen(NoteSummaryChangedSchema),
+      summaryCompleted: listen(NoteSummaryCompletedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
       /** An agent put blocks into a note: an editor open on it does too. */

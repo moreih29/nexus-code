@@ -1004,6 +1004,18 @@
 .note-doc .ProseMirror > * + * {
   margin-top: 0.5em;
 }
+.note-doc .ProseMirror > .note-summary-divider {
+  margin-top: 1.25em;
+  border-top: 1px solid var(--surface-island-border);
+  padding-top: 0.35em;
+  color: var(--editor-text-muted);
+  font-size: 0.85em;
+}
+.note-doc .ProseMirror > .note-summary-divider::before {
+  content: "✧" / "";
+  margin-inline-end: 0.5em;
+  color: var(--state-info-fg);
+}
 .note-doc .ProseMirror p.is-editor-empty:first-child::before,
 .note-doc .ProseMirror .is-empty.is-editor-empty::before {
   content: attr(data-placeholder);

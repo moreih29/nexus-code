@@ -24,6 +24,7 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { dateTimeFormat } from "@/utils/intl-format";
+import { isLongEnoughToSummarize } from "../../../shared/notes/summary";
 import {
   clockOf,
   peopleIn,
@@ -69,6 +70,8 @@ export const RecordingHeading = memo(function RecordingHeading({
   recording,
   cast,
   live,
+  summarizing,
+  onRerun,
   first,
   picked,
   suggestions,
@@ -82,6 +85,8 @@ export const RecordingHeading = memo(function RecordingHeading({
   recording: TranscriptRecording;
   cast: Cast;
   live: boolean;
+  summarizing: boolean;
+  onRerun: (recordingId: string) => void;
   /** The note's first recording: no room above it. */
   first: boolean;
   /** The person of this recording whose lines alone are shown, if one is. */
@@ -214,6 +219,20 @@ export const RecordingHeading = memo(function RecordingHeading({
                   </span>
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem
+                disabled={
+                  summarizing ||
+                  refining ||
+                  progress !== undefined ||
+                  !isLongEnoughToSummarize(recording)
+                }
+                onSelect={() => onRerun(recording.id)}
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles className="size-3.5" aria-hidden="true" />
+                  {t("summary.rerun")}
+                </span>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={Boolean(regroupReason)}
                 onSelect={() => setRegroupOpen(true)}

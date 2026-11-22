@@ -101,6 +101,7 @@ export const NotesArgs = {
   links: z.object(note),
   linksOfConversation: NoteConversationSchema,
   summaries: z.object(note),
+  summaryVisibility: z.object({ ...note, tabId: z.string().min(1).max(256), visible: z.boolean() }),
   summarize: z.object({ ...recording, mode: SummaryModeSchema.optional() }),
   cancel: z.object(recording),
   undo: z.object(recording),
@@ -237,3 +238,11 @@ export const NoteSummaryChangedSchema = z.object({
   summary: RecordingSummarySchema,
 });
 export type NoteSummaryChanged = z.infer<typeof NoteSummaryChangedSchema>;
+
+export const NoteSummaryCompletedSchema = z.object({
+  ...note,
+  title: z.string(),
+  runId: z.uuid(),
+  todos: z.number().int().nonnegative(),
+});
+export type NoteSummaryCompleted = z.infer<typeof NoteSummaryCompletedSchema>;
