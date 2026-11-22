@@ -122,6 +122,32 @@ describe("Other computers connection guidance", () => {
     expect(html).not.toContain("Work PC");
     expect(html).not.toContain("Loading…");
   });
+
+  test("search shows only computers with a matching session and one empty line otherwise", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [peer, { ...peer, id: "d3", name: "Laptop" }],
+    });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      d2: { status: "ready", list: list([session({ last: "Review the audit" })]) },
+      d3: { status: "ready", list: list([session({ title: "Write docs" })]) },
+    });
+    try {
+      const found = renderToStaticMarkup(<RemoteSessions query=" Audit " />);
+      expect(found).toContain("Work PC");
+      expect(found).toContain("Review the audit");
+      expect(found).not.toContain("Laptop");
+      expect(found).not.toContain("No conversation matches");
+      const empty = renderToStaticMarkup(<RemoteSessions query="Unrelated" />);
+      expect(empty.match(/No conversation matches/g)).toHaveLength(1);
+      expect(empty).not.toContain("Work PC");
+      expect(empty).not.toContain("Laptop");
+      expect(empty).not.toContain("No sessions");
+    } finally {
+      readLists.mockRestore();
+    }
+  });
 });
 
 const peer: RoomPeer = {
@@ -195,6 +221,14 @@ describe("the agent view's other computers", () => {
     ];
     const readRoom = spyOn(room, "useRemoteRoom").mockReturnValue({ status: "online", peers });
     const readAccount = spyOn(account, "useRemoteAccount").mockReturnValue(signedIn);
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue(
+      Object.fromEntries(
+        peers.map(({ id }) => [
+          id,
+          { status: "ready", list: list([session({ title: "Example session" })]) },
+        ]),
+      ),
+    );
     const accountKey = JSON.stringify([signedIn.server, signedIn.user.id]);
     const state = agentView.useAgentViewStore.getInitialState();
     const readView = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
@@ -235,6 +269,7 @@ describe("the agent view's other computers", () => {
       expectHeaders(headers(), ["Desk PC", "Office PC", "Home PC"], 0);
     } finally {
       readView.mockRestore();
+      readLists.mockRestore();
       readRoom.mockRestore();
       readAccount.mockRestore();
     }
@@ -547,6 +582,21 @@ describe("the agent view's other computers", () => {
         ?.map((s) => s.title),
     ).toEqual(["Run web tests"]);
     expect(grouped().plain.has("open")).toBe(false);
+  });
+
+  test("a new result or usage limit wait keeps a worktree visible", () => {
+    const { groups, worktreeCounts } = workspaceGroups(
+      {
+        ...worktreeList,
+        sessions: [
+          session({ workspaceId: "docs", state: "new-result" }),
+          session({ workspaceId: "cache", limitWait: { at: 12_000 } }),
+        ],
+      },
+      { query: "", opens: false, inPanel: () => false, worktreesIn: new Set() },
+    );
+    expect(groups.map(([id]) => id)).toEqual(["w1", "docs", "w2", "cache"]);
+    expect(worktreeCounts.size).toBe(0);
   });
 
   test("a read-only parent with no sessions shows a worktree pill, before the terminal pill when present", () => {

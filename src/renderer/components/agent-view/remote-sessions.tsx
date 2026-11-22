@@ -187,6 +187,8 @@ export function workspaceGroups(
   const keepsWorktreeVisible = (s: RemoteSession) =>
     s.state === "running" ||
     s.state === "needs-you" ||
+    s.state === "new-result" ||
+    s.limitWait !== undefined ||
     s.waiting !== undefined ||
     s.agents?.some((a) => a.state === "running" || a.state === "permissionPending") ||
     inPanel(s);
@@ -277,9 +279,19 @@ function AccountRemoteSessions({
     online.map((peer) => peer.id),
     shown,
   );
-  const peers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
+  const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
     (peer) => connected || lists[peer.id]?.status === "ready",
   );
+  const peers = searching
+    ? listedPeers.filter((peer) => {
+        const sessions = lists[peer.id];
+        return (
+          sessions?.status === "ready" &&
+          sessions.list.sessions.some((session) => matches(session, query))
+        );
+      })
+    : listedPeers;
+  const noMatch = searching && peers.length === 0 && (connected || listedPeers.length > 0);
   const canReorder =
     !searching && accountKey !== null && accountKey === peerOrderAccount && online.length > 1;
   useEffect(() => {
@@ -348,6 +360,11 @@ function AccountRemoteSessions({
           {status && (
             <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
               {status}
+            </p>
+          )}
+          {noMatch && (
+            <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground">
+              {t("agentList.list.no_match")}
             </p>
           )}
           <div
