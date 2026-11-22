@@ -29,7 +29,7 @@ import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import { DialogCloseButton } from "../ui/dialog-close-button";
 import { escapeClearsSearch, SearchInput } from "../ui/search-input";
 import { useDialogFocusReturn } from "../ui/use-dialog-focus-return";
-import { useSettingsNav } from "./nav";
+import { navMatches, useSettingsNav } from "./nav";
 import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -59,14 +59,6 @@ interface SettingsDialogProps {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-
-/** Whether a page's name or one of the words it is found by holds `q` (lower case). */
-function navMatches(item: SettingsNavItem, q: string): boolean {
-  return (
-    item.label.toLowerCase().includes(q) ||
-    (item.keywords ?? []).some((k) => k.toLowerCase().includes(q))
-  );
-}
 
 export function SettingsDialog({
   open,

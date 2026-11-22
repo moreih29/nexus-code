@@ -71,7 +71,39 @@ func (s *Service) resolveGitDir(ctx context.Context, gitDir string) (string, err
 			return clean, nil
 		}
 	}
+	// A linked worktree keeps its git directory in the main repository's
+	// .git/worktrees/<name>, outside both the workspace and its top level.
+	// Accept it only when it is the very directory git names for the
+	// workspace, never a path inside or beside it.
+	if s.isWorkspaceGitDir(ctx, clean) {
+		return clean, nil
+	}
 	return "", proto.ProtocolError("gitDir must stay inside the workspace or detected repository")
+}
+
+// isWorkspaceGitDir reports whether candidate is the git directory git itself
+// reports for the workspace root. The two are compared as files on disk, so
+// spellings that differ by letter case, symbolic links (/var against
+// /private/var on macOS) or Windows path forms still match, while any other
+// directory does not.
+func (s *Service) isWorkspaceGitDir(ctx context.Context, candidate string) bool {
+	out, err := s.statusGitOutput(ctx, s.root, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return false
+	}
+	reported := strings.TrimSpace(string(out))
+	if reported == "" || !filepath.IsAbs(reported) {
+		return false
+	}
+	want, err := os.Stat(reported)
+	if err != nil || !want.IsDir() {
+		return false
+	}
+	got, err := os.Stat(candidate)
+	if err != nil || !got.IsDir() {
+		return false
+	}
+	return os.SameFile(want, got)
 }
 
 func readOperationState(gitDir string, conflictCount int) (map[string]any, error) {

@@ -16,7 +16,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
-import { useTerminalStore } from "../../../state/stores/terminal";
+import { DEFAULT_TERMINAL_FONT_SIZE, useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
 import { FontFamilyRow } from "../font-family-row";
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
@@ -30,7 +30,6 @@ import { TerminalShellSection } from "./terminal-shell-section";
 
 const FONT_SIZE_MIN: TerminalFontSize = 8;
 const FONT_SIZE_MAX: TerminalFontSize = 32;
-const DEFAULT_FONT_SIZE_TOKEN = 14; // typeScale.codeUi fallback
 
 // ---------------------------------------------------------------------------
 // Component
@@ -81,7 +80,7 @@ export function TerminalPanel() {
     [t],
   );
 
-  const effectiveSize = fontSize ?? DEFAULT_FONT_SIZE_TOKEN;
+  const effectiveSize = fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
   const effectiveCursor: TerminalCursorStyle = cursorStyle ?? "block";
   const effectiveLigatures = ligatures ?? false;
   // For preview render the literal user choice. Undefined ("System") falls

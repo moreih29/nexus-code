@@ -1,8 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
-import { settingsNav } from "../../../../../src/renderer/components/settings/nav";
+import { navMatches, settingsNav } from "../../../../../src/renderer/components/settings/nav";
+import { resources, SUPPORTED_LANGUAGES } from "../../../../../src/shared/i18n";
 
 const t = ((key: string) => key) as unknown as TFunction<"settings">;
+
+/** The dialog's own words in `lng`, as the app shows them. */
+function tIn(lng: (typeof SUPPORTED_LANGUAGES)[number]): TFunction<"settings"> {
+  const nav = resources[lng].settings.nav as Record<string, string>;
+  return ((key: string) =>
+    nav[key.replace(/^nav\./, "")] ?? key) as unknown as TFunction<"settings">;
+}
+
+/** The pages a search for `q` finds while the dialog speaks `lng`. */
+function search(lng: (typeof SUPPORTED_LANGUAGES)[number], q: string): string[] {
+  return settingsNav(tIn(lng))
+    .filter((item) => navMatches(item, q.toLowerCase()))
+    .map((item) => item.id);
+}
 
 describe("the settings dialog's pages", () => {
   test("are each listed once, a page under another after it, About at the foot", () => {
@@ -47,5 +62,37 @@ describe("the settings dialog's pages", () => {
         korean: true,
       });
     }
+  });
+
+  test("are found by their name in every language, whichever the dialog speaks", () => {
+    for (const ui of SUPPORTED_LANGUAGES) {
+      for (const lng of SUPPORTED_LANGUAGES) {
+        const named = settingsNav(tIn(lng));
+        for (const item of settingsNav(tIn(ui))) {
+          const name = named.find((other) => other.id === item.id)?.label ?? "";
+          expect({ ui, lng, id: item.id, found: navMatches(item, name.toLowerCase()) }).toEqual({
+            ui,
+            lng,
+            id: item.id,
+            found: true,
+          });
+        }
+      }
+    }
+  });
+
+  test("find the notes page by its recording, summary and voice settings in either language", () => {
+    for (const ui of SUPPORTED_LANGUAGES) {
+      for (const q of ["음성", "녹음", "요약", "목소리", "voice", "summary", "recording"]) {
+        expect({ ui, q, found: search(ui, q).includes("notes") }).toEqual({ ui, q, found: true });
+      }
+    }
+  });
+
+  test("find the notifications and terminal pages by the other language's name", () => {
+    expect(search("en", "알림")).toContain("notifications");
+    expect(search("en", "터미널")).toContain("terminal");
+    expect(search("ko", "terminal")).toContain("terminal");
+    expect(search("ko", "notifications")).toContain("notifications");
   });
 });
