@@ -25,6 +25,7 @@ import {
   bufferAnsi,
   bufferScreen,
 } from "./buffer-ansi";
+import { installCursorBlink } from "./cursor-blink";
 import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
 import { requestTerminalReopen } from "./reopen-requests";
@@ -398,6 +399,7 @@ class XtermTerminalController implements TerminalController {
   /** Whether the program hid the cursor (DECTCEM), as one drawing its own does. */
   private cursorHidden = false;
   private cursorDisposables: Disposable[] = [];
+  private cursorBlink: ReturnType<typeof installCursorBlink> | undefined;
   private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
@@ -532,6 +534,7 @@ class XtermTerminalController implements TerminalController {
   }
 
   private noteInput(): void {
+    this.cursorBlink?.reset();
     this.inputCheckpoint = { hasInput: true };
     for (const listener of this.inputListeners) listener();
   }
@@ -636,6 +639,8 @@ class XtermTerminalController implements TerminalController {
     this.focusReportDisposable = null;
     for (const d of this.cursorDisposables) d.dispose();
     this.cursorDisposables = [];
+    this.cursorBlink?.dispose();
+    this.cursorBlink = undefined;
     if (this.focusReportTimer !== null) {
       clearTimeout(this.focusReportTimer);
       this.focusReportTimer = null;
@@ -731,6 +736,7 @@ class XtermTerminalController implements TerminalController {
     const initialThemeId = this.resolveCurrentThemeId();
 
     const term = this.deps.createTerminal({
+      // Keep xterm's blink marker, including when the PTY overrides it.
       cursorBlink: true,
       // allowTransparency lets the translucent theme `background` composite
       // over the macOS window vibrancy (whole-window translucency).
@@ -763,6 +769,9 @@ class XtermTerminalController implements TerminalController {
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
     term.open(this.options.container);
+    if (term.element && term.textarea) {
+      this.cursorBlink = installCursorBlink(term.element, term.textarea);
+    }
     if (this.focusOnOpen) {
       const wanted = this.focusOnOpen;
       this.focusOnOpen = null;

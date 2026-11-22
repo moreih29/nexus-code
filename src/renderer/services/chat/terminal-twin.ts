@@ -8,20 +8,16 @@ import { useEffect, useState } from "react";
 import { ipcCallResult } from "../../ipc/client";
 import { EMPTY_TABS, useClaudeStatusStore } from "../../state/stores/claude-status";
 
-/** The terminal tab that runs `sessionId` too, or null. */
+/** The terminal tab that runs `sessionId` too, null if absent, or undefined until checked. */
 export function useTerminalTwin(
   workspaceId: string,
   tabId: string,
-  sessionId: string | undefined,
-): string | null {
+  sessionId: string,
+): string | null | undefined {
   const statuses = useClaudeStatusStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
-  const [twin, setTwin] = useState<string | null>(null);
+  const [twin, setTwin] = useState<string | null>();
   // biome-ignore lint/correctness/useExhaustiveDependencies: a terminal's state changing is when to look again
   useEffect(() => {
-    if (!sessionId) {
-      setTwin(null);
-      return;
-    }
     let live = true;
     ipcCallResult("claude", "activity", { workspaceIds: [workspaceId] })
       .then((result) => {
