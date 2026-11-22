@@ -88,6 +88,7 @@ interface AgentViewState extends AgentLayout {
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
   /** The order of a workspace's (or task's) agents in the list, every one of them. */
   setOrder(workspaceId: string, keys: readonly string[]): void;
+  pruneOrder(alive: (key: string) => boolean): void;
   setPeerOrderAccount(accountKey: string | null): void;
   setPeerOrder(accountKey: string, ids: readonly string[]): void;
   setGrouping(grouping: AgentListGrouping): void;
@@ -253,6 +254,13 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     const was = get().order[workspaceId];
     if (was && was.length === keys.length && was.every((key, i) => key === keys[i])) return;
     set({ order: { ...get().order, [workspaceId]: [...keys] } });
+    schedulePersist();
+  },
+
+  pruneOrder(alive) {
+    const { order } = get();
+    if (Object.values(order).every((keys) => keys.every(alive))) return;
+    set({ order: orderFromStore(order, alive) });
     schedulePersist();
   },
 

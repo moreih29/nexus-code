@@ -1,12 +1,9 @@
 // The agent view's list, below this computer's agents: the account's other
-// computers in the room, each with its workspaces' sessions as it lists
-// them (sessions.list), asked again every few seconds while the list is
-// shown. A computer folds; the search box finds sessions by their title or
-// last line, as it does this computer's. A terminal with only its shell is
-// out of sight until the user asks for its workspace's terminals, with the
-// chip in its heading, or searches for it; asked for, they hang under the
-// heading from its icon, as the phone shows them. Quiet worktrees wait behind
-// their parent workspace's own chip and hang from a line under its heading.
+// computers in the room, each with its workspaces' sessions in the order
+// its own sidebar shows them. A computer folds, and the search box finds
+// sessions by their title or last line. A terminal with only its shell is
+// out of sight until the user opens its workspace's terminals chip or
+// searches for it. Quiet worktrees wait behind their parent's own chip.
 //
 // Where the computer lets this one control its chats or terminals, a
 // workspace's heading has a + to open one there, and a session's row a
@@ -46,7 +43,7 @@ import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
-import { movePeer, orderPeers } from "../../services/agent-view/order";
+import { moveKey, movePeer, orderPeers, reorderSubset } from "../../services/agent-view/order";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { remoteAccountKey, useRemoteAccount } from "../../services/remote/account";
 import {
@@ -84,9 +81,28 @@ import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./pane
 import { RemoteConsentCard } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
 import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
-import { closePeerSession, type PeerSessionRef, renamePeerSession } from "./remote-session-actions";
+import {
+  closePeerSession,
+  type PeerSessionRef,
+  renamePeerSession,
+  reorderPeerSessions,
+} from "./remote-session-actions";
+import {
+  endSessionDrag,
+  type SessionReorder,
+  startSessionDrag,
+  useSessionDrop,
+} from "./session-drop";
+import { SidebarDropIndicator } from "./sidebar-drop";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
+// Allow a watch that had already started reading to finish and read again.
+const ORDER_CONFIRM_MS = 18_000;
+const tabIdOf = (session: RemoteSession) => session.tabId;
+
+function canReorderSession(session: RemoteSession): boolean {
+  return session.state !== "ended" && (session.kind !== "terminal" || session.agent !== undefined);
+}
 
 /** A remote session's state as this list's groups tell it. */
 export const GROUP_OF: Record<SessionState, RowGroup> = {
@@ -355,11 +371,15 @@ export function PeerGroup({
   // The session being renamed, while the dialog asks its new title.
   const [renaming, setRenaming] = useState<PeerSessionRef | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState<ReadonlyMap<string, readonly string[]>>(
+    () => new Map(),
+  );
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
   const root = useAgentViewStore((s) => s.root);
   // Where it lets this one open chats or terminals there, each workspace's heading has a +.
   const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
+  const canReorder = query.trim() === "" && peerServes(peer, "sessions.reorder");
   const { groups, workspaces, plain, worktreeCounts } = workspaceGroups(list, {
     query,
     opens,
@@ -376,6 +396,38 @@ export function PeerGroup({
   useEffect(() => {
     if (list) useRemoteViewStore.getState().refresh(peer.id, list);
   }, [peer.id, list]);
+  useEffect(() => {
+    if (!list) return;
+    setPendingOrders((pending) => {
+      if (pending.size === 0) return pending;
+      const next = new Map(pending);
+      for (const [workspaceId, tabIds] of pending) {
+        const rows = list.sessions.filter((session) => session.workspaceId === workspaceId);
+        if (reorderSubset(rows, tabIds, tabIdOf) === rows) next.delete(workspaceId);
+      }
+      return next.size === pending.size ? pending : next;
+    });
+  }, [list]);
+
+  const reorderIn =
+    (workspaceId: string, rows: readonly RemoteSession[]): SessionReorder =>
+    (moved, target, edge) => {
+      const keys = rows.filter(canReorderSession).map(tabIdOf);
+      const tabIds = moveKey(keys, moved, target, edge).filter((id, i) => id !== keys[i]);
+      if (tabIds.length === 0) return;
+      const preview = (order: readonly string[] | undefined) =>
+        setPendingOrders((pending) => {
+          if (order) return new Map(pending).set(workspaceId, order);
+          if (pending.get(workspaceId) !== tabIds) return pending;
+          const next = new Map(pending);
+          next.delete(workspaceId);
+          return next;
+        });
+      void reorderPeerSessions(peer.id, workspaceId, tabIds, preview).then((ok) => {
+        // A later edit on the host can supersede a successful reorder before a watch sees it.
+        if (ok) setTimeout(() => preview(undefined), ORDER_CONFIRM_MS);
+      });
+    };
   const headed = new Set(groups.map(([id]) => id));
   const renameRequest = useMemo<PromptRequest | null>(
     () =>
@@ -386,10 +438,12 @@ export function PeerGroup({
       },
     [renaming, t],
   );
-  const rowOf = (workspaceId: string, session: RemoteSession) => {
+  const rowOf = (workspaceId: string, session: RemoteSession, reorder?: SessionReorder) => {
     const row = (
       <RemoteSessionRow
         session={session}
+        deviceId={peer.id}
+        onReorder={reorder}
         where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
         onOpen={() => {
           const ask = askOf(session);
@@ -509,6 +563,12 @@ export function PeerGroup({
                 </p>
               ) : (
                 groups.map(([workspaceId, rows]) => {
+                  const pending = pendingOrders.get(workspaceId);
+                  const ordered = pending ? reorderSubset(rows, pending, tabIdOf) : rows;
+                  const reorder =
+                    canReorder && !pending && rows.filter(canReorderSession).length > 1
+                      ? reorderIn(workspaceId, rows)
+                      : undefined;
                   const terminals = plain.get(workspaceId) ?? [];
                   const unfolded = terminalsIn.has(workspaceId);
                   const workspace = workspaces.get(workspaceId);
@@ -564,7 +624,13 @@ export function PeerGroup({
                           }))}
                         />
                       )}
-                      {rows.map((session) => rowOf(workspaceId, session))}
+                      {ordered.map((session) =>
+                        rowOf(
+                          workspaceId,
+                          session,
+                          canReorderSession(session) ? reorder : undefined,
+                        ),
+                      )}
                     </div>
                   );
                 })
@@ -801,6 +867,8 @@ export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): 
 export function RemoteSessionRow({
   session,
   where = null,
+  deviceId,
+  onReorder,
   onOpen,
   className,
   ...rest
@@ -808,6 +876,8 @@ export function RemoteSessionRow({
   session: RemoteSession;
   /** Where the agent view's panels have it, which its mark tells; none where they do not. */
   where?: PanelPlace | null;
+  deviceId?: string;
+  onReorder?: SessionReorder;
   onOpen?: () => void;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t, i18n } = useTranslation();
@@ -815,10 +885,18 @@ export function RemoteSessionRow({
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const state = t(`agentView.remote.state.${session.state}`);
+  const dragRow = { key: session.tabId, deviceId, workspaceId: session.workspaceId };
+  const { edge, dropProps } = useSessionDrop(dragRow, onReorder);
   return (
     <button
       type="button"
       {...rest}
+      {...(onReorder && {
+        ...dropProps,
+        draggable: true,
+        onDragStart: (event) => startSessionDrag(event, dragRow),
+        onDragEnd: endSessionDrag,
+      })}
       onClick={onOpen}
       aria-current={where === "shown" || undefined}
       className={cn(
@@ -831,6 +909,7 @@ export function RemoteSessionRow({
       title={session.last ? `${session.title}\n${session.last}` : session.title}
       data-testid="remote-session-row"
     >
+      <SidebarDropIndicator edge={edge} testId="remote-session-drop" />
       {where && (
         <PanelMark where={where} className="top-1 bottom-1" testId="remote-session-panel" />
       )}

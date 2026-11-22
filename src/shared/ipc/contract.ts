@@ -2705,6 +2705,11 @@ const remoteContracts = {
           .merge(RPC_METHODS["sessions.unwatch"].params),
         RPC_METHODS["sessions.unwatch"].result,
       ),
+      /** Changes the order of another device's workspace sessions. */
+      peerSessionsReorder: call(
+        RPC_METHODS["sessions.reorder"].params.extend({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.reorder"].result,
+      ),
       /** A chat of another device's: its last items, or those before `before`. */
       peerChat: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),

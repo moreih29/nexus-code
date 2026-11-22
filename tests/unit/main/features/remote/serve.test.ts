@@ -31,6 +31,7 @@ import {
   stopChatRun,
 } from "../../../../../src/main/features/remote/serve";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
+import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
 function services(pending: PendingConsent[] = []): CliServices {
@@ -446,6 +447,60 @@ describe("serving a chat's claude -p runs", () => {
 });
 
 describe("serving the sessions", () => {
+  test("uses agent order for the list and broadcasts a reorder-only update to watchers", async () => {
+    const base = services();
+    const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
+    const orderReads: unknown[] = [];
+    let sidebarOrder = ["t2", "t1", "t5"];
+    const ui = (async (op, args) => {
+      if (op === "agentView.reorderSessions") {
+        sidebarOrder = (args as { tabIds: string[] }).tabIds;
+        return { found: true };
+      }
+      if (op === "tabs.list" && args.workspaceId === "w1") {
+        orderReads.push(args);
+        return { tabs: sidebarOrder.flatMap((id) => tabs.filter((tab) => tab.id === id)) };
+      }
+      if (op === "tabs.list" && args.workspaceId === "w3") return { tabs: [] };
+      return base.ui(op, args);
+    }) as CliServices["ui"];
+    const s = { ...base, ui };
+    const notified: unknown[] = [];
+    const watches = new SessionWatches({
+      snapshot: async () => {
+        const snapshot = await snapshotSessions(s, undefined);
+        return { ...snapshot, forDevice: async () => snapshot.list };
+      },
+      notify: async (to, update) => {
+        notified.push([to, update.sessions.map(({ tabId }) => tabId)]);
+        return true;
+      },
+      pollMs: 60_000,
+    });
+    const serve = serveWith(() => s, { sessions: watches });
+    const params = { workspaceId: "w1", tabIds: ["t1", "t2", "t5"] };
+    try {
+      expect(await listSessions(s)).toMatchObject({
+        sessions: [{ tabId: "t2" }, { tabId: "t1" }, { tabId: "t5" }, { tabId: "t4" }],
+      });
+      expect(await serve({ from: "phone", method: "sessions.watch", params: {} })).toMatchObject({
+        sessions: [{ tabId: "t2" }, { tabId: "t1" }, { tabId: "t5" }, { tabId: "t4" }],
+      });
+      await expect(
+        serve({
+          from: "pc",
+          method: "sessions.reorder",
+          params: { ...params, workspaceId: "gone" },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+      expect(await serve({ from: "pc", method: "sessions.reorder", params })).toEqual({});
+      await watches.poll();
+      expect(orderReads).toEqual(Array(3).fill({ workspaceId: "w1", agentOrder: true }));
+      expect(notified).toEqual([["phone", ["t1", "t2", "t5", "t4"]]]);
+    } finally {
+      watches.dropAll();
+    }
+  });
   test("lists the workspaces in the sidebar's order: pinned first, each group by its order, a task after its workspace", async () => {
     const base = services();
     const s = {

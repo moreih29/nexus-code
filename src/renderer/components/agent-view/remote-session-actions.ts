@@ -38,6 +38,29 @@ function failed(message: string): void {
   showToast({ kind: "error", message: i18next.t("agentView.remote.failed", { message }) });
 }
 
+/** Shows the proposed order immediately and clears it if the peer refuses it. */
+export async function reorderPeerSessions(
+  deviceId: string,
+  workspaceId: string,
+  tabIds: string[],
+  preview: (order: readonly string[] | undefined) => void,
+): Promise<boolean> {
+  preview(tabIds);
+  try {
+    const result = await ipcCallResult("remote", "peerSessionsReorder", {
+      deviceId,
+      workspaceId,
+      tabIds,
+    });
+    if (result.ok) return true;
+    failed(result.message);
+  } catch (error) {
+    failed(error instanceof Error ? error.message : String(error));
+  }
+  preview(undefined);
+  return false;
+}
+
 /**
  * Opens a Claude or Codex chat in the workspace there, with `profile`
  * (profiles.list's) or else the one the workspace gives, and shows it in a

@@ -270,6 +270,20 @@ describe("the methods", () => {
     expect(SCHEMA_VERSION).toBe(pkg.version);
   });
 
+  test("sessions.reorder takes a bounded list of tab IDs for a workspace", () => {
+    const { capability, params, result } = RPC_METHODS["sessions.reorder"];
+    expect(capability).toBe("sessions.reorder");
+    expect(CAPABILITIES).toContain(capability);
+    const order = { workspaceId: "w", tabIds: ["c", "a", "c", "gone"] };
+    expect(params.parse(order)).toEqual(order);
+    expect(params.parse({ ...order, tabIds: [] })).toEqual({ ...order, tabIds: [] });
+    expect(params.safeParse({ tabIds: ["c"] }).success).toBe(false);
+    expect(params.safeParse({ ...order, tabIds: [42] }).success).toBe(false);
+    expect(params.safeParse({ ...order, tabIds: Array(500).fill("c") }).success).toBe(true);
+    expect(params.safeParse({ ...order, tabIds: Array(501).fill("c") }).success).toBe(false);
+    expect(result.parse({})).toEqual({});
+  });
+
   test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {
     const consent = {
       id: "c1",

@@ -17,17 +17,6 @@ export function isAgentDrag(dataTransfer: DataTransfer | null): boolean {
   return dataTransfer?.types.includes(MIME_AGENT) ?? false;
 }
 
-/** The agent dragged from the list, while it is: a drag over a row cannot read the payload. */
-let listDragKey: string | null = null;
-
-export function setListDrag(key: string | null): void {
-  listDragKey = key;
-}
-
-export function listDrag(): string | null {
-  return listDragKey;
-}
-
 export function agentDragKey(dataTransfer: DataTransfer | null): string | null {
   const key = dataTransfer?.getData(MIME_AGENT);
   return key ? key : null;

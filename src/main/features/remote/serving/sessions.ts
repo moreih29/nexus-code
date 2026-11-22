@@ -4,6 +4,8 @@ import {
   type RemoteSession,
   type RemoteSessionAgent,
   type RemoteWorkspace,
+  RpcErrorCode,
+  type RpcParams,
   type RpcResult,
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
@@ -15,7 +17,8 @@ import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
 import type { CliServices } from "../../cli/context";
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
-import { oneLine } from "./common";
+import { RpcFailure } from "../room";
+import { oneLine, unavailable, workspaceOf } from "./common";
 import { ReadBudget } from "./read-budget";
 
 /** A chat's state as the agent lists show it. */
@@ -206,6 +209,17 @@ export async function serveSessionsList(
   return snapshot.forDevice(controls);
 }
 
+export async function reorderSessions(
+  services: CliServices,
+  params: RpcParams<"sessions.reorder">,
+): Promise<RpcResult<"sessions.reorder">> {
+  const notFound = () => new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  if (!workspaceOf(services, params.workspaceId)) throw notFound();
+  const { found } = await services.ui("agentView.reorderSessions", params).catch(unavailable);
+  if (!found) throw notFound();
+  return {};
+}
+
 /** A snapshot whose renderer reads can also supply consent titles for each watcher. */
 export async function snapshotSessions(
   services: CliServices,
@@ -232,7 +246,7 @@ export async function snapshotSessions(
   });
   const now = Date.now();
   const tabs = await gather(workspaces, budget, ({ id: workspaceId }) =>
-    budget.ui("tabs.list", { workspaceId }).catch(() => undefined),
+    budget.ui("tabs.list", { workspaceId, agentOrder: true }).catch(() => undefined),
   );
 
   const incompleteWorkspaces = new Set<string>();

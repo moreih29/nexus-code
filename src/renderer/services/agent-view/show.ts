@@ -178,13 +178,15 @@ export function tabExists(key: string): boolean {
 }
 
 /**
- * Takes each tab out of the panels as it closes, its workspace's with it
- * when one is removed. The agent view only shows tabs; it never keeps one.
+ * Takes closed tabs out of the panels and sidebar order, including when a
+ * workspace is removed.
  */
 export function startAgentViewPruning(): () => void {
   return useTabsStore.subscribe((state, prev) => {
     if (state.byWorkspace === prev.byWorkspace) return;
-    useAgentViewStore.getState().update((layout) => pruneKeys(layout, staysInPanels));
+    const view = useAgentViewStore.getState();
+    view.update((layout) => pruneKeys(layout, staysInPanels));
+    view.pruneOrder(tabExists);
   });
 }
 

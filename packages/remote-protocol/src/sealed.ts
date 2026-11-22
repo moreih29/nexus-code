@@ -59,7 +59,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.20.1";
+export const SCHEMA_VERSION = "0.21.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -80,6 +80,8 @@ export function aadOf(frame: { from: DeviceId; to: string; seq: number; kid: num
 export const CAPABILITIES = [
   /** sessions.list and sessions.watch, profiles.list. */
   "sessions",
+  /** sessions.reorder, for the user wherever sessions is served. Since 0.21.0. */
+  "sessions.reorder",
   /** Reading a chat: chat.read and chat.watch, its settings, commands, panel, images, tool calls; history.list. */
   "chat.read",
   /**
