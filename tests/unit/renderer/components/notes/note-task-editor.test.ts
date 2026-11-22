@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createWindow } from "@mixmark-io/domino";
 import { createNodeFromContent, Editor, getSchema } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { history, undo } from "@tiptap/pm/history";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { DecorationSet } from "@tiptap/pm/view";
@@ -13,6 +14,7 @@ import {
   NoteTaskItem,
 } from "../../../../../src/renderer/components/notes/editor/extensions";
 import { applyLineReport } from "../../../../../src/renderer/components/notes/editor/line-report";
+import { createNoteDocumentRevision } from "../../../../../src/renderer/services/notes/document-inbox";
 import {
   answerCard,
   answerCardBlocks,
@@ -119,7 +121,7 @@ test("lineReported merges in the open editor and preserves unsaved text and sele
   expect(state.doc.eq(main)).toBe(true);
   expect(state.doc.firstChild?.textContent).toBe("New Unsaved notes");
   expect(state.selection.from).toBe(3);
-  expect(applyLineReport(editor, report)).toBe(false);
+  expect(applyLineReport(editor, report)).toBe(true);
   expect(
     applyLineReport(editor, {
       ...report,
@@ -286,7 +288,7 @@ test("a saved answer is a legacy-compatible quote with safe links, image alt tex
 
 test("a card append keeps local edits and selection, and is safe to apply twice", () => {
   const card = answerCard(linkId, [paragraph("The answer")]);
-  let state = EditorState.create({ doc: current.nodeFromJSON(doc) });
+  let state = EditorState.create({ doc: current.nodeFromJSON(doc), plugins: [history()] });
   const edit = state.tr.insertText("New ", 1);
   state = state.apply(edit.setSelection(TextSelection.create(edit.doc, 3)));
   const editor = {
@@ -299,8 +301,8 @@ test("a card append keeps local edits and selection, and is safe to apply twice"
       },
     },
   } as unknown as Editor;
-  applyAnswerCard(editor, card);
-  applyAnswerCard(editor, card);
+  expect(applyAnswerCard(editor, card)).toBe(true);
+  expect(applyAnswerCard(editor, card)).toBe(true);
   expect(state.selection.from).toBe(3);
   expect(state.doc.firstChild?.textContent).toBe("New Unsaved notes");
   expect(state.doc.lastChild?.textContent).toBe("The answer");
@@ -314,4 +316,35 @@ test("a card append keeps local edits and selection, and is safe to apply twice"
       )
       .toJSON(),
   );
+  expect(
+    undo(state, (tr) => {
+      state = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(state.doc.firstChild?.textContent).toBe("Unsaved notes");
+  expect(state.doc.lastChild?.textContent).toBe("The answer");
+});
+
+test("an unapplied card or line report keeps the disk merge base in place", () => {
+  const state = EditorState.create({ doc: current.nodeFromJSON(doc) });
+  const editor = { state, view: { dispatch: () => {} } } as unknown as Editor;
+  const card = answerCard(linkId, [paragraph("A card from disk")]);
+  const cardRevision = createNoteDocumentRevision(1);
+  cardRevision.apply(2, () => applyAnswerCard(editor, card));
+  cardRevision.apply(3, () => true);
+  expect(cardRevision.updatedAt).toBe(1);
+
+  const reportRevision = createNoteDocumentRevision(1);
+  reportRevision.apply(2, () => {
+    expect(reportRevision.updatedAt).toBe(1);
+    return true;
+  });
+  reportRevision.apply(3, () =>
+    applyLineReport(editor, {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Tests passed", at: 3 },
+    }),
+  );
+  expect(reportRevision.updatedAt).toBe(2);
 });

@@ -2,6 +2,29 @@ import type { NoteBlocksAdded, NoteLineReported } from "../../../shared/types/no
 
 export type NoteDocumentEvent = NoteLineReported | (NoteBlocksAdded & { updatedAt: number });
 
+export function createNoteDocumentRevision(initial: number) {
+  let updatedAt = initial;
+  let missedChange = false;
+  return {
+    get updatedAt() {
+      return updatedAt;
+    },
+    apply(revision: number, applyToEditor: () => boolean) {
+      if (revision <= updatedAt) return;
+      try {
+        if (applyToEditor()) {
+          if (!missedChange) updatedAt = revision;
+          return;
+        }
+      } catch {
+        // The disk copy still has the change if the editor rejects the transaction.
+      }
+      // Later changes cannot acknowledge the missed one. Keep disk-side merging enabled.
+      missedChange = true;
+    },
+  };
+}
+
 /** Holds document changes that arrive before the note's editor is ready. */
 export function createNoteDocumentInbox<T extends NoteDocumentEvent>(
   locationKey: string | undefined,

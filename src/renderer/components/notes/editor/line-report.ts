@@ -38,7 +38,7 @@ export function applyLineReport(editor: Editor, report: LineReport): boolean {
   } else if (node.firstChild) {
     tr.insert(pos + 1 + node.firstChild.nodeSize, paragraph);
   }
-  if (!tr.docChanged) return false;
+  if (!tr.docChanged) return existing !== undefined;
   view.dispatch(tr);
-  return true;
+  return editor.state.doc.eq(tr.doc);
 }

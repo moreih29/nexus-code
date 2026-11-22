@@ -17,6 +17,7 @@ import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { noteLocation } from "../../services/notes/conversation";
 import {
   createNoteDocumentInbox,
+  createNoteDocumentRevision,
   type NoteDocumentEvent,
 } from "../../services/notes/document-inbox";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
@@ -205,7 +206,7 @@ function LoadedNote({
     };
   }, [nameTab]);
 
-  const documentBase = useRef(note.updatedAt);
+  const [documentBase] = useState(() => createNoteDocumentRevision(note.updatedAt));
   const { schedule, flush, discard } = useMemo(
     () => createNoteAutoSave((change) => notesApi.save(workspaceId, note.id, change), setSaveState),
     [workspaceId, note.id],
@@ -346,7 +347,7 @@ function LoadedNote({
       immediatelyRender: true,
       onUpdate: ({ editor: e }) => {
         const doc = e.getJSON() as DocNode;
-        schedule({ doc, baseUpdatedAt: documentBase.current });
+        schedule({ doc, baseUpdatedAt: documentBase.updatedAt });
         const next = summaryTaskTimes(doc);
         setTaskTimes((previous) => (sameSummaryTaskTimes(previous, next) ? previous : next));
       },
@@ -392,15 +393,14 @@ function LoadedNote({
   useLayoutEffect(() => {
     if (!editor) return;
     return receiveDocumentEvent((event) => {
-      if (editor.isDestroyed || event.updatedAt <= documentBase.current) return;
-      documentBase.current = event.updatedAt;
-      if ("blocks" in event) {
-        for (const card of event.blocks) applyAnswerCard(editor, card as unknown as DocNode);
-      } else {
-        applyLineReport(editor, event);
-      }
+      if (editor.isDestroyed) return;
+      documentBase.apply(event.updatedAt, () =>
+        "blocks" in event
+          ? event.blocks.every((card) => applyAnswerCard(editor, card as unknown as DocNode))
+          : applyLineReport(editor, event),
+      );
     });
-  }, [editor, receiveDocumentEvent]);
+  }, [documentBase, editor, receiveDocumentEvent]);
 
   // A photo from the user's phone: written at the end of the note already;
   // put in this copy too (once), which saves it with what is typed here.

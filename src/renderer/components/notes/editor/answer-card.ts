@@ -7,20 +7,22 @@ import { isEmptyDoc } from "../../../../shared/notes/insert";
 import type { DocNode } from "../../../../shared/notes/markdown";
 
 /** Matches main's append while preserving unflushed edits and the selection. */
-export function applyAnswerCard(editor: Editor, card: DocNode): void {
+export function applyAnswerCard(editor: Editor, card: DocNode): boolean {
   const linkId = card.attrs?.nexusLink;
   const { state, view } = editor;
   const doc = state.doc.toJSON() as DocNode;
-  if (card.type !== "blockquote" || typeof linkId !== "string" || hasAnswerCard(doc, linkId))
-    return;
+  if (card.type !== "blockquote" || typeof linkId !== "string") return false;
+  if (hasAnswerCard(doc, linkId)) return true;
   const tr = state.tr
     .replaceWith(
       isEmptyDoc(doc) ? 0 : state.doc.content.size,
       state.doc.content.size,
       state.schema.nodeFromJSON(card),
     )
-    .setMeta("preventAutolink", true);
+    .setMeta("preventAutolink", true)
+    .setMeta("addToHistory", false);
   view.dispatch(tr);
+  return hasAnswerCard(editor.state.doc.toJSON() as DocNode, linkId);
 }
 
 function decorations(doc: ProseMirrorNode): DecorationSet {
