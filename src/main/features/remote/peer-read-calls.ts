@@ -10,6 +10,7 @@ export const PEER_READ_METHODS = {
   peerFilesFind: "files.find",
   peerFilesSearch: "files.search",
   peerFilesRead: "files.read",
+  peerGitStatus: "git.status",
   peerGitDiff: "git.diff",
 } as const;
 
@@ -45,9 +46,17 @@ export function peerReadCalls(
         ),
       );
     },
-    peerGitDiff: (args: unknown) => {
+    peerGitStatus: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerGitStatus.args, args);
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerGitStatus, params, undefined, ctx?.signal),
+      );
+    },
+    peerGitDiff: (args: unknown, ctx?: CallContext) => {
       const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
-      return askPeer(() => inRoom().request(deviceId, PEER_READ_METHODS.peerGitDiff, params));
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerGitDiff, params, undefined, ctx?.signal),
+      );
     },
   };
 }

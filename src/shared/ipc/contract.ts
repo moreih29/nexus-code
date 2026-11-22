@@ -2970,6 +2970,11 @@ const remoteContracts = {
           version: z.string().optional(),
         }),
       ),
+      /** The branch and changed files of another device's workspace. */
+      peerGitStatus: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.status"].params),
+        RPC_METHODS["git.status"].result,
+      ),
       /** How a file of another device's workspace changed against its last commit. */
       peerGitDiff: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.diff"].params),

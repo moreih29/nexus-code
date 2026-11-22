@@ -46,12 +46,33 @@ test("peerFilesSearch rejects input beyond the protocol limits", () => {
   }
 });
 
+test("peerGitStatus sends only the workspace ID to git.status", async () => {
+  const c = ipcContract.remote.call.peerGitStatus;
+  const params = { workspaceId: "w1" };
+  const payload = { ...params, deviceId: "d2", unexpected: true };
+  const result = { branch: "main", upstream: "origin/main", ahead: 1, behind: 2, files: [] };
+  expect(c.args.parse(payload)).toEqual({ ...params, deviceId: "d2" });
+  expect(c.result).toBe(RPC_METHODS["git.status"].result);
+  expect(c.args.safeParse(params).success).toBe(false);
+
+  const request = mock(async () => result);
+  const calls = peerReadCalls(
+    () => ({ request: request as never }),
+    async (run) => ipcOk(await run()),
+  );
+  const signal = new AbortController().signal;
+  expect(await calls.peerGitStatus(payload, { signal } as never)).toEqual(ipcOk(result));
+  expect(request).toHaveBeenCalledWith("d2", "git.status", params, undefined, signal);
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
 test("the peer File and Git IPCs map only to read RPCs", () => {
   expect(PEER_READ_METHODS).toEqual({
     peerFilesList: "files.list",
     peerFilesFind: "files.find",
     peerFilesSearch: "files.search",
     peerFilesRead: "files.read",
+    peerGitStatus: "git.status",
     peerGitDiff: "git.diff",
   });
   const reads = new Set([
