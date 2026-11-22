@@ -23,7 +23,7 @@ interface TreeBranchProps {
   folded: ReadonlySet<string>;
   searching: boolean;
   groupIdle?: boolean;
-  testPrefix: "agent-sidebar" | "agent-list";
+  testPrefix: "agent-sidebar" | "agent-list" | "remote-session";
   renderRow: (node: SessionTreeNode, collapsed: boolean) => ReactNode;
 }
 

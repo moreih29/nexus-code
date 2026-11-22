@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import type { SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import { openKey, remoteSessionKey } from "../../services/agent-view/layout";
+import { remoteDisplayName } from "../../services/remote/display-name";
 import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "./agent-view";
 
@@ -97,7 +98,7 @@ export function refreshRemoteTarget(
     ...rest,
     ...(cwd ? { cwd } : {}),
     ...(ask ? { ask } : {}),
-    title: session?.title ?? target.title,
+    title: remoteDisplayName(session?.title ?? target.title),
     kind: session?.kind ?? target.kind,
     state: session?.state ?? target.state,
     ...((session?.profile ?? target.profile)
@@ -131,7 +132,7 @@ export function listedRemoteTarget(
   return refreshRemoteTarget(
     {
       deviceId: peer.id,
-      deviceName: peer.name,
+      deviceName: remoteDisplayName(peer.name),
       workspaceId: session.workspaceId,
       workspaceName: session.workspaceId,
       path: "",
@@ -166,7 +167,13 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
 
   open(target, leafId) {
     const key = remoteSessionKey(target);
-    set({ targets: new Map(get().targets).set(key, target) });
+    set({
+      targets: new Map(get().targets).set(key, {
+        ...target,
+        deviceName: remoteDisplayName(target.deviceName),
+        title: remoteDisplayName(target.title),
+      }),
+    });
     const view = useAgentViewStore.getState();
     view.setMode("agents");
     view.update((layout) => openKey(layout, key, leafId));

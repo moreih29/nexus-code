@@ -314,9 +314,11 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   },
 
   toggleFolded(group) {
+    const [key] = normalizeAgentViewFolds([group]);
+    if (key === undefined) return;
     const next = new Set(get().folded);
-    if (next.has(group)) next.delete(group);
-    else next.add(group);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     set({ folded: new Set(normalizeAgentViewFolds(next)) });
     schedulePersist();
   },

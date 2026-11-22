@@ -1,11 +1,13 @@
 import {
   MAX_AGENT_DESCRIPTION,
   MAX_SESSION_AGENTS,
+  MAX_SESSION_OPENER_NAME,
   type RemoteSession,
   type RemoteSessionAgent,
   type RemoteWorkspace,
   RpcErrorCode,
   type RpcParams,
+  type RpcRequest,
   type RpcResult,
   type SessionState,
 } from "../../../../../packages/remote-protocol/src";
@@ -23,6 +25,7 @@ import type { CliServices, SessionsRenderer, SessionsRevision } from "../../cli/
 import { type ConsentControls, remoteConsents } from "../consents";
 import type { RemoteNotes } from "../notes";
 import { RpcFailure } from "../room";
+import { fitSessionReply } from "../session-list-size";
 import { SESSIONS_POLL_MS } from "../session-watches";
 import { oneLine, unavailable, workspaceOf } from "./common";
 import { RENDERER_READ_MAX_MS, ReadBudget } from "./read-budget";
@@ -339,6 +342,25 @@ async function readRenderer(
   return read;
 }
 
+function clipOpenerName(name: string): string {
+  return name.slice(0, MAX_SESSION_OPENER_NAME).replace(/[\uD800-\uDBFF]$/u, "");
+}
+
+function openerField(opener: CliSessionTab["openedBy"]): Pick<RemoteSession, "openedBy"> {
+  if (!opener?.workspaceId || !opener.tabId || opener.kind === "manager") return {};
+  const { workspaceId, tabId, kind, agent, name, device } = opener;
+  return {
+    openedBy: {
+      workspaceId,
+      tabId,
+      kind,
+      ...(agent === undefined ? {} : { agent }),
+      ...(name === undefined ? {} : { name: clipOpenerName(name) }),
+      ...(device ? { device: { id: device.id, name: clipOpenerName(device.name) } } : {}),
+    },
+  };
+}
+
 function chatSession(
   services: CliServices,
   workspaceId: string,
@@ -367,6 +389,7 @@ function chatSession(
       ? { limitWait: { at: info.limitResume.at } }
       : {}),
     ...agentsField(services, workspaceId, tab.id),
+    ...openerField(tab.openedBy),
   };
   return { row, ...(row.waiting && info.waitingId ? { waitingId: info.waitingId } : {}) };
 }
@@ -404,6 +427,7 @@ function terminalSession(
         }
       : {}),
     ...(tab.dead ? {} : agentsField(services, workspaceId, tab.id)),
+    ...openerField(tab.openedBy),
   };
 }
 
@@ -431,9 +455,11 @@ export async function serveSessionsList(
   notes: RemoteNotes | undefined,
   from: string,
   controls: ConsentControls,
+  id: RpcRequest["id"] = 0,
 ): Promise<RpcResult<"sessions.list">> {
   const snapshot = await snapshotSessions(services, git, notes, "sessions.list", from);
-  return snapshot.forDevice(controls);
+  const list = await snapshot.forDevice(controls);
+  return fitSessionReply(list, id)?.list ?? list;
 }
 
 export async function reorderSessions(
@@ -508,27 +534,32 @@ export async function snapshotSessions(
   for (const { index, workspaceId } of chats) {
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
+  const rows = sessions.filter((row) => row !== undefined);
+  const tabIds = new Set(rows.map(({ tabId }) => tabId));
   const unread = read.unread;
   const taken = services.sessionsRevision && liveReceipts(services.sessionsRevision);
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
-    sessions: sessions
-      .filter((row) => row !== undefined)
-      .map((row) => {
-        if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
-        const since = unread[row.workspaceId]?.[row.tabId];
-        if (
-          !row.failed &&
-          !row.limitWait &&
-          !row.waiting &&
-          since !== undefined &&
-          Number.isFinite(since) &&
-          !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
-        )
-          return { ...row, state: "new-result", since };
-        return row.state === "new-result" ? { ...row, state: "idle" } : row;
-      }),
+    sessions: rows.map((row) => {
+      const opener = row.openedBy;
+      if (opener?.name !== undefined && !opener.device && tabIds.has(opener.tabId)) {
+        const { name: _name, ...reference } = opener;
+        row = { ...row, openedBy: reference };
+      }
+      if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
+      const since = unread[row.workspaceId]?.[row.tabId];
+      if (
+        !row.failed &&
+        !row.limitWait &&
+        !row.waiting &&
+        since !== undefined &&
+        Number.isFinite(since) &&
+        !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
+      )
+        return { ...row, state: "new-result", since };
+      return row.state === "new-result" ? { ...row, state: "idle" } : row;
+    }),
     ...(incompleteWorkspaces.size > 0 ? { incompleteWorkspaces: [...incompleteWorkspaces] } : {}),
     ...(recording ? { recording } : {}),
   };

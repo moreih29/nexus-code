@@ -328,11 +328,32 @@ describe("status grouping across computers", () => {
       peer,
       list: {
         ...list([
-          session({ title: "Remote earlier review", state: "needs-you", since: 10 }),
-          session({ title: "Remote later review", state: "needs-you", since: 30 }),
-          session({ title: "Remote recent result", state: "new-result", since: 50 }),
-          session({ title: "Remote shell", kind: "terminal" }),
-          session({ title: "Remote ended", kind: "terminal", agent: "codex", state: "ended" }),
+          session({
+            tabId: "ask-earlier",
+            title: "Remote earlier review",
+            state: "needs-you",
+            since: 10,
+          }),
+          session({
+            tabId: "ask-later",
+            title: "Remote later review",
+            state: "needs-you",
+            since: 30,
+          }),
+          session({
+            tabId: "result",
+            title: "Remote recent result",
+            state: "new-result",
+            since: 50,
+          }),
+          session({ tabId: "shell", title: "Remote shell", kind: "terminal" }),
+          session({
+            tabId: "ended",
+            title: "Remote ended",
+            kind: "terminal",
+            agent: "codex",
+            state: "ended",
+          }),
         ]),
         consents: [
           {
@@ -1484,6 +1505,7 @@ describe("the agent view's other computers", () => {
     ];
     const sessions = [
       session({ tabId: "a" }),
+      session({ tabId: "a-child", openedBy: { workspaceId: "w1", tabId: "a" } }),
       session({ tabId: "b", kind: "terminal", agent: "codex" }),
       session({ workspaceId: "task", tabId: "c", state: "running" }),
       session({ workspaceId: "task", tabId: "d", state: "running" }),
@@ -1551,6 +1573,9 @@ describe("the agent view's other computers", () => {
         if (!result || result.type !== "return") throw new Error(`no drag handlers for ${tabId}`);
         return result.value.dropProps;
       };
+      const childHook = hooks.mock.calls.find(([row]) => row.key === "a-child");
+      expect(childHook).toBeDefined();
+      expect(childHook?.[1]).toBeUndefined();
       const row = nativeDrag();
       sessionDrop.startSessionDrag(row.event, { key: "a", deviceId: group.id, workspaceId: "w1" });
       function Scope() {

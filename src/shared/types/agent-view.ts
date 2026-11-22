@@ -103,17 +103,39 @@ export type RemoteSeenResult = z.infer<typeof RemoteSeenResultSchema>;
 const MAX_FOLDS = 256;
 const MAX_FOLD_KEY_LENGTH = 200;
 
+function isPeerFold(key: string): boolean {
+  return (
+    key.startsWith("peer:") ||
+    key.startsWith("peer-ws:") ||
+    key.startsWith("family:remote:") ||
+    key.startsWith("peer-hash:")
+  );
+}
+
+/** Preserve a stable peer fold when the remote IDs exceed the stored key limit. */
+export function boundedPeerFoldKey(key: string): string {
+  if (key.length <= MAX_FOLD_KEY_LENGTH) return key;
+  // FNV-1a over UTF-16 units. This only identifies a fold preference.
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < key.length; i++) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(key.charCodeAt(i))) * 0x100000001b3n);
+  }
+  return `peer-hash:${hash.toString(16)}`;
+}
+
 /** Keep local folds and the latest peer folds, in the order they were stored. */
 export function normalizeAgentViewFolds(values: Iterable<unknown>): string[] {
   const keys = new Set<string>();
   for (const value of values) {
-    if (typeof value !== "string" || value.length > MAX_FOLD_KEY_LENGTH) continue;
-    keys.delete(value);
-    keys.add(value);
+    if (typeof value !== "string") continue;
+    const key = isPeerFold(value) ? boundedPeerFoldKey(value) : value;
+    if (key.length > MAX_FOLD_KEY_LENGTH) continue;
+    keys.delete(key);
+    keys.add(key);
   }
   for (const key of keys) {
     if (keys.size <= MAX_FOLDS) break;
-    if (key.startsWith("peer:") || key.startsWith("peer-ws:")) keys.delete(key);
+    if (isPeerFold(key)) keys.delete(key);
   }
   return [...keys].slice(-MAX_FOLDS);
 }

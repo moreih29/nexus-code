@@ -1938,6 +1938,8 @@
       "parent_hint": "Parent · {{name}}",
       "closed_parent": "↳ {{name}} · closed",
       "remote_parent": "↳ {{device}} · {{name}}",
+      "this_computer": "This computer",
+      "parent_closed_state": "closed",
       "moved_family": "↳ {{count}} under {{name}}"
     },
     "pane": {

@@ -13,11 +13,13 @@ import {
   type RemoteSession,
   RpcErrorCode,
   type RpcParams,
+  type RpcRequest,
   type RpcResult,
   type SessionsUpdate,
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import { RpcFailure } from "./room";
+import { fitSessionReply, fitSessionUpdate, type OpenerDetail } from "./session-list-size";
 
 const log = createLogger("remote-session-watches");
 
@@ -34,6 +36,8 @@ interface Watch {
   from: string;
   /** The list as last sent, as compared (sameness). */
   sent: string;
+  /** Keep reductions for this watch to avoid showing and hiding opener details. */
+  detail: OpenerDetail;
   /** Fully read session rows in the last list, including workspaces with zero sessions. */
   rows: SessionRows;
 }
@@ -89,22 +93,29 @@ export class SessionWatches {
   constructor(private readonly deps: SessionWatchesDeps) {}
 
   /** Starts a watch for `from`: the list now. */
-  async watch(from: string): Promise<RpcResult<"sessions.watch">> {
+  async watch(from: string, id: RpcRequest["id"] = 0): Promise<RpcResult<"sessions.watch">> {
+    const snapshot = await this.deps.snapshot(from);
+    const list = await snapshot.forDevice(from);
+    const watchId = randomUUID();
+    const first = { ...list, watchId };
+    const fitted = fitSessionReply(first, id);
+    // The room returns its usual oversized reply error. There is no watch
+    // to retain when its ID cannot reach the caller.
+    if (!fitted) return first;
+
     const mine = [...this.watches].filter(([, w]) => w.from === from);
     if (mine.length >= MAX_SESSION_WATCHES_PER_DEVICE) {
       const [oldest] = mine[0] ?? [];
       if (oldest) this.watches.delete(oldest);
     }
-    const snapshot = await this.deps.snapshot(from);
-    const list = await snapshot.forDevice(from);
-    const watchId = randomUUID();
     this.watches.set(watchId, {
       from,
-      sent: sameness(list),
+      sent: sameness(fitted.list),
+      detail: fitted.detail,
       rows: rowsByWorkspace(list, snapshot.incompleteWorkspaces),
     });
     this.schedule();
-    return { ...list, watchId };
+    return fitted.list;
   }
 
   /** Ends a watch `from` started; another device's is not its to end. */
@@ -159,9 +170,12 @@ export class SessionWatches {
           incomplete.size === 0
             ? list
             : { ...list, sessions: list.workspaces.flatMap(({ id }) => rows.get(id) ?? []) };
-        const same = sameness(update);
-        if (watch.sent === same || (await this.deps.notify(watch.from, { ...update, watchId }))) {
+        const fitted = fitSessionUpdate({ ...update, watchId }, watch.detail);
+        if (!fitted) continue;
+        const same = sameness(fitted.list);
+        if (watch.sent === same || (await this.deps.notify(watch.from, fitted.list))) {
           watch.sent = same;
+          watch.detail = fitted.detail;
           watch.rows = rows;
         }
       }

@@ -376,11 +376,13 @@ export function usePeerSessions(
     const peers = JSON.parse(connections) as [id: string, rejoin: number][];
     const off = peers.map(([id, rejoin]) =>
       observePeerSessions(id, rejoin, (sessions) =>
-        setLists((now) =>
-          now[id] === sessions || (now[id]?.status === "ready" && sessions.status === "unavailable")
+        setLists((now) => {
+          const previous = Object.hasOwn(now, id) ? now[id] : undefined;
+          return previous === sessions ||
+            (previous?.status === "ready" && sessions.status === "unavailable")
             ? now
-            : { ...now, [id]: sessions },
-        ),
+            : { ...now, [id]: sessions };
+        }),
       ),
     );
     return () => {

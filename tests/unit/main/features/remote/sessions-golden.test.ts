@@ -4,12 +4,18 @@
  * may not.
  */
 import { afterEach, expect, test } from "bun:test";
-import type { SessionsUpdate } from "../../../../../packages/remote-protocol/src";
+import {
+  RPC_METHODS,
+  RPC_NOTIFICATIONS,
+  type SessionsUpdate,
+} from "../../../../../packages/remote-protocol/src";
 import type {
   CliServices,
   PendingConsent,
   SessionsRenderer,
 } from "../../../../../src/main/features/cli/context";
+import { fitsInFrame, MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
+import { serveWith } from "../../../../../src/main/features/remote/serve";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import {
@@ -17,6 +23,7 @@ import {
   type SessionsSnapshotReaders,
   sessionsSnapshot,
 } from "../../../../../src/renderer/services/cli/sessions-snapshot";
+import type { TerminalOpener } from "../../../../../src/shared/chat/relay";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 import { testSessionsRevision } from "../../../../helpers/sessions-snapshot";
 
@@ -37,13 +44,45 @@ const WORKSPACES = [
   { id: "w-chatfail", name: "chatfail", rootPath: "/src/chatfail", pinned: false, sortOrder: 3 },
 ];
 
-type Tab = { id: string; type: string; title: string; dead?: true; unstarted?: true };
+type Tab = {
+  id: string;
+  type: string;
+  title: string;
+  dead?: true;
+  unstarted?: true;
+  openedBy?: TerminalOpener;
+};
+
+const CHAT_OPENER = {
+  workspaceId: "peer-workspace",
+  tabId: "peer-opener",
+  kind: "terminal",
+  agent: "codex",
+  name: `${"a".repeat(119)}😀tail`,
+  device: { id: "peer-device", name: `${"한".repeat(118)}😀tail` },
+} as const;
+const TERMINAL_OPENER = {
+  workspaceId: "w-root",
+  tabId: "c-ask",
+  kind: "tab",
+  agent: "claude",
+} as const;
+const CLIPPED_OPENER = {
+  ...CHAT_OPENER,
+  name: "a".repeat(119),
+  device: { id: "peer-device", name: `${"한".repeat(118)}😀` },
+};
 
 /** Each workspace's tabs as the renderer lists them for the remote list (agent order). */
 const TABS: Record<string, Tab[]> = {
   "w-root": [
-    { id: "c-ask", type: "claude", title: "Asks" },
-    { id: "x-perm", type: "terminal", title: "claude" },
+    { id: "c-ask", type: "claude", title: "Asks", openedBy: CHAT_OPENER },
+    {
+      id: "x-perm",
+      type: "terminal",
+      title: "claude",
+      openedBy: { ...TERMINAL_OPENER, name: "Asks" },
+    },
     { id: "c-idle", type: "claude", title: "Idle unread" },
     { id: "e-1", type: "editor", title: "a.ts" },
     { id: "c-err", type: "claude", title: "Failed" },
@@ -60,7 +99,12 @@ const TABS: Record<string, Tab[]> = {
     { id: "x-quiet", type: "terminal", title: "quiet codex" },
   ],
   "w-task": [
-    { id: "o-idle", type: "codex", title: "Codex idle" },
+    {
+      id: "o-idle",
+      type: "codex",
+      title: "Codex idle",
+      openedBy: { kind: "manager", workspaceId: "manager", tabId: "old-manager" },
+    },
     { id: "c-plan", type: "claude", title: "Plan" },
   ],
   "w-chatfail": [
@@ -265,10 +309,211 @@ function steady<T>(value: T): T {
 let watches: SessionWatches | undefined;
 afterEach(() => watches?.dropAll());
 
+function fullServices(titleLength: number, opener?: "same-list" | "other-device", count = 500) {
+  const parentId = "parent".padEnd(64, "t");
+  const many: SessionsSnapshotReaders = {
+    ...readers,
+    listTabs(workspaceId) {
+      if (workspaceId !== "w-root") return [];
+      return Array.from({ length: count }, (_, i) => ({
+        id: i === 0 ? parentId : `session-${i}`.padEnd(64, "t"),
+        type: "codex",
+        title: "界".repeat(titleLength),
+        ...(i > 0 && opener
+          ? {
+              openedBy: {
+                workspaceId: opener === "same-list" ? "w-root" : "p".repeat(64),
+                tabId: parentId,
+                kind: "tab",
+                agent: "codex",
+                name: "界".repeat(120),
+                ...(opener === "other-device"
+                  ? { device: { id: "d".repeat(64), name: "한".repeat(120) } }
+                  : {}),
+              },
+            }
+          : {}),
+      }));
+    },
+    peekChat: () => ({
+      agent: "codex",
+      state: "working",
+      message: "한".repeat(200),
+      since: 1234567890000,
+      profile: "Work",
+      cwd: "/src/root/release",
+    }),
+  };
+  return services(async (args) => sessionsSnapshot(args, many));
+}
+
+async function fullWatch(titleLength: number, opener?: "same-list" | "other-device") {
+  const { list } = await snapshotSessions(fullServices(titleLength, opener), undefined);
+  return RPC_METHODS["sessions.watch"].result.parse({ ...list, watchId: "watch" });
+}
+
+function replyBytes(result: Awaited<ReturnType<typeof fullWatch>>): number {
+  return Buffer.byteLength(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), "utf8");
+}
+
+test("500 sessions with long CJK titles and results fit when their opener is in the listing", async () => {
+  const result = await fullWatch(120, "same-list");
+  expect(result.sessions).toHaveLength(500);
+  expect(
+    result.sessions.slice(1).every((row) => row.openedBy?.tabId && row.openedBy.name === undefined),
+  ).toBe(true);
+  expect(replyBytes(result)).toBeLessThan(MAX_MESSAGE_BYTES);
+});
+
+test("sessions.list retains names in small replies and falls back to references or no opener only as needed", async () => {
+  const id = "목록";
+  const request = { from: "phone", method: "sessions.list", params: {}, id } as const;
+  const read = async (titleLength: number, count = 500) => {
+    const service = fullServices(titleLength, "other-device", count);
+    const result = await serveWith(() => service)(request);
+    expect(fitsInFrame({ jsonrpc: "2.0", id, result })).toBe(true);
+    return RPC_METHODS["sessions.list"].result.parse(result);
+  };
+  const small = await read(120, 3);
+  expect(small.sessions[1]?.openedBy?.name).toHaveLength(120);
+  expect(small.sessions[1]?.openedBy?.device?.name).toHaveLength(120);
+
+  const original = await fullWatch(120, "other-device");
+  expect(replyBytes(original)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+  const references = await read(120);
+  expect(references.sessions).toHaveLength(500);
+  expect(references.sessions[1]?.openedBy).toEqual({
+    workspaceId: "p".repeat(64),
+    tabId: "parent".padEnd(64, "t"),
+    kind: "tab",
+    agent: "codex",
+    device: { id: "d".repeat(64) },
+  });
+  expect(references.sessions.map(({ openedBy: _opener, ...row }) => row)).toEqual(
+    original.sessions.map(({ openedBy: _opener, ...row }) => row),
+  );
+
+  const removed = await read(180);
+  expect(removed.sessions).toHaveLength(500);
+  expect(removed.sessions.every((row) => row.openedBy === undefined)).toBe(true);
+});
+
+test("a watch starts compact, compares what it sent, and keeps its reduction through updates", async () => {
+  const [original, longer] = await Promise.all([
+    fullWatch(120, "other-device"),
+    fullWatch(180, "other-device"),
+  ]);
+  let { watchId: _id, ...list } = original;
+  const sent: SessionsUpdate[] = [];
+  let accept = true;
+  watches = new SessionWatches({
+    snapshot: async () => ({ list, incompleteWorkspaces: new Set(), forDevice: async () => list }),
+    notify: async (_to, params) => {
+      expect(fitsInFrame({ jsonrpc: "2.0", method: "sessions.update", params })).toBe(true);
+      sent.push(RPC_NOTIFICATIONS["sessions.update"].parse(params));
+      return accept;
+    },
+    pollMs: 60_000,
+  });
+  const serve = serveWith(() => fullServices(120), { sessions: watches });
+  const id = "감시";
+  const result = await serve({ from: "phone", method: "sessions.watch", params: {}, id });
+  expect(fitsInFrame({ jsonrpc: "2.0", id, result })).toBe(true);
+  const first = RPC_METHODS["sessions.watch"].result.parse(result);
+  expect(first.sessions).toHaveLength(500);
+  expect(first.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+  expect(first.sessions[1]?.openedBy?.name).toBeUndefined();
+  await watches.poll();
+  expect(sent).toHaveLength(0);
+
+  list = { ...list, sessions: original.sessions.slice(0, 3) };
+  await watches.poll();
+  expect(sent[0]?.watchId).toBe(first.watchId);
+  expect(sent[0]?.sessions).toHaveLength(3);
+  expect(sent[0]?.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+
+  accept = false;
+  list = longer;
+  await watches.poll();
+  expect(sent[1]?.sessions).toHaveLength(500);
+  expect(sent[1]?.sessions[1]?.openedBy).toBeUndefined();
+  // A rejected update did not commit a stronger reduction.
+  list = { ...list, sessions: original.sessions.slice(0, 4) };
+  accept = true;
+  await watches.poll();
+  expect(sent[2]?.sessions[1]?.openedBy?.device).toEqual({ id: "d".repeat(64) });
+
+  list = longer;
+  await watches.poll();
+  list = { ...list, sessions: original.sessions.slice(0, 2) };
+  await watches.poll();
+  expect(sent[4]?.sessions).toHaveLength(2);
+  expect(sent[4]?.sessions[1]?.openedBy).toBeUndefined();
+});
+
+test("a 500-session reply that was already oversized without any opener is still oversized", async () => {
+  const service = fullServices(500);
+  const read = serveWith(() => service);
+  const result = await read({ from: "phone", method: "sessions.list", params: {}, id: 1 });
+  expect(fitsInFrame({ jsonrpc: "2.0", id: 1, result })).toBe(false);
+  expect(RPC_METHODS["sessions.list"].result.parse(result).sessions).toHaveLength(500);
+});
+
+test("only opener references with both IDs are sent and unlisted parents keep their saved names", async () => {
+  const extra: SessionsSnapshotReaders = {
+    ...readers,
+    listTabs: (id) => [
+      ...readers.listTabs(id),
+      ...(id === "w-root"
+        ? [
+            {
+              id: "missing-ws",
+              type: "terminal",
+              title: "Shell",
+              openedBy: { kind: "tab", tabId: "c-ask" } as const,
+            },
+            {
+              id: "missing-tab",
+              type: "terminal",
+              title: "Shell",
+              openedBy: { kind: "tab", workspaceId: id } as const,
+            },
+            {
+              id: "parent-omitted",
+              type: "terminal",
+              title: "Shell",
+              openedBy: {
+                kind: "tab",
+                workspaceId: id,
+                tabId: "e-1",
+                name: "Named opener",
+              } as const,
+            },
+          ]
+        : []),
+    ],
+  };
+  const service = services(async (args) => sessionsSnapshot(args, extra));
+  const { list } = await snapshotSessions(service, undefined);
+  const rows = new Map(list.sessions.map((row) => [row.tabId, row]));
+  for (const id of ["missing-ws", "missing-tab"]) {
+    expect(rows.has(id)).toBe(true);
+    expect(rows.get(id)?.openedBy).toBeUndefined();
+  }
+  expect(rows.get("parent-omitted")?.openedBy?.name).toBe("Named opener");
+});
+
 test("the sessions' list, its consents and its waiting requests stay as they were", async () => {
   const s = services();
   const plain = await snapshotSessions(s, GIT, NOTES, "sessions.list", "phone");
   const waiting = await snapshotSessions(s, GIT, NOTES, "sessions.watch", undefined, true);
+  const served = await serveWith(() => s, { git: GIT, notes: NOTES, controls: () => CONTROLS })({
+    from: "phone",
+    method: "sessions.list",
+    params: {},
+    id: 1,
+  });
+  expect(steady(served)).toEqual(EXPECTED.list);
   expect(steady(plain.list)).toEqual(steady(waiting.list));
   expect(
     steady({
@@ -493,6 +738,7 @@ const EXPECTED = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -518,6 +764,7 @@ const EXPECTED = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,
@@ -767,6 +1014,7 @@ const EXPECTED_WATCH = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -792,6 +1040,7 @@ const EXPECTED_WATCH = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,
@@ -1027,6 +1276,7 @@ const EXPECTED_WATCH = {
         tabId: "c-ask",
         kind: "claude",
         title: "Asks",
+        openedBy: CLIPPED_OPENER,
         state: "needs-you",
         since: 10,
         last: "May I run bun test? First line of a long answer word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w…",
@@ -1052,6 +1302,7 @@ const EXPECTED_WATCH = {
         tabId: "x-perm",
         kind: "terminal",
         title: "claude",
+        openedBy: TERMINAL_OPENER,
         state: "needs-you",
         agent: "claude",
         since: 5,

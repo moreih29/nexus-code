@@ -1,3 +1,4 @@
+import { boundedPeerFoldKey } from "../../../shared/types/agent-view";
 import type { AgentSession, SessionPhase } from "./model";
 import { compareStatusTime, listed, matchesQuery, ROW_GROUPS } from "./rows";
 
@@ -21,7 +22,8 @@ export interface SessionTreeNode {
 }
 
 export function familyFoldKey(session: AgentSession): string {
-  return `family:${session.key}`;
+  const key = `family:${session.key}`;
+  return session.key.startsWith("remote:") ? boundedPeerFoldKey(key) : key;
 }
 
 /** Resolves the parents of listed sessions. Older layouts use their saved tab order. */
