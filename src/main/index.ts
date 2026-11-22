@@ -126,7 +126,7 @@ import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { installErrorSafetyNet } from "./infra/error-safety-net";
 import { startEventLoopMonitor } from "./infra/event-loop-monitor";
 import { broadcast, setupRouter } from "./infra/ipc-router";
-import { finishMainShutdown } from "./infra/main-shutdown";
+import { createQuitStateFlush, finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/platform/shell-path";
@@ -1087,22 +1087,15 @@ app.on("window-all-closed", () => {
 // agents, terminals and storage already torn down. will-quit fires only
 // once every window has closed.
 let quitReady = false;
-let quitRetry: ReturnType<typeof setTimeout> | undefined;
+const flushStateBeforeQuit = createQuitStateFlush({
+  flush: () => stateService.flushNow(),
+  quit: () => app.quit(),
+  warn: (message) => logger.warn(message),
+  error: (message) => logger.error(message),
+});
 app.on("will-quit", (event) => {
   if (quitReady) {
-    try {
-      stateService.flushNow();
-    } catch (error) {
-      event.preventDefault();
-      logger.warn(`Could not save app state before quit; retrying: ${String(error)}`);
-      quitRetry ??= setTimeout(() => {
-        quitRetry = undefined;
-        app.quit();
-      }, 1_000);
-      return;
-    }
-    clearTimeout(quitRetry);
-    currentRun?.quit(logger);
+    if (flushStateBeforeQuit(event)) currentRun?.quit(logger);
     return;
   }
   event.preventDefault();
