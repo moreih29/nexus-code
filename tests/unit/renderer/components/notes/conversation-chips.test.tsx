@@ -115,6 +115,7 @@ test("live cards show saved answers as text and offer to answer an active questi
   };
   const restored = renderToStaticMarkup(<ConversationChip {...props} card />);
   expect(restored).toContain("&lt;img");
+  expect(restored).toContain("&gt; link</p>");
   expect(restored).not.toContain("<img");
   expect(restored).not.toContain("<a ");
   expect(restored).toContain("2 files");

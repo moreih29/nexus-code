@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WorkspaceIdSchema } from "../types/workspace-id";
+import { markdownText } from "./markdown-text";
 
 export const MAX_NOTE_LINKS = 200;
 export const MAX_NOTE_LINK_BYTES = 256 * 1024;
@@ -45,6 +46,21 @@ export function liveAnswerText(text: string): string {
     if (++length === MAX_LIVE_ANSWER_CHARS) break;
   }
   return excerpt.trimEnd();
+}
+
+export function liveAnswerPreview(text: string): string {
+  const options = { listSeparator: " · ", keepHtml: true, keepAutolinks: true };
+  let source = text
+    .replace(/\p{Cf}/gu, "")
+    .replace(/[^\P{Cc}\t\r\n]+/gu, " ")
+    .replace(/[\p{Zl}\p{Zp}]/gu, "\n");
+  // Escapes, entities and code can leave text that still looks like Markdown.
+  // Normalize the excerpt too, so rendering a saved snapshot gives the same text.
+  while (true) {
+    const preview = liveAnswerText(markdownText(source, options).replace(/\s+/gu, " "));
+    if (preview === source) return preview;
+    source = preview;
+  }
 }
 
 export const NoteLastAnswerSchema = z.object({

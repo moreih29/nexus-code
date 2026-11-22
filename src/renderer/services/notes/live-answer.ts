@@ -1,4 +1,8 @@
-import { liveAnswerText, liveAnswerTime, type NoteLastAnswer } from "../../../shared/notes/links";
+import {
+  liveAnswerPreview,
+  liveAnswerTime,
+  type NoteLastAnswer,
+} from "../../../shared/notes/links";
 import { slashWindowsPath } from "../chat/links";
 import { type ChatModel, num, rec, str } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
@@ -27,7 +31,7 @@ function modelAnswer(
     if (currentTurn && item.kind === "user" && item.state === "taken") return;
     if (item.kind !== "assistant") continue;
     if (before !== undefined && (item.at === undefined || item.at >= before)) continue;
-    const text = liveAnswerText(
+    const text = liveAnswerPreview(
       item.blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" "),
     );
     if (!text) continue;
@@ -65,7 +69,7 @@ export function codexStoredAnswer(turns: readonly unknown[]): NoteLastAnswer | u
     for (let index = turn.items.length - 1; index >= 0; index--) {
       const item = rec(turn.items[index]);
       if (item?.type !== "agentMessage" || typeof item.text !== "string") continue;
-      const text = liveAnswerText(item.text);
+      const text = liveAnswerPreview(item.text);
       if (!text) continue;
       const turnAt = num(turn.completedAt) ?? num(turn.startedAt);
       const at =

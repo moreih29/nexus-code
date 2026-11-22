@@ -9,7 +9,33 @@ import {
   liveAnswerOf,
   loadedAnswerOf,
 } from "../../../../../src/renderer/services/notes/live-answer";
-import { LIVE_ANSWER_CLOCK_TOLERANCE_MS } from "../../../../../src/shared/notes/links";
+import {
+  LIVE_ANSWER_CLOCK_TOLERANCE_MS,
+  liveAnswerPreview,
+} from "../../../../../src/shared/notes/links";
+
+test("the preview flattens Markdown and stays the same when read again", () => {
+  const markdown = [
+    "# Heading",
+    "",
+    "> **Bold** and *italic*",
+    "",
+    "- [Label](https://example.com/path_(part))",
+    "- ![Alt text](image.png)",
+    "- `src/file.ts`",
+    "",
+    "```ts",
+    "const count = 1;",
+    "```",
+  ].join("\n");
+  const preview = "Heading Bold and italic Label · Alt text · src/file.ts const count = 1;";
+  expect(liveAnswerPreview(markdown)).toBe(preview);
+  expect(liveAnswerPreview(preview)).toBe(preview);
+  expect(liveAnswerPreview("**[Label]**(https://example.com)")).toBe("Label");
+  expect(liveAnswerPreview(`**${"a".repeat(499)}\uD800\u202e😀tail**`)).toBe(
+    `${"a".repeat(499)}😀`,
+  );
+});
 
 test("a snapshot is capped at 500 Unicode characters with no format controls", () => {
   const model: ChatModel = {

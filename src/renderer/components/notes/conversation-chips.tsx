@@ -3,7 +3,7 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from "
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { prLabel } from "../../../shared/notes/line-report";
-import type { NoteLinkEntry } from "../../../shared/notes/links";
+import { liveAnswerPreview, type NoteLinkEntry } from "../../../shared/notes/links";
 import { ipcCallResult } from "../../ipc/client";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { type AgentSession, allSessions } from "../../services/agent-sessions/model";
@@ -301,6 +301,7 @@ export function ConversationChip({
   if (card) {
     const live = link.kind === "live";
     const snapshot = link.lastAnswer;
+    const preview = snapshot && liveAnswerPreview(snapshot.text);
     const displayTime = live ? noteTime(snapshot?.at ?? link.createdAt) : "";
     const heading = (
       <div
@@ -333,10 +334,8 @@ export function ConversationChip({
         data-testid="note-live-card"
       >
         {heading}
-        {snapshot?.text && (
-          <p className="my-1 line-clamp-3 break-words text-app-ui-sm text-foreground">
-            {snapshot.text}
-          </p>
+        {preview && (
+          <p className="my-1 line-clamp-3 break-words text-app-ui-sm text-foreground">{preview}</p>
         )}
         {snapshot?.files !== undefined && (
           <div className="flex items-center gap-1 text-app-micro text-muted-foreground">

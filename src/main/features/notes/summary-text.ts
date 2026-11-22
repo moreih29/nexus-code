@@ -1,8 +1,5 @@
-import type { Nodes } from "mdast";
-import { fromMarkdown } from "mdast-util-from-markdown";
-import { gfmFromMarkdown } from "mdast-util-gfm";
-import { gfm } from "micromark-extension-gfm";
 import { z } from "zod";
+import { markdownText } from "../../../shared/notes/markdown-text";
 import { type SummaryError, summaryDiagnostic } from "../../../shared/notes/summary";
 import {
   clockOf,
@@ -159,39 +156,9 @@ function readJSON(text: string): unknown {
   }
 }
 
-function plainNode(node: Nodes): string {
-  switch (node.type) {
-    case "html":
-    case "definition":
-      return "";
-    case "image":
-    case "imageReference":
-      return node.alt ?? "";
-    case "link": {
-      const label = node.children.map(plainNode).join("");
-      return node.url === label || node.url === `mailto:${label}` ? "" : label;
-    }
-    case "inlineCode":
-    case "code":
-    case "text":
-      return node.value;
-    default: {
-      if (!("children" in node)) return " ";
-      const space = ["root", "list", "listItem", "blockquote", "table", "tableRow"].includes(
-        node.type,
-      );
-      return node.children.map(plainNode).join(space ? " " : "");
-    }
-  }
-}
-
 function plainText(text: string): string {
-  const tree = fromMarkdown(text.replace(DIRECTION_CONTROLS, ""), {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  });
   return (
-    plainNode(tree)
+    markdownText(text.replace(DIRECTION_CONTROLS, ""))
       // Parsed text can itself contain markup from escaped punctuation or entities.
       .replace(DIRECTION_CONTROLS, "")
       .replace(/<\/?[a-z][^<>]*>|<!--[\s\S]*?-->/gi, "")
