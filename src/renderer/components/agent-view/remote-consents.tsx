@@ -206,11 +206,7 @@ export function RemoteConsentCard({
     </Button>
   );
 
-  const title = t(
-    consent.from.device
-      ? "agentCli.consent.remote_title"
-      : consentTitleOf(consent.change.kind, false),
-  );
+  const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
   const { body } = consentDetailsOf(t, consent.change);
   return (
     <section
