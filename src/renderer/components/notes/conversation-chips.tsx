@@ -1,4 +1,4 @@
-import { FileText, Loader, MessageCircle } from "lucide-react";
+import { FileText, Loader, MessageCircle, SquarePlus } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -118,7 +118,12 @@ export function NoteCardInsertMenu() {
   if (!rows.length) return null;
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger>{t("connections.insertCard")}</DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger>
+        <span className="flex flex-1 items-center gap-2">
+          <SquarePlus className="size-3.5" aria-hidden="true" />
+          {t("connections.insertCard")}
+        </span>
+      </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
         {rows.map(({ key, ...props }) => (
           <NoteCardInsertItem key={key} {...props} />
