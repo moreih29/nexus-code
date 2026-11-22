@@ -119,6 +119,8 @@ export interface CodexTabProps {
 
 interface TabBase {
   id: string;
+  /** When an agent opened the tab. */
+  openedAt?: number;
   /**
    * Display title — derived: customTitle ?? processTitle ?? defaultTitle.
    * Every set path (rename / setProcessTitle / createTab) maintains this invariant.
@@ -497,6 +499,10 @@ export const useTabsStore = create<TabsState>((set, get) => {
           : defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
+        ...((args.type === "terminal" || args.type === "claude" || args.type === "codex") &&
+        args.props.openedBy
+          ? { openedAt: performance.timeOrigin + performance.now() }
+          : {}),
         // Initially there is neither customTitle nor processTitle, so the derived title = defaultTitle.
         title: dt,
         defaultTitle: dt,

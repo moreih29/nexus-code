@@ -225,6 +225,8 @@ test.each([
     device: { id: "d", name: "MacBook" },
   };
   const child = addTab({ type, props: { cwd: "/repo", openedBy } });
+  const openedAt = useTabsStore.getState().byWorkspace[workspaceId]?.[child]?.openedAt;
+  expect(openedAt).toBeNumber();
   const manager = addTab({ type, props: { cwd: "/repo", openedBy: { kind: "manager" } } });
   const legacy = addTab({ type, props: { cwd: "/repo" } });
   useTabsStore.getState().setChatProfile(workspaceId, child, "office-profile");
@@ -232,9 +234,14 @@ test.each([
   unregisterStatePersistence();
   await restore();
   const tabs = useTabsStore.getState().byWorkspace[workspaceId];
-  expect(tabs?.[child]).toMatchObject({ type, props: { openedBy, profileId: "office-profile" } });
+  expect(tabs?.[child]).toMatchObject({
+    type,
+    openedAt,
+    props: { openedBy, profileId: "office-profile" },
+  });
   expect(tabs?.[manager]).toMatchObject({ type, props: { openedBy: { kind: "manager" } } });
   expect(tabs?.[legacy]?.props).toEqual({ cwd: "/repo" });
+  expect(tabs?.[legacy]).not.toHaveProperty("openedAt");
 });
 
 test("recovers only unambiguous legacy local external paths and repairs dropped tab references", async () => {

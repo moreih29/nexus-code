@@ -205,12 +205,16 @@ const TAB_TITLES = {
   processTitle: z.string().optional(),
 };
 
+/** When an agent opened the tab, to order siblings across workspaces. */
+const OpenedAtSchema = NumberSchema.optional().catch(undefined);
+
 export const SerializedTabSchema = z.discriminatedUnion("type", [
   z.object({
     id: z.guid(),
     type: z.literal("terminal"),
     title: z.string(),
     ...TAB_TITLES,
+    openedAt: OpenedAtSchema,
     props: TerminalTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -267,6 +271,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("claude"),
     title: z.string(),
     ...TAB_TITLES,
+    openedAt: OpenedAtSchema,
     props: ClaudeTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -276,6 +281,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("codex"),
     title: z.string(),
     ...TAB_TITLES,
+    openedAt: OpenedAtSchema,
     props: CodexTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
