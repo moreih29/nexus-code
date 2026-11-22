@@ -135,6 +135,32 @@ describe("Other computers connection guidance", () => {
     expect(html).not.toContain("Loading…");
   });
 
+  test.each([
+    "connecting",
+    "waiting",
+  ] as const)("keeps the sidebar undimmed during the relay drop grace period in %s", (status) => {
+    readAccount.mockReturnValue(signedIn);
+    const raw = { status, peers: [{ ...peer, online: false }] };
+    readRoom.mockReturnValue(raw);
+    const shown = spyOn(room, "useShownRoom").mockReturnValue({ status: "online", peers: [peer] });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      d2: { status: "ready", list: list([session({})]) },
+    });
+    try {
+      const html = renderToStaticMarkup(<RemoteSessions query="" />);
+      expect(html).toContain("Work PC");
+      expect(html).toContain("Fix the build");
+      expect(html).not.toContain("Connecting…");
+      expect(html).not.toContain("Disconnected");
+      expect(html).not.toContain("opacity-60");
+      expect(html).not.toContain('inert=""');
+      expect(readLists).toHaveBeenCalledWith([], true);
+    } finally {
+      readLists.mockRestore();
+      shown.mockRestore();
+    }
+  });
+
   test("search shows only matching computers and hides the section when none match", () => {
     readAccount.mockReturnValue(signedIn);
     readRoom.mockReturnValue({

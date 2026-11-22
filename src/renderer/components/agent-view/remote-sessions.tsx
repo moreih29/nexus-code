@@ -253,7 +253,9 @@ function AccountRemoteSessions({
 }) {
   const { t } = useTranslation();
   const room = useRemoteRoom();
-  const roomStatus = room?.status;
+  // Keep brief relay and peer drops off the screen while watching the real room.
+  const seen = useShownRoom(room);
+  const roomStatus = seen?.status;
   const outdated = roomStatus === "outdated";
   const signInNotice = useBannerDismissal(
     ["remote-sessions-sign-in"],
@@ -270,14 +272,13 @@ function AccountRemoteSessions({
     s.peerOrder?.accountKey === accountKey ? s.peerOrder.ids : undefined,
   );
   const [drag, setDrag] = useState<PeerDrag | null>(null);
-  // Brief drops of individual peers are left out of the list.
-  const seen = useShownRoom(room);
   const lastOnline = useRef<RoomState | null>(null);
+  const roomOnline = room?.status === "online";
   const connected = roomStatus === "online";
   const connecting = roomStatus === "connecting" || roomStatus === "waiting";
   useEffect(() => {
-    if (connected) lastOnline.current = seen;
-  }, [connected, seen]);
+    if (roomOnline) lastOnline.current = seen;
+  }, [roomOnline, seen]);
   const displayedRoom = connected ? seen : lastOnline.current;
   // Searching, an offline computer has no sessions to find.
   const searching = query.trim() !== "";
