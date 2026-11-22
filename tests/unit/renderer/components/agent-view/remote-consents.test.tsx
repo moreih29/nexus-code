@@ -152,6 +152,18 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
+  test("a request from another computer uses the remote title", () => {
+    const from = {
+      ...consent().from,
+      device: { id: "d3", name: "Laptop" },
+    };
+    for (const kind of ["terminalInput", "permissionAllow"]) {
+      const html = card(consent({ from, change: { kind } }));
+      expect(html).toContain('aria-label="Allow an agent on another computer to change this one?"');
+      expect(html).toContain("Laptop");
+    }
+  });
+
   test("instruction prompts use the viewer's language and name the layer", () => {
     const change = {
       kind: "instructionsEdit",
