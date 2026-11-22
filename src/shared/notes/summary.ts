@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { redactLogSecrets } from "../log/redact-secrets";
-import { RECORDING_ID_RE } from "./transcript";
+import { RECORDING_ID_RE, recordingMs, type TranscriptRecording } from "./transcript";
 
 export const RecordingSummarySettingsSchema = z.object({
   enabled: z.boolean(),
@@ -13,6 +13,13 @@ export const DEFAULT_RECORDING_SUMMARY_SETTINGS: RecordingSummarySettings = {
   enabled: false,
   agent: "claude",
 };
+
+export function isLongEnoughToSummarize(recording: TranscriptRecording): boolean {
+  return (
+    recordingMs(recording) >= 30_000 &&
+    recording.lines.filter((line) => line.text.trim()).length >= 3
+  );
+}
 
 export const RecordingIdSchema = z.string().regex(RECORDING_ID_RE);
 export const SummaryModeSchema = z.enum(["auto", "retry", "rerun"]);

@@ -285,5 +285,19 @@
     "actionError": "대화 연결 작업 실패",
     "noteSaveError": "노트 저장 실패",
     "fromNote": "노트 ‘{{title}}’"
+  },
+  "summary": {
+    "settings": {
+      "heading": "녹음 요약",
+      "enabled": "녹음 자동 요약",
+      "profile": "Claude 프로필",
+      "model": "모델",
+      "defaultModel": "프로필 기본값",
+      "missingProfile": "선택한 프로필 없음",
+      "privacy": "요약 시 녹취를 Claude로 전송 · NexusCode 서버 미경유",
+      "excluded": "Bedrock · Vertex · apiKeyHelper 프로필 제외",
+      "saveFailed": "요약 설정 저장 실패"
+    },
+    "actionFailed": "요약 작업 실패"
   }
 }

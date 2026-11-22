@@ -124,7 +124,11 @@ import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { NoteLinkEntrySchema } from "../notes/links";
-import { RecordingSummariesSchema, RecordingSummarySchema } from "../notes/summary";
+import {
+  RecordingSummariesSchema,
+  RecordingSummarySchema,
+  RecordingSummarySettingsSchema,
+} from "../notes/summary";
 import { TranscriptFileSchema } from "../notes/transcript";
 import {
   VoiceNameLearnArgsSchema,
@@ -1471,6 +1475,7 @@ const coreIpcContract = {
        * no per-workspace or per-tab scope for a global UI language setting.
        */
       languageChanged: listen(z.object({ language: z.enum(["en", "ko"]) })),
+      noteSummaryChanged: listen(RecordingSummarySettingsSchema),
       /**
        * Broadcast emitted by main when the user keybinding overrides
        * change via `appState.set({ keybindingOverrides })`.  Sent to all

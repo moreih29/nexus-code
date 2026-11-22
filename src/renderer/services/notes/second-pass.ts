@@ -8,10 +8,13 @@
  */
 import i18next from "i18next";
 import { create } from "zustand";
+import { isLongEnoughToSummarize } from "../../../shared/notes/summary";
 import { type TranscriptRecording, withSecondPass } from "../../../shared/notes/transcript";
 import type { TranscribeResult } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
+import { useNoteSummarySettings } from "../../state/stores/note-summary";
+import { notesApi } from "./api";
 import {
   flushTranscript,
   loadTranscript,
@@ -22,7 +25,7 @@ import {
 
 /** How often a pass under way is asked after. */
 export const POLL_MS = 4000;
-/** How long a pass is waited for before it is left for the next time the note opens. */
+/** How long the pass waits before a summary can use the saved transcript so far. */
 export const GIVE_UP_MS = 45 * 60_000;
 
 /** The recordings whose second pass runs, by id. */
@@ -68,22 +71,23 @@ export function canSecondPass(recording: {
   return recording.takes.some((t) => (t.pass === "none" && t.token) || t.pass === "pending");
 }
 
-/** Runs the recording's second pass: sends the takes not sent yet, then waits for them all. */
+/** Finishes a recording's second pass, if needed, then requests its automatic summary. */
 export async function runSecondPass(
   workspaceId: string,
   noteId: string,
   recordingId: string,
+  refine = true,
 ): Promise<void> {
   if (useSecondPassStore.getState().running[recordingId]) return;
   useSecondPassStore.setState((s) => ({ running: { ...s.running, [recordingId]: true } }));
   try {
     await loadTranscript(workspaceId, noteId);
-    await flushTranscript(workspaceId, noteId);
+    await flushTranscript(workspaceId, noteId, false, true);
     const recording = recordingOf(workspaceId, noteId, recordingId);
     if (!recording) return;
     let told = false;
     for (const [index, take] of recording.takes.entries()) {
-      if (take.pass !== "none" || !take.token) continue;
+      if (!refine || take.pass !== "none" || !take.token) continue;
       const sent = await ipcCallResult("remote", "voiceTranscribe", {
         workspaceId,
         noteId,
@@ -122,8 +126,19 @@ export async function runSecondPass(
         told = true;
       }
     }
-    await flushTranscript(workspaceId, noteId);
-    await waitForPasses(workspaceId, noteId, recordingId);
+    await flushTranscript(workspaceId, noteId, false, true);
+    const result = await waitForPasses(workspaceId, noteId, recordingId);
+    const latest = recordingOf(workspaceId, noteId, recordingId);
+    if (!result || !latest || !useNoteSummarySettings.getState().enabled) return;
+    if (result === "complete" && latest.takes.some((take) => take.pass === "pending")) return;
+    if (!isLongEnoughToSummarize(latest)) return;
+    await flushTranscript(workspaceId, noteId, false, true);
+    // Another window can finish the same persisted pass. Main admits only one run.
+    await notesApi.summarize(workspaceId, noteId, recordingId, "auto").catch(() => {
+      showToast({ kind: "error", message: i18next.t("notes:summary.actionFailed") });
+    });
+  } catch {
+    // flushTranscript already reports failed writes. Do not summarize unsaved text.
   } finally {
     useSecondPassStore.setState((s) => {
       const { [recordingId]: _done, ...rest } = s.running;
@@ -136,7 +151,7 @@ async function waitForPasses(
   workspaceId: string,
   noteId: string,
   recordingId: string,
-): Promise<void> {
+): Promise<"complete" | "timed-out" | undefined> {
   const until = Date.now() + GIVE_UP_MS;
   let told = false;
   while (Date.now() < until) {
@@ -145,7 +160,7 @@ async function waitForPasses(
     const pending = recording.takes
       .map((t, index) => ({ t, index }))
       .filter(({ t }) => t.pass === "pending" && t.transcriptionId);
-    if (!pending.length) return;
+    if (!pending.length) return "complete";
     for (const { t, index } of pending) {
       const id = t.transcriptionId as string;
       const asked = await ipcCallResult("remote", "voiceTranscription", { id });
@@ -204,9 +219,11 @@ async function waitForPasses(
       void ipcCallResult("remote", "voiceTranscriptionDrop", { id });
     }
     const current = recordingOf(workspaceId, noteId, recordingId);
-    if (!current?.takes.some((take) => take.pass === "pending" && take.transcriptionId)) return;
+    if (!current?.takes.some((take) => take.pass === "pending" && take.transcriptionId))
+      return "complete";
     await sleep(POLL_MS);
   }
+  return "timed-out";
 }
 
 /** Picks up the passes of a note's recordings left under way (the app was closed meanwhile). */

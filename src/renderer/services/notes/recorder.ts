@@ -674,10 +674,13 @@ async function finishRecording(a: Active, secondPass = true): Promise<void> {
   const recording = file.recordings.find((r) => r.id === a.recordingId);
   if (!recording) return;
   if (a.audioSaved && a.voices) await refreshVoiceSuggestions(a, a.voices.nameSamples());
-  // Words of more than one person: a meeting, which the second pass hears better. One: done.
-  if (secondPass && peopleIn(recording) >= 2) {
-    void runSecondPass(a.workspaceId, a.noteId, a.recordingId);
-  }
+  // One person needs no refinement. Both paths meet at the summary trigger.
+  void runSecondPass(
+    a.workspaceId,
+    a.noteId,
+    a.recordingId,
+    secondPass && peopleIn(recording) >= 2,
+  );
 }
 
 /**

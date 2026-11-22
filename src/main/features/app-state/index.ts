@@ -172,6 +172,7 @@ export function registerAppStateChannel(
         }
 
         if ("agentProfiles" in patch) opts.onAgentProfilesChanged?.();
+        if (patch.noteSummary) broadcast("appState", "noteSummaryChanged", patch.noteSummary);
         if (patch.agentInstructions) {
           broadcast("appState", "agentInstructionsChanged", { config: patch.agentInstructions });
         }
