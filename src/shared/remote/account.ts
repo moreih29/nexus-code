@@ -57,6 +57,7 @@ export const SIGNUP_FAILURES = ["pending_approval", "rejected", "suspended", "cl
  *   an authenticated 403 not_invited also signs the account out, with
  *   suspended when the server gives that status;
  * - invalid_grant: the server would not trade the code (expired, or used);
+ * - rate_limited: the server took too many tries to trade a code (a 429);
  * - too_many_devices: the account has as many devices signed in as it may,
  *   so one is to be removed from another device before signing in again;
  * - mismatch: the browser came back for another sign-in;
@@ -72,6 +73,7 @@ export const SIGN_IN_FAILURES = [
   ...SIGNUP_FAILURES,
   "server_error",
   "invalid_grant",
+  "rate_limited",
   "too_many_devices",
   "mismatch",
   "unreachable",
@@ -81,15 +83,54 @@ export const SignInFailureSchema = z.enum(SIGN_IN_FAILURES);
 export type SignInFailure = z.infer<typeof SignInFailureSchema>;
 
 /**
+ * The sign-ins' names as the user knows them, the same in every language;
+ * the dev sign-in has none.
+ */
+const SIGN_IN_PROVIDER_NAMES: Partial<Record<SignInProvider, string>> = {
+  apple: "Apple",
+  google: "Google",
+  github: "GitHub",
+};
+
+/** The name of a sign-in to put in a sentence; undefined for one without (or none known). */
+export function signInProviderName(provider: SignInProvider | undefined): string | undefined {
+  return provider ? SIGN_IN_PROVIDER_NAMES[provider] : undefined;
+}
+
+/**
+ * The failures that come of the server taking approved accounts only; they
+ * say so in a line of their own (`remote.account.approvedOnly`).
+ */
+export const APPROVED_ONLY_FAILURES: readonly SignInFailure[] = [
+  "pending_approval",
+  "closed",
+  "not_invited",
+];
+
+/**
+ * How a failed sign-in is shown: waiting (on an approval, or the user's
+ * own cancel), a step to take, or an account stopped.
+ */
+export type SignInFailureTone = "info" | "warning" | "error";
+
+export function signInFailureTone(failure: SignInFailure): SignInFailureTone {
+  if (failure === "pending_approval" || failure === "access_denied") return "info";
+  if (failure === "suspended") return "error";
+  return "warning";
+}
+
+/**
  * Where the account stands: signed out (with why the last sign-in failed,
- * if it did), signing in (the browser is open on the server's sign-in),
- * or signed in.
+ * if it did, and the sign-in a pending approval is for: the server knows
+ * the account by it), signing in (the browser is open on the server's
+ * sign-in), or signed in.
  */
 export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("signed-out"),
     server: z.string(),
     failure: SignInFailureSchema.optional(),
+    provider: SignInProviderSchema.optional(),
   }),
   z.object({ status: z.literal("signing-in"), server: z.string() }),
   z.object({

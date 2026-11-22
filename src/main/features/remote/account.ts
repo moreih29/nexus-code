@@ -25,7 +25,7 @@ import {
 } from "../../../shared/remote/account";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
-import { type LoopbackListener, listenForCallback } from "./loopback";
+import { type LoopbackListener, listenForCallback, notInvitedFailure } from "./loopback";
 import { makePkce, makeState } from "./pkce";
 import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
@@ -60,13 +60,6 @@ const TokenResponseSchema = z.object({
 
 const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema) });
 
-/** What the server sends the browser back with, besides a code. */
-const CALLBACK_ERRORS: readonly SignInFailure[] = [
-  "access_denied",
-  "unverified_email",
-  "server_error",
-];
-
 /** This device as the server should name it: up to 100 characters, a lowercase platform. */
 export function thisDevice(): { name: string; platform: string } {
   const name =
@@ -94,6 +87,11 @@ export interface RemoteAccountDeps {
   /** This install's id, sent with a sign-in so the server gives the same device back. */
   installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
+  /**
+   * Told when the browser comes back from the sign-in, whatever it brought:
+   * the rest of it, or why it failed, shows in the app.
+   */
+  onBrowserBack?(): void;
   timeoutMs?: number;
   /** The sign-in used when none is asked for. */
   provider?: SignInProvider;
@@ -136,7 +134,12 @@ export class RemoteAccount {
       return { status: "signed-in", server, user: this.saved.user, device: this.saved.device };
     }
     if (this.signingIn) return { status: "signing-in", server };
-    return { status: "signed-out", server, ...(this.failure ? { failure: this.failure } : {}) };
+    return {
+      status: "signed-out",
+      server,
+      ...(this.failure ? { failure: this.failure } : {}),
+      ...(this.pendingProvider ? { provider: this.pendingProvider } : {}),
+    };
   }
 
   /** The session token, while signed in. */
@@ -148,6 +151,7 @@ export class RemoteAccount {
    * Opens the server's sign-in in the browser, then trades its callback code
    * for this device's token. Without a provider, it retries a pending signup
    * or uses the default. A failed sign-in leaves the reason in the state.
+   * The browser's page waits for how it ended, and says the same.
    */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
     if (this.startingSignIn || this.signingIn || this.saved) return this.state();
@@ -165,6 +169,7 @@ export class RemoteAccount {
     this.failure = undefined;
     this.pendingProvider = undefined;
     this.changed();
+    let signedIn = false;
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
@@ -178,16 +183,9 @@ export class RemoteAccount {
       }).toString();
       await this.deps.openExternal(start.toString());
       const back = await listener.result;
+      this.deps.onBrowserBack?.();
       if (back.state !== state) throw new SignInError("mismatch");
-      if (back.error === "not_invited") {
-        const failure =
-          back.access === "pending" ? "pending_approval" : (back.access ?? "not_invited");
-        throw new SignInError(failure, back.error);
-      }
-      if (back.error) {
-        const failure = CALLBACK_ERRORS.find((e) => e === back.error);
-        throw new SignInError(failure ?? "failed", back.error);
-      }
+      if (back.failure) throw new SignInError(back.failure, back.error);
       if (!back.code) throw new SignInError("failed", "no code");
       const installId = await this.deps.installId?.().catch(() => undefined);
       const answer = await this.call("POST", "/auth/token", {
@@ -201,12 +199,14 @@ export class RemoteAccount {
       });
       const { token, user, device } = TokenResponseSchema.parse(answer);
       this.saved = { server: this.deps.server, token, user, device };
+      signedIn = true;
       await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
       if (this.failure === "pending_approval") this.pendingProvider = choice;
       log.warn(`Sign-in failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      listener.report(signedIn ? "signed-in" : (this.failure ?? "failed"), this.pendingProvider);
       listener.close();
       this.signingIn = null;
       this.changed();
@@ -437,7 +437,7 @@ export class RemoteAccount {
         }
         throw new SignedOutError();
       }
-      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter);
+      throw new ServerError(res.status, code, `${method} ${path}`, retryAfter, refusal?.access);
     }
     return answer ?? {};
   }
@@ -458,6 +458,13 @@ function failureOf(error: unknown): SignInFailure {
   if (error instanceof ServerError) {
     if (error.code === "invalid_grant") return "invalid_grant";
     if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
+    if (error.status === 429) return "rate_limited";
+    // A code refused for the account: suspended, or not invited. The signup states
+    // (pending, rejected, closed) come with the callback, not here.
+    if (error.status === 403 && error.code === "not_invited") {
+      const failure = notInvitedFailure(error.access);
+      return failure === "suspended" || failure === "not_invited" ? failure : "failed";
+    }
     return "failed";
   }
   if (error instanceof UnreachableError) return "unreachable";

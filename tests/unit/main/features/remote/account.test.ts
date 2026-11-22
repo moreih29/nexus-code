@@ -10,7 +10,11 @@ import {
   thisDevice,
 } from "../../../../../src/main/features/remote/account";
 import { ServerError } from "../../../../../src/main/features/remote/errors";
-import { listenForCallback } from "../../../../../src/main/features/remote/loopback";
+import {
+  listenForCallback,
+  type PageOutcome,
+  page,
+} from "../../../../../src/main/features/remote/loopback";
 import { challengeOf } from "../../../../../src/main/features/remote/pkce";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 
@@ -29,6 +33,9 @@ function fakeServer(
   options: {
     tokenStatus?: number;
     tokenError?: string;
+    tokenAccess?: string;
+    /** The refusal's body as sent, in place of its JSON. */
+    tokenBody?: string;
     devicesStatus?: number;
     devicesError?: string;
     devicesAccess?: string;
@@ -56,8 +63,8 @@ function fakeServer(
       const body =
         status === 200
           ? { token: "tok", expiresAt: Date.now() + 30 * 86_400_000, user, device }
-          : { error: options.tokenError ?? "invalid_grant" };
-      return new Response(JSON.stringify(body), { status });
+          : { error: options.tokenError ?? "invalid_grant", access: options.tokenAccess };
+      return new Response(options.tokenBody ?? JSON.stringify(body), { status });
     }
     if (url.pathname === "/devices") {
       const status = options.devicesStatus ?? 200;
@@ -72,17 +79,22 @@ function fakeServer(
   return { requests, fetchFn };
 }
 
-/** A browser that goes through the sign-in and comes back, as told. */
+/**
+ * A browser that goes through the sign-in and comes back, as told, and the
+ * pages it was shown. Opening it does not wait for the page, which waits for
+ * the sign-in to end.
+ */
 function browser(back: (start: URL) => Record<string, string>) {
   const opened: URL[] = [];
+  const pages: Promise<string>[] = [];
   const openExternal = async (url: string) => {
     const start = new URL(url);
     opened.push(start);
     const redirect = new URL(start.searchParams.get("redirect_uri") ?? "");
     for (const [k, v] of Object.entries(back(start))) redirect.searchParams.set(k, v);
-    await fetch(redirect);
+    pages.push(fetch(redirect).then((res) => res.text()));
   };
-  return { opened, openExternal };
+  return { opened, pages, openExternal };
 }
 
 const accounts: RemoteAccount[] = [];
@@ -132,8 +144,10 @@ describe("the loopback", () => {
     expect(listener.redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
     const other = await fetch(listener.redirectUri.replace("/callback", "/favicon.ico"));
     expect(other.status).toBe(404);
-    await fetch(`${listener.redirectUri}?code=c1&state=s1`);
+    const shown = fetch(`${listener.redirectUri}?code=c1&state=s1`);
     expect(await listener.result).toEqual({ code: "c1", error: undefined, state: "s1" });
+    listener.report("signed-in");
+    expect((await shown).status).toBe(200);
   });
 
   test("gives up when the time is up", async () => {
@@ -357,22 +371,76 @@ describe("the account", () => {
       [{ code: "c1" }, { tokenStatus: 400 }, "invalid_grant"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "conflict" }, "failed"],
+      [{ code: "c1" }, { tokenStatus: 429, tokenError: "rate_limited" }, "rate_limited"],
+      // A code refused for the account says why as the callback does, suspended or not invited.
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "suspended" },
+        "suspended",
+      ],
+      [{ code: "c1" }, { tokenStatus: 403, tokenError: "not_invited" }, "not_invited"],
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "future-status" },
+        "failed",
+      ],
+      // The signup states come with the callback alone.
+      [
+        { code: "c1" },
+        { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "pending" },
+        "failed",
+      ],
+      [{ code: "c1" }, { tokenStatus: 403, tokenBody: "<h1>Forbidden</h1>" }, "failed"],
     ] as const;
     for (const [back, serverOptions, failure] of cases) {
       const store = memoryStore();
+      const { pages, openExternal } = browser((start) => ({
+        state: start.searchParams.get("state") ?? "",
+        ...back,
+      }));
       const account = new RemoteAccount({
         server: SERVER,
         store,
-        openExternal: browser((start) => ({
-          state: start.searchParams.get("state") ?? "",
-          ...back,
-        })).openExternal,
+        openExternal,
         fetch: fakeServer(serverOptions).fetchFn,
+        listen: (ms) => listenForCallback(ms, () => "en"),
       });
       accounts.push(account);
       expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
       expect(store.value).toBeNull();
+      // The browser's page says the same, the trade's failures too.
+      expect(await pages[0]).toBe(page(failure as PageOutcome, "en"));
     }
+  });
+
+  test("the browser's page waits for the code to be traded, for a while", async () => {
+    const signIn = async (tradeMs: number) => {
+      const server = fakeServer();
+      const { pages, openExternal } = browser((start) => ({
+        state: start.searchParams.get("state") ?? "",
+        code: "c1",
+      }));
+      const account = new RemoteAccount({
+        server: SERVER,
+        store: memoryStore(),
+        openExternal,
+        fetch: (async (input: URL | string, init?: RequestInit) => {
+          await new Promise((r) => setTimeout(r, tradeMs));
+          return server.fetchFn(input, init);
+        }) as typeof fetch,
+        listen: (ms) => listenForCallback(ms, () => "en", 50),
+      });
+      accounts.push(account);
+      return { state: await account.signIn(), page: await pages[0] };
+    };
+    // Traded in time: the page says signed in.
+    const quick = await signIn(0);
+    expect(quick.state.status).toBe("signed-in");
+    expect(quick.page).toBe(page("signed-in", "en"));
+    // Not in time: the page leaves it to the app, and the sign-in goes on to the end.
+    const slow = await signIn(150);
+    expect(slow.state.status).toBe("signed-in");
+    expect(slow.page).toBe(page("in-app", "en"));
   });
 
   test.each([
@@ -381,7 +449,8 @@ describe("the account", () => {
     ["suspended", "suspended"],
     ["closed", "closed"],
     [undefined, "not_invited"],
-    ["future-status", "not_invited"],
+    // The server may add statuses: one the app does not know is a plain failure.
+    ["future-status", "failed"],
   ] as const)("reports a not_invited callback with access %s as %s", async (access, failure) => {
     const store = memoryStore();
     const server = fakeServer();
@@ -396,14 +465,57 @@ describe("the account", () => {
       fetch: server.fetchFn,
     });
     accounts.push(account);
-    expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
+    expect(await account.signIn()).toEqual({
+      status: "signed-out",
+      server: SERVER,
+      failure,
+      // A pending approval keeps its sign-in, the same to sign in again with.
+      ...(failure === "pending_approval" ? { provider: "google" } : {}),
+    });
     expect(store.value).toBeNull();
     expect(server.requests).toEqual([]);
   });
 
+  test.each([
+    ["a code", { code: "c1" }],
+    ["a refusal", { error: "not_invited", access: "pending" }],
+  ] as const)("brings the app to the front once the browser is back with %s", async (_, back) => {
+    let told = 0;
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal: browser((start) => ({ state: start.searchParams.get("state") ?? "", ...back }))
+        .openExternal,
+      fetch: fakeServer().fetchFn,
+      onBrowserBack: () => told++,
+    });
+    accounts.push(account);
+    await account.signIn();
+    expect(told).toBe(1);
+  });
+
+  test("leaves the app where it is when the browser never comes back", async () => {
+    let told = 0;
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal: async () => {},
+      fetch: fakeServer().fetchFn,
+      timeoutMs: 20,
+      onBrowserBack: () => told++,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toEqual({
+      status: "signed-out",
+      server: SERVER,
+      failure: "timed-out",
+    });
+    expect(told).toBe(0);
+  });
+
   test("checks signup approval with the same provider and opens one browser for concurrent clicks", async () => {
     let approved = false;
-    const { opened, openExternal } = browser((start) => {
+    const { opened, pages, openExternal } = browser((start) => {
       const state = start.searchParams.get("state") ?? "";
       if (approved) return { state, code: "c1" };
       return { state, error: "not_invited", access: "pending" };
@@ -413,11 +525,20 @@ describe("the account", () => {
       store: memoryStore(),
       openExternal,
       fetch: fakeServer().fetchFn,
+      listen: (ms) => listenForCallback(ms, () => "en"),
     });
     accounts.push(account);
-    const pending = { status: "signed-out", server: SERVER, failure: "pending_approval" };
+    const pending = {
+      status: "signed-out",
+      server: SERVER,
+      failure: "pending_approval",
+      provider: "github",
+    };
     expect(await account.signIn("github")).toEqual(pending);
     expect(await account.signIn()).toEqual(pending);
+    // The browser's page names the sign-in too.
+    expect(await pages[0]).toBe(page("pending_approval", "en", "github"));
+    expect(await pages[0]).toContain("with the same GitHub account");
 
     approved = true;
     const checkAgain = account.signIn();

@@ -111,8 +111,30 @@ describe("Other computers connection guidance", () => {
   test("shows the same approval status as Remote settings", () => {
     readAccount.mockReturnValue({ status: "signed-out", server, failure: "pending_approval" });
     const html = renderToStaticMarkup(<RemoteSessions query="" />);
-    expect(html).toContain("Awaiting approval · Sign in the same way after approval");
+    expect(html).toContain('data-failure="pending_approval"');
+    expect(html).toContain("Awaiting approval");
+    expect(html).toContain("Approved accounts only for now");
+    // Narrow: the title and one line, the settings page has the rest.
+    expect(html).not.toContain("Once approved, sign in again the same way.");
     expect(html).toContain(">Sign in<");
+  });
+
+  test.each([
+    ["rejected", "Signup request not approved", "Request again after 30 days"],
+    ["not_invited", "Account not on the invite list", "Approved accounts only for now"],
+  ] as const)("shows a %s sign-in in two lines", (failure, title, line) => {
+    readAccount.mockReturnValue({ status: "signed-out", server, failure });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).toContain(title);
+    expect(html).toContain(line);
+    expect(html).toContain('aria-label="Dismiss"');
+  });
+
+  test("keeps a passing sign-in failure to Remote settings", () => {
+    readAccount.mockReturnValue({ status: "signed-out", server, failure: "timed-out" });
+    const html = renderToStaticMarkup(<RemoteSessions query="" />);
+    expect(html).not.toContain("sign-in-notice");
+    expect(html).toContain("Sign in to see your other computers here");
   });
 
   test("hides the signed-out section during search", () => {

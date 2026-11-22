@@ -95,6 +95,7 @@ import {
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
+import { type ShownSignInFailure, SignInNotice } from "../settings/panels/sign-in-notice";
 import { BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import {
@@ -436,6 +437,25 @@ export function RemoteSessions({
   );
 }
 
+/** The sign-in failures the list says, as Remote settings does: the account was not let in. */
+const NOTICE_FAILURES: readonly ShownSignInFailure[] = [...SIGNUP_FAILURES, "not_invited"];
+
+/** Opens Settings › Remote, where the sign-in is. */
+function SignInLink() {
+  const { t } = useTranslation();
+  return (
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      className="h-6 px-0 text-app-micro"
+      onClick={() => useSettingsUIStore.getState().openSettingsAt("remote")}
+    >
+      {t("voice.signIn")}
+    </Button>
+  );
+}
+
 function AccountRemoteSessions({
   accountKey,
   selfId,
@@ -457,7 +477,7 @@ function AccountRemoteSessions({
   const seen = useShownRoom(room);
   const roomStatus = seen?.status;
   const outdated = roomStatus === "outdated";
-  const signInFailure = SIGNUP_FAILURES.find((failure) => failure === signedOut?.failure);
+  const signInFailure = NOTICE_FAILURES.find((failure) => failure === signedOut?.failure);
   const signInNotice = useBannerDismissal(
     ["remote-sessions-sign-in"],
     signedOut ? [signInFailure ?? true] : undefined,
@@ -593,22 +613,21 @@ function AccountRemoteSessions({
             {t("agentView.remote.title")}
           </h3>
         )}
-        {signedOut ? (
+        {signedOut && signInFailure ? (
+          <div className="px-2 py-1">
+            <SignInNotice
+              compact
+              failure={signInFailure}
+              actions={<SignInLink />}
+              dismiss={<BannerDismissButton dismiss={signInNotice.dismiss} className="-my-0.5" />}
+            />
+          </div>
+        ) : signedOut ? (
           <div className="flex items-center gap-1.5 px-2 py-1">
             <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
-              {signInFailure
-                ? t(`settings:remote.account.failure.${signInFailure}`)
-                : t("agentView.remote.needsSignIn")}
+              {t("agentView.remote.needsSignIn")}
             </span>
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-6 px-0 text-app-micro"
-              onClick={() => useSettingsUIStore.getState().openSettingsAt("remote")}
-            >
-              {t("voice.signIn")}
-            </Button>
+            <SignInLink />
             <BannerDismissButton dismiss={signInNotice.dismiss} />
           </div>
         ) : outdated ? (

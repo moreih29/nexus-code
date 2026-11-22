@@ -42,6 +42,7 @@ import { OutdatedGroup } from "./remote-outdated";
 import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
+import { SignInNotice } from "./sign-in-notice";
 
 const iconButtonClass = cn(
   "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center",
@@ -148,6 +149,25 @@ export function AccountGroup({
       : unreachable
         ? "unreachable"
         : undefined;
+  const noticeActions = [
+    failure === "pending_approval" && (
+      <Button key="check" variant="outline" size="sm" onClick={() => signIn()}>
+        {t("remote.account.checkAgain")}
+      </Button>
+    ),
+    failure === "suspended" && (
+      <Button key="support" variant="outline" size="sm" asChild>
+        <a href={SUPPORT_PAGE_URL} target="_blank" rel="noopener noreferrer">
+          {t("remote.account.openSupportPage")}
+        </a>
+      </Button>
+    ),
+    unreachable && onRetry && (
+      <Button key="retry" variant="outline" size="sm" onClick={onRetry}>
+        {t("remote.account.retry")}
+      </Button>
+    ),
+  ].filter(Boolean);
 
   return (
     <SettingsGroup
@@ -167,53 +187,29 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
-        <SettingsSection
-          label={t("remote.account.signedOut")}
-          action={
-            <div className="flex flex-wrap justify-end gap-2 empty:hidden">
-              {failure === "pending_approval" && (
-                <Button variant="outline" size="sm" onClick={() => signIn()}>
-                  {t("remote.account.checkAgain")}
-                </Button>
+        <>
+          {failure && (
+            <SignInNotice
+              failure={failure}
+              provider={state.status === "signed-out" ? state.provider : undefined}
+              actions={noticeActions.length > 0 ? noticeActions : undefined}
+            />
+          )}
+          <SettingsSection label={t("remote.account.signedOut")}>
+            <div
+              className={cn(
+                "gap-2",
+                providers.includes("apple")
+                  ? "grid w-fit max-w-full"
+                  : "flex flex-wrap items-center",
               )}
-              {failure === "suspended" && (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={SUPPORT_PAGE_URL} target="_blank" rel="noopener noreferrer">
-                    {t("remote.account.openSupportPage")}
-                  </a>
-                </Button>
-              )}
-              {unreachable && onRetry && (
-                <Button variant="outline" size="sm" onClick={onRetry}>
-                  {t("remote.account.retry")}
-                </Button>
-              )}
+            >
+              {providers.map((provider) => (
+                <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
+              ))}
             </div>
-          }
-          description={
-            failure && (
-              <span
-                className={
-                  failure === "pending_approval" ? "text-muted-foreground" : "text-destructive"
-                }
-                role="alert"
-              >
-                {t(`remote.account.failure.${failure}`)}
-              </span>
-            )
-          }
-        >
-          <div
-            className={cn(
-              "gap-2",
-              providers.includes("apple") ? "grid w-fit max-w-full" : "flex flex-wrap items-center",
-            )}
-          >
-            {providers.map((provider) => (
-              <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
-            ))}
-          </div>
-        </SettingsSection>
+          </SettingsSection>
+        </>
       )}
       {/* The released app's own server goes without saying. */}
       {state.server !== SERVER && (
