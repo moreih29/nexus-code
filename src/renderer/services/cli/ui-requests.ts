@@ -12,7 +12,9 @@ import { useLayoutStore } from "@/state/stores/layout/store";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
+import { listed } from "../agent-sessions/rows";
 import { readSessionEvents } from "../agent-sessions/session-events";
+import { orderedSidebarSessions } from "../agent-view/session-order";
 import { existingChatController } from "../chat/claude/controller";
 import { existingCodexController } from "../chat/codex/controller";
 import { focusHolder, restoreFocus } from "../keep-focus";
@@ -62,8 +64,8 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
   }
 }
 
-/** A workspace's tabs, group by group, in layout order. */
-export function listTabs(workspaceId: string): CliTabInfo[] {
+/** A workspace's tabs, in layout order unless the remote sessions list asks for its own order. */
+export function listTabs(workspaceId: string, agentOrder?: true): CliTabInfo[] {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   const records = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
   if (!layout) return [];
@@ -74,11 +76,24 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
       if (tab) tabs.push(tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id));
     }
   }
-  return tabs;
+  if (!agentOrder) return tabs;
+
+  const remaining = new Map(tabs.map((tab) => [tab.id, tab]));
+  const sidebar = (orderedSidebarSessions(workspaceId) ?? []).filter(listed);
+  const ordered: CliTabInfo[] = [];
+  for (const { tabId } of sidebar) {
+    const tab = remaining.get(tabId);
+    if (!tab) continue;
+    ordered.push(tab);
+    remaining.delete(tabId);
+  }
+  return [...ordered, ...remaining.values()];
 }
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
-  "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
+  "tabs.list": async ({ workspaceId, agentOrder }) => ({
+    tabs: listTabs(workspaceId, agentOrder),
+  }),
   "tab.sandboxSession": async ({ workspaceId, tabId }) => {
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
     if (tab?.type === "codex") {

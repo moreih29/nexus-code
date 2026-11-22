@@ -10,6 +10,11 @@ const base = {
 };
 
 describe("AgentViewSnapshotSchema", () => {
+  test("persists the sidebar order for a workspace larger than one RPC batch", () => {
+    const order = { ws: Array.from({ length: 501 }, (_, i) => `ws:t${i}`) };
+    expect(AgentViewSnapshotSchema.parse({ ...base, order }).order).toEqual(order);
+  });
+
   test("reads a snapshot stored before ended agents were", () => {
     const parsed = AgentViewSnapshotSchema.parse(base);
     expect(parsed.ended).toBeUndefined();

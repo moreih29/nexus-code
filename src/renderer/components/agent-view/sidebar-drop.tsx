@@ -7,7 +7,14 @@ export function sidebarDropEdge(event: DragEvent<HTMLElement>): DropEdge {
   return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
 
-export function SidebarDropIndicator({ edge }: { edge: DropEdge }) {
+export function SidebarDropIndicator({
+  edge,
+  testId = "agent-sidebar-drop",
+}: {
+  edge: DropEdge | null;
+  testId?: string;
+}) {
+  if (!edge) return null;
   return (
     <span
       aria-hidden
@@ -15,7 +22,7 @@ export function SidebarDropIndicator({ edge }: { edge: DropEdge }) {
         "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-[var(--state-selected-indicator)]",
         edge === "before" ? "-top-px" : "-bottom-px",
       )}
-      data-testid="agent-sidebar-drop"
+      data-testid={testId}
     />
   );
 }

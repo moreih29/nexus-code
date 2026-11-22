@@ -927,6 +927,12 @@ export const RPC_METHODS = {
     params: z.object({ watchId: z.string() }),
     result: Ok,
   },
+  /** Reorders the named slots in a workspace's agent list, as the user. Since 0.21.0. */
+  "sessions.reorder": {
+    capability: "sessions.reorder",
+    params: z.object({ workspaceId: z.string(), tabIds: z.array(z.string()).max(500) }),
+    result: Ok,
+  },
   /**
    * The session state changes after `since` (the first `limit`, `more` when
    * some were left out), or the last `limit`; `cursor` is the latest seq. A

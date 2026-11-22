@@ -35,6 +35,7 @@ import {
   setActiveLeaf,
   setRatio,
 } from "../agent-view/layout";
+import { reorderSidebarSessions } from "../agent-view/session-order";
 import {
   focusActiveAgent,
   holdsInAgentView,
@@ -130,6 +131,10 @@ function placeTab(
 }
 
 export const viewHandlers: { [K in ViewOp]: CliUiHandler<K> } = {
+  "agentView.reorderSessions": async ({ workspaceId, tabIds }) => ({
+    found: reorderSidebarSessions(workspaceId, tabIds),
+  }),
+
   "agentView.get": async () => {
     const { mode, root, activeLeafId, grouping, remoteFiles } = useAgentViewStore.getState();
     return {

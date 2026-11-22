@@ -66,16 +66,37 @@ export function movePeer(
 ): readonly string[] {
   const ids = orderPeers(peers, order).map(({ id }) => id);
   const movable = new Set(online);
-  const current = ids.filter((id) => movable.has(id));
-  const next = moveKey(current, moved, target, edge);
-  if (next.every((id, index) => id === current[index])) return order;
-  const replacements = new Map(current.map((id, index) => [id, next[index]]));
-  return ids.map((id) => replacements.get(id) ?? id);
+  const next = moveKey(
+    ids.filter((id) => movable.has(id)),
+    moved,
+    target,
+    edge,
+  );
+  const reordered = reorderSubset(ids, next, (id) => id);
+  return reordered === ids ? order : reordered;
+}
+
+/** Reorders the named slots, keeping all other keys in place. */
+export function reorderSubset<T>(
+  rows: readonly T[],
+  requested: readonly string[],
+  keyOf: (row: T) => string,
+): readonly T[] {
+  const byKey = new Map(rows.map((row) => [keyOf(row), row]));
+  const selected = new Set(requested.filter((key) => byKey.has(key)));
+  if (selected.size < 2) return rows;
+
+  const replacements = Array.from(selected, (key) => byKey.get(key));
+  let index = 0;
+  const reordered = rows.map((row) =>
+    selected.has(keyOf(row)) ? (replacements[index++] ?? row) : row,
+  );
+  return reordered.every((row, i) => row === rows[i]) ? rows : reordered;
 }
 
 /** What was stored, keeping only the agents `alive` knows, and the orders with any left. */
 export function orderFromStore(
-  stored: Record<string, string[]> | undefined,
+  stored: AgentOrder | undefined,
   alive: (key: string) => boolean,
 ): AgentOrder {
   if (!stored) return NO_ORDER;

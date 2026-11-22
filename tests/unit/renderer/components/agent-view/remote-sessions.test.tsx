@@ -1,8 +1,14 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import type { MouseEvent } from "react";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import type { ComponentProps, DragEvent, MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
-import { peerOrderMenu } from "../../../../../src/renderer/components/agent-view/remote-peer-header";
+import {
+  type PeerReorder,
+  peerOrderMenu,
+  RemotePeerHeader,
+} from "../../../../../src/renderer/components/agent-view/remote-peer-header";
+import * as sessionActions from "../../../../../src/renderer/components/agent-view/remote-session-actions";
+import * as sessionDrop from "../../../../../src/renderer/components/agent-view/session-drop";
 import * as banner from "../../../../../src/renderer/components/ui/banner";
 import * as button from "../../../../../src/renderer/components/ui/button";
 import * as account from "../../../../../src/renderer/services/remote/account";
@@ -823,6 +829,136 @@ describe("the agent view's other computers", () => {
     expect(menus(render(["sessions"]))).toEqual([false, false]);
     expect(menus(render(["sessions", "chat.control"]))).toEqual([true, false]);
     expect(menus(render(["sessions", "chat.control", "terminal.control"]))).toEqual([true, true]);
+  });
+
+  test("only reorders agent rows with a peer that serves it, outside search and within a workspace", () => {
+    const sessions = list([
+      session({ tabId: "chat", title: "Project chat" }),
+      session({ tabId: "terminal", title: "Project terminal", kind: "terminal", agent: "codex" }),
+      session({ workspaceId: "w2", tabId: "other", title: "Project elsewhere" }),
+    ]);
+    const render = (serves: string[], query = "") =>
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={{ ...peer, serves }}
+          query={query}
+          sessions={{ status: "ready", list: sessions }}
+        />,
+      );
+    const enabled = render(["sessions", "sessions.reorder"]);
+    expect(enabled.match(/draggable="true"/g)).toHaveLength(2);
+    expect(render(["sessions"])).not.toContain('draggable="true"');
+    expect(render(["sessions", "sessions.reorder"], "Project")).not.toContain('draggable="true"');
+  });
+
+  test("computer headers and session rows only accept their own drags, within the workspace for sessions", () => {
+    const group = { ...peer, serves: ["sessions", "sessions.reorder"] };
+    const workspaces = [
+      ...list([]).workspaces,
+      { id: "task", name: "Task", path: "/task", parentId: "w1" },
+    ];
+    const sessions = [
+      session({ tabId: "a" }),
+      session({ tabId: "b", kind: "terminal", agent: "codex" }),
+      session({ workspaceId: "task", tabId: "c", state: "running" }),
+      session({ workspaceId: "task", tabId: "d", state: "running" }),
+    ];
+    const hooks = spyOn(sessionDrop, "useSessionDrop");
+    const reorder = spyOn(sessionActions, "reorderPeerSessions").mockResolvedValue(false);
+    const moveComputer = mock<PeerReorder["move"]>();
+    let computerDrag: PeerReorder["drag"] = null;
+    const otherComputer = "d3";
+    const header = (id: string) => {
+      const menu = RemotePeerHeader({
+        id,
+        expanded: true,
+        onToggle: () => {},
+        className: "",
+        children: id,
+        reorder: {
+          ids: [group.id, otherComputer],
+          drag: computerDrag,
+          setDrag: (next) => {
+            computerDrag = typeof next === "function" ? next(computerDrag) : next;
+          },
+          move: moveComputer,
+        },
+      });
+      const [trigger] = menu.props.children as [
+        ReactElement<{ children: ReactElement<ComponentProps<"button">> }>,
+        ReactElement,
+      ];
+      return trigger.props.children.props;
+    };
+    const nativeDrag = () => {
+      const payload = new Map<string, string>();
+      const dataTransfer = {
+        get types() {
+          return [...payload.keys()];
+        },
+        dropEffect: "none",
+        setData: (type: string, value: string) => payload.set(type, value),
+        getData: (type: string) => payload.get(type) ?? "",
+      };
+      const preventDefault = mock(() => {});
+      const event = {
+        clientY: 28,
+        currentTarget: { getBoundingClientRect: () => ({ top: 10, height: 20 }) },
+        dataTransfer,
+        preventDefault,
+      } as unknown as DragEvent<HTMLButtonElement>;
+      return { event, dataTransfer, preventDefault };
+    };
+    const globals = globalThis as { document?: unknown };
+    const originalDocument = globals.document;
+    globals.document ??= {};
+    try {
+      renderToStaticMarkup(
+        <PeerGroup
+          peer={group}
+          query=""
+          sessions={{ status: "ready", list: { workspaces, sessions } }}
+        />,
+      );
+      const handlers = (tabId: string) => {
+        const index = hooks.mock.calls.findIndex(([row]) => row.key === tabId);
+        const result = hooks.mock.results[index];
+        if (!result || result.type !== "return") throw new Error(`no drag handlers for ${tabId}`);
+        return result.value.dropProps;
+      };
+      const row = nativeDrag();
+      sessionDrop.startSessionDrag(row.event, { key: "a", deviceId: group.id, workspaceId: "w1" });
+      handlers("c").onDrop(row.event);
+      expect(reorder).not.toHaveBeenCalled();
+
+      // Even when both targets still have drag state, the native payload must match their kind.
+      const computer = nativeDrag();
+      header(group.id).onDragStart?.(computer.event);
+      const targetHeader = header(otherComputer);
+      targetHeader.onDragOver?.(row.event);
+      targetHeader.onDrop?.(row.event);
+      handlers("b").onDragOver(computer.event);
+      handlers("b").onDrop(computer.event);
+      expect(moveComputer).not.toHaveBeenCalled();
+      expect(reorder).not.toHaveBeenCalled();
+      expect(row.preventDefault).not.toHaveBeenCalled();
+      expect(computer.preventDefault).not.toHaveBeenCalled();
+
+      targetHeader.onDragOver?.(computer.event);
+      expect(computer.dataTransfer.dropEffect).toBe("move");
+      targetHeader.onDrop?.(computer.event);
+      expect(moveComputer.mock.calls).toEqual([[group.id, otherComputer, "after"]]);
+      handlers("b").onDragOver(row.event);
+      expect(row.dataTransfer.dropEffect).toBe("move");
+      handlers("b").onDrop(row.event);
+      expect(reorder).toHaveBeenCalledTimes(1);
+      expect(reorder.mock.calls[0]?.slice(0, 3)).toEqual([group.id, "w1", ["b", "a"]]);
+    } finally {
+      sessionDrop.endSessionDrag();
+      globals.document = originalDocument;
+      reorder.mockRestore();
+      hooks.mockRestore();
+    }
   });
 
   test("the menu renames, then closes, as a tab's here", () => {

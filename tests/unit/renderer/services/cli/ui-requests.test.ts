@@ -37,6 +37,11 @@ const { listTabs, startCliUiListener } = await import(
 );
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout/store");
+const { useAgentViewStore } = await import("../../../../../src/renderer/state/stores/agent-view");
+const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { startAgentViewPruning } = await import(
+  "../../../../../src/renderer/services/agent-view/show"
+);
 const { registerTerminalController, whenTerminalController } = await import(
   "../../../../../src/renderer/services/terminal/terminal-registry"
 );
@@ -44,6 +49,7 @@ const { useMountedWorkspacesStore } = await import(
   "../../../../../src/renderer/state/stores/mounted-workspaces"
 );
 const { SerializedTabSchema } = await import("../../../../../src/shared/types/layout");
+const { WorkspaceMetaSchema } = await import("../../../../../src/shared/types/workspace");
 
 /** What the renderer answered a request, once it has. */
 async function answerTo(requestId: string, op: string, args: unknown): Promise<unknown> {
@@ -114,6 +120,112 @@ test("a terminal not started yet, its workspace not opened, says so in the tabs'
     unregister();
     useTabsStore.setState({ byWorkspace: {} });
     useLayoutStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("remote sessions follow the sidebar across chat and terminal tabs and preserve layout order", async () => {
+  const workspace = WorkspaceMetaSchema.parse({
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Project",
+    rootPath: "/project",
+    pinned: false,
+    tabs: [],
+  });
+  const ws = workspace.id;
+  const tabs = useTabsStore.getState();
+  const view = useAgentViewStore.getState();
+  const workspaces = useWorkspacesStore.getState().workspaces;
+  const layout = useLayoutStore.getState().byWorkspace;
+  const make = (type: "claude" | "codex" | "terminal") =>
+    tabs.createTab(ws, { type, props: { cwd: workspace.rootPath } }).id;
+  const stopCli = startCliUiListener(Promise.resolve());
+  const stopPruning = startAgentViewPruning();
+  try {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const first = make("claude");
+    const shell = make("terminal");
+    const middle = make("codex");
+    const terminal = make("terminal");
+    const last = make("claude");
+    const otherShell = make("terminal");
+    tabs.renameTab(ws, terminal, "codex");
+    const tabIds = [otherShell, last, first, terminal, middle, shell];
+    useLayoutStore.setState({
+      byWorkspace: {
+        [ws]: {
+          root: { kind: "leaf", id: "leaf", tabIds, activeTabId: shell },
+          activeGroupId: "leaf",
+        },
+      },
+    });
+
+    const sessionTabs = async (requestId: string) => {
+      const response = (await answerTo(requestId, "tabs.list", {
+        workspaceId: ws,
+        agentOrder: true,
+      })) as { value: { tabs: { id: string }[] } };
+      return response.value.tabs.map(({ id }) => id);
+    };
+    expect(await sessionTabs("r-agent-order")).toEqual([
+      first,
+      middle,
+      terminal,
+      last,
+      otherShell,
+      shell,
+    ]);
+    expect(
+      await answerTo("r-reorder", "agentView.reorderSessions", {
+        workspaceId: ws,
+        tabIds: [last, "closed", last, shell, first],
+      }),
+    ).toMatchObject({ ok: true, value: { found: true } });
+    expect(useAgentViewStore.getState().order[ws]).toEqual(
+      [last, middle, terminal, first].map((id) => `${ws}:${id}`),
+    );
+    expect(await sessionTabs("r-agent-reordered")).toEqual([
+      last,
+      middle,
+      terminal,
+      first,
+      otherShell,
+      shell,
+    ]);
+    expect(listTabs(ws).map(({ id }) => id)).toEqual(tabIds);
+
+    tabs.removeTab(ws, middle);
+    expect(useAgentViewStore.getState().order[ws]).toEqual(
+      [last, terminal, first].map((id) => `${ws}:${id}`),
+    );
+    const newChat = make("codex");
+    useLayoutStore.setState({
+      byWorkspace: {
+        [ws]: {
+          root: {
+            kind: "leaf",
+            id: "leaf",
+            tabIds: [newChat, ...tabIds.filter((id) => id !== middle)],
+            activeTabId: shell,
+          },
+          activeGroupId: "leaf",
+        },
+      },
+    });
+    expect(await sessionTabs("r-agent-new")).toEqual([
+      last,
+      terminal,
+      first,
+      newChat,
+      otherShell,
+      shell,
+    ]);
+  } finally {
+    stopPruning();
+    stopCli();
+    useAgentViewStore.setState({ order: view.order });
+    useTabsStore.setState({ byWorkspace: tabs.byWorkspace });
+    useLayoutStore.setState({ byWorkspace: layout });
+    useWorkspacesStore.setState({ workspaces });
   }
 });
 

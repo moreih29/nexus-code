@@ -606,6 +606,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, watchId } = validateArgs(c.peerSessionsUnwatch.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.unwatch", { watchId }));
       },
+      peerSessionsReorder: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerSessionsReorder.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.reorder", params));
+      },
       chatChanged: async (args: unknown) => {
         const { watchId, change } = validateArgs(c.chatChanged.args, args);
         await watches.changed(watchId, change);

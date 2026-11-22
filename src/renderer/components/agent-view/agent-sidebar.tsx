@@ -10,7 +10,7 @@
 // restarts.
 
 import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
-import { type DragEvent, type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
@@ -28,7 +28,7 @@ import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey } from "@/services/agent-view/layout";
-import { type DropEdge, moveKey, orderSessions } from "@/services/agent-view/order";
+import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
@@ -36,7 +36,6 @@ import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
-import { beginDragInFlight } from "@/utils/drag-in-flight";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
@@ -55,13 +54,15 @@ import { SystemStatsFooter } from "../workbench/system-stats";
 import { WorkspaceMenuContent } from "../workbench/workspace-menu";
 import { WorkspaceNameInput } from "../workbench/workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
-import { listDrag, setAgentDrag, setListDrag } from "./drag";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { RemoteSessions } from "./remote-sessions";
-import { SidebarDropIndicator, sidebarDropEdge } from "./sidebar-drop";
-
-/** Moves the agent `moved` to just before or after `target`, among its workspace's. */
-type Reorder = (moved: string, target: string, edge: DropEdge) => void;
+import {
+  endSessionDrag,
+  type SessionReorder,
+  startSessionDrag,
+  useSessionDrop,
+} from "./session-drop";
+import { SidebarDropIndicator } from "./sidebar-drop";
 
 const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
 
@@ -316,14 +317,15 @@ function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
 
-  const reorder: Reorder = (moved, target, edge) => {
+  const reorder: SessionReorder = (moved, target, edge) => {
     const workspaceId = parseSessionKey(target)?.workspaceId;
     const worktree = agents.families
       .flatMap((family) => family.worktrees)
       .find((each) => each.workspace.id === workspaceId);
     if (!worktree || !workspaceId) return;
-    const keys = orderSessions(worktree.sessions, order[workspaceId]).map((each) => each.key);
-    useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
+    const view = useAgentViewStore.getState();
+    const keys = orderSessions(worktree.sessions, view.order[workspaceId]).map((each) => each.key);
+    view.setOrder(workspaceId, moveKey(keys, moved, target, edge));
   };
 
   const searching = query.trim() !== "";
@@ -355,7 +357,7 @@ function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
         folded={!searching && folded.has(key)}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
-        onReorder={reorder}
+        onReorder={searching ? undefined : reorder}
       />
     );
   });
@@ -399,7 +401,7 @@ function FamilyGroup({
   folded: boolean;
   onToggle: () => void;
   activity: ActivityByKey;
-  onReorder: Reorder;
+  onReorder?: SessionReorder;
 }) {
   const { t } = useTranslation();
   const root = family.root;
@@ -488,7 +490,7 @@ function FamilyGroup({
                 key={session.key}
                 session={session}
                 run={activity.get(session.key)}
-                onReorder={onReorder}
+                onReorder={sessions.length > 1 ? onReorder : undefined}
               />
             ))}
             {worktree.isRoot && sessions.length === 0 && (
@@ -567,18 +569,6 @@ const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: Work
 });
 
 /**
- * Where a row takes an agent dragged over it: before or after it, by the
- * half the pointer is in; null for one it cannot take, of another
- * workspace or itself.
- */
-function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge | null {
-  const moved = listDrag();
-  if (!moved || moved === session.key) return null;
-  if (parseSessionKey(moved)?.workspaceId !== session.workspaceId) return null;
-  return sidebarDropEdge(e);
-}
-
-/**
  * Memoized, and reads its own conversation's facts (use-row-facts): a
  * chunk of a reply streaming in, here or in another tab, renders no row
  * whose facts it leaves as they were.
@@ -593,7 +583,7 @@ const AgentItem = memo(function AgentItem({
   /** What its hooks report, when they do. */
   run: SessionActivity | undefined;
   /** Its place among its workspace's agents, dragged; none where the list is by state. */
-  onReorder?: Reorder;
+  onReorder?: SessionReorder;
   /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
   where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
 }) {
@@ -603,9 +593,9 @@ const AgentItem = memo(function AgentItem({
   const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
-  const [dropEdge, setDropEdge] = useState<DropEdge | null>(null);
+  const dragRow = { key, workspaceId: session.workspaceId };
+  const { edge, dropProps } = useSessionDrop(dragRow, onReorder);
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a drop target for the row's own drag; the keyboard reaches its button
     <div
       className={cn(
         "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
@@ -619,28 +609,11 @@ const AgentItem = memo(function AgentItem({
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
-      onDragOver={(e) => {
-        const edge = onReorder ? dropEdgeOf(e, session) : null;
-        if (!edge) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        if (edge !== dropEdge) setDropEdge(edge);
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropEdge(null);
-      }}
-      onDrop={(e) => {
-        const moved = listDrag();
-        const edge = onReorder ? dropEdgeOf(e, session) : null;
-        setDropEdge(null);
-        if (!moved || !edge || !onReorder) return;
-        e.preventDefault();
-        onReorder(moved, key, edge);
-      }}
+      {...dropProps}
       data-testid="agent-sidebar-item"
       data-session-key={key}
     >
-      {dropEdge && <SidebarDropIndicator edge={dropEdge} />}
+      <SidebarDropIndicator edge={edge} />
       {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
@@ -649,12 +622,8 @@ const AgentItem = memo(function AgentItem({
         aria-label={session.title}
         onClick={show}
         data-agent-row=""
-        onDragStart={(e) => {
-          setAgentDrag(e.dataTransfer, key);
-          setListDrag(key);
-          beginDragInFlight();
-        }}
-        onDragEnd={() => setListDrag(null)}
+        onDragStart={(e) => startSessionDrag(e, dragRow)}
+        onDragEnd={endSessionDrag}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-0.5">

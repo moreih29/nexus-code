@@ -511,9 +511,9 @@ export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: s
 
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
-  /** The tabs of a workspace, in layout order. */
+  /** The tabs of a workspace in layout order, or with sidebar sessions first in their order. */
   "tabs.list": {
-    args: { workspaceId: string };
+    args: { workspaceId: string; agentOrder?: true };
     result: { tabs: CliTabInfo[] };
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
@@ -779,6 +779,11 @@ export interface CliUiOps {
   "agentView.group": {
     args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
+  };
+  /** Reorders the named slots in the workspace's agent sidebar. */
+  "agentView.reorderSessions": {
+    args: { workspaceId: string; tabIds: string[] };
+    result: { found: boolean };
   };
   /** The folders a workspace's Claude tabs were given beside its own (/add-dir), absolute. */
   "workspace.folders": {

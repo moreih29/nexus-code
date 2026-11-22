@@ -1,7 +1,6 @@
 /**
  * What this device serves the account's other devices: its sessions, with
- * the same services the nexus CLI uses, so the remote sees what `nexus
- * session list` would.
+ * the same services the nexus CLI uses.
  */
 
 import {
@@ -83,7 +82,7 @@ import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common"
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
 import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
-import { serveSessionsList } from "./serving/sessions";
+import { reorderSessions, serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
 import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
 import { createWorkspace } from "./serving/workspaces";
@@ -248,6 +247,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // An agent's request: let through as the user set it, and shown as that agent's.
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
+    if (method === "sessions.reorder" && by !== undefined) {
+      throw new RpcFailure(RpcErrorCode.Forbidden, "sessions.reorder is not taken from agents");
+    }
     let relay: RelaySender | undefined;
     let expectedMode: string | undefined;
     if (by && !watches.agents) {
@@ -311,6 +313,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     switch (request.method) {
       case "sessions.list":
         return serveSessionsList(s, git, watches.notes, from, controls);
+      case "sessions.reorder":
+        checkCurrent();
+        return reorderSessions(s, params as RpcParams<"sessions.reorder">);
       case "notes.read":
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":
