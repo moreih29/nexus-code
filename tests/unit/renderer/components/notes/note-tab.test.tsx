@@ -23,9 +23,17 @@ test("the first note opens its editor after the note is read", async () => {
     },
   };
   const read = Promise.withResolvers<NoteContent>();
+  // The note's recorder controls start the app-wide voice availability watch, which
+  // keeps its first answer. Answer as the recorder tests' own window does, so a test
+  // file run after this one finds the same signed-in, voice-ready state.
+  const answers: Record<string, unknown> = {
+    readTranscript: EMPTY_TRANSCRIPT,
+    account: { status: "signed-in" },
+    serverInfo: { voice: true },
+  };
   const call = mock((_channel: string, method: string) => {
     if (method === "read") return read.promise;
-    return Promise.resolve(method === "readTranscript" ? EMPTY_TRANSCRIPT : undefined);
+    return Promise.resolve(answers[method]);
   });
 
   try {
