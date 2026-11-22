@@ -553,7 +553,8 @@
         "symbolSearch": "워크스페이스 심볼 검색",
         "focusPrev": "이전 워크스페이스",
         "focusNext": "다음 워크스페이스",
-        "add": "워크스페이스 추가"
+        "add": "워크스페이스 추가",
+        "peerQuickOpen": "다른 컴퓨터 파일 빠른 열기"
       },
       "task": {
         "new": "새 작업"

@@ -23,7 +23,7 @@ export function joinPeerPath(folder: string, relative: string): string {
 
 /** An RPC result names a file under the given workspace. */
 export function peerSearchResultPath(root: string, relative: string): string | null {
-  if (!relative || relative.includes("\0") || (isDrivePath(root) && relative.includes("\\"))) {
+  if (!relative || relative.includes("\0") || (isDrivePath(root) && /[\\:]/.test(relative))) {
     return null;
   }
   if (relative.split("/").some((segment) => !segment || segment === "." || segment === "..")) {

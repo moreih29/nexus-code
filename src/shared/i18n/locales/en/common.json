@@ -2081,6 +2081,10 @@
     "searchInclude": "Include filenames or extensions",
     "searchExclude": "Exclude filenames, extensions, or folders",
     "searchInvalidFilters": "Invalid filters · Up to 32 comma-separated entries, 256 characters each",
-    "searchTruncated": "Partial results"
+    "searchTruncated": "Partial results",
+    "quickOpen": "Open Peer File",
+    "quickOpenPlaceholder": "File name or path",
+    "quickOpenPrompt": "File name or path on the other computer",
+    "quickOpenEmpty": "No matching files"
   }
 }

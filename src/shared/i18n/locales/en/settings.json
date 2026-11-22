@@ -553,7 +553,8 @@
         "symbolSearch": "Search Workspace Symbols",
         "focusPrev": "Previous Workspace",
         "focusNext": "Next Workspace",
-        "add": "Add Workspace"
+        "add": "Add Workspace",
+        "peerQuickOpen": "Open Peer File"
       },
       "task": {
         "new": "New Task"
