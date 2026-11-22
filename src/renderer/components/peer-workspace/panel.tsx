@@ -13,12 +13,13 @@ import {
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
-import { basename, workspacePathParts } from "../../utils/path";
+import { workspacePathParts } from "../../utils/path";
 import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-look";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { EmptyState } from "../ui/empty-state";
 import { TabItem } from "../workspace/tabs/tab-item";
 import { PeerDiffTabBody } from "./diff-tab";
+import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 import { PeerDeviceIcon } from "./sidebar";
 
@@ -53,8 +54,10 @@ export function PeerWorkspacePanel({
         ? t("peerWorkspace.disconnectedLast")
         : null;
   const root = target.workspace.path;
-  const filenames = view.tabs.map((tab) =>
-    tab.type === "peer.diff" ? basename(tab.path) : workspacePathParts(tab.path, root).fileName,
+  const names = view.tabs.map((tab) =>
+    tab.type === "peer.diff"
+      ? peerGitDisplayPath(root, tab.path)
+      : { ...workspacePathParts(tab.path, root), outsideWorkspace: false },
   );
   const status = gitUpdateNeeded ? undefined : view.gitStatus;
 
@@ -102,19 +105,22 @@ export function PeerWorkspacePanel({
                     className="flex h-full w-max items-center"
                   >
                     {view.tabs.map((tab, index) => {
-                      const name = filenames[index];
-                      const path = tab.path;
+                      const { fileName: name, directory, outsideWorkspace } = names[index];
                       const isDiff = tab.type === "peer.diff";
                       const duplicate = view.tabs.some(
                         (other, at) =>
-                          index !== at && other.type === tab.type && filenames[at] === name,
+                          index !== at &&
+                          other.type === tab.type &&
+                          names[at].fileName === name &&
+                          names[at].outsideWorkspace === outsideWorkspace,
                       );
-                      const directory = isDiff
-                        ? path.slice(0, -name.length)
-                        : workspacePathParts(path, root).directory;
-                      const display = duplicate
-                        ? `${name} · ${directory.replace(/\/$/, "") || "."}`
-                        : name;
+                      const display = [
+                        name,
+                        duplicate ? directory.replace(/\/$/, "") || "." : null,
+                        outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       const comparison = isDiff
                         ? tab.side === "staged"
                           ? "HEAD → INDEX"

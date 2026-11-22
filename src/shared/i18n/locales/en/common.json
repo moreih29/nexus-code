@@ -2096,6 +2096,8 @@
     "gitChangeMissing": "Change no longer available",
     "gitDiffLeft": "Left {{path}} ({{ref}})",
     "gitDiffRight": "Right {{path}} ({{ref}})",
-    "gitPatchOnly": "Full comparison unavailable · Changed sections only"
+    "gitPatchOnly": "Full comparison unavailable · Changed sections only",
+    "gitPatchTruncated": "Partial patch",
+    "gitOutsideWorkspace": "Outside workspace"
   }
 }

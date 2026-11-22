@@ -200,18 +200,23 @@ test("a mismatch, truncation, binary file, or oversized file falls back to the s
   });
 });
 
-test("without topLevel, Git gets the relative path and file reads use the peer's Windows drive", async () => {
+test.each([
+  { hint: "M", name: "reported" },
+  { hint: undefined, name: "unreported" },
+])("a staged diff reverses $name working edits and reads the peer Windows path", async ({
+  hint,
+}) => {
   const working = Buffer.from("working\n");
   const call = spyOn(ipc, "ipcCallResult")
     .mockResolvedValueOnce(ipcOk(edit("head", "index")))
+    .mockResolvedValueOnce(ipcOk(edit("index", "working")))
     .mockResolvedValueOnce(
       ipcOk({ parts: [working.subarray(0, 1).toString("base64")], size: working.length }),
     )
-    .mockResolvedValueOnce(ipcOk({ parts: [working.toString("base64")], size: working.length }))
-    .mockResolvedValueOnce(ipcOk(edit("index", "working")));
+    .mockResolvedValueOnce(ipcOk({ parts: [working.toString("base64")], size: working.length }));
   const { signal } = new AbortController();
   try {
-    const change = { path, staged: "M", unstaged: "M" };
+    const change = { path, staged: "M", unstaged: hint };
     expect(await loadPeerDiff(target, change, "staged", signal)).toMatchObject({
       kind: "text",
       before: "head\n",
@@ -222,13 +227,13 @@ test("without topLevel, Git gets the relative path and file reads use the peer's
     const absolute = { ...peer, path: "D:\\Project\\src\\run.ts" };
     expect(call.mock.calls.map(([channel, method, params]) => [channel, method, params])).toEqual([
       ["remote", "peerGitDiff", { ...relative, staged: true }],
+      ["remote", "peerGitDiff", { ...relative, staged: false }],
       ["remote", "peerFilesReadBytes", { ...absolute, offset: 0, length: 1 }],
       [
         "remote",
         "peerFilesReadBytes",
         { ...absolute, offset: 0, length: MAX_BYTES_CHUNK, whole: true },
       ],
-      ["remote", "peerGitDiff", { ...relative, staged: false }],
     ]);
   } finally {
     call.mockRestore();
@@ -273,6 +278,49 @@ test("forbidden and oversized text reads keep the patch without downloading file
       "peerFilesReadBytes",
       "peerGitDiff",
     ]);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test.each([
+  "a\nb",
+  "a\nb\n",
+])("the diff falls back when the last line only changes its ending (%j)", (working) => {
+  const diff = patch([
+    { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" a", "-b", "+b"] },
+  ]);
+  expect(reconstructPeerDiff({ path, unstaged: "M" }, "unstaged", diff, text(working))).toEqual({
+    kind: "patch",
+    patch: diff,
+  });
+});
+
+test("an untracked patch must account for the entire working file", () => {
+  const diff = patch([{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ["+mine"] }]);
+  for (const working of ["someone else's file\n", "mine\nand an unrelated line\n"]) {
+    expect(reconstructPeerDiff({ path, unstaged: "?" }, "unstaged", diff, text(working))).toEqual({
+      kind: "patch",
+      patch: diff,
+    });
+  }
+});
+
+test("a fresh NotFound unstaged diff overrides a stale working-change status", async () => {
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(ipcOk(edit("head", "index")))
+    .mockResolvedValueOnce(ipcErr("not-found", "no unstaged change"))
+    .mockResolvedValueOnce(ipcOk({ parts: ["aQ=="], size: 6 }))
+    .mockResolvedValueOnce(ipcOk({ parts: ["aW5kZXgK"], size: 6 }));
+  try {
+    const { signal } = new AbortController();
+    expect(
+      await loadPeerDiff(target, { path, staged: "M", unstaged: "D" }, "staged", signal),
+    ).toMatchObject({
+      kind: "text",
+      before: "head\n",
+      after: "index\n",
+    });
   } finally {
     call.mockRestore();
   }

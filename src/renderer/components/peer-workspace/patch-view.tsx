@@ -31,10 +31,12 @@ export function PeerPatchView({
   hunks,
   binary,
   permissionDenied,
+  truncated,
 }: {
   hunks: readonly DiffHunk[];
   binary?: boolean;
   permissionDenied?: boolean;
+  truncated?: boolean;
 }) {
   const { t } = useTranslation();
   const scroll = useRef<HTMLDivElement>(null);
@@ -52,6 +54,7 @@ export function PeerPatchView({
         className="shrink-0 border-b border-border px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
       >
         {t("peerWorkspace.gitPatchOnly")}
+        {truncated && <div>{t("peerWorkspace.gitPatchTruncated")}</div>}
       </div>
       {(binary || permissionDenied) && (
         <div className="shrink-0 px-2 py-1 text-app-ui-sm text-muted-foreground">

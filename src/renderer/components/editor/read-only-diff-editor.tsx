@@ -7,8 +7,6 @@ import { languageIdForPath } from "./language-id-for-path";
 const diffOptions = {
   readOnly: true,
   originalEditable: false,
-  renderMarginRevertIcon: false,
-  renderGutterMenu: false,
   minimap: { enabled: false },
   fontSize: typeScale.codeBody.fontSize,
   fontFamily: fontFamily.monoBody,
@@ -28,6 +26,7 @@ export function ReadOnlyDiffEditor({
   now,
   testId,
   sideBySide = false,
+  hideGutterActions = false,
 }: {
   monaco: typeof Monaco;
   path: string;
@@ -35,6 +34,7 @@ export function ReadOnlyDiffEditor({
   now: string;
   testId?: string;
   sideBySide?: boolean;
+  hideGutterActions?: boolean;
 }) {
   const theme = useMonacoThemeName();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +53,7 @@ export function ReadOnlyDiffEditor({
     const created = monaco.editor.createDiffEditor(container, {
       ...diffOptions,
       theme,
+      ...(hideGutterActions && { renderMarginRevertIcon: false, renderGutterMenu: false }),
       ...(sideBySide && { renderSideBySide: true, useInlineViewWhenSpaceIsLimited: false }),
     });
     created.setModel({ original, modified });
@@ -65,7 +66,7 @@ export function ReadOnlyDiffEditor({
       modified.dispose();
       setEditor(null);
     };
-  }, [monaco, id, path, sideBySide]);
+  }, [monaco, id, path, sideBySide, hideGutterActions]);
 
   useEffect(() => {
     monaco.editor.setTheme(theme);

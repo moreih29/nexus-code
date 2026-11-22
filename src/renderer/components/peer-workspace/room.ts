@@ -87,7 +87,10 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     );
     refresh.current = watch.refresh;
     const off = observePeerSessions(deviceId, rejoin, (sessions) => {
-      if (sessions.status === "ready") watch.updateSessions(sessions.list.sessions);
+      if (sessions.status === "ready") {
+        const { sessions: listed, incompleteWorkspaces } = sessions.list;
+        watch.updateSessions(listed, incompleteWorkspaces?.includes(workspaceId));
+      }
     });
     return () => {
       refresh.current = null;

@@ -121,14 +121,19 @@ export function watchPeerGitStatus(
 
   return {
     refresh: () => refresh(),
-    updateSessions(sessions: readonly RemoteSession[]) {
+    updateSessions(sessions: readonly RemoteSession[], incomplete = false) {
       const next = new Set<string>();
+      const unseen = new Set(runningTabs);
       let ended = false;
       for (const session of sessions) {
         if (session.workspaceId !== peer.workspaceId) continue;
+        unseen.delete(session.tabId);
         if (session.state === "running") next.add(session.tabId);
         else if (runningTabs.has(session.tabId)) ended = true;
       }
+      if (incomplete) {
+        for (const tabId of unseen) next.add(tabId);
+      } else if (unseen.size > 0) ended = true;
       runningTabs = next;
       if (!ended) return;
       if (!visible()) sessionHintPending = true;

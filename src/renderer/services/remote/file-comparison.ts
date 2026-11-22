@@ -9,9 +9,21 @@ import { ipcCallResult } from "../../ipc/client";
  */
 export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string | null {
   const lines = now.split("\n");
+  const lineCount = lines.length - Number(lines.at(-1) === "");
   const out: string[] = [];
   let at = 0;
   for (const hunk of [...hunks].sort((a, b) => a.newStart - b.newStart)) {
+    if (hunk.newLines > 0 && hunk.newStart + hunk.newLines - 1 === lineCount) {
+      const lastBefore = hunk.lines.findLast((line) => line[0] === "-" || line[0] === " ");
+      const lastAfter = hunk.lines.findLast((line) => line[0] === "+" || line[0] === " ");
+      // Git sends a delete/add pair for an EOF newline change, but the marker is omitted on the wire.
+      if (
+        lastBefore?.startsWith("-") &&
+        lastAfter?.startsWith("+") &&
+        lastBefore.slice(1) === lastAfter.slice(1)
+      )
+        return null;
+    }
     // A hunk that adds nothing starts after its line; any other, at it.
     const from = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
     if (from < at || from > lines.length) return null;

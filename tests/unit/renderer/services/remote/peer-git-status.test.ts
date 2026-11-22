@@ -208,3 +208,33 @@ test("a rejected Git method stops polling", async () => {
     call.mockRestore();
   }
 });
+
+test("a running session missing from a complete list refreshes Git and invalidates the tree", async () => {
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ready);
+  const host = desktop();
+  const handlers = callbacks();
+  const watch = watchPeerGitStatus(peer, handlers, host);
+  try {
+    await Bun.sleep(0);
+    watch.updateSessions([
+      {
+        workspaceId: peer.workspaceId,
+        tabId: "closed",
+        kind: "codex",
+        title: "Closed",
+        state: "running",
+      },
+    ]);
+    watch.updateSessions([], true);
+    expect(handlers.onSessionHint).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledTimes(1);
+    watch.updateSessions([]);
+    watch.updateSessions([]);
+    expect(handlers.onSessionHint).toHaveBeenCalledTimes(1);
+    await Bun.sleep(0);
+    expect(call).toHaveBeenCalledTimes(2);
+  } finally {
+    watch.stop();
+    call.mockRestore();
+  }
+});

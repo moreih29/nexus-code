@@ -14,6 +14,7 @@ import { ReadOnlyDiffEditor } from "../editor/read-only-diff-editor";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { loadPeerDiff, type PeerDiffView } from "./diff-model";
+import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 import { PeerPatchView } from "./patch-view";
 import { peerSearchErrorKey } from "./search-model";
@@ -68,8 +69,14 @@ export function PeerDiffTabBody({
     view?.kind === "text"
       ? (view.oldPath ?? tab.path)
       : ((renamed ? change.oldPath : undefined) ?? tab.path);
-  const leftPath = t("peerWorkspace.gitDiffLeft", { path: left, ref: leftRef });
-  const rightPath = t("peerWorkspace.gitDiffRight", { path: tab.path, ref: rightRef });
+  const display = (path: string) => {
+    const file = peerGitDisplayPath(root, path);
+    return file.outsideWorkspace
+      ? `${file.path} · ${t("peerWorkspace.gitOutsideWorkspace")}`
+      : file.path;
+  };
+  const leftPath = t("peerWorkspace.gitDiffLeft", { path: display(left), ref: leftRef });
+  const rightPath = t("peerWorkspace.gitDiffRight", { path: display(tab.path), ref: rightRef });
   const error = updateNeeded
     ? t("peerWorkspace.updateNeeded")
     : view?.kind === "error"
@@ -112,6 +119,7 @@ export function PeerDiffTabBody({
           hunks={view.patch.hunks}
           binary={view.patch.binary}
           permissionDenied={view.permissionDenied}
+          truncated={view.patch.truncated}
         />
       ) : view?.kind === "text" && monaco && selected ? (
         <div className="min-h-0 flex-1">
@@ -121,6 +129,7 @@ export function PeerDiffTabBody({
             before={view.before}
             now={view.after}
             sideBySide
+            hideGutterActions
           />
         </div>
       ) : (

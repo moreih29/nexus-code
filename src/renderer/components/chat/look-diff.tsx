@@ -104,6 +104,7 @@ export function PeerLookDiff({
       path={path}
       before={before ?? ""}
       now={read.text}
+      hideGutterActions
     />
   );
 }

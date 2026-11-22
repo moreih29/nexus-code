@@ -32,7 +32,7 @@ export function reconstructPeerDiff(
   side: PeerGitSide,
   patch: GitPatch,
   working: PeerText,
-  unstaged?: GitPatch,
+  unstaged?: GitPatch | null,
 ): PeerDiffView {
   const partial = { kind: "patch", patch } as const;
   if (
@@ -45,7 +45,7 @@ export function reconstructPeerDiff(
   let after = working.text;
   if (side === "staged") {
     if (change.staged === "D") after = "";
-    else if (change.unstaged) {
+    else if (unstaged || (unstaged === undefined && change.unstaged)) {
       if (!unstaged || !hasFullPatch(unstaged)) return partial;
       const index = beforeText(unstaged.hunks, after);
       if (index === null) return partial;
@@ -54,8 +54,8 @@ export function reconstructPeerDiff(
   }
 
   const code = change[side];
-  const before = code === "?" ? "" : beforeText(patch.hunks, after);
-  if (before === null) return partial;
+  const before = beforeText(patch.hunks, after);
+  if (before === null || (code === "?" && before !== "")) return partial;
   const oldPath = code === "R" || code === "C" ? (patch.oldPath ?? change.oldPath) : undefined;
   return { kind: "text", before: code === "A" ? "" : before, after, oldPath };
 }
@@ -88,20 +88,24 @@ export async function loadPeerDiff(
   if (!hasFullPatch(patch) || isPeerGitConflict(change)) return partial;
   try {
     const stagedDeletion = side === "staged" && change.staged === "D";
-    const deletion = stagedDeletion || change.unstaged === "D";
+    let unstaged: GitPatch | null | undefined;
+    if (side === "staged") {
+      const reply = await readPatch(false);
+      signal.throwIfAborted();
+      if (!reply.ok && reply.kind !== "not-found") return partial;
+      unstaged = reply.ok ? reply.value : null;
+      if (!stagedDeletion && unstaged && !hasFullPatch(unstaged)) return partial;
+    }
+    const deletion =
+      stagedDeletion ||
+      (side === "unstaged"
+        ? change.unstaged === "D"
+        : unstaged?.hunks.some((hunk) => hunk.newStart === 0 && hunk.newLines === 0));
     const working: PeerText = deletion
       ? { kind: "text", text: "" }
       : (await readPeerWorkspaceText(peer, path, signal, { fullOnly: true })).text;
     signal.throwIfAborted();
-    if (working.kind !== "text" || working.truncated) return partial;
-    if (side !== "staged" || !change.unstaged || stagedDeletion) {
-      return reconstructPeerDiff(change, side, patch, working);
-    }
-    const unstaged = await readPatch(false);
-    signal.throwIfAborted();
-    return unstaged.ok
-      ? reconstructPeerDiff(change, side, patch, working, unstaged.value)
-      : partial;
+    return reconstructPeerDiff(change, side, patch, working, unstaged);
   } catch {
     signal.throwIfAborted();
     return partial;

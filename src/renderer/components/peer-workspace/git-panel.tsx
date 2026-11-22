@@ -7,11 +7,11 @@ import {
   peerTargetId,
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
-import { basename } from "../../utils/path";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { GitStatusBadge } from "../files/git/file-row/status-badge";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
+import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 
 export function PeerGitPanel({
@@ -113,9 +113,16 @@ export function PeerGitPanel({
                   {label} <span className="rounded bg-muted px-1">{files.length}</span>
                 </summary>
                 {files.map((file) => {
-                  const name = basename(file.path);
-                  const directory = file.path.slice(0, -name.length);
-                  const title = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+                  const display = (path: string) => peerGitDisplayPath(target.workspace.path, path);
+                  const { path, fileName: name, directory, outsideWorkspace } = display(file.path);
+                  const old = file.oldPath ? display(file.oldPath) : null;
+                  const scope = outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null;
+                  const oldScope = old?.outsideWorkspace
+                    ? t("peerWorkspace.gitOutsideWorkspace")
+                    : null;
+                  const current = scope ? `${path} · ${scope}` : path;
+                  const from = oldScope ? `${old?.path} · ${oldScope}` : old?.path;
+                  const title = from ? `${from} → ${current}` : current;
                   const existing = tabs.some(
                     (tab) =>
                       tab.type === "peer.diff" && tab.path === file.path && tab.side === side,
@@ -138,7 +145,7 @@ export function PeerGitPanel({
                         aria-hidden="true"
                       />
                       <span className="min-w-0 flex-1 truncate">
-                        {file.oldPath ? (
+                        {old || outsideWorkspace ? (
                           title
                         ) : (
                           <>
