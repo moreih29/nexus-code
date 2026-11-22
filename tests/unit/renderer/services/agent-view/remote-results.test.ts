@@ -1,6 +1,16 @@
-import { describe, expect, test } from "bun:test";
-import type { RemoteSession, SessionEvent } from "../../../../../packages/remote-protocol/src/rpc";
-import { RemoteResults } from "../../../../../src/renderer/services/agent-view/remote-results";
+import { describe, expect, jest, spyOn, test } from "bun:test";
+import type {
+  RemoteSession,
+  RpcResult,
+  SessionEvent,
+} from "../../../../../packages/remote-protocol/src/rpc";
+import * as ipc from "../../../../../src/renderer/ipc/client";
+import {
+  RemoteResults,
+  watchResults,
+} from "../../../../../src/renderer/services/agent-view/remote-results";
+import * as room from "../../../../../src/renderer/services/remote/room";
+import { ipcOk } from "../../../../../src/shared/ipc/result";
 
 const chat: RemoteSession = {
   kind: "codex",
@@ -16,6 +26,56 @@ const complete: SessionEvent = {
   from: "running",
   to: "completed",
 };
+
+test("the watch resumes at the last cursor and replaces history after a host restart", async () => {
+  const results = new RemoteResults();
+  let page: RpcResult<"events.read"> = {
+    events: [{ ...complete, seq: 15 }],
+    cursor: 15,
+    more: false,
+  };
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () => ipcOk(page));
+  const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, take) => {
+    take({ status: "ready", list: { sessions: [chat], workspaces: [] } });
+    return () => {};
+  });
+  jest.useFakeTimers();
+  let stop = () => {};
+  const flush = async () => {
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+  };
+  try {
+    stop = watchResults(results, "mac", 0);
+    await flush();
+    expect(results.session("mac", chat).state).toBe("new-result");
+    stop();
+    page = { events: [], cursor: 15, more: false };
+    stop = watchResults(results, "mac", 1);
+    await flush();
+    expect(results.session("mac", chat).state).toBe("new-result");
+    stop();
+    // The server returns its first page for a cursor from before its restart.
+    page = { events: [{ ...complete, tabId: "other", seq: 1 }], cursor: 2, more: true };
+    call.mockImplementation(async (_, __, params) =>
+      ipcOk(
+        (params as { since: number }).since === 1 ? { events: [], cursor: 2, more: false } : page,
+      ),
+    );
+    stop = watchResults(results, "mac", 2);
+    await flush();
+    expect(results.session("mac", chat)).toBe(chat);
+    expect(call.mock.calls.map(([, , args]) => (args as { since: number }).since)).toEqual([
+      0, 15, 15, 1,
+    ]);
+    expect(results.cursor("mac")).toBe(2);
+  } finally {
+    stop();
+    jest.useRealTimers();
+    call.mockRestore();
+    observe.mockRestore();
+  }
+});
 
 describe("remote results", () => {
   test("finds chat outcomes in the event log and marks only the listed result locally", () => {

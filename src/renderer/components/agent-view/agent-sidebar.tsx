@@ -58,6 +58,7 @@ import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { PeerConsentCard, useConsentIsPending } from "./remote-consents";
 import {
   agentRunsOf,
+  listedByDefault,
   OpenRemoteSessionRow,
   RemoteSessions,
   type RemoteStatusSource,
@@ -148,9 +149,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
         >
           {grouping === "workspace" &&
             (agents.families.length === 0 ? (
-              <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
-                {t("sidebar.no_workspaces")}
-              </p>
+              <NoWorkspaces />
             ) : (
               <WorkspaceGroups agents={agents} activity={activity} query={query} />
             ))}
@@ -233,6 +232,15 @@ function NoMatch() {
   );
 }
 
+function NoWorkspaces() {
+  const { t } = useTranslation();
+  return (
+    <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
+      {t("sidebar.no_workspaces")}
+    </p>
+  );
+}
+
 /**
  * Every agent by its state, the agent list's groups in its order: those
  * waiting on the user longest first, the latest first in the others. A row
@@ -255,6 +263,13 @@ export function StatusGroups({
   );
   const searching = query.trim() !== "";
   const { groups, consents } = statusGroups(sessions, remote, query, pending);
+  if (
+    agents.families.length === 0 &&
+    sessions.length === 0 &&
+    consents.length === 0 &&
+    !remote.some(({ list }) => list.sessions.some(listedByDefault))
+  )
+    return <NoWorkspaces />;
   if (searching && !consents.length && groups.every(({ rows }) => rows.length === 0))
     return <NoMatch />;
   return (

@@ -183,10 +183,45 @@ describe("Other computers connection guidance", () => {
       expect(html).not.toContain("Disconnected");
       expect(html).not.toContain("opacity-60");
       expect(html).not.toContain('inert=""');
+      const statusHtml = renderToStaticMarkup(
+        <RemoteSessions
+          query=""
+          renderStatus={(sources) => (
+            <div>
+              {sources.length} · {sources[0]?.list.sessions[0]?.title}
+            </div>
+          )}
+        />,
+      );
+      expect(statusHtml).toBe("<div>1 · Fix the build</div>");
       expect(readLists).toHaveBeenCalledWith([], true);
     } finally {
       readLists.mockRestore();
       shown.mockRestore();
+    }
+  });
+
+  test("status grouping shows one line for an unavailable computer, even during search", () => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({
+      status: "online",
+      peers: [peer, { ...peer, id: "d3", name: "Loading computer" }],
+    });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      d2: { status: "unavailable" },
+      d3: { status: "loading" },
+    });
+    try {
+      const html = renderToStaticMarkup(
+        <RemoteSessions query="review" renderStatus={() => <div>Groups</div>} />,
+      );
+      expect(html).toContain('role="status"');
+      expect(html).toContain("Work PC · No remote response");
+      expect(html.indexOf("Groups")).toBeLessThan(html.indexOf("No remote response"));
+      expect(html).not.toContain("Loading computer");
+      expect(html).not.toContain("remote-peer-header");
+    } finally {
+      readLists.mockRestore();
     }
   });
 
@@ -322,6 +357,22 @@ describe("status grouping across computers", () => {
       since: 40,
     }),
   ];
+
+  test("shows the workspace hint only when there are no local workspaces or remote rows", () => {
+    const render = (remote: typeof sources, query = "") =>
+      renderToStaticMarkup(
+        <StatusGroups
+          agents={{ families: [], byKey: new Map() }}
+          activity={new Map()}
+          query={query}
+          remote={remote}
+          results={new RemoteResults()}
+        />,
+      );
+    expect(render([])).toContain("No workspaces yet.");
+    expect(render(sources)).not.toContain("No workspaces yet.");
+    expect(render(sources, "no matching text")).toContain("No conversation matches");
+  });
 
   test("mixes eligible rows by time and filters them across computers", () => {
     const { groups, consents } = statusGroups(local, sources, "", () => true);

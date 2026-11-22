@@ -386,7 +386,10 @@ function AccountRemoteSessions({
   useEffect(() => {
     if (roomOnline) lastOnline.current = seen;
   }, [roomOnline, seen]);
-  const displayedRoom = connected ? seen : lastOnline.current;
+  const displayedRoom =
+    connected && (roomOnline || (seen?.peers.length ?? 0) > 0)
+      ? seen
+      : (lastOnline.current ?? seen);
   // Searching, an offline computer has no sessions to find.
   const searching = query.trim() !== "";
   const away = searching ? [] : orderPeers(offlinePeers(displayedRoom), peerOrder);
@@ -396,13 +399,16 @@ function AccountRemoteSessions({
     shown,
   );
   const results = useRemoteResults(online, shown);
+  const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
+    (peer) => connected || lists[peer.id]?.status === "ready",
+  );
   const displayList = (peer: RoomPeer, list: SessionsList): SessionsList => ({
     ...list,
     sessions: list.sessions.map((session) => results.session(peer.id, session)),
   });
   const statusGroups = renderStatus?.(
     connected && accountKey !== null
-      ? online.flatMap((peer) => {
+      ? listedPeers.flatMap((peer) => {
           const listing = lists[peer.id];
           return listing?.status === "ready"
             ? [{ peer, list: displayList(peer, listing.list) }]
@@ -411,9 +417,9 @@ function AccountRemoteSessions({
       : [],
     results,
   );
-  const listedPeers = orderPeers(servingPeers(displayedRoom), peerOrder).filter(
-    (peer) => connected || lists[peer.id]?.status === "ready",
-  );
+  const unavailable = renderStatus
+    ? listedPeers.filter((peer) => lists[peer.id]?.status === "unavailable")
+    : [];
   const peers = searching
     ? listedPeers.filter((peer) => {
         const sessions = lists[peer.id];
@@ -437,12 +443,12 @@ function AccountRemoteSessions({
   if (!signedOut && outdated && outdatedNotice.dismissed) return statusGroups;
   if (!signedOut && !outdated && (accountKey === null || (!connected && !connecting)))
     return statusGroups;
-  if (renderStatus && connected) return statusGroups;
+  if (renderStatus && connected && !signedOut && unavailable.length === 0) return statusGroups;
   const status = !connected
     ? roomStatus === "waiting" || lastOnline.current
       ? t("agentView.remote.reconnecting")
       : t("agentView.remote.connecting")
-    : peers.length === 0 && away.length === 0
+    : !renderStatus && peers.length === 0 && away.length === 0
       ? t("agentView.remote.noComputers")
       : null;
   const ids = canReorder ? orderPeers(online, peerOrder).map((peer) => peer.id) : [];
@@ -472,9 +478,11 @@ function AccountRemoteSessions({
         className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
         data-testid="remote-sessions"
       >
-        <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
-          {t("agentView.remote.title")}
-        </h3>
+        {(!renderStatus || !connected || signedOut) && (
+          <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
+            {t("agentView.remote.title")}
+          </h3>
+        )}
         {signedOut ? (
           <div className="flex items-center gap-1.5 px-2 py-1">
             <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
@@ -500,6 +508,15 @@ function AccountRemoteSessions({
                 {status}
               </p>
             )}
+            {unavailable.map((peer) => (
+              <p
+                key={peer.id}
+                role="status"
+                className="px-2 py-1 text-app-ui-sm text-muted-foreground"
+              >
+                {peer.name} · {t("agentView.remote.unavailable")}
+              </p>
+            ))}
             {!renderStatus && (
               <div
                 inert={!connected}

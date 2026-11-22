@@ -17,6 +17,7 @@ const READ_INTERVAL_MS = 4000;
 export class RemoteResults {
   private readonly changes = createListenerBus();
   private readonly history = new Map<string, Map<string, ResultState>>();
+  private readonly cursors = new Map<string, number>();
   private readonly seen = new Map<string, number>();
   private readonly undated = new Map<string, Map<string, number>>();
   private revision = 0;
@@ -27,6 +28,10 @@ export class RemoteResults {
   private changed() {
     this.revision++;
     this.changes.notify();
+  }
+
+  cursor(deviceId: string): number {
+    return this.cursors.get(deviceId) ?? 0;
   }
 
   observe(deviceId: string, sessions: readonly RemoteSession[], at: number) {
@@ -65,6 +70,16 @@ export class RemoteResults {
       changed = true;
     }
     if (changed) this.changed();
+  }
+
+  /** A restarted host already returns the first page when its cursor is behind ours. */
+  acceptPage(deviceId: string, page: EventPage): boolean {
+    const since = this.cursor(deviceId);
+    const reset = since > page.cursor;
+    const next = page.more ? page.events.at(-1)?.seq : page.cursor;
+    this.applyPage(deviceId, page, reset);
+    this.cursors.set(deviceId, next ?? (reset ? 0 : since));
+    return page.more && next !== undefined && next > (reset ? 0 : since);
   }
 
   /** Use the live state first. Older listings report quiet chats as idle even after a result. */
@@ -111,12 +126,11 @@ export class RemoteResults {
   }
 }
 
-function watchResults(results: RemoteResults, deviceId: string, rejoin: number) {
+export function watchResults(results: RemoteResults, deviceId: string, rejoin: number) {
   let live = true;
   let supported = true;
   let pending = false;
   let reading = false;
-  let since = 0;
   let nextRead = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -130,7 +144,7 @@ function watchResults(results: RemoteResults, deviceId: string, rejoin: number) 
       for (let page = 0; page < MAX_PAGES && live; page++) {
         const result = await ipcCallResult("remote", "peerSessionEvents", {
           deviceId,
-          since,
+          since: results.cursor(deviceId),
           limit: PAGE_SIZE,
         });
         if (!live) return;
@@ -138,13 +152,7 @@ function watchResults(results: RemoteResults, deviceId: string, rejoin: number) 
           supported = result.kind !== "unsupported";
           return;
         }
-        const { events, cursor, more } = result.value;
-        const reset = since === 0 || since > cursor;
-        results.applyPage(deviceId, result.value, reset);
-        const next = more ? events.at(-1)?.seq : cursor;
-        if (next === undefined || (next <= since && !reset)) return;
-        since = next;
-        if (!more) return;
+        if (!results.acceptPage(deviceId, result.value)) return;
       }
       pending = true;
     } finally {
