@@ -51,6 +51,18 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
   return out.join("\n");
 }
 
+/**
+ * As beforeOfHunks, also when Git tells LF lines of a working file checked
+ * out with CRLF (core.autocrlf): the file before, in CRLF. A file with
+ * mixed line endings is taken only as it is.
+ */
+export function beforeOfWorkingText(hunks: readonly DiffHunk[], now: string): string | null {
+  const exact = beforeOfHunks(hunks, now);
+  if (exact !== null || !now.includes("\r\n") || /(?<!\r)\n/.test(now)) return exact;
+  const before = beforeOfHunks(hunks, now.replaceAll("\r\n", "\n"));
+  return before?.replace(/(?<!\r)\n/g, "\r\n") ?? null;
+}
+
 /** The session's saved original, or the last commit when that original is unavailable. */
 export async function readRemoteFileBefore(
   file: RemoteFileRef,
@@ -75,5 +87,5 @@ export async function readRemoteFileBefore(
   if (!diff.ok || diff.value.binary || diff.value.truncated || diff.value.hunks.length === 0)
     return undefined;
   if (!read.ok || read.value.kind !== "text" || read.value.truncated) return undefined;
-  return beforeOfHunks(diff.value.hunks, read.value.text) ?? undefined;
+  return beforeOfWorkingText(diff.value.hunks, read.value.text) ?? undefined;
 }

@@ -262,6 +262,7 @@ export function untrackedReader(
     const place = placeOf(root, [], absolute);
     if (place.kind !== "workspace")
       throw forbidden(`${absolute} is outside the workspace's folder`);
+    validatePathParts(root, place.rel);
     const provider = await fs(workspaceId);
     await throughNoLink(provider, place.rel, absolute);
     const read = await provider.readRange(place.rel, 0, maxBytes);
@@ -281,6 +282,7 @@ export async function folderIn(
 ): Promise<string> {
   const place = placeOf(root, [], asked);
   if (place.kind !== "workspace") throw forbidden(`${asked} is outside the workspace's folder`);
+  validatePathParts(root, place.rel);
   if (fs) {
     const stat = await throughNoLink(fs, place.rel, asked);
     if (stat.type !== "dir") {
@@ -464,6 +466,8 @@ export async function readFile(
         RpcErrorCode.InvalidParams,
         "that is the workspace's folder: files.list lists it",
       );
+    // A Windows name the agent would open as something else: a stream, a device, a trimmed name.
+    validatePathParts(root, place.rel);
     source = { relPath: place.rel };
     absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
