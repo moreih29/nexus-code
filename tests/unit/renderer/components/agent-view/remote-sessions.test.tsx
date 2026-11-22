@@ -457,7 +457,12 @@ describe("local workspace grouping", () => {
     const root = localWorkspace("local", "Local project");
     const task = localWorkspace("task", "Review task");
     const local = [
-      localSession({ title: "Local failed", state: "error", message: "Local error details" }),
+      localSession({
+        title: "Local failed",
+        state: "error",
+        message: "Local error details",
+        since: Date.now(),
+      }),
       localSession({ key: "local:idle", title: "Local idle", state: "idle", phase: "idle" }),
     ];
     const working = localSession({
@@ -512,6 +517,7 @@ describe("local workspace grouping", () => {
       expect(failedRow).not.toContain('data-testid="agent-sidebar-state"');
       expect(failedRow).toContain("Local error details");
       expect(failedRow).toContain("lucide-triangle-alert");
+      expect(failedRow).toContain(">just now<");
       expect(workingHtml).not.toContain("Local idle");
       expect(workingHtml).not.toContain("Task idle");
       taskRows[0] = { ...working, state: "completed", phase: "done" };
@@ -675,6 +681,41 @@ describe("the agent view's other computers", () => {
     } finally {
       view.mockRestore();
     }
+  });
+
+  test("a workspace counts every hidden row, including terminals visible before folding", () => {
+    const workspaceList = list([
+      session({ tabId: "working", state: "running" }),
+      session({ tabId: "chat" }),
+      session({ tabId: "panel", kind: "terminal", title: "One in a panel" }),
+      session({ tabId: "disclosed", kind: "terminal", title: "One under the terminal chip" }),
+    ]);
+    const options = {
+      query: "",
+      opens: false,
+      inPanel: (row: RemoteSession) => row.tabId === "panel",
+      worktreesIn: new Set<string>(),
+      folds: new Set(["w1"]),
+    };
+    expect(workspaceGroups(workspaceList, options).hiddenCounts.get("w1")).toBe(2);
+    const disclosed = workspaceGroups(workspaceList, { ...options, terminalsIn: new Set(["w1"]) });
+    expect(disclosed.hiddenCounts.get("w1")).toBe(3);
+    expect(disclosed.groups[0]?.[1].map((row) => row.tabId)).toEqual(["working"]);
+    expect(disclosed.plain.has("w1")).toBe(false);
+  });
+
+  test("remote workspace rows also show the session time", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([session({ since: Date.now() })]),
+        }}
+      />,
+    );
+    expect(html).toContain(">just now<");
   });
 
   test("a Korean row waiting for a reply uses the local attention label", async () => {

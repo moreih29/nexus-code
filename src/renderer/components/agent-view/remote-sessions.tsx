@@ -246,6 +246,7 @@ export function workspaceGroups(
     opens,
     inPanel,
     worktreesIn,
+    terminalsIn,
     folds,
     reordering,
   }: {
@@ -253,6 +254,7 @@ export function workspaceGroups(
     opens: boolean;
     inPanel: (session: RemoteSession) => boolean;
     worktreesIn: ReadonlySet<string>;
+    terminalsIn?: ReadonlySet<string>;
     folds?: ReadonlySet<string>;
     reordering?: ReadonlySet<string>;
   },
@@ -301,9 +303,8 @@ export function workspaceGroups(
       byWorkspace.set(id, visible);
       plainShown.delete(id);
       const owner = parentFolded ? rootParent.id : id;
-      const count = rows.filter(
-        (session) => remoteGroupOf(session) === "idle" && listedByDefault(session),
-      ).length;
+      const disclosedTerminals = terminalsIn?.has(id) ? (terminals?.length ?? 0) : 0;
+      const count = rows.length - visible.length + disclosedTerminals;
       hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
       if (parentFolded && visible.length === 0) hidden.add(id);
     }
@@ -631,6 +632,7 @@ export function PeerGroup({
       opens,
       inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
       worktreesIn,
+      terminalsIn,
       folds: workspaceFolds,
       reordering,
     });
