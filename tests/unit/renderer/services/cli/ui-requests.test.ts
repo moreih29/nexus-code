@@ -1,5 +1,5 @@
 /** The renderer's side of the nexus CLI: one listener, so each request is carried out once. */
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 
 type Listener = (args: unknown) => void;
 /** The cli:uiRequest listeners; other modules listen to other events on import. */
@@ -32,7 +32,7 @@ afterAll(() => {
   globals.document = originalDocument;
 });
 
-const { listTabs, startCliUiListener } = await import(
+const { listTabs, READ_ONLY_OPS, startCliUiListener } = await import(
   "../../../../../src/renderer/services/cli/ui-requests"
 );
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
@@ -46,6 +46,9 @@ const { useSessionSeenStore } = await import(
   "../../../../../src/renderer/state/stores/session-seen"
 );
 const { chatKey, useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
 const { startAgentViewPruning } = await import(
   "../../../../../src/renderer/services/agent-view/show"
 );
@@ -429,4 +432,196 @@ test("a tab that is not a terminal is not waited for", async () => {
 
 test("a terminal's view that does not mount in time gives up", async () => {
   expect(await whenTerminalController("never", 10)).toBeUndefined();
+});
+
+test("only the reviewed read operations skip focus restoration", () => {
+  expect([...READ_ONLY_OPS].sort()).toEqual([
+    "agentView.get",
+    "chat.page",
+    "chat.read",
+    "chat.state",
+    "events.read",
+    "layout.get",
+    "panels.get",
+    "problems.list",
+    "sessions.results",
+    "sessions.snapshot",
+    "tab.sandboxSession",
+    "tabs.list",
+    "terminal.read",
+    "terminal.shells",
+  ]);
+});
+
+test("read requests schedule no focus checks even when mounting a terminal or opening a chat", async () => {
+  const doc = globals.document as { activeElement: unknown; body: unknown };
+  const before = doc.activeElement;
+  const frames: unknown[] = [];
+  const raf = (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (run: unknown) => {
+    frames.push(run);
+    return frames.length;
+  };
+  // The composer the user types in holds the keyboard.
+  doc.activeElement = { isConnected: true, focus: () => {}, closest: () => null };
+  const workspaceId = "ws-focus-read";
+  const { byWorkspace } = useTabsStore.getState();
+  const chat = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "claude", props: { cwd: "/" } });
+  const terminal = useTabsStore
+    .getState()
+    .createTab(workspaceId, { type: "terminal", props: { cwd: "/" } });
+  const open = spyOn(ChatController.prototype, "openToRead").mockResolvedValue(undefined);
+  const stop = startCliUiListener(Promise.resolve());
+  let unregister = () => {};
+  try {
+    await answerTo("r-read-tabs", "tabs.list", { workspaceId: "ws-none" });
+    await answerTo("r-read-events", "events.read", { limit: 1 });
+    await answerTo("r-read-chat", "chat.state", { workspaceId: "ws-none", tabId: "t", peek: true });
+    expect(
+      await answerTo("r-read-cold-chat", "chat.read", { workspaceId, tabId: chat.id }),
+    ).toMatchObject({ ok: true });
+    expect(open).toHaveBeenCalledWith(true);
+    const read = answerTo("r-read-cold-terminal", "terminal.read", {
+      workspaceId,
+      tabId: terminal.id,
+      lines: 5,
+    });
+    await Promise.resolve();
+    expect(useMountedWorkspacesStore.getState().ids.has(workspaceId)).toBe(true);
+    unregister = registerTerminalController(terminal.id, {
+      readText: () => "new terminal",
+      whenReady: () => Promise.resolve(true),
+    } as unknown as Parameters<typeof registerTerminalController>[1]);
+    expect(await read).toMatchObject({ ok: true, value: { text: "new terminal" } });
+    expect(frames).toHaveLength(0);
+    await answerTo("r-rename", "tab.rename", { workspaceId: "ws-none", tabId: "t", title: "x" });
+    expect(frames).toHaveLength(1);
+  } finally {
+    unregister();
+    open.mockRestore();
+    stop();
+    useTabsStore.setState({ byWorkspace });
+    doc.activeElement = before;
+    (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = raf;
+  }
+});
+
+test("the sessions' snapshot is tabs.list, chat.state and sessions.results in one answer, its texts on a line", async () => {
+  const { oneLine } = await import("../../../../../src/shared/remote/one-line");
+  const workspace = WorkspaceMetaSchema.parse({
+    id: "31111111-1111-4111-8111-111111111111",
+    name: "Project",
+    rootPath: "/project",
+    pinned: false,
+    tabs: [],
+  });
+  const ws = workspace.id;
+  const tabs = useTabsStore.getState();
+  const workspaces = useWorkspacesStore.getState().workspaces;
+  const layout = useLayoutStore.getState().byWorkspace;
+  const make = (type: "claude" | "codex" | "terminal" | "editor") =>
+    tabs.createTab(
+      ws,
+      type === "editor"
+        ? { type, props: { workspaceId: ws, filePath: "/project/a.ts" } }
+        : { type, props: { cwd: type === "codex" ? "/project/sub" : workspace.rootPath } },
+    ).id;
+  const stop = startCliUiListener(Promise.resolve());
+  const answer = `First line\n\n${"word ".repeat(80)}\tend`;
+  const claude = make("claude");
+  const codex = make("codex");
+  const terminal = make("terminal");
+  const editor = make("editor");
+  const key = chatKey(ws, claude);
+  try {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useLayoutStore.setState({
+      byWorkspace: {
+        [ws]: {
+          root: {
+            kind: "leaf",
+            id: "leaf",
+            tabIds: [terminal, claude, editor, codex],
+            activeTabId: claude,
+          },
+          activeGroupId: "leaf",
+        },
+      },
+    });
+    useChatStore.getState().update(key, (chat) => ({
+      ...chat,
+      model: {
+        ...chat.model,
+        items: [
+          {
+            kind: "assistant",
+            key: "a1",
+            messageId: "m1",
+            blocks: [{ type: "text", text: answer }],
+            at: 5,
+          },
+        ],
+        lastResult: { subtype: "success", isError: false, at: 6, outcome: "success" as const },
+      },
+    }));
+    const value = async (requestId: string, op: string, args: unknown) =>
+      ((await answerTo(requestId, op, args)) as { value: never }).value;
+    const snapshot = (await value("r-snapshot", "sessions.snapshot", {
+      workspaceIds: [ws, "ws-not-there"],
+    })) as { workspaces: { tabs: { id: string; chat?: { message?: string } }[] }[] };
+    const listed = (await value("r-snap-tabs", "tabs.list", {
+      workspaceId: ws,
+      agentOrder: true,
+    })) as { tabs: { id: string; type: string; title: string; unstarted?: true }[] };
+    const peeks: Record<string, Record<string, unknown>> = {};
+    for (const id of [claude, codex]) {
+      peeks[id] = await value(`r-snap-peek-${id}`, "chat.state", {
+        workspaceId: ws,
+        tabId: id,
+        peek: true,
+        includeWaitingId: true,
+      });
+    }
+    const { unread } = (await value("r-snap-results", "sessions.results", {})) as {
+      unread: unknown;
+    };
+    expect(snapshot).toEqual({
+      revision: expect.any(Number),
+      workspaces: [
+        {
+          tabs: listed.tabs.map(({ id, type, title, unstarted }) => {
+            const peek = peeks[id];
+            if (!peek) return { id, type, title, ...(unstarted ? { unstarted } : {}) };
+            const { agent: _, message, ...rest } = peek;
+            return {
+              id,
+              type,
+              title,
+              chat: { ...rest, ...(message ? { message: oneLine(message as string) } : {}) },
+            };
+          }),
+        },
+        { tabs: [] },
+      ],
+      unread,
+    });
+    expect(snapshot.workspaces[0]?.tabs.map(({ id }) => id)).toEqual([
+      claude,
+      codex,
+      terminal,
+      editor,
+    ]);
+    const chat = snapshot.workspaces[0]?.tabs[0]?.chat;
+    expect(chat?.message).toBe(oneLine(answer));
+    expect(chat?.message?.length).toBe(200);
+    expect(peeks[claude]?.message).toBe(answer.trim());
+  } finally {
+    stop();
+    useWorkspacesStore.setState({ workspaces });
+    useTabsStore.setState({ byWorkspace: tabs.byWorkspace });
+    useLayoutStore.setState({ byWorkspace: layout });
+    useChatStore.getState().remove(key);
+  }
 });

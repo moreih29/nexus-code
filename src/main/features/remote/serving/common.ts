@@ -46,10 +46,7 @@ export function servesWith(
   );
 }
 
-export function oneLine(text: string, max = 200): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
+export { oneLine } from "../../../../shared/remote/one-line";
 
 /** The tab, when the workspace holds one of that kind; else NotFound. */
 export async function tabOf(

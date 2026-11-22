@@ -8,12 +8,14 @@ import { PhonePush } from "../../../../../src/main/features/remote/phone-push";
 import { servesWith } from "../../../../../src/main/features/remote/serving/common";
 import type { CliChange, CliChatWaiting } from "../../../../../src/shared/cli/ui";
 import type { PhonePushPolicy } from "../../../../../src/shared/types/app-state";
+import { testSessionsRevision, withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 const info = { signIn: ["google"], relay: null, voice: null };
 const phone = { id: "iphone", name: "iPhone", platform: "ios" };
 const android = { id: "android-phone", name: "Pixel", platform: "android" };
 const computer = { id: "desktop", name: "My desktop", platform: "darwin" };
 const pushInfo = { ...info, push: { version: 1, environments: ["production"] } };
+type ReadArgs = { includeWaitingId?: boolean; workspaceIds?: string[] };
 const consentChange = { kind: "chatInput", detail: "Please edit /private/project" } as const;
 const logResponse = { sent: 1, skipped: 0 };
 let push: PhonePush | undefined;
@@ -47,6 +49,8 @@ function setup(
     devices?: (typeof phone)[];
     mode?: PhonePushPolicy;
     signedOut?: boolean;
+    /** The renderer tells its sessions' changes (cli.sessionsChanged). */
+    revisions?: boolean;
   } = {},
 ) {
   let token = options.signedOut ? undefined : "token";
@@ -61,7 +65,8 @@ function setup(
   const send = mock(async (_body: PushSend, _signal: AbortSignal) => logResponse as unknown);
   const devices = mock(async () => options.devices ?? [phone]);
   const serverInfo = mock(async () => options.serverInfo ?? pushInfo);
-  const ui = mock(async (op: string, args: { includeWaitingId?: boolean }) => {
+  const ui = mock(async (op: string, args: ReadArgs) => {
+    if (op === "sessions.results") return { unread: {} };
     if (op === "tabs.list") {
       return {
         tabs: [
@@ -80,9 +85,18 @@ function setup(
         }
       : { agent: "codex", state: "idle" };
   });
+  let revision = 1;
+  let snapshots = 0;
+  const snapshot = withSessionsSnapshot(ui, () => revision);
+  const read = (op: string, args: ReadArgs) => {
+    if (op === "sessions.snapshot") snapshots++;
+    return snapshot(op, args);
+  };
+  const revisions = testSessionsRevision((args) => read("sessions.snapshot", args));
   const services = {
     listWorkspaces: () => [{ id: "w", name: "Private workspace", rootPath: "/private/project" }],
-    ui,
+    ui: read,
+    ...(options.revisions ? { sessionsRevision: revisions } : {}),
     consents: { list: () => consents },
     activity: () => null,
     claudeStatus: () => (terminalWait ? { status: "permissionPending", since: 0 } : null),
@@ -137,6 +151,12 @@ function setup(
     },
     chatReadable: (value: boolean) => {
       chatReadable = value;
+    },
+    snapshots: () => snapshots,
+    /** The renderer's sessions changed, and it told main. */
+    changed: () => {
+      revision++;
+      revisions.saw(revision);
     },
     terminal: (id?: string) => {
       terminalWait = id;
@@ -441,6 +461,24 @@ describe("chat and terminal request notifications", () => {
     await tick(3_000);
     app.chatReadable(true);
     await tick(30_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("reuses the sessions read until the renderer changes or the cache expires", async () => {
+    const app = setup({ revisions: true });
+    await tick();
+    const first = app.snapshots();
+    expect(first).toBe(1);
+    // The 3-second push poll refreshes the expired read at the nine-second tick.
+    await tick(6_000);
+    expect(app.snapshots()).toBe(first);
+    await tick(3_000);
+    expect(app.snapshots()).toBe(first + 1);
+    app.chat("new request");
+    app.changed();
+    await tick(3_000);
+    expect(app.snapshots()).toBe(first + 2);
+    await tick(20_000);
     expect(app.send).toHaveBeenCalledTimes(1);
   });
 

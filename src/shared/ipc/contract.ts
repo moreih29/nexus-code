@@ -2544,6 +2544,11 @@ const coreIpcContract = {
     call: {
       uiRespond: call(CliUiRespondArgsSchema, z.void()),
       /**
+       * The renderer's sessions changed since main last read them
+       * (sessions.snapshot): `revision` is its count of changes now.
+       */
+      sessionsChanged: call(z.object({ revision: z.number().int().nonnegative() }), z.void()),
+      /**
        * What each live terminal has printed lately and the last notification
        * it raised: the state of Codex and other agents without hooks, for
        * the sessions view.

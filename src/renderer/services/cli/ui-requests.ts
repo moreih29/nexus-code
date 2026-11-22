@@ -30,9 +30,11 @@ import {
   UiRequestError,
 } from "./actions";
 import { appHandlers } from "./app-actions";
-import { chatHandlers } from "./chat-actions";
+import { chatHandlers, peekChatInfo } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { noteHandlers } from "./note-actions";
+import { readSessionsRevision, startSessionsRevision } from "./sessions-revision";
+import { sessionsSnapshot } from "./sessions-snapshot";
 import { settingsHandlers } from "./settings";
 import { viewHandlers } from "./view-actions";
 
@@ -110,6 +112,17 @@ export function listTabs(
   return [...ordered, ...remaining.values()];
 }
 
+/** The finished turns the user has not looked at, by workspace and tab (sessions.results). */
+function unreadResultsMap(): Record<string, Record<string, number>> {
+  const unread: Record<string, Record<string, number>> = Object.create(null);
+  for (const { session, since } of unreadResults(inboxNow())) {
+    unread[session.workspaceId] ??= Object.create(null);
+    const tabs = unread[session.workspaceId];
+    tabs[session.tabId] = since;
+  }
+  return unread;
+}
+
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
     tabs: listTabs(workspaceId, agentOrder, includeSession),
@@ -147,15 +160,14 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
-  "sessions.results": async () => {
-    const unread: Record<string, Record<string, number>> = Object.create(null);
-    for (const { session, since } of unreadResults(inboxNow())) {
-      unread[session.workspaceId] ??= Object.create(null);
-      const tabs = unread[session.workspaceId];
-      tabs[session.tabId] = since;
-    }
-    return { unread };
-  },
+  "sessions.results": async () => ({ unread: unreadResultsMap() }),
+  "sessions.snapshot": async (args) =>
+    sessionsSnapshot(args, {
+      readRevision: readSessionsRevision,
+      listTabs: (workspaceId) => listTabs(workspaceId, true),
+      peekChat: (workspaceId, tabId) => peekChatInfo(workspaceId, tabId, true),
+      readUnread: unreadResultsMap,
+    }),
   "sessions.markSeen": async ({ seen }) => {
     const results = acknowledgedResults(inboxNow(), seen);
     // A receipt can follow a listing before the session log's debounce has recorded completion.
@@ -174,6 +186,28 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...viewHandlers,
 };
 
+/**
+ * Requests that only read: nothing on screen moves, so the keyboard stays
+ * where it is without the frames of checks restoreFocus schedules. The
+ * remote sessions' list reads some of them every second.
+ */
+export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
+  "tabs.list",
+  "terminal.read",
+  "terminal.shells",
+  "tab.sandboxSession",
+  "events.read",
+  "sessions.results",
+  "sessions.snapshot",
+  "chat.state",
+  "chat.read",
+  "chat.page",
+  "layout.get",
+  "panels.get",
+  "agentView.get",
+  "problems.list",
+]);
+
 /** Removes the cli:uiRequest listener installed last, if it is still there. */
 let stopListening: (() => void) | null = null;
 
@@ -187,19 +221,20 @@ import.meta.hot?.dispose(() => stopListening?.());
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
- * focus (see ../keep-focus).
+ * focus (see ../keep-focus). One that only reads cannot drop it.
  */
 export function startCliUiListener(ready: Promise<void>): () => void {
   // One listener, however often the app boots: a second would carry out
   // each request again, typing or sending twice. The dev build's hot reload
   // boots the app again with each edit.
   stopListening?.();
+  const stopRevision = startSessionsRevision();
   const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       try {
         await ready;
         const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
-        const held = focusHolder();
+        const held = READ_ONLY_OPS.has(op) ? null : focusHolder();
         if (!handler) throw new UiRequestError(`unknown request ${op}`);
         const value = await handler(args as never).finally(() => restoreFocus(held));
         await ipcCallResult("cli", "uiRespond", { requestId, ok: true, value });
@@ -214,6 +249,7 @@ export function startCliUiListener(ready: Promise<void>): () => void {
   });
   const stopThis = (): void => {
     stop();
+    stopRevision();
     if (stopListening === stopThis) stopListening = null;
   };
   stopListening = stopThis;

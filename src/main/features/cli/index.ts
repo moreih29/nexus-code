@@ -5,6 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { BrowserWindow } from "electron";
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
@@ -54,7 +55,8 @@ import {
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { commandName, commandWaits, runCli } from "./registry";
-import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { RendererBridge } from "./renderer-bridge";
+import { SessionsRevisions } from "./sessions-revisions";
 import { noteSlowRequest } from "./slow-log";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
@@ -130,7 +132,7 @@ export interface SetupCliFeatureOptions {
     agentContext: boolean;
   };
   /** The app window the renderer side of the CLI runs in. */
-  getWindow: () => UiWindow | null;
+  getWindow: () => Pick<BrowserWindow, "webContents"> | null;
   /** Whether the app has focus. */
   isAppFocused: () => boolean;
   /** Brings the app's window forward. */
@@ -220,10 +222,17 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser.watch(tabId, contents),
   );
 
+  const sessionsRevision = new SessionsRevisions(bridge, () => options.getWindow()?.webContents);
+
   register("cli", {
     call: {
-      uiRespond: async (args: unknown) => {
-        bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args));
+      uiRespond: async (args: unknown, ctx) => {
+        bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args), ctx?.sender?.id);
+        return ipcOk(undefined);
+      },
+      sessionsChanged: async (args: unknown, ctx) => {
+        const { revision } = validateArgs(ipcContract.cli.call.sessionsChanged.args, args);
+        if (ctx?.sender) sessionsRevision.saw(ctx.sender, revision);
         return ipcOk(undefined);
       },
       activity: async () => ipcOk(activity.snapshot()),
@@ -282,6 +291,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const services: CliServices = {
     appVersion: options.appVersion,
+    sessionsRevision,
     profileConnections: options.profileConnections,
     listWorkspaces: () => workspaceManager.list(),
     addWorkspace: async (location, name, color) => {
@@ -476,6 +486,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       claudeExit.dispose();
       waits.dispose();
       startedAgents.dispose();
+      sessionsRevision.dispose();
       bridge.dispose();
     },
   };

@@ -82,7 +82,7 @@ import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common"
 import { serveFileDestination, serveFileRead, serveFileSearch } from "./serving/files";
 import { changeAgentView, changeLayout, readAgentView, readLayout } from "./serving/layout";
 import { ReadBudget } from "./serving/read-budget";
-import { reorderSessions, serveSessionsList } from "./serving/sessions";
+import { holdReceipts, reorderSessions, serveSessionsList } from "./serving/sessions";
 import { readTerminal } from "./serving/terminal";
 import type { RemoteServeOptions, RemoteServeRequest } from "./serving/types";
 import { createWorkspace } from "./serving/workspaces";
@@ -317,11 +317,20 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "sessions.reorder":
         checkCurrent();
         return reorderSessions(s, params as RpcParams<"sessions.reorder">);
-      case "sessions.markSeen":
+      case "sessions.markSeen": {
         checkCurrent();
-        return s
-          .ui("sessions.markSeen", params as RpcParams<"sessions.markSeen">)
-          .catch(unavailable);
+        const receipt = params as RpcParams<"sessions.markSeen">;
+        // Lists made from here on leave these read, though the renderer is still taking them.
+        const held = holdReceipts(s, receipt.seen);
+        try {
+          const result = await s.ui("sessions.markSeen", receipt);
+          held.taken();
+          return result;
+        } catch (error) {
+          held.failed();
+          return unavailable(error);
+        }
+      }
       case "notes.read":
         return readNote(s, request.params as RpcParams<"notes.read">);
       case "notes.transcript":

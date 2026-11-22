@@ -106,10 +106,31 @@ export interface WorkspaceMove {
   readonly group: "pinned" | "unpinned";
 }
 
+/**
+ * The renderer's count of changes to the sessions, the highest it has told
+ * (cli.sessionsChanged) or answered a sessions.snapshot with: a snapshot
+ * read at it still tells what the renderer has.
+ */
+export interface SessionsRenderer {
+  readonly latest: number | undefined;
+  readonly closed: boolean;
+  saw(revision: number): void;
+  snapshot(
+    args: CliUiOps["sessions.snapshot"]["args"],
+    timeoutMs: number,
+  ): Promise<CliUiOps["sessions.snapshot"]["result"]>;
+}
+
+export interface SessionsRevision {
+  current(): SessionsRenderer | undefined;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
   /** The consent prompts waiting on the user. */
   readonly consents: CliConsents;
+  /** The renderer's sessions revision; none where no renderer tells one. */
+  readonly sessionsRevision?: SessionsRevision;
   /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;
