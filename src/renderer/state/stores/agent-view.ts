@@ -1,7 +1,7 @@
 /**
  * The agent view: whether the window shows it rather than the workspaces,
- * its panels, the ended agents they show, the order its list's agents were
- * dragged into, and how its list groups them and which groups are folded.
+ * its panels, the ended agents they show, the order of its agents and other
+ * computers, and how its list groups agents and which groups are folded.
  * All persist in AppState, the panels a moment after they settle, so
  * dragging a divider writes once.
  */
@@ -38,6 +38,7 @@ import {
   orderFromStore,
   orderToStore,
 } from "../../services/agent-view/order";
+import { observeRemoteAccount, remoteAccountKey } from "../../services/remote/account";
 
 const log = createLogger("agent-view");
 
@@ -55,6 +56,7 @@ const NO_FOLDS: ReadonlySet<string> = new Set();
 const PERSIST_DELAY_MS = 300;
 
 type RemoteFile = RemoteFileSnapshot & { before?: string | null };
+type PeerOrder = { readonly accountKey: string; readonly ids: readonly string[] };
 const NO_REMOTE_FILES: ReadonlyMap<string, RemoteFile> = new Map();
 
 interface AgentViewState extends AgentLayout {
@@ -66,6 +68,10 @@ interface AgentViewState extends AgentLayout {
   remoteFiles: ReadonlyMap<string, RemoteFile>;
   /** The order the list's agents were dragged into (services/agent-view/order). */
   order: AgentOrder;
+  /** The order shared by online and offline computers in the list. */
+  peerOrder: PeerOrder | undefined;
+  /** The current remote account, once known. */
+  peerOrderAccount: string | null;
   /** How the list groups its agents. */
   grouping: AgentListGrouping;
   /** The list's groups the user folded ("status:<group>", "workspace:<id>"); the others are open. */
@@ -82,6 +88,8 @@ interface AgentViewState extends AgentLayout {
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
   /** The order of a workspace's (or task's) agents in the list, every one of them. */
   setOrder(workspaceId: string, keys: readonly string[]): void;
+  setPeerOrderAccount(accountKey: string | null): void;
+  setPeerOrder(accountKey: string, ids: readonly string[]): void;
   setGrouping(grouping: AgentListGrouping): void;
   /** Folds one of the list's groups, or opens it again. */
   toggleFolded(group: string): void;
@@ -109,7 +117,7 @@ function schedulePersist(): void {
 async function writeAgentView(): Promise<boolean> {
   pending = false;
   try {
-    const { mode, root, activeLeafId, ended, remoteFiles, order, grouping, folded } =
+    const { mode, root, activeLeafId, ended, remoteFiles, order, peerOrder, grouping, folded } =
       useAgentViewStore.getState();
     const agentView = {
       mode,
@@ -124,6 +132,9 @@ async function writeAgentView(): Promise<boolean> {
           }
         : {}),
       ...(Object.keys(order).length > 0 ? { order: orderToStore(order) } : {}),
+      ...(peerOrder
+        ? { peerOrder: { accountKey: peerOrder.accountKey, ids: [...peerOrder.ids] } }
+        : {}),
       ...(grouping !== AGENT_LIST_GROUPING_DEFAULT ? { grouping } : {}),
       ...(folded.size > 0 ? { folded: [...folded] } : {}),
     };
@@ -157,6 +168,8 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   ended: NO_ENDED,
   remoteFiles: NO_REMOTE_FILES,
   order: NO_ORDER,
+  peerOrder: undefined,
+  peerOrderAccount: null,
   grouping: AGENT_LIST_GROUPING_DEFAULT,
   folded: NO_FOLDS,
 
@@ -175,6 +188,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         ended: endedFromStore(snapshot.ended, held),
         remoteFiles: new Map([...remoteFiles].filter(([key]) => held.has(key))),
         order: orderFromStore(snapshot.order, alive),
+        peerOrder: snapshot.peerOrder,
         grouping: groupingFromStore(snapshot.grouping),
         folded: new Set(snapshot.folded ?? []),
       });
@@ -242,6 +256,23 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     schedulePersist();
   },
 
+  setPeerOrderAccount(accountKey) {
+    const { peerOrder, peerOrderAccount } = get();
+    const clear = peerOrder !== undefined && peerOrder.accountKey !== accountKey;
+    if (peerOrderAccount === accountKey && !clear) return;
+    set({ peerOrderAccount: accountKey, ...(clear ? { peerOrder: undefined } : {}) });
+    if (clear) schedulePersist();
+  },
+
+  setPeerOrder(accountKey, ids) {
+    const { peerOrder, peerOrderAccount } = get();
+    if (peerOrderAccount !== accountKey) return;
+    const was = peerOrder?.ids ?? [];
+    if (was.length === ids.length && was.every((id, i) => id === ids[i])) return;
+    set({ peerOrder: ids.length > 0 ? { accountKey, ids: [...ids] } : undefined });
+    schedulePersist();
+  },
+
   setGrouping(grouping) {
     if (get().grouping === grouping) return;
     set({ grouping });
@@ -262,6 +293,13 @@ export function isAgentViewShown(): boolean {
   return useAgentViewStore.getState().mode === "agents";
 }
 
+/** Clears another account's order even while the agent view is closed. */
+export function startAgentViewPeerOrderSync(): () => void {
+  return observeRemoteAccount((account) => {
+    useAgentViewStore.getState().setPeerOrderAccount(remoteAccountKey(account));
+  });
+}
+
 /** Test-only: forget the hydration, so a test starts from a fresh store. */
 export function __resetAgentViewForTests(): void {
   cancelPersistTimer();
@@ -274,6 +312,8 @@ export function __resetAgentViewForTests(): void {
     ended: NO_ENDED,
     remoteFiles: NO_REMOTE_FILES,
     order: NO_ORDER,
+    peerOrder: undefined,
+    peerOrderAccount: null,
     grouping: AGENT_LIST_GROUPING_DEFAULT,
     folded: NO_FOLDS,
   });

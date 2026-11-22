@@ -1947,6 +1947,8 @@
     },
     "remote": {
       "title": "다른 컴퓨터",
+      "moveUp": "위로 이동",
+      "moveDown": "아래로 이동",
       "needsSignIn": "로그인하면 다른 컴퓨터가 여기에 표시됩니다",
       "loading": "불러오는 중…",
       "unavailable": "원격 응답 없음",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DeviceIdSchema } from "../../../packages/remote-protocol/src/relay";
 import {
   NumberSchema,
   PositiveIntegerSchema,
@@ -102,6 +103,10 @@ export const AgentViewSnapshotSchema = z.object({
   // task) they run in. One this version cannot read is dropped.
   order: z
     .record(z.string().max(200), z.array(SessionKeySchema).max(256))
+    .optional()
+    .catch(undefined),
+  peerOrder: z
+    .object({ accountKey: z.string(), ids: z.array(DeviceIdSchema) })
     .optional()
     .catch(undefined),
   // How the list groups its agents: by their state, or by their workspace.
