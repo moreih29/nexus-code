@@ -106,9 +106,17 @@ interface SettingLabelProps {
   onReset?: () => void;
 }
 
-function SettingLabel({ label, code, description, htmlFor, dirty, onReset }: SettingLabelProps) {
+function SettingLabel({
+  label,
+  code,
+  description,
+  htmlFor,
+  dirty,
+  onReset,
+  className,
+}: SettingLabelProps & { className?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
       <div className={cn("flex min-w-0 items-center gap-1.5", code && "flex-wrap gap-y-0.5")}>
         {htmlFor ? (
           <label
@@ -181,7 +189,10 @@ export function SettingsRow({
   children,
 }: SettingsRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    // Narrow, the control drops under the name instead of squeezing it: the
+    // name keeps at least its basis, and a control that does not fit beside
+    // it wraps (its own buttons wrapping too, within the row's width).
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <SettingLabel
         label={label}
         code={code}
@@ -189,8 +200,9 @@ export function SettingsRow({
         htmlFor={htmlFor}
         dirty={dirty}
         onReset={onReset}
+        className="min-w-40 flex-1 basis-40"
       />
-      <div className="flex shrink-0 items-center">{children}</div>
+      <div className="ml-auto flex max-w-full shrink-0 items-center">{children}</div>
     </div>
   );
 }

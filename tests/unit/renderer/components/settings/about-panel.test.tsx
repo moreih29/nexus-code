@@ -140,6 +140,15 @@ describe("AboutPanel updates", () => {
     );
   }
 
+  test("the version row keeps its label and wraps its buttons in a narrow window", () => {
+    const html = renderRow({ kind: "installFailed", releaseUrl: "https://example.invalid/r" });
+    // The label holds a minimum width instead of shrinking to nothing...
+    expect(html).toContain("min-w-40");
+    // ...and the buttons wrap, beside the label or under it.
+    expect(html).toContain("flex-wrap");
+    expect(html).toContain("max-w-full");
+  });
+
   test("the version row says the app is up to date, and checks again", () => {
     const html = renderRow({ kind: "current", trigger: "manual", current: "1.2.3" });
     expect(html).toContain("Version 1.2.3");
