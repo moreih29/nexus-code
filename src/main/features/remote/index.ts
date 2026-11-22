@@ -43,7 +43,7 @@ import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { servesWith, serveWith } from "./serve";
-import { remoteProxy, remoteServer } from "./server";
+import { remoteServer, remoteWays } from "./server";
 import { snapshotSessions } from "./serving/sessions";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
@@ -285,7 +285,7 @@ export async function registerRemoteChannel(options: {
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
-    proxy: remoteProxy(process.env, app.isPackaged, server),
+    ...remoteWays(process.env, app.isPackaged, server),
     store,
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),

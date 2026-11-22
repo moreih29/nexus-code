@@ -4,7 +4,8 @@
  * desktop app), the server's session token it gets for this
  * device, and the account's devices. The token is what the relay and the
  * API take. Requests go by its route: through the proxy when there is one,
- * the server straight when it cannot be reached.
+ * the server's own address when it cannot be reached, and the fallback when
+ * neither can.
  */
 
 import os from "node:os";
@@ -71,11 +72,18 @@ export function thisDevice(): { name: string; platform: string } {
 }
 
 export interface RemoteAccountDeps {
-  /** The server's address, e.g. http://localhost:8787: the one signed in to. */
+  /**
+   * The server signed in to, kept with the sign-in, e.g. http://localhost:8787;
+   * its address too unless `direct` names another.
+   */
   readonly server: string;
-  /** The proxy requests to the server go through; none to go straight. */
+  /** The proxy requests to the server go through first; none to go straight first. */
   readonly proxy?: string | null;
-  /** The time now, for how long the proxy stays passed by. */
+  /** The server's own address, where its sign-in opens in the browser; `server` when not given. */
+  readonly direct?: string;
+  /** Where requests go when neither the proxy nor `direct` can be reached; none to stop there. */
+  readonly fallback?: string | null;
+  /** The time now, for how long a way that failed stays passed by. */
   now?: () => number;
   readonly store: Kept<SavedAccount>;
   openExternal(url: string): Promise<void>;
@@ -115,7 +123,12 @@ export class RemoteAccount {
 
   constructor(private readonly deps: RemoteAccountDeps) {
     this.fetch = deps.fetch ?? fetch;
-    this.route = new ServerRoute(deps.server, deps.proxy ?? null, deps.now);
+    this.route = new ServerRoute(
+      deps.direct ?? deps.server,
+      deps.proxy ?? null,
+      deps.now,
+      deps.fallback ?? null,
+    );
   }
 
   /** Picks up the sign-in kept from the last run, if there is one for this server. */
@@ -173,7 +186,7 @@ export class RemoteAccount {
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
-      const start = new URL(`/auth/${choice}/start`, this.deps.server);
+      const start = new URL(`/auth/${choice}/start`, this.route.direct);
       start.search = new URLSearchParams({
         redirect_uri: listener.redirectUri,
         state,
@@ -383,23 +396,25 @@ export class RemoteAccount {
         ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
     };
-    const base = this.route.base();
+    let base = this.route.base();
+    const tried = [base];
     let res: Response;
-    try {
-      res = await send(base);
-    } catch (error) {
-      signal?.throwIfAborted();
-      // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
-      // is slow. The proxy not reached, the server is asked straight, now and for a while; a
-      // request that timed out may have gone through, and is not sent again.
-      if (!this.route.unreachable(base) || options.retryOrigin === false || isTimeout(error)) {
-        throw new UnreachableError(error);
-      }
+    for (;;) {
       try {
-        res = await send(this.route.base());
-      } catch (again) {
+        res = await send(base);
+        break;
+      } catch (error) {
         signal?.throwIfAborted();
-        throw new UnreachableError(again);
+        // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
+        // is slow. A way not reached is passed by, now and for a while, and the request goes by
+        // the next, each way once; a request that timed out may have gone through, and is not
+        // sent again.
+        if (!this.route.unreachable(base) || options.retryOrigin === false || isTimeout(error)) {
+          throw new UnreachableError(error);
+        }
+        base = this.route.base();
+        if (tried.includes(base)) throw new UnreachableError(error);
+        tried.push(base);
       }
     }
     // A stale relay ticket can no longer change the account or its route.
