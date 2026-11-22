@@ -401,7 +401,12 @@
     },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
-    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
+    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
+    "links": {
+      "website": "Website",
+      "support": "Support",
+      "privacy": "Privacy Policy"
+    }
   },
   "keybindings": {
     "searchPlaceholder": "Search commands",
@@ -1167,7 +1172,8 @@
       "localOnly": "Local server only",
       "retry": "Try again",
       "checkAgain": "Check Again",
-      "openSupportPage": "Open Support Page"
+      "openSupportPage": "Open Support Page",
+      "learnMore": "Learn more"
     },
     "devices": {
       "title": "Devices",

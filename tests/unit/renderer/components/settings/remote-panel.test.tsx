@@ -1,12 +1,15 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import type { MouseEvent } from "react";
+import i18next from "i18next";
+import type { MouseEvent, ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import * as button from "../../../../../src/renderer/components/ui/button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import * as theme from "../../../../../src/renderer/state/stores/theme";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 import { SERVER } from "../../../../../src/shared/remote/server";
+import { siteUrl } from "../../../../../src/shared/site";
 
 const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
   "../../../../../src/renderer/components/settings/panels/remote-panel"
@@ -15,6 +18,48 @@ const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
 const server = "http://localhost:8787";
 const render = (state: RemoteAccountState, signIns?: readonly string[]) =>
   renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
+
+/** Renders `node` with the app in `language`. */
+async function renderIn(language: string, node: ReactElement): Promise<string> {
+  const i18n = i18next.cloneInstance({ lng: language });
+  await i18n.changeLanguage(language);
+  return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
+}
+
+/** The link to `url` labelled `label` that opens in a new tab, or null. */
+function linkTo(html: string, url: string, label: string): string | null {
+  const escaped = url.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const tag = html.match(new RegExp(`<a [^>]*href="${escaped}"[^>]*>${label}</a>`))?.[0] ?? null;
+  if (tag === null) return null;
+  expect(tag).toContain('target="_blank"');
+  expect(tag).toContain('rel="noopener noreferrer"');
+  return tag;
+}
+
+const SIGN_IN_HELP_EN = "https://nexuscode.gradiendo.com/en/support/#sign-in";
+const SIGN_IN_HELP_KO = "https://nexuscode.gradiendo.com/support/#sign-in";
+
+describe("the website's addresses", () => {
+  test.each([
+    ["home", "https://nexuscode.gradiendo.com/", "https://nexuscode.gradiendo.com/en/"],
+    [
+      "support",
+      "https://nexuscode.gradiendo.com/support/",
+      "https://nexuscode.gradiendo.com/en/support/",
+    ],
+    ["signIn", SIGN_IN_HELP_KO, SIGN_IN_HELP_EN],
+    [
+      "privacy",
+      "https://nexuscode.gradiendo.com/privacy/",
+      "https://nexuscode.gradiendo.com/en/privacy/",
+    ],
+  ] as const)("%s: Korean's at the root, every other language's under /en/", (page, ko, en) => {
+    expect(siteUrl(page, "ko")).toBe(ko);
+    expect(siteUrl(page, "ko-KR")).toBe(ko);
+    expect(siteUrl(page, "en")).toBe(en);
+    expect(siteUrl(page, "fr")).toBe(en);
+  });
+});
 
 describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
@@ -83,16 +128,48 @@ describe("the remote panel's account", () => {
     expect(html).not.toContain("Check Again");
   });
 
-  test("links to the Store-listed support page for a suspended account", () => {
+  test("links a suspended account to support's sign-in section", () => {
     const html = render({ status: "signed-out", server, failure: "suspended" });
     expect(html).toContain('role="alert" data-testid="sign-in-notice" data-failure="suspended"');
     expect(html).toContain("border-destructive/60");
     expect(html).toContain("Account suspended");
     expect(html).toContain("Contact us through the support page.");
     expect(html).not.toContain("Approved accounts only");
-    expect(html).toContain('href="https://github.com/moreih29/nexus-code/issues"');
-    expect(html).toContain("Open Support Page");
+    expect(linkTo(html, SIGN_IN_HELP_EN, "Open Support Page")).not.toBeNull();
+    expect(html).not.toContain("Learn more");
     expect(html).not.toContain("Check Again");
+  });
+
+  test.each([
+    "pending_approval",
+    "closed",
+    "not_invited",
+    "rejected",
+  ] as const)("links %s to support's sign-in section to learn more", (failure) => {
+    const html = render({ status: "signed-out", server, failure });
+    expect(linkTo(html, SIGN_IN_HELP_EN, "Learn more")).not.toBeNull();
+  });
+
+  test.each([
+    "unverified_email",
+    "rate_limited",
+    "too_many_devices",
+  ] as const)("has no more to learn for %s", (failure) => {
+    expect(render({ status: "signed-out", server, failure })).not.toContain("<a ");
+  });
+
+  test("links support's Korean pages when the app is in Korean", async () => {
+    const rejected = await renderIn(
+      "ko",
+      <AccountGroup state={{ status: "signed-out", server, failure: "rejected" }} />,
+    );
+    expect(linkTo(rejected, SIGN_IN_HELP_KO, "자세히")).not.toBeNull();
+    const suspended = await renderIn(
+      "ko",
+      <AccountGroup state={{ status: "signed-out", server, failure: "suspended" }} />,
+    );
+    expect(linkTo(suspended, SIGN_IN_HELP_KO, "지원 페이지 열기")).not.toBeNull();
+    expect(suspended).not.toContain("/en/");
   });
 
   test("offers the sign-ins the server has", () => {

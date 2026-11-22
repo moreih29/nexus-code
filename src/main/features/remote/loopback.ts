@@ -11,11 +11,13 @@ import { z } from "zod";
 import { resources, type SupportedLanguage } from "../../../shared/i18n";
 import {
   APPROVED_ONLY_FAILURES,
+  SIGN_IN_HELP_FAILURES,
   type SignInFailure,
   type SignInProvider,
   signInFailureTone,
   signInProviderName,
 } from "../../../shared/remote/account";
+import { siteUrl } from "../../../shared/site";
 import { mainLanguage } from "../../i18n";
 import { SignInError } from "./errors";
 
@@ -111,7 +113,8 @@ export const PAGE_WAIT_MS = 10_000;
 
 /**
  * The page's headers: nothing kept or passed on, and nothing loaded or run
- * but its own styles.
+ * but its own styles. A link still opens: the policy does not govern where
+ * the page goes.
  */
 export const PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -142,6 +145,9 @@ h1{margin:0 0 6px;font-size:20px;line-height:1.35;font-weight:650}
 p{margin:0}
 .lead{margin:0 0 4px;font-weight:550}
 .body{color:var(--muted)}
+.more{margin:12px 0 0}
+.more a{color:var(--info);font-weight:550;text-decoration:none}
+.more a:hover{text-decoration:underline}
 .foot{margin:16px 0 0;text-align:center;font-size:13px;color:var(--muted)}
 `;
 
@@ -188,8 +194,9 @@ function pageWords(
 /**
  * The page the browser shows once it is back, in the app's language. Its
  * words are the app's own, picked by the outcome, with the name of a pending
- * approval's sign-in from the app's own list: nothing the server or the
- * query sent is put in it.
+ * approval's sign-in from the app's own list, and a failure support explains
+ * links to the app's own address for it: nothing the server or the query
+ * sent is put in it.
  */
 export function page(
   outcome: PageOutcome,
@@ -201,6 +208,10 @@ export function page(
   const lead =
     outcome !== "signed-in" && outcome !== "in-app" && APPROVED_ONLY_FAILURES.includes(outcome)
       ? `<p class="lead">${escapeHtml(words.approvedOnly)}</p>`
+      : "";
+  const help =
+    outcome !== "signed-in" && outcome !== "in-app" && SIGN_IN_HELP_FAILURES.includes(outcome)
+      ? `<p class="more"><a href="${escapeHtml(siteUrl("signIn", language))}" target="_blank" rel="noopener noreferrer">${escapeHtml(words.learnMore)}</a></p>`
       : "";
   const tone =
     outcome === "signed-in"
@@ -222,7 +233,7 @@ export function page(
     `<title>${escapeHtml(title)} · NexusCode</title><style>${STYLE}</style></head>`,
     `<body><main><div class="brand">${LOGO}<span>NexusCode</span></div>`,
     `<section class="card ${tone}"><div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>`,
-    `<h1>${escapeHtml(title)}</h1>${lead}<p class="body">${escapeHtml(body)}</p></section>`,
+    `<h1>${escapeHtml(title)}</h1>${lead}<p class="body">${escapeHtml(body)}</p>${help}</section>`,
     `<p class="foot">${escapeHtml(words.browser.closeTab)}</p></main></body></html>`,
   ].join("");
 }

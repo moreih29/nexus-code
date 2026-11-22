@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../../src/shared/updates/status";
 
 // The Vite define the panel prints; Bun test has no bundler pass.
@@ -28,6 +30,47 @@ function renderStatus(status: UpdateStatus, progress: UpdateProgress | null = nu
 
 afterEach(() => {
   globals.window = originalWindow;
+});
+
+describe("AboutPanel's website links", () => {
+  /** The panel's links to the site: label, address, and that each opens in a new tab. */
+  function siteLinks(html: string): [string, string][] {
+    return Array.from(
+      html.matchAll(/<a [^>]*data-testid="about-site-[^"]+"[^>]*>([^<]+)<\/a>/g),
+      (m) => {
+        const tag = m[0];
+        expect(tag).toContain('target="_blank"');
+        expect(tag).toContain('rel="noopener noreferrer"');
+        return [m[1] ?? "", tag.match(/href="([^"]+)"/)?.[1] ?? ""];
+      },
+    );
+  }
+
+  test("links the website, support and the privacy policy in English", () => {
+    expect(siteLinks(renderWithHost({ platform: "darwin" }))).toEqual([
+      ["Website", "https://nexuscode.gradiendo.com/en/"],
+      ["Support", "https://nexuscode.gradiendo.com/en/support/"],
+      ["Privacy Policy", "https://nexuscode.gradiendo.com/en/privacy/"],
+    ]);
+    // A Microsoft Store install has them too.
+    expect(siteLinks(renderWithHost({ platform: "win32", windowsStore: true }))).toHaveLength(3);
+  });
+
+  test("links the Korean pages when the app is in Korean", async () => {
+    const i18n = i18next.cloneInstance({ lng: "ko" });
+    await i18n.changeLanguage("ko");
+    globals.window = { host: { platform: "darwin" } };
+    const html = renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <AboutPanel />
+      </I18nextProvider>,
+    );
+    expect(siteLinks(html)).toEqual([
+      ["웹사이트", "https://nexuscode.gradiendo.com/"],
+      ["지원", "https://nexuscode.gradiendo.com/support/"],
+      ["개인정보처리방침", "https://nexuscode.gradiendo.com/privacy/"],
+    ]);
+  });
 });
 
 describe("AboutPanel updates", () => {

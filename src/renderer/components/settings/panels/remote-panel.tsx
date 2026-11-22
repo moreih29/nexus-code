@@ -16,11 +16,13 @@ import {
   MAX_DEVICE_ALIAS,
   type RemoteAccountState,
   type RemoteDeviceInfo,
+  SIGN_IN_HELP_FAILURES,
   SIGN_IN_PROVIDERS,
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
+import { siteUrl } from "../../../../shared/site";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult } from "../../../ipc/client";
 import { useRemoteAccount } from "../../../services/remote/account";
@@ -53,9 +55,6 @@ const iconButtonClass = cn(
 
 const tagClass =
   "shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground";
-
-/** The support contact listed for the app in the Store. */
-const SUPPORT_PAGE_URL = "https://github.com/moreih29/nexus-code/issues";
 
 const PLATFORMS: Record<string, string> = {
   darwin: "macOS",
@@ -135,7 +134,7 @@ export function AccountGroup({
   unreachable?: boolean;
   onRetry?: () => void;
 }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
   const signIn = (provider?: SignInProvider) =>
     void ipcCallResult("remote", "signIn", provider ? { provider } : undefined);
@@ -149,6 +148,8 @@ export function AccountGroup({
       : unreachable
         ? "unreachable"
         : undefined;
+  // Support's section on signing in and signup approval, in the app's language.
+  const signInHelp = siteUrl("signIn", i18n.language);
   const noticeActions = [
     failure === "pending_approval" && (
       <Button key="check" variant="outline" size="sm" onClick={() => signIn()}>
@@ -157,8 +158,15 @@ export function AccountGroup({
     ),
     failure === "suspended" && (
       <Button key="support" variant="outline" size="sm" asChild>
-        <a href={SUPPORT_PAGE_URL} target="_blank" rel="noopener noreferrer">
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
           {t("remote.account.openSupportPage")}
+        </a>
+      </Button>
+    ),
+    failure !== undefined && SIGN_IN_HELP_FAILURES.includes(failure) && (
+      <Button key="help" variant="link" size="sm" className="px-0" asChild>
+        <a href={signInHelp} target="_blank" rel="noopener noreferrer">
+          {t("remote.account.learnMore")}
         </a>
       </Button>
     ),

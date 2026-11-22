@@ -32,11 +32,15 @@
 // A Microsoft Store install shows none of this: the Store updates it, and a
 // GitHub release has no build for it. It gets a button to the Store page.
 //
+// Last come the website's front page, support and privacy policy, in the
+// app's language; the window opens them in the browser, as any link.
+//
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { type SitePage, siteUrl } from "../../../../shared/site";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
 import { installUpdate } from "../../../services/updates/operations";
@@ -136,7 +140,42 @@ export function AboutPanel() {
           />
         </SettingsGroup>
       )}
+
+      <SettingsGroup>
+        <SiteLinks />
+      </SettingsGroup>
     </SettingsPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The website
+// ---------------------------------------------------------------------------
+
+const SITE_LINKS = [
+  { page: "home", label: "about.links.website" },
+  { page: "support", label: "about.links.support" },
+  { page: "privacy", label: "about.links.privacy" },
+] as const satisfies readonly { page: SitePage; label: string }[];
+
+/** The website's pages, in the app's language. */
+function SiteLinks() {
+  const { t, i18n } = useTranslation("settings");
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {SITE_LINKS.map(({ page, label }) => (
+        <Button key={page} variant="outline" size="sm" asChild>
+          <a
+            href={siteUrl(page, i18n.language)}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid={`about-site-${page}`}
+          >
+            {t(label)}
+          </a>
+        </Button>
+      ))}
+    </div>
   );
 }
 

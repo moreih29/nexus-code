@@ -401,7 +401,12 @@
     },
     "releaseNotes": "릴리스 노트",
     "downloadProgress": "업데이트 다운로드 진행률",
-    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
+    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s",
+    "links": {
+      "website": "웹사이트",
+      "support": "지원",
+      "privacy": "개인정보처리방침"
+    }
   },
   "keybindings": {
     "searchPlaceholder": "커맨드 검색",
@@ -1167,7 +1172,8 @@
       "localOnly": "로컬 서버 전용",
       "retry": "다시 시도",
       "checkAgain": "다시 확인",
-      "openSupportPage": "지원 페이지 열기"
+      "openSupportPage": "지원 페이지 열기",
+      "learnMore": "자세히"
     },
     "devices": {
       "title": "기기",
