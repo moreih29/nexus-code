@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RoomPeer } from "../../../shared/remote/room";
 import { orderPeers } from "../../services/agent-view/order";
 import { remoteAccountKey, useRemoteAccount } from "../../services/remote/account";
+import { watchPeerGitStatus } from "../../services/remote/peer-git-status";
 import {
+  observePeerSessions,
   offlinePeers,
   type PeerReach,
   servingPeers,
@@ -57,6 +59,53 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
   const sessions = selection ? lists[selection.deviceId] : undefined;
   const workspaces = sessions?.status === "ready" ? sessions.list.workspaces : undefined;
   const current = workspaces?.find(({ id }) => id === selection?.workspaceId);
+  const gitSupported = peer?.serves?.includes("git") ?? false;
+  const rejoin = peer?.rejoins ?? 0;
+  const gitTarget = selection ? peerTargetId(selection) : null;
+  const deviceId = selection?.deviceId;
+  const workspaceId = selection?.workspaceId;
+  const root = selection?.workspace.path;
+  const refresh = useRef<(() => void) | null>(null);
+  const refreshGit = useCallback(() => refresh.current?.(), []);
+  const [sessionHint, setSessionHint] = useState(0);
+
+  useEffect(() => {
+    if (!workspaceShown || !reachable || missing || !gitTarget || !deviceId || !workspaceId) return;
+    const watch = watchPeerGitStatus(
+      { deviceId, workspaceId },
+      {
+        gitSupported,
+        onResult: (result) => {
+          const state = usePeerWorkspaceStore.getState();
+          const target = state.active;
+          if (target && target.accountKey === accountKey && target.workspace.path === root) {
+            state.setGitResult(gitTarget, result);
+          }
+        },
+        onSessionHint: () => setSessionHint((before) => before + 1),
+      },
+    );
+    refresh.current = watch.refresh;
+    const off = observePeerSessions(deviceId, rejoin, (sessions) => {
+      if (sessions.status === "ready") watch.updateSessions(sessions.list.sessions);
+    });
+    return () => {
+      refresh.current = null;
+      off();
+      watch.stop();
+    };
+  }, [
+    accountKey,
+    deviceId,
+    gitSupported,
+    gitTarget,
+    missing,
+    reachable,
+    rejoin,
+    root,
+    workspaceId,
+    workspaceShown,
+  ]);
 
   useEffect(() => {
     if (!account) return;
@@ -89,7 +138,10 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     reach,
     reachable,
     filesSupported: peer?.serves?.includes("files") ?? false,
-    rejoin: peer?.rejoins ?? 0,
+    gitSupported,
+    refreshGit,
+    sessionHint,
+    rejoin,
     workspaces,
   };
 }

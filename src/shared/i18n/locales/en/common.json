@@ -2086,6 +2086,16 @@
     "quickOpen": "Quick Open on Other Computer",
     "quickOpenPlaceholder": "File name or path",
     "quickOpenPrompt": "File name or path on the other computer",
-    "quickOpenEmpty": "No matching files"
+    "quickOpenEmpty": "No matching files",
+    "gitNoStageCommit": "No staging or commits",
+    "gitUnstaged": "Unstaged Changes",
+    "gitDetached": "Detached HEAD",
+    "gitDivergence": "Ahead {{ahead}} · Behind {{behind}}",
+    "gitTruncated": "Partial file list",
+    "gitNotRepository": "Not a Git repository",
+    "gitChangeMissing": "Change no longer available",
+    "gitDiffLeft": "Left {{path}} ({{ref}})",
+    "gitDiffRight": "Right {{path}} ({{ref}})",
+    "gitPatchOnly": "Full comparison unavailable · Changed sections only"
   }
 }

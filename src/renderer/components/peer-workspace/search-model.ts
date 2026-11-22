@@ -82,7 +82,12 @@ export function openPeerResult(
   if (path === null) return;
   const id = peerTargetId(target);
   const store = usePeerWorkspaceStore.getState();
-  if (!canRead && !store.views[id]?.tabs.some((tab) => peerPathKey(tab.path) === peerPathKey(path)))
+  if (
+    !canRead &&
+    !store.views[id]?.tabs.some(
+      (tab) => tab.type === "peer.file" && peerPathKey(tab.path) === peerPathKey(path),
+    )
+  )
     return;
   store.openFile(id, path, range && { line: range.line + 1, column: range.startCol + 1 });
 }

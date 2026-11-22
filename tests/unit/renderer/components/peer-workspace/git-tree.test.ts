@@ -1,0 +1,57 @@
+import { expect, test } from "bun:test";
+import {
+  changedPeerGitParents,
+  peerGitDecorations,
+} from "../../../../../src/renderer/components/peer-workspace/git-tree";
+import type { PeerGitStatus } from "../../../../../src/renderer/services/remote/peer-git-status";
+
+const root = "D:\\Project";
+const status = (files: PeerGitStatus["files"]): PeerGitStatus => ({
+  branch: "main",
+  ahead: 0,
+  behind: 0,
+  files,
+});
+
+test("peer Git colors and letters use drive path keys and the local decoration rules", () => {
+  const changes = status([
+    { path: "src/services/new.ts", oldPath: "old/old.ts", staged: "R", unstaged: "M" },
+    { path: "removed/old.ts", staged: "D" },
+    { path: "src/Conflict.ts", staged: "A", unstaged: "A" },
+    { path: "src/draft.ts", unstaged: "?" },
+    { path: "../outside.ts", unstaged: "M" },
+  ]);
+  const decorations = peerGitDecorations(root, changes);
+  expect(decorations.files).toEqual(
+    new Map([
+      ["d:/project/src/services/new.ts", "modified"],
+      ["d:/project/old/old.ts", "renamed"],
+      ["d:/project/removed/old.ts", "deleted"],
+      ["d:/project/src/conflict.ts", "conflict"],
+      ["d:/project/src/draft.ts", "untracked"],
+    ]),
+  );
+  expect(decorations.folders).toEqual(
+    new Map([
+      ["d:/project/src/services", "modified"],
+      ["d:/project/src", "conflict"],
+      ["d:/project/old", "renamed"],
+    ]),
+  );
+});
+
+test("only the immediate parents of paths added to or removed from the Git file set are invalidated", () => {
+  const before = status([
+    { path: "src/Unchanged.ts", staged: "M" },
+    { path: "old/deep/removed.ts", staged: "D" },
+  ]);
+  const after = status([
+    { path: "src/unchanged.ts", unstaged: "M" },
+    { path: "src/new/add.ts", unstaged: "?" },
+    { path: "README", unstaged: "M" },
+    { path: "../outside.ts", unstaged: "M" },
+  ]);
+  expect(changedPeerGitParents(root, before, after)).toEqual(
+    new Set(["d:/project/old/deep", "d:/project/src/new", "d:/project"]),
+  );
+});
