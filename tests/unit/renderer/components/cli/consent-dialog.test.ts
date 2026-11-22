@@ -1,15 +1,26 @@
 /** A consent prompt answered on another device of the user's comes down here, saying so. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
+import { Dialog as RadixDialog } from "radix-ui";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   askCliConsent,
+  CliConsentDialogRoot,
   consentNamesTarget,
   consentTitleOf,
   describeConsent,
   settleCliConsent,
 } from "../../../../../src/renderer/components/cli/consent-dialog";
+import type { DialogProps } from "../../../../../src/renderer/components/ui/dialog";
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
+
+// Static rendering omits the portal. Keep the Radix context for the dialog header.
+mock.module("../../../../../src/renderer/components/ui/dialog", () => ({
+  Dialog: ({ open, children }: DialogProps) =>
+    open ? createElement(RadixDialog.Root, { open }, children) : null,
+}));
 
 const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
@@ -19,6 +30,25 @@ const prompt = (id?: string) => ({
   change: { kind: "chatInput" as const, detail: "Review" },
   timeoutMs: 60_000,
 });
+
+for (const [eachTime, labels] of [
+  [true, ["Don&#x27;t allow", "Allow"]],
+  [false, ["Don&#x27;t allow", "Allow until restart", "Allow once"]],
+] as const) {
+  test(`the dialog shows the expected choices when eachTime is ${eachTime}`, async () => {
+    const request = prompt("button-labels");
+    const asked = askCliConsent({ ...request, change: { ...request.change, eachTime } });
+    try {
+      const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+      expect(
+        Array.from(html.matchAll(/<button[^>]*>([^<]*)<\/button>/g), ([, label]) => label),
+      ).toEqual(labels);
+    } finally {
+      settleCliConsent("button-labels", "deny");
+      await asked;
+    }
+  });
+}
 
 describe("settling a consent prompt from another device", () => {
   test("the prompt resolves to that answer, and a toast names the device", async () => {
@@ -35,6 +65,27 @@ describe("settling a consent prompt from another device", () => {
       expect(toasts).toHaveLength(2);
       expect(toasts.map((t) => t.kind)).toEqual(["info", "info"]);
     } finally {
+      stop();
+    }
+  });
+
+  test("the approval toast uses the choices offered by the answered prompt", async () => {
+    const toasts: ToastInput[] = [];
+    const stop = watchToasts((t) => toasts.push(t));
+    const request = prompt("each-time");
+    const regular = askCliConsent(prompt("regular"));
+    const eachTime = askCliConsent({ ...request, change: { ...request.change, eachTime: true } });
+    try {
+      expect(settleCliConsent("each-time", "once", "iPhone")).toBe(true);
+      expect(settleCliConsent("regular", "once", "iPhone")).toBe(true);
+      expect(await Promise.all([eachTime, regular])).toEqual(["once", "once"]);
+      expect(toasts.map((t) => t.message)).toEqual([
+        "Allowed on iPhone.",
+        "Allowed once on iPhone.",
+      ]);
+    } finally {
+      settleCliConsent("each-time", "deny");
+      settleCliConsent("regular", "deny");
       stop();
     }
   });
