@@ -323,5 +323,18 @@
     "task": "To-do",
     "rerun": "Summarize again",
     "rerunConfirm": "Replace existing summary · Send transcript to the selected Claude profile"
+  },
+  "tasks": {
+    "action": "To a task",
+    "newTask": "New task · {{agent}}",
+    "newConversation": "New conversation · {{agent}}",
+    "existing": "Existing conversation…",
+    "assignError": "To-do assignment failed",
+    "showTranscript": "Show in transcript",
+    "promptItem": "To-do: {{text}}",
+    "promptNote": "Note {{title}}{{section}} · Read the full note with `nexus note read {{id}}`.",
+    "promptSection": " · Under {{heading}}",
+    "promptReport": "When finished, use `nexus note report --done \"one-line summary\" --pr <PR URL>` to report to this to-do. If blocked, use `--failed`.",
+    "sentWithoutLink": "Message sent · To-do link failed"
   }
 }

@@ -39,7 +39,7 @@ export function agentPrompt(message: string, title: string, noteId: string): str
   });
 }
 
-function useDestinations(workspaceId: string, noteId: string, visible: boolean) {
+export function useDestinations(workspaceId: string, noteId: string, visible: boolean) {
   const family = useSessionFamily(workspaceId, visible);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const tabsByWorkspace = useTabsStore((s) => s.byWorkspace);
@@ -220,36 +220,11 @@ export function SendToAgent({
           </fieldset>
         </div>
         {existing && (
-          <fieldset
-            aria-label={t("agent.existing")}
-            className="max-h-48 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-(--radius-control) border border-border app-scrollbar"
-          >
-            {destinations.length ? (
-              ([true, false] as const).map((linked) => {
-                const rows = destinations.filter(({ linkId }) => Boolean(linkId) === linked);
-                if (!rows.length) return null;
-                return (
-                  <div key={String(linked)}>
-                    <div className="px-2 pt-1.5 pb-0.5 text-app-micro text-muted-foreground">
-                      {t(linked ? "agent.linked" : "agent.other")}
-                    </div>
-                    {rows.map(({ session }) => (
-                      <DestinationRow
-                        key={session.key}
-                        session={session}
-                        selected={session.key === selected}
-                        onSelect={() => setSelected(session.key)}
-                      />
-                    ))}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-2 py-1.5 text-app-micro text-muted-foreground">
-                {t("agent.noConversations")}
-              </div>
-            )}
-          </fieldset>
+          <ConversationDestinations
+            destinations={destinations}
+            selected={selected}
+            onSelect={setSelected}
+          />
         )}
         <label className="flex flex-col gap-1.5">
           <span className="text-app-micro text-muted-foreground">{t("agent.message")}</span>
@@ -278,6 +253,50 @@ export function SendToAgent({
         </div>
       </div>
     </Popover>
+  );
+}
+
+export function ConversationDestinations({
+  destinations,
+  selected,
+  onSelect,
+}: {
+  destinations: ReturnType<typeof useDestinations>;
+  selected?: string;
+  onSelect: (key: string) => void;
+}) {
+  const { t } = useTranslation("notes");
+  return (
+    <fieldset
+      aria-label={t("agent.existing")}
+      className="max-h-48 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-(--radius-control) border border-border app-scrollbar"
+    >
+      {destinations.length ? (
+        ([true, false] as const).map((linked) => {
+          const rows = destinations.filter(({ linkId }) => Boolean(linkId) === linked);
+          if (!rows.length) return null;
+          return (
+            <div key={String(linked)}>
+              <div className="px-2 pt-1.5 pb-0.5 text-app-micro text-muted-foreground">
+                {t(linked ? "agent.linked" : "agent.other")}
+              </div>
+              {rows.map(({ session }) => (
+                <DestinationRow
+                  key={session.key}
+                  session={session}
+                  selected={session.key === selected}
+                  onSelect={() => onSelect(session.key)}
+                />
+              ))}
+            </div>
+          );
+        })
+      ) : (
+        <div className="px-2 py-1.5 text-app-micro text-muted-foreground">
+          {t("agent.noConversations")}
+        </div>
+      )}
+    </fieldset>
   );
 }
 

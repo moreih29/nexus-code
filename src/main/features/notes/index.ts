@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import type { LineReport } from "../../../shared/notes/line-report";
+import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
 import { DEFAULT_RECORDING_SUMMARY_SETTINGS } from "../../../shared/notes/summary";
 import {
@@ -124,6 +126,7 @@ export interface NotesFeature {
    * note puts them in its copy too.
    */
   append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
+  reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
   /**
    * Writes a file into a note's folder: an image into screens/, which it
    * shows, anything else into materials/. The block that shows it.
@@ -331,6 +334,18 @@ export function registerNotesChannel(opts: {
     noteId: string;
     recordingId: string;
   }): SummaryTarget => ({ location: locationOf(workspaceId), noteId, recordingId });
+  const reportLine: NotesFeature["reportLine"] = (tab, noteId, report) =>
+    trackWrite(async () => {
+      const location = locationOf(tab.workspaceId);
+      const place = { locationKey: location.key, noteId };
+      return store.reportLine(location, tab, noteId, report, {
+        resultSaved: () => linksChanged(location.key, noteId),
+        documentWritten: (updatedAt) => {
+          broadcast("notes", "lineReported", { ...place, ...report, updatedAt });
+          changed({ ...place, change: "saved" });
+        },
+      });
+    });
   const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
     trackWrite(async () => {
       const location = locationOf(workspaceId);
@@ -436,11 +451,11 @@ export function registerNotesChannel(opts: {
         return ipcOk(undefined);
       },
       save: async (args: unknown) => {
-        const { workspaceId, noteId, title, doc } = validateArgs(c.save.args, args);
+        const { workspaceId, noteId, title, doc, baseUpdatedAt } = validateArgs(c.save.args, args);
         const location = locationOf(workspaceId);
         const summary = await store.save(location, noteId, {
           ...(title !== undefined ? { title } : {}),
-          ...(doc !== undefined ? { doc: doc as never } : {}),
+          ...(doc !== undefined ? { doc: doc as never, baseUpdatedAt } : {}),
         });
         changed({ locationKey: location.key, noteId, change: "saved" });
         retitle(noteId, summary.title);
@@ -641,6 +656,7 @@ export function registerNotesChannel(opts: {
       summaryCompleted: {},
       blocksAdded: {},
       blocksRemoved: {},
+      lineReported: {},
     },
   });
 
@@ -666,6 +682,7 @@ export function registerNotesChannel(opts: {
     },
     create,
     append,
+    reportLine,
     addAsset,
   };
 }

@@ -9,6 +9,7 @@ import {
   NoteConversationSchema,
   NoteLinkIdSchema,
   NoteLinkPatchSchema,
+  NoteLinkResultSchema,
   NoteLinkTargetSchema,
 } from "../notes/links";
 import { RecordingIdSchema, RecordingSummarySchema, SummaryModeSchema } from "../notes/summary";
@@ -56,6 +57,7 @@ export const LinkedNoteSchema = z.object({
   noteId: NoteIdSchema,
   title: z.string(),
   updatedAt: NonnegativeNumberSchema,
+  line: z.string().optional(),
 });
 export type LinkedNote = z.infer<typeof LinkedNoteSchema>;
 
@@ -116,7 +118,12 @@ export const NotesArgs = {
     z.object({ tab: NoteLinkTargetSchema.extend({ agent: NewNoteLinkSchema.shape.agent }) }),
   ]),
   removeLink: z.object({ ...note, linkId: NoteLinkIdSchema }),
-  save: z.object({ ...note, title: z.string().max(500).optional(), doc: NoteDocSchema.optional() }),
+  save: z.object({
+    ...note,
+    title: z.string().max(500).optional(),
+    doc: NoteDocSchema.optional(),
+    baseUpdatedAt: NonnegativeNumberSchema.optional(),
+  }),
   remove: z.object(note),
   prune: z.object(note),
   addFiles: z.object({ ...note, paths: z.array(z.string().min(1).max(4096)).min(1).max(100) }),
@@ -246,3 +253,11 @@ export const NoteSummaryCompletedSchema = z.object({
   todos: z.number().int().nonnegative(),
 });
 export type NoteSummaryCompleted = z.infer<typeof NoteSummaryCompletedSchema>;
+
+export const NoteLineReportedSchema = NoteLinksChangedSchema.extend({
+  linkId: NoteLinkIdSchema,
+  check: z.boolean(),
+  result: NoteLinkResultSchema,
+  updatedAt: NonnegativeNumberSchema,
+});
+export type NoteLineReported = z.infer<typeof NoteLineReportedSchema>;

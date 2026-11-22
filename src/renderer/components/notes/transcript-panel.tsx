@@ -78,7 +78,9 @@ import {
   readRecordings,
   type SpeakerFilter,
   speakerColor,
+  type TranscriptJump,
   type TranscriptRow,
+  transcriptJumpKey,
   transcriptRows,
 } from "./transcript-rows";
 import { NOTE_TEXT_MIN, TranscriptSash } from "./transcript-sash";
@@ -112,6 +114,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   flushNote,
   onQuote,
   onClose,
+  jump,
 }: {
   workspaceId: string;
   noteId: string;
@@ -121,6 +124,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   /** Puts a line into the note, as a quote. */
   onQuote: (quote: TranscriptQuote) => void;
   onClose: () => void;
+  jump?: TranscriptJump;
 }) {
   const { t } = useTranslation("notes");
   const file = useTranscriptsStore((s) => s.byNote[transcriptKey(workspaceId, noteId)]);
@@ -316,7 +320,8 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   const wholeAt = useRef<{ top: typeof wholeTop.current; stuck: boolean } | null>(null);
   const wasNarrowed = useRef(false);
   // A line to bring into sight once the whole transcript shows again.
-  const reveal = useRef<string | null>(null);
+  const [reveal, setReveal] = useState<{ key: string }>();
+  const handled = useRef<typeof reveal>(undefined);
   const [lit, setLit] = useState<string | null>(null);
   const viewKey = `${speaker?.recordingId ?? ""}\n${speaker?.person ?? ""}\n${query.trim()}`;
   const live = liveId !== null;
@@ -325,13 +330,12 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const target = reveal.current;
-    reveal.current = null;
-    if (target !== null) {
+    if (reveal && handled.current !== reveal) {
+      handled.current = reveal;
       wholeAt.current = null;
       wasNarrowed.current = false;
       stuck.current = false;
-      const index = rows.findIndex((row) => row.key === target);
+      const index = rows.findIndex((row) => row.key === reveal.key);
       if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
       // The time clicked is gone with the narrowing; the keyboard stays here.
       el.focus({ preventScroll: true });
@@ -359,7 +363,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     const row = top && virtualizer.measurementsCache[rows.findIndex((r) => r.key === top.key)];
     // Not scrolled before it was narrowed: it was at its start.
     el.scrollTop = row && top ? row.start + top.into : 0;
-  }, [viewKey]);
+  }, [viewKey, reveal]);
 
   const total = virtualizer.getTotalSize();
   // biome-ignore lint/correctness/useExhaustiveDependencies: new rows and their sizes move the end
@@ -375,12 +379,21 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   }, [lit]);
 
   const showInWhole = useCallback((key: string) => {
-    reveal.current = key;
+    setReveal({ key });
     setSpeaker(null);
     setQuery("");
     setSearching(false);
     setLit(key);
   }, []);
+
+  const lastJump = useRef<TranscriptJump | undefined>(undefined);
+  useEffect(() => {
+    if (!jump || jump === lastJump.current) return;
+    const key = transcriptJumpKey(read, jump);
+    if (!key) return;
+    lastJump.current = jump;
+    showInWhole(key);
+  }, [jump, read, showInWhole]);
 
   // The handlers rows are given stay the same; they read what is current here.
   const current = useRef({ casts, recordings, unnamed, onQuote });

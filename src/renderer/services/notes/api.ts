@@ -9,14 +9,19 @@ import type {
   NoteLinkPatch,
   NoteLinkTarget,
 } from "../../../shared/notes/links";
-import type { DocNode } from "../../../shared/notes/markdown";
 import type { SummaryMode } from "../../../shared/notes/summary";
 import type { TranscriptEdit, TranscriptFile } from "../../../shared/notes/transcript";
-import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
+import type {
+  NoteAsset,
+  NoteContent,
+  NoteSaveChange,
+  NoteSummary,
+} from "../../../shared/notes/types";
 import type {
   NoteBlocksAdded,
   NoteBlocksRemoved,
   NoteChanged,
+  NoteLineReported,
   NoteLinksChanged,
   NotePhotoAdded,
   NoteSummaryChanged,
@@ -72,17 +77,17 @@ export const notesApi = {
     call(ipcCallResult("notes", "removeLink", { workspaceId, noteId, linkId })),
   onLinksChanged: (cb: (event: NoteLinksChanged) => void): (() => void) =>
     ipcListen("notes", "linksChanged", cb),
-  save: (
-    workspaceId: string,
-    noteId: string,
-    change: { title?: string; doc?: DocNode },
-  ): Promise<NoteSummary> =>
+  onLineReported: (cb: (event: NoteLineReported) => void): (() => void) =>
+    ipcListen("notes", "lineReported", cb),
+  save: (workspaceId: string, noteId: string, change: NoteSaveChange): Promise<NoteSummary> =>
     call(
       ipcCallResult("notes", "save", {
         workspaceId,
         noteId,
         ...(change.title !== undefined ? { title: change.title } : {}),
-        ...(change.doc !== undefined ? { doc: change.doc as { type: "doc" } } : {}),
+        ...(change.doc !== undefined
+          ? { doc: change.doc as { type: "doc" }, baseUpdatedAt: change.baseUpdatedAt }
+          : {}),
       }),
     ),
   prune: (workspaceId: string, noteId: string): Promise<string[]> =>

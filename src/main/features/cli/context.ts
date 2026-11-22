@@ -14,6 +14,7 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { LineReport } from "../../../shared/notes/line-report";
 import type { NoteConversation } from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
@@ -226,6 +227,8 @@ export interface CliServices {
 /** A workspace's notes, as the nexus note commands read them. */
 export interface CliNotes {
   linksOfConversation(tab: NoteConversation): Promise<LinkedNote[]>;
+  reportTargets(tab: NoteConversation): Promise<{ noteId: string; linkId: string }[]>;
+  reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
   /** Newest first. */
   list(workspaceId: string): Promise<NoteSummary[]>;
   /** Fails when there is no such note. */

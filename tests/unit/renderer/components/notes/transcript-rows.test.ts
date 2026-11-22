@@ -6,9 +6,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   castOf,
+  lineKey,
   readRecordings,
   type TranscriptRow,
   type TranscriptView,
+  transcriptJumpKey,
   transcriptRows,
   WHOLE_TRANSCRIPT,
 } from "../../../../../src/renderer/components/notes/transcript-rows";
@@ -141,4 +143,18 @@ describe("a recording's people", () => {
     const taken = recording("rmhz00cc0dddd", { lines: [line("1.1", 0, "a"), line("2", 1, "b")] });
     expect(castOf(taken).colorOf("2")).toBe(1);
   });
+});
+
+test("a to-do source opens the right recording and the joined line containing its timestamp", () => {
+  const source = recording("rmhz00cc0cccc", {
+    speakers: { "2": "한여울" },
+    lines: [line("2", 8_000, "Look at"), line("2", 10_000, "the logs")],
+  });
+  expect(
+    transcriptJumpKey(readRecordings([first, second, source]), {
+      speaker: "한여울",
+      at: 10_000,
+      origin: `summary:${source.id}`,
+    }),
+  ).toBe(lineKey(source.id, source.lines[0]));
 });

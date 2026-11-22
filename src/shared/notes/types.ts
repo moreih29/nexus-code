@@ -31,6 +31,13 @@ export interface NoteFile {
   doc: DocNode;
 }
 
+export interface NoteSaveChange {
+  title?: string;
+  doc?: DocNode;
+  /** The document timestamp at load or at the most recent applied line report. */
+  baseUpdatedAt?: number;
+}
+
 /** What a note has in it, for its row in the list. */
 export interface NoteCounts {
   sketches: number;

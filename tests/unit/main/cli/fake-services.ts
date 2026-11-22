@@ -896,6 +896,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     },
     browser: fakeBrowserDriver(browser),
     notes: {
+      reportTargets: async () => [],
+      reportLine: async () => false,
       linksOfConversation: async () => [],
       list: async (workspaceId) =>
         (notes[workspaceId] ?? []).map(({ doc: _doc, dir: _dir, ...summary }) => summary),

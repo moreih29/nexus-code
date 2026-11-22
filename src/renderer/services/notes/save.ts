@@ -1,17 +1,16 @@
-import type { DocNode } from "../../../shared/notes/markdown";
+import type { NoteSaveChange } from "../../../shared/notes/types";
 import { defaultTimerScheduler, type TimerScheduler } from "../../../shared/util/timer-scheduler";
 
 const SAVE_DELAY_MS = 500;
 
-type NoteChange = { title?: string; doc?: DocNode };
 export type NoteSaveState = "saved" | "saving" | "error";
 
 export function createNoteAutoSave(
-  save: (change: NoteChange) => Promise<unknown>,
+  save: (change: NoteSaveChange) => Promise<unknown>,
   setState: (state: NoteSaveState) => void,
   scheduler: TimerScheduler = defaultTimerScheduler,
 ) {
-  let pending: NoteChange = {};
+  let pending: NoteSaveChange = {};
   let timer: unknown;
   let writing: Promise<boolean> | undefined;
   let discardCount = 0;
@@ -56,7 +55,7 @@ export function createNoteAutoSave(
   }
 
   return {
-    schedule(change: NoteChange): void {
+    schedule(change: NoteSaveChange): void {
       pending = { ...pending, ...change };
       clearTimer();
       timer = scheduler.setTimeout(() => void flush(), SAVE_DELAY_MS);

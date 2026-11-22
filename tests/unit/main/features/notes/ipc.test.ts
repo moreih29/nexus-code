@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { promises as fs } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { BrowserWindow } from "electron";
 import { NoteError } from "../../../../../src/main/features/notes/store";
 import { trackAppWindow } from "../../../../../src/main/features/window/app-windows";
+import { linkedTask } from "../../../../../src/shared/notes/line-report";
 import type { NoteContent } from "../../../../../src/shared/notes/types";
 import {
   createIpcPair,
@@ -128,7 +130,7 @@ test("a missing note or workspace is a recoverable IPC result", async () => {
   }
 });
 
-test("a task's linked chat updates the parent's note and broadcasts link changes", async () => {
+test("a task's linked chat reports into the parent's note and broadcasts link changes", async () => {
   const userData = await mkdtemp(path.join(tmpdir(), "note-links-ipc-"));
   const taskId = "123e4567-e89b-12d3-a456-426614174001";
   const router = await setupInMemoryRouter();
@@ -155,7 +157,7 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
     const result = await ipc.call("notes", "addLink", {
       workspaceId: taskId,
       noteId,
-      link: { ...tab, kind: "note" },
+      link: { ...tab, kind: "task" },
     });
     expect(result).toMatchObject({ ok: true });
     const [{ id: linkId }] = await notes.store.links(parent, noteId);
@@ -166,6 +168,67 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
       ok: true,
       value: [{ id: linkId, link: { workspaceId: taskId, session: "thread" } }],
     });
+    await notes.store.save(parent, noteId, {
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "taskList",
+            content: [
+              {
+                type: "taskItem",
+                attrs: { nexusLink: linkId, checked: false },
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Add tests" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const open = await notes.store.read(parent, noteId);
+    const report = {
+      linkId,
+      check: true,
+      result: { state: "done", summary: "Passed", at: 1 },
+    } as const;
+    expect(await notes.reportLine({ ...tab, agent: "codex" }, noteId, report)).toBe(true);
+    const reportedAt = (await notes.store.read(parent, noteId)).updatedAt;
+    // A closing editor flushes the draft it captured before receiving lineReported.
+    const draft = {
+      ...open.doc,
+      type: "doc" as const,
+      content: [
+        ...(open.doc.content ?? []),
+        { type: "paragraph", content: [{ type: "text", text: "Unsaved edit" }] },
+      ],
+    };
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId,
+        doc: draft,
+        baseUpdatedAt: open.updatedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    const merged = await notes.store.read(parent, noteId);
+    expect(merged.doc.content?.at(-1)).toEqual(draft.content.at(-1));
+    expect(linkedTask(merged.doc, linkId)).toMatchObject({
+      attrs: { checked: true },
+      content: [
+        expect.anything(),
+        { attrs: { nexusOrigin: `report:${linkId}` }, content: [{ type: "text", text: "Passed" }] },
+      ],
+    });
+    // Once the editor has seen the report, it may uncheck the item and delete the paragraph.
+    expect(
+      await ipc.call("notes", "save", {
+        workspaceId: id,
+        noteId,
+        doc: draft,
+        baseUpdatedAt: reportedAt,
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await notes.store.read(parent, noteId)).doc).toEqual(draft);
     expect(
       await other.call("notes", "removeLink", { workspaceId: id, noteId, linkId }),
     ).toMatchObject({ ok: true });
@@ -173,14 +236,74 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
       ok: true,
       value: [],
     });
-    expect(broadcast.mock.calls).toEqual(
-      Array.from({ length: 3 }, () => [
-        "notes",
-        "linksChanged",
-        { locationKey: parent.key, noteId },
-      ]),
-    );
+    const place = { locationKey: parent.key, noteId };
+    expect(broadcast.mock.calls).toEqual([
+      ["notes", "linksChanged", place],
+      ["notes", "linksChanged", place],
+      ["notes", "linksChanged", place],
+      ["notes", "lineReported", { ...place, ...report, updatedAt: reportedAt }],
+      ["notes", "changed", { ...place, change: "saved" }],
+      ["notes", "changed", { ...place, change: "saved" }],
+      ["notes", "changed", { ...place, change: "saved" }],
+      ["notes", "linksChanged", place],
+    ]);
   } finally {
+    broadcast.mockRestore();
+    notes.dispose();
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
+test("a committed link result announces itself when the note document write fails", async () => {
+  const userData = await mkdtemp(path.join(tmpdir(), "note-report-ipc-"));
+  const router = await setupInMemoryRouter();
+  const broadcast = spyOn(router, "broadcast");
+  const notes = registerNotesChannel({
+    userData,
+    workspaces: () =>
+      [{ id, name: "Workspace", location: { kind: "local", rootPath: "/workspace" } }] as never,
+  });
+  const rename = fs.rename;
+  const failSave = spyOn(fs, "rename");
+  try {
+    const location = notes.locationOf(id);
+    const note = await notes.store.create(location, "Review");
+    const tab = {
+      agent: "codex",
+      workspaceId: id,
+      tabId: "tab",
+      cwd: "/workspace",
+      title: "Title",
+    } as const;
+    const { id: linkId } = await notes.store.addLink(location, note.id, { ...tab, kind: "line" });
+    await notes.store.save(location, note.id, {
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "taskList",
+            content: [
+              { type: "taskItem", attrs: { nexusLink: linkId }, content: [{ type: "paragraph" }] },
+            ],
+          },
+        ],
+      },
+    });
+    failSave.mockImplementation((from, to) =>
+      to === path.join(note.dir, "note.json")
+        ? Promise.reject(new Error("document failed"))
+        : rename(from, to),
+    );
+    const result = { state: "done", summary: "Passed", at: 1 } as const;
+    await expect(notes.reportLine(tab, note.id, { linkId, check: true, result })).rejects.toThrow(
+      "document failed",
+    );
+    expect((await notes.store.links(location, note.id))[0].link.result).toEqual(result);
+    expect(broadcast.mock.calls).toEqual([
+      ["notes", "linksChanged", { locationKey: location.key, noteId: note.id }],
+    ]);
+  } finally {
+    failSave.mockRestore();
     broadcast.mockRestore();
     notes.dispose();
     await rm(userData, { recursive: true, force: true });

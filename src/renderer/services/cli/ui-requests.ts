@@ -70,7 +70,11 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
 }
 
 /** A workspace's tabs, in layout order unless the remote sessions list asks for its own order. */
-export function listTabs(workspaceId: string, agentOrder?: true): CliTabInfo[] {
+export function listTabs(
+  workspaceId: string,
+  agentOrder?: true,
+  includeSession?: true,
+): CliTabInfo[] {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   const records = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
   if (!layout) return [];
@@ -78,7 +82,18 @@ export function listTabs(workspaceId: string, agentOrder?: true): CliTabInfo[] {
   for (const leaf of allLeaves(layout.root)) {
     for (const id of leaf.tabIds) {
       const tab = records[id];
-      if (tab) tabs.push(tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id));
+      if (!tab) continue;
+      const session = includeSession
+        ? tab.type === "claude"
+          ? tab.props.sessionId
+          : tab.type === "codex"
+            ? tab.props.threadId
+            : undefined
+        : undefined;
+      tabs.push({
+        ...tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id),
+        ...(session ? { session } : {}),
+      });
     }
   }
   if (!agentOrder) return tabs;
@@ -96,8 +111,8 @@ export function listTabs(workspaceId: string, agentOrder?: true): CliTabInfo[] {
 }
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
-  "tabs.list": async ({ workspaceId, agentOrder }) => ({
-    tabs: listTabs(workspaceId, agentOrder),
+  "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
+    tabs: listTabs(workspaceId, agentOrder, includeSession),
   }),
   "tab.sandboxSession": async ({ workspaceId, tabId }) => {
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
