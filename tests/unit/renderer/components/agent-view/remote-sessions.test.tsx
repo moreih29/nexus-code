@@ -103,7 +103,6 @@ describe("Other computers connection guidance", () => {
   });
 
   test.each([
-    ["off", "Connecting…"],
     ["connecting", "Connecting…"],
     ["waiting", "Disconnected · Reconnecting"],
     ["online", "No connected computers · Open the app on another device"],
@@ -114,6 +113,17 @@ describe("Other computers connection guidance", () => {
     expect(html).toContain("Other computers");
     expect(html).toContain(message);
     expect(html).not.toContain("No conversations");
+  });
+
+  test.each([
+    null,
+    "off",
+    "replaced",
+    "stopped",
+  ] as const)("hides the signed-in section with no connection attempt when the room is %s", (status) => {
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue(status === null ? null : { status, peers: [] });
+    expect(renderToStaticMarkup(<RemoteSessions query="" />)).toBe("");
   });
 
   test("shows only the connection guidance before a list has been received", () => {

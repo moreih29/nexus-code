@@ -253,7 +253,8 @@ function AccountRemoteSessions({
 }) {
   const { t } = useTranslation();
   const room = useRemoteRoom();
-  const outdated = room?.status === "outdated";
+  const roomStatus = room?.status;
+  const outdated = roomStatus === "outdated";
   const signInNotice = useBannerDismissal(
     ["remote-sessions-sign-in"],
     signedOut ? [true] : undefined,
@@ -272,7 +273,8 @@ function AccountRemoteSessions({
   // Brief drops of individual peers are left out of the list.
   const seen = useShownRoom(room);
   const lastOnline = useRef<RoomState | null>(null);
-  const connected = room?.status === "online";
+  const connected = roomStatus === "online";
+  const connecting = roomStatus === "connecting" || roomStatus === "waiting";
   useEffect(() => {
     if (connected) lastOnline.current = seen;
   }, [connected, seen]);
@@ -305,9 +307,9 @@ function AccountRemoteSessions({
   if (searching && peers.length === 0) return null;
   if (signedOut && (searching || signInNotice.dismissed)) return null;
   if (!signedOut && outdated && outdatedNotice.dismissed) return null;
-  if (!signedOut && !outdated && accountKey === null) return null;
+  if (!signedOut && !outdated && (accountKey === null || (!connected && !connecting))) return null;
   const status = !connected
-    ? room?.status === "waiting" || lastOnline.current
+    ? roomStatus === "waiting" || lastOnline.current
       ? t("agentView.remote.reconnecting")
       : t("agentView.remote.connecting")
     : peers.length === 0 && away.length === 0
