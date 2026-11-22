@@ -530,27 +530,32 @@ export async function snapshotSessions(
   for (const { index, workspaceId } of chats) {
     if (!sessions[index]) incompleteWorkspaces.add(workspaceId);
   }
+  const rows = sessions.filter((row) => row !== undefined);
+  const tabIds = new Set(rows.map(({ tabId }) => tabId));
   const unread = read.unread;
   const taken = services.sessionsRevision && liveReceipts(services.sessionsRevision);
   const recording = notes?.recording();
   const list: RpcResult<"sessions.list"> = {
     workspaces: listed,
-    sessions: sessions
-      .filter((row) => row !== undefined)
-      .map((row) => {
-        if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
-        const since = unread[row.workspaceId]?.[row.tabId];
-        if (
-          !row.failed &&
-          !row.limitWait &&
-          !row.waiting &&
-          since !== undefined &&
-          Number.isFinite(since) &&
-          !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
-        )
-          return { ...row, state: "new-result", since };
-        return row.state === "new-result" ? { ...row, state: "idle" } : row;
-      }),
+    sessions: rows.map((row) => {
+      const opener = row.openedBy;
+      if (opener?.name !== undefined && !opener.device && tabIds.has(opener.tabId)) {
+        const { name: _name, ...reference } = opener;
+        row = { ...row, openedBy: reference };
+      }
+      if (!unread || (row.state !== "idle" && row.state !== "new-result")) return row;
+      const since = unread[row.workspaceId]?.[row.tabId];
+      if (
+        !row.failed &&
+        !row.limitWait &&
+        !row.waiting &&
+        since !== undefined &&
+        Number.isFinite(since) &&
+        !receiptCovers(taken, row.workspaceId, row.tabId, since, read.unreadAt)
+      )
+        return { ...row, state: "new-result", since };
+      return row.state === "new-result" ? { ...row, state: "idle" } : row;
+    }),
     ...(incompleteWorkspaces.size > 0 ? { incompleteWorkspaces: [...incompleteWorkspaces] } : {}),
     ...(recording ? { recording } : {}),
   };

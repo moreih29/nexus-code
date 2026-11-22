@@ -4,17 +4,13 @@
  * may not.
  */
 import { afterEach, expect, test } from "bun:test";
-import {
-  MAX_FRAME_BYTES,
-  RPC_METHODS,
-  type SessionsUpdate,
-} from "../../../../../packages/remote-protocol/src";
+import { RPC_METHODS, type SessionsUpdate } from "../../../../../packages/remote-protocol/src";
 import type {
   CliServices,
   PendingConsent,
   SessionsRenderer,
 } from "../../../../../src/main/features/cli/context";
-import { sealMessage } from "../../../../../src/main/features/remote/seal";
+import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import {
@@ -65,7 +61,6 @@ const TERMINAL_OPENER = {
   tabId: "c-ask",
   kind: "tab",
   agent: "claude",
-  name: "Asks",
 } as const;
 const CLIPPED_OPENER = {
   ...CHAT_OPENER,
@@ -77,7 +72,12 @@ const CLIPPED_OPENER = {
 const TABS: Record<string, Tab[]> = {
   "w-root": [
     { id: "c-ask", type: "claude", title: "Asks", openedBy: CHAT_OPENER },
-    { id: "x-perm", type: "terminal", title: "claude", openedBy: TERMINAL_OPENER },
+    {
+      id: "x-perm",
+      type: "terminal",
+      title: "claude",
+      openedBy: { ...TERMINAL_OPENER, name: "Asks" },
+    },
     { id: "c-idle", type: "claude", title: "Idle unread" },
     { id: "e-1", type: "editor", title: "a.ts" },
     { id: "c-err", type: "claude", title: "Failed" },
@@ -304,43 +304,114 @@ function steady<T>(value: T): T {
 let watches: SessionWatches | undefined;
 afterEach(() => watches?.dropAll());
 
-test("500 sessions with full-length opener metadata fit in a sealed frame", async () => {
-  const workspaceId = "w".repeat(64);
-  const result = RPC_METHODS["sessions.watch"].result.parse({
-    watchId: "watch",
-    workspaces: [{ id: workspaceId, name: "Project", path: "/repo" }],
-    sessions: Array.from({ length: 500 }, (_, i) => ({
-      workspaceId,
-      tabId: `session-${i}`.padEnd(64, "t"),
-      kind: "claude",
-      title: "Long-running project review",
-      state: "running",
-      since: i,
-      last: "word ".repeat(40),
-      openedBy: {
-        workspaceId: "p".repeat(64),
-        tabId: "t".repeat(64),
-        kind: "tab",
-        agent: "codex",
-        name: "界".repeat(120),
-        device: { id: "d".repeat(64), name: "한".repeat(120) },
-      },
-    })),
-  });
-  expect(result.sessions).toHaveLength(500);
-  expect(result.sessions.every((row) => row.openedBy?.device?.name.length === 120)).toBe(true);
-  const frame = await sealMessage({
-    room: { kid: 0, key: new Uint8Array(32) },
-    from: "host",
-    to: "client",
-    seq: 1,
-    envelope: {
-      epoch: "A".repeat(22),
-      peer: "B".repeat(22),
-      message: { jsonrpc: "2.0", id: 1, result },
+async function fullWatch(titleLength: number, opener?: "same-list" | "other-device") {
+  const parentId = "parent".padEnd(64, "t");
+  const many: SessionsSnapshotReaders = {
+    ...readers,
+    listTabs(workspaceId) {
+      if (workspaceId !== "w-root") return [];
+      return Array.from({ length: 500 }, (_, i) => ({
+        id: i === 0 ? parentId : `session-${i}`.padEnd(64, "t"),
+        type: "codex",
+        title: "界".repeat(titleLength),
+        ...(i > 0 && opener
+          ? {
+              openedBy: {
+                workspaceId: opener === "same-list" ? "w-root" : "p".repeat(64),
+                tabId: parentId,
+                kind: "tab",
+                agent: "codex",
+                name: "界".repeat(120),
+                ...(opener === "other-device"
+                  ? { device: { id: "d".repeat(64), name: "한".repeat(120) } }
+                  : {}),
+              },
+            }
+          : {}),
+      }));
     },
-  });
-  expect(Buffer.byteLength(JSON.stringify(frame), "utf8")).toBeLessThan(MAX_FRAME_BYTES);
+    peekChat: () => ({
+      agent: "codex",
+      state: "working",
+      message: "한".repeat(200),
+      since: 1234567890000,
+      profile: "Work",
+      cwd: "/src/root/release",
+    }),
+  };
+  const service = services(async (args) => sessionsSnapshot(args, many));
+  const { list } = await snapshotSessions(service, undefined, undefined, "sessions.watch");
+  return RPC_METHODS["sessions.watch"].result.parse({ ...list, watchId: "watch" });
+}
+
+function replyBytes(result: Awaited<ReturnType<typeof fullWatch>>): number {
+  return Buffer.byteLength(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), "utf8");
+}
+
+test("500 sessions with long CJK titles and results fit when their opener is in the listing", async () => {
+  const result = await fullWatch(120, "same-list");
+  expect(result.sessions).toHaveLength(500);
+  expect(
+    result.sessions.slice(1).every((row) => row.openedBy?.tabId && row.openedBy.name === undefined),
+  ).toBe(true);
+  expect(replyBytes(result)).toBeLessThan(MAX_MESSAGE_BYTES);
+});
+
+test("session replies retain the existing frame limit for unusually large list combinations", async () => {
+  const [sameList, otherDevice, largeTitles] = await Promise.all([
+    fullWatch(120, "same-list"),
+    fullWatch(120, "other-device"),
+    fullWatch(500),
+  ]);
+  expect(otherDevice.sessions[1]?.openedBy?.device?.name).toHaveLength(120);
+  expect(replyBytes(sameList)).toBeLessThan(MAX_MESSAGE_BYTES);
+  expect(replyBytes(otherDevice)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+  // Persisted tab titles can have 500 UTF-16 units, even without opener metadata.
+  expect(replyBytes(largeTitles)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+});
+
+test("only opener references with both IDs are sent and unlisted parents keep their saved names", async () => {
+  const extra: SessionsSnapshotReaders = {
+    ...readers,
+    listTabs: (id) => [
+      ...readers.listTabs(id),
+      ...(id === "w-root"
+        ? [
+            {
+              id: "missing-ws",
+              type: "terminal",
+              title: "Shell",
+              openedBy: { kind: "tab", tabId: "c-ask" } as const,
+            },
+            {
+              id: "missing-tab",
+              type: "terminal",
+              title: "Shell",
+              openedBy: { kind: "tab", workspaceId: id } as const,
+            },
+            {
+              id: "parent-omitted",
+              type: "terminal",
+              title: "Shell",
+              openedBy: {
+                kind: "tab",
+                workspaceId: id,
+                tabId: "e-1",
+                name: "Named opener",
+              } as const,
+            },
+          ]
+        : []),
+    ],
+  };
+  const service = services(async (args) => sessionsSnapshot(args, extra));
+  const { list } = await snapshotSessions(service, undefined);
+  const rows = new Map(list.sessions.map((row) => [row.tabId, row]));
+  for (const id of ["missing-ws", "missing-tab"]) {
+    expect(rows.has(id)).toBe(true);
+    expect(rows.get(id)?.openedBy).toBeUndefined();
+  }
+  expect(rows.get("parent-omitted")?.openedBy?.name).toBe("Named opener");
 });
 
 test("the sessions' list, its consents and its waiting requests stay as they were", async () => {

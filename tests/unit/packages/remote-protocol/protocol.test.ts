@@ -37,6 +37,11 @@ import {
   ViewItemSchema,
 } from "../../../../packages/remote-protocol/src";
 
+import {
+  LegacySessionsList,
+  LegacySessionsWatch,
+} from "../../../fixtures/remote-protocol/sessions-v0.24.0";
+
 const status = {
   agent: "claude" as const,
   title: "NexusCloud-P",
@@ -507,8 +512,8 @@ describe("the methods", () => {
     );
     expect(list.parse(wire).sessions).toEqual([row, { ...row, openedBy }]);
     expect(watch.parse({ ...wire, watchId: "w1" }).sessions).toEqual([row, { ...row, openedBy }]);
-    const legacy = RemoteSessionSchema.omit({ openedBy: true });
-    expect(legacy.parse(wire.sessions[1])).toEqual(row);
+    expect(LegacySessionsList.parse(wire).sessions).toEqual([row, row]);
+    expect(LegacySessionsWatch.parse({ ...wire, watchId: "w1" }).sessions).toEqual([row, row]);
     for (const invalid of [
       null,
       "opener",
