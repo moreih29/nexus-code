@@ -21,8 +21,9 @@ NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 �
 
 로그인해서 계정 기능을 쓸 때 서버가 처리하는 정보입니다.
 
-- **로그인**할 때 Google, GitHub 또는 Apple에서 이메일 주소, 제공된 이름(Apple은 첫 로그인 때), 그 서비스의 계정 식별자를 받아 계정을 만들고, 계정을 지울 때까지 보관합니다. Apple에서 ‘나의 이메일 가리기’를 선택하면 Apple이 발급한 중계 주소를 이메일 주소로 저장합니다. Apple이 보낸 갱신 토큰은 계정을 지울 때 폐기를 요청하려고 보관합니다.
-- **기기**: 로그인한 기기마다 기기 이름(컴퓨터나 휴대폰의 이름), 운영체제, 로그인한 시각, 마지막으로 접속한 시각(1시간 단위)을 보관합니다. 로그인은 30일 동안 쓰지 않으면 끝나고, 그 기기의 정보도 지웁니다. 서버에는 로그인 토큰을 해시로만 저장합니다.
+- **가입 요청**: 처음 로그인하면 계정을 바로 만들지 않고 가입 요청을 남깁니다. 요청에는 로그인한 서비스와 그 서비스의 계정 식별자, 이메일 주소, 제공된 이름, 요청한 시각, 시도한 횟수와 마지막 시각을 보관합니다. 개발자가 승인하면 다음 로그인 때 계정을 만듭니다. 대기 중인 요청은 마지막 시도 후 90일이 지나면 지웁니다. 거절된 요청은 30일 동안 보관하며, 그동안은 다시 요청할 수 없습니다. 승인된 요청은 승인 후 30일 안에 로그인하지 않으면 지우고, 계정을 만들었으면 그 뒤 30일이 지나면 지웁니다.
+- **로그인**할 때 Google, GitHub 또는 Apple에서 이메일 주소, 제공된 이름(Apple은 첫 로그인 때), 그 서비스의 계정 식별자를 받아 계정을 만들고, 계정을 지울 때까지 보관합니다. Apple에서 ‘나의 이메일 가리기’를 선택하면 Apple이 발급한 중계 주소를 이메일 주소로 저장합니다. Apple이 보낸 갱신 토큰은 계정을 지울 때 폐기를 요청하려고 보관합니다. 계정의 상태(사용 중 또는 정지), 승인된 시각, 마지막으로 접속한 시각(1시간 단위)도 계정을 지울 때까지 보관합니다.
+- **기기**: 로그인한 기기마다 기기 이름(컴퓨터나 휴대폰의 이름), 운영체제, 로그인한 시각, 마지막으로 접속한 시각(1시간 단위)을 보관합니다. 로그인은 30일 동안 쓰지 않거나 로그인한 지 180일이 지나면 끝나고, 그 기기의 정보도 지웁니다. 다만 사용자가 기기에 따로 붙인 이름은 같은 앱으로 다시 로그인할 때 되살리려고, 로그인이 끝난 뒤 180일 동안 남깁니다. 서버에는 로그인 토큰을 해시로만 저장합니다.
 - **계정 비밀번호와 종단간 암호화**: 계정 비밀번호는 서버로 보내지 않습니다. 기기들이 함께 쓰는 계정 키는 기기에서 계정 비밀번호로 잠근 뒤 서버에 맡기며, 서버는 이를 열 수 없습니다.
 - **원격**: 기기 사이에 오가는 내용(에이전트 세션, 터미널 화면, 파일, 사진)은 종단간 암호화되어 서버를 거쳐 전달됩니다. 서버는 어느 기기에서 어느 기기로 가는지와 크기, 시각만 알 수 있고, 내용을 열거나 저장하지 않습니다.
 - **음성 입력**: 말하는 동안 소리를 서버를 거쳐 음성 인식 서비스 Soniox로 보내 실시간으로 받아씁니다. 서버는 소리와 받아쓴 글을 저장하지 않습니다. 음성 입력에 쓴 시간은 기록합니다. 사용자가 등록한 **음성 인식 단어**는 계정을 지울 때까지 서버에 저장합니다. 받아쓸 때 이 단어 목록도 소리와 함께 Soniox에 보냅니다.
@@ -34,9 +35,21 @@ NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 �
 
 Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 
+### 관리 화면
+
+개발자는 관리 화면에서 가입 요청을 승인하거나 거절하고 계정을 관리합니다.
+
+- **보는 정보**: 가입 요청과 계정의 이메일 주소, 이름, 로그인 방식, 상태, 요청·가입·승인 시각, 마지막 접속 시각(1시간 단위), 기기 이름과 운영체제, 기기별 로그인·접속 시각, 그달의 음성 사용 시간, 계정 비밀번호를 정했는지 같은 상태를 봅니다. 요청과 계정에는 200자까지 메모를 남길 수 있습니다.
+- **보지 못하는 정보**: 관리 화면에는 원격 내용, 받아쓴 글, 음성 인식 단어, 계정 키가 나오지 않습니다.
+- **정지**: 계정을 정지하면 모든 기기에서 로그아웃되고, 정지가 풀릴 때까지 로그인할 수 없습니다. 계정 정보와 잠긴 계정 키는 그대로 남습니다. 정지하지 않고 모든 기기에서 로그아웃시킬 수도 있습니다.
+- **삭제**: 개발자는 정지된 계정만 지울 수 있고, 아래 [계정 삭제](#계정-삭제)와 같이 지웁니다. 다시 요청하지 못하게 할 때는 로그인한 서비스와 계정 식별자, 이메일 주소, 이름을 거절된 요청으로 30일 동안 남깁니다.
+- **관리 기록**: 개발자가 한 일(언제, 어느 요청이나 계정에 무엇을 했는지와 ab\*\*\*@example.com처럼 일부만 남긴 이메일 주소)을 작업한 때부터 1년 동안 보관합니다. 계정을 지워도 이 기록은 그때까지 남습니다.
+
 ### 계정 삭제
 
-앱의 **설정 → 원격**에서 계정을 지우면 위 정보를 바로 지우고, Soniox에 남은 노트 녹음과 글은 한 시간 안에 지웁니다. 다만 계정을 지웠다 다시 만들어 사용 한도를 되돌리지 못하도록, 그달에 쓴 시간만 로그인 계정 식별자의 해시와 함께 그달 말까지 남깁니다.
+앱의 **설정 → 원격**에서 계정을 지우면 위 정보를 바로 지우고, Soniox에 남은 노트 녹음과 글은 한 시간 안에 지웁니다. 가입 승인도 함께 지워지므로, 다시 쓰려면 가입을 다시 요청해야 합니다. 다만 계정을 지웠다 다시 만들어 사용 한도를 되돌리지 못하도록, 그달에 쓴 시간만 로그인 계정 식별자의 해시와 함께 그달 말까지 남깁니다.
+
+정지된 계정은 앱에서 지울 수 없습니다. 아래 [문의](#문의)로 삭제를 요청하면 개발자가 지웁니다.
 
 ### 처리를 맡기는 곳과 국외 이전
 
@@ -47,7 +60,7 @@ Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 | 받는 곳 | 하는 일 | 위치 | 받는 정보 | 보관 기간 |
 |---|---|---|---|---|
 | Amazon Web Services, Inc. | 연결 중계 | 대한민국(서울) | 위 계정 정보와 음성(전달만) | 저장하지 않음 |
-| Cloudflare, Inc. | 서버와 데이터베이스 운영 | 미국 등 Cloudflare의 데이터 센터 | 위 계정 정보, 원격의 암호화된 내용(전달만) | 계정을 지울 때까지 |
+| Cloudflare, Inc. | 서버와 데이터베이스 운영 | 미국 등 Cloudflare의 데이터 센터 | 위 계정 정보, 원격의 암호화된 내용(전달만) | 계정을 지울 때까지(가입 요청과 관리 기록은 위에 적은 기간) |
 | Soniox | 음성 인식 | 미국 | 음성 입력과 노트 녹음의 소리, 노트 녹음 파일, 음성 인식 단어 | 실시간 소리는 받아쓰는 동안, 녹음 파일과 그 글은 최대 하루 |
 | Google, GitHub | 로그인 | 미국 | 사용자가 그 서비스에서 직접 로그인합니다 | 각 서비스의 방침에 따름 |
 | Apple Inc. | 로그인, 푸시 알림 전달 | 미국 등 | Apple에서 직접 로그인(계정을 지울 때 Apple에 토큰 폐기 요청) · 휴대폰의 푸시 토큰, 정해진 알림 문구와 종류 | 로그인은 Apple의 방침에 따름 · 푸시는 전달 대기 중 임시 보관(최대 15분으로 설정) |
@@ -91,8 +104,9 @@ App state such as settings, the workspace list and open tabs, and your notes (te
 
 What the server handles when you sign in and use account features.
 
-- **Sign-in** with Google, GitHub or Apple gives the server your email address, your name if provided (on the first sign-in with Apple), and your account's identifier at that service. The server uses these to make your account and keeps them until you delete it. If you choose Hide My Email with Apple, the server stores the relay address as your email address. It keeps any Apple refresh token so it can request revocation when you delete your account.
-- **Devices**: for each device signed in, the server keeps its name (your computer's or phone's), its operating system, when it signed in and when it was last seen (to the hour). A sign-in not used for 30 days ends, and the device's details go with it. Sign-in tokens are stored only as hashes.
+- **Sign-up requests**: your first sign-in does not make an account; it leaves a request to join. The request keeps the service you signed in with, your account's identifier at that service, your email address, your name if provided, when you asked, and how many times and when you last tried. If the developer approves it, your next sign-in makes your account. A pending request is deleted 90 days after your last try. A declined request is kept for 30 days, and until then you cannot ask again. An approved request is deleted if you do not sign in within 30 days of the approval, or 30 days after your account is made.
+- **Sign-in** with Google, GitHub or Apple gives the server your email address, your name if provided (on the first sign-in with Apple), and your account's identifier at that service. The server uses these to make your account and keeps them until you delete it. If you choose Hide My Email with Apple, the server stores the relay address as your email address. It keeps any Apple refresh token so it can request revocation when you delete your account. It also keeps your account's status (active or suspended), when it was approved and when it was last used (to the hour) until you delete it.
+- **Devices**: for each device signed in, the server keeps its name (your computer's or phone's), its operating system, when it signed in and when it was last seen (to the hour). A sign-in ends after 30 days unused or 180 days after it was made, and the device's details go with it. A name you gave the device yourself is kept for 180 days after its sign-in ends, so that it comes back if the same app signs in again. Sign-in tokens are stored only as hashes.
 - **Account password and end-to-end encryption**: your account password is never sent to the server. The account key your devices share is locked with it on your device before the server keeps it, and the server cannot open it.
 - **Remote**: what passes between your devices (agent sessions, terminal screens, files, photos) is end-to-end encrypted and relayed by the server. The server can tell only which device it goes from and to, its size and its time; it cannot read it and does not store it.
 - **Voice input**: while you speak, the sound goes through the server to the speech-to-text service Soniox, which transcribes it as you speak. The server does not store the sound or the transcript. It records how long you used voice input. The server keeps the **speech recognition words** you add until you delete your account. It sends the list to Soniox along with the audio for transcription.
@@ -104,9 +118,21 @@ What the server handles when you sign in and use account features.
 
 Soniox does not use the sound or text it receives to train its models.
 
+### Admin console
+
+The developer approves or declines sign-up requests and manages accounts in an admin console.
+
+- **What it shows**: for requests and accounts, the email address, name, sign-in method, status, when the request, account and approval were made, when the account was last used (to the hour), each device's name, operating system and sign-in and last-seen times, the month's voice usage, and states such as whether an account password is set. The developer can add a note of up to 200 characters to a request or an account.
+- **What it does not show**: the admin console does not show remote content, transcribed text, speech recognition words or account keys.
+- **Suspension**: suspending an account signs it out on every device, and it cannot sign in until the suspension is lifted. Its account information and locked account key stay. The developer can also sign an account out on every device without suspending it.
+- **Deletion**: the developer can delete only a suspended account, and deletes it as described under [Deleting your account](#deleting-your-account). To keep it from asking to join again, the developer can keep its sign-in service, identifier at that service, email address and name as a declined request for 30 days.
+- **Admin log**: what the developer did (when, to which request or account, and what, with the email address shortened as in ab\*\*\*@example.com) is kept for a year from when it was done, even if the account is deleted.
+
 ### Deleting your account
 
-Deleting your account in the app (**Settings → Remote**) deletes the information above at once, and note recordings and text left at Soniox within an hour. So that deleting and re-creating an account cannot reset the usage allowance, only the time used that month stays, with a hash of your sign-in's identifier, until the month ends.
+Deleting your account in the app (**Settings → Remote**) deletes the information above at once, and note recordings and text left at Soniox within an hour. Your approval to join goes with it, so to use your account again you need to ask to join again. So that deleting and re-creating an account cannot reset the usage allowance, only the time used that month stays, with a hash of your sign-in's identifier, until the month ends.
+
+A suspended account cannot be deleted in the app. Ask for its deletion under [Contact](#contact), and the developer deletes it.
 
 ### Processors and transfers abroad
 
@@ -117,7 +143,7 @@ The relay decrypts the TLS connection and can see the same information as the Cl
 | Recipient | Role | Location | What it receives | Kept for |
 |---|---|---|---|---|
 | Amazon Web Services, Inc. | Connection relay | Republic of Korea (Seoul) | The account information and voice data above (relayed only) | Not stored |
-| Cloudflare, Inc. | Runs the server and its database | Cloudflare data centers, including in the US | The account information above, and remote's encrypted content (relayed only) | Until you delete your account |
+| Cloudflare, Inc. | Runs the server and its database | Cloudflare data centers, including in the US | The account information above, and remote's encrypted content (relayed only) | Until you delete your account (sign-up requests and the admin log: as above) |
 | Soniox | Speech-to-text | United States | The sound of voice input and note recording, note recordings' files, and speech recognition words | Live audio for the duration of transcription. Files and their text for up to a day. |
 | Google, GitHub | Sign-in | United States | You sign in at their service directly | As their policies say |
 | Apple Inc. | Sign-in, push notification delivery | United States and elsewhere | Direct sign-in at Apple (the server asks Apple to revoke the token on account deletion) · Phone push token, fixed notification text and kind | Sign-in follows Apple's policy · Push notifications are held for delivery (delivery window set to at most 15 minutes) |
