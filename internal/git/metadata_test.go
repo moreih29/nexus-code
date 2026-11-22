@@ -47,11 +47,13 @@ func TestResolveGitDir_AcceptsALinkedWorktreesOwnGitDir(t *testing.T) {
 	// and in another letter case where the file system ignores case.
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(filepath.Join(repo, ".git"), alias); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
-	viaLink := filepath.Join(alias, "worktrees", filepath.Base(gitDir))
-	if _, err := service.resolveGitDir(context.Background(), viaLink); err != nil {
-		t.Errorf("resolveGitDir(%q): %v", viaLink, err)
+		// Windows without admin rights or developer mode cannot make links.
+		t.Logf("skipping the symlink case: symlinks unavailable: %v", err)
+	} else {
+		viaLink := filepath.Join(alias, "worktrees", filepath.Base(gitDir))
+		if _, err := service.resolveGitDir(context.Background(), viaLink); err != nil {
+			t.Errorf("resolveGitDir(%q): %v", viaLink, err)
+		}
 	}
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		upper := filepath.Join(filepath.Dir(gitDir), strings.ToUpper(filepath.Base(gitDir)))
