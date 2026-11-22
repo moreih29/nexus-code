@@ -18,6 +18,10 @@ import {
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
+import {
+  DEFAULT_RECORDING_SUMMARY_SETTINGS,
+  RecordingSummarySettingsSchema,
+} from "../notes/summary";
 import { VoiceNameSettingsSchema } from "../notes/voice-names";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
 import { AgentViewSnapshotSchema } from "./agent-view";
@@ -62,6 +66,7 @@ export const AppStateSchema = z.object({
   // of the note's height under the text, where it is narrow. Absent = the defaults.
   noteTranscriptWidth: PositiveIntegerSchema.optional(),
   noteTranscriptShare: NumberSchema.check(z.gt(0)).check(z.lt(1)).optional(),
+  noteSummary: RecordingSummarySettingsSchema.catch(DEFAULT_RECORDING_SUMMARY_SETTINGS),
   // Sidebar (workspace switcher strip) hidden state. Persisted so a
   // restart preserves the layout the user last chose. Absent = visible.
   sidebarHidden: z.boolean().optional(),
