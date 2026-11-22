@@ -53,7 +53,7 @@ async function claudeStoredTurns(
   let turns: StoredTurns | undefined;
   while (true) {
     if (!pages.hasPartialRow) turns = turnsOf(pages.project());
-    if (turns && (!findAnswer || turns.lastAnswer)) return turns;
+    if (turns && (!findAnswer || turns.lastAnswer?.turnFiles !== undefined)) return turns;
     const cursor = pages.cursor;
     if (!cursor) return turns;
     pages.prepend(
@@ -144,7 +144,7 @@ export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Pro
   return found;
 }
 
-/** Reuses a cold Codex probe without starting another app-server. */
+/** Loads enough history to seed the answer and its turn's file count. */
 export async function readStoredAnswer(
   target: StoredTurnTarget,
 ): Promise<NoteLastAnswer | undefined> {
@@ -153,13 +153,24 @@ export async function readStoredAnswer(
   let known: StoredTurns | undefined;
   if (cached && cached.expiresAt > Date.now()) {
     known = await cached.result;
-    if (!known || known.lastAnswer || cached.answerChecked || target[0] === "codex")
+    if (!known || known.lastAnswer?.turnFiles !== undefined || cached.answerChecked)
       return known?.lastAnswer;
     const newer = storedTurns.get(key);
     if (newer && newer !== cached) return (await newer.result)?.lastAnswer;
   }
-  if (target[0] === "codex") return;
-  const result = claudeStoredTurns(target, true).then(
+  const [agent, workspaceId, cwd, profile, sessionId] = target;
+  const read =
+    agent === "claude"
+      ? claudeStoredTurns(target, true)
+      : CodexController.savedThreadTurns(
+          { workspaceId, cwd, profileId: profile ?? undefined },
+          [sessionId],
+          "full",
+        ).then((threads) => {
+          const answer = codexStoredAnswer(threads.get(sessionId) ?? []);
+          return answer ? { lastAnswer: answer } : known;
+        });
+  const result = read.then(
     (turns) => turns ?? known,
     () => known,
   );

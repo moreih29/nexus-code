@@ -104,7 +104,11 @@ test("live cards show saved answers as text and offer to answer an active questi
         ...link,
         kind: "live",
         result: undefined,
-        lastAnswer: { text: '<img src="bad"> [link](javascript:bad)', at: 1700000000000, files: 2 },
+        lastAnswer: {
+          text: '<img src="bad"> [link](javascript:bad)',
+          at: 1700000000000,
+          turnFiles: 2,
+        },
       },
     },
     target: { kind: "missing" },
@@ -118,7 +122,7 @@ test("live cards show saved answers as text and offer to answer an active questi
   expect(restored).toContain("&gt; link</p>");
   expect(restored).not.toContain("<img");
   expect(restored).not.toContain("<a ");
-  expect(restored).toContain("2 files");
+  expect(restored).toContain("2 files changed");
   expect(restored).not.toContain("Answer in conversation");
   const waiting = renderToStaticMarkup(
     <ConversationChip
@@ -129,6 +133,29 @@ test("live cards show saved answers as text and offer to answer an active questi
     />,
   );
   expect(waiting).toContain("1 question · Answer in conversation");
+  expect(waiting).not.toContain("files changed");
+  const running = renderToStaticMarkup(
+    <ConversationChip
+      {...props}
+      card
+      target={openTab}
+      session={{ state: "running" } as NonNullable<typeof props.session>}
+    />,
+  );
+  expect(running).not.toContain("files changed");
+  const snapshot = props.entry.link.lastAnswer;
+  if (!snapshot) throw new Error("Missing test snapshot");
+  const zero = renderToStaticMarkup(
+    <ConversationChip
+      {...props}
+      card
+      entry={{
+        ...props.entry,
+        link: { ...props.entry.link, lastAnswer: { ...snapshot, turnFiles: 0 } },
+      }}
+    />,
+  );
+  expect(zero).not.toContain("files changed");
 });
 
 test("the card uses the notes list's timestamp for today's time and earlier dates", () => {

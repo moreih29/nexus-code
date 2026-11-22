@@ -3,8 +3,9 @@ import {
   liveAnswerTime,
   type NoteLastAnswer,
 } from "../../../shared/notes/links";
+import { codexItemTools } from "../chat/codex/model";
 import { slashWindowsPath } from "../chat/links";
-import { type ChatModel, num, rec, str } from "../chat/model";
+import { type ChatItem, type ChatModel, num, opensTurn, rec, str } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
 import type { ChatTabState } from "../chat/store";
 
@@ -18,48 +19,86 @@ function liveCardFileCount(tools: ChatModel["tools"]): number {
   return paths.size;
 }
 
+function startsRecordedTurn(item: ChatItem): boolean {
+  return item.kind === "user" ? item.state === "taken" : opensTurn(item);
+}
+
+function recordedTurnItems(items: ChatItem[], answerIndex: number): ChatItem[] | undefined {
+  // A Claude transcript does not have turn IDs. An accepted prompt or a
+  // notification that woke it marks the start, if the loaded pages reach it.
+  let start = answerIndex;
+  while (start > 0 && !startsRecordedTurn(items[start - 1])) start--;
+  if (start === 0) return;
+  let end = answerIndex + 1;
+  while (end < items.length && !startsRecordedTurn(items[end])) end++;
+  return items.slice(start, end);
+}
+
+function answerTurnFiles(model: ChatModel, answerIndex: number): number | undefined {
+  const answer = model.items[answerIndex];
+  if (answer.kind !== "assistant") return;
+  const items = answer.turnId
+    ? model.items.filter((item) => item.kind === "assistant" && item.turnId === answer.turnId)
+    : recordedTurnItems(model.items, answerIndex);
+  if (!items) return;
+  const tools: ChatModel["tools"] = {};
+  for (const item of items) {
+    if (item.kind !== "assistant") continue;
+    for (const block of item.blocks) {
+      if (block.type !== "tool") continue;
+      const tool = model.tools[block.toolUseId];
+      if (!tool) return;
+      tools[tool.id] = tool;
+    }
+  }
+  return liveCardFileCount(tools);
+}
+
 function modelAnswer(
   model: ChatModel,
-  {
-    endAt,
-    before,
-    currentTurn = false,
-  }: { endAt?: number; before?: number; currentTurn?: boolean } = {},
+  includes: (item: Extract<ChatItem, { kind: "assistant" }>) => boolean,
+  endAt?: number,
 ): NoteLastAnswer | undefined {
   for (let index = model.items.length - 1; index >= 0; index--) {
     const item = model.items[index];
-    if (currentTurn && item.kind === "user" && item.state === "taken") return;
-    if (item.kind !== "assistant") continue;
-    if (before !== undefined && (item.at === undefined || item.at >= before)) continue;
+    if (item.kind !== "assistant" || !includes(item)) continue;
     const text = liveAnswerPreview(
-      item.blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" "),
+      item.blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n\n"),
     );
     if (!text) continue;
-    const files = before === undefined ? liveCardFileCount(model.tools) : 0;
+    const turnFiles = answerTurnFiles(model, index);
     const now = Date.now();
-    return { text, at: liveAnswerTime(endAt ?? item.at ?? now, now), ...(files ? { files } : {}) };
+    return {
+      text,
+      at: liveAnswerTime(endAt ?? item.at ?? now, now),
+      ...(turnFiles !== undefined ? { turnFiles } : {}),
+    };
   }
 }
 
-/** The latest completed answer, from the chat model and its recorded edits. */
+/** The answer from the turn that just ended, if it produced one. */
 export function liveAnswerOf(model: ChatModel): NoteLastAnswer | undefined {
   const result = model.lastResult;
-  if (!result || model.running) return;
-  return modelAnswer(model, { endAt: result.at, currentTurn: true });
+  if (!result?.turnId || model.running) return;
+  return modelAnswer(model, (item) => item.turnId === result.turnId, result.at);
 }
 
 export function historicalAnswerOf(model: ChatModel) {
-  return modelAnswer(model);
+  return modelAnswer(model, () => true);
 }
 
 export function loadedAnswerOf(state: ChatTabState | undefined): NoteLastAnswer | undefined {
   if (!state) return;
   const { model, history } = state;
-  const before = model.turn?.startedAt;
+  const turn = model.turn;
   const answer = model.running
-    ? before !== undefined && modelAnswer(model, { before })
+    ? modelAnswer(model, (item) =>
+        turn?.id && item.turnId
+          ? item.turnId !== turn.id
+          : turn?.startedAt !== undefined && item.at !== undefined && item.at < turn.startedAt,
+      )
     : (liveAnswerOf(model) ?? historicalAnswerOf(model));
-  return answer || (history ? historicalAnswerOf(history) : undefined);
+  return answer ?? (history ? historicalAnswerOf(history) : undefined);
 }
 
 export function codexStoredAnswer(turns: readonly unknown[]): NoteLastAnswer | undefined {
@@ -76,7 +115,22 @@ export function codexStoredAnswer(turns: readonly unknown[]): NoteLastAnswer | u
         num(item.completedAtMs) ??
         num(item.startedAtMs) ??
         (turnAt === undefined ? Date.now() : turnAt * 1000);
-      return { text, at: liveAnswerTime(at) };
+      return {
+        text,
+        at: liveAnswerTime(at),
+        ...(turn.itemsView === "full" ? { turnFiles: codexStoredFileCount(turn.items) } : {}),
+      };
     }
   }
+}
+
+function codexStoredFileCount(items: unknown[]): number {
+  const tools: ChatModel["tools"] = {};
+  for (const raw of items) {
+    const item = rec(raw);
+    const id = str(item?.id);
+    if (!id || item?.type !== "fileChange" || item.status === "inProgress") continue;
+    for (const tool of codexItemTools(item, id, "completed") ?? []) tools[tool.id] = tool;
+  }
+  return liveCardFileCount(tools);
 }

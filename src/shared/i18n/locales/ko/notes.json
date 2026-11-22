@@ -371,7 +371,7 @@
     "conversationActions": "대화 메뉴",
     "liveAlreadyExists": "이미 있음",
     "liveQuestion": "질문 1 · 대화에서 답하기",
-    "liveFiles_one": "파일 {{count}}개",
-    "liveFiles_other": "파일 {{count}}개"
+    "liveFiles_one": "변경 파일 {{count}}개",
+    "liveFiles_other": "변경 파일 {{count}}개"
   }
 }

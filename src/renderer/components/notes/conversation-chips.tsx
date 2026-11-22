@@ -302,6 +302,7 @@ export function ConversationChip({
     const live = link.kind === "live";
     const snapshot = link.lastAnswer;
     const preview = snapshot && liveAnswerPreview(snapshot.text);
+    const turnFiles = status === "running" || status === "attention" ? 0 : snapshot?.turnFiles;
     const displayTime = live ? noteTime(snapshot?.at ?? link.createdAt) : "";
     const heading = (
       <div
@@ -337,10 +338,10 @@ export function ConversationChip({
         {preview && (
           <p className="my-1 line-clamp-3 break-words text-app-ui-sm text-foreground">{preview}</p>
         )}
-        {snapshot?.files !== undefined && (
+        {Boolean(turnFiles) && (
           <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
             <FileText className="size-3 shrink-0" aria-hidden="true" />
-            {t("connections.liveFiles", { count: snapshot.files })}
+            {t("connections.liveFiles", { count: turnFiles })}
           </div>
         )}
         {session?.state === "needsInput" && (

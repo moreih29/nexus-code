@@ -73,7 +73,8 @@ export const NoteLastAnswerSchema = z.object({
     )
     .transform(liveAnswerText),
   at: timestamp.max(8.64e15),
-  files: z.number().int().nonnegative().optional().catch(undefined),
+  // Older snapshots used `files` for a conversation-wide total.
+  turnFiles: z.number().int().nonnegative().optional().catch(undefined),
 });
 
 export const NoteLinkResultSchema = z.object({

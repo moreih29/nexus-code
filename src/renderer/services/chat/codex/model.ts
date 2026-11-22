@@ -1214,7 +1214,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   if (status === "inProgress") return;
   const turnId = str(turn.id);
   if (turnId) {
-    // Some versions include the command's final item here even when its
+    // Some versions include a tool's final item here even when its
     // individual completion notification did not reach the tab.
     for (const raw of Array.isArray(turn.items) ? turn.items : []) {
       const item = rec(raw);
@@ -1226,6 +1226,11 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
         (item.status === "completed" || item.status === "failed" || item.status === "declined")
       ) {
         applyCommandEvent(draft, turnId, item, "completed", String(seq), at);
+      } else if (
+        item?.type === "fileChange" &&
+        (item.status === "completed" || item.status === "failed" || item.status === "declined")
+      ) {
+        applyItem(draft, turnId, item, "completed", `${seq}.${id}`, at);
       }
     }
     settleCommands(draft, at, turnId);
@@ -1249,6 +1254,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   m.lastResult = {
     subtype: status,
     isError: status === "failed",
+    ...(turnId ? { turnId } : {}),
     durationMs: num(turn.durationMs),
     at,
     ...(apiFailure ? { failure: apiFailure } : {}),
@@ -1478,7 +1484,7 @@ function applyItem(
       return;
   }
   if (discoverAgents) applyNativeAgentItem(m, item, at);
-  const tools = toolsOf(item, id, phase);
+  const tools = codexItemTools(item, id, phase);
   if (!tools) return;
   const ran =
     item.status !== "declined" && !tools.some((tool) => m.tools[tool.id]?.status === "denied");
@@ -1572,7 +1578,14 @@ function assistantIndex(draft: CodexDraft, turnId: string, tag: string, at: numb
   const items = draft.next.items;
   const last = items.at(-1);
   if (last?.kind === "assistant" && last.messageId === turnId) return items.length - 1;
-  draft.push({ kind: "assistant", key: `a${tag}`, messageId: turnId, blocks: [], at });
+  draft.push({
+    kind: "assistant",
+    key: `a${tag}`,
+    messageId: turnId,
+    ...(turnId ? { turnId } : {}),
+    blocks: [],
+    at,
+  });
   return draft.next.items.length - 1;
 }
 
@@ -1664,7 +1677,11 @@ function reasoningText(item: Rec): string {
 }
 
 /** The tool calls an item is: one for most, one for each file a patch changes. */
-function toolsOf(item: Rec, id: string, phase: "started" | "completed"): ToolCall[] | null {
+export function codexItemTools(
+  item: Rec,
+  id: string,
+  phase: "started" | "completed",
+): ToolCall[] | null {
   const base = { parentToolUseId: null, status: callStatus(item.status, phase) };
   switch (item.type) {
     case "commandExecution": {

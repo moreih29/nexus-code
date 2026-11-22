@@ -371,7 +371,7 @@
     "conversationActions": "Conversation menu",
     "liveAlreadyExists": "Already in note",
     "liveQuestion": "1 question · Answer in conversation",
-    "liveFiles_one": "{{count}} file",
-    "liveFiles_other": "{{count}} files"
+    "liveFiles_one": "{{count}} file changed",
+    "liveFiles_other": "{{count}} files changed"
   }
 }
