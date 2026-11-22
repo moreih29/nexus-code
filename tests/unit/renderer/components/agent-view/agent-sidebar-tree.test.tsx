@@ -161,6 +161,31 @@ test("status counts families, shows differing glyphs and discloses idle children
   expect(idle).not.toContain('data-testid="agent-sidebar-tree-line"');
 });
 
+const longParent = "Release checklist for the next production deployment";
+test.each([
+  ["closed", { ...closed, parent: parent("gone", longParent) }, `↳ ${longParent} · closed`],
+  ["open", deep, "↳ Test report"],
+  ["remote", peer, "↳ Office · Peer plan"],
+] as const)("the %s parent label keeps capped space next to a long result", (_kind, row, label) => {
+  const preview = "The checks finished and the report includes the full list of results.";
+  const sessions = local.map((session) =>
+    session.key === row.key
+      ? { ...row, phase: "done" as const, state: "completed", message: preview }
+      : session,
+  );
+  const html = render(status("", sessions));
+  const caption = [
+    ...html.matchAll(
+      /<div class="([^"]+)"><span class="([^"]+)"[^>]*data-testid="agent-sidebar-parent">([^<]+)<\/span>(.*?)<\/div>/g,
+    ),
+  ].find((match) => match[3] === label);
+  expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "grow"]));
+  expect(caption?.[2]?.split(" ")).toEqual(
+    expect.arrayContaining(["max-w-[60%]", "shrink-0", "truncate"]),
+  );
+  expect(caption?.[4]).toContain(preview);
+});
+
 test("workspace shows relocated rows once, keeps their worktree labels and uses drag order for roots only", () => {
   const html = render(<WorkspaceGroups agents={agents()} activity={new Map()} query="" />, [], {
     [home.id]: [billing.key, result.key, plan.key],

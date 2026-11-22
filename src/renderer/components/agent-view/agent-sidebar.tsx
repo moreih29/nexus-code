@@ -992,6 +992,7 @@ const AgentItem = memo(function AgentItem({
       : parentClosed
         ? t("agentView.list.closed_parent", { name: parentName })
         : t("agentView.list.parent", { name: parentName });
+  const preview = <RowLine session={session} facts={facts} />;
   return (
     <div
       className={cn(
@@ -1078,23 +1079,27 @@ const AgentItem = memo(function AgentItem({
               />
             )
           )}
-          {parentLabel && (
-            <span
-              className={cn(
-                "max-w-[55%] min-w-0 truncate text-muted-foreground",
-                parentClosed && "opacity-70",
-              )}
-              title={
-                parentClosed || device
-                  ? parentLabel
-                  : t("agentView.list.parent_hint", { name: parentName })
-              }
-              data-testid="agent-sidebar-parent"
-            >
-              {parentLabel}
-            </span>
+          {parentLabel ? (
+            <div className="flex min-w-0 grow basis-1/2 items-center gap-1.5 overflow-hidden">
+              <span
+                className={cn(
+                  "max-w-[60%] shrink-0 truncate text-muted-foreground",
+                  parentClosed && "opacity-70",
+                )}
+                title={
+                  parentClosed || device
+                    ? parentLabel
+                    : t("agentView.list.parent_hint", { name: parentName })
+                }
+                data-testid="agent-sidebar-parent"
+              >
+                {parentLabel}
+              </span>
+              {preview}
+            </div>
+          ) : (
+            preview
           )}
-          <RowLine session={session} facts={facts} />
           {familyCount > 0 && (
             <button
               type="button"
