@@ -1764,6 +1764,7 @@ test("serves file transfers by scope and cleans pending uploads when the sending
   const fileWrites = new FileWrites();
   let cleanup: Promise<void> | undefined;
   const host = device(relay, "host", key, {
+    requestTimeoutMs: 5000,
     serves: () => servesWith(chat, terminal, allowAgents),
     serve: serveWith(() => app.services, {
       agents: new AgentGate({ policy: () => (allowAgents ? "allow" : "deny") }),
@@ -1775,7 +1776,7 @@ test("serves file transfers by scope and cleans pending uploads when the sending
       cleanup = fileWrites.drop(peer);
     },
   }).room;
-  const peer = device(relay, "peer", key).room;
+  const peer = device(relay, "peer", key, { requestTimeoutMs: 5000 }).room;
   host.start();
   peer.start();
   try {
