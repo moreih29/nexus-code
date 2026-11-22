@@ -2074,8 +2074,8 @@ export const RPC_METHODS = {
       upstream: z.string().optional(),
       ahead: NonnegativeIntegerSchema,
       behind: NonnegativeIntegerSchema,
-      /** Absolute repository root in the serving device's path format. Since 0.24.0. */
-      topLevel: z.string().min(1).max(4096).optional(),
+      /** Absolute root from git rev-parse --show-toplevel, with slashes on Windows. Since 0.24.0. */
+      topLevel: z.string().min(1).max(4096).optional().catch(undefined),
       files: z.array(GitFileSchema),
       /** More files than a frame takes: the rest left out. */
       truncated: z.boolean().optional(),

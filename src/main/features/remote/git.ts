@@ -108,7 +108,7 @@ export async function gitStatus(
     ...(status.branch?.upstream ? { upstream: status.branch.upstream } : {}),
     ahead: status.branch?.ahead ?? 0,
     behind: status.branch?.behind ?? 0,
-    ...(topLevel.success && { topLevel: topLevel.data }),
+    ...(topLevel.success && topLevel.data !== undefined && { topLevel: topLevel.data }),
     files: filesOf(status),
   };
   if (fits(result)) return result;

@@ -39,7 +39,7 @@ Schema 0.23.0 adds the `sessions.markSeen` capability and RPC. Devices serve it 
 
 Session listings can include `incompleteWorkspaces` when a workspace's rows are partial or come from an earlier watch snapshot. Clients can wait for a complete listing before reconciling saved read receipts there.
 
-Schema 0.24.0 adds optional `topLevel` to `git.status`, the absolute repository root in the serving device's path format. Git file paths remain relative to that root.
+Schema 0.24.0 adds optional `topLevel` to `git.status`, the absolute root from `git rev-parse --show-toplevel` (with forward slashes on Windows). Git file paths remain relative to that root. Readers can discard an invalid `topLevel` and keep the rest of the status.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 

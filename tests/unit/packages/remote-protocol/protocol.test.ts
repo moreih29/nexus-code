@@ -287,9 +287,12 @@ describe("the methods", () => {
       expect(result.parse(next)).toEqual(next);
       expect(result.omit({ topLevel: true }).parse(next)).toEqual(old);
     }
-    for (const topLevel of ["", `/${"a".repeat(4096)}`]) {
-      expect(result.safeParse({ ...old, topLevel }).success).toBe(false);
+    for (const topLevel of ["", null, 123, `/${"a".repeat(4096)}`]) {
+      const { topLevel: discarded, ...status } = result.parse({ ...old, topLevel });
+      expect(discarded).toBeUndefined();
+      expect(status).toEqual(old);
     }
+    expect(result.safeParse({ ...old, ahead: -1, topLevel: 123 }).success).toBe(false);
   });
 
   test("sessions.reorder takes a bounded list of tab IDs for a workspace", () => {

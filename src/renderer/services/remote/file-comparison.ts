@@ -2,6 +2,7 @@ import type { DiffHunk } from "../../../../packages/remote-protocol/src/rpc";
 import type { RemoteFileRef } from "../../../shared/fs/remote-file-key";
 import { ipcCallResult } from "../../ipc/client";
 import { peerGitPaths } from "./peer-git-paths";
+import { readPeerGitStatus } from "./peer-git-status";
 
 /**
  * The file before the changes `hunks` tell, from the file as it is now:
@@ -62,11 +63,9 @@ export async function readRemoteFileBefore(
   if (signal?.aborted) return undefined;
   const { deviceId, workspaceId } = file;
   const peer = { deviceId, workspaceId };
-  const status = await ipcCallResult("remote", "peerGitStatus", peer, { signal }).catch(
-    () => undefined,
-  );
+  const status = await readPeerGitStatus(peer, signal);
   if (signal?.aborted) return undefined;
-  const git = status?.ok ? status.value : undefined;
+  const git = status.ok ? status.value : undefined;
   const path = peerGitPaths(workspaceRoot, git?.topLevel).toGit(file.path, git?.files ?? []);
   if (!path) return undefined;
   const [diff, read] = await Promise.all([

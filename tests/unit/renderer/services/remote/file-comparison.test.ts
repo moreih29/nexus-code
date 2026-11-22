@@ -53,7 +53,7 @@ test.each([
     expect(await readRemoteFileBefore(ref, tabId, root, signal)).toBe("old\n");
     expect(call.mock.calls).toEqual([
       ["remote", "peerChatOriginal", { ...ref, tabId }, { signal }],
-      ["remote", "peerGitStatus", peer, { signal }],
+      ["remote", "peerGitStatus", peer],
       ["remote", "peerGitDiff", { ...peer, path: gitPath }, { signal }],
       ["remote", "peerFilesRead", ref, { signal }],
     ]);
