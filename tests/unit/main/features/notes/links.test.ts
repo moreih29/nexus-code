@@ -232,3 +232,50 @@ test("links count toward text storage and leave the note document and sort date 
   expect(await store.links(location, note.id)).toEqual([]);
   await expect(store.addLink(location, note.id, base)).rejects.toMatchObject({ code: "not-found" });
 });
+
+test("the conversation header receives one note for its task and card links", async () => {
+  const chat = { ...base, session: "session" };
+  const task = await store.addLink(location, note.id, { ...chat, kind: "task" });
+  const paragraph = (text: string) => ({
+    type: "paragraph",
+    content: [{ type: "text", text }],
+  });
+  await store.save(location, note.id, {
+    doc: {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              attrs: { nexusLink: task.id },
+              content: [paragraph("Run the checks")],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  await store.saveAnswer(
+    location,
+    note.id,
+    { ...chat, messageId: "answer" },
+    [paragraph("Checks passed")],
+    () => {},
+  );
+  const entries = await store.links(location, note.id);
+  expect(entries.map(({ link }) => link.kind)).toEqual(["task", "card"]);
+  const expected = [
+    {
+      noteId: note.id,
+      title: note.title,
+      line: "Run the checks",
+      updatedAt: Math.max(...entries.map(({ link }) => link.updatedAt)),
+    },
+  ];
+  expect(await store.linksOfConversation(location, chat)).toEqual(expected);
+  expect(await store.linksOfConversation(location, { ...chat, tabId: "reopened" })).toEqual(
+    expected,
+  );
+});

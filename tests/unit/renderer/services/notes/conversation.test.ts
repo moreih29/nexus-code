@@ -3,6 +3,7 @@ import type { ListedSession } from "../../../../../src/renderer/services/chat/se
 import {
   conversationStatus,
   conversationTitle,
+  latestConversations,
   resolveConversation,
 } from "../../../../../src/renderer/services/notes/conversation";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
@@ -190,4 +191,65 @@ test("shows a limit wait in an open tab and a saved result after closing", () =>
   const missing = resolveConversation(link, stores);
   expect(conversationStatus(missing, undefined, { state: "failed", at: 0 })).toBe("failed");
   expect(conversationStatus(missing, undefined, undefined)).toBe("missing");
+});
+
+test("links to an old tab and its reopened tab use the newest link for one live conversation", () => {
+  const reopened = claude("reopened", "current", task.rootPath);
+  const separate = claude("separate", "current", task.rootPath);
+  const live = {
+    ...stores,
+    tabsByWorkspace: { [task.id]: { reopened, separate } },
+  };
+  const entries = [
+    { id: "l1234567", link: { ...link, kind: "task" as const } },
+    {
+      id: "l1234568",
+      link: {
+        ...link,
+        kind: "card" as const,
+        tabId: reopened.id,
+        workspaceId: task.id,
+        updatedAt: 10,
+      },
+    },
+    {
+      id: "l1234569",
+      link: { ...link, tabId: separate.id, workspaceId: task.id },
+    },
+  ];
+  const rows = entries.map((entry) => ({ entry, target: resolveConversation(entry.link, live) }));
+  const conversations = latestConversations(rows);
+  expect(conversations.map(({ entry }) => entry.id)).toEqual(["l1234568", "l1234569"]);
+  expect(conversations[0].target).toEqual({ kind: "open", workspace: task, tab: reopened });
+});
+
+test("closed conversations prefer a resumable link and the latest actual report", () => {
+  const taskEntry = {
+    id: "l1234567",
+    link: { ...link, kind: "task" as const, result: { state: "failed" as const, at: 3 } },
+  };
+  const cardEntry = {
+    id: "l1234568",
+    link: { ...link, kind: "card" as const, session: undefined, sessions: [], updatedAt: 10 },
+  };
+  const reportEntry = {
+    id: "l1234569",
+    link: {
+      ...link,
+      tabId: "older-tab",
+      kind: "line" as const,
+      result: { state: "done" as const, at: 7 },
+    },
+  };
+  const rows = [taskEntry, cardEntry, reportEntry].map((entry) => ({
+    entry,
+    target: resolveConversation(entry.link, { ...stores, history }),
+  }));
+  const [merged, duplicate] = latestConversations(rows);
+  expect(duplicate).toBeUndefined();
+  expect(merged.target.kind).toBe("resume");
+  expect(merged.result).toEqual({ state: "done", at: 7 });
+  expect(conversationStatus(merged.target, undefined, merged.result)).toBe("reported");
+  expect(rows[0].entry.link.result).toEqual({ state: "failed", at: 3 });
+  expect(rows[1].entry.link.result).toBeUndefined();
 });

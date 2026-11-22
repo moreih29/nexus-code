@@ -19,7 +19,7 @@ import {
 import { IconButton } from "../ui/icon-button";
 import { PromptDialog } from "../ui/prompt-dialog";
 import { showToast } from "../ui/toast";
-import { useNoteConversations } from "./conversation-chips";
+import { useNoteConversationList } from "./conversation-chips";
 
 const MENU_OPTIONS: BubbleMenuProps["options"] = {
   placement: "top",
@@ -66,7 +66,7 @@ export function NoteSelectionMenu({
       (view.hasFocus() || element.contains(document.activeElement) || dropdownOpen.current),
     [],
   );
-  const rows = useNoteConversations();
+  const rows = useNoteConversationList();
   const marks = useEditorState({
     editor,
     selector: ({ editor: current }) => ({
@@ -75,13 +75,10 @@ export function NoteSelectionMenu({
       link: current.isActive("link"),
     }),
   });
-  const seen = new Set<string>();
-  const destinations = rows.flatMap(({ entry, target, session }) => {
+  const destinations = rows.flatMap(({ entry, target, session, result }) => {
     if (target.kind !== "open" && target.kind !== "moved") return [];
     const key = `${target.workspace.id}:${target.tab.id}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ key, entry, target, session }];
+    return [{ key, entry, target, session, result }];
   });
 
   const send = async (destination: Parameters<typeof sendNoteSelection>[2]) => {
@@ -163,11 +160,11 @@ export function NoteSelectionMenu({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuLabel>{t("connections.sendSelection")}</DropdownMenuLabel>
-            {destinations.map(({ key, entry, target, session }) => {
+            {destinations.map(({ key, entry, target, session, result }) => {
               const { workspace, tab } = target;
               const { agent } = entry.link;
               const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;
-              const status = conversationStatus(target, session, entry.link.result);
+              const status = conversationStatus(target, session, result);
               const time = session?.limitWait
                 ? new Intl.DateTimeFormat(i18n.language || undefined, {
                     hour: "numeric",

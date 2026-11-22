@@ -18,6 +18,7 @@ import {
   conversationStatus,
   conversationTitle,
   historyWorkspace,
+  latestConversations,
   noteLocation,
   resolveConversation,
   tabLinkTarget,
@@ -54,6 +55,10 @@ export function useNoteConversations(): ChipRows {
   return useContext(NoteConversations);
 }
 
+export function useNoteConversationList() {
+  return latestConversations(useNoteConversations());
+}
+
 export function NoteConversationLinks({
   note,
   isVisible,
@@ -73,7 +78,7 @@ export function NoteConversationLinks({
 
 export function ConversationChips() {
   const { t } = useTranslation("notes");
-  const rows = useNoteConversations();
+  const rows = useNoteConversationList();
   if (!rows.length) return null;
   return (
     <fieldset
@@ -83,8 +88,8 @@ export function ConversationChips() {
       <span className="mr-1 shrink-0 whitespace-nowrap text-app-micro text-muted-foreground @max-[240px]/note:hidden">
         {t("conversations.title")}
       </span>
-      {rows.map((props) => (
-        <ConversationChip key={props.entry.id} {...props} />
+      {rows.map(({ key, ...props }) => (
+        <ConversationChip key={key} {...props} />
       ))}
     </fieldset>
   );
@@ -171,6 +176,7 @@ export function ConversationChip({
   checking,
   note,
   onUnavailable,
+  result = link.result,
   line = false,
   card = false,
 }: {
@@ -180,16 +186,17 @@ export function ConversationChip({
   checking: boolean;
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
+  result?: NoteLinkEntry["link"]["result"];
   line?: boolean;
   card?: boolean;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
-  const status = conversationStatus(target, session, link.result, checking);
+  const status = conversationStatus(target, session, result, checking);
   const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
   const branch =
     (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
-  const pr = link.result?.pr;
+  const pr = result?.pr;
   const Icon = link.agent === "claude" ? ClaudeIcon : CodexIcon;
   const time = session?.limitWait
     ? new Intl.DateTimeFormat(i18n.language || undefined, {
@@ -252,7 +259,7 @@ export function ConversationChip({
 
   const agent = t(`common:task.agents.${link.agent}`);
   const lineState =
-    target.kind === "missing" && !link.result
+    target.kind === "missing" && !result
       ? "text-muted-foreground"
       : (LINE_COLORS[status] ?? "text-muted-foreground");
   const chip = (
@@ -266,7 +273,7 @@ export function ConversationChip({
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
       onClick={target.kind === "missing" ? undefined : () => void openConversation()}
-      disabled={opening || (checking && !link.result)}
+      disabled={opening || (checking && !result)}
       data-testid={line ? "note-task-conversation-chip" : "note-conversation-chip"}
     >
       {line ? (
