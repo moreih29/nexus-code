@@ -75,11 +75,13 @@ export function NoteSelectionMenu({
       link: current.isActive("link"),
     }),
   });
-  const destinations = rows.flatMap(({ entry, target, session, result }) => {
-    if (target.kind !== "open" && target.kind !== "moved") return [];
-    const key = `${target.workspace.id}:${target.tab.id}`;
-    return [{ key, entry, target, session, result }];
-  });
+  const destinations = rows.flatMap(
+    ({ entry, target, session, result, hasStoredTurns, checking }) => {
+      if (target.kind !== "open" && target.kind !== "moved") return [];
+      const key = `${target.workspace.id}:${target.tab.id}`;
+      return [{ key, entry, target, session, result, hasStoredTurns, checking }];
+    },
+  );
 
   const send = async (destination: Parameters<typeof sendNoteSelection>[2]) => {
     const selected = excerpt.current;
@@ -160,36 +162,46 @@ export function NoteSelectionMenu({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuLabel>{t("connections.sendSelection")}</DropdownMenuLabel>
-            {destinations.map(({ key, entry, target, session, result }) => {
-              const { workspace, tab } = target;
-              const { agent } = entry.link;
-              const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;
-              const status = conversationStatus(target, session, result);
-              const time = session?.limitWait
-                ? new Intl.DateTimeFormat(i18n.language || undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  }).format(session.limitWait.at)
-                : "";
-              return (
-                <DropdownMenuItem
-                  key={key}
-                  onSelect={() =>
-                    void send({ agent, workspaceId: workspace.id, tabId: tab.id, linkId: entry.id })
-                  }
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="max-w-48 truncate">
-                      {conversationTitle(entry.link.title, target) || t(`conversations.${agent}`)}
+            {destinations.map(
+              ({ key, entry, target, session, result, hasStoredTurns, checking }) => {
+                const { workspace, tab } = target;
+                const { agent } = entry.link;
+                const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;
+                const status = conversationStatus(target, session, result, {
+                  hasStoredTurns,
+                  checking,
+                });
+                const time = session?.limitWait
+                  ? new Intl.DateTimeFormat(i18n.language || undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    }).format(session.limitWait.at)
+                  : "";
+                return (
+                  <DropdownMenuItem
+                    key={key}
+                    onSelect={() =>
+                      void send({
+                        agent,
+                        workspaceId: workspace.id,
+                        tabId: tab.id,
+                        linkId: entry.id,
+                      })
+                    }
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="max-w-48 truncate">
+                        {conversationTitle(entry.link.title, target) || t(`conversations.${agent}`)}
+                      </span>
                     </span>
-                  </span>
-                  <span className="ml-2 shrink-0 text-app-micro text-muted-foreground">
-                    {t(`conversations.${status}`, { time })}
-                  </span>
-                </DropdownMenuItem>
-              );
-            })}
+                    <span className="ml-2 shrink-0 text-app-micro text-muted-foreground">
+                      {t(`conversations.${status}`, { time })}
+                    </span>
+                  </DropdownMenuItem>
+                );
+              },
+            )}
             {destinations.length > 0 && <DropdownMenuSeparator />}
             {(["claude", "codex"] as const).map((agent) => {
               const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;

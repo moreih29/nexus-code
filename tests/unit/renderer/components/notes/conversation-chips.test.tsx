@@ -1,6 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
+import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  ConversationChip,
   ConversationChips,
   NoteConversationLinks,
   useNoteConversations,
@@ -12,19 +14,20 @@ function LinkedWidgets() {
   return useNoteConversations().map(({ entry }) => <span key={entry.id} data-link={entry.id} />);
 }
 
+const link: NoteLink = {
+  agent: "codex",
+  kind: "task",
+  workspaceId: "workspace",
+  tabId: "tab",
+  title: "qc-1",
+  cwd: "/repo",
+  session: "session",
+  createdAt: 1,
+  updatedAt: 2,
+  result: { state: "done", at: 3, pr: { url: "https://example.com/pull/1", number: 1 } },
+};
+
 test("a task and card show one note header chip while both widget links remain available", () => {
-  const link: NoteLink = {
-    agent: "codex",
-    kind: "task",
-    workspaceId: "workspace",
-    tabId: "tab",
-    title: "qc-1",
-    cwd: "/repo",
-    session: "session",
-    createdAt: 1,
-    updatedAt: 2,
-    result: { state: "done", at: 3, pr: { url: "https://example.com/pull/1", number: 1 } },
-  };
   const links = spyOn(noteLinks, "useNoteLinks").mockReturnValue([
     { id: "l1234567", link },
     {
@@ -49,4 +52,33 @@ test("a task and card show one note header chip while both widget links remain a
   } finally {
     links.mockRestore();
   }
+});
+
+test("a restored open tab gives the note header quiet completion and the task chip its saved PR", () => {
+  const props: ComponentProps<typeof ConversationChip> = {
+    entry: { id: "l1234567", link },
+    target: {
+      kind: "open",
+      workspace: { id: link.workspaceId } as never,
+      tab: {
+        id: link.tabId,
+        type: "codex",
+        title: link.title,
+        defaultTitle: "Codex",
+        isPinned: false,
+        isPreview: false,
+        props: { cwd: link.cwd, threadId: link.session },
+      },
+    },
+    note: { workspaceId: link.workspaceId, tabId: "note-tab", noteId: "n1234567" },
+    session: undefined,
+    hasStoredTurns: true,
+    checking: false,
+    onUnavailable: () => {},
+  };
+  const header = renderToStaticMarkup(<ConversationChip {...props} />);
+  expect(header).toContain(" · Done");
+  expect(header).not.toContain("PR #1");
+  const line = renderToStaticMarkup(<ConversationChip {...props} line />);
+  expect(line).toContain("Done · PR #1");
 });

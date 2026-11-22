@@ -832,3 +832,60 @@ test("a failed Codex /new keeps the source history, queue, and saved thread", as
   expect(onTitle).not.toHaveBeenCalled();
   expect(onMoves).not.toHaveBeenCalled();
 });
+
+test.each([
+  ["0.170.0", "thread/turns/list"],
+  ["0.166.0", "thread/read"],
+] as const)("Codex %s checks saved turns without starting or resuming a thread", async (version, method) => {
+  installedVersion = version;
+  const prototype = CodexController.prototype as unknown as {
+    write(this: Controller, message: Message): Promise<void>;
+  };
+  const write = prototype.write;
+  const wire = spyOn(prototype, "write").mockImplementation(async function (
+    this: Controller,
+    message: Message,
+  ) {
+    await write.call(this, message);
+    if (!message.id) return;
+    const threadId = (message.params as Message)?.threadId;
+    const turns = threadId === "saved" ? [{ id: "recorded-turn" }] : [];
+    const reply =
+      threadId === "missing"
+        ? { error: { code: -32600, message: "no rollout found" } }
+        : {
+            result:
+              method === "thread/turns/list"
+                ? { data: turns }
+                : { thread: { id: threadId, turns } },
+          };
+    this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } });
+  });
+  try {
+    expect(
+      await CodexController.savedThreadsWithTurns(
+        { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
+        ["missing", "saved", "empty"],
+      ),
+    ).toEqual(["saved"]);
+    expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
+    expect(catalogCalls.at(-1)?.method).toBe("close");
+    const requests = catalogCalls
+      .filter(({ method }) => method === "send")
+      .map(({ args }) => args.message as Message);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "initialize",
+      "initialized",
+      method,
+      method,
+      method,
+    ]);
+    expect(requests.at(-2)?.params).toEqual(
+      method === "thread/turns/list"
+        ? { threadId: "saved", itemsView: "notLoaded", limit: 1 }
+        : { threadId: "saved", includeTurns: true },
+    );
+  } finally {
+    wire.mockRestore();
+  }
+});

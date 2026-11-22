@@ -915,6 +915,39 @@ export class CodexController {
     }
   }
 
+  /** Checks exact saved threads in one app-server without resuming any of them. */
+  static async savedThreadsWithTurns(
+    target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">,
+    threadIds: readonly string[],
+  ): Promise<string[]> {
+    const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
+    try {
+      if (!(await controller.start({}, true))) return [];
+      const paged = codexHistoryAvailable(
+        codexServerVersion(controller.model, controller.state.version),
+      );
+      const found: string[] = [];
+      for (const threadId of threadIds) {
+        try {
+          const reply = paged
+            ? await controller.request("thread/turns/list", {
+                threadId,
+                itemsView: "notLoaded",
+                limit: 1,
+              })
+            : await controller.request("thread/read", { threadId, includeTurns: true });
+          const turns = paged ? reply.data : (reply.thread as { turns?: unknown })?.turns;
+          if (Array.isArray(turns) && turns.length > 0) found.push(threadId);
+        } catch {
+          // An empty thread may have no rollout yet. Keep checking the other threads.
+        }
+      }
+      return found;
+    } finally {
+      await controller.close();
+    }
+  }
+
   /** Introduces app-server and asks for plan limits without starting a thread. */
   static async probePlanUsage(target: Pick<CodexTabTarget, "workspaceId" | "cwd" | "profileId">) {
     const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });

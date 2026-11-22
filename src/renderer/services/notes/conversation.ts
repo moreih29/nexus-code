@@ -180,26 +180,26 @@ export function conversationStatus(
   resolution: ConversationResolution,
   session: Pick<AgentSession, "state" | "hasTurns" | "limitWait"> | undefined,
   result: NoteLink["result"],
-  checking = false,
+  { checking = false, hasStoredTurns = false, line = false } = {},
 ): ConversationStatus {
-  if (resolution.kind === "open" || resolution.kind === "moved") {
+  const reported = result && (result.state === "done" ? "reported" : "failed");
+  if (openTarget(resolution)) {
+    const state = session?.state;
+    const active =
+      state === "running" || state === "busy"
+        ? "running"
+        : state === "permissionPending" || state === "needsInput"
+          ? "attention"
+          : undefined;
+    if (line && reported) return active ?? reported;
     if (session?.limitWait) return "limitWait";
-    switch (session?.state) {
-      case "running":
-      case "busy":
-        return "running";
-      case "permissionPending":
-      case "needsInput":
-        return "attention";
-      case "error":
-        return "failed";
-      case "completed":
-        return "completed";
-      default:
-        return session?.hasTurns ? "seen" : "idle";
-    }
+    if (active) return active;
+    if (state === "error") return "failed";
+    if (state === "completed") return "completed";
+    if (session?.hasTurns || hasStoredTurns) return "seen";
+    return checking ? "checking" : "idle";
   }
-  if (result) return result.state === "done" ? "reported" : "failed";
+  if (reported) return reported;
   if (resolution.kind === "resume") return "closed";
   return checking ? "checking" : "missing";
 }

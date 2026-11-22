@@ -240,7 +240,9 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         ? { parent: tab.props.openedBy, openedAt: tab.openedAt }
         : {};
     const hasTurns = Boolean(
-      chat?.model.lastResult || chat?.model.items.some((item) => item.kind === "user"),
+      chat?.model.lastResult ||
+        chat?.model.items.some((item) => item.kind === "user") ||
+        chat?.history?.items.some((item) => item.kind === "user" || item.kind === "assistant"),
     );
     if (tab.type === "claude") {
       const streamed = claudeChatStateOf(chat, seen[tab.id], key === input.viewing);

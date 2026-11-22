@@ -253,3 +253,36 @@ test("closed conversations prefer a resumable link and the latest actual report"
   expect(rows[0].entry.link.result).toEqual({ state: "failed", at: 3 });
   expect(rows[1].entry.link.result).toBeUndefined();
 });
+
+test("an idle restored chat counts stored turns as seen and leaves a truly empty tab idle", () => {
+  const target = resolveConversation(link, {
+    ...stores,
+    tabsByWorkspace: { [root.id]: { original: claude("original", "current") } },
+  });
+  const idle = { state: "idle", hasTurns: false };
+  expect(conversationStatus(target, idle, undefined, { hasStoredTurns: true })).toBe("seen");
+  expect(conversationStatus(target, undefined, undefined, { hasStoredTurns: true })).toBe("seen");
+  expect(conversationStatus(target, idle, undefined, { checking: true })).toBe("checking");
+  expect(conversationStatus(target, idle, undefined)).toBe("idle");
+});
+
+test.each([
+  ["idle", "reported", "failed"],
+  ["completed", "reported", "failed"],
+  ["error", "reported", "failed"],
+  ["running", "running", "running"],
+  ["busy", "running", "running"],
+  ["permissionPending", "attention", "attention"],
+  ["needsInput", "attention", "attention"],
+] as const)("a %s task chip prefers its report unless the conversation is active", (state, done, failed) => {
+  const target = resolveConversation(link, {
+    ...stores,
+    tabsByWorkspace: { [root.id]: { original: claude("original", "current") } },
+  });
+  expect(conversationStatus(target, { state }, { state: "done", at: 10 }, { line: true })).toBe(
+    done,
+  );
+  expect(conversationStatus(target, { state }, { state: "failed", at: 10 }, { line: true })).toBe(
+    failed,
+  );
+});

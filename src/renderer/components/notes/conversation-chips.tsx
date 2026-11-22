@@ -27,6 +27,7 @@ import {
   conversationHistoryKey,
   readConversationHistory,
 } from "../../services/notes/conversation-history";
+import { storedTurnTarget, useStoredTurns } from "../../services/notes/stored-turns";
 import { useNoteLinks } from "../../services/notes/use-links";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
@@ -130,7 +131,7 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       alive = false;
     };
   }, [isVisible, request, config]);
-  return rows.map(({ entry, resolution, key }) => {
+  const resolved = rows.map(({ entry, resolution, key }) => {
     const target =
       key && history[key]
         ? resolveConversation(entry.link, { ...stores, history: history[key] })
@@ -143,6 +144,7 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       entry,
       target,
       session,
+      savedTarget: storedTurnTarget(target, session),
       note,
       checking: Boolean(key && !history[key]),
       onUnavailable: (sessions: ListedSession[]) => {
@@ -150,6 +152,15 @@ function useConversationChips(note: NotePlace, links: NoteLinkEntry[], isVisible
       },
     };
   });
+  const found = useStoredTurns(
+    resolved.flatMap(({ savedTarget }) => (savedTarget ? [savedTarget] : [])),
+    isVisible,
+  );
+  return resolved.map(({ savedTarget, ...row }) => ({
+    ...row,
+    checking: row.checking || (savedTarget !== undefined && found === undefined),
+    hasStoredTurns: savedTarget !== undefined && found?.has(JSON.stringify(savedTarget)),
+  }));
 }
 
 const DOT_COLORS: Partial<Record<ConversationStatus, string>> = {
@@ -174,6 +185,7 @@ export function ConversationChip({
   target,
   session,
   checking,
+  hasStoredTurns,
   note,
   onUnavailable,
   result = link.result,
@@ -184,6 +196,7 @@ export function ConversationChip({
   target: ConversationResolution;
   session: AgentSession | undefined;
   checking: boolean;
+  hasStoredTurns?: boolean;
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
   result?: NoteLinkEntry["link"]["result"];
@@ -192,7 +205,7 @@ export function ConversationChip({
 }) {
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
-  const status = conversationStatus(target, session, result, checking);
+  const status = conversationStatus(target, session, result, { checking, hasStoredTurns, line });
   const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
   const branch =
     (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
@@ -273,7 +286,7 @@ export function ConversationChip({
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
       onClick={target.kind === "missing" ? undefined : () => void openConversation()}
-      disabled={opening || (checking && !result)}
+      disabled={opening || (target.kind === "missing" && checking && !result)}
       data-testid={line ? "note-task-conversation-chip" : "note-conversation-chip"}
     >
       {line ? (
