@@ -355,8 +355,12 @@ function LoadedNote({
       if (event.noteId !== note.id || !e || e.isDestroyed) return;
       const blocks = event.blocks as unknown as DocNode[];
       const doc = e.getJSON() as DocNode;
+      const origin = blocks[0]?.attrs?.nexusOrigin;
+      if (origin && doc.content?.some((block) => block.attrs?.nexusOrigin === origin)) return;
+      const chain = e.chain();
+      if (origin) chain.setMeta("preventAutolink", true);
       if (isEmptyDoc(doc) && event.under === undefined) {
-        e.chain()
+        chain
           .insertContentAt({ from: 0, to: e.state.doc.content.size }, blocks, {
             updateSelection: false,
           })
@@ -368,7 +372,24 @@ function LoadedNote({
       if (hasBlocksAt(doc, index, blocks)) return;
       let pos = 0;
       for (let i = 0; i < index; i++) pos += e.state.doc.child(i).nodeSize;
-      e.chain().insertContentAt(pos, blocks, { updateSelection: false }).run();
+      chain.insertContentAt(pos, blocks, { updateSelection: false }).run();
+    });
+  }, [note.id]);
+
+  useEffect(() => {
+    return notesApi.onBlocksRemoved((event) => {
+      const e = editorRef.current;
+      if (event.noteId !== note.id || !e || e.isDestroyed) return;
+      const ranges: Array<{ from: number; to: number }> = [];
+      e.state.doc.forEach((block, from) => {
+        if (block.attrs.nexusOrigin === event.origin) {
+          ranges.push({ from, to: from + block.nodeSize });
+        }
+      });
+      if (!ranges.length) return;
+      const tr = e.state.tr;
+      for (const { from, to } of ranges.reverse()) tr.delete(from, to);
+      e.view.dispatch(tr);
     });
   }, [note.id]);
 

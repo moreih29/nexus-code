@@ -5,6 +5,7 @@ import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { DocNode } from "../../../shared/notes/markdown";
+import { DEFAULT_RECORDING_SUMMARY_SETTINGS } from "../../../shared/notes/summary";
 import {
   imageBlock,
   type NoteAsset,
@@ -20,6 +21,8 @@ import {
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import { VoicePrints } from "../voice-print";
 import { NoteError, NotesStore } from "./store";
+import { NotesSummary, type NotesSummaryOptions, type SummaryTarget } from "./summary";
+import { localClaudeSummary } from "./summary-claude";
 
 const c = ipcContract.notes.call;
 const NOTE_WRITE_CALLS: readonly string[] = [
@@ -28,6 +31,10 @@ const NOTE_WRITE_CALLS: readonly string[] = [
   "addLink",
   "updateLink",
   "removeLink",
+  "summarize",
+  "cancel",
+  "undo",
+  "dismiss",
   "prune",
   "remove",
   "addFiles",
@@ -173,6 +180,7 @@ function withNoteErrors(
 export function registerNotesChannel(opts: {
   userData: string;
   workspaces: () => readonly WorkspaceMeta[];
+  summary?: Pick<NotesSummaryOptions, "settings" | "language" | "profile" | "runClaude">;
 }): NotesFeature {
   const store = new NotesStore(path.join(opts.userData, "notes"), (dir) => shell.trashItem(dir));
   const writes = new Set<Promise<unknown>>();
@@ -238,9 +246,13 @@ export function registerNotesChannel(opts: {
       changed({ locationKey: location.key, noteId: note.id, change: "created" });
       return note;
     });
-  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+  const appendAtLocation = (
+    location: NoteLocation,
+    noteId: string,
+    blocks: DocNode[],
+    under?: string,
+  ) =>
     trackWrite(async () => {
-      const location = locationOf(workspaceId);
       await store.appendBlocks(location, noteId, blocks, under);
       broadcast("notes", "blocksAdded", {
         locationKey: location.key,
@@ -250,6 +262,31 @@ export function registerNotesChannel(opts: {
       });
       changed({ locationKey: location.key, noteId, change: "saved" });
     });
+  const append: NotesFeature["append"] = (workspaceId, noteId, blocks, under) =>
+    appendAtLocation(locationOf(workspaceId), noteId, blocks, under);
+  const summary = new NotesSummary({
+    store,
+    settings: opts.summary?.settings ?? (() => DEFAULT_RECORDING_SUMMARY_SETTINGS),
+    language: opts.summary?.language ?? (() => "en"),
+    profile: opts.summary?.profile ?? (() => null),
+    runClaude: opts.summary?.runClaude ?? localClaudeSummary({}),
+    append: ({ location, noteId }, blocks) => appendAtLocation(location, noteId, blocks),
+    onState: (locationKey, noteId, recordingId, state) =>
+      broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state }),
+    onRemoved: ({ location, noteId }, origin) => {
+      broadcast("notes", "blocksRemoved", { locationKey: location.key, noteId, origin });
+      changed({ locationKey: location.key, noteId, change: "saved" });
+    },
+  });
+  const summaryTarget = ({
+    workspaceId,
+    noteId,
+    recordingId,
+  }: {
+    workspaceId: string;
+    noteId: string;
+    recordingId: string;
+  }): SummaryTarget => ({ location: locationOf(workspaceId), noteId, recordingId });
   const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
     trackWrite(async () => {
       const location = locationOf(workspaceId);
@@ -293,6 +330,20 @@ export function registerNotesChannel(opts: {
         const tab = validateArgs(c.linksOfConversation.args, args);
         return ipcOk(await store.linksOfConversation(locationOf(tab.workspaceId), tab));
       },
+      summaries: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.summaries.args, args);
+        return ipcOk(await summary.states(locationOf(workspaceId), noteId));
+      },
+      summarize: async (args: unknown) => {
+        const request = validateArgs(c.summarize.args, args);
+        return ipcOk(await summary.summarize(summaryTarget(request), request.mode ?? "auto"));
+      },
+      cancel: async (args: unknown) =>
+        ipcOk(await summary.cancel(summaryTarget(validateArgs(c.cancel.args, args)))),
+      undo: async (args: unknown) =>
+        ipcOk(await summary.undo(summaryTarget(validateArgs(c.undo.args, args)))),
+      dismiss: async (args: unknown) =>
+        ipcOk(await summary.dismiss(summaryTarget(validateArgs(c.dismiss.args, args)))),
       addLink: async (args: unknown) => {
         const { workspaceId, noteId, link, touchExisting } = validateArgs(c.addLink.args, args);
         const location = locationOf(workspaceId);
@@ -522,6 +573,9 @@ export function registerNotesChannel(opts: {
     listen: {
       changed: {},
       linksChanged: {},
+      summaryChanged: {},
+      blocksAdded: {},
+      blocksRemoved: {},
     },
   });
 
@@ -536,8 +590,10 @@ export function registerNotesChannel(opts: {
       const results = await Promise.allSettled(writes);
       const failure = results.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
+      await summary.waitForIdle();
     },
     dispose: () => {
+      summary.dispose();
       pendingRecordings.clear();
       recordings.clear();
       voicePrints.stop();

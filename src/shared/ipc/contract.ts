@@ -124,6 +124,7 @@ import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { NoteLinkEntrySchema } from "../notes/links";
+import { RecordingSummariesSchema, RecordingSummarySchema } from "../notes/summary";
 import { TranscriptFileSchema } from "../notes/transcript";
 import {
   VoiceNameLearnArgsSchema,
@@ -185,11 +186,13 @@ import {
   LinkedNoteSchema,
   NoteAssetSchema,
   NoteBlocksAddedSchema,
+  NoteBlocksRemovedSchema,
   NoteChangedSchema,
   NoteContentSchema,
   NoteLinksChangedSchema,
   NotePhotoAddedSchema,
   NoteStorageEntrySchema,
+  NoteSummaryChangedSchema,
   NoteSummarySchema,
   NotesArgs,
 } from "../types/notes";
@@ -659,6 +662,11 @@ const notesContracts = {
       read: call(NotesArgs.read, NoteContentSchema),
       links: call(NotesArgs.links, z.array(NoteLinkEntrySchema)),
       linksOfConversation: call(NotesArgs.linksOfConversation, z.array(LinkedNoteSchema)),
+      summaries: call(NotesArgs.summaries, RecordingSummariesSchema),
+      summarize: call(NotesArgs.summarize, RecordingSummarySchema.nullable()),
+      cancel: call(NotesArgs.cancel, z.boolean()),
+      undo: call(NotesArgs.undo, z.number().int().nonnegative()),
+      dismiss: call(NotesArgs.dismiss, z.boolean()),
       addLink: call(NotesArgs.addLink, NoteLinkEntrySchema),
       updateLink: call(NotesArgs.updateLink, z.void()),
       removeLink: call(NotesArgs.removeLink, z.void()),
@@ -704,10 +712,12 @@ const notesContracts = {
     listen: {
       changed: listen(NoteChangedSchema),
       linksChanged: listen(NoteLinksChangedSchema),
+      summaryChanged: listen(NoteSummaryChangedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
       /** An agent put blocks into a note: an editor open on it does too. */
       blocksAdded: listen(NoteBlocksAddedSchema),
+      blocksRemoved: listen(NoteBlocksRemovedSchema),
     },
   },
   /** Local desktop IPC only. Voice vectors are inputs and never part of its responses. */
