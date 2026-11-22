@@ -667,6 +667,7 @@ function LoadedNote({
               title={titleNow}
               flush={flush}
               onTranscript={jumpToTranscript}
+              canCreateTasks={workspace !== undefined}
             />
           )}
         </div>

@@ -13,7 +13,13 @@ export interface TaskWidget {
   taskPos(): number | undefined;
 }
 
+interface ChecklistWidget {
+  dom: HTMLElement;
+  listPos(): number | undefined;
+}
+
 const widgets = new WeakMap<Element, TaskWidget>();
+const checklists = new WeakMap<Element, ChecklistWidget>();
 const key = new PluginKey<DecorationSet>("noteTasks");
 const selector = "[data-note-task-widget]";
 let widgetId = 0;
@@ -25,9 +31,32 @@ export function taskWidgets(view: EditorView): TaskWidget[] {
   });
 }
 
+export function checklistWidgets(view: EditorView): ChecklistWidget[] {
+  return Array.from(view.dom.querySelectorAll("[data-note-checklist]")).flatMap((dom) => {
+    const widget = checklists.get(dom);
+    return widget ? [widget] : [];
+  });
+}
+
 function decorations(doc: ProseMirrorNode, previous = DecorationSet.empty): DecorationSet {
   const result: Decoration[] = [];
   doc.descendants((node, pos) => {
+    if (node.type.name === "taskList") {
+      const old = previous.find(pos, pos, (spec) => spec.checklist === true)[0];
+      result.push(
+        old ??
+          Decoration.widget(
+            pos,
+            (_view, listPos) => {
+              const dom = document.createElement("div");
+              dom.dataset.noteChecklist = String(++widgetId);
+              checklists.set(dom, { dom, listPos });
+              return dom;
+            },
+            { checklist: true, side: 1, stopEvent: () => true, ignoreSelection: true },
+          ),
+      );
+    }
     if (
       node.type.name === "paragraph" &&
       typeof node.attrs.nexusOrigin === "string" &&

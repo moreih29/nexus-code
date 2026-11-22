@@ -13,7 +13,9 @@ import { notesApi } from "../../../../../src/renderer/services/notes/api";
 import * as conversation from "../../../../../src/renderer/services/notes/send-to-conversation";
 import {
   assignNoteTask,
+  assignNoteTaskBatch,
   canMakeTask,
+  checklistTasks,
   noteTaskPrompt,
   taskName,
 } from "../../../../../src/renderer/services/notes/task";
@@ -85,6 +87,64 @@ const task = {
 const note = { workspaceId: workspace.id, noteId: "n1234567", tabId: "notes" };
 const priorId = "l7654321";
 const newId = "l1234567";
+
+test("a batch tracks existing rows across edits and leaves nested checklist rows to their own button", async () => {
+  const schema = getSchema([
+    StarterKit,
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    NoteSummaryAttributes,
+  ]);
+  const paragraph = (text: string) => schema.node("paragraph", null, [schema.text(text)]);
+  const item = (text: string) => schema.node("taskItem", null, [paragraph(text)]);
+  const sublist = schema.node("taskList", null, [item("Nested")]);
+  const list = schema.node("taskList", null, [
+    schema.node("taskItem", null, [paragraph("First"), sublist]),
+    item("Removed"),
+    item("Last"),
+  ]);
+  let state = EditorState.create({ doc: schema.node("doc", null, [list]) });
+  const listeners = new Set<(event: { transaction: Transaction }) => void>();
+  const editor = {
+    get state() {
+      return state;
+    },
+    on: (_event: string, listener: (event: { transaction: Transaction }) => void) =>
+      listeners.add(listener),
+    off: (_event: string, listener: (event: { transaction: Transaction }) => void) =>
+      listeners.delete(listener),
+    isDestroyed: false,
+  } as unknown as Editor;
+  const positions = checklistTasks(state.doc, 0);
+  expect(positions.map((pos) => state.doc.nodeAt(pos)?.firstChild?.textContent)).toEqual([
+    "First",
+    "Removed",
+    "Last",
+  ]);
+  expect(checklistTasks(state.doc, 2 + paragraph("First").nodeSize)).toHaveLength(1);
+  const seen: string[] = [];
+  const outcomes: boolean[] = [];
+  await assignNoteTaskBatch(
+    editor,
+    positions,
+    async (pos) => {
+      const row = state.doc.nodeAt(pos)?.firstChild?.textContent;
+      seen.push(row ?? "");
+      if (row === "First") {
+        const transaction = state.tr
+          .delete(positions[1], positions[2])
+          .insert(0, paragraph("New heading"));
+        state = state.apply(transaction);
+        for (const listener of listeners) listener({ transaction });
+      }
+      return { linked: row === "Last" };
+    },
+    (_pos, linked) => outcomes.push(linked),
+  );
+  expect(seen).toEqual(["First", "Last"]);
+  expect(outcomes).toEqual([false, true]);
+  expect(listeners.size).toBe(0);
+});
 
 function assignmentFixture() {
   const workspaces = useWorkspacesStore.getState().workspaces;
