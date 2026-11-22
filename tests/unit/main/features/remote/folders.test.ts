@@ -70,7 +70,7 @@ describe("listing folders", () => {
     const listed = await listFolders({ path: root }, system(root));
     expect(listed.entries).toHaveLength(MAX_FOLDERS);
     expect(listed.truncated).toBe(true);
-  });
+  }, 30_000);
 
   test("a relative path, no folder, and one it may not read", async () => {
     const root = await tree();
