@@ -534,6 +534,37 @@ await Bun.sleep(10_000);`,
     }
   });
 
+  it("discards removed layout entries before validating retained layouts", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const service = openTestState(filePath);
+    const removed = crypto.randomUUID();
+    const remaining = crypto.randomUUID();
+    const rootId = crypto.randomUUID();
+    const layout = {
+      root: { kind: "leaf" as const, id: rootId, tabIds: [], activeTabId: null },
+      activeGroupId: rootId,
+      tabs: [],
+    };
+    const invalid = { tabs: [] } as unknown as typeof layout;
+    service.commitState({ layoutByWorkspace: { [removed]: layout } });
+    service.setState(
+      { sidebarWidth: 250, layoutByWorkspace: { [removed]: invalid, [remaining]: layout } },
+      { workspaceIds: [remaining] },
+    );
+    expect(() =>
+      service.setState(
+        { layoutByWorkspace: { [remaining]: invalid } },
+        { workspaceIds: [remaining] },
+      ),
+    ).toThrow();
+    service.flushNow();
+    expect(readState(filePath)).toMatchObject({
+      sidebarWidth: 250,
+      layoutByWorkspace: { [remaining]: layout },
+    });
+    expect(readState(filePath).layoutByWorkspace?.[removed]).toBeUndefined();
+  });
+
   it("rejects invalid usage-limit resume updates and restores defaults for invalid saved values", () => {
     const patch = ipcContract.appState.call.set.args;
     for (const input of [

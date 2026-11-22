@@ -9,7 +9,11 @@ import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AppState } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import type { StateService } from "../../infra/storage/state-service";
+import {
+  isPlainRecord,
+  pickWorkspaceLayouts,
+  type StateService,
+} from "../../infra/storage/state-service";
 
 import { restoreLayoutOrigins } from "./layout-origins";
 
@@ -79,13 +83,27 @@ export function registerAppStateChannel(
         return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
-        const { instructionEdits, ...patch } = validateArgs(c.set.args, args);
+        // The workspace may have been removed while the renderer was saving.
+        const input = isPlainRecord(args) ? args : undefined;
+        const rawLayouts = input?.layoutByWorkspace;
+        const layouts = isPlainRecord(rawLayouts) ? rawLayouts : undefined;
+        const layoutWorkspaceIds = layouts && opts.listWorkspaces?.().map(({ id }) => id);
+        const { instructionEdits, ...patch } = validateArgs(
+          c.set.args,
+          layoutWorkspaceIds && layouts
+            ? {
+                ...input,
+                layoutByWorkspace: pickWorkspaceLayouts(layouts, layoutWorkspaceIds),
+              }
+            : args,
+        );
         const state = stateService.getState();
         const workspaceIds =
-          patch.layoutByWorkspace ||
+          layoutWorkspaceIds ??
+          (patch.layoutByWorkspace ||
           instructionEdits?.some(({ scope }) => scope.kind === "workspace")
             ? opts.listWorkspaces?.().map(({ id }) => id)
-            : undefined;
+            : undefined);
         const profiles = (patch.agentProfiles ?? state.agentProfiles ?? EMPTY_AGENT_PROFILES)
           .profiles;
         const hasProfile = (id: string) =>

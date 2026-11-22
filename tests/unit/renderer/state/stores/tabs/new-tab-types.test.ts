@@ -254,6 +254,31 @@ test("does not hydrate tabs or layout for a workspace deleted since the last sav
   expect(useLayoutStore.getState().byWorkspace[workspaceId]).toBeDefined();
 });
 
+test("accepts a late layout update with invalid data for a removed workspace", async () => {
+  connectRenderer();
+  const removed = crypto.randomUUID();
+  const saved = legacySnapshot(workspaceId);
+  const state = memoryState();
+  registerAppStateChannel(state, { listWorkspaces: () => [workspace] });
+  const sender = { sender: { id: 1 } };
+  expect(
+    await invoke(sender, "appState", "set", {
+      sidebarWidth: 260,
+      layoutByWorkspace: { [removed]: { tabs: [] }, [workspaceId]: saved },
+    }),
+  ).toMatchObject({ ok: true });
+  expect(state.getState()).toMatchObject({
+    sidebarWidth: 260,
+    layoutByWorkspace: { [workspaceId]: saved },
+  });
+  expect(state.getState().layoutByWorkspace?.[removed]).toBeUndefined();
+  expect(
+    await invoke(sender, "appState", "set", {
+      layoutByWorkspace: { [workspaceId]: { tabs: [] } },
+    }),
+  ).toMatchObject({ ok: false });
+});
+
 test("closing flushes queued tab, split and browser URL changes after an older save without replacing another window's layout", async () => {
   const dir = mkdtempSync(join(tmpdir(), "nx-layout-close-"));
   const stateFile = join(dir, "app-state.json");

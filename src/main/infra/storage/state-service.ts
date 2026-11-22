@@ -24,6 +24,21 @@ interface MergeLayouts {
   readonly workspaceIds?: readonly string[];
 }
 
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function pickWorkspaceLayouts<T>(
+  layouts: Record<string, T>,
+  workspaceIds: readonly string[],
+): Record<string, T> {
+  return Object.fromEntries(
+    workspaceIds.flatMap((id) => (Object.hasOwn(layouts, id) ? [[id, layouts[id]]] : [])),
+  );
+}
+
 export class StateService {
   private readonly writer: StateWriter;
   private state: AppState;
@@ -98,6 +113,11 @@ export class StateService {
     // Loaded state and earlier updates have already been checked. AppStateSchema
     // validates each top-level field independently.
     const next = { ...this.state, ...partial };
+    const workspaceIds = mergeLayouts?.workspaceIds;
+    const mergesLayouts = mergeLayouts && Object.hasOwn(partial, "layoutByWorkspace");
+    if (mergesLayouts && workspaceIds && isPlainRecord(next.layoutByWorkspace)) {
+      next.layoutByWorkspace = pickWorkspaceLayouts(next.layoutByWorkspace, workspaceIds);
+    }
     const { shape } = AppStateSchema;
     for (const key of Object.keys(partial) as (keyof AppState)[]) {
       if (Object.hasOwn(shape, key) && !shape[key].safeParse(next[key]).success) {
@@ -105,13 +125,9 @@ export class StateService {
         AppStateSchema.parse(next);
       }
     }
-    if (mergeLayouts && Object.hasOwn(partial, "layoutByWorkspace") && next.layoutByWorkspace) {
+    if (mergesLayouts && next.layoutByWorkspace) {
       const layouts = { ...this.state.layoutByWorkspace, ...next.layoutByWorkspace };
-      next.layoutByWorkspace = mergeLayouts.workspaceIds
-        ? Object.fromEntries(
-            mergeLayouts.workspaceIds.flatMap((id) => (layouts[id] ? [[id, layouts[id]]] : [])),
-          )
-        : layouts;
+      next.layoutByWorkspace = workspaceIds ? pickWorkspaceLayouts(layouts, workspaceIds) : layouts;
     }
     return next;
   }
