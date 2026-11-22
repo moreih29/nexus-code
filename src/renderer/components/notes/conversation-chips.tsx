@@ -412,7 +412,9 @@ export function ConversationChip(props: ConversationChipProps) {
         </span>
         <span aria-hidden="true">·</span>
         {statusIcon}
-        <span className="truncate">{label}</span>
+        <span className="shrink-0 whitespace-nowrap" data-testid="note-answer-card-status">
+          {label}
+        </span>
         {displayTime && <span className="shrink-0">· {displayTime}</span>}
         <button
           type="button"

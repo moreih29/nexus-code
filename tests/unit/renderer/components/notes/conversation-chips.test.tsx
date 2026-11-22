@@ -198,6 +198,30 @@ test("live cards show saved answers as text and offer to answer an active questi
   expect(zero).not.toContain("files changed");
 });
 
+test("a narrow card shortens the title and keeps the status whole", () => {
+  for (const session of [undefined, { state: "needsInput" } as never]) {
+    const markup = renderToStaticMarkup(
+      <ConversationChip
+        entry={{ id: "l1234567", link: { ...link, kind: "live", result: undefined } }}
+        target={openTab}
+        note={{ workspaceId: link.workspaceId, tabId: "note-tab", noteId: "n1234567" }}
+        session={session}
+        checking={false}
+        onUnavailable={() => {}}
+        card
+      />,
+    );
+    const status = /<span class="([^"]*)" data-testid="note-answer-card-status">([^<]*)</.exec(
+      markup,
+    );
+    expect(status?.[2]).toBe(session ? "Needs you" : "Idle");
+    expect(status?.[1].split(" ")).toEqual(["shrink-0", "whitespace-nowrap"]);
+    expect(markup).toContain(
+      `class="min-w-0 truncate font-medium text-foreground" title="${link.title}"`,
+    );
+  }
+});
+
 test("the card uses the notes list's timestamp for today's time and earlier dates", () => {
   const today = new Date(2026, 10, 22, 16, 46).getTime();
   const earlier = new Date(2026, 10, 14, 16, 46).getTime();
