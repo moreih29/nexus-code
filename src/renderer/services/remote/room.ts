@@ -246,91 +246,117 @@ export function refreshPeerSessions(deviceId: string): void {
   askAgain.notify(deviceId);
 }
 
-/**
- * Each device's sessions while `shown`: watched (sessions.watch), the
- * device sending the list as it changes; or, from a device that does not
- * serve the watch, asked now and every PEER_POLL_MS; either asked again at
- * once by refreshPeerSessions, and watched again once a device is back in
- * the room. A device's last list stays while the next is on its way.
- */
+interface PeerSessionsWatch {
+  listeners: ReturnType<typeof createListenerBus<PeerSessions>>;
+  latest?: PeerSessions;
+  stop: () => void;
+}
+
+const sessionWatches = new Map<string, PeerSessionsWatch>();
+
+function watchPeerSessionList(deviceId: string, put: (list: SessionsList | null) => void) {
+  let live = true;
+  let watching: string | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const off = ipcListen("remote", "peerSessionsUpdate", ({ deviceId: from, update }) => {
+    if (from !== deviceId || watching !== update.watchId) return;
+    const { watchId: _, ...list } = update;
+    put(list);
+  });
+  const ask = () =>
+    void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
+      if (live) put(result.ok ? result.value : null);
+    });
+  const offAgain = askAgain.subscribe((id) => {
+    if (id === deviceId) ask();
+  });
+  const unwatch = (watchId: string) =>
+    void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
+  void ipcCallResult("remote", "peerSessionsWatch", { deviceId }).then((result) => {
+    if (!live) {
+      if (result.ok) unwatch(result.value.watchId);
+      return;
+    }
+    if (!result.ok) {
+      // An older device, or one that did not answer: poll while the list is shown.
+      ask();
+      timer = setInterval(ask, PEER_POLL_MS);
+      return;
+    }
+    const { watchId, ...list } = result.value;
+    watching = watchId;
+    put(list);
+  });
+  return () => {
+    live = false;
+    off();
+    offAgain();
+    clearInterval(timer);
+    if (watching) unwatch(watching);
+  };
+}
+
+/** Shares one sessions watch among the sidebar and visible panes on this connection. */
+export function observePeerSessions(
+  deviceId: string,
+  rejoin: number,
+  take: (sessions: PeerSessions) => void,
+): () => void {
+  const key = JSON.stringify([deviceId, rejoin]);
+  let watch = sessionWatches.get(key);
+  if (!watch) {
+    const listeners = createListenerBus<PeerSessions>();
+    const next: PeerSessionsWatch = {
+      listeners,
+      stop: watchPeerSessionList(deviceId, (list) => {
+        if (!list && next.latest?.status === "ready") return;
+        next.latest = list ? { status: "ready", list } : { status: "unavailable" };
+        listeners.notify(next.latest);
+      }),
+    };
+    watch = next;
+    sessionWatches.set(key, watch);
+  }
+  const off = watch.listeners.subscribe(take);
+  if (watch.latest) take(watch.latest);
+  return () => {
+    off();
+    if (watch.listeners.size !== 0) return;
+    sessionWatches.delete(key);
+    watch.stop();
+  };
+}
+
+/** Each visible device's last session list, kept while the next is on its way. */
 export function usePeerSessions(
   deviceIds: readonly string[],
   shown: boolean,
 ): Record<string, PeerSessions> {
   const [lists, setLists] = useState<Record<string, PeerSessions>>({});
-  const key = deviceIds.join("|");
-  // Each device's connection as the room tells it: one back, seen to go or not, dropped the
-  // watch there, which is asked for again.
   const room = useRemoteRoom();
-  const joins = deviceIds
-    .map((id) => {
-      const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
-      return peer?.online ? (peer.rejoins ?? 0) : "-";
-    })
-    .join("|");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `joins` starts the watches again
+  const connections = JSON.stringify(
+    room?.status === "online"
+      ? room.peers
+          .filter((peer) => peer.online && deviceIds.includes(peer.id))
+          .map((peer) => [peer.id, peer.rejoins ?? 0])
+      : [],
+  );
   useEffect(() => {
-    if (!shown || key === "") return;
-    const ids = key.split("|");
-    let live = true;
-    const watching = new Map<string, string>();
-    const timers: ReturnType<typeof setInterval>[] = [];
-    const put = (deviceId: string, list: SessionsList | null) =>
-      setLists((now) => ({
-        ...now,
-        [deviceId]: list
-          ? { status: "ready", list }
-          : now[deviceId]?.status === "ready"
-            ? (now[deviceId] as PeerSessions)
-            : { status: "unavailable" },
-      }));
-    const off = ipcListen("remote", "peerSessionsUpdate", ({ deviceId, update }) => {
-      if (!live || watching.get(deviceId) !== update.watchId) return;
-      const { watchId: _, ...list } = update;
-      put(deviceId, list);
-    });
-    const ask = (deviceId: string) =>
-      void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
-        if (live) put(deviceId, result.ok ? result.value : null);
-      });
-    const poll = (deviceId: string) => {
-      ask(deviceId);
-      timers.push(setInterval(() => ask(deviceId), PEER_POLL_MS));
-    };
-    const offAgain = askAgain.subscribe((deviceId) => {
-      if (ids.includes(deviceId)) ask(deviceId);
-    });
-    for (const deviceId of ids) {
-      void ipcCallResult("remote", "peerSessionsWatch", { deviceId }).then((result) => {
-        if (!live) {
-          if (result.ok) {
-            void ipcCallResult("remote", "peerSessionsUnwatch", {
-              deviceId,
-              watchId: result.value.watchId,
-            });
-          }
-          return;
-        }
-        if (!result.ok) {
-          // A device of an older version, or one that did not answer: asked again and again.
-          poll(deviceId);
-          return;
-        }
-        const { watchId, ...list } = result.value;
-        watching.set(deviceId, watchId);
-        put(deviceId, list);
-      });
-    }
+    if (!shown) return;
+    const peers = JSON.parse(connections) as [id: string, rejoin: number][];
+    const off = peers.map(([id, rejoin]) =>
+      observePeerSessions(id, rejoin, (sessions) =>
+        setLists((now) =>
+          now[id] === sessions || (now[id]?.status === "ready" && sessions.status === "unavailable")
+            ? now
+            : { ...now, [id]: sessions },
+        ),
+      ),
+    );
     return () => {
-      live = false;
-      off();
-      offAgain();
-      for (const timer of timers) clearInterval(timer);
-      for (const [deviceId, watchId] of watching) {
-        void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
-      }
+      for (const release of off) release();
     };
-  }, [key, shown, joins]);
+  }, [connections, shown]);
   return lists;
 }
 

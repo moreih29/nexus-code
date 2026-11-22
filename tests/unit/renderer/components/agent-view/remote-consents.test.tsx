@@ -4,14 +4,23 @@
  * would run, the seconds left, and the answers it allows; or, where this
  * computer may not answer it, where to.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
+import type { MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteConsent } from "../../../../../packages/remote-protocol/src/rpc";
+import * as buttons from "../../../../../src/renderer/components/ui/button";
+import * as ipc from "../../../../../src/renderer/ipc/client";
+import { ipcOk } from "../../../../../src/shared/ipc/result";
 
-const { RemoteConsentCard, consentActionOf, consentSentenceOf } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-consents"
-);
+const {
+  PeerConsentCard,
+  RemoteConsentCard,
+  consentActionOf,
+  consentFromChat,
+  consentSentenceOf,
+  usePeerConsents,
+} = await import("../../../../../src/renderer/components/agent-view/remote-consents");
 
 const t = i18next.getFixedT("en", "settings");
 
@@ -38,6 +47,61 @@ const card = (c: RemoteConsent) =>
       onSettled={() => {}}
     />,
   );
+
+describe("another computer's consent in the sidebar and chat", () => {
+  test("matches the asking workspace and tab on the serving computer", () => {
+    const from = { workspaceId: "w1", tabId: "t1" };
+    const prompt = consent({ from, workspaceId: "other-workspace" });
+    expect(consentFromChat(prompt, from)).toBe(true);
+    expect(consentFromChat(prompt, { ...from, tabId: "t2" })).toBe(false);
+    expect(consentFromChat(prompt, { ...from, workspaceId: "w2" })).toBe(false);
+    expect(consentFromChat(consent({ from: { ...from, manager: true } }), from)).toBe(false);
+    const device = { id: "d3", name: "Another PC" };
+    expect(consentFromChat(consent({ from: { ...from, device } }), from)).toBe(false);
+  });
+
+  test("an answer clears both surfaces even if they still have the old list", async () => {
+    const prompt = consent({ id: "shared-answer" });
+    function Cards({ deviceId, inChat }: { deviceId: string; inChat?: boolean }) {
+      return usePeerConsents(deviceId, [prompt])
+        .filter((entry) => !inChat || consentFromChat(entry, prompt.from))
+        .map((entry) => (
+          <PeerConsentCard
+            key={entry.id}
+            consent={entry}
+            deviceId={deviceId}
+            device="Work PC"
+            workspaceName="api"
+          />
+        ));
+    }
+
+    const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcOk({}));
+    const renderButton = spyOn(buttons, "Button");
+    try {
+      const sidebar = () => renderToStaticMarkup(<Cards deviceId="d2" />);
+      const chat = () => renderToStaticMarkup(<Cards deviceId="d2" inChat />);
+      expect(sidebar()).toContain("Allow once");
+      renderButton.mockClear();
+      expect(chat()).toContain("Allow once");
+      const allow = renderButton.mock.calls.at(-1)?.[0].onClick;
+      expect(allow).toBeDefined();
+      allow?.({} as MouseEvent<HTMLButtonElement>);
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledWith("remote", "peerConsentAnswer", {
+        deviceId: "d2",
+        id: prompt.id,
+        answer: "once",
+      });
+      expect(sidebar()).toBe("");
+      expect(chat()).toBe("");
+      expect(renderToStaticMarkup(<Cards deviceId="d3" />)).toContain("Allow once");
+    } finally {
+      renderButton.mockRestore();
+      call.mockRestore();
+    }
+  });
+});
 
 describe("what another computer's consent prompt says", () => {
   test("what it would do, as this computer's prompt words it", () => {

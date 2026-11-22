@@ -41,7 +41,6 @@ import type {
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
-import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
 import { moveKey, movePeer, orderPeers, reorderSubset } from "../../services/agent-view/order";
@@ -51,7 +50,6 @@ import {
   offlinePeers,
   type PeerSessions,
   peerServes,
-  refreshPeerSessions,
   type SessionsList,
   servingPeers,
   usePeerSessions,
@@ -79,7 +77,7 @@ import {
 import { PromptDialog, type PromptRequest } from "../ui/prompt-dialog";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
-import { RemoteConsentCard } from "./remote-consents";
+import { PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
 import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
 import {
@@ -416,8 +414,6 @@ export function PeerGroup({
   // asked for on its own; not kept.
   const [terminalsIn, setTerminalsIn] = useState<ReadonlySet<string>>(() => new Set());
   const [worktreesIn, setWorktreesIn] = useState<ReadonlySet<string>>(() => new Set());
-  // The consent prompts answered here, or found answered there: left out until asked again.
-  const [settled, setSettled] = useState<ReadonlySet<string>>(() => new Set());
   // The session being renamed, while the dialog asks its new title.
   const [renaming, setRenaming] = useState<PeerSessionRef | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -436,7 +432,7 @@ export function PeerGroup({
     inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
     worktreesIn,
   });
-  const consents = (list?.consents ?? []).filter((c) => !settled.has(c.id));
+  const consents = usePeerConsents(peer.id, list?.consents);
   const waiting =
     (list?.sessions.filter((s) => s.state === "needs-you").length ?? 0) + consents.length;
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
@@ -585,24 +581,14 @@ export function PeerGroup({
               {consents.length > 0 && (
                 <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
                   {consents.map((consent) => (
-                    <RemoteConsentCard
+                    <PeerConsentCard
                       key={consent.id}
                       consent={consent}
+                      deviceId={peer.id}
                       device={peer.name}
                       workspaceName={
                         names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
                       }
-                      onAnswer={(answer) =>
-                        ipcCallResult("remote", "peerConsentAnswer", {
-                          deviceId: peer.id,
-                          id: consent.id,
-                          answer,
-                        })
-                      }
-                      onSettled={() => {
-                        setSettled((now) => new Set(now).add(consent.id));
-                        refreshPeerSessions(peer.id);
-                      }}
                     />
                   ))}
                 </div>
