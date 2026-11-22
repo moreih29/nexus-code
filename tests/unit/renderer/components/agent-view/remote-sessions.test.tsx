@@ -890,6 +890,14 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("Run bun test?");
   });
 
+  test("shows a failed turn in red next to its time and accepts an older row without the flag", () => {
+    const row = session({ since: Date.now(), state: "idle" });
+    const failed = renderToStaticMarkup(<RemoteSessionRow session={{ ...row, failed: true }} />);
+    expect(failed).toContain('text-(--state-error-fg)">Failed</span>');
+    expect(failed.indexOf(">Failed<")).toBeLessThan(failed.indexOf(">just now<"));
+    expect(renderToStaticMarkup(<RemoteSessionRow session={row} />)).not.toContain(">Failed<");
+  });
+
   test("a row is a button that opens the session, marked as this computer's are while a panel has it", () => {
     const shown = renderToStaticMarkup(
       <RemoteSessionRow session={session({})} where="shown" onOpen={() => {}} />,

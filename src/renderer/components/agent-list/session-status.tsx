@@ -135,6 +135,15 @@ export function useDurationLabel(since: number | undefined): string | null {
   return durationLabel(since, Math.max(now, since ?? 0));
 }
 
+/** A turn that ended with an error, shown beside its time. */
+export function FailureLabel() {
+  return (
+    <span className="shrink-0 text-app-micro whitespace-nowrap text-(--state-error-fg)">
+      {i18next.t("common:agentView.list.failed")}
+    </span>
+  );
+}
+
 /** The agent's name in a small monospace badge. */
 export function AgentBadge({ agent }: { agent: string | undefined }) {
   return (

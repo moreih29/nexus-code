@@ -39,7 +39,12 @@ import { cn } from "@/utils/cn";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
-import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-status";
+import {
+  FailureLabel,
+  StateGlyph,
+  stateLabel,
+  useDurationLabel,
+} from "../agent-list/session-status";
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
@@ -646,6 +651,7 @@ const AgentItem = memo(function AgentItem({
                 <StateGlyph state={session.state} />
               </span>
             )}
+            {session.state === "error" && <FailureLabel />}
             {duration && (
               <span
                 className={cn(

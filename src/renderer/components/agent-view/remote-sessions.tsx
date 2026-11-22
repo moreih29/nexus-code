@@ -61,7 +61,7 @@ import { askOf, type RemoteTarget, useRemoteViewStore } from "../../state/stores
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
-import { StateGlyph } from "../agent-list/session-status";
+import { FailureLabel, StateGlyph, useDurationLabel } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
@@ -936,6 +936,7 @@ export function RemoteSessionRow({
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t, i18n } = useTranslation();
   const group = GROUP_OF[session.state];
+  const duration = useDurationLabel(session.since);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const state = t(`agentView.remote.state.${session.state}`);
@@ -972,6 +973,16 @@ export function RemoteSessionRow({
         <span className="sr-only">{state}</span>
         <Icon aria-hidden className="size-3 shrink-0" />
         <span className="min-w-0 truncate text-app-ui-sm text-foreground">{session.title}</span>
+        {(session.failed || duration) && (
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {session.failed && <FailureLabel />}
+            {duration && (
+              <span className="text-app-micro whitespace-nowrap tabular-nums text-muted-foreground">
+                {duration}
+              </span>
+            )}
+          </span>
+        )}
       </span>
       {(session.waiting || session.limitWait || session.last) && (
         <span

@@ -1927,7 +1927,8 @@
       "worktree": "Worktree",
       "new_agent": "New agent in {{name}}",
       "shown": "Shown in a panel",
-      "held": "In a panel, behind another tab"
+      "held": "In a panel, behind another tab",
+      "failed": "Failed"
     },
     "pane": {
       "close": "Close panel",
