@@ -16,6 +16,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_BYTES_CHUNK,
   MAX_IMAGE_EDGE,
+  MAX_MARK_SEEN,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
   olderConnection,
@@ -283,6 +284,27 @@ describe("the methods", () => {
     expect(params.safeParse({ ...order, tabIds: Array(500).fill("c") }).success).toBe(true);
     expect(params.safeParse({ ...order, tabIds: Array(501).fill("c") }).success).toBe(false);
     expect(result.parse({})).toEqual({});
+  });
+
+  const receipt = { workspaceId: "w", tabId: "t", upTo: 123 };
+  test.each([
+    ["one entry", [receipt], true],
+    ["the maximum", Array(MAX_MARK_SEEN).fill(receipt), true],
+    ["no entries", [], false],
+    ["over the maximum", Array(MAX_MARK_SEEN + 1).fill(receipt), false],
+    ["missing upTo", [{ workspaceId: "w", tabId: "t" }], false],
+    ["string upTo", [{ ...receipt, upTo: "123" }], false],
+    ["nonfinite upTo", [{ ...receipt, upTo: Infinity }], false],
+  ])("sessions.markSeen validates %s", (_label, seen, valid) => {
+    expect(RPC_METHODS["sessions.markSeen"].params.safeParse({ seen }).success).toBe(valid);
+  });
+
+  test("sessions.markSeen has a capability and can mark zero results", () => {
+    const { capability, result } = RPC_METHODS["sessions.markSeen"];
+    expect(capability).toBe("sessions.markSeen");
+    expect(CAPABILITIES).toContain(capability);
+    expect(MAX_MARK_SEEN).toBe(500);
+    expect(result.parse({ marked: 0 })).toEqual({ marked: 0 });
   });
 
   test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {
