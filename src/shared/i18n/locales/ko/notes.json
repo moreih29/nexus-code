@@ -343,7 +343,8 @@
     "assignAllTasks_one": "할 일 {{count}}개 · 작업 {{limit}}개 만들기",
     "assignAllTasks_other": "할 일 {{count}}개 · 작업 {{limit}}개 만들기",
     "assignAllConversations_one": "할 일 {{count}}개 · 대화 {{limit}}개 만들기",
-    "assignAllConversations_other": "할 일 {{count}}개 · 대화 {{limit}}개 만들기"
+    "assignAllConversations_other": "할 일 {{count}}개 · 대화 {{limit}}개 만들기",
+    "linkFailed": "할 일 연결 실패"
   },
   "connections": {
     "linkedNote": "이 대화의 노트",

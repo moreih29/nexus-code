@@ -16,7 +16,7 @@ import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/wor
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 import { withTestDom } from "../../../../helpers/test-dom";
 
-test("the checklist confirms at most ten rows in order and marks only the failed row", async () => {
+test("the checklist marks each failure and excludes created but unlinked rows from a retry", async () => {
   const schema = getSchema([StarterKit, TaskList, TaskItem, NoteSummaryAttributes]);
   const row = (name: string, attrs = {}) =>
     schema.node("taskItem", attrs, [
@@ -60,6 +60,7 @@ test("the checklist confirms at most ten rows in order and marks only the failed
   const assign = spyOn(tasks, "assignNoteTask").mockImplementation(async (_editor, pos) => {
     if (pos === positions[3]) return first.promise;
     if (pos === positions[4]) throw new Error("Task creation failed");
+    if (pos === positions[5]) return { linked: false, queued: false };
     return { linked: true, queued: false };
   });
   try {
@@ -138,6 +139,21 @@ test("the checklist confirms at most ten rows in order and marks only the failed
           dom.querySelector('[data-testid="note-task-failed"]'),
         );
         expect(failed).toEqual([rows[4]]);
+        expect(
+          rows[5].dom.querySelector('[data-testid="note-task-link-failed"]')?.textContent,
+        ).toBe("To-do link failed");
+        await act(async () => {
+          button?.click();
+        });
+        expect(host.textContent).toContain("11 to-dos · Create 10 tasks");
+        await act(async () => {
+          Array.from(host.querySelectorAll("button"))
+            .find(({ textContent }) => textContent === "Create")
+            ?.click();
+        });
+        expect(assign.mock.calls.slice(10).map(([, pos]) => pos)).toEqual(
+          positions.slice(3, 14).filter((pos) => pos !== positions[5]),
+        );
       } finally {
         items.mockRestore();
         lists.mockRestore();

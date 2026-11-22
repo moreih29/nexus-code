@@ -27,6 +27,7 @@ interface TaskNote {
 type Destination = { agent: ChatAgent; worktree: boolean } | { workspaceId: string; tabId: string };
 
 export const NOTE_TASK_BATCH_LIMIT = 10;
+export type NoteTaskBatchOutcome = "linked" | "link-failed" | "creation-failed";
 
 function unassignedTask(node: ProseMirrorNode | null): boolean {
   return (
@@ -37,12 +38,17 @@ function unassignedTask(node: ProseMirrorNode | null): boolean {
   );
 }
 
-export function checklistTasks(doc: ProseMirrorNode, pos: number): number[] {
+export function checklistTasks(
+  doc: ProseMirrorNode,
+  pos: number,
+  excluded?: ReadonlySet<number>,
+): number[] {
   const list = doc.nodeAt(pos);
   const positions: number[] = [];
   if (list?.type.name === "taskList") {
     list.forEach((node, offset) => {
-      if (unassignedTask(node)) positions.push(pos + 1 + offset);
+      const at = pos + 1 + offset;
+      if (!excluded?.has(at) && unassignedTask(node)) positions.push(at);
     });
   }
   return positions;
@@ -53,7 +59,7 @@ export async function assignNoteTaskBatch(
   editor: Editor,
   positions: readonly number[],
   assign: (pos: number) => Promise<{ linked: boolean }>,
-  outcome: (pos: number, linked: boolean) => void,
+  outcome: (pos: number, result: NoteTaskBatchOutcome) => void,
 ) {
   // Track inside each row so changing its markup does not delete the anchor.
   const anchors = positions.slice(0, NOTE_TASK_BATCH_LIMIT).map((pos) => ({ at: pos + 1 }));
@@ -70,8 +76,13 @@ export async function assignNoteTaskBatch(
       if (editor.isDestroyed) return;
       const pos = anchor.at - 1;
       if (pos < 0 || !unassignedTask(editor.state.doc.nodeAt(pos))) continue;
-      const result = await assign(pos).catch(() => ({ linked: false }));
-      if (anchor.at > 0 && !editor.isDestroyed) outcome(anchor.at - 1, result.linked);
+      let result: NoteTaskBatchOutcome;
+      try {
+        result = (await assign(pos)).linked ? "linked" : "link-failed";
+      } catch {
+        result = "creation-failed";
+      }
+      if (anchor.at > 0 && !editor.isDestroyed) outcome(anchor.at - 1, result);
     }
   } finally {
     editor.off("transaction", map);

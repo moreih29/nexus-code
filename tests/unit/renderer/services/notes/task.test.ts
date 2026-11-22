@@ -123,7 +123,7 @@ test("a batch tracks existing rows across edits and leaves nested checklist rows
   ]);
   expect(checklistTasks(state.doc, 2 + paragraph("First").nodeSize)).toHaveLength(1);
   const seen: string[] = [];
-  const outcomes: boolean[] = [];
+  const outcomes: string[] = [];
   await assignNoteTaskBatch(
     editor,
     positions,
@@ -139,10 +139,10 @@ test("a batch tracks existing rows across edits and leaves nested checklist rows
       }
       return { linked: row === "Last" };
     },
-    (_pos, linked) => outcomes.push(linked),
+    (_pos, result) => outcomes.push(result),
   );
   expect(seen).toEqual(["First", "Last"]);
-  expect(outcomes).toEqual([false, true]);
+  expect(outcomes).toEqual(["link-failed", "linked"]);
   expect(listeners.size).toBe(0);
 });
 

@@ -343,7 +343,8 @@
     "assignAllConversations_other": "{{count}} to-dos · Create {{limit}} conversations",
     "assignAllLimit": "First {{limit}} only",
     "taskAgent": "Task agent",
-    "createAll": "Create"
+    "createAll": "Create",
+    "linkFailed": "To-do link failed"
   },
   "connections": {
     "linkedNote": "This conversation’s notes",

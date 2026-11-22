@@ -16,6 +16,7 @@ import {
   canMakeTask,
   checklistTasks,
   NOTE_TASK_BATCH_LIMIT,
+  type NoteTaskBatchOutcome,
   taskRepoKind,
 } from "../../services/notes/task";
 import { useGitStore } from "../../state/stores/git";
@@ -41,6 +42,17 @@ import type { TranscriptJump } from "./transcript-rows";
 const NO_WIDGETS: TaskWidget[] = [];
 type ChecklistWidget = ReturnType<typeof checklistWidgets>[number];
 type ChecklistRow = { widget: ChecklistWidget; count: number };
+type TaskFailure = Exclude<NoteTaskBatchOutcome, "linked">;
+
+function createdWithoutLink(failures: ReadonlyMap<TaskWidget, TaskFailure>): Set<number> {
+  const positions = new Set<number>();
+  for (const [widget, failure] of failures) {
+    if (failure !== "link-failed") continue;
+    const pos = widget.taskPos();
+    if (pos !== undefined) positions.add(pos);
+  }
+  return positions;
+}
 
 export function NoteTaskControls({
   editor,
@@ -60,6 +72,7 @@ export function NoteTaskControls({
   const { t } = useTranslation("notes");
   const [widgets, setWidgets] = useState(NO_WIDGETS);
   const [checklists, setChecklists] = useState<ChecklistRow[]>([]);
+  const [failures, setFailures] = useState(() => new Map<TaskWidget, TaskFailure>());
   useLayoutEffect(() => {
     const sync = () => {
       if (editor.isDestroyed) return;
@@ -70,11 +83,12 @@ export function NoteTaskControls({
           : next,
       );
       if (!canCreateTasks) return;
+      const excluded = createdWithoutLink(failures);
       const lists = checklistWidgets(editor.view).map((widget) => {
         const pos = widget.listPos();
         return {
           widget,
-          count: pos === undefined ? 0 : checklistTasks(editor.state.doc, pos).length,
+          count: pos === undefined ? 0 : checklistTasks(editor.state.doc, pos, excluded).length,
         };
       });
       setChecklists((before) =>
@@ -89,7 +103,7 @@ export function NoteTaskControls({
     return () => {
       editor.off("transaction", sync);
     };
-  }, [editor, canCreateTasks]);
+  }, [editor, canCreateTasks, failures]);
 
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const workspace = workspaces.find((w) => w.id === note.workspaceId);
@@ -104,15 +118,15 @@ export function NoteTaskControls({
   const preferred = useTerminalStore((s) => chatAgentOf(s.taskAgent ?? DEFAULT_TASK_AGENT));
   const [picker, setPicker] = useState<TaskWidget>();
   const [batch, setBatch] = useState<ChecklistWidget>();
-  const [failures, setFailures] = useState<Set<TaskWidget>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const assigning = useRef(false);
-  const recordOutcome = (widget: TaskWidget, linked: boolean) =>
+  const recordOutcome = (widget: TaskWidget, outcome: NoteTaskBatchOutcome) =>
     setFailures((previous) => {
-      if (previous.has(widget) === !linked) return previous;
-      const next = new Set(previous);
-      if (linked) next.delete(widget);
-      else next.add(widget);
+      const failure = outcome === "linked" ? undefined : outcome;
+      if (previous.get(widget) === failure) return previous;
+      const next = new Map(previous);
+      if (failure) next.set(widget, failure);
+      else next.delete(widget);
       return next;
     });
   const run = async (widget: TaskWidget, destination: Parameters<typeof assignNoteTask>[5]) => {
@@ -121,7 +135,7 @@ export function NoteTaskControls({
     if (!editor.state.doc.nodeAt(pos)?.firstChild?.textContent.trim()) return;
     assigning.current = true;
     setBusy(true);
-    recordOutcome(widget, true);
+    recordOutcome(widget, "linked");
     try {
       const outcome = await assignNoteTask(editor, pos, note, title, flush, destination);
       if (!outcome.linked) showToast({ kind: "info", message: t("tasks.sentWithoutLink") });
@@ -142,11 +156,11 @@ export function NoteTaskControls({
     try {
       await assignNoteTaskBatch(
         editor,
-        checklistTasks(editor.state.doc, pos),
+        checklistTasks(editor.state.doc, pos, createdWithoutLink(failures)),
         (at) => assignNoteTask(editor, at, note, title, flush, { agent, worktree }, false),
-        (at, linked) => {
+        (at, outcome) => {
           const row = taskWidgets(editor.view).find((widget) => widget.taskPos() === at);
-          if (row) recordOutcome(row, linked);
+          if (row) recordOutcome(row, outcome);
         },
       );
     } finally {
@@ -180,6 +194,7 @@ export function NoteTaskControls({
         )}
       {widgets.map((widget) => {
         const chip = widget.linkId ? chips.get(widget.linkId) : undefined;
+        const failure = failures.get(widget);
         const at = widget.at;
         const label = [widget.speaker, at === undefined ? "" : clockOf(at)]
           .filter(Boolean)
@@ -204,7 +219,8 @@ export function NoteTaskControls({
             {chip ? (
               <ConversationChip {...chip} line />
             ) : (
-              parent && (
+              parent &&
+              failure !== "link-failed" && (
                 <TaskMenu
                   parent={parent}
                   repo={repo}
@@ -216,12 +232,14 @@ export function NoteTaskControls({
                 />
               )
             )}
-            {!widget.linkId && failures.has(widget) && (
+            {!widget.linkId && failure && (
               <span
                 className="note-task-chip text-(--state-error-fg)"
-                data-testid="note-task-failed"
+                data-testid={
+                  failure === "link-failed" ? "note-task-link-failed" : "note-task-failed"
+                }
               >
-                {t("conversations.failed")}
+                {failure === "link-failed" ? t("tasks.linkFailed") : t("conversations.failed")}
               </span>
             )}
           </>,
