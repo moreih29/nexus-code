@@ -83,7 +83,7 @@ linux:
     - deb
   category: Development
   executableName: nexus-code
-  maintainer: "moreih29 <moreih29@gmail.com>"
+  maintainer: "moreih29 <support@gradiendo.com>"
   synopsis: "Multi-workspace editor with Monaco and a terminal in one window"
   # The voice print model at full precision, which x64 runs fastest;
   # scripts/voice-print-model.ts fetches it into dist/voice-print.

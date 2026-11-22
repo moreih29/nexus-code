@@ -75,7 +75,8 @@ Microsoft Store, Apple App Store, Amazon Web Services, Cloudflare, Soniox, GitHu
 
 ## 문의
 
-<https://github.com/moreih29/nexus-code/issues>
+- 계정·개인정보 문의: <support@gradiendo.com>
+- 버그와 기능 제안: <https://github.com/moreih29/nexus-code/issues>
 
 ## 변경
 
@@ -158,7 +159,8 @@ The Microsoft Store, the Apple App Store, Amazon Web Services, Cloudflare, Sonio
 
 ## Contact
 
-<https://github.com/moreih29/nexus-code/issues>
+- Account and privacy questions: <support@gradiendo.com>
+- Bugs and feature requests: <https://github.com/moreih29/nexus-code/issues>
 
 ## Changes
 
