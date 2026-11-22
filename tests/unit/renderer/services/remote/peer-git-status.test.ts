@@ -4,6 +4,7 @@ import * as ipc from "../../../../../src/renderer/ipc/client";
 import {
   PEER_GIT_POLL_MS,
   type PeerGitStatus,
+  readPeerGitStatus,
   watchPeerGitStatus,
 } from "../../../../../src/renderer/services/remote/peer-git-status";
 import { type IpcResult, ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
@@ -234,6 +235,34 @@ test("a running session missing from a complete list refreshes Git and invalidat
     await Bun.sleep(0);
     expect(call).toHaveBeenCalledTimes(2);
   } finally {
+    watch.stop();
+    call.mockRestore();
+  }
+});
+
+test("on-demand Git status shares the poll and waits before requesting another workspace", async () => {
+  const polling = Promise.withResolvers<IpcResult<PeerGitStatus>>();
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockImplementationOnce(() => polling.promise)
+    .mockResolvedValueOnce(ipcOk({ ...status, branch: "other" }));
+  const host = desktop();
+  const watch = watchPeerGitStatus(peer, callbacks(), host);
+  const other = { ...peer, workspaceId: "other" };
+  const abort = new AbortController();
+  try {
+    const same = readPeerGitStatus(peer);
+    const different = readPeerGitStatus(other);
+    const cancelled = readPeerGitStatus({ ...peer, workspaceId: "closed" }, abort.signal);
+    abort.abort();
+    host.tick();
+    expect(call).toHaveBeenCalledTimes(1);
+    polling.resolve(ready);
+    expect(await same).toEqual(ready);
+    expect(await different).toEqual(ipcOk({ ...status, branch: "other" }));
+    expect(await cancelled).toMatchObject({ ok: false, kind: "cancelled" });
+    expect(call.mock.calls.map(([, , args]) => args)).toEqual([peer, other]);
+  } finally {
+    polling.resolve(ready);
     watch.stop();
     call.mockRestore();
   }

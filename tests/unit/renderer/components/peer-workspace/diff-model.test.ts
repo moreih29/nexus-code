@@ -325,3 +325,90 @@ test("a fresh NotFound unstaged diff overrides a stale working-change status", a
     call.mockRestore();
   }
 });
+
+test.each([
+  {
+    type: "POSIX",
+    topLevel: "/repo",
+    root: "/repo/apps/demo",
+    gitPath: "apps/demo/src/run.ts",
+    absolute: "/repo/apps/demo/src/run.ts",
+  },
+  {
+    type: "Windows drive",
+    topLevel: "d:/REPO/",
+    root: "D:\\Repo\\apps/demo",
+    gitPath: "Apps/Demo/src/run.ts",
+    absolute: "D:\\Repo\\apps\\demo\\src\\run.ts",
+  },
+  {
+    type: "Windows UNC",
+    topLevel: "//SERVER/Share/Repo",
+    root: "\\\\server\\share\\repo\\apps/demo",
+    gitPath: "Apps/Demo/src/run.ts",
+    absolute: "\\\\server\\share\\repo\\apps\\demo\\src\\run.ts",
+  },
+  {
+    type: "Windows drive root",
+    topLevel: "D:\\",
+    root: "d:/",
+    gitPath: path,
+    absolute: "D:\\src\\run.ts",
+  },
+  {
+    type: "workspace outside of topLevel",
+    topLevel: "/repo/app",
+    root: "/repo/app-link",
+    gitPath: path,
+    absolute: "/repo/app-link/src/run.ts",
+  },
+])("loads the correct working file for $type", async ({ topLevel, root, gitPath, absolute }) => {
+  const diff = { ...edit("a", "b"), path: gitPath };
+  const peer = { deviceId: target.deviceId, workspaceId: target.workspaceId };
+  const { signal } = new AbortController();
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(ipcOk(diff))
+    .mockResolvedValueOnce(ipcOk({ parts: ["Yg=="], size: 2 }))
+    .mockResolvedValueOnce(ipcOk({ parts: ["Ygo="], size: 2 }));
+  try {
+    const nested = { ...target, workspace: { ...target.workspace, path: root } };
+    expect(
+      await loadPeerDiff(nested, { path: gitPath, unstaged: "M" }, "unstaged", signal, topLevel),
+    ).toMatchObject({
+      kind: "text",
+      before: "a\n",
+      after: "b\n",
+    });
+    expect(call.mock.calls.map(([channel, method, args]) => [channel, method, args])).toEqual([
+      ["remote", "peerGitDiff", { ...peer, path: gitPath, staged: false }],
+      ["remote", "peerFilesReadBytes", { ...peer, path: absolute, offset: 0, length: 1 }],
+      [
+        "remote",
+        "peerFilesReadBytes",
+        { ...peer, path: absolute, offset: 0, length: MAX_BYTES_CHUNK, whole: true },
+      ],
+    ]);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("a Git change outside a nested workspace still shows its hunks without reading the file", async () => {
+  const gitPath = "app-other/src/run.ts";
+  const diff = { ...edit("a", "b"), path: gitPath };
+  const nested = { ...target, workspace: { ...target.workspace, path: "/repo/app" } };
+  const { signal } = new AbortController();
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValueOnce(ipcOk(diff));
+  try {
+    expect(
+      await loadPeerDiff(nested, { path: gitPath, unstaged: "M" }, "unstaged", signal, "/repo"),
+    ).toEqual({
+      kind: "patch",
+      patch: diff,
+      permissionDenied: true,
+    });
+    expect(call.mock.calls.map((call) => call[1])).toEqual(["peerGitDiff"]);
+  } finally {
+    call.mockRestore();
+  }
+});

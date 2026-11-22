@@ -272,6 +272,29 @@ describe("the methods", () => {
     expect(SCHEMA_VERSION).toBe(pkg.version);
   });
 
+  test("git.status preserves an optional bounded repository root across readers", () => {
+    const { capability, result } = RPC_METHODS["git.status"];
+    const old = { branch: "main", ahead: 0, behind: 0, files: [{ path: "app/main.ts" }] };
+    expect(capability).toBe("git");
+    expect(result.parse(old)).toEqual(old);
+    for (const topLevel of [
+      "/repo",
+      "D:\\Repo",
+      "\\\\server\\share\\repo",
+      `/${"a".repeat(4095)}`,
+    ]) {
+      const next = { ...old, topLevel };
+      expect(result.parse(next)).toEqual(next);
+      expect(result.omit({ topLevel: true }).parse(next)).toEqual(old);
+    }
+    for (const topLevel of ["", null, 123, `/${"a".repeat(4096)}`]) {
+      const { topLevel: discarded, ...status } = result.parse({ ...old, topLevel });
+      expect(discarded).toBeUndefined();
+      expect(status).toEqual(old);
+    }
+    expect(result.safeParse({ ...old, ahead: -1, topLevel: 123 }).success).toBe(false);
+  });
+
   test("sessions.reorder takes a bounded list of tab IDs for a workspace", () => {
     const { capability, params, result } = RPC_METHODS["sessions.reorder"];
     expect(capability).toBe("sessions.reorder");

@@ -23,6 +23,7 @@ export function PeerDiffTabBody({
   target,
   tab,
   latest,
+  topLevel,
   selected,
   canRead,
   updateNeeded,
@@ -31,6 +32,7 @@ export function PeerDiffTabBody({
   target: PeerWorkspaceTarget;
   tab: PeerDiffTab;
   latest?: PeerGitFile;
+  topLevel?: string;
   selected: boolean;
   canRead: boolean;
   updateNeeded: boolean;
@@ -41,7 +43,7 @@ export function PeerDiffTabBody({
   const [view, setView] = useState<PeerDiffView | null>(null);
   const [revision, setRevision] = useState(0);
   const read = useEffectEvent((signal: AbortSignal) =>
-    loadPeerDiff(target, latest ?? tab, tab.side, signal),
+    loadPeerDiff(target, latest ?? tab, tab.side, signal, topLevel),
   );
   const root = target.workspace.path;
   const show = canRead && selected;
@@ -58,7 +60,7 @@ export function PeerDiffTabBody({
         if (!signal.aborted) setView({ kind: "error", error: "unavailable" });
       });
     return () => controller.abort();
-  }, [show, root, rejoin, revision, tab]);
+  }, [show, root, topLevel, rejoin, revision, tab]);
 
   const stage = tab.side === "staged";
   const leftRef = stage ? "HEAD" : "INDEX";
@@ -69,14 +71,15 @@ export function PeerDiffTabBody({
     view?.kind === "text"
       ? (view.oldPath ?? tab.path)
       : ((renamed ? change.oldPath : undefined) ?? tab.path);
-  const display = (path: string) => {
-    const file = peerGitDisplayPath(root, path);
+  const describe = (path: string) => peerGitDisplayPath(root, path, topLevel);
+  const display = (file: ReturnType<typeof describe>) => {
     return file.outsideWorkspace
       ? `${file.path} · ${t("peerWorkspace.gitOutsideWorkspace")}`
       : file.path;
   };
-  const leftPath = t("peerWorkspace.gitDiffLeft", { path: display(left), ref: leftRef });
-  const rightPath = t("peerWorkspace.gitDiffRight", { path: display(tab.path), ref: rightRef });
+  const leftPath = t("peerWorkspace.gitDiffLeft", { path: display(describe(left)), ref: leftRef });
+  const right = describe(tab.path);
+  const rightPath = t("peerWorkspace.gitDiffRight", { path: display(right), ref: rightRef });
   const error = updateNeeded
     ? t("peerWorkspace.updateNeeded")
     : view?.kind === "error"
@@ -126,7 +129,7 @@ export function PeerDiffTabBody({
         <div className="min-h-0 flex-1">
           <ReadOnlyDiffEditor
             monaco={monaco}
-            path={tab.path}
+            path={right.path}
             before={view.before}
             now={view.after}
             sideBySide

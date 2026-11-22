@@ -158,7 +158,8 @@ export function useRemoteLinks(
           ...(before !== undefined ? { changes: { [path]: before } } : {}),
         });
         if (known !== undefined) setLook(list(known));
-        else show(readRemoteFileBefore(file, tabId).then(list, () => list(undefined)));
+        else
+          show(readRemoteFileBefore(file, tabId, workspaceRoot).then(list, () => list(undefined)));
       },
       openUrl(url) {
         // That computer's own address is not this one's to open.

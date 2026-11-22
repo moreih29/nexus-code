@@ -24,8 +24,39 @@ interface WatchHost {
   clearInterval: (timer: ReturnType<typeof setInterval> | undefined) => void;
 }
 
-// A workspace switch can end one watch while its last request is settling.
-const pendingByDevice = new Map<string, Promise<void>>();
+type GitStatusResult = IpcResult<PeerGitStatus>;
+const pendingByDevice = new Map<
+  string,
+  { workspaceId: string; request: Promise<GitStatusResult> }
+>();
+
+function startStatus(peer: PeerWorkspace): Promise<GitStatusResult> {
+  // A caller can stop waiting, but the device slot stays occupied until its reply.
+  const load = async (): Promise<GitStatusResult> => {
+    try {
+      return await ipcCallResult("remote", "peerGitStatus", peer);
+    } catch {
+      return ipcErr("unavailable", "");
+    }
+  };
+  const request = load().finally(() => pendingByDevice.delete(peer.deviceId));
+  pendingByDevice.set(peer.deviceId, { workspaceId: peer.workspaceId, request });
+  return request;
+}
+
+/** An on-demand read shares a matching poll or waits for another workspace's read. */
+export async function readPeerGitStatus(
+  peer: PeerWorkspace,
+  signal?: AbortSignal,
+): Promise<GitStatusResult> {
+  while (!signal?.aborted) {
+    const pending = pendingByDevice.get(peer.deviceId);
+    if (!pending) return startStatus(peer);
+    if (pending.workspaceId === peer.workspaceId) return pending.request;
+    await pending.request;
+  }
+  return ipcErr("cancelled", "");
+}
 
 export function watchPeerGitStatus(
   peer: PeerWorkspace,
@@ -49,19 +80,13 @@ export function watchPeerGitStatus(
   let unsupported = !gitSupported;
   let timer: ReturnType<typeof setInterval> | undefined;
   let visibilityEpoch = 0;
-  let waitingFor: Promise<void> | undefined;
+  let waitingFor: Promise<GitStatusResult> | undefined;
   let runningTabs = new Set<string>();
   let sessionHintPending = false;
 
   const visible = () => live && host.document.visibilityState === "visible";
 
-  async function read(epoch: number) {
-    let result: IpcResult<PeerGitStatus>;
-    try {
-      result = await ipcCallResult("remote", "peerGitStatus", peer);
-    } catch {
-      result = ipcErr("unavailable", "");
-    }
+  function apply(result: GitStatusResult, epoch: number) {
     if (epoch !== visibilityEpoch || !visible()) return;
     if (!result.ok && result.kind === "unsupported") {
       unsupported = true;
@@ -72,7 +97,7 @@ export function watchPeerGitStatus(
 
   function refresh(queue = true) {
     if (!visible() || unsupported) return;
-    const pending = pendingByDevice.get(peer.deviceId);
+    const pending = pendingByDevice.get(peer.deviceId)?.request;
     if (pending) {
       // A manual or session-triggered read may be newer than the pending result.
       // Coalesce those triggers into one follow-up. A tick never queues work.
@@ -87,10 +112,8 @@ export function watchPeerGitStatus(
       return;
     }
 
-    const done = read(visibilityEpoch).finally(() => {
-      pendingByDevice.delete(peer.deviceId);
-    });
-    pendingByDevice.set(peer.deviceId, done);
+    const epoch = visibilityEpoch;
+    void startStatus(peer).then((result) => apply(result, epoch));
   }
 
   function onVisibility() {

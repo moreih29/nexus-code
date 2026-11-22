@@ -2,11 +2,33 @@ import { isDrivePath, toNativeDrivePath, toSlashPath } from "../../shared/fs/dri
 import { workspacePathParts } from "./path";
 
 function isUncPath(path: string): boolean {
-  return /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(path);
+  return /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(path);
 }
 
-function isPeerWindowsPath(path: string): boolean {
+export function isPeerWindowsPath(path: string): boolean {
   return isDrivePath(path) || isUncPath(path);
+}
+
+/** A slash-separated suffix within an absolute peer folder, or null outside it. */
+export function peerPathRelativeTo(path: string, folder: string): string | null {
+  const windows = isPeerWindowsPath(folder);
+  if (isPeerWindowsPath(path) !== windows) return null;
+
+  function parts(absolute: string) {
+    if (!absolute || absolute.includes("\0")) return null;
+    const slashed = windows ? absolute.replaceAll("\\", "/") : absolute;
+    if (!slashed.startsWith("/") && !/^[a-z]:\//i.test(slashed)) return null;
+    const segments = slashed.split("/").filter(Boolean);
+    return segments.some((part) => part === "." || part === "..") ? null : segments;
+  }
+
+  const parent = parts(folder);
+  const file = parts(path);
+  if (!parent || !file || file.length < parent.length) return null;
+  const matches = parent.every((part, index) =>
+    windows ? part.toLowerCase() === file[index].toLowerCase() : part === file[index],
+  );
+  return matches ? file.slice(parent.length).join("/") : null;
 }
 
 /** Key for tab and tree identity on the serving filesystem. */
