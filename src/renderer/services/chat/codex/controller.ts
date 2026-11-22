@@ -929,12 +929,25 @@ export class CodexController {
         return found;
       for (const threadId of threadIds) {
         try {
-          const reply = await controller.request("thread/turns/list", {
+          const summary = await controller
+            .request("thread/turns/list", {
+              threadId,
+              itemsView: "summary",
+              limit: 1,
+            })
+            .catch(() => undefined);
+          if (summary) {
+            if (Array.isArray(summary.data) && summary.data.length > 0)
+              found.set(threadId, summary.data);
+            continue;
+          }
+          // Preserve the completion chip on servers that only support the existence check.
+          const turns = await controller.request("thread/turns/list", {
             threadId,
-            itemsView: "summary",
+            itemsView: "notLoaded",
             limit: 1,
           });
-          if (Array.isArray(reply.data) && reply.data.length > 0) found.set(threadId, reply.data);
+          if (Array.isArray(turns.data) && turns.data.length > 0) found.set(threadId, []);
         } catch {
           // An empty thread may have no rollout yet. Keep checking the other threads.
         }

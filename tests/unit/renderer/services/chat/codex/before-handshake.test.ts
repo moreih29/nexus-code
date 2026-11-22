@@ -834,30 +834,58 @@ test("a failed Codex /new keeps the source history, queue, and saved thread", as
 });
 
 test.each([
-  ["0.170.0", true],
-  ["0.166.0", false],
-  [null, false],
-] as const)("Codex %s checks saved turns only when paged history is available", async (version, supported) => {
+  ["0.170.0", true, true],
+  ["0.170.0", true, false],
+  ["0.166.0", false, false],
+  [null, false, false],
+] as const)("Codex %s keeps saved turn status with paged history=%s and summary=%s", async (version, supported, summarySupported) => {
   installedVersion = version;
   const prototype = CodexController.prototype as unknown as {
     write(this: Controller, message: Message): Promise<void>;
   };
   const write = prototype.write;
+  const saved = {
+    id: "recorded-turn",
+    status: "completed",
+    itemsView: "summary",
+    startedAt: 123,
+    completedAt: 124,
+    durationMs: 1000,
+    items: [
+      {
+        type: "userMessage",
+        id: "prompt",
+        content: [{ type: "text", text: "Prompt", text_elements: [] }],
+      },
+      {
+        type: "agentMessage",
+        id: "answer",
+        text: "Recorded answer",
+        phase: "final_answer",
+        completedAtMs: 124000,
+      },
+    ],
+  };
   const wire = spyOn(prototype, "write").mockImplementation(async function (
     this: Controller,
     message: Message,
   ) {
     await write.call(this, message);
     if (!message.id) return;
-    const threadId = (message.params as Message)?.threadId;
+    const { threadId, itemsView } = (message.params as Message) ?? {};
     const turns =
       threadId === "saved"
-        ? [{ id: "recorded-turn", items: [{ type: "agentMessage", text: "Recorded answer" }] }]
+        ? [itemsView === "summary" ? saved : { ...saved, items: [], itemsView }]
         : [];
-    const reply =
+    const error =
       threadId === "missing"
-        ? { error: { code: -32600, message: "no rollout found" } }
-        : { result: { data: turns } };
+        ? { code: -32600, message: "no rollout found" }
+        : itemsView === "summary" && !summarySupported
+          ? { code: -32602, message: "unsupported items view" }
+          : undefined;
+    const reply = error
+      ? { error }
+      : { result: { data: turns, nextCursor: null, backwardsCursor: null } };
     this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } });
   });
   try {
@@ -866,23 +894,7 @@ test.each([
         { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
         ["missing", "saved", "empty"],
       ),
-    ).toEqual(
-      new Map(
-        supported
-          ? [
-              [
-                "saved",
-                [
-                  {
-                    id: "recorded-turn",
-                    items: [{ type: "agentMessage", text: "Recorded answer" }],
-                  },
-                ],
-              ],
-            ]
-          : [],
-      ),
-    );
+    ).toEqual(new Map(supported ? [["saved", summarySupported ? [saved] : []]] : []));
     expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
     expect(catalogCalls.at(-1)?.method).toBe("close");
     const requests = catalogCalls
@@ -891,14 +903,19 @@ test.each([
     expect(requests.map(({ method }) => method)).toEqual([
       "initialize",
       "initialized",
-      ...(supported ? Array(3).fill("thread/turns/list") : []),
+      ...(supported ? Array(summarySupported ? 4 : 6).fill("thread/turns/list") : []),
     ]);
     if (supported) {
-      expect(requests.at(-2)?.params).toEqual({
-        threadId: "saved",
-        itemsView: "summary",
-        limit: 1,
-      });
+      const savedRequests = requests.filter(
+        ({ params }) => (params as Message)?.threadId === "saved",
+      );
+      expect(savedRequests.map(({ params }) => params)).toEqual(
+        (summarySupported ? ["summary"] : ["summary", "notLoaded"]).map((itemsView) => ({
+          threadId: "saved",
+          itemsView,
+          limit: 1,
+        })),
+      );
     }
   } finally {
     wire.mockRestore();

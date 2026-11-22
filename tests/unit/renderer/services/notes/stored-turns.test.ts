@@ -77,7 +77,16 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
             id: "turn",
             status: "completed",
             completedAt: 2,
-            items: [{ type: "agentMessage", text: "Codex answer" }],
+            itemsView: "summary",
+            items: [
+              {
+                type: "agentMessage",
+                id: "answer",
+                phase: "final_answer",
+                text: "Codex answer",
+                completedAtMs: 2000,
+              },
+            ],
           },
         ],
       ],
@@ -227,5 +236,19 @@ test("Claude card previews look past a tail with no assistant text and reuse the
     expect(read).toHaveBeenCalledTimes(3);
   } finally {
     read.mockRestore();
+  }
+});
+
+test("a Codex turn probe without summary support keeps the turn with an empty card preview", async () => {
+  const target = ["codex", "workspace", "/repo", null, "without-summary"] as const;
+  const probe = spyOn(CodexController, "savedThreadTurns").mockResolvedValue(
+    new Map([[target[4], []]]),
+  );
+  try {
+    expect(await readStoredTurns([target])).toEqual(new Set([JSON.stringify(target)]));
+    expect(await readStoredAnswer(target)).toBeUndefined();
+    expect(probe).toHaveBeenCalledTimes(1);
+  } finally {
+    probe.mockRestore();
   }
 });
