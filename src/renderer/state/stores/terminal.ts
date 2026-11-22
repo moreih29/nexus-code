@@ -286,10 +286,13 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
 // Resolved accessors (with token fallback)
 // ---------------------------------------------------------------------------
 
+/** The size a terminal draws with until the user picks one, and the one Settings shows. */
+export const DEFAULT_TERMINAL_FONT_SIZE: number = typeScale.codeUi.fontSize;
+
 /** Resolve the effective font size: store value or token fallback. */
 export function resolvedTerminalFontSize(): number {
   const { fontSize } = useTerminalStore.getState();
-  return fontSize ?? typeScale.codeUi.fontSize;
+  return fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
 }
 
 /** Resolve the effective cursor style: store value or fallback 'block'. */
