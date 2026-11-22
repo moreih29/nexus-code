@@ -25,6 +25,7 @@ import {
   conversationHistoryKey,
   readConversationHistory,
 } from "../../services/notes/conversation-history";
+import { useNoteLinks } from "../../services/notes/use-links";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useLayoutStore } from "../../state/stores/layout/store";
@@ -43,39 +44,6 @@ interface NotePlace {
   workspaceId: string;
   noteId: string;
   tabId: string;
-}
-
-const NO_LINKS: NoteLinkEntry[] = [];
-
-function useNoteLinks(workspaceId: string, noteId: string, location: string | undefined) {
-  const [saved, setSaved] = useState<{
-    noteId: string;
-    location: string;
-    entries: NoteLinkEntry[];
-  }>();
-  useEffect(() => {
-    if (!location) return;
-    let alive = true;
-    let revision = 0;
-    const read = () => {
-      const request = ++revision;
-      void notesApi.links(workspaceId, noteId).then(
-        (entries) => {
-          if (alive && revision === request) setSaved({ noteId, location, entries });
-        },
-        () => {},
-      );
-    };
-    const stop = notesApi.onLinksChanged((event) => {
-      if (event.locationKey === location && event.noteId === noteId) read();
-    });
-    read();
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [workspaceId, noteId, location]);
-  return saved?.noteId === noteId && saved.location === location ? saved.entries : NO_LINKS;
 }
 
 export function ConversationChips({ isVisible, ...note }: NotePlace & { isVisible: boolean }) {

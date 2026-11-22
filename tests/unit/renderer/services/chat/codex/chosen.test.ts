@@ -57,6 +57,9 @@ const { useTabsStore } = await import("../../../../../../src/renderer/state/stor
 const { sendToAgentTab } = await import(
   "../../../../../../src/renderer/services/chat/transport/submission"
 );
+const { sendToConversation } = await import(
+  "../../../../../../src/renderer/services/notes/send-to-conversation"
+);
 const { chatPanelOf } = await import("../../../../../../src/renderer/services/remote/chat-panel");
 const { chatPageOf } = await import("../../../../../../src/renderer/services/remote/chat-page");
 type Controller = InstanceType<typeof CodexController>;
@@ -522,6 +525,40 @@ describe("delivering a Codex queue entry", () => {
     end(c);
     await Bun.sleep(0);
     expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text: "after" });
+  });
+
+  test.each([
+    false,
+    true,
+  ])("sending a note through Codex steer queues only when refused (%s)", async (refused) => {
+    const workspaceId = crypto.randomUUID();
+    const { id: tabId } = useTabsStore.getState().createTab(workspaceId, {
+      type: "codex",
+      props: { cwd: "/p", threadId: "t1" },
+    });
+    const c = tab(
+      undefined,
+      undefined,
+      ({ method }) =>
+        refused && method === "turn/steer"
+          ? { error: { code: -32602, message: "NonSteerableTurn" } }
+          : undefined,
+      { workspaceId, tabId },
+    );
+    const text = "Read the note again\n\n`nexus note read n1234567`";
+    try {
+      await running(c);
+      expect(await sendToConversation(workspaceId, tabId, text)).toBe(refused);
+      expect(delivered()).toEqual([{ method: "turn/steer", text, expectedTurnId: "turn-1" }]);
+      expect(c.state.queue.map(({ text }) => text)).toEqual(refused ? [text] : []);
+      if (refused) {
+        end(c);
+        await Bun.sleep(0);
+        expect(delivered().at(-1)).toMatchObject({ method: "turn/start", text });
+      }
+    } finally {
+      useTabsStore.getState().closeAllForWorkspace(workspaceId);
+    }
   });
 
   test("an immediate follow-up during turn/start waits for that turn's id", async () => {
