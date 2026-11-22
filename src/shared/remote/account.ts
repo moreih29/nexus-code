@@ -81,6 +81,28 @@ export const SignInFailureSchema = z.enum(SIGN_IN_FAILURES);
 export type SignInFailure = z.infer<typeof SignInFailureSchema>;
 
 /**
+ * The failures that come of the server taking approved accounts only; they
+ * say so in a line of their own (`remote.account.approvedOnly`).
+ */
+export const APPROVED_ONLY_FAILURES: readonly SignInFailure[] = [
+  "pending_approval",
+  "closed",
+  "not_invited",
+];
+
+/**
+ * How a failed sign-in is shown: waiting (on an approval, or the user's
+ * own cancel), a step to take, or an account stopped.
+ */
+export type SignInFailureTone = "info" | "warning" | "error";
+
+export function signInFailureTone(failure: SignInFailure): SignInFailureTone {
+  if (failure === "pending_approval" || failure === "access_denied") return "info";
+  if (failure === "suspended") return "error";
+  return "warning";
+}
+
+/**
  * Where the account stands: signed out (with why the last sign-in failed,
  * if it did), signing in (the browser is open on the server's sign-in),
  * or signed in.

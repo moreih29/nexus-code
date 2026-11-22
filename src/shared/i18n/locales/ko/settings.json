@@ -1089,22 +1089,64 @@
       "cancel": "취소",
       "signOut": "로그아웃",
       "server": "서버: {{server}}",
+      "approvedOnly": "지금은 승인된 계정만 사용 가능",
       "failure": {
-        "cancelled": "로그인 취소",
-        "timed-out": "로그인 시간이 지났습니다. 다시 시도하세요.",
-        "access_denied": "로그인이 거절됐습니다.",
-        "unverified_email": "이메일이 인증되지 않은 계정입니다.",
-        "not_invited": "이 서버는 아직 초대된 계정만 쓸 수 있습니다.",
-        "pending_approval": "가입 승인 대기 중 · 승인 후 같은 방법으로 다시 로그인",
-        "rejected": "가입 요청 거절 · 30일 뒤 다시 요청 가능",
-        "suspended": "계정 사용 정지",
-        "closed": "가입 요청 접수 중단 · 잠시 뒤 다시 시도",
-        "server_error": "서버에서 로그인하지 못했습니다. 잠시 후 다시 시도하세요.",
-        "invalid_grant": "로그인이 만료됐습니다. 다시 시도하세요.",
-        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 원격에서 쓰지 않는 기기를 해제한 뒤 다시 로그인하세요.",
-        "mismatch": "다른 로그인의 응답이 왔습니다. 다시 시도하세요.",
-        "unreachable": "서버에 연결할 수 없습니다.",
-        "failed": "로그인하지 못했습니다. 다시 시도하세요."
+        "timed-out": {
+          "title": "로그인 시간 초과",
+          "body": "다시 로그인하세요."
+        },
+        "access_denied": {
+          "title": "로그인 취소",
+          "body": "필요하면 다시 로그인하세요."
+        },
+        "unverified_email": {
+          "title": "이메일 인증 안 됨",
+          "body": "로그인 서비스에서 이메일을 인증한 뒤 다시 로그인하세요."
+        },
+        "not_invited": {
+          "title": "초대 목록에 없는 계정",
+          "body": "서버 관리자에게 문의하세요."
+        },
+        "pending_approval": {
+          "title": "가입 승인 대기 중",
+          "body": "승인 후 같은 방법으로 다시 로그인하세요."
+        },
+        "rejected": {
+          "title": "가입 요청이 승인되지 않음",
+          "body": "30일 뒤 다시 요청 가능"
+        },
+        "suspended": {
+          "title": "계정 사용 정지",
+          "body": "지원 페이지로 문의하세요."
+        },
+        "closed": {
+          "title": "가입 요청 잠시 중단",
+          "body": "잠시 뒤 다시 로그인하세요."
+        },
+        "server_error": {
+          "title": "서버 오류",
+          "body": "잠시 뒤 다시 로그인하세요."
+        },
+        "invalid_grant": {
+          "title": "로그인 만료",
+          "body": "다시 로그인하세요."
+        },
+        "too_many_devices": {
+          "title": "로그인한 기기가 너무 많음",
+          "body": "다른 기기의 설정 › 원격에서 쓰지 않는 기기를 해제한 뒤 다시 로그인하세요."
+        },
+        "mismatch": {
+          "title": "다른 로그인의 응답",
+          "body": "다시 로그인하세요."
+        },
+        "unreachable": {
+          "title": "서버에 연결할 수 없음",
+          "body": "네트워크를 확인한 뒤 다시 시도하세요."
+        },
+        "failed": {
+          "title": "로그인하지 못함",
+          "body": "다시 로그인하세요."
+        }
       },
       "localOnly": "로컬 서버 전용",
       "retry": "다시 시도",

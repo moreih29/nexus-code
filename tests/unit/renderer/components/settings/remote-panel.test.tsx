@@ -20,7 +20,12 @@ describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
     const html = render({ status: "signed-out", server, failure: "unverified_email" });
     expect(html).toContain("Sign in with Google");
-    expect(html).toContain("email isn&#x27;t verified.");
+    expect(html).toContain('data-failure="unverified_email"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Email not verified");
+    expect(html).toContain("Verify your email with the sign-in provider, then sign in again.");
+    // Only an approval the server waits on, or keeps closed, says it takes approved accounts.
+    expect(html).not.toContain("Approved accounts only");
     expect(html).toContain(`Server: ${server}`);
   });
 
@@ -31,8 +36,13 @@ describe("the remote panel's account", () => {
     try {
       const html = render(state, ["google", "github"]);
       expect(html).toContain(
-        '<span class="text-muted-foreground" role="alert">Awaiting approval · Sign in the same way after approval</span>',
+        'role="status" data-testid="sign-in-notice" data-failure="pending_approval"',
       );
+      expect(html).toContain("Awaiting approval");
+      expect(html).toContain("Approved accounts only for now");
+      expect(html).toContain("Once approved, sign in again the same way.");
+      // The notice comes before the sign-in buttons.
+      expect(html.indexOf("Awaiting approval")).toBeLessThan(html.indexOf("Sign in with Google"));
       expect(html).toContain("Sign in with Google");
       expect(html).toContain("Sign in with GitHub");
       const action = renderButton.mock.calls.find(([props]) => props.children === "Check Again");
@@ -44,9 +54,24 @@ describe("the remote panel's account", () => {
     }
   });
 
+  test.each([
+    ["closed", "Signups paused"],
+    ["not_invited", "Account not on the invite list"],
+  ] as const)("says the server takes approved accounts only when %s", (failure, title) => {
+    const html = render({ status: "signed-out", server, failure });
+    expect(html).toContain(`role="alert" data-testid="sign-in-notice" data-failure="${failure}"`);
+    expect(html).toContain(title);
+    expect(html).toContain("Approved accounts only for now");
+    expect(html).not.toContain("Check Again");
+  });
+
   test("links to the Store-listed support page for a suspended account", () => {
     const html = render({ status: "signed-out", server, failure: "suspended" });
-    expect(html).toContain('<span class="text-destructive" role="alert">Account suspended</span>');
+    expect(html).toContain('role="alert" data-testid="sign-in-notice" data-failure="suspended"');
+    expect(html).toContain("border-destructive/60");
+    expect(html).toContain("Account suspended");
+    expect(html).toContain("Contact us through the support page.");
+    expect(html).not.toContain("Approved accounts only");
     expect(html).toContain('href="https://github.com/moreih29/nexus-code/issues"');
     expect(html).toContain("Open Support Page");
     expect(html).not.toContain("Check Again");
@@ -106,7 +131,8 @@ describe("the remote panel's account", () => {
     const html = renderToStaticMarkup(
       <AccountGroup state={{ status: "signed-out", server }} unreachable onRetry={() => {}} />,
     );
-    expect(html).toContain("reach the server.");
+    expect(html).toContain('data-failure="unreachable"');
+    expect(html).toContain("Can&#x27;t reach the server");
     expect(html).toContain("Try again");
     // The sign-in stays: the server may answer it.
     expect(html).toContain("Sign in with Google");
@@ -117,7 +143,7 @@ describe("the remote panel's account", () => {
   test("says nothing of a sign-in the user cancelled", () => {
     const html = render({ status: "signed-out", server, failure: "cancelled" });
     expect(html).toContain("Sign in with Google");
-    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("sign-in-notice");
   });
 
   test("while the browser is out, offers to stop waiting", () => {
