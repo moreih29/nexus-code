@@ -73,6 +73,7 @@ export function PeerFileTree({
   // biome-ignore lint/correctness/useExhaustiveDependencies: a rejoin invalidates the in-flight reads
   useEffect(() => {
     if (!canRead) return;
+    setPending(new Set());
     const controller = new AbortController();
     const { signal } = controller;
     const inFlight = new Set<string>();
@@ -147,7 +148,8 @@ export function PeerFileTree({
         end: Math.ceil((element.scrollTop + element.clientHeight) / ROW_HEIGHT_PX),
       });
     };
-    refreshTree.current();
+    if (usePeerWorkspaceStore.getState().views[id]?.folders[rootKey]) onFocus();
+    else void load(rootKey, root);
     window.addEventListener("focus", onFocus);
     return () => {
       controller.abort();
