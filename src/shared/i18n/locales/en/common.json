@@ -2058,5 +2058,24 @@
   },
   "remoteNotice": {
     "workspaceAdded": "Workspace added from {{device}}"
+  },
+  "peerWorkspace": {
+    "online": "Online",
+    "listUnavailable": "Workspaces unavailable",
+    "changes_one": "{{count}} change",
+    "changes_other": "{{count}} changes",
+    "readOnly": "Read-only",
+    "selectFile": "Open a file from the tree",
+    "returnLocal": "Return to this computer",
+    "offlineLast": "{{device}} offline · Last viewed content",
+    "disconnectedLast": "Disconnected · Last viewed content",
+    "missingWorkspace": "Workspace missing on that computer",
+    "missingFolder": "Folder not found",
+    "missingFile": "File not found",
+    "accessDenied": "Permission denied",
+    "updateNeeded": "App update needed on that computer",
+    "connectionUnavailable": "Disconnected on that computer",
+    "truncated": "First {{count, number}} entries",
+    "textPrefix": "Partial file · First {{size}} KB"
   }
 }

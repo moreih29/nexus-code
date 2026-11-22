@@ -55,6 +55,7 @@ const NO_TASKS: readonly string[] = [];
 interface SidebarProps {
   /** All workspaces; a task is listed as part of its parent's row. */
   workspaces: WorkspaceMeta[];
+  peerSection?: React.ReactNode;
   activeWorkspaceId: string | null;
   onSelectWorkspace: (id: string) => void;
   onAddWorkspace: () => void;
@@ -453,6 +454,7 @@ function WorkspaceRow({
 // hidden, would render again for nothing.
 export const Sidebar = memo(function Sidebar({
   workspaces: allWorkspaces,
+  peerSection,
   activeWorkspaceId,
   onSelectWorkspace,
   onAddWorkspace,
@@ -572,7 +574,7 @@ export const Sidebar = memo(function Sidebar({
         {/* Empty state — centered against the full island (matches files panel
             and welcome screen); pointer-events-none keeps the bottom Add button
             clickable underneath the inset-0 overlay. */}
-        {workspaces.length === 0 && (
+        {workspaces.length === 0 && !peerSection && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-app-ui-sm text-muted-foreground pointer-events-none">
             <div style={{ whiteSpace: "pre-line" }}>{t("sidebar.no_workspaces")}</div>
           </div>
@@ -641,6 +643,7 @@ export const Sidebar = memo(function Sidebar({
               {renderSlot(unpinnedSlots[i + 1])}
             </React.Fragment>
           ))}
+          {peerSection}
         </div>
 
         <div className="py-2">

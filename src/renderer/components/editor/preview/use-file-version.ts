@@ -6,10 +6,13 @@
 // when a stat shows it moved (for directories the file-tree watcher doesn't
 // cover). A viewer appends it to the URL as `?v=<n>`, which main ignores.
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { fileSignal } from "../../../services/editor/preview/file-refresh";
 import { peerOf, usePeerFileRevision } from "../../../services/remote/peer-workspace";
+
+/** A peer workspace tab owns the lifetime of the viewer's version watch. */
+export const PeerPreviewVersion = createContext<number | null>(null);
 
 /**
  * The version of the file, one signal for every workspace: the local watch's
@@ -18,8 +21,9 @@ import { peerOf, usePeerFileRevision } from "../../../services/remote/peer-works
  */
 export function useFileVersion(workspaceId: string, relPath: string): number {
   const local = useLocalFileVersion(workspaceId, relPath);
-  const remote = usePeerFileRevision(workspaceId, relPath);
-  return fileSignal(peerOf(workspaceId) !== null, local, remote);
+  const supplied = useContext(PeerPreviewVersion);
+  const remote = usePeerFileRevision(workspaceId, relPath, supplied === null);
+  return fileSignal(peerOf(workspaceId) !== null, local, supplied ?? remote);
 }
 
 function useLocalFileVersion(workspaceId: string, relPath: string): number {

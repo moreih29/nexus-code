@@ -14,6 +14,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useActiveStore } from "../../state/stores/active";
+import { usePeerWorkspaceStore } from "../../state/stores/peer-workspace";
 
 const log = createLogger("ssh-auth");
 
@@ -118,13 +119,14 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
   // Active workspace for workspace-gated prompt display. Prompts for an
   // inactive workspace are silently deferred until the user activates it.
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
+  const viewingPeer = usePeerWorkspaceStore((s) => s.active !== null);
 
   // Workspace-active filtering: only show a prompt when either it has no
   // workspaceId (global/legacy), no workspace is currently active (settings
   // view etc.), or its workspaceId matches the active one. All other prompts
   // stay queued until the user switches to that workspace (no focus stealing).
   const currentPrompt = useMemo<SshAuthPrompt | null>(() => {
-    if (rawCurrentPrompt === null) return null;
+    if (rawCurrentPrompt === null || viewingPeer) return null;
     // No workspaceId: show immediately (legacy / non-workspace prompt).
     if (!rawCurrentPrompt.workspaceId) return rawCurrentPrompt;
     // No workspace active (e.g. settings panel): show any prompt to avoid
@@ -138,7 +140,7 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
       (p) => !p.workspaceId || p.workspaceId === activeWorkspaceId,
     );
     return activePrompt ?? null;
-  }, [rawCurrentPrompt, activeWorkspaceId, pendingPrompts]);
+  }, [rawCurrentPrompt, activeWorkspaceId, pendingPrompts, viewingPeer]);
 
   useEffect(() => {
     const dispose = installSshAuthPromptListeners(listen);

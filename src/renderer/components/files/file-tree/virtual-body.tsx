@@ -1,184 +1,33 @@
-/**
- * Virtualized row body for the file tree.
- *
- * Owns nothing — every interactive callback is forwarded from the
- * parent. Extracted so `file-tree.tsx` can stay focused on store
- * subscriptions, ensure-root effects, and the right-click menu wiring;
- * everything below this component is pure rendering of the precomputed
- * `displayFlat` against the virtualizer's window.
- */
-
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { useMemo } from "react";
-import { isDrivePath } from "../../../../shared/fs/drive-path";
-import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
-import type { DisplayItem } from "./display";
-import { FileTreeEditRow } from "./edit-row";
-import type { GitDecorationKind } from "./git-decoration";
+import type { ReactNode } from "react";
 import { ROW_HEIGHT_PX } from "./metrics";
-import { FileTreeRow } from "./row";
 
-/**
- * Lookups passed from the parent so the body stays a pure renderer. The
- * file-tree owns the git store subscription + ignored-cache enqueuing and
- * exposes the per-row answers as two synchronous functions; this body
- * forwards them to each row without re-reading the stores itself.
- */
-export interface FileTreeDecorationLookup {
-  decoration: (absPath: string, isDir: boolean) => GitDecorationKind | undefined;
-  isIgnored: (absPath: string, isDir: boolean) => boolean;
-}
-
-interface FileTreeVirtualBodyProps {
-  workspaceId: string;
-  tree: WorkspaceTree | undefined;
-  displayFlat: DisplayItem[];
-  flat: FlatItem[];
-  /**
-   * The keyboard-focus path (store `focus` field).  A row with this path
-   * receives `isFocused=true` for the dotted-outline indicator (design.md §10).
-   */
-  activeAbsPath: string | undefined;
-  /**
-   * Returns true when the given absPath is in the explicit selection set
-   * (store `paths` Set).  Passed as a stable callback per render so the
-   * virtual-body avoids subscribing to the store directly.
-   */
-  isPathSelected: (absPath: string) => boolean;
-  /**
-   * Returns true when the given absPath is in the cut clipboard.
-   * Drives the `isCut` dim overlay on rows (Phase F).
-   */
-  isPathCut: (absPath: string) => boolean;
-  /**
-   * Encodes an absPath into a stable HTML id for ARIA aria-activedescendant
-   * (Phase F). Same encoder as the parent uses for the container attribute.
-   */
-  encodeRowId: (absPath: string) => string;
-  virtualizer: Virtualizer<HTMLDivElement, Element>;
-  decorationLookup: FileTreeDecorationLookup;
-  onRowClick: (idx: number, item: FlatItem, e?: React.MouseEvent) => void;
-  onRowDoubleClick: (idx: number, item: FlatItem) => void;
-  onRowContextMenu: (idx: number, item: FlatItem) => void;
-  onPendingCommit: (name: string) => Promise<void> | void;
-  onPendingCancel: () => void;
-  onPendingRenameCommit: (name: string) => Promise<void> | void;
-  onPendingRenameCancel: () => void;
-}
-
+/** Places the visible file tree rows. Each tree supplies its own row behavior. */
 export function FileTreeVirtualBody({
-  workspaceId,
-  tree,
-  displayFlat,
-  flat,
-  activeAbsPath,
-  isPathSelected,
-  isPathCut,
-  encodeRowId,
   virtualizer,
-  decorationLookup,
-  onRowClick,
-  onRowDoubleClick,
-  onRowContextMenu,
-  onPendingCommit,
-  onPendingCancel,
-  onPendingRenameCommit,
-  onPendingRenameCancel,
-}: FileTreeVirtualBodyProps): React.JSX.Element {
-  // Row → index in `flat` (the list the click handlers index into). Built
-  // once per tree change; a per-row search cost O(N) for each visible row
-  // on every render.
-  const flatIndexByPath = useMemo(() => {
-    return new Map(flat.map((f, i) => [f.absPath, i]));
-  }, [flat]);
-
+  renderRow,
+  rowKey,
+}: {
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
+  renderRow: (index: number) => ReactNode;
+  rowKey?: (index: number) => string | undefined;
+}) {
   return (
     <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
-      {virtualizer.getVirtualItems().map((vi) => {
-        const item = displayFlat[vi.index];
-        if (!item) return null;
-        const wrapperStyle: React.CSSProperties = {
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: ROW_HEIGHT_PX,
-          transform: `translateY(${vi.start}px)`,
-        };
-        // An edit row's validation message hangs over the rows after it;
-        // without this they paint on top of it.
-        const editRowStyle: React.CSSProperties = { ...wrapperStyle, zIndex: 1 };
-
-        if (item.kind === "pending") {
-          return (
-            <div
-              key={`pending-${item.parentAbsPath}`}
-              style={editRowStyle}
-              data-file-tree-row-type="pending"
-            >
-              <FileTreeEditRow
-                kind={item.entryKind}
-                depth={item.depth}
-                windows={isDrivePath(item.parentAbsPath)}
-                onCommit={onPendingCommit}
-                onCancel={onPendingCancel}
-              />
-            </div>
-          );
-        }
-
-        if (item.kind === "rename") {
-          return (
-            <div
-              key={`rename-${item.absPath}`}
-              style={editRowStyle}
-              data-file-tree-row-type="rename"
-            >
-              <FileTreeEditRow
-                kind={item.entryKind}
-                depth={item.depth}
-                initialValue={item.initialName}
-                windows={isDrivePath(item.absPath)}
-                onCommit={onPendingRenameCommit}
-                onCancel={onPendingRenameCancel}
-              />
-            </div>
-          );
-        }
-
-        const isExpanded = tree?.expanded.has(item.absPath) ?? false;
-        const flatIdx = flatIndexByPath.get(item.absPath) ?? -1;
-        const isDir = item.node.type === "dir";
-        const decoration = decorationLookup.decoration(item.absPath, isDir);
-        const isIgnored = decorationLookup.isIgnored(item.absPath, isDir);
-        return (
-          <div
-            key={item.absPath}
-            style={wrapperStyle}
-            data-file-tree-row-type={item.node.type}
-            data-file-tree-row-path={item.absPath}
-          >
-            <FileTreeRow
-              id={encodeRowId(item.absPath)}
-              workspaceId={workspaceId}
-              absPath={item.absPath}
-              node={item.node}
-              depth={item.depth}
-              isExpanded={isExpanded}
-              isSelected={isPathSelected(item.absPath)}
-              isFocused={item.absPath === activeAbsPath}
-              isCut={isPathCut(item.absPath)}
-              isRoot={item.absPath === tree?.rootAbsPath}
-              isLoading={tree?.loading.has(item.absPath) ?? false}
-              decoration={decoration}
-              isIgnored={isIgnored}
-              onClick={(e) => onRowClick(flatIdx, item, e)}
-              onDoubleClick={() => onRowDoubleClick(flatIdx, item)}
-              onContextMenu={() => onRowContextMenu(flatIdx, item)}
-            />
-          </div>
-        );
-      })}
+      {virtualizer.getVirtualItems().map(({ key, index, start }) => (
+        <div
+          key={rowKey?.(index) ?? key}
+          style={{
+            position: "absolute",
+            top: start,
+            left: 0,
+            width: "100%",
+            height: ROW_HEIGHT_PX,
+          }}
+        >
+          {renderRow(index)}
+        </div>
+      ))}
     </div>
   );
 }

@@ -47,6 +47,7 @@ import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
+import { usePeerWorkspaceStore } from "./state/stores/peer-workspace";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -54,6 +55,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { useWorkspaceSidebarFolds } from "./state/stores/workspace-sidebar-folds";
 import { restoredWorkspace, useWorkspacesStore } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
@@ -152,6 +154,7 @@ async function bootstrapAppState(): Promise<void> {
   initLspStatusSync();
   initPortsSync();
 
+  useWorkspaceSidebarFolds.getState().hydrate(state.workspaceSidebarFoldedPeers ?? []);
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,
@@ -336,6 +339,13 @@ export async function bootstrapWorkspaces(): Promise<void> {
   if (useActiveStore.getState().activeWorkspaceId !== null) return;
   const currentList = useWorkspacesStore.getState().workspaces;
   const selected = restoredWorkspace(currentList, active.ok ? active.value : null);
+  const peer = usePeerWorkspaceStore.getState();
+  if (peer.active) {
+    if (peer.lastLocalId === null && selected) {
+      usePeerWorkspaceStore.setState({ lastLocalId: selected.id });
+    }
+    return;
+  }
   if (selected) focusWorkspace(selected.id, "preserve");
 }
 

@@ -1,5 +1,5 @@
 import { Bot, Folder, GitBranch, NotebookPen, Search } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { memo, type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { AppErrorSchema, appErrorFailed } from "../../../shared/error/app-error";
@@ -9,6 +9,7 @@ import { openDiffTab } from "../../state/operations";
 import { connectWorkspace } from "../../state/operations/workspace-selection";
 import { useActiveStore } from "../../state/stores/active";
 import { useGitStore } from "../../state/stores/git";
+import { usePeerWorkspaceStore } from "../../state/stores/peer-workspace";
 import {
   FILES_PANEL_MODE_DEFAULT,
   FILES_PANEL_WIDTH_DEFAULT,
@@ -46,7 +47,7 @@ const MODE_BUTTONS: ModeButton[] = [
 ];
 
 // Memo: kept while hidden, it would render again with each of the app's.
-export const FilesPanel = memo(function FilesPanel() {
+export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: ReactNode }) {
   const { t } = useTranslation("files");
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);
   const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
@@ -76,7 +77,9 @@ export const FilesPanel = memo(function FilesPanel() {
   const isReconnecting = reconnect.state.status === "loading";
   const connectionError = reconnect.state.status === "error" ? reconnect.state.error : null;
   useEffect(() => {
-    if (connectionError) surfaceError(connectionError, { surface: "toast" });
+    if (connectionError && !usePeerWorkspaceStore.getState().active) {
+      surfaceError(connectionError, { surface: "toast" });
+    }
   }, [connectionError]);
   // Bumped by each click on the Search button so the panel focuses its input,
   // whether the click mounts it or it is already showing.
@@ -201,6 +204,8 @@ export const FilesPanel = memo(function FilesPanel() {
               )}
             </div>
           </>
+        ) : peerPanel ? (
+          peerPanel
         ) : (
           <div className="flex flex-1 items-center justify-center">
             <div className="whitespace-pre-line px-4 text-center text-app-ui-sm text-muted-foreground">

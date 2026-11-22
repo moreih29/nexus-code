@@ -326,6 +326,6 @@ describe("a file of another computer's, kept current", () => {
     live.refreshPeerFiles(WS, ["/w/i.png"]);
     await settle();
     expect(live.peerFileSnapshot(WS, "/w/i.png", "version")?.revision).toBe(1);
-    expect(view.count()).toBe(1);
+    expect(view.count()).toBe(2);
   });
 });

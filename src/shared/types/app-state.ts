@@ -46,10 +46,17 @@ export const WindowBoundsSchema = z.object({
   height: NumberSchema,
 });
 
+export const WORKSPACE_SIDEBAR_FOLDED_PEERS_MAX = 100;
+
 export const AppStateSchema = z.object({
   windowBounds: WindowBoundsSchema.optional(),
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: PositiveIntegerSchema.optional(),
+  // Device IDs folded in the workspace sidebar. Absent = expanded.
+  workspaceSidebarFoldedPeers: z
+    .array(z.string().min(1).max(64))
+    .max(WORKSPACE_SIDEBAR_FOLDED_PEERS_MAX)
+    .optional(),
   filesPanelWidth: PositiveIntegerSchema.optional(),
   // A note's transcript: its width beside the text, where the note is wide, and its share
   // of the note's height under the text, where it is narrow. Absent = the defaults.
