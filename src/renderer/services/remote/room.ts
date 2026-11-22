@@ -324,7 +324,7 @@ export function observePeerSessions(
   if (watch.latest) take(watch.latest);
   return () => {
     off();
-    if (watch.listeners.size !== 0) return;
+    if (watch.listeners.size !== 0 || sessionWatches.get(key) !== watch) return;
     sessionWatches.delete(key);
     watch.stop();
   };

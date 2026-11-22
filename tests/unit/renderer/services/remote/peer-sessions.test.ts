@@ -49,6 +49,40 @@ test("the sidebar and panes share a device's sessions watch and refresh", async 
   }
 });
 
+test("releasing a watch twice leaves its replacement shared by new observers", async () => {
+  const list = { sessions: [], workspaces: [] };
+  let watchCount = 0;
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(async (_, method) =>
+    ipcOk(method === "peerSessionsWatch" ? { ...list, watchId: `watch-${++watchCount}` } : {}),
+  );
+  const listen = spyOn(ipc, "ipcListen").mockReturnValue(() => {});
+  const release = observePeerSessions("d2", 0, () => {});
+  let releaseReplacement: (() => void) | undefined;
+  let releaseAdditional: (() => void) | undefined;
+  try {
+    await Promise.resolve();
+    release();
+    releaseReplacement = observePeerSessions("d2", 0, () => {});
+    await Promise.resolve();
+
+    release();
+    const additional = mock((_sessions: PeerSessions) => {});
+    releaseAdditional = observePeerSessions("d2", 0, additional);
+    expect(additional).toHaveBeenCalledWith({ status: "ready", list });
+    expect(call.mock.calls).toEqual([
+      ["remote", "peerSessionsWatch", { deviceId: "d2" }],
+      ["remote", "peerSessionsUnwatch", { deviceId: "d2", watchId: "watch-1" }],
+      ["remote", "peerSessionsWatch", { deviceId: "d2" }],
+    ]);
+  } finally {
+    releaseAdditional?.();
+    releaseReplacement?.();
+    release();
+    call.mockRestore();
+    listen.mockRestore();
+  }
+});
+
 test("a watched list marks an already open terminal as ended without a sidebar row", async () => {
   const target: RemoteTarget = {
     deviceId: "d2",
