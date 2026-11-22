@@ -554,7 +554,7 @@
         "focusPrev": "Previous Workspace",
         "focusNext": "Next Workspace",
         "add": "Add Workspace",
-        "peerQuickOpen": "Open Peer File"
+        "peerQuickOpen": "Quick Open on Other Computer"
       },
       "task": {
         "new": "New Task"

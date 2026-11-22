@@ -271,23 +271,31 @@ test("workspace text reads the full cache limit in byte chunks", async () => {
 
 test("a large workspace file requests only its prefix and renders the read limit banner", async () => {
   file = new Uint8Array(PEER_WORKSPACE_TEXT_LIMIT + 1).fill(65);
+  file.set(new TextEncoder().encode("first\r\nsecond\rthird"));
+  file[MAX_READ_BYTES - 1] = 10;
   const workspaceId = "peer:d1:w1";
   const path = "/w/large.md";
   const loaded = Promise.withResolvers<void>();
   const stop = watchPeerFile(workspaceId, path, () => loaded.resolve(), "workspace-text");
   try {
     await loaded.promise;
-    function Preview() {
+    function Preview({ line }: { line: number }) {
       const view = useFileLookView(path, { mode: "preview" });
       return createElement(FileLookBody, {
         workspaceId,
         root: "/w",
         path,
+        at: { line },
         view,
         peerFile: { watch: true, connection: 0, toolbar: null },
       });
     }
-    expect(renderToStaticMarkup(createElement(Preview))).toContain("Partial file · First 512 KB");
+    expect(renderToStaticMarkup(createElement(Preview, { line: 3 }))).toContain(
+      "Partial file · First 512 KB",
+    );
+    expect(renderToStaticMarkup(createElement(Preview, { line: 4 }))).toContain(
+      "Partial file · Line outside the preview",
+    );
     expect(prefixes).toEqual([MAX_READ_BYTES]);
     expect(asked.map(({ length }) => length)).toEqual([1]);
     expect(downloaded).toBe(1 + MAX_READ_BYTES);

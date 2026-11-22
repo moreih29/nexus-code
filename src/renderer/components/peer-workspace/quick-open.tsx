@@ -1,7 +1,8 @@
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { MAX_FIND_RESULTS } from "../../../../packages/remote-protocol/src/rpc";
+import { MAX_FIND_RESULTS, type RpcResult } from "../../../../packages/remote-protocol/src/rpc";
+import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import { subscribePeerQuickOpen } from "../../services/remote/peer-quick-open";
 import type { PeerReach } from "../../services/remote/room";
@@ -45,17 +46,24 @@ export function createPeerQuickOpenSource({
       if (blocked || !canRead) {
         throw new PeerQuickOpenError(blocked ?? t("peerWorkspace.connectionUnavailable"));
       }
-      const reply = await ipcCallResult(
-        "remote",
-        "peerFilesFind",
-        {
-          deviceId: target.deviceId,
-          workspaceId: target.workspaceId,
-          query: text,
-          limit: MAX_FIND_RESULTS,
-        },
-        { signal },
-      );
+      signal.throwIfAborted();
+      let reply: IpcResult<RpcResult<"files.find">>;
+      try {
+        reply = await ipcCallResult(
+          "remote",
+          "peerFilesFind",
+          {
+            deviceId: target.deviceId,
+            workspaceId: target.workspaceId,
+            query: text,
+            limit: MAX_FIND_RESULTS,
+          },
+          { signal },
+        );
+      } catch {
+        signal.throwIfAborted();
+        throw new PeerQuickOpenError(t("peerWorkspace.connectionUnavailable"));
+      }
       signal.throwIfAborted();
       if (!reply.ok) {
         if (reply.kind === "not-found") {

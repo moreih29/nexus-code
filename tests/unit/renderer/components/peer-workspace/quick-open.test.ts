@@ -30,8 +30,9 @@ test("Cmd/Ctrl+P dispatches only in the peer workspace view", () => {
   const fromCommand: string[] = [];
   const off = subscribePeerQuickOpen((id) => fromCommand.push(id));
   const unregister = registerPaletteCommands();
-  function press(mac: boolean): boolean {
-    setPlatformForTests(mac ? "darwin" : "win32");
+  function press(platform: "darwin" | "win32" | "linux", terminal = false): boolean {
+    const mac = platform === "darwin";
+    setPlatformForTests(platform);
     return handleGlobalKeyDown({
       key: "p",
       code: "KeyP",
@@ -39,26 +40,80 @@ test("Cmd/Ctrl+P dispatches only in the peer workspace view", () => {
       ctrlKey: !mac,
       shiftKey: false,
       altKey: false,
+      target: terminal
+        ? { closest: (selector: string) => (selector === ".xterm" ? {} : null) }
+        : null,
       preventDefault() {},
     } as KeyboardEvent);
   }
   try {
     useAgentViewStore.setState({ mode: "workspace" });
     savedPeer.clearSelection();
-    expect(press(true)).toBe(false);
-    expect(press(false)).toBe(false);
+    expect(press("darwin")).toBe(false);
+    expect(press("win32")).toBe(false);
     savedPeer.select(target, "local");
-    expect(press(true)).toBe(true);
-    expect(press(false)).toBe(true);
+    expect(press("darwin")).toBe(true);
+    expect(press("win32")).toBe(true);
+    expect(press("darwin", true)).toBe(true);
+    expect(press("win32", true)).toBe(false);
+    expect(press("linux", true)).toBe(false);
     useAgentViewStore.setState({ mode: "agents" });
-    expect(press(true)).toBe(false);
-    expect(fromCommand).toEqual([peerTargetId(target), peerTargetId(target)]);
+    expect(press("darwin")).toBe(false);
+    expect(fromCommand).toEqual(Array(3).fill(peerTargetId(target)));
   } finally {
     off();
     for (const stop of unregister) stop();
     usePeerWorkspaceStore.setState(savedPeer, true);
     useAgentViewStore.setState(savedAgentView, true);
     setPlatformForTests(null);
+  }
+});
+
+test("quick open discards paths outside a UNC workspace", async () => {
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(
+    ipcOk({ files: ["../Run.ts", "..\\Run.ts", "/Run.ts", "D:\\Run.ts", "src/Run.ts"] }),
+  );
+  try {
+    const windows = {
+      ...target,
+      platform: "win32" as const,
+      workspace: { ...target.workspace, path: "\\\\Server\\Share\\Project" },
+    };
+    const source = createPeerQuickOpenSource({ t, target: windows, canRead: true, blocked: null });
+    expect(await source.search("Run", new AbortController().signal)).toEqual([
+      { id: "4", path: "src/Run.ts", label: "Run.ts", detail: "src/Run.ts" },
+    ]);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("quick open localizes transport failures and preserves cancellations and late responses", async () => {
+  const response = Promise.withResolvers<ReturnType<typeof ipcErr>>();
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockRejectedValueOnce(new Error("transport detail"))
+    .mockImplementationOnce(() => {
+      throw new Error("synchronous transport failure");
+    })
+    .mockImplementationOnce(() => response.promise);
+  const before = usePeerWorkspaceStore.getState();
+  try {
+    before.select(target, null);
+    const source = createPeerQuickOpenSource({ t, target, canRead: true, blocked: null });
+    const controller = new AbortController();
+    for (let i = 0; i < 2; i++) {
+      const error = await source.search("test", controller.signal).catch((error) => error);
+      expect(source.errorMessage?.(error)).toBe("Disconnected on that computer");
+    }
+
+    const pending = source.search("test", controller.signal);
+    controller.abort();
+    response.resolve(ipcErr("not-found", "no such workspace"));
+    expect(await pending.catch((error) => error)).toBe(controller.signal.reason);
+    expect(usePeerWorkspaceStore.getState().missing).toBe(false);
+  } finally {
+    call.mockRestore();
+    usePeerWorkspaceStore.setState(before, true);
   }
 });
 

@@ -2076,6 +2076,7 @@
     "connectionUnavailable": "그 컴퓨터에서 연결 안 됨",
     "truncated": "{{count, number}}개까지만",
     "textPrefix": "일부만 · 앞 {{size}} KB",
+    "textPrefixOutsideLine": "일부만 · 이 줄은 범위 밖",
     "changes_one": "변경 {{count}}",
     "searchFilters": "검색 필터",
     "searchInclude": "포함할 파일 이름 또는 확장자",
