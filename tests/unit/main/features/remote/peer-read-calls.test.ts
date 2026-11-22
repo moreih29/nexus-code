@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test";
-import { RPC_METHODS } from "../../../../../packages/remote-protocol/src/rpc";
+import { MAX_SEARCH_MATCHES, RPC_METHODS } from "../../../../../packages/remote-protocol/src/rpc";
 import {
   PEER_READ_METHODS,
   peerReadCalls,
@@ -13,7 +13,8 @@ test("peerFilesSearch validates the protocol payload, then forwards only the sea
   const result = {
     files: [{ path: "hello.ts", matches: [{ line: 1, column: 2, length: 2, text: "  hi" }] }],
   };
-  expect(c.args.parse({ deviceId: "d2", ...params })).toEqual({ deviceId: "d2", ...params });
+  const payload = { deviceId: "d2", ...params, unexpected: "discard" };
+  expect(c.args.parse(payload)).toEqual({ deviceId: "d2", ...params });
   expect(c.result).toBe(RPC_METHODS["files.search"].result);
   expect(c.args.safeParse(params).success).toBe(false);
   expect(c.args.safeParse({ deviceId: "d2", ...params, query: "" }).success).toBe(false);
@@ -23,12 +24,26 @@ test("peerFilesSearch validates the protocol payload, then forwards only the sea
     async (run) => ipcOk(await run()),
   );
   const signal = new AbortController().signal;
-  expect(await calls.peerFilesSearch({ deviceId: "d2", ...params }, { signal } as never)).toEqual(
-    ipcOk(result),
-  );
+  expect(await calls.peerFilesSearch(payload, { signal } as never)).toEqual(ipcOk(result));
   expect(request).toHaveBeenCalledWith("d2", "files.search", params, expect.any(Number), signal);
   expect(() => calls.peerFilesSearch(params)).toThrow();
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+test("peerFilesSearch rejects input beyond the protocol limits", () => {
+  const { args } = ipcContract.remote.call.peerFilesSearch;
+  const payload = { deviceId: "d2", workspaceId: "w1", query: "hi" };
+  const filters = Array.from({ length: 33 }, () => "*.ts");
+  for (const overLimit of [
+    { query: "x".repeat(1025) },
+    { include: filters },
+    { exclude: filters },
+    { include: ["x".repeat(257)] },
+    { exclude: ["x".repeat(257)] },
+    { limit: MAX_SEARCH_MATCHES + 1 },
+  ]) {
+    expect(args.safeParse({ ...payload, ...overLimit }).success).toBe(false);
+  }
 });
 
 test("the peer File and Git IPCs map only to read RPCs", () => {
@@ -52,13 +67,10 @@ test("the peer File and Git IPCs map only to read RPCs", () => {
   for (const method of Object.values(PEER_READ_METHODS)) {
     expect(reads.has(method)).toBe(true);
   }
-  const files = Object.keys(ipcContract.remote.call).filter((name) => /^peerFiles/i.test(name));
-  expect(files.some((name) => /write|mkdir/i.test(name))).toBe(false);
-  expect(files.toSorted()).toEqual([
-    "peerFilesFind",
-    "peerFilesList",
-    "peerFilesRead",
-    "peerFilesReadBytes",
-    "peerFilesSearch",
-  ]);
+  const methods = Object.keys(ipcContract.remote.call).filter((name) =>
+    /^peer(Files|Git)/.test(name),
+  );
+  expect(methods.toSorted()).toEqual(
+    [...Object.keys(PEER_READ_METHODS), "peerFilesReadBytes"].sort(),
+  );
 });
