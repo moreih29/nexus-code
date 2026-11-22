@@ -66,10 +66,12 @@ import {
 } from "./remote-sessions";
 import {
   endSessionDrag,
+  hoverWorkspaceReorder,
+  leaveWorkspaceReorder,
   type SessionReorder,
   startSessionDrag,
-  useSessionDrag,
   useSessionDrop,
+  useSessionReordering,
 } from "./session-drop";
 import { SidebarDropIndicator } from "./sidebar-drop";
 
@@ -404,7 +406,7 @@ function MarkAllRead({ onMark }: { onMark: () => void }) {
 export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
-  const dragging = useSessionDrag();
+  const reordering = useSessionReordering();
 
   const reorder: SessionReorder = (moved, target, edge) => {
     const workspaceId = parseSessionKey(target)?.workspaceId;
@@ -437,15 +439,13 @@ export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
 
   return groups.map(({ family, worktrees }) => {
     const key = `workspace:${family.root.id}`;
-    const reordering = worktrees.some(
-      ({ worktree }) => worktree.workspace.id === dragging?.workspaceId,
-    );
     return (
       <FamilyGroup
         key={family.root.id}
         family={family}
         worktrees={worktrees}
-        folded={!searching && !reordering && folded.has(key)}
+        folded={!searching && folded.has(key)}
+        reordering={reordering?.workspaceId}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
         onReorder={searching ? undefined : reorder}
@@ -483,6 +483,7 @@ function FamilyGroup({
   family,
   worktrees,
   folded,
+  reordering,
   onToggle,
   activity,
   onReorder,
@@ -490,6 +491,7 @@ function FamilyGroup({
   family: SessionFamily;
   worktrees: readonly { worktree: WorktreeEntry; sessions: readonly AgentSession[] }[];
   folded: boolean;
+  reordering?: string;
   onToggle: () => void;
   activity: ActivityByKey;
   onReorder?: SessionReorder;
@@ -497,7 +499,11 @@ function FamilyGroup({
   const { t } = useTranslation();
   const root = family.root;
   const all = worktrees.flatMap(({ sessions }) => sessions);
-  const hidden = folded ? all.filter((session) => groupOf(session) === "idle").length : 0;
+  const hidden = folded
+    ? all.filter((session) => session.workspaceId !== reordering && groupOf(session) === "idle")
+        .length
+    : 0;
+  const rootFolded = folded && root.id !== reordering;
   const update = useWorkspaceUpdate(root);
   const handoff = useContextMenuHandoff();
   const rename = useWorkspaceRename(root, update);
@@ -507,15 +513,20 @@ function FamilyGroup({
       // A space between workspaces, so each one's agents read as its own.
       className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
+      onDragLeave={(event) => leaveWorkspaceReorder(event)}
     >
       <ContextMenuRoot>
         <ContextMenuTrigger>
-          <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: hovering during a native row drag reveals its drop targets */}
+          <div
+            className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]"
+            onDragOver={onReorder ? (event) => hoverWorkspaceReorder(event, root.id) : undefined}
+          >
             {/* While renaming, the name is a field and the fold button gives way to a plain row,
                 so a click in the field never folds the group. */}
             {rename.renaming ? (
               <div className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch">
-                <FoldChevron folded={folded} />
+                <FoldChevron folded={rootFolded} />
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full"
@@ -529,11 +540,11 @@ function FamilyGroup({
             ) : (
               <button
                 type="button"
-                aria-expanded={!folded}
+                aria-expanded={!rootFolded}
                 onClick={onToggle}
                 className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <FoldChevron folded={folded} />
+                <FoldChevron folded={rootFolded} />
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full"
@@ -560,17 +571,28 @@ function FamilyGroup({
         />
       </ContextMenuRoot>
       {worktrees.map(({ worktree, sessions }) => {
-        const visible = folded
+        const foldedHere = folded && reordering !== worktree.workspace.id;
+        const visible = foldedHere
           ? sessions.filter((session) => groupOf(session) !== "idle")
           : sessions;
-        if (folded && visible.length === 0) return null;
+        if (foldedHere && visible.length === 0) return null;
         return (
+          // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
           <div
             key={worktree.workspace.id}
+            onDragLeave={(event) => leaveWorkspaceReorder(event, undefined, worktree.workspace.id)}
             className={cn("flex flex-col", !worktree.isRoot && "ml-3")}
           >
             {!worktree.isRoot && (
-              <div className="flex h-6 min-w-0 items-center gap-1.5 pr-1 pl-2 text-app-micro text-muted-foreground">
+              // biome-ignore lint/a11y/noStaticElementInteractions: hovering during a native row drag reveals its drop targets
+              <div
+                className="flex h-6 min-w-0 items-center gap-1.5 pr-1 pl-2 text-app-micro text-muted-foreground"
+                onDragOver={
+                  onReorder && sessions.length > 1
+                    ? (event) => hoverWorkspaceReorder(event, worktree.workspace.id)
+                    : undefined
+                }
+              >
                 <GitBranch aria-hidden className="size-3 shrink-0" />
                 <span className="min-w-0 truncate">
                   {worktree.branch ?? worktree.workspace.name}

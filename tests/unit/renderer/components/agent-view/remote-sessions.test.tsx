@@ -498,7 +498,7 @@ describe("local workspace grouping", () => {
       select({ ...state, folded }),
     );
     const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue(NO_FACTS);
-    const dragging = spyOn(sessionDrop, "useSessionDrag").mockReturnValue(null);
+    const dragging = spyOn(sessionDrop, "useSessionReordering").mockReturnValue(null);
     try {
       const workingHtml = render();
       expect(workingHtml).toContain('aria-expanded="false"');
@@ -525,7 +525,7 @@ describe("local workspace grouping", () => {
       expect(found).toContain("Task idle");
       expect(found).not.toContain("Local idle");
       dragging.mockReturnValue({ key: "task:working", workspaceId: "task" });
-      expect(render()).toContain("Local idle");
+      expect(render()).not.toContain("Local idle");
       expect(render()).toContain("Task idle");
     } finally {
       facts.mockRestore();
@@ -565,7 +565,7 @@ const worktreeList = {
 };
 
 describe("the agent view's other computers", () => {
-  test("folded computers show priority counts and expand for search or computer reordering", () => {
+  test("folded computers show priority counts and expand for search while computer reordering leaves them folded", () => {
     const state = agentView.useAgentViewStore.getInitialState();
     const foldedGroups = new Set(["peer:d2", "peer-ws:d2:w1"]);
     const view = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
@@ -600,8 +600,8 @@ describe("the agent view's other computers", () => {
         setDrag: () => {},
         move: () => {},
       });
-      expect(dragging).toContain("Working on review");
-      expect(dragging).toContain("1 hidden");
+      expect(dragging).not.toContain("Working on review");
+      expect(dragging).not.toContain(">1 hidden<");
       expect(dragging).not.toContain("Idle review");
     } finally {
       view.mockRestore();
@@ -667,7 +667,7 @@ describe("the agent view's other computers", () => {
           reordering: new Set(["task"]),
         },
       );
-      expect(expanded.foldedWorkspaces.size).toBe(0);
+      expect(expanded.foldedWorkspaces).toEqual(new Set(["w1"]));
       expect(expanded.groups.find(([id]) => id === "task")?.[1].map((row) => row.title)).toEqual([
         "Task active",
         "Task idle",
@@ -713,13 +713,17 @@ describe("the agent view's other computers", () => {
       ),
     );
     const accountKey = JSON.stringify([signedIn.server, signedIn.user.id]);
-    const state = agentView.useAgentViewStore.getInitialState();
-    const readView = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
-      select({
-        ...state,
-        peerOrder: { accountKey, ids: ["office", "laptop", "home", "removed", "desk"] },
-        peerOrderAccount: accountKey,
-      }),
+    const { getInitialState, getState } = agentView.useAgentViewStore;
+    const state = getInitialState();
+    const readView = Object.assign(
+      spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+        select({
+          ...state,
+          peerOrder: { accountKey, ids: ["office", "laptop", "home", "removed", "desk"] },
+          peerOrderAccount: accountKey,
+        }),
+      ),
+      { getState },
     );
     const headers = (query = "") => {
       const html = renderToStaticMarkup(<RemoteSessions query={query} />);
@@ -1501,6 +1505,22 @@ describe("the agent view's other computers", () => {
       };
       const row = nativeDrag();
       sessionDrop.startSessionDrag(row.event, { key: "a", deviceId: group.id, workspaceId: "w1" });
+      function Scope() {
+        const current = sessionDrop.useSessionReordering(group.id);
+        return <span>{current?.workspaceId ?? "None"}</span>;
+      }
+      const scope = () => renderToStaticMarkup(<Scope />);
+      expect(scope()).toBe("<span>None</span>");
+      sessionDrop.hoverWorkspaceReorder(row.event, "task", group.id);
+      expect(scope()).toBe("<span>None</span>");
+      sessionDrop.hoverWorkspaceReorder(row.event, "w1", group.id);
+      expect(scope()).toBe("<span>w1</span>");
+      sessionDrop.leaveWorkspaceReorder(
+        { currentTarget: { contains: () => false } } as unknown as DragEvent,
+        group.id,
+        "w1",
+      );
+      expect(scope()).toBe("<span>None</span>");
       handlers("c").onDrop(row.event);
       expect(reorder).not.toHaveBeenCalled();
 
@@ -1523,7 +1543,9 @@ describe("the agent view's other computers", () => {
       expect(moveComputer.mock.calls).toEqual([[group.id, otherComputer, "after"]]);
       handlers("b").onDragOver(row.event);
       expect(row.dataTransfer.dropEffect).toBe("move");
+      expect(scope()).toBe("<span>w1</span>");
       handlers("b").onDrop(row.event);
+      expect(scope()).toBe("<span>None</span>");
       expect(reorder).toHaveBeenCalledTimes(1);
       expect(reorder.mock.calls[0]?.slice(0, 3)).toEqual([group.id, "w1", ["b", "a"]]);
     } finally {

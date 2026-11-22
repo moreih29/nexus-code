@@ -17,11 +17,49 @@ interface SessionDrag {
 
 // Dragover can read the payload's type only, so keep the row's scope while dragging.
 let source: SessionDrag | null = null;
+let reordering: SessionDrag | null = null;
 const dragChanges = createListenerBus();
 
-export function useSessionDrag(deviceId?: string): SessionDrag | null {
-  const snapshot = () => (source?.deviceId === deviceId ? source : null);
-  return useSyncExternalStore(dragChanges.subscribe, snapshot, () => null);
+export function useSessionReordering(deviceId?: string): SessionDrag | null {
+  const snapshot = () => (reordering?.deviceId === deviceId ? reordering : null);
+  return useSyncExternalStore(dragChanges.subscribe, snapshot, snapshot);
+}
+
+function showReordering(row: SessionDrag | null) {
+  if (reordering === row) return;
+  reordering = row;
+  dragChanges.notify();
+}
+
+function sourceIn(event: DragEvent<HTMLElement>, workspaceId: string, deviceId?: string) {
+  return source?.workspaceId === workspaceId &&
+    source.deviceId === deviceId &&
+    event.dataTransfer.types.includes(deviceId === undefined ? MIME_AGENT : MIME_SESSION_ORDER)
+    ? source
+    : null;
+}
+
+/** Hovering a workspace heading also reveals targets when only the dragged row remains. */
+export function hoverWorkspaceReorder(
+  event: DragEvent<HTMLElement>,
+  workspaceId: string,
+  deviceId?: string,
+) {
+  const row = sourceIn(event, workspaceId, deviceId);
+  if (row) showReordering(row);
+}
+
+export function leaveWorkspaceReorder(
+  event: DragEvent<HTMLElement>,
+  deviceId?: string,
+  workspaceId?: string,
+) {
+  if (
+    reordering?.deviceId === deviceId &&
+    (workspaceId === undefined || reordering?.workspaceId === workspaceId) &&
+    !event.currentTarget.contains(event.relatedTarget as Node | null)
+  )
+    showReordering(null);
 }
 
 export function startSessionDrag(event: DragEvent, row: SessionDrag): void {
@@ -32,7 +70,7 @@ export function startSessionDrag(event: DragEvent, row: SessionDrag): void {
     event.dataTransfer.effectAllowed = "move";
   }
   source = row;
-  dragChanges.notify();
+  showReordering(null);
   beginDragInFlight();
   document.addEventListener("pointerdown", endSessionDrag, true);
 }
@@ -41,21 +79,13 @@ export function endSessionDrag(): void {
   if (!source) return;
   source = null;
   document.removeEventListener("pointerdown", endSessionDrag, true);
-  dragChanges.notify();
+  showReordering(null);
 }
 
 /** A row accepts another row from the same device and workspace. */
 function sessionDropEdge(event: DragEvent<HTMLElement>, row: SessionDrag): DropEdge | null {
-  if (
-    !source ||
-    row.key === source.key ||
-    row.workspaceId !== source.workspaceId ||
-    row.deviceId !== source.deviceId ||
-    !event.dataTransfer.types.includes(row.deviceId === undefined ? MIME_AGENT : MIME_SESSION_ORDER)
-  ) {
-    return null;
-  }
-  return sidebarDropEdge(event);
+  const moved = sourceIn(event, row.workspaceId, row.deviceId);
+  return moved && row.key !== moved.key ? sidebarDropEdge(event) : null;
 }
 
 export function useSessionDrop(row: SessionDrag, reorder: SessionReorder | undefined) {
@@ -67,6 +97,7 @@ export function useSessionDrop(row: SessionDrag, reorder: SessionReorder | undef
         const next = reorder ? sessionDropEdge(event, row) : null;
         if (next !== edge) setEdge(next);
         if (!next) return;
+        showReordering(source);
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
       },

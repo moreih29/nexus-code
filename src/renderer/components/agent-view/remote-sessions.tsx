@@ -104,10 +104,12 @@ import {
 } from "./remote-session-actions";
 import {
   endSessionDrag,
+  hoverWorkspaceReorder,
+  leaveWorkspaceReorder,
   type SessionReorder,
   startSessionDrag,
-  useSessionDrag,
   useSessionDrop,
+  useSessionReordering,
 } from "./session-drop";
 import { SidebarDropIndicator } from "./sidebar-drop";
 
@@ -270,13 +272,8 @@ export function workspaceGroups(
   const hidden = new Set<string>();
   const hiddenCounts = new Map<string, number>();
   const plainShown = new Map(plain);
-  const expanded = new Set(reordering);
-  for (const id of reordering ?? []) {
-    const parent = workspaces.get(id)?.parentId;
-    if (parent !== undefined) expanded.add(parent);
-  }
   const foldedWorkspaces = new Set(
-    [...byWorkspace.keys()].filter((id) => !searching && !expanded.has(id) && folds?.has(id)),
+    [...byWorkspace.keys()].filter((id) => !searching && !reordering?.has(id) && folds?.has(id)),
   );
   const keepsWorktreeVisible = (s: RemoteSession) =>
     remoteGroupOf(s) !== "idle" ||
@@ -296,7 +293,8 @@ export function workspaceGroups(
     eligible.add(id);
     if (rootParent && !searching) eligible.add(rootParent.id);
 
-    const parentFolded = rootParent && foldedWorkspaces.has(rootParent.id);
+    const parentFolded =
+      rootParent && !searching && !reordering?.has(id) && folds?.has(rootParent.id);
     const ownFolded = foldedWorkspaces.has(id);
     if (parentFolded || ownFolded) {
       const visible = rows.filter((session) => remoteGroupOf(session) !== "idle");
@@ -593,7 +591,7 @@ export function PeerGroup({
   const folds = useAgentViewStore((s) => s.folded);
   const peerFoldKey = `peer:${peer.id}`;
   const workspaceFoldKey = (id: string) => `peer-ws:${peer.id}:${id}`;
-  const dragging = useSessionDrag(peer.id);
+  const reorderingRow = useSessionReordering(peer.id);
   const searching = query.trim() !== "";
   // The workspaces whose terminals with only their shell are shown, each
   // asked for on its own; not kept.
@@ -605,13 +603,7 @@ export function PeerGroup({
   const [pendingOrders, setPendingOrders] = useState<ReadonlyMap<string, readonly string[]>>(
     () => new Map(),
   );
-  const folded =
-    !searching &&
-    !dragging &&
-    pendingOrders.size === 0 &&
-    reorder?.drag?.id !== peer.id &&
-    reorder?.drag?.drop?.target !== peer.id &&
-    folds.has(peerFoldKey);
+  const folded = !searching && folds.has(peerFoldKey);
   const Chevron = folded ? ChevronRight : ChevronDown;
   const rawList = sessions?.status === "ready" ? sessions.list : null;
   const list =
@@ -632,8 +624,7 @@ export function PeerGroup({
     ...(list?.sessions ?? []).map((session) => session.workspaceId),
   ]);
   const workspaceFolds = new Set([...ids].filter((id) => folds.has(workspaceFoldKey(id))));
-  const reordering = new Set(pendingOrders.keys());
-  if (dragging) reordering.add(dragging.workspaceId);
+  const reordering = reorderingRow ? new Set([reorderingRow.workspaceId]) : undefined;
   const { groups, workspaces, plain, worktreeCounts, foldedWorkspaces, hiddenCounts } =
     workspaceGroups(list, {
       query,
@@ -823,8 +814,10 @@ export function PeerGroup({
                   const workspaceFolded = foldedWorkspaces.has(workspaceId);
                   const parentFolded = parent !== undefined && foldedWorkspaces.has(parent);
                   return (
+                    // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
                     <div
                       key={workspaceId}
+                      onDragLeave={(event) => leaveWorkspaceReorder(event, peer.id, workspaceId)}
                       className={cn(
                         "flex flex-col not-first:mt-1.5",
                         hung && "ml-3.5 border-border border-l",
@@ -834,6 +827,11 @@ export function PeerGroup({
                       <WorkspaceHeading
                         name={names.get(workspaceId) ?? workspaceId}
                         workspace={workspace}
+                        onDragOver={
+                          reorder
+                            ? (event) => hoverWorkspaceReorder(event, workspaceId, peer.id)
+                            : undefined
+                        }
                         fold={
                           parentFolded
                             ? undefined
@@ -1014,6 +1012,7 @@ function WorkspaceHeading({
   worktrees,
   terminals,
   menu,
+  onDragOver,
 }: {
   name: string;
   workspace: RemoteWorkspace | undefined;
@@ -1021,6 +1020,7 @@ function WorkspaceHeading({
   worktrees?: WorkspaceDisclosure;
   terminals?: WorkspaceDisclosure;
   menu?: ReactNode;
+  onDragOver?: ComponentProps<"div">["onDragOver"];
 }) {
   const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
@@ -1043,7 +1043,9 @@ function WorkspaceHeading({
     </>
   );
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hovering during a native row drag reveals its drop targets
     <div
+      onDragOver={onDragOver}
       className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
       data-testid="remote-workspace"
     >
