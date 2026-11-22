@@ -15,6 +15,7 @@ import {
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
+import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
@@ -25,10 +26,22 @@ import {
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { notesApi } from "../notes/api";
+import { tabLinkTarget } from "../notes/conversation";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
 import { clipTitle, titleOf } from "./tab-title";
 import { sendFirstMessage } from "./transport/submission";
+
+const log = createLogger("note-links");
+
+function syncNoteLinks(workspaceId: string, tabId: string): void {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") return;
+  void notesApi
+    .updateLinksForTab({ ...tabLinkTarget(workspaceId, tab), agent: tab.type })
+    .catch((error) => log.warn(`Linked conversation not updated: ${String(error)}`));
+}
 
 /** What a Claude tab keeps: the session to go on with, and its title. */
 export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks {
@@ -43,13 +56,18 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
     onSession: (sessionId) => {
       rememberSessionInstructions(workspaceId, tabId, sessionId);
       tabs().setClaudeSession(workspaceId, tabId, sessionId);
+      syncNoteLinks(workspaceId, tabId);
     },
     onTarget: (target) => {
       if (target.sessionId) rememberSessionInstructions(workspaceId, tabId, target.sessionId);
       tabs().setClaudeTarget(workspaceId, tabId, target);
+      if (target.sessionId) syncNoteLinks(workspaceId, tabId);
     },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
-    onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onTitle: (title) => {
+      tabs().setProcessTitle(workspaceId, tabId, clipTitle(title));
+      syncNoteLinks(workspaceId, tabId);
+    },
     // The user's own name for it, whole, as the tab's rename menu keeps one.
     onRename: (title) => tabs().renameTab(workspaceId, tabId, title),
     onProfile: (profileId) =>
@@ -78,9 +96,13 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onThread: (threadId) => {
       rememberSessionInstructions(workspaceId, tabId, threadId);
       tabs().setCodexThread(workspaceId, tabId, threadId);
+      syncNoteLinks(workspaceId, tabId);
     },
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
-    onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onTitle: (title) => {
+      tabs().setProcessTitle(workspaceId, tabId, clipTitle(title));
+      syncNoteLinks(workspaceId, tabId);
+    },
     onProfile: (profileId) =>
       tabs().setChatProfile(
         workspaceId,

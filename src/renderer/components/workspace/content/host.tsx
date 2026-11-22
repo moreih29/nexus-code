@@ -324,7 +324,12 @@ export function ContentHost({
             isVisible={isVisible}
           />
         ) : tab.type === "note" ? (
-          <NoteEditor workspaceId={workspaceId} tabId={tab.id} noteId={tab.props.noteId} />
+          <NoteEditor
+            workspaceId={workspaceId}
+            tabId={tab.id}
+            noteId={tab.props.noteId}
+            isVisible={isVisible}
+          />
         ) : null}
       </div>
     );

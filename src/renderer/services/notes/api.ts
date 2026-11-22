@@ -2,10 +2,21 @@
  * The renderer's way to a workspace's notes (the notes IPC channel), and the
  * URLs the editor shows a note's pictures by.
  */
+import type {
+  NewNoteLink,
+  NoteLink,
+  NoteLinkPatch,
+  NoteLinkTarget,
+} from "../../../shared/notes/links";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptEdit, TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
-import type { NoteBlocksAdded, NoteChanged, NotePhotoAdded } from "../../../shared/types/notes";
+import type {
+  NoteBlocksAdded,
+  NoteChanged,
+  NoteLinksChanged,
+  NotePhotoAdded,
+} from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
 const call = async <T>(p: Promise<import("../../ipc/client").IpcResult<T>>): Promise<T> =>
@@ -20,6 +31,18 @@ export const notesApi = {
     ) as Promise<NoteContent>,
   read: (workspaceId: string, noteId: string): Promise<NoteContent> =>
     call(ipcCallResult("notes", "read", { workspaceId, noteId })) as Promise<NoteContent>,
+  links: (workspaceId: string, noteId: string) =>
+    call(ipcCallResult("notes", "links", { workspaceId, noteId })),
+  addLink: (workspaceId: string, noteId: string, link: NewNoteLink) =>
+    call(ipcCallResult("notes", "addLink", { workspaceId, noteId, link })),
+  updateLink: (workspaceId: string, noteId: string, linkId: string, patch: NoteLinkPatch) =>
+    call(ipcCallResult("notes", "updateLink", { workspaceId, noteId, linkId, patch })),
+  updateLinksForTab: (tab: NoteLinkTarget & Pick<NoteLink, "agent">) =>
+    call(ipcCallResult("notes", "updateLink", { tab })),
+  removeLink: (workspaceId: string, noteId: string, linkId: string) =>
+    call(ipcCallResult("notes", "removeLink", { workspaceId, noteId, linkId })),
+  onLinksChanged: (cb: (event: NoteLinksChanged) => void): (() => void) =>
+    ipcListen("notes", "linksChanged", cb),
   save: (
     workspaceId: string,
     noteId: string,

@@ -25,14 +25,14 @@ import { type FileLink, isUnder, type LineAt } from "./links";
  * Claude tab is there says nothing of its group in the workspace, and the
  * conversation stays in sight beside what it opened.
  */
-function activateTarget(workspaceId: string, claudeTabId: string, split: boolean): void {
-  if (showWorkspaceOf(workspaceId, claudeTabId)) split = true;
+export function activateTarget(workspaceId: string, tabId: string, split: boolean): void {
+  if (showWorkspaceOf(workspaceId, tabId)) split = true;
   const store = useLayoutStore.getState();
   store.ensureLayout(workspaceId);
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return;
   const leaves = Grid.allLeaves(layout.root);
-  const at = leaves.findIndex((leaf) => leaf.tabIds.includes(claudeTabId));
+  const at = leaves.findIndex((leaf) => leaf.tabIds.includes(tabId));
   if (at < 0) return;
   const next = leaves[at + 1] ?? leaves[at - 1];
   if (next) store.setActiveGroup(workspaceId, next.id);

@@ -250,5 +250,26 @@
       "network": "서버에 연결하지 못해 다시 받아쓰지 못했습니다. 잠시 후 다시 해 보세요.",
       "failed": "다시 받아쓰지 못했습니다."
     }
+  },
+  "conversations": {
+    "title": "이 노트로 시작한 대화",
+    "claude": "Claude 대화",
+    "codex": "Codex 대화",
+    "running": "작업 중",
+    "attention": "응답 필요",
+    "failed": "실패",
+    "completed": "완료",
+    "seen": "완료",
+    "idle": "대기",
+    "limitWait": "한도 대기 · {{time}}",
+    "closed": "닫힘",
+    "missing": "대화 없음",
+    "checking": "대화 확인 중",
+    "task": "작업 · {{branch}}",
+    "openPr": "PR 열기",
+    "unlink": "연결 지우기",
+    "saveError": "연결 저장 실패",
+    "actionError": "대화 연결 작업 실패",
+    "noteSaveError": "노트 저장 실패"
   }
 }
