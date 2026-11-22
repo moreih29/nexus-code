@@ -39,6 +39,7 @@ import {
 } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import { beginDragInFlight } from "@/utils/drag-in-flight";
+import { listenForPaneActivation } from "@/utils/pane-activation";
 import { basename } from "@/utils/path";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
@@ -114,25 +115,12 @@ export const AgentPane = memo(function AgentPane({
     [leaf.id],
   );
 
-  // Native listeners: the content is portaled in, so its events reach this
-  // panel through the DOM, not through React (as in a workspace's group).
   const [outerEl, setOuterEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!outerEl) return;
-    const activate = () => update((layout) => setActiveLeaf(layout, leaf.id));
-    // A click into an iframe (an HTML preview) moves focus out of the window.
-    const onWindowBlur = () => {
-      const active = document.activeElement;
-      if (active?.tagName === "IFRAME" && outerEl.contains(active)) activate();
-    };
-    outerEl.addEventListener("focusin", activate);
-    outerEl.addEventListener("mousedown", activate);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      outerEl.removeEventListener("focusin", activate);
-      outerEl.removeEventListener("mousedown", activate);
-      window.removeEventListener("blur", onWindowBlur);
-    };
+    return listenForPaneActivation(outerEl, () =>
+      update((layout) => setActiveLeaf(layout, leaf.id)),
+    );
   }, [outerEl, leaf.id]);
 
   const [dropZone, setDropZone] = useState<DropZone | null>(null);

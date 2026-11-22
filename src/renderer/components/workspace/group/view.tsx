@@ -12,6 +12,7 @@ import {
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import { listenForPaneActivation } from "@/utils/pane-activation";
 import type { ShellChoice } from "../../../../shared/pty/shell";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
@@ -163,12 +164,6 @@ export function GroupView({
   //             "center" (drop "into the group").
   const { dropZone, attachRef, zoneRef } = useDropTarget({ workspaceId, groupId: leaf.id });
 
-  // Native focusin listener — keyboard focus moving into this group
-  // (editor textarea, terminal, etc.) should make it the active group.
-  // We use native addEventListener for the same reason as D&D handlers:
-  // ContentHost children are inserted via createPortal and so don't
-  // bubble through the React tree to this component. focusin bubbles in
-  // the DOM tree, which reaches us.
   const [outerEl, setOuterEl] = useState<HTMLElement | null>(null);
   const wrapperRef = useCallback(
     (el: HTMLElement | null) => {
@@ -179,40 +174,12 @@ export function GroupView({
   );
   useEffect(() => {
     if (!outerEl) return;
-    // focusin: activates the group when focus moves to a focusable child (Monaco textarea,
-    //   terminal, etc.) by keyboard or mouse.
-    // mousedown: content with no focusable child (MarkdownPreview/HtmlPreview/SvgPreview)
-    //   fires no focus event on click. ContentHost is mounted through createPortal, so the
-    //   React onClick (handleGroupClick) is not caught either because of the portal split.
-    //   A native mousedown bubbles up the DOM tree to the outer wrapper, so a click on a
-    //   preview panel also activates the group.
-    const activate = () => {
+    return listenForPaneActivation(outerEl, () => {
       const layout = useLayoutStore.getState().byWorkspace[workspaceId];
       if (!layout || layout.activeGroupId === leaf.id) return;
       useLayoutStore.getState().setActiveGroup(workspaceId, leaf.id);
       onActivateGroup(leaf.id);
-    };
-    // HtmlPreview renders inside a sandboxed <iframe>. A click inside the
-    // iframe does NOT bubble out of the iframe boundary, so neither focusin
-    // nor mousedown above fires for it. But focus moving into the iframe blurs
-    // the top window, and the parent document's activeElement becomes the
-    // <iframe> element. We catch that here and activate the group the iframe
-    // lives in. (Guarded so an app-switch blur, where activeElement is not our
-    // iframe, is ignored; activate() is a no-op when already active.)
-    const onWindowBlur = () => {
-      const active = document.activeElement;
-      if (active && active.tagName === "IFRAME" && outerEl.contains(active)) {
-        activate();
-      }
-    };
-    outerEl.addEventListener("focusin", activate);
-    outerEl.addEventListener("mousedown", activate);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      outerEl.removeEventListener("focusin", activate);
-      outerEl.removeEventListener("mousedown", activate);
-      window.removeEventListener("blur", onWindowBlur);
-    };
+    });
   }, [outerEl, workspaceId, leaf.id, onActivateGroup]);
 
   // Merge slotRegistry callback with the dnd zoneRef on the slot div.
@@ -261,7 +228,7 @@ export function GroupView({
           sharp. Replaces the previous bright active-group ring, whose
           near-white edge read as a stray strip beside the pane.
           pointer-events-none: a click still reaches the content beneath and
-          activates the group via focusin. */}
+          activates the group. */}
       {!isActive && (
         <div
           aria-hidden
