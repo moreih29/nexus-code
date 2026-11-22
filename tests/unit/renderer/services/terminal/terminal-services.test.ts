@@ -135,9 +135,11 @@ const { resumeInTerminal, watchAgentInput } = await import(
 const { registerTerminalController } = await import(
   "../../../../../src/renderer/services/terminal/terminal-registry"
 );
-const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
-  await import("../../../../../src/renderer/services/terminal");
+const { closeTerminal, closeTerminalWithConfirm, openTerminal } = await import(
+  "../../../../../src/renderer/services/terminal"
+);
 const {
+  createTerminalController,
   isShellPromptLikeTitle,
   isLoginShell,
   classifyOscTitle,
@@ -157,6 +159,7 @@ const { startTerminalExitListener } = await import(
 );
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
+const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const OTHER_WS = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
@@ -273,6 +276,7 @@ function makeTerminalControllerDeps(
       },
       buffer: bufferState,
       modes,
+      options: { theme: undefined, fontSize: 14, cursorStyle: "block", fontFamily: "monospace" },
       dispose: () => {},
       loadAddon: () => {},
       onData: (handler) => {
@@ -309,7 +313,7 @@ function makeTerminalControllerDeps(
       fit: () => {},
       proposeDimensions: () => ({ cols: 100, rows: 40 }),
     }),
-    createLigaturesAddon: () => ({ dispose: () => {} }) as never,
+    loadLigaturesAddon: async () => () => ({ dispose: () => {} }),
     createPtyClient: (options) => {
       ptyOptions = options;
       return {
@@ -984,6 +988,77 @@ describe("services/terminal controller focus asked for before xterm opens", () =
     await opened();
     expect(harness.getFocusCalls()).toBe(0);
     controller.dispose();
+  });
+});
+
+describe("services/terminal lazy ligatures", () => {
+  const opened = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const options = {
+    workspaceId: WS,
+    tabId: "tab-ligatures",
+    cwd: "/workspace",
+    container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+    autoSpawn: false,
+  };
+
+  afterEach(() => useTerminalStore.setState({ fontLigatures: undefined }));
+
+  it("opens after the first load and activates the addon after xterm opens", async () => {
+    useTerminalStore.setState({ fontLigatures: true });
+    const { deps } = makeTerminalControllerDeps();
+    const loaded = Promise.withResolvers<Awaited<ReturnType<typeof deps.loadLigaturesAddon>>>();
+    deps.loadLigaturesAddon = mock(() => loaded.promise);
+    const createTerminal = deps.createTerminal;
+    const open = mock(() => {});
+    const addon = { dispose: mock(() => {}) };
+    deps.createTerminal = (options) => ({
+      ...createTerminal(options),
+      open,
+      loadAddon: (next) => {
+        if (next === addon) expect(open).toHaveBeenCalledTimes(1);
+      },
+    });
+
+    const controller = createTerminalController(options, deps);
+    try {
+      expect(deps.loadLigaturesAddon).toHaveBeenCalledTimes(1);
+      expect(open).not.toHaveBeenCalled();
+      loaded.resolve(() => addon);
+      await opened();
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.dispose();
+    }
+    expect(addon.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips disabled ligatures and ignores a load that finishes after disabling or closing", async () => {
+    const { deps } = makeTerminalControllerDeps();
+    const loaded = Promise.withResolvers<Awaited<ReturnType<typeof deps.loadLigaturesAddon>>>();
+    const createAddon = mock(() => ({ dispose: () => {} }));
+    deps.loadLigaturesAddon = mock(() => loaded.promise);
+
+    const controller = createTerminalController(options, deps);
+    try {
+      await opened();
+      expect(deps.loadLigaturesAddon).not.toHaveBeenCalled();
+      useTerminalStore.setState({ fontLigatures: true });
+      controller.applyTerminalSettings();
+      expect(deps.loadLigaturesAddon).toHaveBeenCalledTimes(1);
+      useTerminalStore.setState({ fontLigatures: false });
+      controller.applyTerminalSettings();
+      loaded.resolve(createAddon);
+      await opened();
+      expect(createAddon).not.toHaveBeenCalled();
+
+      useTerminalStore.setState({ fontLigatures: true });
+      controller.applyTerminalSettings();
+      controller.dispose();
+      await opened();
+      expect(createAddon).not.toHaveBeenCalled();
+    } finally {
+      controller.dispose();
+    }
   });
 });
 

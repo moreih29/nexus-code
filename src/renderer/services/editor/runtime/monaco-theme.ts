@@ -263,8 +263,17 @@ export function subscribeMonacoEditorFontChanges(monaco: typeof Monaco): () => v
     }
   };
 
+  // Sarasa can arrive after a restored editor first measures its font.
+  const onFontsLoaded = (event: FontFaceSetLoadEvent) => {
+    if (event.fontfaces.some((face) => face.family.replaceAll('"', "") === "Sarasa Term K")) {
+      monaco.editor.remeasureFonts();
+    }
+  };
+
   document.documentElement.addEventListener(EDITOR_FONT_EVENT, handler);
+  document.fonts.addEventListener("loadingdone", onFontsLoaded);
   return () => {
     document.documentElement.removeEventListener(EDITOR_FONT_EVENT, handler);
+    document.fonts.removeEventListener("loadingdone", onFontsLoaded);
   };
 }

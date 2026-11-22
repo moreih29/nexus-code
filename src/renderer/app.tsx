@@ -1,5 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapClaudeStatus, bootstrapWorkbench } from "./bootstrap";
@@ -14,20 +14,6 @@ import { PeerQuickOpen } from "./components/peer-workspace/quick-open";
 import { usePeerWorkbench } from "./components/peer-workspace/room";
 import { PeerWorkspaceSection } from "./components/peer-workspace/sidebar";
 import { PeerWorkspaceTitle } from "./components/peer-workspace/title";
-import { AboutPanel } from "./components/settings/panels/about-panel";
-import { AgentInstructionsPanel } from "./components/settings/panels/agent-instructions-panel";
-import { AgentPanel } from "./components/settings/panels/agent-panel";
-import { AgentProfilesPanel } from "./components/settings/panels/agent-profiles-panel";
-import { AppearancePanel } from "./components/settings/panels/appearance-panel";
-import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
-import { EditorPanel } from "./components/settings/panels/editor-panel";
-import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
-import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
-import { NotesPanel } from "./components/settings/panels/notes-panel";
-import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
-import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
-import { RemotePanel } from "./components/settings/panels/remote-panel";
-import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import { ErrorBoundary } from "./components/ui/error-boundary";
 import { KeptMounted } from "./components/ui/kept-mounted";
@@ -65,6 +51,12 @@ import {
 } from "./state/stores/workspaces";
 
 const log = createLogger("app");
+
+const SettingsPanels = lazy(() =>
+  import("./components/settings/settings-panels").then(({ SettingsPanels }) => ({
+    default: SettingsPanels,
+  })),
+);
 
 export function App() {
   const monaco = useMonaco();
@@ -283,24 +275,11 @@ export function App() {
           }}
           defaultActiveId={settingsInitialActiveId}
         >
-          {(activeId, go) => {
-            if (activeId === "appearance") return <AppearancePanel />;
-            if (activeId === "editor") return <EditorPanel />;
-            if (activeId === "language-servers") return <LanguageServersPanel />;
-            if (activeId === "terminal") return <TerminalPanel />;
-            if (activeId === "notifications") return <NotificationsPanel />;
-            if (activeId === "notes") return <NotesPanel />;
-            if (activeId === "agent") return <AgentPanel />;
-            if (activeId === "claude") return <AgentProfilesPanel agent="claude" onNavigate={go} />;
-            if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;
-            if (activeId === "profile-rules") return <ProfileRulesPanel />;
-            if (activeId === "instructions") return <AgentInstructionsPanel />;
-            if (activeId === "remote") return <RemotePanel />;
-            if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
-            if (activeId === "keybindings") return <KeybindingsPanel />;
-            if (activeId === "about") return <AboutPanel />;
-            return null;
-          }}
+          {(activeId, go) => (
+            <Suspense fallback={null}>
+              <SettingsPanels activeId={activeId} go={go} />
+            </Suspense>
+          )}
         </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
           {/* Kept mounted once shown, hidden while the other view or the

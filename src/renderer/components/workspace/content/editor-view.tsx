@@ -1,6 +1,6 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
@@ -28,8 +28,6 @@ import { relPath } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
 import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
-import { MarkdownPreview } from "../../editor/preview/markdown-preview";
-import { NotebookPreview } from "../../editor/preview/notebook-preview";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { TablePreview } from "../../editor/preview/table-preview";
@@ -43,6 +41,17 @@ import { useEditorMount } from "./use-editor-mount";
 
 // Re-export for consumers (including drift-prone tests).
 export { createCrossFileOpenCodeEditorOpener } from "../../../services/editor/tabs/cross-file-opener";
+
+const MarkdownPreview = lazy(() =>
+  import("../../editor/preview/markdown-preview").then(({ MarkdownPreview }) => ({
+    default: MarkdownPreview,
+  })),
+);
+const NotebookPreview = lazy(() =>
+  import("../../editor/preview/notebook-preview").then(({ NotebookPreview }) => ({
+    default: NotebookPreview,
+  })),
+);
 
 interface EditorViewProps {
   filePath: string;
@@ -541,13 +550,15 @@ export function PreviewPane({
   switch (engine) {
     case "markdown":
       return (
-        <MarkdownPreview
-          source={source}
-          workspaceId={workspaceId}
-          currentFileAbsPath={filePath}
-          workspaceRootAbsPath={workspaceRootAbsPath}
-          onToggleTask={onToggleTask}
-        />
+        <Suspense fallback={null}>
+          <MarkdownPreview
+            source={source}
+            workspaceId={workspaceId}
+            currentFileAbsPath={filePath}
+            workspaceRootAbsPath={workspaceRootAbsPath}
+            onToggleTask={onToggleTask}
+          />
+        </Suspense>
       );
     case "html":
       return (
@@ -568,12 +579,14 @@ export function PreviewPane({
       return <YamlTreePreview source={source} />;
     case "notebook":
       return (
-        <NotebookPreview
-          source={source}
-          workspaceId={workspaceId}
-          currentFileAbsPath={filePath}
-          workspaceRootAbsPath={workspaceRootAbsPath}
-        />
+        <Suspense fallback={null}>
+          <NotebookPreview
+            source={source}
+            workspaceId={workspaceId}
+            currentFileAbsPath={filePath}
+            workspaceRootAbsPath={workspaceRootAbsPath}
+          />
+        </Suspense>
       );
   }
 }
